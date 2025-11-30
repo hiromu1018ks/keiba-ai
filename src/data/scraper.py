@@ -116,11 +116,36 @@ class NetkeibaScraper:
         return False
 
 if __name__ == "__main__":
-    # Simple test
     scraper = NetkeibaScraper()
-    # Try scraping one month (e.g., Jan 2023)
-    race_ids = scraper.scrape_race_calendar(2023, 1)
-    if race_ids:
-        # Scrape first 3 races as a test
-        for rid in race_ids[:3]:
-            scraper.scrape_race_result(rid)
+    
+    # Scrape data from 2018 to the current month
+    # Note: This will take several hours to complete.
+    import datetime
+    now = datetime.datetime.now()
+    start_year = 2018
+    current_year = now.year
+    current_month = now.month
+
+    for year in range(start_year, current_year + 1):
+        for month in range(1, 13):
+            # Stop if we exceed the current month in the current year
+            if year == current_year and month > current_month:
+                break
+
+            logger.info(f"--- Starting scraping for {year}-{month:02d} ---")
+            
+            # 1. Get all race IDs for the month
+            race_ids = scraper.scrape_race_calendar(year, month)
+            
+            if not race_ids:
+                logger.warning(f"No races found for {year}-{month:02d}")
+                continue
+
+            # 2. Scrape result for each race
+            for rid in race_ids:
+                # The scraper has a built-in 1s delay in _get_html, so we just call it.
+                # It also skips existing files, so it's safe to re-run.
+                scraper.scrape_race_result(rid)
+            
+            logger.info(f"--- Completed scraping for {year}-{month:02d} ---")
+
