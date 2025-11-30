@@ -98,12 +98,20 @@ class NetkeibaScraper:
     def scrape_race_result(self, race_id):
         """
         Scrapes the result page for a specific race ID.
+        Skips if the file already exists.
         """
+        filename = f"race_{race_id}.html"
+        filepath = os.path.join(self.data_dir, filename)
+        
+        if os.path.exists(filepath):
+            logger.info(f"File {filename} already exists. Skipping.")
+            return True
+
         url = f"{self.BASE_URL}/race/{race_id}/"
         logger.info(f"Scraping race result: {url}")
         html = self._get_html(url)
         if html:
-            self._save_html(html, f"race_{race_id}.html")
+            self._save_html(html, filename)
             return True
         return False
 
