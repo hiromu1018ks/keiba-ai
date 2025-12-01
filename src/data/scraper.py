@@ -49,13 +49,20 @@ class NetkeibaScraper:
         Scrapes the race calendar for a specific year and month.
         Returns a list of race IDs found.
         """
-        url = f"{self.BASE_URL}/?pid=race_top&date={year}{month:02d}"
-        logger.info(f"Scraping calendar: {url}")
-        html = self._get_html(url)
-        if not html:
-            return []
-
-        self._save_html(html, f"calendar_{year}{month:02d}.html")
+        calendar_filename = f"calendar_{year}{month:02d}.html"
+        calendar_filepath = os.path.join(self.data_dir, calendar_filename)
+        
+        if os.path.exists(calendar_filepath):
+            logger.info(f"Loading calendar from local file: {calendar_filename}")
+            with open(calendar_filepath, 'r', encoding='utf-8') as f:
+                html = f.read()
+        else:
+            url = f"{self.BASE_URL}/?pid=race_top&date={year}{month:02d}"
+            logger.info(f"Scraping calendar: {url}")
+            html = self._get_html(url)
+            if not html:
+                return []
+            self._save_html(html, calendar_filename)
         
         soup = BeautifulSoup(html, 'html.parser')
         daily_links = []
@@ -73,15 +80,21 @@ class NetkeibaScraper:
 
         race_ids = []
         for daily_link in unique_daily_links:
-            daily_url = f"{self.BASE_URL}{daily_link}"
-            logger.info(f"Scraping daily list: {daily_url}")
-            daily_html = self._get_html(daily_url)
-            if not daily_html:
-                continue
-            
-            # Save daily html
             date_str = re.search(r'/race/list/(\d+)/', daily_link).group(1)
-            self._save_html(daily_html, f"daily_{date_str}.html")
+            daily_filename = f"daily_{date_str}.html"
+            daily_filepath = os.path.join(self.data_dir, daily_filename)
+            
+            if os.path.exists(daily_filepath):
+                # logger.info(f"Loading daily list from local file: {daily_filename}")
+                with open(daily_filepath, 'r', encoding='utf-8') as f:
+                    daily_html = f.read()
+            else:
+                daily_url = f"{self.BASE_URL}{daily_link}"
+                logger.info(f"Scraping daily list: {daily_url}")
+                daily_html = self._get_html(daily_url)
+                if not daily_html:
+                    continue
+                self._save_html(daily_html, daily_filename)
 
             daily_soup = BeautifulSoup(daily_html, 'html.parser')
             for a in daily_soup.find_all('a', href=True):
@@ -103,7 +116,7 @@ class NetkeibaScraper:
         filename = f"race_{race_id}.html"
         filepath = os.path.join(self.data_dir, filename)
         
-        if os.path.exists(filepath):
+        if os.path.exists(filepath) and os.path.getsize(filepath) > 0:
             logger.info(f"File {filename} already exists. Skipping.")
             return True
 
