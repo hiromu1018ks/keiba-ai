@@ -78,7 +78,7 @@ class Backtester:
             exclude_cols = ['race_id', 'date', 'time', 'rank', 'target', 'date_dt', 'year',
                             'horse_name', 'jockey', 'trainer', 'horse_id', 'jockey_id', 'trainer_id', 'time_seconds',
                             'prize', 'surface', 'distance', 'weather', 'condition', 'jockey_trainer_pair', 'winner_time',
-                            'around', 'race_class', 'place', 'passing_order']
+                            'around', 'race_class', 'place', 'passing_order', 'margin', 'margin_val', 'running_style', 'log_prize']
             feature_cols = [c for c in train_X_all.columns if c not in exclude_cols]
             
             X_train = train_X_all[feature_cols]

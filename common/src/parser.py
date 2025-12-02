@@ -131,6 +131,9 @@ class NetkeibaParser:
                 # Header is usually row 0
                 # Columns: 着順, 枠番, 馬番, 馬名, 性齢, 斤量, 騎手, タイム, 着差, ...
                 
+                # Calculate n_horses (approximate)
+                n_horses = len(rows) - 1
+
                 for row in rows[1:]: # Skip header
                     cols = row.find_all('td')
                     # We need at least 19 columns to get Trainer (index 18)
@@ -209,6 +212,9 @@ class NetkeibaParser:
                         # Format: 1-1-1 or 10-10-9
                         passing_order = get_col_text(10)
 
+                        # Extract Margin (Col 8)
+                        margin = get_col_text(8)
+
                         odds = get_col_text(12)
                         popularity = get_col_text(13)
                         time_str = get_col_text(7)
@@ -242,6 +248,8 @@ class NetkeibaParser:
                             'weight_change': weight_change,
                             'time': time_str,
                             'passing_order': passing_order,
+                            'margin': margin,
+                            'n_horses': n_horses,
                             'odds': float(odds) if odds and odds.replace('.','',1).isdigit() else None,
                             'popularity': int(popularity) if popularity and popularity.isdigit() else None,
                             'prize': prize
