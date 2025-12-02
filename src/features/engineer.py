@@ -11,7 +11,9 @@ class FeatureEngineer:
         self.target_encoders = {}
         self.categorical_cols = ['weather', 'condition', 'gender', 'surface']
         # IDs are handled by target encoding
-        self.id_cols = ['jockey_id', 'trainer_id', 'horse_id']
+        # Removed horse_id as it causes overfitting due to sparsity
+        # Added jockey_trainer_pair for synergy
+        self.id_cols = ['jockey_id', 'trainer_id', 'jockey_trainer_pair']
 
     def _convert_time_to_seconds(self, time_str):
         try:
@@ -30,8 +32,31 @@ class FeatureEngineer:
         """
         # 0. Pre-calculate Target if not present (for encoding)
         temp_df = df.copy()
+        
+        # Create Synergy Feature
+        if 'jockey_id' in temp_df.columns and 'trainer_id' in temp_df.columns:
+            temp_df['jockey_trainer_pair'] = temp_df['jockey_id'].astype(str) + '_' + temp_df['trainer_id'].astype(str)
+
+        # Time Conversion for Target Calculation
+        if 'time' in temp_df.columns:
+            temp_df['time_seconds'] = temp_df['time'].apply(self._convert_time_to_seconds)
+
+        # Enhanced Target Definition (Expert Logic)
+        # 1 if rank=1 OR (rank=2 AND time_diff=0.0)
         if 'target' not in temp_df.columns and 'rank' in temp_df.columns:
+            # Default target
             temp_df['target'] = temp_df['rank'].apply(lambda x: 1 if x == 1 else 0)
+            
+            # Adjust for close 2nd place
+            if 'time_seconds' in temp_df.columns and 'race_id' in temp_df.columns:
+                # Calculate winner time per race
+                # Handle Dead Heats (multiple winners): drop duplicates as times are identical
+                winner_times = temp_df[temp_df['rank'] == 1].drop_duplicates(subset=['race_id']).set_index('race_id')['time_seconds']
+                temp_df['winner_time'] = temp_df['race_id'].map(winner_times)
+                
+                # If rank 2 and time == winner_time, set target to 1
+                mask_close_2nd = (temp_df['rank'] == 2) & (temp_df['time_seconds'] == temp_df['winner_time'])
+                temp_df.loc[mask_close_2nd, 'target'] = 1
         
         if 'target' not in temp_df.columns:
             logger.warning("Target column not found in fit. Skipping Target Encoding.")
@@ -68,13 +93,36 @@ class FeatureEngineer:
         """
         df = df.copy()
         
-        # 1. Target Creation
-        if 'rank' in df.columns:
-            df['target'] = df['rank'].apply(lambda x: 1 if x == 1 else 0)
+        # 0. Create Synergy Feature
+        if 'jockey_id' in df.columns and 'trainer_id' in df.columns:
+            df['jockey_trainer_pair'] = df['jockey_id'].astype(str) + '_' + df['trainer_id'].astype(str)
 
-        # 2. Time Conversion
+        # 1. Time Conversion
         if 'time' in df.columns:
             df['time_seconds'] = df['time'].apply(self._convert_time_to_seconds)
+
+        # 2. Target Creation (Same logic as fit)
+        if 'rank' in df.columns:
+            df['target'] = df['rank'].apply(lambda x: 1 if x == 1 else 0)
+            
+            # Adjust for close 2nd place
+            if 'time_seconds' in df.columns and 'race_id' in df.columns:
+                # We need to be careful here. In transform (test time), we might not know the winner time if we are processing row by row?
+                # But here we process batch.
+                # However, for training data transform, we can use this.
+                # For test data (future), 'rank' and 'time' are unknown!
+                # So this block is ONLY for training/validation where we have ground truth.
+                # If 'rank' is missing (inference), we skip target creation.
+                
+                # Calculate winner time per race
+                # Note: This requires the dataframe to contain the winner.
+                # Handle Dead Heats
+                winner_times = df[df['rank'] == 1].drop_duplicates(subset=['race_id']).set_index('race_id')['time_seconds']
+                # Map might produce NaNs if winner is not in this batch (unlikely for full race data)
+                df['winner_time'] = df['race_id'].map(winner_times)
+                
+                mask_close_2nd = (df['rank'] == 2) & (df['time_seconds'] == df['winner_time'])
+                df.loc[mask_close_2nd, 'target'] = 1
 
         # 3. Lag Features (Past Performance)
         # Sort by horse and date

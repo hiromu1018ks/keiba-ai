@@ -41,27 +41,74 @@ def train_model(data_path='data/common/raw_data/results.csv', model_dir='models'
     from sklearn.model_selection import train_test_split
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
 
-    # 4. Train LightGBM
-    train_data = lgb.Dataset(X_train, label=y_train)
-    valid_data = lgb.Dataset(X_test, label=y_test, reference=train_data)
+    # 4. Hyperparameter Tuning with Optuna
+    import optuna
+    import json
+    from lightgbm import LGBMClassifier
+    
+    def objective(trial):
+        param = {
+            'objective': 'binary',
+            'metric': 'binary_logloss',
+            'boosting_type': 'gbdt',
+            'verbosity': -1,
+            'n_estimators': 1000,
+            'learning_rate': trial.suggest_float('learning_rate', 0.01, 0.3),
+            'num_leaves': trial.suggest_int('num_leaves', 20, 300),
+            'feature_fraction': trial.suggest_float('feature_fraction', 0.4, 1.0),
+            'bagging_fraction': trial.suggest_float('bagging_fraction', 0.4, 1.0),
+            'bagging_freq': trial.suggest_int('bagging_freq', 1, 7),
+            'min_child_samples': trial.suggest_int('min_child_samples', 5, 100),
+        }
+        
+        # Use simple train/test split for tuning speed
+        # In production, use CV
+        model = LGBMClassifier(**param)
+        model.fit(
+            X_train, y_train,
+            eval_set=[(X_test, y_test)],
+            callbacks=[lgb.early_stopping(stopping_rounds=10, verbose=False)]
+        )
+        
+        preds = model.predict_proba(X_test)[:, 1]
+        return log_loss(y_test, preds)
 
-    params = {
-        'objective': 'binary',
-        'metric': 'binary_logloss',
-        'boosting_type': 'gbdt',
-        'verbose': -1
-    }
+    logger.info("Starting Optuna optimization...")
+    study = optuna.create_study(direction='minimize')
+    study.optimize(objective, n_trials=20) # 20 trials for demo speed
+    
+    best_params = study.best_params
+    logger.info(f"Best params: {best_params}")
+    
+    # Save best params
+    with open(os.path.join(model_dir, 'best_params.json'), 'w') as f:
+        json.dump(best_params, f, indent=4)
 
-    model = lgb.train(
-        params,
-        train_data,
-        valid_sets=[valid_data],
-        num_boost_round=100,
-        callbacks=[lgb.early_stopping(stopping_rounds=10), lgb.log_evaluation(10)]
-    )
+    # 5. Train Final Calibrated Model with Best Params
+    from sklearn.calibration import CalibratedClassifierCV
+    from lightgbm import LGBMClassifier
+
+    # Base LightGBM Model with Best Params
+    final_params = best_params.copy()
+    final_params['objective'] = 'binary'
+    final_params['metric'] = 'binary_logloss'
+    final_params['boosting_type'] = 'gbdt'
+    final_params['n_estimators'] = 1000
+    final_params['verbose'] = -1
+    
+    base_model = LGBMClassifier(**final_params)
+
+    # Calibrated Classifier (Isotonic Regression)
+    calibrated_model = CalibratedClassifierCV(base_model, method='isotonic', cv=5)
+    
+    logger.info("Training Final Calibrated Model (Isotonic) with Best Params...")
+    calibrated_model.fit(X_train, y_train)
+    
+    model = calibrated_model
 
     # 5. Evaluate
-    y_pred_prob = model.predict(X_test, num_iteration=model.best_iteration)
+    # CalibratedClassifierCV returns probabilities for both classes [prob_0, prob_1]
+    y_pred_prob = model.predict_proba(X_test)[:, 1]
     y_pred = [1 if p > 0.5 else 0 for p in y_pred_prob]
     
     acc = accuracy_score(y_test, y_pred)

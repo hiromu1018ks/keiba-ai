@@ -76,17 +76,39 @@ class Backtester:
             y_test = test_X_all['target'] # For evaluation only
             
             # Train Model
-            train_data = lgb.Dataset(X_train, label=y_train)
+            from sklearn.calibration import CalibratedClassifierCV
+            from lightgbm import LGBMClassifier
+            import json
+            import os
+
+            # Load Best Params if available
+            best_params_path = 'models/best_params.json'
             params = {
                 'objective': 'binary',
                 'metric': 'binary_logloss',
                 'boosting_type': 'gbdt',
+                'n_estimators': 1000,
                 'verbose': -1
             }
-            model = lgb.train(params, train_data, num_boost_round=100)
+            
+            if os.path.exists(best_params_path):
+                with open(best_params_path, 'r') as f:
+                    best_params = json.load(f)
+                params.update(best_params)
+                logger.info(f"Using optimized parameters: {best_params}")
+            else:
+                logger.warning("best_params.json not found. Using default parameters.")
+
+            # Base LightGBM Model
+            base_model = LGBMClassifier(**params)
+
+            # Calibrated Classifier (Isotonic Regression)
+            calibrated_model = CalibratedClassifierCV(base_model, method='isotonic', cv=5)
+            calibrated_model.fit(X_train, y_train)
             
             # Predict
-            preds = model.predict(X_test)
+            # CalibratedClassifierCV returns probabilities for both classes [prob_0, prob_1]
+            preds = calibrated_model.predict_proba(X_test)[:, 1]
             test_df = test_df.copy()
             test_df['pred_prob'] = preds
             

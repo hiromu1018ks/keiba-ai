@@ -39,6 +39,15 @@ class BettingStrategy:
             if current_odds is None:
                 continue
                 
+            # Safety Filters
+            # 1. Max Odds Filter: Ignore extreme longshots (often over-bet by AI)
+            if current_odds > 100.0:
+                continue
+            
+            # 2. Min Probability Filter: Ignore low confidence predictions
+            if prob < 0.05:
+                continue
+
             ev = self.calculate_expectation(prob, current_odds)
             
             if ev > self.ev_threshold:
