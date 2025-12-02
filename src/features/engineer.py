@@ -142,9 +142,17 @@ class FeatureEngineer:
                 # Previous Rank
                 df['prev_rank'] = grouped['rank'].shift(1).fillna(99)
                 
-                # Average Rank last 5
+                # Average Rank last 5 (Simple)
                 df['avg_rank_5'] = grouped['rank'].transform(lambda x: x.shift(1).rolling(5, min_periods=1).mean()).fillna(99)
                 
+                # EWMA Rank (Time Decay) - span=5
+                df['ewma_rank_5'] = grouped['rank'].transform(lambda x: x.shift(1).ewm(span=5).mean()).fillna(99)
+                
+                # Previous Prize
+                if 'prize' in df.columns:
+                    df['prev_prize'] = grouped['prize'].shift(1).fillna(0)
+                    df['ewma_prize_5'] = grouped['prize'].transform(lambda x: x.shift(1).ewm(span=5).mean()).fillna(0)
+
                 # Previous Time Seconds
                 if 'time_seconds' in df.columns:
                     df['prev_time_seconds'] = grouped['time_seconds'].shift(1).fillna(0)
@@ -156,6 +164,25 @@ class FeatureEngineer:
                 # Weight Change Average
                 if 'weight_change' in df.columns:
                      df['avg_weight_change_5'] = grouped['weight_change'].transform(lambda x: x.shift(1).rolling(5, min_periods=1).mean()).fillna(0)
+
+                # --- Context Specific Features ---
+                # Surface specific average rank
+                if 'surface' in df.columns:
+                    # Create dummy columns for surface
+                    is_turf = df['surface'] == '芝'
+                    is_dirt = df['surface'] == 'ダ'
+                    
+                    # Calculate cumulative mean of rank for Turf
+                    # We need to shift(1) to avoid leakage
+                    df['rank_turf'] = df['rank'].where(is_turf)
+                    df['avg_rank_turf'] = grouped['rank_turf'].transform(lambda x: x.shift(1).expanding().mean()).fillna(99)
+                    
+                    # Calculate cumulative mean of rank for Dirt
+                    df['rank_dirt'] = df['rank'].where(is_dirt)
+                    df['avg_rank_dirt'] = grouped['rank_dirt'].transform(lambda x: x.shift(1).expanding().mean()).fillna(99)
+                    
+                    # Drop temporary columns
+                    df.drop(columns=['rank_turf', 'rank_dirt'], inplace=True)
 
             except Exception as e:
                 logger.error(f"Failed to create lag features: {e}")
@@ -183,6 +210,12 @@ class FeatureEngineer:
                 df['odds_zscore'] = df.groupby('race_id')['odds'].transform(
                     lambda x: (x - x.mean()) / (x.std() + 1e-6)
                 ).fillna(0)
+                
+            # Prize Z-Score (New)
+            if 'ewma_prize_5' in df.columns:
+                df['ewma_prize_zscore'] = df.groupby('race_id')['ewma_prize_5'].transform(
+                    lambda x: (x - x.mean()) / (x.std() + 1e-6)
+                ).fillna(0)
 
         # 5. Target Encoding Application
         for col in self.id_cols:
@@ -203,8 +236,8 @@ class FeatureEngineer:
 
         # 7. Numeric Conversion / Cleanup
         numeric_cols = ['bracket', 'horse_num', 'age', 'odds', 'popularity', 'horse_weight', 'weight_change', 
-                        'prev_rank', 'avg_rank_5', 'prev_time_seconds', 'prev_odds', 'avg_weight_change_5',
-                        'weight_zscore', 'age_zscore', 'odds_zscore']
+                        'prev_rank', 'avg_rank_5', 'ewma_rank_5', 'prev_time_seconds', 'prev_odds', 'avg_weight_change_5',
+                        'weight_zscore', 'age_zscore', 'odds_zscore', 'ewma_prize_5', 'ewma_prize_zscore', 'avg_rank_turf', 'avg_rank_dirt']
         
         for col in numeric_cols:
             if col in df.columns:
@@ -213,4 +246,45 @@ class FeatureEngineer:
         return df
 
     def fit_transform(self, df):
-        return self.fit(df).transform(df)
+        """
+        Fits and transforms using K-Fold Target Encoding for training data to prevent leakage.
+        """
+        self.fit(df) # Fit global encoders for future use
+        
+        # Transform with K-Fold for ID columns
+        df_transformed = self.transform(df) # Get other features first
+        
+        # Overwrite ID target encodings with K-Fold values
+        from sklearn.model_selection import KFold
+        kf = KFold(n_splits=5, shuffle=True, random_state=42)
+        
+        # Ensure target exists
+        if 'target' not in df.columns:
+            return df_transformed
+
+        for col in self.id_cols:
+            if col in df.columns:
+                # Initialize with NaNs
+                df_transformed[f'{col}_target_enc'] = np.nan
+                
+                for train_idx, val_idx in kf.split(df):
+                    # Split data
+                    X_train, X_val = df.iloc[train_idx], df.iloc[val_idx]
+                    
+                    # Calculate mean on training fold
+                    global_mean = X_train['target'].mean()
+                    summary = X_train.groupby(col)['target'].agg(['mean', 'count'])
+                    alpha = 10
+                    smoothed_mean = (summary['mean'] * summary['count'] + global_mean * alpha) / (summary['count'] + alpha)
+                    
+                    # Map to validation fold
+                    df_transformed.loc[val_idx, f'{col}_target_enc'] = X_val[col].map(smoothed_mean).fillna(global_mean)
+                
+                # Fill any remaining NaNs (if any) with global mean
+                df_transformed[f'{col}_target_enc'] = df_transformed[f'{col}_target_enc'].fillna(df['target'].mean())
+
+        # Drop winner_time if it exists (Leakage removal)
+        if 'winner_time' in df_transformed.columns:
+            df_transformed.drop(columns=['winner_time'], inplace=True)
+            
+        return df_transformed

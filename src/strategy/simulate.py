@@ -74,15 +74,16 @@ class Backtester:
             train_X_all = fe.fit_transform(train_df)
             test_X_all = fe.transform(test_df)
             
+            # Define features (exclude target and non-feature columns)
             exclude_cols = ['race_id', 'date', 'time', 'rank', 'target', 'date_dt', 'year',
-                            'horse_name', 'jockey', 'trainer', 'horse_id', 'jockey_id', 'trainer_id', 'time_seconds']
+                            'horse_name', 'jockey', 'trainer', 'horse_id', 'jockey_id', 'trainer_id', 'time_seconds',
+                            'prize', 'surface', 'distance', 'weather', 'condition', 'jockey_trainer_pair', 'winner_time']
             feature_cols = [c for c in train_X_all.columns if c not in exclude_cols]
             
             X_train = train_X_all[feature_cols]
             y_train = train_X_all['target']
             X_test = test_X_all[feature_cols]
             
-            # Train Model
             base_model = LGBMClassifier(**params)
             calibrated_model = CalibratedClassifierCV(base_model, method='isotonic', cv=5)
             calibrated_model.fit(X_train, y_train)
@@ -177,9 +178,11 @@ class Backtester:
 
 if __name__ == "__main__":
     backtester = Backtester()
-    # Run optimization
-    # backtester.optimize_thresholds(start_year=2023)
+    # Run Optimization
+    best_th = backtester.optimize_thresholds(start_year=2023)
     
-    # Run single simulation with optimal threshold to see details
-    pred_df = backtester.run_walk_forward(start_year=2023)
-    backtester.simulate_with_threshold(pred_df, ev_threshold=2.0, verbose=True)
+    # Run detailed simulation with best threshold
+    if best_th:
+        logger.info(f"Running detailed simulation with Best Threshold: {best_th}")
+        pred_df = backtester.run_walk_forward(start_year=2023)
+        backtester.simulate_with_threshold(pred_df, ev_threshold=best_th, verbose=True)

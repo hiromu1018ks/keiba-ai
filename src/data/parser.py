@@ -39,6 +39,23 @@ class NetkeibaParser:
                     if course_match:
                         race_info['surface'] = course_match.group(1)
                         race_info['distance'] = int(course_match.group(2))
+                
+                # Alternative location for course info (e.g., inside dd p span)
+                if 'surface' not in race_info:
+                    racedata = data_intro.find('dl', class_='racedata')
+                    if racedata:
+                        dd = racedata.find('dd')
+                        if dd:
+                            span = dd.find('span')
+                            if span:
+                                span_text = span.get_text(strip=True)
+                                # Example: "ダ左1800m / 天候 : 晴 / ..."
+                                # Extract Surface and Distance
+                                # Match "ダ" or "芝" or "障" followed by optional direction and digits
+                                match = re.search(r'(芝|ダ|障).+?(\d+)m', span_text)
+                                if match:
+                                    race_info['surface'] = match.group(1)
+                                    race_info['distance'] = int(match.group(2))
 
                 # Weather and Condition
                 # <dl class="racedata fc"> ... <dt>天候 :</dt><dd>晴</dd> ... <dt>芝 :</dt><dd>良</dd>
@@ -106,6 +123,17 @@ class NetkeibaParser:
                             if match:
                                 jockey_id = match.group(1)
 
+                        # Extract Basic Info
+                        horse_name = get_col_text(3)
+                        jockey = get_col_text(6)
+                        
+                        gender_age = get_col_text(4)
+                        gender = None
+                        age = None
+                        if gender_age and len(gender_age) >= 2:
+                            gender = gender_age[0]
+                            age = gender_age[1:]
+
                         # Extract Trainer Info (Col 18)
                         trainer = get_col_text(18)
                         trainer_a = cols[18].find('a')
@@ -133,7 +161,19 @@ class NetkeibaParser:
 
                         odds = get_col_text(12)
                         popularity = get_col_text(13)
+                        time_str = get_col_text(7)
                         
+                        # Extract Prize Money (Col 20)
+                        prize = 0.0
+                        if len(cols) > 20:
+                            prize_text = get_col_text(20)
+                            if prize_text:
+                                try:
+                                    # Format: 1,100.0 or 1100
+                                    prize = float(prize_text.replace(',', ''))
+                                except ValueError:
+                                    prize = 0.0
+
                         row_data = {
                             'race_id': race_id,
                             'rank': int(rank),
@@ -151,7 +191,8 @@ class NetkeibaParser:
                             'weight_change': weight_change,
                             'time': time_str,
                             'odds': float(odds) if odds and odds.replace('.','',1).isdigit() else None,
-                            'popularity': int(popularity) if popularity and popularity.isdigit() else None
+                            'popularity': int(popularity) if popularity and popularity.isdigit() else None,
+                            'prize': prize
                         }
                         
                         # Merge race info
