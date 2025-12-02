@@ -10,7 +10,7 @@ class FeatureEngineer:
         self.label_encoders = {}
         self.target_encoders = {}
         self.categorical_cols = ['weather', 'condition', 'gender', 'surface', 'distance_category', 'weight_bin',
-                                 'around', 'race_class', 'place']
+                                 'around', 'race_class', 'place', 'running_style']
         self.id_cols = ['jockey_id', 'trainer_id', 'jockey_trainer_pair']
 
     def _convert_time_to_seconds(self, time_str):
@@ -37,6 +37,24 @@ class FeatureEngineer:
         elif weight < 520: return 'Heavy'
         else: return 'SuperHeavy'
 
+    def _classify_running_style(self, passing_order):
+        """
+        Classifies running style based on the position at the final corner (last number).
+        Nigeru (1), Senko (2-4), Sashi (5-9), Oikomi (10+)
+        """
+        if pd.isna(passing_order): return 'Unknown'
+        try:
+            # Format: 10-10-9 or 1-1
+            parts = str(passing_order).split('-')
+            last_pos = int(parts[-1])
+            
+            if last_pos == 1: return 'Nigeru'
+            elif last_pos <= 4: return 'Senko'
+            elif last_pos <= 9: return 'Sashi'
+            else: return 'Oikomi'
+        except:
+            return 'Unknown'
+
     def fit(self, df):
         """
         Fits encoders on the dataframe.
@@ -49,6 +67,9 @@ class FeatureEngineer:
         
         if 'horse_weight' in temp_df.columns:
             temp_df['weight_bin'] = temp_df['horse_weight'].apply(self._bin_weight)
+
+        if 'passing_order' in temp_df.columns:
+            temp_df['running_style'] = temp_df['passing_order'].apply(self._classify_running_style)
 
         if 'jockey_id' in temp_df.columns and 'trainer_id' in temp_df.columns:
             temp_df['jockey_trainer_pair'] = temp_df['jockey_id'].astype(str) + '_' + temp_df['trainer_id'].astype(str)
@@ -98,6 +119,9 @@ class FeatureEngineer:
             
         if 'horse_weight' in df.columns:
             df['weight_bin'] = df['horse_weight'].apply(self._bin_weight)
+
+        if 'passing_order' in df.columns:
+            df['running_style'] = df['passing_order'].apply(self._classify_running_style)
 
         if 'jockey_id' in df.columns and 'trainer_id' in df.columns:
             df['jockey_trainer_pair'] = df['jockey_id'].astype(str) + '_' + df['trainer_id'].astype(str)

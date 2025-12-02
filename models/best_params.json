@@ -1,8 +1,11 @@
 {
-    "learning_rate": 0.09261259456471073,
-    "num_leaves": 22,
-    "feature_fraction": 0.647508068337947,
-    "bagging_fraction": 0.5066620467322974,
-    "bagging_freq": 5,
-    "min_child_samples": 70
+    "lambda_l1": 1.3129863845194689e-05,
+    "lambda_l2": 0.14498432395376334,
+    "num_leaves": 24,
+    "feature_fraction": 0.9795648736426318,
+    "bagging_fraction": 0.7600396890390958,
+    "bagging_freq": 7,
+    "min_child_samples": 94,
+    "learning_rate": 0.2204391608889275,
+    "n_estimators": 1000
 }
