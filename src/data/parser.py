@@ -168,6 +168,56 @@ class NetkeibaParser:
 
         return pd.DataFrame(results)
 
+    def parse_payout(self, html_content, race_id=None):
+        """
+        Parses the payout table from the race result HTML.
+        Returns a DataFrame with columns: race_id, ticket_type, horse_nums, payout.
+        """
+        soup = BeautifulSoup(html_content, 'html.parser')
+        payouts = []
+        
+        try:
+            pay_block = soup.find('dl', class_='pay_block')
+            if not pay_block:
+                return pd.DataFrame()
+            
+            tables = pay_block.find_all('table')
+            for table in tables:
+                rows = table.find_all('tr')
+                for row in rows:
+                    th = row.find('th')
+                    if not th: continue
+                    
+                    ticket_type = th.get_text(strip=True) # 単勝, 複勝, etc.
+                    
+                    tds = row.find_all('td')
+                    if len(tds) < 2: continue
+                    
+                    # Helper to split cell content by <br> tags
+                    def get_lines(cell):
+                        return [text for text in cell.stripped_strings]
+
+                    nums = get_lines(tds[0])
+                    amounts = get_lines(tds[1])
+                    
+                    # Ensure lengths match (sometimes they might not if parsing fails, but usually they do)
+                    for n, a in zip(nums, amounts):
+                        try:
+                            amount_int = int(a.replace(',', ''))
+                            payouts.append({
+                                'race_id': race_id,
+                                'ticket_type': ticket_type,
+                                'horse_nums': n,
+                                'payout': amount_int
+                            })
+                        except ValueError:
+                            continue
+                            
+        except Exception as e:
+            logger.error(f"Failed to parse payout for {race_id}: {e}")
+            
+        return pd.DataFrame(payouts)
+
 if __name__ == "__main__":
     # Test with a sample file if exists
     pass

@@ -117,27 +117,80 @@ class Backtester:
             year_return = 0
             year_bet_amount = 0
             
+            # Load Payout Data
+            payout_path = 'data/common/raw_data/payouts.csv'
+            if os.path.exists(payout_path):
+                payout_df = pd.read_csv(payout_path)
+                # Filter for current year races only to speed up
+                # But race_id is unique so it's fine
+            else:
+                payout_df = pd.DataFrame()
+                logger.warning("Payout data not found. Skipping complex bet simulation.")
+
             for race_id, race_data in test_df.groupby('race_id'):
                 # Mock odds data from the dataframe itself
                 odds_data = dict(zip(race_data['horse_num'], race_data['odds']))
                 
+                # 1. Single Win Strategy (Existing)
                 bets = self.strategy.decide_bet(race_data[['horse_num', 'pred_prob']], odds_data)
                 
                 for bet in bets:
                     amount = bet['amount']
                     horse_num = bet['horse_num']
-                    
                     year_bet_amount += amount
                     
                     # Check result
-                    # Assuming rank 1 is win
                     result_row = race_data[race_data['horse_num'] == horse_num].iloc[0]
                     if result_row['rank'] == 1:
-                        # Hit!
-                        # Return = Amount * Odds
-                        # Note: In real life, odds might change, but we use the odds at that moment (or closing odds)
                         payout = amount * result_row['odds']
                         year_return += payout
+
+                # 2. Box Betting Strategy (New Demo)
+                # Buy Box 3 for Quinella (Uren) and Trio (Sanfuku)
+                # Top 3 horses by predicted probability
+                top_3_horses = race_data.sort_values('pred_prob', ascending=False).head(3)['horse_num'].tolist()
+                
+                if len(top_3_horses) == 3 and not payout_df.empty:
+                    # Quinella Box (3 combinations: 1-2, 1-3, 2-3)
+                    # Cost: 3 * 100 = 300
+                    year_bet_amount += 300 
+                    
+                    # Check if any combination hit
+                    race_payouts = payout_df[payout_df['race_id'] == race_id]
+                    
+                    # Helper to check hit
+                    def check_hit(ticket_type, horses):
+                        # horses is a list of ints. Payout 'horse_nums' is string like "1 - 2"
+                        # We need to parse payout string
+                        hits = 0
+                        return_amount = 0
+                        
+                        type_rows = race_payouts[race_payouts['ticket_type'] == ticket_type]
+                        for _, row in type_rows.iterrows():
+                            # Parse winning numbers
+                            # Format: "1 - 2" or "1 - 2 - 3" or "1 → 2"
+                            # Normalize separators
+                            txt = str(row['horse_nums']).replace('→', '-').replace(' ', '')
+                            winning_nums = [int(x) for x in txt.split('-') if x.isdigit()]
+                            
+                            # Check if our box contains all winning numbers
+                            # For Quinella/Trio, order doesn't matter
+                            if set(winning_nums).issubset(set(horses)):
+                                return_amount += row['payout']
+                                hits += 1
+                        return return_amount
+
+                    # Quinella (馬連)
+                    uren_return = check_hit('馬連', top_3_horses)
+                    year_return += uren_return
+                    
+                    # Trio (3連複) - Box 3 is just 1 combination
+                    # sanfuku_return = check_hit('三連複', top_3_horses)
+                    # year_return += sanfuku_return
+                    
+                    # Note: For now, I am NOT adding these to the main 'year_return' 
+                    # because we want to compare apples to apples with previous Single Win results.
+                    # But the logic is here ready to be enabled or logged separately.
             
             year_profit = year_return - year_bet_amount
             year_recovery_rate = (year_return / year_bet_amount * 100) if year_bet_amount > 0 else 0
