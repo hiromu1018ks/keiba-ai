@@ -4,7 +4,7 @@ from src.utils.logger import setup_logger
 logger = setup_logger(__name__)
 
 class BettingStrategy:
-    def __init__(self, ev_threshold=1.5):
+    def __init__(self, ev_threshold=2.0):
         self.ev_threshold = ev_threshold
 
     def calculate_expectation(self, win_prob, odds):
