@@ -74,7 +74,8 @@ class NetkeibaParser:
                 
                 for row in rows[1:]: # Skip header
                     cols = row.find_all('td')
-                    if len(cols) < 10:
+                    # We need at least 19 columns to get Trainer (index 18)
+                    if len(cols) < 19:
                         continue
                     
                     # Helper to get text safely

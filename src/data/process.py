@@ -19,22 +19,15 @@ def process_html_files(html_dir='data/html', output_dir='data/common/raw_data'):
     files = glob.glob(os.path.join(html_dir, 'race_*.html'))
     logger.info(f"Found {len(files)} race HTML files to process.")
 
-    for filepath in files:
-        try:
-            filename = os.path.basename(filepath)
-            # Extract race_id from filename: race_202301010101.html
-            match = re.search(r'race_(\d+)\.html', filename)
-            race_id = match.group(1) if match else None
-            
-            with open(filepath, 'r', encoding='utf-8') as f:
-                html_content = f.read()
-            
-            df = parser.parse_race_result(html_content, race_id=race_id)
-            if not df.empty:
-                all_results.append(df)
-            
-        except Exception as e:
-            logger.error(f"Failed to process file {filepath}: {e}")
+    # Single-threaded processing (Low load)
+    for i, filepath in enumerate(files):
+        res = process_single_file(filepath)
+        if res is not None:
+            all_results.append(res)
+        
+        # Log progress every 1000 files
+        if (i + 1) % 1000 == 0:
+            logger.info(f"Processed {i + 1}/{len(files)} files...")
 
     if all_results:
         final_df = pd.concat(all_results, ignore_index=True)
@@ -43,6 +36,23 @@ def process_html_files(html_dir='data/html', output_dir='data/common/raw_data'):
         logger.info(f"Saved processed data to {output_path}. Total rows: {len(final_df)}")
     else:
         logger.warning("No data extracted.")
+
+def process_single_file(filepath):
+    try:
+        filename = os.path.basename(filepath)
+        match = re.search(r'race_(\d+)\.html', filename)
+        race_id = match.group(1) if match else None
+        
+        with open(filepath, 'r', encoding='utf-8') as f:
+            html_content = f.read()
+        
+        parser = NetkeibaParser()
+        df = parser.parse_race_result(html_content, race_id=race_id)
+        return df if not df.empty else None
+    except Exception as e:
+        # Print error to see it in console during parallel execution
+        # print(f"Failed to process {filepath}: {e}")
+        return None
 
 if __name__ == "__main__":
     process_html_files()
