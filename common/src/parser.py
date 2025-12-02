@@ -39,7 +39,39 @@ class NetkeibaParser:
                     if course_match:
                         race_info['surface'] = course_match.group(1)
                         race_info['distance'] = int(course_match.group(2))
+                    
+                    # Extract Around (Right/Left)
+                    if '右' in text:
+                        race_info['around'] = '右'
+                    elif '左' in text:
+                        race_info['around'] = '左'
+                    elif '直' in text:
+                        race_info['around'] = '直'
+                    else:
+                        race_info['around'] = 'Unknown'
                 
+                # Extract Race Class from title
+                # Usually the h1 or title contains it, but here we can try to infer from smalltxt or other parts
+                # For now, let's use the h1 title if available, or just parse the text
+                h1 = soup.find('h1')
+                if h1:
+                    race_info['race_class'] = h1.get_text(strip=True)
+                else:
+                    race_info['race_class'] = 'Unknown'
+
+                # Extract Place from Race ID
+                # Race ID: YYYYPPMMDDRR (PP = Place Code)
+                if race_id and len(str(race_id)) == 12:
+                    place_code = str(race_id)[4:6]
+                    place_map = {
+                        '01': 'Sapporo', '02': 'Hakodate', '03': 'Fukushima', '04': 'Niigata', 
+                        '05': 'Tokyo', '06': 'Nakayama', '07': 'Chukyo', '08': 'Kyoto', 
+                        '09': 'Hanshin', '10': 'Kokura'
+                    }
+                    race_info['place'] = place_map.get(place_code, 'Unknown')
+                else:
+                    race_info['place'] = 'Unknown'
+
                 # Alternative location for course info (e.g., inside dd p span)
                 if 'surface' not in race_info:
                     racedata = data_intro.find('dl', class_='racedata')
@@ -56,6 +88,16 @@ class NetkeibaParser:
                                 if match:
                                     race_info['surface'] = match.group(1)
                                     race_info['distance'] = int(match.group(2))
+                                
+                                # Extract Around
+                                if '右' in span_text:
+                                    race_info['around'] = '右'
+                                elif '左' in span_text:
+                                    race_info['around'] = '左'
+                                elif '直' in span_text:
+                                    race_info['around'] = '直'
+                                else:
+                                    race_info['around'] = 'Unknown'
 
                 # Weather and Condition
                 # <dl class="racedata fc"> ... <dt>天候 :</dt><dd>晴</dd> ... <dt>芝 :</dt><dd>良</dd>
@@ -123,6 +165,10 @@ class NetkeibaParser:
                             if match:
                                 jockey_id = match.group(1)
 
+                        # Extract Impost (Col 5)
+                        impost_text = get_col_text(5)
+                        impost = float(impost_text) if impost_text and impost_text.replace('.', '', 1).isdigit() else None
+
                         # Extract Basic Info
                         horse_name = get_col_text(3)
                         jockey = get_col_text(6)
@@ -159,6 +205,10 @@ class NetkeibaParser:
                                 except ValueError:
                                     weight_change = 0 # Handle cases like "前計不" if any
 
+                        # Extract Passing Order (Col 10)
+                        # Format: 1-1-1 or 10-10-9
+                        passing_order = get_col_text(10)
+
                         odds = get_col_text(12)
                         popularity = get_col_text(13)
                         time_str = get_col_text(7)
@@ -183,6 +233,7 @@ class NetkeibaParser:
                             'horse_id': horse_id,
                             'gender': gender,
                             'age': int(age) if age and age.isdigit() else None,
+                            'impost': impost,
                             'jockey': jockey,
                             'jockey_id': jockey_id,
                             'trainer': trainer,
@@ -190,6 +241,7 @@ class NetkeibaParser:
                             'horse_weight': horse_weight,
                             'weight_change': weight_change,
                             'time': time_str,
+                            'passing_order': passing_order,
                             'odds': float(odds) if odds and odds.replace('.','',1).isdigit() else None,
                             'popularity': int(popularity) if popularity and popularity.isdigit() else None,
                             'prize': prize

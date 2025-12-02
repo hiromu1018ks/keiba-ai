@@ -9,7 +9,8 @@ class FeatureEngineer:
     def __init__(self):
         self.label_encoders = {}
         self.target_encoders = {}
-        self.categorical_cols = ['weather', 'condition', 'gender', 'surface', 'distance_category', 'weight_bin']
+        self.categorical_cols = ['weather', 'condition', 'gender', 'surface', 'distance_category', 'weight_bin',
+                                 'around', 'race_class', 'place']
         self.id_cols = ['jockey_id', 'trainer_id', 'jockey_trainer_pair']
 
     def _convert_time_to_seconds(self, time_str):
@@ -130,6 +131,20 @@ class FeatureEngineer:
                 df['prev_rank'] = grouped['rank'].shift(1).fillna(99)
                 df['ewma_rank_5'] = grouped['rank'].transform(lambda x: x.shift(1).ewm(span=5).mean()).fillna(99)
                 
+                # Requested Rolling Features
+                # Rank
+                df['rank_3races'] = grouped['rank'].transform(lambda x: x.shift(1).rolling(3, min_periods=1).mean()).fillna(99)
+                df['rank_5races'] = grouped['rank'].transform(lambda x: x.shift(1).rolling(5, min_periods=1).mean()).fillna(99)
+                df['rank_10races'] = grouped['rank'].transform(lambda x: x.shift(1).rolling(10, min_periods=1).mean()).fillna(99)
+                df['rank_1000races'] = grouped['rank'].transform(lambda x: x.shift(1).expanding().mean()).fillna(99)
+
+                # Prize
+                if 'prize' in df.columns:
+                    df['prize_3races'] = grouped['prize'].transform(lambda x: x.shift(1).rolling(3, min_periods=1).mean()).fillna(0)
+                    df['prize_5races'] = grouped['prize'].transform(lambda x: x.shift(1).rolling(5, min_periods=1).mean()).fillna(0)
+                    df['prize_10races'] = grouped['prize'].transform(lambda x: x.shift(1).rolling(10, min_periods=1).mean()).fillna(0)
+                    df['prize_1000races'] = grouped['prize'].transform(lambda x: x.shift(1).expanding().mean()).fillna(0)
+
                 # Distance Suitability (Avg Rank per Distance Category)
                 if 'distance_category' in df.columns:
                     for cat in ['Sprint', 'Mile', 'Intermediate', 'Long']:
@@ -205,8 +220,10 @@ class FeatureEngineer:
                 df[col] = df[col].astype(str).map(mapping).fillna(-1).astype(int)
 
         # 7. Cleanup
-        numeric_cols = ['bracket', 'horse_num', 'age', 'odds', 'popularity', 'horse_weight', 'weight_change', 
+        numeric_cols = ['bracket', 'horse_num', 'age', 'odds', 'popularity', 'horse_weight', 'weight_change', 'impost',
                         'prev_rank', 'ewma_rank_5', 'log_prize', 'log_odds',
+                        'rank_3races', 'rank_5races', 'rank_10races', 'rank_1000races',
+                        'prize_3races', 'prize_5races', 'prize_10races', 'prize_1000races',
                         'avg_rank_Sprint', 'avg_rank_Mile', 'avg_rank_Intermediate', 'avg_rank_Long',
                         'avg_rank_turf', 'avg_rank_dirt',
                         'jockey_win_rate_100', 'trainer_win_rate_100']
