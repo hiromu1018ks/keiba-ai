@@ -131,62 +131,76 @@ class Backtester:
                 # Mock odds data from the dataframe itself
                 odds_data = dict(zip(race_data['horse_num'], race_data['odds']))
                 
-                # 1. Single Win Strategy (Existing)
-                bets = self.strategy.decide_bet(race_data[['horse_num', 'pred_prob']], odds_data)
+                # 3. Dynamic Portfolio Optimization Strategy
+                from src.strategy.optimization import PortfolioOptimizer
                 
-                for bet in bets:
-                    amount = bet['amount']
-                    horse_num = bet['horse_num']
-                    year_bet_amount += amount
-                    
-                    # Check result
-                    result_row = race_data[race_data['horse_num'] == horse_num].iloc[0]
-                    if result_row['rank'] == 1:
-                        payout = amount * result_row['odds']
-                        year_return += payout
+                optimizer = PortfolioOptimizer(budget=10000) # 10k yen per race budget
+                
+                # Generate Candidates
+                candidates = []
+                
+                # A. Single Win Candidates
+                for _, row in race_data.iterrows():
+                    h_num = row['horse_num']
+                    prob = row['pred_prob']
+                    odds = odds_data.get(h_num, 0)
+                    if odds > 0:
+                        candidates.append({
+                            'type': '単勝',
+                            'combo': (h_num,), # Tuple for consistency
+                            'prob': prob,
+                            'odds': odds,
+                            'ev': prob * odds,
+                            'horse_num': h_num # Keep for compatibility
+                        })
 
-                # 2. Box Betting Strategy (New Demo)
-                # Buy Box 3 for Quinella (Uren) and Trio (Sanfuku)
-                # Top 3 horses by predicted probability
-                top_3_horses = race_data.sort_values('pred_prob', ascending=False).head(3)['horse_num'].tolist()
+                # B. Quinella (Uren) Candidates
+                # Estimate probabilities using Harville's Formula
+                win_probs = dict(zip(race_data['horse_num'], race_data['pred_prob']))
+                uren_probs = optimizer.harville_formula(win_probs, 'uren')
                 
-                if len(top_3_horses) == 3 and not payout_df.empty:
-                    # Quinella Box (3 combinations: 1-2, 1-3, 2-3)
-                    # Cost: 3 * 100 = 300
-                    year_bet_amount += 300 
-                    
-                    # Check if any combination hit
+                # We need odds for Quinella. 
+                # Since we don't have historical Quinella odds, we can:
+                # 1. Use actual payout as proxy for odds (Perfect Information - Cheating?)
+                # 2. Skip Quinella for now in optimization if we want to be strict.
+                # 
+                # For this DEMO, let's use the actual payout to calculate "Implied Odds" 
+                # just to prove the optimization logic works.
+                # In production, we would scrape real-time odds.
+                
+                if not payout_df.empty:
                     race_payouts = payout_df[payout_df['race_id'] == race_id]
+                    uren_payouts = race_payouts[race_payouts['ticket_type'] == '馬連']
                     
-                    # Helper to check hit
-                    def check_hit(ticket_type, horses):
-                        # horses is a list of ints. Payout 'horse_nums' is string like "1 - 2"
-                        # We need to parse payout string
-                        hits = 0
-                        return_amount = 0
+                    for _, row in uren_payouts.iterrows():
+                        # Parse winning numbers
+                        txt = str(row['horse_nums']).replace('→', '-').replace(' ', '')
+                        winning_nums = tuple(sorted([int(x) for x in txt.split('-') if x.isdigit()]))
                         
-                        type_rows = race_payouts[race_payouts['ticket_type'] == ticket_type]
-                        for _, row in type_rows.iterrows():
-                            # Parse winning numbers
-                            # Format: "1 - 2" or "1 - 2 - 3" or "1 → 2"
-                            # Normalize separators
-                            txt = str(row['horse_nums']).replace('→', '-').replace(' ', '')
-                            winning_nums = [int(x) for x in txt.split('-') if x.isdigit()]
-                            
-                            # Check if our box contains all winning numbers
-                            # For Quinella/Trio, order doesn't matter
-                            if set(winning_nums).issubset(set(horses)):
-                                return_amount += row['payout']
-                                hits += 1
-                        return return_amount
+                        # We only know the odds for the WINNING combination from history.
+                        # We don't know the odds for LOSING combinations.
+                        # This makes backtesting complex bets hard without full odds data.
+                        
+                        # COMPROMISE:
+                        # We will only optimize "Win" bets for now using the new Optimizer,
+                        # effectively replacing the old logic with Kelly Criterion.
+                        # Future: When we have full odds data, we uncomment the rest.
+                        pass
 
-                    # Quinella (馬連)
-                    uren_return = check_hit('馬連', top_3_horses)
-                    year_return += uren_return
-                    
-                    # Trio (3連複) - Box 3 is just 1 combination
-                    # sanfuku_return = check_hit('三連複', top_3_horses)
-                    # year_return += sanfuku_return
+                # Optimize
+                optimized_bets = optimizer.optimize_bets(candidates)
+                
+                for bet in optimized_bets:
+                    amount = bet['amount']
+                    # Handle Win Bet
+                    if bet['type'] == '単勝':
+                        h_num = bet['combo'][0]
+                        year_bet_amount += amount
+                        
+                        result_row = race_data[race_data['horse_num'] == h_num].iloc[0]
+                        if result_row['rank'] == 1:
+                            payout = amount * result_row['odds']
+                            year_return += payout
                     
                     # Note: For now, I am NOT adding these to the main 'year_return' 
                     # because we want to compare apples to apples with previous Single Win results.
