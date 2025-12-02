@@ -87,20 +87,49 @@ class NetkeibaParser:
                         if not rank.isdigit():
                             continue
                             
-                        horse_name = get_col_text(3)
-                        
-                        # Gender and Age: 牡3 -> Gender: 牡, Age: 3
-                        gender_age = get_col_text(4)
-                        gender = gender_age[0] if gender_age else None
-                        age = gender_age[1:] if len(gender_age) > 1 else None
-                        
-                        jockey = get_col_text(6)
-                        time_str = get_col_text(7)
-                        
-                        # Odds (Single Win): Usually col 9 or 10 depending on layout
-                        # Let's assume standard layout: 
-                        # 0:着順, 1:枠, 2:馬番, 3:馬名, 4:性齢, 5:斤量, 6:騎手, 7:タイム, 8:着差
-                        # 9:タイム指数, 10:通過, 11:上り, 12:単勝, 13:人気
+                        # Extract Horse ID
+                        horse_a = cols[3].find('a')
+                        horse_id = None
+                        if horse_a and 'href' in horse_a.attrs:
+                            # /horse/2015104961/
+                            match = re.search(r'/horse/(\d+)/', horse_a['href'])
+                            if match:
+                                horse_id = match.group(1)
+
+                        # Extract Jockey ID
+                        jockey_a = cols[6].find('a')
+                        jockey_id = None
+                        if jockey_a and 'href' in jockey_a.attrs:
+                            # /jockey/result/recent/01088/
+                            match = re.search(r'/jockey/.+/(\d+)/', jockey_a['href'])
+                            if match:
+                                jockey_id = match.group(1)
+
+                        # Extract Trainer Info (Col 18)
+                        trainer = get_col_text(18)
+                        trainer_a = cols[18].find('a')
+                        trainer_id = None
+                        if trainer_a and 'href' in trainer_a.attrs:
+                            # /trainer/result/recent/01088/
+                            match = re.search(r'/trainer/.+/(\d+)/', trainer_a['href'])
+                            if match:
+                                trainer_id = match.group(1)
+
+                        # Extract Horse Weight (Col 14)
+                        # Format: 480(+2) or 480(0) or 計不
+                        weight_text = get_col_text(14)
+                        horse_weight = None
+                        weight_change = None
+                        if weight_text and weight_text != '計不':
+                            match = re.search(r'(\d+)\((.+)\)', weight_text)
+                            if match:
+                                horse_weight = int(match.group(1))
+                                change_str = match.group(2)
+                                try:
+                                    weight_change = int(change_str)
+                                except ValueError:
+                                    weight_change = 0 # Handle cases like "前計不" if any
+
                         odds = get_col_text(12)
                         popularity = get_col_text(13)
                         
@@ -110,9 +139,15 @@ class NetkeibaParser:
                             'bracket': int(get_col_text(1)),
                             'horse_num': int(get_col_text(2)),
                             'horse_name': horse_name,
+                            'horse_id': horse_id,
                             'gender': gender,
                             'age': int(age) if age and age.isdigit() else None,
                             'jockey': jockey,
+                            'jockey_id': jockey_id,
+                            'trainer': trainer,
+                            'trainer_id': trainer_id,
+                            'horse_weight': horse_weight,
+                            'weight_change': weight_change,
                             'time': time_str,
                             'odds': float(odds) if odds and odds.replace('.','',1).isdigit() else None,
                             'popularity': int(popularity) if popularity and popularity.isdigit() else None

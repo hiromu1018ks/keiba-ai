@@ -26,7 +26,9 @@ def train_model(data_path='data/common/raw_data/results.csv', model_dir='models'
     
     # Define features and target
     # Exclude non-feature columns
-    exclude_cols = ['race_id', 'date', 'time', 'rank', 'target']
+    # Exclude non-feature columns
+    exclude_cols = ['race_id', 'date', 'time', 'rank', 'target', 'date_dt', 
+                    'horse_name', 'jockey', 'trainer', 'horse_id', 'jockey_id', 'trainer_id', 'time_seconds']
     feature_cols = [c for c in df_processed.columns if c not in exclude_cols]
     
     X = df_processed[feature_cols]

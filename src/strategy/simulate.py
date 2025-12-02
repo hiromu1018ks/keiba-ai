@@ -66,7 +66,8 @@ class Backtester:
             train_X_all = fe.fit_transform(train_df)
             test_X_all = fe.transform(test_df)
             
-            exclude_cols = ['race_id', 'date', 'time', 'rank', 'target', 'date_dt', 'year']
+            exclude_cols = ['race_id', 'date', 'time', 'rank', 'target', 'date_dt', 'year',
+                            'horse_name', 'jockey', 'trainer', 'horse_id', 'jockey_id', 'trainer_id', 'time_seconds']
             feature_cols = [c for c in train_X_all.columns if c not in exclude_cols]
             
             X_train = train_X_all[feature_cols]
