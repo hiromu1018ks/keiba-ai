@@ -36,9 +36,10 @@ class FeatureEngineer:
         for col in self.categorical_cols:
             if col in df.columns and col in self.label_encoders:
                 le = self.label_encoders[col]
-                # Handle unseen labels by assigning a default value (e.g., -1 or len(classes))
-                # For simplicity here, we'll map unseen to -1
-                df[col] = df[col].astype(str).map(lambda s: le.transform([s])[0] if s in le.classes_ else -1)
+                # Create a mapping dictionary for faster transformation
+                mapping = {label: i for i, label in enumerate(le.classes_)}
+                # Map values, filling unknown with -1
+                df[col] = df[col].astype(str).map(mapping).fillna(-1).astype(int)
 
         # 3. Numeric Conversion / Cleanup
         # Ensure numeric columns are actually numeric
