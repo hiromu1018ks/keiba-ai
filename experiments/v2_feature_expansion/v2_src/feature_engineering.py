@@ -111,7 +111,8 @@ class FeatureEngineer:
         temp_df = df.copy()
         
         # Merge Pedigree
-        temp_df = self.pedigree_engineer.merge_pedigree(temp_df)
+        if 'sire_id' not in temp_df.columns:
+            temp_df = self.pedigree_engineer.merge_pedigree(temp_df)
         
         # 0. Pre-processing for encoding
         if 'race_id' in temp_df.columns:
@@ -167,135 +168,146 @@ class FeatureEngineer:
         
         return self
 
-    def transform(self, df):
+    def transform(self, df, encoding_only=False):
         """
         Transforms the dataframe into features.
+        If encoding_only=True, skips feature generation and only applies target encoding.
         """
         df = df.copy()
         
-        # Merge Pedigree
-        df = self.pedigree_engineer.merge_pedigree(df)
-        
-        # --- Basic Processing ---
-        if 'time' in df.columns:
-            df['time_seconds'] = df['time'].apply(self._convert_time_to_seconds)
-
-        if 'race_id' in df.columns:
-            df['place'] = df['race_id'].apply(self._extract_place)
-
-        if 'distance' in df.columns:
-            df['distance_category'] = df['distance'].apply(self._categorize_distance)
+        if encoding_only:
+            # 1. Apply Target Encoding for IDs (Global)
+            # Just ensure basic columns like place/distance_category are present if needed for interaction encoding?
+            # Interactions should already be present if generated before split.
+            pass
+        else:
+            # Merge Pedigree
+            if 'sire_id' not in df.columns:
+                df = self.pedigree_engineer.merge_pedigree(df)
             
-        if 'horse_weight' in df.columns:
-            df['weight_bin'] = df['horse_weight'].apply(self._bin_weight)
+            # --- Basic Processing ---
+            if 'time' in df.columns:
+                df['time_seconds'] = df['time'].apply(self._convert_time_to_seconds)
 
-        if 'passing_order' in df.columns:
-            df['running_style'] = df['passing_order'].apply(self._classify_running_style)
+            if 'race_id' in df.columns:
+                df['place'] = df['race_id'].apply(self._extract_place)
 
-        if 'jockey_id' in df.columns and 'trainer_id' in df.columns:
-            df['jockey_trainer_pair'] = df['jockey_id'].astype(str) + '_' + df['trainer_id'].astype(str)
-            
-        # Create Pedigree Interactions
-        df = self.pedigree_engineer.create_interaction_features(df)
-        # Create Connection Interactions
-        df = self.connections_engineer.create_connection_features(df)
+            if 'distance' in df.columns:
+                df['distance_category'] = df['distance'].apply(self._categorize_distance)
+                
+            if 'horse_weight' in df.columns:
+                df['weight_bin'] = df['horse_weight'].apply(self._bin_weight)
 
-        # Target Creation
-        if 'rank' in df.columns:
-            df['target'] = df['rank'].apply(lambda x: 1 if x == 1 else 0)
-            # Close 2nd logic could be added here if needed
+            if 'passing_order' in df.columns:
+                df['running_style'] = df['passing_order'].apply(self._classify_running_style)
 
-        # --- Advanced Features ---
-        
-        # 1. Log Transformations
-        if 'prize' in df.columns:
-            df['log_prize'] = np.log1p(df['prize'].fillna(0))
-        
-        if 'odds' in df.columns:
-            df['log_odds'] = np.log1p(df['odds'].fillna(0))
+            if 'jockey_id' in df.columns and 'trainer_id' in df.columns:
+                df['jockey_trainer_pair'] = df['jockey_id'].astype(str) + '_' + df['trainer_id'].astype(str)
+                
+            # Create Pedigree Interactions
+            df = self.pedigree_engineer.create_interaction_features(df)
+            # Create Connection Interactions
+            df = self.connections_engineer.create_connection_features(df)
 
-        if 'margin' in df.columns:
-            df['margin_val'] = df['margin'].apply(self._convert_margin)
-
-        # 2. Lag Features & Domain Knowledge
-        df = self.history_engineer.create_history_features(df)
-        
-        # 3. Interaction Features (Ratios)
-        if 'horse_weight' in df.columns and 'weight' in df.columns:
-            # impost_ratio = weight / horse_weight
-            # weight might be string or mixed? usually float in parser.
-            # parser extracts 57.0 as float.
-            try:
-                df['impost_ratio'] = df['weight'] / df['horse_weight'].replace(0, np.nan)
-            except:
-                pass
-
-        if 'weight_change' in df.columns and 'horse_weight' in df.columns:
-            try:
-                df['weight_change_ratio'] = df['weight_change'] / df['horse_weight'].replace(0, np.nan)
-            except:
-                pass
-        # Old lag logic removed in favor of HistoryFeature
-        
-
-
-        # 3. Jockey/Trainer Recent Performance (Win/Place/Show Rate last 100)
-        # This requires sorting by date globally, not by horse
-        try:
-            # Sort by race_id to ensure chronological order within the same day
-            # race_id format: YYYY... so it works for sorting
-            df = df.sort_values('race_id')
-            
+            # Target Creation
             if 'rank' in df.columns:
-                df['is_win'] = (df['rank'] == 1).astype(int)
-                df['is_place'] = (df['rank'] <= 2).astype(int)
-                df['is_show'] = (df['rank'] <= 3).astype(int)
+                df['target'] = df['rank'].apply(lambda x: 1 if x == 1 else 0)
+                # Close 2nd logic could be added here if needed
+
+            # --- Advanced Features ---
             
-                # Jockey
-                if 'jockey_id' in df.columns:
-                    # Win Rate
-                    df['jockey_win_rate_100'] = df.groupby('jockey_id')['is_win'].transform(
-                        lambda x: x.shift(1).rolling(100, min_periods=10).mean()
-                    ).fillna(0)
-                    # Place Rate
-                    df['jockey_place_rate_100'] = df.groupby('jockey_id')['is_place'].transform(
-                        lambda x: x.shift(1).rolling(100, min_periods=10).mean()
-                    ).fillna(0)
-                    # Show Rate
-                    df['jockey_show_rate_100'] = df.groupby('jockey_id')['is_show'].transform(
-                        lambda x: x.shift(1).rolling(100, min_periods=10).mean()
-                    ).fillna(0)
+            # 1. Log Transformations
+            if 'prize' in df.columns:
+                df['log_prize'] = np.log1p(df['prize'].fillna(0))
+            
+            if 'odds' in df.columns:
+                df['log_odds'] = np.log1p(df['odds'].fillna(0))
+
+            if 'margin' in df.columns:
+                df['margin_val'] = df['margin'].apply(self._convert_margin)
+
+            # 2. Lag Features & Domain Knowledge
+            df = self.history_engineer.create_history_features(df)
+            
+            # 3. Interaction Features (Ratios)
+            if 'horse_weight' in df.columns and 'weight' in df.columns:
+                # impost_ratio = weight / horse_weight
+                # weight might be string or mixed? usually float in parser.
+                # parser extracts 57.0 as float.
+                try:
+                    df['impost_ratio'] = df['weight'] / df['horse_weight'].replace(0, np.nan)
+                except:
+                    pass
+
+            if 'weight_change' in df.columns and 'horse_weight' in df.columns:
+                try:
+                    df['weight_change_ratio'] = df['weight_change'] / df['horse_weight'].replace(0, np.nan)
+                except:
+                    pass
+            # Old lag logic removed in favor of HistoryFeature
+            
+
+
+            # 3. Jockey/Trainer Recent Performance (Win/Place/Show Rate last 100)
+            # This requires sorting by date globally, not by horse
+            try:
+                # Sort by race_id to ensure chronological order within the same day
+                # race_id format: YYYY... so it works for sorting
+                if 'race_id' in df.columns:
+                    df = df.sort_values('race_id')
+                
+                if 'rank' in df.columns:
+                    df['is_win'] = (df['rank'] == 1).astype(int)
+                    df['is_place'] = (df['rank'] <= 2).astype(int)
+                    df['is_show'] = (df['rank'] <= 3).astype(int)
+                
+                    # Jockey
+                    if 'jockey_id' in df.columns:
+                        # Win Rate
+                        df['jockey_win_rate_100'] = df.groupby('jockey_id')['is_win'].transform(
+                            lambda x: x.shift(1).rolling(100, min_periods=10).mean()
+                        ).fillna(0)
+                        # Place Rate
+                        df['jockey_place_rate_100'] = df.groupby('jockey_id')['is_place'].transform(
+                            lambda x: x.shift(1).rolling(100, min_periods=10).mean()
+                        ).fillna(0)
+                        # Show Rate
+                        df['jockey_show_rate_100'] = df.groupby('jockey_id')['is_show'].transform(
+                            lambda x: x.shift(1).rolling(100, min_periods=10).mean()
+                        ).fillna(0)
+                        
+                    # Trainer
+                    if 'trainer_id' in df.columns:
+                        # Win Rate
+                        df['trainer_win_rate_100'] = df.groupby('trainer_id')['is_win'].transform(
+                            lambda x: x.shift(1).rolling(100, min_periods=10).mean()
+                        ).fillna(0)
+                        # Place Rate
+                        df['trainer_place_rate_100'] = df.groupby('trainer_id')['is_place'].transform(
+                            lambda x: x.shift(1).rolling(100, min_periods=10).mean()
+                        ).fillna(0)
+                        # Show Rate
+                        df['trainer_show_rate_100'] = df.groupby('trainer_id')['is_show'].transform(
+                            lambda x: x.shift(1).rolling(100, min_periods=10).mean()
+                        ).fillna(0)
                     
-                # Trainer
-                if 'trainer_id' in df.columns:
-                    # Win Rate
-                    df['trainer_win_rate_100'] = df.groupby('trainer_id')['is_win'].transform(
-                        lambda x: x.shift(1).rolling(100, min_periods=10).mean()
-                    ).fillna(0)
-                    # Place Rate
-                    df['trainer_place_rate_100'] = df.groupby('trainer_id')['is_place'].transform(
-                        lambda x: x.shift(1).rolling(100, min_periods=10).mean()
-                    ).fillna(0)
-                    # Show Rate
-                    df['trainer_show_rate_100'] = df.groupby('trainer_id')['is_show'].transform(
-                        lambda x: x.shift(1).rolling(100, min_periods=10).mean()
-                    ).fillna(0)
-                
-                df.drop(columns=['is_win', 'is_place', 'is_show'], inplace=True)
-                
-        except Exception as e:
-            logger.error(f"Failed to create jockey/trainer features: {e}")
+                    df.drop(columns=['is_win', 'is_place', 'is_show'], inplace=True)
+                    
+            except Exception as e:
+                logger.error(f"Failed to create jockey/trainer recent performance: {e}")
 
-        # 4. Relative Features (Z-Scores)
-        if 'race_id' in df.columns:
-            numeric_cols_for_z = ['horse_weight', 'age', 'odds', 'ewma_rank_5', 'interval', 'avg_margin_5']
-            for col in numeric_cols_for_z:
-                if col in df.columns:
-                    df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
-                    df[f'{col}_zscore'] = df.groupby('race_id')[col].transform(
-                        lambda x: (x - x.mean()) / (x.std() + 1e-6)
-                    ).fillna(0)
+            # 4. Relative Features (Z-Scores)
+            if 'race_id' in df.columns:
+                numeric_cols_for_z = ['horse_weight', 'age', 'odds', 'ewma_rank_5', 'interval', 'avg_margin_5']
+                for col in numeric_cols_for_z:
+                    if col in df.columns:
+                        df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
+                        df[f'{col}_zscore'] = df.groupby('race_id')[col].transform(
+                            lambda x: (x - x.mean()) / (x.std() + 1e-6)
+                        ).fillna(0)
 
+        # --- Apply Encoding (Always done if exists) --- 
+        
         # 5. Target Encoding Application (Global Map)
         for col in self.id_cols:
             if col in df.columns and col in self.target_encoders:
