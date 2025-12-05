@@ -20,7 +20,8 @@ class FeatureEngineer:
                         'sire_surface', 'sire_distance', 'bms_surface', 'bms_distance',
                         'jockey_place', 'jockey_surface', 'jockey_distance',
                         'trainer_place', 'trainer_surface', 'trainer_distance',
-                        'owner_surface', 'horse_jockey']
+                        'owner_surface', 'horse_jockey',
+                        'age_gender', 'class_distance', 'condition_surface']
         self.pedigree_engineer = PedigreeFeature()
         self.connections_engineer = ConnectionsFeature()
         self.history_engineer = HistoryFeature()
@@ -208,6 +209,14 @@ class FeatureEngineer:
             df = self.pedigree_engineer.create_interaction_features(df)
             # Create Connection Interactions
             df = self.connections_engineer.create_connection_features(df)
+            
+            # Create Misc Interactions (Categorical Combos)
+            if 'age' in df.columns and 'gender' in df.columns:
+                df['age_gender'] = df['age'].astype(str) + '_' + df['gender'].astype(str)
+            if 'race_class' in df.columns and 'distance_category' in df.columns:
+                df['class_distance'] = df['race_class'].astype(str) + '_' + df['distance_category'].astype(str)
+            if 'condition' in df.columns and 'surface' in df.columns:
+                 df['condition_surface'] = df['condition'].astype(str) + '_' + df['surface'].astype(str)
 
             # Target Creation
             if 'rank' in df.columns:
@@ -296,15 +305,60 @@ class FeatureEngineer:
             except Exception as e:
                 logger.error(f"Failed to create jockey/trainer recent performance: {e}")
 
-            # 4. Relative Features (Z-Scores)
+            # 4. Relative Features (Z-Scores, Deviation, Ratio)
             if 'race_id' in df.columns:
-                numeric_cols_for_z = ['horse_weight', 'age', 'odds', 'ewma_rank_5', 'interval', 'avg_margin_5']
-                for col in numeric_cols_for_z:
+                # Add more diverse numeric columns if available
+                # e.g., 'weight' (impost), 'prev_rank', 'prev_prize'
+                # Be careful with columns that might be all NaN for first timers.
+                numeric_cols_for_relative = ['horse_weight', 'age', 'weight', 
+                                             'prev_rank', 'prev_prize', 'prev_agari_3f', 
+                                             'interval', 'rank_5_mean', 'prize_5_mean',
+                                             'agari_3f_5_mean', 'position_gain_5_mean']
+                
+                for col in numeric_cols_for_relative:
                     if col in df.columns:
-                        df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
-                        df[f'{col}_zscore'] = df.groupby('race_id')[col].transform(
-                            lambda x: (x - x.mean()) / (x.std() + 1e-6)
-                        ).fillna(0)
+                        try:
+                            df[col] = pd.to_numeric(df[col], errors='coerce')
+                            
+                            # Calculate stats per race
+                            # Using agg and merge is safer and cleaner than transform with agg list
+                            agg_funcs = ['mean', 'std', 'min', 'max']
+                            race_stats = df.groupby('race_id')[col].agg(agg_funcs)
+                            
+                            # Flatten columns
+                            race_stats.columns = [f'{col}_race_{stat}' for stat in agg_funcs]
+                            
+                            # Merge back (left join on race_id)
+                            # To avoid defragmentation issues, maybe merge?
+                            df = df.merge(race_stats, on='race_id', how='left')
+                            
+                            # Calculate relative features
+                            # Mean & Std are now columns
+                            mean_col = f'{col}_race_mean'
+                            std_col = f'{col}_race_std'
+                            min_col = f'{col}_race_min'
+                            max_col = f'{col}_race_max'
+                            
+                            # Deviation
+                            df[f'{col}_diff_race_mean'] = df[col] - df[mean_col]
+                            
+                            # Z-Score
+                            df[f'{col}_zscore'] = (df[col] - df[mean_col]) / (df[std_col] + 1e-6)
+                            
+                            # Ratio
+                            df[f'{col}_ratio_race_mean'] = df[col] / (df[mean_col] + 1e-6)
+                            
+                            # Min/Max diff
+                            df[f'{col}_diff_race_min'] = df[col] - df[min_col]
+                            df[f'{col}_diff_race_max'] = df[col] - df[max_col]
+                            
+                            # Clean up temp cols if desired, or keep them as features?
+                            # Usually race_mean itself might not be useful for predict ranking WITHIN race?
+                            # But maybe useful for overall quality. Keep for now or drop.
+                            # df.drop(columns=[mean_col, std_col, min_col, max_col], inplace=True)
+                            
+                        except Exception as e:
+                            logger.error(f"Error calculating relative features for {col}: {e}")
 
         # --- Apply Encoding (Always done if exists) --- 
         
@@ -336,8 +390,16 @@ class FeatureEngineer:
                         'jockey_win_rate_100', 'jockey_place_rate_100', 'jockey_show_rate_100',
                         'trainer_win_rate_100', 'trainer_place_rate_100', 'trainer_show_rate_100']
         
-        # Add z-scores
+        # Add z-scores and other relative stats
         numeric_cols += [c for c in df.columns if '_zscore' in c]
+        numeric_cols += [c for c in df.columns if '_ratio_race_mean' in c]
+        numeric_cols += [c for c in df.columns if '_diff_race_mean' in c]
+        numeric_cols += [c for c in df.columns if '_diff_race_min' in c]
+        numeric_cols += [c for c in df.columns if '_diff_race_max' in c]
+        
+        # Add new lags explicitly
+        numeric_cols += ['prev_rank_2', 'prev_rank_3', 'prev_prize_2', 'prev_prize_3',
+                         'prev_odds_2', 'prev_odds_3']
         
         for col in numeric_cols:
             if col in df.columns:

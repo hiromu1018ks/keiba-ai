@@ -73,21 +73,38 @@ class HistoryFeature:
 
         # --- Lag Features (Shift 1 to use PAST data only) ---
         # Window sizes
-        windows = [3, 5, 10]
+        windows = [3, 5, 10, 100]
         
         # Targets for aggregation
         targets = {
-            'rank': ['mean', 'std', 'min', 'max'],
-            'prize': ['mean', 'sum'],
-            'agari_3f': ['mean'],
-            'first_corner_pos': ['mean'],
-            'final_corner_pos': ['mean'],
-            'position_gain': ['mean']
+            'rank': ['mean', 'std', 'min', 'max', 'median'],
+            'prize': ['mean', 'sum', 'max'],
+            'agari_3f': ['mean', 'min', 'median'],
+            'first_corner_pos': ['mean', 'median'],
+            'final_corner_pos': ['mean', 'median'],
+            'position_gain': ['mean', 'min', 'max'],
+            'odds': ['mean', 'std', 'min', 'max'],
+            'popularity': ['mean', 'max'], # worst popularity = max
+            'weight': ['mean', 'std'], # impost
+            'horse_weight': ['mean', 'std', 'min', 'max', 'median'] # body weight
         }
         
         # Raw Lags (Previous race)
         df['prev_rank'] = grouped['rank'].shift(1).fillna(99)
+        df['prev_rank_2'] = grouped['rank'].shift(2).fillna(99)
+        df['prev_rank_3'] = grouped['rank'].shift(3).fillna(99)
+        
         df['prev_prize'] = grouped['prize'].shift(1).fillna(0)
+        df['prev_prize_2'] = grouped['prize'].shift(2).fillna(0)
+        df['prev_prize_3'] = grouped['prize'].shift(3).fillna(0)
+        
+        if 'odds' in df.columns:
+            df['prev_odds'] = grouped['odds'].shift(1)
+            df['prev_odds_2'] = grouped['odds'].shift(2)
+            df['prev_odds_3'] = grouped['odds'].shift(3)
+            
+        if 'popularity' in df.columns:
+            df['prev_popularity'] = grouped['popularity'].shift(1)
         if 'agari_3f' in df.columns:
             df['prev_agari_3f'] = grouped['agari_3f'].shift(1)
 
@@ -123,6 +140,8 @@ class HistoryFeature:
                         df[col_name] = feature_base.max()
                     elif func == 'sum':
                         df[col_name] = feature_base.sum()
+                    elif func == 'median':
+                        df[col_name] = feature_base.median()
                         
             # Fill NaNs for specific columns if needed
             # rank NaNs -> maybe mean rank? or 99?

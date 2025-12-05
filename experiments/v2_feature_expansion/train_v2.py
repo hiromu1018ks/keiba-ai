@@ -101,7 +101,8 @@ def train_model(data_path='data/common/raw_data/results.csv', model_dir='experim
         'sire_surface', 'sire_distance', 'bms_surface', 'bms_distance',
         'jockey_place', 'jockey_surface', 'jockey_distance',
         'trainer_place', 'trainer_surface', 'trainer_distance',
-        'owner_surface', 'horse_jockey'
+        'owner_surface', 'horse_jockey',
+        'age_gender', 'class_distance', 'condition_surface'
     ]
     feature_cols = [c for c in feature_cols if c not in raw_interactions]
 
