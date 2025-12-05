@@ -11,3 +11,9 @@ data/common/
 data/jra_van/
 *.pkl
 common/data/
+
+# Simulation outputs
+simulation_predictions.csv
+*.log
+*.txt
+
