@@ -2,6 +2,9 @@ import pandas as pd
 import numpy as np
 from sklearn.preprocessing import LabelEncoder
 from common.src.utils.logger import setup_logger
+from src.features.pedigree import PedigreeFeature
+from src.features.connections import ConnectionsFeature
+from src.features.history import HistoryFeature
 
 logger = setup_logger(__name__)
 
@@ -11,7 +14,23 @@ class FeatureEngineer:
         self.target_encoders = {}
         self.categorical_cols = ['weather', 'condition', 'gender', 'surface', 'distance_category', 'weight_bin',
                                  'around', 'race_class', 'place', 'running_style']
-        self.id_cols = ['jockey_id', 'trainer_id', 'jockey_trainer_pair']
+        # Added pedigree related columns to id_cols for Target Encoding
+        self.id_cols = ['jockey_id', 'trainer_id', 'jockey_trainer_pair',
+                        'sire_id', 'bms_id', 'owner_id', 'breeder_id',
+                        'sire_surface', 'sire_distance', 'bms_surface', 'bms_distance',
+                        'jockey_place', 'jockey_surface', 'jockey_distance',
+                        'trainer_place', 'trainer_surface', 'trainer_distance',
+                        'owner_surface', 'horse_jockey']
+        self.pedigree_engineer = PedigreeFeature()
+        self.connections_engineer = ConnectionsFeature()
+        self.history_engineer = HistoryFeature()
+
+    def _extract_place(self, race_id):
+        try:
+            # race_id: YYYYPP... (12 digits). Place code is at index 4,5
+            return str(race_id)[4:6]
+        except:
+            return 'unknown'
 
     def _convert_time_to_seconds(self, time_str):
         try:
@@ -91,7 +110,13 @@ class FeatureEngineer:
         """
         temp_df = df.copy()
         
+        # Merge Pedigree
+        temp_df = self.pedigree_engineer.merge_pedigree(temp_df)
+        
         # 0. Pre-processing for encoding
+        if 'race_id' in temp_df.columns:
+            temp_df['place'] = temp_df['race_id'].apply(self._extract_place)
+
         if 'distance' in temp_df.columns:
             temp_df['distance_category'] = temp_df['distance'].apply(self._categorize_distance)
         
@@ -103,6 +128,11 @@ class FeatureEngineer:
 
         if 'jockey_id' in temp_df.columns and 'trainer_id' in temp_df.columns:
             temp_df['jockey_trainer_pair'] = temp_df['jockey_id'].astype(str) + '_' + temp_df['trainer_id'].astype(str)
+            
+        # Create Pedigree Interactions (requires distance_category etc)
+        temp_df = self.pedigree_engineer.create_interaction_features(temp_df)
+        # Create Connection Interactions
+        temp_df = self.connections_engineer.create_connection_features(temp_df)
 
         # Target Creation
         if 'target' not in temp_df.columns and 'rank' in temp_df.columns:
@@ -113,6 +143,9 @@ class FeatureEngineer:
             logger.warning("Target column not found in fit. Skipping Target Encoding.")
             return self
 
+        # 2. Lag Features & Domain Knowledge
+        temp_df = self.history_engineer.create_history_features(temp_df)
+        
         # 1. Target Encoding for IDs (Global)
         for col in self.id_cols:
             if col in temp_df.columns:
@@ -140,9 +173,15 @@ class FeatureEngineer:
         """
         df = df.copy()
         
+        # Merge Pedigree
+        df = self.pedigree_engineer.merge_pedigree(df)
+        
         # --- Basic Processing ---
         if 'time' in df.columns:
             df['time_seconds'] = df['time'].apply(self._convert_time_to_seconds)
+
+        if 'race_id' in df.columns:
+            df['place'] = df['race_id'].apply(self._extract_place)
 
         if 'distance' in df.columns:
             df['distance_category'] = df['distance'].apply(self._categorize_distance)
@@ -155,6 +194,11 @@ class FeatureEngineer:
 
         if 'jockey_id' in df.columns and 'trainer_id' in df.columns:
             df['jockey_trainer_pair'] = df['jockey_id'].astype(str) + '_' + df['trainer_id'].astype(str)
+            
+        # Create Pedigree Interactions
+        df = self.pedigree_engineer.create_interaction_features(df)
+        # Create Connection Interactions
+        df = self.connections_engineer.create_connection_features(df)
 
         # Target Creation
         if 'rank' in df.columns:
@@ -174,92 +218,26 @@ class FeatureEngineer:
             df['margin_val'] = df['margin'].apply(self._convert_margin)
 
         # 2. Lag Features & Domain Knowledge
-        if 'date' in df.columns and 'horse_id' in df.columns:
+        df = self.history_engineer.create_history_features(df)
+        
+        # 3. Interaction Features (Ratios)
+        if 'horse_weight' in df.columns and 'weight' in df.columns:
+            # impost_ratio = weight / horse_weight
+            # weight might be string or mixed? usually float in parser.
+            # parser extracts 57.0 as float.
             try:
-                if not pd.api.types.is_datetime64_any_dtype(df['date']):
-                    df['date_dt'] = pd.to_datetime(df['date'], format='%Y年%m月%d日', errors='coerce')
-                else:
-                    df['date_dt'] = df['date']
-                    
-                df = df.sort_values(['horse_id', 'date_dt'])
-                grouped = df.groupby('horse_id')
-                
-                # Interval (Days since last race)
-                df['interval'] = grouped['date_dt'].diff().dt.days.fillna(0)
-                
-                # Seasonality
-                df['month_sin'] = np.sin(2 * np.pi * df['date_dt'].dt.month / 12)
-                df['month_cos'] = np.cos(2 * np.pi * df['date_dt'].dt.month / 12)
+                df['impost_ratio'] = df['weight'] / df['horse_weight'].replace(0, np.nan)
+            except:
+                pass
 
-                # Basic Lags
-                df['prev_rank'] = grouped['rank'].shift(1).fillna(99)
-                df['ewma_rank_5'] = grouped['rank'].transform(lambda x: x.shift(1).ewm(span=5).mean()).fillna(99)
-                
-                # Requested Rolling Features (Mean)
-                # Rank
-                df['rank_3races'] = grouped['rank'].transform(lambda x: x.shift(1).rolling(3, min_periods=1).mean()).fillna(99)
-                df['rank_5races'] = grouped['rank'].transform(lambda x: x.shift(1).rolling(5, min_periods=1).mean()).fillna(99)
-                df['rank_10races'] = grouped['rank'].transform(lambda x: x.shift(1).rolling(10, min_periods=1).mean()).fillna(99)
-                df['rank_1000races'] = grouped['rank'].transform(lambda x: x.shift(1).expanding().mean()).fillna(99)
-                
-                # Rank Stats (Std, Min, Max) - Rolling 5
-                df['rank_5_std'] = grouped['rank'].transform(lambda x: x.shift(1).rolling(5, min_periods=2).std()).fillna(0)
-                df['rank_5_min'] = grouped['rank'].transform(lambda x: x.shift(1).rolling(5, min_periods=1).min()).fillna(99)
-                df['rank_5_max'] = grouped['rank'].transform(lambda x: x.shift(1).rolling(5, min_periods=1).max()).fillna(99)
+        if 'weight_change' in df.columns and 'horse_weight' in df.columns:
+            try:
+                df['weight_change_ratio'] = df['weight_change'] / df['horse_weight'].replace(0, np.nan)
+            except:
+                pass
+        # Old lag logic removed in favor of HistoryFeature
+        
 
-                # Prize
-                if 'prize' in df.columns:
-                    df['prize_3races'] = grouped['prize'].transform(lambda x: x.shift(1).rolling(3, min_periods=1).mean()).fillna(0)
-                    df['prize_5races'] = grouped['prize'].transform(lambda x: x.shift(1).rolling(5, min_periods=1).mean()).fillna(0)
-                    df['prize_10races'] = grouped['prize'].transform(lambda x: x.shift(1).rolling(10, min_periods=1).mean()).fillna(0)
-                    df['prize_1000races'] = grouped['prize'].transform(lambda x: x.shift(1).expanding().mean()).fillna(0)
-                    
-                    # Prize Stats (Std, Max)
-                    df['prize_5_std'] = grouped['prize'].transform(lambda x: x.shift(1).rolling(5, min_periods=2).std()).fillna(0)
-                    df['prize_5_max'] = grouped['prize'].transform(lambda x: x.shift(1).rolling(5, min_periods=1).max()).fillna(0)
-
-                # Margin Stats
-                if 'margin_val' in df.columns:
-                    df['avg_margin_5'] = grouped['margin_val'].transform(lambda x: x.shift(1).rolling(5, min_periods=1).mean()).fillna(99)
-
-                # Time Stats (Best Time per Distance)
-                # This is tricky because we need to group by horse AND distance
-                # A simple way is to calculate global best time for the horse per distance category
-                if 'time_seconds' in df.columns and 'distance_category' in df.columns:
-                    # We can't easily do this with simple transform on 'grouped' (which is by horse_id)
-                    # We need to iterate or use a more complex groupby
-                    # For now, let's skip complex "Best Time per Distance" in this block or implement a simplified version
-                    pass
-
-                # Distance Suitability (Avg Rank per Distance Category)
-                if 'distance_category' in df.columns:
-                    for cat in ['Sprint', 'Mile', 'Intermediate', 'Long']:
-                        is_cat = df['distance_category'] == cat
-                        df[f'rank_{cat}'] = df['rank'].where(is_cat)
-                        # Cumulative mean
-                        df[f'avg_rank_{cat}'] = grouped[f'rank_{cat}'].transform(lambda x: x.shift(1).expanding().mean()).fillna(99)
-                        df.drop(columns=[f'rank_{cat}'], inplace=True)
-
-                # Surface Suitability
-                if 'surface' in df.columns:
-                    for surf in ['芝', 'ダ']:
-                        surf_name = 'turf' if surf == '芝' else 'dirt'
-                        is_surf = df['surface'] == surf
-                        df[f'rank_{surf_name}'] = df['rank'].where(is_surf)
-                        df[f'avg_rank_{surf_name}'] = grouped[f'rank_{surf_name}'].transform(lambda x: x.shift(1).expanding().mean()).fillna(99)
-                        df.drop(columns=[f'rank_{surf_name}'], inplace=True)
-                        
-                # Place Suitability (Avg Rank per Place)
-                if 'place' in df.columns:
-                    # Top 4 places: Tokyo, Nakayama, Kyoto, Hanshin
-                    for p in ['Tokyo', 'Nakayama', 'Kyoto', 'Hanshin']:
-                        is_place = df['place'] == p
-                        df[f'rank_{p}'] = df['rank'].where(is_place)
-                        df[f'avg_rank_{p}'] = grouped[f'rank_{p}'].transform(lambda x: x.shift(1).expanding().mean()).fillna(99)
-                        df.drop(columns=[f'rank_{p}'], inplace=True)
-
-            except Exception as e:
-                logger.error(f"Failed to create lag features: {e}")
 
         # 3. Jockey/Trainer Recent Performance (Win/Place/Show Rate last 100)
         # This requires sorting by date globally, not by horse
