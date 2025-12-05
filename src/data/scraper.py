@@ -128,6 +128,54 @@ class NetkeibaScraper:
             return True
         return False
 
+    def scrape_horse_profile(self, horse_id):
+        """
+        Scrapes the horse profile page.
+        """
+        # Create horse directory if not exists
+        horse_dir = os.path.join(self.data_dir, 'horse')
+        if not os.path.exists(horse_dir):
+            os.makedirs(horse_dir)
+            
+        filename = f"horse_{horse_id}.html"
+        filepath = os.path.join(horse_dir, filename)
+        
+        if os.path.exists(filepath) and os.path.getsize(filepath) > 0:
+            logger.info(f"File {filename} already exists. Skipping.")
+            return True
+            
+        url = f"{self.BASE_URL}/horse/{horse_id}/"
+        logger.info(f"Scraping horse profile: {url}")
+        html = self._get_html(url)
+        if html:
+            self._save_html(html, f"horse/{filename}")
+            return True
+        return False
+
+    def scrape_horse_pedigree(self, horse_id):
+        """
+        Scrapes the horse pedigree page.
+        """
+        # Create horse directory if not exists
+        horse_dir = os.path.join(self.data_dir, 'horse')
+        if not os.path.exists(horse_dir):
+            os.makedirs(horse_dir)
+            
+        filename = f"ped_{horse_id}.html"
+        filepath = os.path.join(horse_dir, filename)
+        
+        if os.path.exists(filepath) and os.path.getsize(filepath) > 0:
+            logger.info(f"File {filename} already exists. Skipping.")
+            return True
+            
+        url = f"{self.BASE_URL}/horse/ped/{horse_id}/"
+        logger.info(f"Scraping horse pedigree: {url}")
+        html = self._get_html(url)
+        if html:
+            self._save_html(html, f"horse/{filename}")
+            return True
+        return False
+
 if __name__ == "__main__":
     scraper = NetkeibaScraper()
     

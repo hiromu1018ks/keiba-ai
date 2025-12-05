@@ -163,6 +163,11 @@ class NetkeibaParser:
                         popularity = get_col_text(13)
                         time_str = get_col_text(7)
                         
+                        # New Features
+                        passing_order = get_col_text(10)
+                        agari_3f = get_col_text(11)
+                        owner = get_col_text(19)
+                        
                         # Extract Prize Money (Col 20)
                         prize = 0.0
                         if len(cols) > 20:
@@ -187,9 +192,12 @@ class NetkeibaParser:
                             'jockey_id': jockey_id,
                             'trainer': trainer,
                             'trainer_id': trainer_id,
+                            'owner': owner,
                             'horse_weight': horse_weight,
                             'weight_change': weight_change,
                             'time': time_str,
+                            'passing_order': passing_order,
+                            'agari_3f': float(agari_3f) if agari_3f and agari_3f.replace('.','',1).isdigit() else None,
                             'odds': float(odds) if odds and odds.replace('.','',1).isdigit() else None,
                             'popularity': int(popularity) if popularity and popularity.isdigit() else None,
                             'prize': prize
@@ -207,12 +215,57 @@ class NetkeibaParser:
         except Exception as e:
             logger.error(f"Failed to parse result table for {race_id}: {e}")
 
+        # --- Detailed Race Info (Corners & Laps) ---
+        try:
+            # Corner Passing
+            corner_table = soup.find('table', summary='コーナー通過順位')
+            if corner_table:
+                corner_rows = corner_table.find_all('tr')
+                for row in corner_rows:
+                    th = row.find('th')
+                    td = row.find('td')
+                    if th and td:
+                        label = th.get_text(strip=True)
+                        value = td.get_text(strip=True)
+                        # Add to all results
+                        for res in results:
+                            res[f'corner_{label}'] = value
+
+            # Lap Times
+            lap_table = soup.find('table', summary='ラップタイム')
+            if lap_table:
+                # Usually header is distances (200m, 400m...) and row is time
+                # Or header is "ラップ" and "ペース"
+                # Structure:
+                # <tr><th>200m</th><th>400m</th>...</tr>
+                # <tr><td>12.5</td><td>11.0</td>...</tr>
+                
+                # Actually netkeiba format:
+                # tr1: th class="lb" (Header: 200, 400...)
+                # tr2: td (Times: 12.2, 10.9...)
+                
+                rows = lap_table.find_all('tr')
+                if len(rows) >= 2:
+                    headers = [th.get_text(strip=True) for th in rows[0].find_all('th')]
+                    times = [td.get_text(strip=True) for td in rows[1].find_all('td')]
+                    
+                    # Store as a single string representation or detailed columns
+                    # For simplicity, store as string "12.2-10.9-..."
+                    lap_str = '-'.join(times)
+                    for res in results:
+                        res['race_laps'] = lap_str
+                        
+                    # Also extract Pace (if available in another row or derived)
+                    # Usually there is a 'pace' row or table, but often just laps.
+                    
+        except Exception as e:
+            logger.warning(f"Failed to parse detailed race info for {race_id}: {e}")
+
         return pd.DataFrame(results)
 
     def parse_payout(self, html_content, race_id=None):
         """
-        Parses the payout table from the race result HTML.
-        Returns a DataFrame with columns: race_id, ticket_type, horse_nums, payout.
+        Parses the payout information (not implemented yet).
         """
         soup = BeautifulSoup(html_content, 'html.parser')
         payouts = []
@@ -259,6 +312,108 @@ class NetkeibaParser:
             
         return pd.DataFrame(payouts)
 
+    def parse_horse_profile(self, html_content, horse_id=None):
+        """
+        Parses the horse profile HTML to extract Owner, Breeder, and Production Area.
+        """
+        soup = BeautifulSoup(html_content, 'html.parser')
+        data = {'horse_id': horse_id}
+        
+        try:
+            # Owner
+            # <th>馬主</th><td><a href="...">Name</a></td>
+            owner_th = soup.find('th', string='馬主')
+            if owner_th:
+                owner_td = owner_th.find_next_sibling('td')
+                if owner_td:
+                    a_tag = owner_td.find('a')
+                    if a_tag:
+                        data['owner_name'] = a_tag.get_text(strip=True)
+                        # Extract owner ID if needed
+                        # /owner/486800/
+                        match = re.search(r'/owner/(\d+)/', a_tag['href'])
+                        if match:
+                            data['owner_id'] = match.group(1)
+
+            # Breeder
+            # <th>生産者</th><td><a href="...">Name</a></td>
+            breeder_th = soup.find('th', string='生産者')
+            if breeder_th:
+                breeder_td = breeder_th.find_next_sibling('td')
+                if breeder_td:
+                    a_tag = breeder_td.find('a')
+                    if a_tag:
+                        data['breeder_name'] = a_tag.get_text(strip=True)
+                        match = re.search(r'/breeder/(\d+)/', a_tag['href'])
+                        if match:
+                            data['breeder_id'] = match.group(1)
+
+            # Production Area
+            # <th>産地</th><td>Name</td>
+            area_th = soup.find('th', string='産地')
+            if area_th:
+                area_td = area_th.find_next_sibling('td')
+                if area_td:
+                    data['production_area'] = area_td.get_text(strip=True)
+                    
+        except Exception as e:
+            logger.error(f"Failed to parse horse profile for {horse_id}: {e}")
+            
+        return data
+
+    def parse_horse_pedigree(self, html_content, horse_id=None):
+        """
+        Parses the horse pedigree HTML to extract Sire, Dam, and Broodmare Sire.
+        """
+        soup = BeautifulSoup(html_content, 'html.parser')
+        data = {'horse_id': horse_id}
+        
+        try:
+            table = soup.find('table', class_='blood_table')
+            if not table:
+                return data
+                
+            rows = table.find_all('tr')
+            
+            # Sire is in the first row, first cell
+            if len(rows) > 0:
+                cols = rows[0].find_all('td')
+                if len(cols) > 0:
+                    sire_a = cols[0].find('a')
+                    if sire_a:
+                        data['sire_name'] = sire_a.get_text(strip=True)
+                        match = re.search(r'/horse/(\w+)/', sire_a['href'])
+                        if match:
+                            data['sire_id'] = match.group(1)
+            
+            # Dam is the first cell in the row that starts the second half.
+            total_rows = len(rows)
+            dam_row_idx = total_rows // 2
+            
+            if dam_row_idx < total_rows:
+                dam_row = rows[dam_row_idx]
+                dam_cols = dam_row.find_all('td')
+                if len(dam_cols) > 0:
+                    dam_a = dam_cols[0].find('a')
+                    if dam_a:
+                        data['dam_name'] = dam_a.get_text(strip=True)
+                        match = re.search(r'/horse/(\w+)/', dam_a['href'])
+                        if match:
+                            data['dam_id'] = match.group(1)
+                            
+                    # Broodmare Sire is the NEXT cell in the SAME row (if Dam is 1st gen)
+                    if len(dam_cols) > 1:
+                        bms_a = dam_cols[1].find('a')
+                        if bms_a:
+                            data['bms_name'] = bms_a.get_text(strip=True)
+                            match = re.search(r'/horse/(\w+)/', bms_a['href'])
+                            if match:
+                                data['bms_id'] = match.group(1)
+
+        except Exception as e:
+            logger.error(f"Failed to parse horse pedigree for {horse_id}: {e}")
+            
+        return data
+
 if __name__ == "__main__":
-    # Test with a sample file if exists
     pass
