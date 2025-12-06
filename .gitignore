@@ -17,3 +17,4 @@ simulation_predictions.csv
 *.log
 *.txt
 
+output/

@@ -4,11 +4,45 @@ import pickle
 import os
 import datetime
 import argparse
+import webbrowser
 from src.data.parser_shutsuba import ShutsubaParser
 from src.data.scraper_playwright import PlaywrightScraper
 from src.utils.logger import setup_logger
 
 logger = setup_logger(__name__)
+
+# Course code mapping
+COURSE_NAMES = {
+    '01': '札幌', '02': '函館', '03': '福島', '04': '新潟',
+    '05': '東京', '06': '中山', '07': '中京', '08': '京都',
+    '09': '阪神', '10': '小倉'
+}
+
+def parse_race_id(race_id: str) -> dict:
+    """Parse race ID into components.
+    
+    Format: YYYYCCKKDDRR
+    - YYYY: Year
+    - CC: Course code (01-10)
+    - KK: Kai (meeting number)
+    - DD: Day
+    - RR: Race number
+    """
+    rid = str(race_id)
+    return {
+        'year': rid[0:4],
+        'course_code': rid[4:6],
+        'kai': int(rid[6:8]),
+        'day': int(rid[8:10]),
+        'race_num': int(rid[10:12]),
+        'course_name': COURSE_NAMES.get(rid[4:6], '不明')
+    }
+
+def format_race_title(race_id: str) -> str:
+    """Format race ID into readable title like '阪神5回1日 第1R'"""
+    info = parse_race_id(race_id)
+    return f"{info['course_name']}{info['kai']}回{info['day']}日 第{info['race_num']}R"
+
 
 def main():
     parser = argparse.ArgumentParser(description='Predict race results for a specific date.')
@@ -248,15 +282,15 @@ def main():
     probs = model.predict_proba(X)[:, 1]
     df_inference['pred_prob'] = probs
     
-    # 7. Display Results
-    # Join with basic info for display if needed, but df_inference retains info
-
-    # --- Result Display ---
+    # 7. Display Results and Generate HTML
     print(f"\n=== Predictions for {target_date.date()} ===")
     
+    # Prepare HTML content
+    html_rows = []
+    
     for rid, grp in df_inference.groupby('race_id'):
-        print(f"\n--- Race {rid} ---")
-        # Columns: horse_name, horse_num, pred_prob, odds (if available)
+        race_title = format_race_title(rid)
+        print(f"\n--- {race_title} ({rid}) ---")
         
         # Sort by Win Probability
         grp = grp.sort_values('pred_prob', ascending=False)
@@ -264,6 +298,7 @@ def main():
         print(f"{'No.':<4} {'Horse':<20} {'Prob':<8} {'Odds':<6} {'EV':<6} {'Rec'}")
         print("-" * 60)
         
+        race_rows = []
         for _, row in grp.iterrows():
             prob = row['pred_prob']
             odds = row.get('odds', 0.0)
@@ -272,22 +307,161 @@ def main():
             # Expected Value = Prob * Odds
             ev = prob * odds
             
-            # Recommendation Logic (Aligned with src/strategy/betting.py)
-            # Filters: Odds <= 100, Prob >= 0.05
+            # Recommendation Logic (Aligned with simulation)
             rec = ""
+            rec_class = ""
             
             is_candidate = True
             if odds > 100.0: is_candidate = False
             if prob < 0.05: is_candidate = False
             
             if is_candidate:
-                # Recommendation based on simulation-optimized threshold
-                rec = ""
-                if ev > 3.0: rec = "◎ (Strong Buy)"  # Simulation best threshold
-                elif ev > 2.0: rec = "○ (Buy)"
-                elif ev > 1.5: rec = "△"
+                if ev > 3.0: 
+                    rec = "◎"
+                    rec_class = "strong-buy"
+                elif ev > 2.0: 
+                    rec = "○"
+                    rec_class = "buy"
+                elif ev > 1.5: 
+                    rec = "△"
+                    rec_class = "watch"
             
             print(f"{row['horse_num']:<4} {row['horse_name']:<20} {prob:.4f}   {odds:<6.1f} {ev:<6.2f} {rec}")
+            
+            race_rows.append({
+                'horse_num': row['horse_num'],
+                'horse_name': row['horse_name'],
+                'prob': prob,
+                'odds': odds,
+                'ev': ev,
+                'rec': rec,
+                'rec_class': rec_class
+            })
+        
+        html_rows.append({'race_id': rid, 'race_title': race_title, 'horses': race_rows})
+    
+    # Generate HTML
+    generate_html_output(target_date_str, html_rows)
+
+
+def generate_html_output(date_str, race_data):
+    """Generate HTML output file with predictions."""
+    
+    html_template = """<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>競馬予測 - {date}</title>
+    <style>
+        * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+        body {{ 
+            font-family: 'Hiragino Kaku Gothic ProN', 'Meiryo', sans-serif; 
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            color: #eee;
+            min-height: 100vh;
+            padding: 20px;
+        }}
+        h1 {{ 
+            text-align: center; 
+            color: #00d4ff; 
+            margin-bottom: 30px;
+            font-size: 2rem;
+            text-shadow: 0 0 20px rgba(0, 212, 255, 0.5);
+        }}
+        .race-card {{ 
+            background: rgba(255,255,255,0.05); 
+            border-radius: 12px; 
+            margin-bottom: 25px; 
+            padding: 20px;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255,255,255,0.1);
+        }}
+        .race-title {{ 
+            font-size: 1.3rem; 
+            color: #ffd700; 
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid rgba(255,255,255,0.2);
+        }}
+        .race-id {{ font-size: 0.8rem; color: #888; margin-left: 10px; }}
+        table {{ width: 100%; border-collapse: collapse; }}
+        th {{ 
+            background: rgba(0, 212, 255, 0.2); 
+            padding: 12px 8px; 
+            text-align: left;
+            font-weight: 600;
+        }}
+        td {{ padding: 10px 8px; border-bottom: 1px solid rgba(255,255,255,0.1); }}
+        tr:hover {{ background: rgba(255,255,255,0.05); }}
+        .strong-buy {{ 
+            background: linear-gradient(90deg, rgba(255,0,100,0.3), transparent) !important;
+            font-weight: bold;
+        }}
+        .strong-buy .rec {{ color: #ff006a; font-size: 1.2rem; }}
+        .buy {{ background: linear-gradient(90deg, rgba(255,165,0,0.2), transparent) !important; }}
+        .buy .rec {{ color: #ffa500; }}
+        .watch {{ background: linear-gradient(90deg, rgba(100,200,255,0.1), transparent) !important; }}
+        .watch .rec {{ color: #64c8ff; }}
+        .rec {{ font-weight: bold; text-align: center; }}
+        .ev-high {{ color: #00ff88; font-weight: bold; }}
+        .prob {{ color: #aaa; }}
+        .odds {{ color: #ffd700; }}
+        .footer {{ text-align: center; margin-top: 30px; color: #666; font-size: 0.8rem; }}
+    </style>
+</head>
+<body>
+    <h1>🏇 競馬AI予測 - {date}</h1>
+    {races}
+    <div class="footer">Generated at {generated_at} | EV > 3.0 = ◎ Strong Buy</div>
+</body>
+</html>"""
+
+    race_html = ""
+    for race in race_data:
+        rows = ""
+        for h in race['horses']:
+            ev_class = 'ev-high' if h['ev'] > 3.0 else ''
+            rows += f"""
+            <tr class="{h['rec_class']}">
+                <td>{h['horse_num']}</td>
+                <td>{h['horse_name']}</td>
+                <td class="prob">{h['prob']:.2%}</td>
+                <td class="odds">{h['odds']:.1f}</td>
+                <td class="{ev_class}">{h['ev']:.2f}</td>
+                <td class="rec">{h['rec']}</td>
+            </tr>"""
+        
+        race_html += f"""
+        <div class="race-card">
+            <div class="race-title">{race['race_title']} <span class="race-id">{race['race_id']}</span></div>
+            <table>
+                <thead>
+                    <tr><th>馬番</th><th>馬名</th><th>確率</th><th>オッズ</th><th>EV</th><th>推奨</th></tr>
+                </thead>
+                <tbody>{rows}</tbody>
+            </table>
+        </div>"""
+    
+    html_content = html_template.format(
+        date=date_str,
+        races=race_html,
+        generated_at=datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    )
+    
+    # Save HTML
+    output_dir = 'output'
+    os.makedirs(output_dir, exist_ok=True)
+    output_path = os.path.join(output_dir, f'predictions_{date_str}.html')
+    
+    with open(output_path, 'w', encoding='utf-8') as f:
+        f.write(html_content)
+    
+    print(f"\n✅ HTML output saved: {output_path}")
+    
+    # Open in browser
+    webbrowser.open(f'file://{os.path.abspath(output_path)}')
+
 
 if __name__ == "__main__":
     main()
