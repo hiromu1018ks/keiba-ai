@@ -252,12 +252,12 @@ class FeatureEngineer:
                     pass
 
             # 3. Jockey/Trainer Recent Performance (Win/Place/Show Rate last 100)
+            # Note: Using shift(1) approach with proper date sorting to minimize leakage
             try:
-                # Sort by race_id to ensure chronological order within the same day
-                if 'race_id' in df.columns:
-                    df = df.sort_values('race_id')
-                
-                if 'rank' in df.columns:
+                if 'rank' in df.columns and 'date_dt' in df.columns:
+                    # Sort by date and race_id to ensure chronological order
+                    df = df.sort_values(['date_dt', 'race_id']).reset_index(drop=True)
+                    
                     df['is_win'] = (df['rank'] == 1).astype(int)
                     df['is_place'] = (df['rank'] <= 2).astype(int)
                     df['is_show'] = (df['rank'] <= 3).astype(int)
@@ -267,30 +267,30 @@ class FeatureEngineer:
                         # Win Rate
                         df['jockey_win_rate_100'] = df.groupby('jockey_id')['is_win'].transform(
                             lambda x: x.shift(1).rolling(100, min_periods=10).mean()
-                        ).fillna(0)
+                        )
                         # Place Rate
                         df['jockey_place_rate_100'] = df.groupby('jockey_id')['is_place'].transform(
                             lambda x: x.shift(1).rolling(100, min_periods=10).mean()
-                        ).fillna(0)
+                        )
                         # Show Rate
                         df['jockey_show_rate_100'] = df.groupby('jockey_id')['is_show'].transform(
                             lambda x: x.shift(1).rolling(100, min_periods=10).mean()
-                        ).fillna(0)
+                        )
                         
                     # Trainer
                     if 'trainer_id' in df.columns:
                         # Win Rate
                         df['trainer_win_rate_100'] = df.groupby('trainer_id')['is_win'].transform(
                             lambda x: x.shift(1).rolling(100, min_periods=10).mean()
-                        ).fillna(0)
+                        )
                         # Place Rate
                         df['trainer_place_rate_100'] = df.groupby('trainer_id')['is_place'].transform(
                             lambda x: x.shift(1).rolling(100, min_periods=10).mean()
-                        ).fillna(0)
+                        )
                         # Show Rate
                         df['trainer_show_rate_100'] = df.groupby('trainer_id')['is_show'].transform(
                             lambda x: x.shift(1).rolling(100, min_periods=10).mean()
-                        ).fillna(0)
+                        )
                     
                     df.drop(columns=['is_win', 'is_place', 'is_show'], inplace=True)
                     
@@ -382,9 +382,25 @@ class FeatureEngineer:
         numeric_cols += ['prev_rank_2', 'prev_rank_3', 'prev_prize_2', 'prev_prize_3',
                          'prev_odds_2', 'prev_odds_3']
         
+        # Define feature type-specific fillna values
+        rate_cols = ['jockey_win_rate_100', 'jockey_place_rate_100', 'jockey_show_rate_100',
+                     'trainer_win_rate_100', 'trainer_place_rate_100', 'trainer_show_rate_100']
+        ratio_cols = ['impost_ratio', 'weight_change_ratio']
+        
         for col in numeric_cols:
             if col in df.columns:
-                df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
+                df[col] = pd.to_numeric(df[col], errors='coerce')
+                
+                if col in rate_cols:
+                    # Rate columns: fill with global mean (more informative than 0)
+                    col_mean = df[col].mean()
+                    df[col] = df[col].fillna(col_mean if not pd.isna(col_mean) else 0)
+                elif col in ratio_cols:
+                    # Ratio columns: fill with 1.0 (neutral baseline)
+                    df[col] = df[col].fillna(1.0)
+                else:
+                    # Default: fill with 0
+                    df[col] = df[col].fillna(0)
 
         return df
 

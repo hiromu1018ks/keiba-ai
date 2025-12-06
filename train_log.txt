@@ -1,6 +1,6 @@
-2025-12-05 22:20:11,130 - __main__ - INFO - Loaded data with 405575 rows.
-2025-12-05 22:20:11,238 - __main__ - INFO - Starting Feature Engineering (Generation)...
-2025-12-05 22:20:11,321 - src.features.pedigree - INFO - Loaded horse data: 51238 records
+2025-12-06 13:49:27,959 - __main__ - INFO - Loaded data with 405575 rows.
+2025-12-06 13:49:28,099 - __main__ - INFO - Starting Feature Engineering (Generation)...
+2025-12-06 13:49:28,190 - src.features.pedigree - INFO - Loaded horse data: 51238 records
 /Users/hiromu/Documents/keiba-ai/src/features/history.py:138: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
   df[col_name] = feature_base.min()
 /Users/hiromu/Documents/keiba-ai/src/features/history.py:140: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
@@ -143,29 +143,11 @@
   df[f'temp_rank_place_{p}'] = df['rank'].where(df['place'] == p)
 /Users/hiromu/Documents/keiba-ai/src/features/history.py:243: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
   df[f'avg_rank_place_{p}'] = grouped[f'temp_rank_place_{p}'].transform(lambda x: x.shift(1).expanding().mean().ffill()).fillna(99)
-/Users/hiromu/Documents/keiba-ai/experiments/v2_feature_expansion/v2_src/feature_engineering.py:253: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+/Users/hiromu/Documents/keiba-ai/src/features/engineer.py:250: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
   df['weight_change_ratio'] = df['weight_change'] / df['horse_weight'].replace(0, np.nan)
-/Users/hiromu/Documents/keiba-ai/experiments/v2_feature_expansion/v2_src/feature_engineering.py:269: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
-  df['is_win'] = (df['rank'] == 1).astype(int)
-/Users/hiromu/Documents/keiba-ai/experiments/v2_feature_expansion/v2_src/feature_engineering.py:270: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
-  df['is_place'] = (df['rank'] <= 2).astype(int)
-/Users/hiromu/Documents/keiba-ai/experiments/v2_feature_expansion/v2_src/feature_engineering.py:271: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
-  df['is_show'] = (df['rank'] <= 3).astype(int)
-/Users/hiromu/Documents/keiba-ai/experiments/v2_feature_expansion/v2_src/feature_engineering.py:276: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
-  df['jockey_win_rate_100'] = df.groupby('jockey_id')['is_win'].transform(
-/Users/hiromu/Documents/keiba-ai/experiments/v2_feature_expansion/v2_src/feature_engineering.py:280: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
-  df['jockey_place_rate_100'] = df.groupby('jockey_id')['is_place'].transform(
-/Users/hiromu/Documents/keiba-ai/experiments/v2_feature_expansion/v2_src/feature_engineering.py:284: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
-  df['jockey_show_rate_100'] = df.groupby('jockey_id')['is_show'].transform(
-/Users/hiromu/Documents/keiba-ai/experiments/v2_feature_expansion/v2_src/feature_engineering.py:291: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
-  df['trainer_win_rate_100'] = df.groupby('trainer_id')['is_win'].transform(
-/Users/hiromu/Documents/keiba-ai/experiments/v2_feature_expansion/v2_src/feature_engineering.py:295: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
-  df['trainer_place_rate_100'] = df.groupby('trainer_id')['is_place'].transform(
-/Users/hiromu/Documents/keiba-ai/experiments/v2_feature_expansion/v2_src/feature_engineering.py:299: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
-  df['trainer_show_rate_100'] = df.groupby('trainer_id')['is_show'].transform(
-2025-12-05 22:21:50,408 - __main__ - INFO - Generated columns: 314
-2025-12-05 22:21:56,561 - __main__ - INFO - Train size: 324460, Test size: 81115
-2025-12-05 22:21:56,562 - __main__ - INFO - Fitting Target Encoders on Training data...
+2025-12-06 13:51:43,749 - __main__ - INFO - Generated columns: 314
+2025-12-06 13:51:55,313 - __main__ - INFO - Train size: 324460, Test size: 81115
+2025-12-06 13:51:55,316 - __main__ - INFO - Fitting and Applying Target Encoders (Leakage-Free)...
 /Users/hiromu/Documents/keiba-ai/src/features/history.py:221: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
   df[f'temp_rank_{cat}'] = df['rank'].where(df['distance_category'] == cat)
 /Users/hiromu/Documents/keiba-ai/src/features/history.py:221: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
@@ -198,36 +180,31 @@
   df[f'temp_rank_place_{p}'] = df['rank'].where(df['place'] == p)
 /Users/hiromu/Documents/keiba-ai/src/features/history.py:242: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
   df[f'temp_rank_place_{p}'] = df['rank'].where(df['place'] == p)
-2025-12-05 22:23:15,151 - __main__ - INFO - Applying Target Encoding...
-2025-12-05 22:23:16,954 - __main__ - INFO - Final Feature Count: 281
-2025-12-05 22:23:16,955 - __main__ - INFO - Features (Head): ['bracket', 'horse_num', 'gender', 'age', 'horse_weight', 'weight_change', 'surface', 'distance', 'weather', 'condition']
-2025-12-05 22:23:17,761 - __main__ - INFO - Train size: 324460, Test size: 81115
-2025-12-05 22:23:17,762 - __main__ - INFO - Training LightGBM...
-2025-12-05 22:23:24,149 - __main__ - INFO - Evaluation Results - Accuracy: 0.9241, LogLoss: 0.2617, AUC: 0.6113
-2025-12-05 22:23:24,344 - __main__ - INFO - Saved model to experiments/v2_feature_expansion/models/lgbm_v2.pkl
-Training until validation scores don't improve for 50 rounds
-Early stopping, best iteration is:
-[7]	valid_0's binary_logloss: 0.261733
-
-Top 20 Important Features:
-                          feature  importance
-278       horse_jockey_target_enc          65
-14               final_corner_pos          37
-29                    same_jockey          19
-18                      prev_rank          11
-200           prev_prize_race_max           8
-37                     rank_5_min           7
-32                     rank_3_min           7
-205      prev_prize_diff_race_max           7
-233        prize_5_mean_race_mean           6
-203    prev_prize_ratio_race_mean           6
-201     prev_prize_diff_race_mean           5
-239  prize_5_mean_ratio_race_mean           5
-42                    rank_10_min           4
-228    rank_5_mean_diff_race_mean           3
-192      prev_rank_diff_race_mean           2
-202             prev_prize_zscore           2
-238           prize_5_mean_zscore           2
-197          prev_prize_race_mean           2
-28                  prev_agari_3f           2
-194     prev_rank_ratio_race_mean           2
+2025-12-06 13:54:50,815 - __main__ - INFO - Final Feature Count: 281
+2025-12-06 13:54:51,613 - __main__ - INFO - Starting Optuna optimization...
+[I 2025-12-06 13:54:51,658] A new study created in memory with name: no-name-7cb3ef43-3e62-425b-877f-1af527a68058
+[I 2025-12-06 13:55:03,308] Trial 0 finished with value: 0.20338207364296934 and parameters: {'learning_rate': 0.0733151196868266, 'num_leaves': 182, 'feature_fraction': 0.9222719875844084, 'bagging_fraction': 0.5520335997797888, 'bagging_freq': 1, 'min_child_samples': 54}. Best is trial 0 with value: 0.20338207364296934.
+[I 2025-12-06 13:55:11,966] Trial 1 finished with value: 0.20379269011738918 and parameters: {'learning_rate': 0.09052051381959617, 'num_leaves': 148, 'feature_fraction': 0.8923350369243345, 'bagging_fraction': 0.8821525308852621, 'bagging_freq': 5, 'min_child_samples': 6}. Best is trial 0 with value: 0.20338207364296934.
+[I 2025-12-06 13:55:25,086] Trial 2 finished with value: 0.20283352085264988 and parameters: {'learning_rate': 0.04838611256358112, 'num_leaves': 211, 'feature_fraction': 0.7394247819191059, 'bagging_fraction': 0.45009365480596536, 'bagging_freq': 2, 'min_child_samples': 93}. Best is trial 2 with value: 0.20283352085264988.
+[I 2025-12-06 13:55:29,180] Trial 3 finished with value: 0.20931430150983565 and parameters: {'learning_rate': 0.26562292844743157, 'num_leaves': 127, 'feature_fraction': 0.5882850950726111, 'bagging_fraction': 0.6774115938943372, 'bagging_freq': 4, 'min_child_samples': 67}. Best is trial 2 with value: 0.20283352085264988.
+[I 2025-12-06 13:55:34,802] Trial 4 finished with value: 0.2025050591120899 and parameters: {'learning_rate': 0.13653768368161695, 'num_leaves': 86, 'feature_fraction': 0.4132195718067403, 'bagging_fraction': 0.8466007501620951, 'bagging_freq': 4, 'min_child_samples': 47}. Best is trial 4 with value: 0.2025050591120899.
+[I 2025-12-06 13:55:43,327] Trial 5 finished with value: 0.20719066947523604 and parameters: {'learning_rate': 0.13832948543153692, 'num_leaves': 293, 'feature_fraction': 0.5031610058802772, 'bagging_fraction': 0.8160959263597554, 'bagging_freq': 1, 'min_child_samples': 63}. Best is trial 4 with value: 0.2025050591120899.
+[I 2025-12-06 13:56:14,079] Trial 6 finished with value: 0.20038976563298813 and parameters: {'learning_rate': 0.02841843749526092, 'num_leaves': 232, 'feature_fraction': 0.8361833110289618, 'bagging_fraction': 0.9583516314062055, 'bagging_freq': 7, 'min_child_samples': 62}. Best is trial 6 with value: 0.20038976563298813.
+[I 2025-12-06 13:56:24,756] Trial 7 finished with value: 0.2006273783367786 and parameters: {'learning_rate': 0.08630561997407905, 'num_leaves': 116, 'feature_fraction': 0.4870255416852495, 'bagging_fraction': 0.9817954230656295, 'bagging_freq': 2, 'min_child_samples': 56}. Best is trial 6 with value: 0.20038976563298813.
+[I 2025-12-06 13:56:28,784] Trial 8 finished with value: 0.21303245251375577 and parameters: {'learning_rate': 0.2953795932220644, 'num_leaves': 98, 'feature_fraction': 0.44959287015370675, 'bagging_fraction': 0.47949060995602233, 'bagging_freq': 2, 'min_child_samples': 48}. Best is trial 6 with value: 0.20038976563298813.
+[I 2025-12-06 13:56:35,779] Trial 9 finished with value: 0.20338257610548338 and parameters: {'learning_rate': 0.1179701493033254, 'num_leaves': 76, 'feature_fraction': 0.9606866352365454, 'bagging_fraction': 0.5101729509974166, 'bagging_freq': 5, 'min_child_samples': 100}. Best is trial 6 with value: 0.20038976563298813.
+[I 2025-12-06 13:58:13,498] Trial 10 finished with value: 0.20014996735968374 and parameters: {'learning_rate': 0.010290017227605187, 'num_leaves': 258, 'feature_fraction': 0.7728499932270678, 'bagging_fraction': 0.9956929245194329, 'bagging_freq': 7, 'min_child_samples': 26}. Best is trial 10 with value: 0.20014996735968374.
+[I 2025-12-06 13:59:07,055] Trial 11 finished with value: 0.20035004080890187 and parameters: {'learning_rate': 0.021082455059340918, 'num_leaves': 248, 'feature_fraction': 0.788889862779855, 'bagging_fraction': 0.9690448058713821, 'bagging_freq': 7, 'min_child_samples': 20}. Best is trial 10 with value: 0.20014996735968374.
+[I 2025-12-06 14:00:04,877] Trial 12 finished with value: 0.20111476344029577 and parameters: {'learning_rate': 0.014954533814891304, 'num_leaves': 288, 'feature_fraction': 0.7383270442150988, 'bagging_fraction': 0.7247994638595674, 'bagging_freq': 7, 'min_child_samples': 14}. Best is trial 10 with value: 0.20014996735968374.
+[I 2025-12-06 14:00:12,817] Trial 13 finished with value: 0.20861765960520498 and parameters: {'learning_rate': 0.19981245430267325, 'num_leaves': 249, 'feature_fraction': 0.6254115322813332, 'bagging_fraction': 0.9928742529498021, 'bagging_freq': 6, 'min_child_samples': 27}. Best is trial 10 with value: 0.20014996735968374.
+[I 2025-12-06 14:00:19,420] Trial 14 finished with value: 0.20250088945252434 and parameters: {'learning_rate': 0.1912051857121647, 'num_leaves': 35, 'feature_fraction': 0.8062728066732798, 'bagging_fraction': 0.905415440142716, 'bagging_freq': 6, 'min_child_samples': 29}. Best is trial 10 with value: 0.20014996735968374.
+[I 2025-12-06 14:00:46,226] Trial 15 finished with value: 0.20250462992262955 and parameters: {'learning_rate': 0.04804322793005737, 'num_leaves': 261, 'feature_fraction': 0.63635190071571, 'bagging_fraction': 0.7194254517854171, 'bagging_freq': 7, 'min_child_samples': 30}. Best is trial 10 with value: 0.20014996735968374.
+[I 2025-12-06 14:01:48,739] Trial 16 finished with value: 0.2001406515388721 and parameters: {'learning_rate': 0.013426970760010981, 'num_leaves': 171, 'feature_fraction': 0.8041617334784316, 'bagging_fraction': 0.7797131161064942, 'bagging_freq': 6, 'min_child_samples': 18}. Best is trial 16 with value: 0.2001406515388721.
+[I 2025-12-06 14:01:55,526] Trial 17 finished with value: 0.2083979654607669 and parameters: {'learning_rate': 0.17279340962103495, 'num_leaves': 189, 'feature_fraction': 0.6889174267298748, 'bagging_fraction': 0.6255593664130384, 'bagging_freq': 6, 'min_child_samples': 39}. Best is trial 16 with value: 0.2001406515388721.
+[I 2025-12-06 14:02:13,899] Trial 18 finished with value: 0.20214604475186135 and parameters: {'learning_rate': 0.0542980923096377, 'num_leaves': 168, 'feature_fraction': 0.8658076056852326, 'bagging_fraction': 0.7820834513970364, 'bagging_freq': 5, 'min_child_samples': 9}. Best is trial 16 with value: 0.2001406515388721.
+[I 2025-12-06 14:02:19,553] Trial 19 finished with value: 0.211061479096881 and parameters: {'learning_rate': 0.22824394489049965, 'num_leaves': 210, 'feature_fraction': 0.7579516034406869, 'bagging_fraction': 0.6194109553774514, 'bagging_freq': 6, 'min_child_samples': 79}. Best is trial 16 with value: 0.2001406515388721.
+2025-12-06 14:02:19,554 - __main__ - INFO - Best params: {'learning_rate': 0.013426970760010981, 'num_leaves': 171, 'feature_fraction': 0.8041617334784316, 'bagging_fraction': 0.7797131161064942, 'bagging_freq': 6, 'min_child_samples': 18}
+2025-12-06 14:02:19,557 - __main__ - INFO - Training Final Calibrated Model (Isotonic) with Best Params...
+2025-12-06 14:11:55,400 - __main__ - INFO - Evaluation Results - Accuracy: 0.9263, LogLoss: 0.2054, AUC: 0.8528
+2025-12-06 14:11:56,011 - __main__ - INFO - Saved model to models/lgbm_calibrated.pkl
+2025-12-06 14:11:56,383 - __main__ - INFO - Saved FeatureEngineer to models/feature_engineer.pkl
