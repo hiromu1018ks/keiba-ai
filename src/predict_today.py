@@ -287,25 +287,25 @@ def main():
     df_inference['pred_prob'] = probs
 
     # Normalize Probabilities per Race
-    # Ideally, sum of probs in a race should be 1.0 (for Win probability).
-    # Since we predict individually, the sum might drift.
-    # We apply simple normalization: prob = prob / sum(probs_in_race)
+    # 1. Normalize to sum=1.0 ensures relative probabilities are correct (fixing the >2.0 issue).
+    # 2. Scale by 0.85 to match the simulation environment (where sum was ~0.84).
+    #    If we leave it at 1.0, EV is inflated by ~20% vs simulation, causing too many bets.
     
-    logger.info("Normalizing probabilities per race...")
-    normalized_probs = []
+    logger.info("Normalizing and Scaling probabilities per race (Target Sum: 0.85)...")
     for rid, grp in df_inference.groupby('race_id'):
         raw_probs = grp['pred_prob'].values
         prob_sum = raw_probs.sum()
-        if prob_sum > 0:
-            norm_probs = raw_probs / prob_sum
-        else:
-            norm_probs = raw_probs
         
-        # Update original dataframe (need a way to map back)
-        # Easier: update one by one or reconstruct
-        # Iterate and assign?
-        # Better: create a mapping series
-        for idx, val in zip(grp.index, norm_probs):
+        if prob_sum > 0:
+            # Step 1: Normalize to 1.0
+            norm_probs = raw_probs / prob_sum
+            # Step 2: Scale to 0.85 (Simulation Calibration)
+            final_probs = norm_probs * 0.85
+        else:
+            final_probs = raw_probs
+        
+        # Update original dataframe
+        for idx, val in zip(grp.index, final_probs):
             df_inference.at[idx, 'pred_prob'] = val
             
     # 7. Display Results and Generate HTML
