@@ -42,6 +42,14 @@ class Backtester:
             logger.error(f"Failed to parse dates: {e}")
             return pd.DataFrame()
 
+        # Filter for JRA (Central Racing) only - place codes 01-10
+        # race_id format: YYYYPPKKDDRR where PP is place code
+        jra_places = ['01', '02', '03', '04', '05', '06', '07', '08', '09', '10']
+        df['place_code'] = df['race_id'].astype(str).str[4:6]
+        original_count = len(df)
+        df = df[df['place_code'].isin(jra_places)].copy()
+        logger.info(f"Filtered to JRA only: {len(df)}/{original_count} records")
+
         # Sort strictly
         df = df.sort_values(['date_dt', 'race_id'])
 
