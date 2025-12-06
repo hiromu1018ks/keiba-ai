@@ -54,7 +54,7 @@ No.  Horse                Prob     Odds   EV     Rec
 | `Prob` | AIによる勝利確率 |
 | `Odds` | 単勝オッズ（リアルタイム取得） |
 | `EV` | 期待値 (Prob × Odds) |
-| `Rec` | 推奨 (◎=Strong Buy EV>1.5, ○=Buy EV>1.2, △ EV>1.0) |
+| `Rec` | 推奨 (◎=Strong Buy EV>3.0, ○=Buy EV>2.0, △ EV>1.5) |
 
 ---
 

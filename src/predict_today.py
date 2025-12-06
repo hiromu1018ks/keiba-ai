@@ -281,9 +281,11 @@ def main():
             if prob < 0.05: is_candidate = False
             
             if is_candidate:
-                if ev > 1.5: rec = "◎ (Strong Buy)"
-                elif ev > 1.2: rec = "○ (Buy)"
-                elif ev > 1.0: rec = "△"
+                # Recommendation based on simulation-optimized threshold
+                rec = ""
+                if ev > 3.0: rec = "◎ (Strong Buy)"  # Simulation best threshold
+                elif ev > 2.0: rec = "○ (Buy)"
+                elif ev > 1.5: rec = "△"
             
             print(f"{row['horse_num']:<4} {row['horse_name']:<20} {prob:.4f}   {odds:<6.1f} {ev:<6.2f} {rec}")
 
