@@ -215,16 +215,36 @@ def train_model(data_path='data/common/raw_data/results.csv', model_dir='models'
     
     logger.info(f"Evaluation Results (2024+) - Accuracy: {acc:.4f}, LogLoss: {loss:.4f}, AUC: {auc:.4f}")
 
-    # 7. Save Model
+    # 6.5 Visualize Calibration
+    from src.utils.visualize import plot_calibration_curve
+    plot_calibration_curve(y_test, y_pred_prob, output_path='reports/figures/calibration_curve.png')
+
+    # 7. Retrain on FULL Dataset for Production
+    logger.info("=== Retraining on FULL Dataset (All Years) for Production Model ===")
+    
+    # We must apply K-Fold TE to the entire dataset to use it all for training without leakage
+    fe_full = FeatureEngineer()
+    # skip_feature_generation=True because df_generated has raw features
+    df_full_enc = fe_full.fit_transform(df_generated, encoding_only=True, skip_feature_generation=True)
+    
+    X_full = df_full_enc[final_feature_cols]
+    y_full = df_full_enc['target']
+    
+    final_production_model = CalibratedClassifierCV(base_model, method='isotonic', cv=5)
+    final_production_model.fit(X_full, y_full)
+    
+    model = final_production_model # Update model reference to the full one
+
+    # 8. Save Model
     model_path = os.path.join(model_dir, 'lgbm_calibrated.pkl')
     with open(model_path, 'wb') as f:
         pickle.dump(model, f)
     logger.info(f"Saved model to {model_path}")
     
-    # Also save the FeatureEngineer (with fitted encoders)
+    # Also save the FeatureEngineer (fitted on full data)
     fe_path = os.path.join(model_dir, 'feature_engineer.pkl')
     with open(fe_path, 'wb') as f:
-        pickle.dump(fe, f)
+        pickle.dump(fe_full, f)
     logger.info(f"Saved FeatureEngineer to {fe_path}")
 
 if __name__ == "__main__":

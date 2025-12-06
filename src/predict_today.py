@@ -246,10 +246,10 @@ def main():
     
     # ... (skipping feature selection logic for brevity in replacement if unchanged) ...
     # Wait, I need to keep the context.
-    
-    # Re-implementing feature selection block to be safe
+    # Feature Selection mechanism
     model_features = []
     try:
+        # Attempt to extract features from the model object
         if hasattr(model, 'calibrated_classifiers_') and model.calibrated_classifiers_:
             base_model = model.calibrated_classifiers_[0].estimator
             if hasattr(base_model, 'booster_'):
@@ -259,6 +259,7 @@ def main():
         
         if not model_features and hasattr(model, 'feature_name_'):
              model_features = model.feature_name_
+             
     except Exception as e:
         logger.warning(f"Could not extract feature names from model: {e}")
 
@@ -268,18 +269,45 @@ def main():
 
     if model_features:
         logger.info(f"Extracted {len(model_features)} features from model.")
+        
+        # Ensure all features exist
         missing_cols = [c for c in model_features if c not in X.columns]
         if missing_cols:
             logger.warning(f"Missing {len(missing_cols)} features (filling with NaN): {missing_cols[:5]}...")
             for c in missing_cols:
                 X[c] = np.nan
+        
+        # Filter to exact columns
         X = X[model_features]
     else:
         logger.warning("No feature list found. Using all available columns.")
 
+    # Predict Probabilities
     probs = model.predict_proba(X)[:, 1]
     df_inference['pred_prob'] = probs
+
+    # Normalize Probabilities per Race
+    # Ideally, sum of probs in a race should be 1.0 (for Win probability).
+    # Since we predict individually, the sum might drift.
+    # We apply simple normalization: prob = prob / sum(probs_in_race)
     
+    logger.info("Normalizing probabilities per race...")
+    normalized_probs = []
+    for rid, grp in df_inference.groupby('race_id'):
+        raw_probs = grp['pred_prob'].values
+        prob_sum = raw_probs.sum()
+        if prob_sum > 0:
+            norm_probs = raw_probs / prob_sum
+        else:
+            norm_probs = raw_probs
+        
+        # Update original dataframe (need a way to map back)
+        # Easier: update one by one or reconstruct
+        # Iterate and assign?
+        # Better: create a mapping series
+        for idx, val in zip(grp.index, norm_probs):
+            df_inference.at[idx, 'pred_prob'] = val
+            
     # 7. Display Results and Generate HTML
     print(f"\n=== Predictions for {target_date.date()} ===")
     
@@ -343,6 +371,31 @@ def main():
     
     # Generate HTML
     generate_html_output(target_date_str, html_rows)
+
+    # Save CSV for Evaluation
+    output_dir = 'output' # Define output_dir here
+    os.makedirs(output_dir, exist_ok=True)
+ 
+    csv_data = []
+    for race in html_rows:
+        rid = race['race_id']
+        for h in race['horses']:
+            csv_data.append({
+                'race_id': rid,
+                'horse_num': h['horse_num'],
+                'horse_name': h['horse_name'],
+                'prob': h['prob'],
+                'odds': h['odds'],
+                'ev': h['ev'],
+                'rec': h['rec'],
+                'rec_class': h['rec_class']
+            })
+    
+    if csv_data:
+        df_csv = pd.DataFrame(csv_data)
+        csv_path = os.path.join(output_dir, f'predictions_{target_date_str}.csv')
+        df_csv.to_csv(csv_path, index=False)
+        print(f"✅ CSV output saved: {csv_path}")
 
 
 def generate_html_output(date_str, race_data):

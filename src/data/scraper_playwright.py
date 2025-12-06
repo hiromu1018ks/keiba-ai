@@ -153,3 +153,82 @@ class PlaywrightScraper:
         Batch scrape race cards.
         """
         return asyncio.run(self._fetch_and_save_race_data_async(race_ids))
+
+    async def _fetch_results_async(self, race_ids):
+        """
+        Fetch race results (1st place and Tansho payout).
+        """
+        results = {}
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(headless=True)
+            context = await browser.new_context(user_agent=self.user_agent)
+            page = await context.new_page()
+
+            for rid in race_ids:
+                url = f"{self.base_url}/race/result.html?race_id={rid}"
+                logger.info(f"Fetching Result: {url}")
+                try:
+                    await page.goto(url, timeout=60000, wait_until='domcontentloaded')
+                    
+                    # Wait for Result Table
+                    try:
+                        await page.wait_for_selector('table.RaceTable01', timeout=10000)
+                    except:
+                        logger.warning(f"Timeout waiting for RaceTable01 in {rid}")
+                        continue
+                        
+                    # 1. 1st Place Horse Info from Result Table
+                    # First row after header is Rank 1
+                    first_row = page.locator('table.RaceTable01 tr').nth(1)
+                    
+                    if await first_row.count() == 0:
+                        logger.warning(f"No result rows found for {rid}")
+                        continue
+                        
+                    # Check Rank (ensure it is 1)
+                    rank_el = first_row.locator('div.Rank')
+                    if await rank_el.count() > 0:
+                        rank_text = await rank_el.text_content()
+                        if rank_text.strip() != '1':
+                            logger.warning(f"First row rank is not 1 for {rid} (Rank: {rank_text})")
+                            # Should search for rank 1 if not sorted? Usually sorted.
+                    
+                    # Horse Num (3rd col)
+                    horse_num_el = first_row.locator('td').nth(2)
+                    horse_num_text = await horse_num_el.text_content()
+                    horse_num = int(horse_num_text.strip())
+                    
+                    # Odds (Class 'Odds')
+                    # Could be multiple Odds classes (OddsPeople, Odds_Ninki), generally td.Odds has text.
+                    odds_el = first_row.locator('td.Odds').last # usually multiple, last is ninki?
+                    # Let's use strict selector from HTML inspection
+                    # <td class="Odds Txt_R"><span class="Odds_Ninki">1.7</span></td>
+                    odds_el = first_row.locator('span.Odds_Ninki')
+                    if await odds_el.count() == 0:
+                         # Fallback
+                         odds_el = first_row.locator('td.Odds').last
+                    
+                    odds_text = await odds_el.text_content()
+                    try:
+                        odds_val = float(odds_text.strip())
+                        payout = int(odds_val * 100)
+                    except:
+                        payout = 0
+                        logger.warning(f"Could not parse odds '{odds_text}' for {rid}")
+                    
+                    results[rid] = {
+                        'win_horse_num': horse_num,
+                        'win_payout': payout
+                    }
+                    logger.info(f"Race {rid}: Win #{horse_num}, Pay {payout}")
+                    
+                except Exception as e:
+                    logger.error(f"Error scraping result for {rid}: {e}")
+                
+                await asyncio.sleep(2.0)
+            
+            await browser.close()
+        return results
+
+    def scrape_race_results(self, race_ids):
+        return asyncio.run(self._fetch_results_async(race_ids))
