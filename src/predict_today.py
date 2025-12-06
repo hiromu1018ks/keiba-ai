@@ -232,9 +232,7 @@ def main():
         logger.error("Model not found.")
         return
         
-    with open(model_path, 'wb') as f: # Wait, original mode 'rb' is correct. Copy-paste error potential.
-        pass # Placeholder for diff context
-        
+
     with open(model_path, 'rb') as f:
         model = pickle.load(f)
 
