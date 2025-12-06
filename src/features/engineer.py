@@ -105,49 +105,50 @@ class FeatureEngineer:
         except:
             return np.nan
 
-    def fit(self, df):
+    def fit(self, df, skip_feature_generation=False):
         """
         Fits encoders on the dataframe.
         """
         temp_df = df.copy()
         
-        # Merge Pedigree
-        if 'sire_id' not in temp_df.columns:
-            temp_df = self.pedigree_engineer.merge_pedigree(temp_df)
-        
-        # 0. Pre-processing for encoding
-        if 'race_id' in temp_df.columns:
-            temp_df['place'] = temp_df['race_id'].apply(self._extract_place)
-
-        if 'distance' in temp_df.columns:
-            temp_df['distance_category'] = temp_df['distance'].apply(self._categorize_distance)
-        
-        if 'horse_weight' in temp_df.columns:
-            temp_df['weight_bin'] = temp_df['horse_weight'].apply(self._bin_weight)
-
-        if 'passing_order' in temp_df.columns:
-            temp_df['running_style'] = temp_df['passing_order'].apply(self._classify_running_style)
-
-        if 'jockey_id' in temp_df.columns and 'trainer_id' in temp_df.columns:
-            temp_df['jockey_trainer_pair'] = temp_df['jockey_id'].astype(str) + '_' + temp_df['trainer_id'].astype(str)
+        if not skip_feature_generation:
+            # Merge Pedigree
+            if 'sire_id' not in temp_df.columns:
+                temp_df = self.pedigree_engineer.merge_pedigree(temp_df)
             
-        # Create Pedigree Interactions (requires distance_category etc)
-        temp_df = self.pedigree_engineer.create_interaction_features(temp_df)
-        # Create Connection Interactions
-        temp_df = self.connections_engineer.create_connection_features(temp_df)
+            # 0. Pre-processing for encoding
+            if 'race_id' in temp_df.columns:
+                temp_df['place'] = temp_df['race_id'].apply(self._extract_place)
 
-        # Target Creation
-        if 'target' not in temp_df.columns and 'rank' in temp_df.columns:
-            temp_df['target'] = temp_df['rank'].apply(lambda x: 1 if x == 1 else 0)
-            # (Close 2nd logic omitted for simplicity in fit, usually handled in transform or pre-calc)
+            if 'distance' in temp_df.columns:
+                temp_df['distance_category'] = temp_df['distance'].apply(self._categorize_distance)
+            
+            if 'horse_weight' in temp_df.columns:
+                temp_df['weight_bin'] = temp_df['horse_weight'].apply(self._bin_weight)
+
+            if 'passing_order' in temp_df.columns:
+                temp_df['running_style'] = temp_df['passing_order'].apply(self._classify_running_style)
+
+            if 'jockey_id' in temp_df.columns and 'trainer_id' in temp_df.columns:
+                temp_df['jockey_trainer_pair'] = temp_df['jockey_id'].astype(str) + '_' + temp_df['trainer_id'].astype(str)
+                
+            # Create Pedigree Interactions (requires distance_category etc)
+            temp_df = self.pedigree_engineer.create_interaction_features(temp_df)
+            # Create Connection Interactions
+            temp_df = self.connections_engineer.create_connection_features(temp_df)
+
+            # Target Creation
+            if 'target' not in temp_df.columns and 'rank' in temp_df.columns:
+                temp_df['target'] = temp_df['rank'].apply(lambda x: 1 if x == 1 else 0)
+                # (Close 2nd logic omitted for simplicity in fit, usually handled in transform or pre-calc)
+            
+            # 2. Lag Features & Domain Knowledge
+            temp_df = self.history_engineer.create_history_features(temp_df)
         
         if 'target' not in temp_df.columns:
             logger.warning("Target column not found in fit. Skipping Target Encoding.")
             return self
 
-        # 2. Lag Features & Domain Knowledge
-        temp_df = self.history_engineer.create_history_features(temp_df)
-        
         # 1. Target Encoding for IDs (Global)
         for col in self.id_cols:
             if col in temp_df.columns:
@@ -404,11 +405,11 @@ class FeatureEngineer:
 
         return df
 
-    def fit_transform(self, df, encoding_only=False):
+    def fit_transform(self, df, encoding_only=False, skip_feature_generation=False):
         """
         Fits and transforms using K-Fold Target Encoding for training data.
         """
-        self.fit(df)
+        self.fit(df, skip_feature_generation=skip_feature_generation)
         df_transformed = self.transform(df, encoding_only=encoding_only)
         
         # K-Fold Target Encoding

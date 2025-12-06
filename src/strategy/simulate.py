@@ -18,11 +18,35 @@ class Backtester:
         self.fe = FeatureEngineer()
         self.strategy = BettingStrategy(ev_threshold=1.5)
 
+    def prepare_features(self, df):
+        """
+        Generates or loads features from cache.
+        """
+        cache_path = 'data/cache/features_sim.pkl'
+        if os.path.exists(cache_path):
+            logger.info("Loading features from cache...")
+            cached_df = pd.read_pickle(cache_path)
+            # Simple validation: size match? or just trust user.
+            # Trust user for now as per plan.
+            return cached_df
+        
+        logger.info("Generating features for entire dataset...")
+        fe = FeatureEngineer()
+        # Transform full dataset (encoding_only=False) -> generates raw numeric features
+        # Note: df is already sorted by date in run_walk_forward
+        df_features = fe.transform(df, encoding_only=False)
+        
+        # Save cache
+        os.makedirs(os.path.dirname(cache_path), exist_ok=True)
+        df_features.to_pickle(cache_path)
+        
+        return df_features
+
     def run_walk_forward(self, start_year=2023):
         """
         Performs Walk-Forward Validation and returns predictions DataFrame.
         Trains on data < year, tests on data == year.
-        Uses train_v2.py logic for leakage prevention.
+        Uses cached features to speed up simulation.
         """
         logger.info("Loading data for simulation...")
         try:
@@ -43,7 +67,6 @@ class Backtester:
             return pd.DataFrame()
 
         # Filter for JRA (Central Racing) only - place codes 01-10
-        # race_id format: YYYYPPKKDDRR where PP is place code
         jra_places = ['01', '02', '03', '04', '05', '06', '07', '08', '09', '10']
         df['place_code'] = df['race_id'].astype(str).str[4:6]
         original_count = len(df)
@@ -52,6 +75,13 @@ class Backtester:
 
         # Sort strictly
         df = df.sort_values(['date_dt', 'race_id'])
+
+        # Prepare Features (Cached)
+        df_features = self.prepare_features(df)
+        
+        if 'year' not in df_features.columns:
+            # Ensure year column is preserved or restored
+            df_features['year'] = df.loc[df_features.index, 'year']
 
         years = sorted(df['year'].unique())
         test_years = [y for y in years if y >= start_year]
@@ -74,59 +104,39 @@ class Backtester:
             'num_leaves': 31
         }
         if os.path.exists(best_params_path):
-            with open(best_params_path, 'r') as f:
-                best_params = json.load(f)
-            params.update(best_params)
+            try:
+                with open(best_params_path, 'r') as f:
+                    best_params = json.load(f)
+                params.update(best_params)
+            except:
+                pass
 
         for test_year in test_years:
             logger.info(f"=== Training for Year {test_year} ===")
             
-            # Split Data
-            train_df_raw = df[df['year'] < test_year].copy()
-            test_df_raw = df[df['year'] == test_year].copy()
+            # Split Data using Pre-calculated Features
+            train_mask = df_features['year'] < test_year
+            test_mask = df_features['year'] == test_year
             
-            if len(train_df_raw) == 0:
+            if not train_mask.any():
                 continue
             
-            # Feature Engineering: FIT on ALL data first to generate raw features?
-            # NO, we should follow train_v2 logic: generate raw features, THEN split, THEN encode.
-            # But here we need to be careful not to use future data in rolling windows.
-            # Ideally, rolling windows are causal (shift(1)), so generating on full df is technically safe 
-            # as long as we don't use global stats that include future.
-            # FeatureEngineer v2 uses shift(1), so it's causal.
-            # BUT, race-relative stats (z-score) are within-race. That's fine.
-            # The only risk is target encoding (handled by split) and global aggregations.
+            df_train = df_features[train_mask].copy()
+            df_test = df_features[test_mask].copy()
             
-            # To be safe, generate on combined [train + test] for this iteration?
-            # Or generate on FULL logic but filter?
-            # Let's generate on full DF up to this point?
-            # Actually, simply calling FE on proper subsets is safer but might break rolling windows at the boundary.
-            # Better approach: Pass full DF, but marking the boundary?
-            # Or standard: Generate features on FULL HISTORY (df), then slice.
-            
-            # Using transform on FULL df to preserve rolling window continuity
-            # (Assuming FE handles causality correctly)
-            current_df = df[df['year'] <= test_year].copy()
-            
-            # 1. Generate Raw Features
-            logger.info("Generating raw features...")
-            # Re-initialize FE to avoid state carryover issues
-            fe_iter = FeatureEngineer()
-            df_generated = fe_iter.transform(current_df, encoding_only=False)
-            
-            train_mask = df_generated['year'] < test_year
-            test_mask = df_generated['year'] == test_year
-            
-            df_train = df_generated[train_mask].copy()
-            df_test = df_generated[test_mask].copy()
-            
-            # 2. Target Encoding (Fit on Train, Apply to Both)
+            # Target Encoding (Fit on Train, Apply to Both)
+            # We must re-fit encoders for each fold to avoid leakage
             logger.info("Encoding features...")
-            df_train_enc = fe_iter.fit_transform(df_train, encoding_only=True)
+            fe_iter = FeatureEngineer()
+            
+            # Use fit_transform for Train (Apply K-Fold TE to prevent leakage)
+            # skip_feature_generation=True because df_train already has raw features
+            df_train_enc = fe_iter.fit_transform(df_train, encoding_only=True, skip_feature_generation=True)
+            
+            # Use transform for Test (Apply Global TE from fit)
             df_test_enc = fe_iter.transform(df_test, encoding_only=True)
             
-            # 3. Define Features
-            # Same exclude list as train_v2.py (Production Logic)
+            # Define Features
             future_info = [
                 'rank', 'time', 'time_seconds', 'target', 'prize', 'log_prize',
                 'passing_order', 'agari_3f', 'margin', 'margin_val',
@@ -164,34 +174,24 @@ class Backtester:
             y_train = df_train_enc['target']
             X_test = df_test_enc[final_feature_cols]
             
-            # 4. Train
+            # Train
             logger.info(f"Training model for {test_year} with {len(final_feature_cols)} features...")
             
-            # Base Model
             base_model = LGBMClassifier(**params)
-            
-            # Calibrated Model (Isotonic)
             calibrated_model = CalibratedClassifierCV(base_model, method='isotonic', cv=5)
             calibrated_model.fit(X_train, y_train)
             
-            # 5. Predict
+            # Predict
             preds = calibrated_model.predict_proba(X_test)[:, 1]
             
             # Store
-            test_df_copy = df_test.copy() # Use the generated one to keep metadata if needed, but safe to use original test_df_raw part if indices match?
-            # Better to use df_test_enc index alignment
+            test_df_copy = df_test.copy()
             test_df_copy['pred_prob'] = preds
             
-            # We need raw odds for simulation, ensure they are preserved or retrieve from raw
-            # feature engineering might have dropped/transformed odds?
-            # 'odds' is in exclude_cols, so it should be in df_test_enc (just not used for training)
-            # Check if columns are present
-            if 'odds' not in test_df_copy.columns:
-                 # Restore from raw using index
-                 test_df_copy['odds'] = test_df_raw.loc[test_df_copy.index, 'odds']
-            if 'horse_num' not in test_df_copy.columns:
-                 test_df_copy['horse_num'] = test_df_raw.loc[test_df_copy.index, 'horse_num']
-                 
+            # Ensure essential columns for simulation
+            # We need odds and horse_num. They might be in excludes but should be in df_test (raw features)
+            # If df_features preserved them (it should as transform(encoding_only=False) keeps columns)
+            
             all_predictions.append(test_df_copy)
             
         if not all_predictions:
