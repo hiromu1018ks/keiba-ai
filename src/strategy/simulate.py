@@ -262,7 +262,7 @@ class Backtester:
         logger.info("Starting Threshold Optimization (Grid Search)...")
         
         results = []
-        thresholds = [round(x * 0.1, 1) for x in range(10, 31)] 
+        thresholds = [round(x * 0.1, 1) for x in range(10, 21)] 
         
         best_recovery = 0
         best_threshold = 0
