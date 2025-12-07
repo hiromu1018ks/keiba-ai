@@ -315,7 +315,7 @@ def main():
     html_rows = []
     
     # Simulation Settings
-    SIM_EV_THRESHOLD = 2.0
+    SIM_EV_THRESHOLD = 1.5
     
     for rid, grp in df_inference.groupby('race_id'):
         race_title = format_race_title(rid)
@@ -345,13 +345,13 @@ def main():
             if prob < 0.05: is_candidate = False  # Min Probability Filter
             
             if is_candidate:
-                if ev > 3.0: 
-                    rec = "◎" # Strong Buy (High Confidence)
+                if ev > 1.5: 
+                    rec = "◎" # Strong Buy (User Request: EV > 1.5)
                     rec_class = "strong-buy"
-                elif ev >= SIM_EV_THRESHOLD: 
-                    rec = "○" # Buy (Matches Simulation Threshold)
+                elif ev >= 1.2: 
+                    rec = "○" # Buy
                     rec_class = "buy"
-                elif ev > 1.5: 
+                elif ev > 1.0: 
                     rec = "△" # Watch
                     rec_class = "watch"
             
@@ -467,7 +467,7 @@ def generate_html_output(date_str, race_data):
 <body>
     <h1>🏇 競馬AI予測 - {date}</h1>
     {races}
-    <div class="footer">Generated at {generated_at} | EV > 2.0 = ○ Buy (Target) | EV > 3.0 = ◎ Strong Buy</div>
+    <div class="footer">Generated at {generated_at} | EV > 1.2 = ○ Buy | EV > 1.5 = ◎ Strong Buy</div>
 </body>
 </html>"""
 

@@ -88,13 +88,17 @@ def main():
             else:
                 result_status = "LOSE"
                 return_amount = 0
+            
+            # Only count bets where result is known
+            total_bets += 1
+            total_cost += bet_unit
+            total_return += return_amount
+            
         else:
-             result_status = "N/A" # Result not found (maybe cancelled or scraper error)
+             result_status = "SKIP" # Result not yet available
+             return_amount = 0
+             # Do not add to totals
 
-        total_bets += 1
-        total_cost += bet_unit
-        total_return += return_amount
-        
         print(f"{rid:<14} {h_name:<20} {bet_unit:<5} {result_status:<8} {return_amount}")
 
     # 4. Summary
