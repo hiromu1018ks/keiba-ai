@@ -157,32 +157,43 @@ def train_model(data_path='data/common/raw_data/results.csv', model_dir='models'
                 'metric': 'binary_logloss',
                 'boosting_type': 'gbdt',
                 'verbosity': -1,
-                'n_estimators': 1000,
-                'learning_rate': trial.suggest_float('learning_rate', 0.01, 0.3),
-                'num_leaves': trial.suggest_int('num_leaves', 20, 300),
-                'feature_fraction': trial.suggest_float('feature_fraction', 0.4, 1.0),
-                'bagging_fraction': trial.suggest_float('bagging_fraction', 0.4, 1.0),
+                'n_estimators': 2000,  # Increased for early stopping
+                'device': 'gpu',  # GPU acceleration
+                'gpu_platform_id': 0,
+                'gpu_device_id': 0,
+                'learning_rate': trial.suggest_float('learning_rate', 0.005, 0.2, log=True),
+                'num_leaves': trial.suggest_int('num_leaves', 20, 500),
+                'max_depth': trial.suggest_int('max_depth', 4, 15),
+                'feature_fraction': trial.suggest_float('feature_fraction', 0.3, 1.0),
+                'bagging_fraction': trial.suggest_float('bagging_fraction', 0.3, 1.0),
                 'bagging_freq': trial.suggest_int('bagging_freq', 1, 7),
-                'min_child_samples': trial.suggest_int('min_child_samples', 5, 100),
+                'min_child_samples': trial.suggest_int('min_child_samples', 5, 150),
+                'reg_alpha': trial.suggest_float('reg_alpha', 1e-4, 10.0, log=True),
+                'reg_lambda': trial.suggest_float('reg_lambda', 1e-4, 10.0, log=True),
             }
             
             model = LGBMClassifier(**param)
             model.fit(
                 X_opt_train, y_opt_train,
                 eval_set=[(X_opt_val, y_opt_val)],
-                callbacks=[lgb.early_stopping(stopping_rounds=10, verbose=False)]
+                callbacks=[lgb.early_stopping(stopping_rounds=50, verbose=False)]
             )
             
             preds = model.predict_proba(X_opt_val)[:, 1]
             return log_loss(y_opt_val, preds)
 
-        logger.info("Starting Optuna optimization...")
-        study = optuna.create_study(direction='minimize')
-        study.optimize(objective, n_trials=20) 
+        logger.info("Starting Optuna optimization with GPU (100 trials)...")
+        study = optuna.create_study(
+            direction='minimize',
+            sampler=optuna.samplers.TPESampler(multivariate=True, seed=42),
+            pruner=optuna.pruners.HyperbandPruner()
+        )
+        study.optimize(objective, n_trials=100, show_progress_bar=True)
         
         best_params = study.best_params
         
         logger.info(f"Best params: {best_params}")
+        logger.info(f"Best LogLoss: {study.best_value:.6f}")
         
         # Save best params
         with open(best_params_path, 'w') as f:
