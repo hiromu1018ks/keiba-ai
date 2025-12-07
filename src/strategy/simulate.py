@@ -16,7 +16,7 @@ class Backtester:
     def __init__(self, data_path='data/common/raw_data/results.csv'):
         self.data_path = data_path
         self.fe = FeatureEngineer()
-        self.strategy = BettingStrategy(ev_threshold=1.5)
+        self.strategy = BettingStrategy(ev_threshold=2.0)
 
     def prepare_features(self, df):
         """

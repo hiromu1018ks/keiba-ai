@@ -181,6 +181,7 @@ def train_model(data_path='data/common/raw_data/results.csv', model_dir='models'
         study.optimize(objective, n_trials=20) 
         
         best_params = study.best_params
+        
         logger.info(f"Best params: {best_params}")
         
         # Save best params
