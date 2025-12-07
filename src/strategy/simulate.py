@@ -141,7 +141,7 @@ class Backtester:
                 'rank', 'time', 'time_seconds', 'target', 'prize', 'log_prize',
                 'passing_order', 'agari_3f', 'margin', 'margin_val',
                 'corner_1コーナー', 'corner_2コーナー', 'corner_3コーナー', 'corner_4コーナー', 'race_laps',
-                'running_style', 'position_gain',
+                'running_style', 'position_gain', 'first_corner_pos', 'final_corner_pos',
                 'odds', 'popularity', 'log_odds', 
                 'is_win', 'is_place', 'is_show'
             ]

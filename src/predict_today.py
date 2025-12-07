@@ -351,16 +351,13 @@ def main():
             if prob < 0.05: is_candidate = False  # Min Probability Filter
             
             if is_candidate:
-                # Simulation Base: EV > 1.5 with raw probs (sum ~0.84).
-                # Current: Normalized probs (sum 1.0) -> Inflation factor ~1.2x.
-                # Equivalent Threshold: 1.5 * 1.2 = 1.8
-                if ev > 1.8: 
-                    rec = "◎" # Strong Buy (Adjusted for Normalization)
+                if ev > 1.5: 
+                    rec = "◎" # Strong Buy (User Request: EV > 1.5)
                     rec_class = "strong-buy"
-                elif ev >= 1.5: 
+                elif ev >= 1.2: 
                     rec = "○" # Buy
                     rec_class = "buy"
-                elif ev > 1.2: 
+                elif ev > 1.0: 
                     rec = "△" # Watch
                     rec_class = "watch"
             
