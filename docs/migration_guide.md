@@ -1,92 +1,110 @@
-# 競馬AIプロジェクト 移行ガイド
+# 競馬AIプロジェクト 移行ガイド (完全版)
 
-このドキュメントでは、現在の競馬AIプロジェクトを別のPCに移行し、作業を再開するための手順を説明します。
+このドキュメントでは、本プロジェクトを別のPC環境へ完全移行するための手順を詳細に解説します。
+データサイズが大きいため（約10GB）、Gitだけでなく手動でのデータ移行が必要です。
 
-## 1. 必要な環境
+## 1. 移行元（現在のPC）での作業
 
-移行先のPCに以下のソフトウェアがインストールされていることを確認してください。
+まず、Git管理外の重要なデータ（学習データ、モデルなど）をまとめて圧縮します。
 
-*   **Python 3.10 以上** (推奨: 3.11 または 3.12)
-*   **Git** (コード管理用)
-*   **Google Chrome** (Playwrightによるスクレイピングで必要になる場合があります)
+### 1-1. データサイズの確認
+現在、以下のフォルダが特に容量を食っています。
+*   `data/` : **約10GB** (スクレイピングしたHTMLや過去のレース結果)
+*   `models/`: **約120MB** (学習済みモデル、特徴量エンジニア)
 
-## 2. ファイルの移行
-
-プロジェクトフォルダ（`keiba-ai`）を丸ごと新しいPCにコピーするのが最も簡単です。
-特に以下のフォルダ・ファイルが重要です。
-
-*   `src/`: ソースコード一式
-*   `data/`: 過去のレースデータ (`results.csv`) やスクレイピング結果
-    *   **重要**: `data/common/raw_data/results.csv` がないと学習ができません。
-*   `models/`: 学習済みモデル (`lgbm_calibrated.pkl`) と特徴量エンジニア (`feature_engineer.pkl`)
-    *   これを移行すれば、すぐに予測が可能です（再学習不要）。
-*   `pyproject.toml` / `requirements.txt`: ライブラリ依存関係
-
-※ `.venv` フォルダは移行しないでください（OSや環境ごとに作り直す必要があります）。
-
-## 3. セットアップ手順 (新しいPCでの操作)
-
-ターミナル（コマンドプロンプト/PowerShell）を開き、移行したプロジェクトフォルダに移動して実行します。
-
-### 3-1. 仮想環境の作成と有効化
+### 1-2. データの一括圧縮 (アーカイブ作成)
+以下のコマンドを実行して、必要なデータを1つのファイル (`keiba_data_backup.tar.gz`) にまとめます。
+※ 完了まで数分かかる場合があります。
 
 ```bash
-# 仮想環境(.venv)の作成
-python -m venv .venv
-
-# 有効化 (Mac/Linux)
-source .venv/bin/activate
-
-# 有効化 (Windows)
-.venv\Scripts\activate
+# プロジェクトルートディレクトリで実行
+tar -czvf keiba_data_backup.tar.gz data models output requirements.txt
 ```
 
-### 3-2. ライブラリのインストール
+*   `data`: 必須（これがないと再スクレイピングに数日かかります）
+*   `models`: 必須（これがないと再学習に数十分かかります）
+*   `output`: 任意（過去の予測結果などを残したい場合）
+*   `requirements.txt`: 必須（ライブラリ環境の再現用）
+
+### 1-3. データの取り出し
+作成された `keiba_data_backup.tar.gz` (約10GB) と、Git管理されているソースコード一式を新しいPCへ移動します。
+ファイルサイズが大きいため、以下のいずれかの方法を推奨します。
+
+*   **USBメモリ / 外付けHDD**: 最も確実で高速です。
+*   **クラウドストレージ (Google Drive/Dropbox等)**: ネットワーク環境が良い場合。アップロード/ダウンロードに時間がかかります。
+*   **AirDrop**: Mac同士かつ近くにある場合。
+
+## 2. 移行先（新しいPC）での作業
+
+### 2-1. ソースコードの配置
+Git経由、またはフォルダコピーでソースコードを展開します。
 
 ```bash
-# pip自体のアップグレード
-pip install --upgrade pip
-
-# 依存ライブラリのインストール
-pip install pandas numpy scikit-learn lightgbm optuna playwright beautifulsoup4 lxml tqdm ipykernel matplotlib seaborn
-# または requirements.txt があれば
-# pip install -r requirements.txt
+# Gitを使う場合
+git clone <リポジトリURL> keiba-ai
+cd keiba-ai
 ```
 
-### 3-3. Playwrightのブラウザインストール
-
-スクレイピングに必要なブラウザドライバをインストールします。
+### 2-2. データの展開 (解凍)
+移行してきたバックアップファイル (`keiba_data_backup.tar.gz`) を、`keiba-ai` フォルダの直下に置きます。
+その後、以下のコマンドで解凍します。
 
 ```bash
-playwright install
+# 解凍 (既存の同名フォルダがある場合は上書きされます)
+tar -xzvf keiba_data_backup.tar.gz
 ```
 
-## 4. 動作確認
+これで `data/`, `models/` などのフォルダが元通り配置されます。
 
-環境構築ができたら、以下のコマンドで動作を確認します。
+### 2-3. 環境構築
+Python環境を再現します。
 
-### 4-1. 予測の実行
+1.  **Pythonのインストール**: 3.10以上をインストールしてください。
+2.  **仮想環境の作成**:
 
-本日の予測が動くか確認します。モデルファイル (`models/`) が正しく移行されていれば、数分で完了します。
+    ```bash
+    # 仮想環境の作成
+    python -m venv .venv
+    
+    # 有効化 (Mac/Linux)
+    source .venv/bin/activate
+    # 有効化 (Windows)
+    .venv\Scripts\activate
+    ```
+
+3.  **ライブラリのインストール**:
+
+    ```bash
+    # pipのアップグレード
+    pip install --upgrade pip
+    
+    # バックアップに含まれていた requirements.txt からインストール
+    pip install -r requirements.txt
+    ```
+
+4.  **Playwrightのセットアップ**:
+
+    ```bash
+    playwright install
+    ```
+
+## 3. 動作確認
+
+すべてのフォルダとライブラリが揃っていれば、即座に実行可能です。
+
+### 3-1. 予測のテスト
+エラーなく動作し、推奨馬が表示されれば成功です。
 
 ```bash
 python -m src.predict_today
 ```
 
-エラーが出なければ、`output/` フォルダに予測結果（HTML/CSV）が生成されます。
-
-### 4-2. （オプション）モデルの再学習
-
-もしモデルファイルが読み込めない、あるいはゼロから作り直したい場合は、再学習を実行します（時間がかかります）。
+### 3-2. シミュレーションのテスト
+データ欠損がないか確認するため、短時間のシミュレーションを試すのも良いでしょう。
 
 ```bash
-python -m src.model.train
+# 2024年だけシミュレーションして確認
+python -c "from src.strategy.simulate import Backtester; Backtester().run_walk_forward(start_year=2024)"
 ```
 
-## 5. よくあるトラブル
-
-*   **ModuleNotFoundError**: `pip install xxx` で不足しているライブラリを入れてください。
-*   **Pickle Load Error**: Pythonのバージョンが大きく異なると、`models/` 内のpklファイルが読み込めないことがあります。その場合は「4-2. モデルの再学習」を行ってください。
-*   **Playwright Error**: `playwright install` を忘れていないか確認してください。
-
-以上で移行作業は完了です。
+以上で移行作業は完了です。ご不明な点があればお問い合わせください。
