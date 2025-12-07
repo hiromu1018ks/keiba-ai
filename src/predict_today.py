@@ -186,13 +186,22 @@ def main():
     # -------------------------------------------------------------
     # -------------------------------------------------------------
     
-    # Ensure ID columns are string
-    id_cols = ['race_id', 'horse_id', 'jockey_id', 'trainer_id']
+    # Ensure ID columns are consistent with training data (Float/Numeric)
+    # results.csv loads IDs as floats/ints. forcing to str breaks Target Encoding keys.
+    id_cols = ['horse_id', 'jockey_id', 'trainer_id', 'owner_id', 'sire_id', 'dam_id', 'bms_id', 'breeder_id']
     for col in id_cols:
         if col in df_history.columns:
-            df_history[col] = df_history[col].astype(str)
+            df_history[col] = pd.to_numeric(df_history[col], errors='coerce')
         if col in df_today.columns:
-            df_today[col] = df_today[col].astype(str)
+            df_today[col] = pd.to_numeric(df_today[col], errors='coerce')
+    
+    # race_id might be needed as string for date parsing, but feature engineer handles casting.
+    # Let's keep race_id as is (usually numeric in csv, string in parser)
+    # Unified to string for race_id to be safe for regex slicing
+    if 'race_id' in df_history.columns:
+        df_history['race_id'] = df_history['race_id'].astype(str)
+    if 'race_id' in df_today.columns:
+        df_today['race_id'] = df_today['race_id'].astype(str)
     
     # 4. Combine Data
     logger.info(f"Scraped {len(df_today)} entries. Combining with {len(df_history)} history entries.")
@@ -287,26 +296,11 @@ def main():
     df_inference['pred_prob'] = probs
 
     # Normalize Probabilities per Race
-    # 1. Normalize to sum=1.0 ensures relative probabilities are correct (fixing the >2.0 issue).
-    # 2. Scale by 0.85 to match the simulation environment (where sum was ~0.84).
-    #    If we leave it at 1.0, EV is inflated by ~20% vs simulation, causing too many bets.
-    
-    logger.info("Normalizing and Scaling probabilities per race (Target Sum: 0.85)...")
-    for rid, grp in df_inference.groupby('race_id'):
-        raw_probs = grp['pred_prob'].values
-        prob_sum = raw_probs.sum()
-        
-        if prob_sum > 0:
-            # Step 1: Normalize to 1.0
-            norm_probs = raw_probs / prob_sum
-            # Step 2: Scale to 0.85 (Simulation Calibration)
-            final_probs = norm_probs * 0.85
-        else:
-            final_probs = raw_probs
-        
-        # Update original dataframe
-        for idx, val in zip(grp.index, final_probs):
-            df_inference.at[idx, 'pred_prob'] = val
+    # REMOVED: Normalization and scaling (x0.85) logic to match simulation (simulate.py) exactly.
+    # Simulation uses raw probabilities from the binary classifier.
+    # Previous logic inflated probabilities for low-confidence races (where sum < 0.85), leading to excess bets.
+    # logger.info("Normalizing and Scaling probabilities per race (Target Sum: 0.85)...")
+    # Logic removed. Using raw 'pred_prob' directly.
             
     # 7. Display Results and Generate HTML
     print(f"\n=== Predictions for {target_date.date()} ===")
@@ -324,6 +318,18 @@ def main():
         # Sort by Win Probability
         grp = grp.sort_values('pred_prob', ascending=False)
         
+        # Normalize Probabilities per Race
+        # Since the model is a binary classifier, the raw probabilities are not mutually exclusive and can sum > 1.0.
+        # We must normalize them to represent a valid win probability distribution for EV calculation.
+        prob_sum = grp['pred_prob'].sum()
+        if prob_sum > 0:
+            normalized_probs = grp['pred_prob'] / prob_sum
+            # Optional: Scale to ~0.9 to account for margin/uncertainty, but 1.0 is standard.
+            # Update the 'pred_prob' column in the original df_inference for this race group
+            df_inference.loc[grp.index, 'pred_prob'] = normalized_probs.values
+            # Re-assign grp to the updated slice to ensure subsequent calculations use normalized probs
+            grp = df_inference.loc[grp.index].copy()
+
         print(f"{'No.':<4} {'Horse':<20} {'Prob':<8} {'Odds':<6} {'EV':<6} {'Rec'}")
         print("-" * 60)
         
@@ -345,13 +351,16 @@ def main():
             if prob < 0.05: is_candidate = False  # Min Probability Filter
             
             if is_candidate:
-                if ev > 1.5: 
-                    rec = "◎" # Strong Buy (User Request: EV > 1.5)
+                # Simulation Base: EV > 1.5 with raw probs (sum ~0.84).
+                # Current: Normalized probs (sum 1.0) -> Inflation factor ~1.2x.
+                # Equivalent Threshold: 1.5 * 1.2 = 1.8
+                if ev > 1.8: 
+                    rec = "◎" # Strong Buy (Adjusted for Normalization)
                     rec_class = "strong-buy"
-                elif ev >= 1.2: 
+                elif ev >= 1.5: 
                     rec = "○" # Buy
                     rec_class = "buy"
-                elif ev > 1.0: 
+                elif ev > 1.2: 
                     rec = "△" # Watch
                     rec_class = "watch"
             

@@ -399,6 +399,9 @@ class FeatureEngineer:
                 elif col in ratio_cols:
                     # Ratio columns: fill with 1.0 (neutral baseline)
                     df[col] = df[col].fillna(1.0)
+                elif col == 'popularity' or col == 'prev_popularity':
+                    # Popularity: fill with 99 (least popular) instead of 0 (which model might see as better than 1)
+                    df[col] = df[col].fillna(99)
                 else:
                     # Default: fill with 0
                     df[col] = df[col].fillna(0)
