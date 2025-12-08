@@ -8,7 +8,8 @@ import webbrowser
 from src.data.parser_shutsuba import ShutsubaParser
 from src.data.scraper_playwright import PlaywrightScraper
 from src.utils.logger import setup_logger
-
+from src.model.ensemble import EnsembleModel
+import json
 logger = setup_logger(__name__)
 
 # Course code mapping
@@ -221,86 +222,74 @@ def main():
         
     df_processed = fe.transform(df_combined)
     
-    # 6. Predict
+    # 6. Predict (Ensemble Logic)
     # Filter for today
     df_inference = df_processed[df_processed['date'] == target_date].copy()
     
     if df_inference.empty:
         logger.error(f"No inference data found for {target_date}. Check date matching.")
-        # Debug info
-        logger.info(f"Target: {target_date}")
-        if 'date' in df_processed.columns:
-             logger.info(f"Processed dates sample: {df_processed['date'].unique()[-5:]}")
         return
 
     logger.info(f"Predicting for {len(df_inference)} entries...")
     
-    # Load Model
-    model_path = os.path.join(model_dir, 'lgbm_calibrated.pkl')
+    # Load Feature Engineer for Ensemble (Must match training)
+    fe_ens_path = os.path.join(model_dir, 'feature_engineer_ensemble.pkl')
+    if os.path.exists(fe_ens_path):
+         with open(fe_ens_path, 'rb') as f:
+             fe_ens = pickle.load(f)
+         logger.info("Loaded Ensemble FeatureEngineer.")
+         # Apply TE (encoding_only=True)
+         # Note: df_processed already has basic features, but ensemble might need re-encoding? 
+         # Wait, simulation code applies TE on 'df' which is raw+history.
+         # df_inference comes from df_processed which is 'fe.transform(df_combined)'.
+         # The 'fe' loaded at line 220 is likely the Single model's FE.
+         # The Ensemble might have a different FE state.
+         
+         # Retransform from raw inference slice (df_combined is available)
+         # We need the slice for today.
+         # df_combined_today = df_combined[df_combined['date'] == target_date].copy()
+         
+         # Transform using Ensemble FE
+         # We use df_inference (which has history features from Single FE)
+         # and apply Ensemble's Target Encoding on top of it.
+         df_inference_ens = fe_ens.transform(df_inference, encoding_only=True)
+    else:
+         logger.warning("Ensemble FE not found. Using default processed df (Risk of mismatch).")
+         df_inference_ens = df_inference
+
+    # Load Ensemble Model
+    model_path = os.path.join(model_dir, 'ensemble_model.pkl')
     if not os.path.exists(model_path):
-        logger.error("Model not found.")
+        logger.error("Ensemble Model not found.")
         return
         
-
     with open(model_path, 'rb') as f:
         model = pickle.load(f)
+    logger.info("Loaded Ensemble Model.")
 
-    # Feature Selection (try to match model)
-    feature_names = None
-    try:
-        base = model.calibrated_classifiers_[0].base_estimator
-        feature_names = base.feature_name_
-    except:
-        pass
-    
-    # ... (skipping feature selection logic for brevity in replacement if unchanged) ...
-    # Wait, I need to keep the context.
-    # Feature Selection mechanism
-    model_features = []
-    try:
-        # Attempt to extract features from the model object
-        if hasattr(model, 'calibrated_classifiers_') and model.calibrated_classifiers_:
-            base_model = model.calibrated_classifiers_[0].estimator
-            if hasattr(base_model, 'booster_'):
-                model_features = base_model.booster_.feature_name()
-        elif hasattr(model, 'booster_'):
-             model_features = model.booster_.feature_name()
+    # Load Feature Columns
+    feat_path = os.path.join(model_dir, 'model_features.json')
+    if os.path.exists(feat_path):
+        with open(feat_path, 'r') as f:
+            final_feature_cols = json.load(f)
+        logger.info(f"Loaded {len(final_feature_cols)} features for ensemble.")
         
-        if not model_features and hasattr(model, 'feature_name_'):
-             model_features = model.feature_name_
-             
-    except Exception as e:
-        logger.warning(f"Could not extract feature names from model: {e}")
-
-    X = df_inference.select_dtypes(include=[np.number])
-    exclude_cols = ['rank', 'target', 'is_win', 'is_place', 'is_show', 'prize', 'date', 'race_id', 'horse_id']
-    X = X[[c for c in X.columns if c not in exclude_cols]]
-
-    if model_features:
-        logger.info(f"Extracted {len(model_features)} features from model.")
+        # Check missing
+        missing = [c for c in final_feature_cols if c not in df_inference_ens.columns]
+        if missing:
+             logger.warning(f"Missing {len(missing)} cols, filling NaN.")
+             for c in missing:
+                 df_inference_ens[c] = np.nan
         
-        # Ensure all features exist
-        missing_cols = [c for c in model_features if c not in X.columns]
-        if missing_cols:
-            logger.warning(f"Missing {len(missing_cols)} features (filling with NaN): {missing_cols[:5]}...")
-            for c in missing_cols:
-                X[c] = np.nan
-        
-        # Filter to exact columns
-        X = X[model_features]
+        X = df_inference_ens[final_feature_cols].fillna(-999)
     else:
-        logger.warning("No feature list found. Using all available columns.")
+        logger.error("model_features.json not found. Cannot proceed safely with Ensemble.")
+        return
 
     # Predict Probabilities
     probs = model.predict_proba(X)[:, 1]
+    # Update df_inference 'pred_prob' (we use original df_inference for result display)
     df_inference['pred_prob'] = probs
-
-    # Normalize Probabilities per Race
-    # REMOVED: Normalization and scaling (x0.85) logic to match simulation (simulate.py) exactly.
-    # Simulation uses raw probabilities from the binary classifier.
-    # Previous logic inflated probabilities for low-confidence races (where sum < 0.85), leading to excess bets.
-    # logger.info("Normalizing and Scaling probabilities per race (Target Sum: 0.85)...")
-    # Logic removed. Using raw 'pred_prob' directly.
             
     # 7. Display Results and Generate HTML
     print(f"\n=== Predictions for {target_date.date()} ===")
@@ -308,8 +297,8 @@ def main():
     # Prepare HTML content
     html_rows = []
     
-    # Simulation Settings
-    SIM_EV_THRESHOLD = 1.5
+    # Simulation Settings (Based on Best ROI)
+    SIM_EV_THRESHOLD = 2.3
     
     for rid, grp in df_inference.groupby('race_id'):
         race_title = format_race_title(rid)
@@ -319,16 +308,14 @@ def main():
         grp = grp.sort_values('pred_prob', ascending=False)
         
         # Normalize Probabilities per Race
-        # Since the model is a binary classifier, the raw probabilities are not mutually exclusive and can sum > 1.0.
-        # We must normalize them to represent a valid win probability distribution for EV calculation.
-        prob_sum = grp['pred_prob'].sum()
-        if prob_sum > 0:
-            normalized_probs = grp['pred_prob'] / prob_sum
-            # Optional: Scale to ~0.9 to account for margin/uncertainty, but 1.0 is standard.
-            # Update the 'pred_prob' column in the original df_inference for this race group
-            df_inference.loc[grp.index, 'pred_prob'] = normalized_probs.values
-            # Re-assign grp to the updated slice to ensure subsequent calculations use normalized probs
-            grp = df_inference.loc[grp.index].copy()
+        # REMOVED: Simulation uses raw probabilities from the calibrated model.
+        # Forcing normalization (sum=1.0) distorts the calibrated EV.
+        # We trust the model's absolute probability output.
+        # prob_sum = grp['pred_prob'].sum()
+        # if prob_sum > 0:
+        #     normalized_probs = grp['pred_prob'] / prob_sum
+        #     df_inference.loc[grp.index, 'pred_prob'] = normalized_probs.values
+        #     grp = df_inference.loc[grp.index].copy()
 
         print(f"{'No.':<4} {'Horse':<20} {'Prob':<8} {'Odds':<6} {'EV':<6} {'Rec'}")
         print("-" * 60)
@@ -351,13 +338,13 @@ def main():
             if prob < 0.05: is_candidate = False  # Min Probability Filter
             
             if is_candidate:
-                if ev > 1.5: 
-                    rec = "◎" # Strong Buy (User Request: EV > 1.5)
+                if ev >= 2.3: 
+                    rec = "◎" # Strong Buy (Best Simulation Threshold)
                     rec_class = "strong-buy"
-                elif ev >= 1.2: 
+                elif ev >= 1.5: 
                     rec = "○" # Buy
                     rec_class = "buy"
-                elif ev > 1.0: 
+                elif ev >= 1.2: 
                     rec = "△" # Watch
                     rec_class = "watch"
             
@@ -473,7 +460,7 @@ def generate_html_output(date_str, race_data):
 <body>
     <h1>🏇 競馬AI予測 - {date}</h1>
     {races}
-    <div class="footer">Generated at {generated_at} | EV > 1.2 = ○ Buy | EV > 1.5 = ◎ Strong Buy</div>
+    <div class="footer">Generated at {generated_at} | EV > 1.5 = ○ Buy | EV > 2.3 = ◎ Strong Buy</div>
 </body>
 </html>"""
 

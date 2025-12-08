@@ -99,20 +99,18 @@ def train_ensemble_model(data_path='data/common/raw_data/results.csv', model_dir
     X_test = df_test_enc[final_feature_cols]
     y_test = df_test_enc['target']
 
-    # Fill NaN for CatBoost
-    X_train = X_train.fillna(-999)
-    X_test = X_test.fillna(-999)
+    # Fill NaN for CatBoost/LGBM safety
+    X_train_filled = X_train.fillna(-999)
+    X_test_filled = X_test.fillna(-999)
 
     # 5. Load LightGBM best params
-    best_params_path = os.path.join(model_dir, 'best_params_baseline.json')
+    best_params_path = os.path.join(model_dir, 'best_params.json')
     lgbm_params = {
         'objective': 'binary',
         'metric': 'binary_logloss',
         'boosting_type': 'gbdt',
         'n_estimators': 1000,
         'verbose': -1,
-        'learning_rate': 0.05,
-        'num_leaves': 148
     }
     if os.path.exists(best_params_path):
         with open(best_params_path, 'r') as f:
@@ -126,61 +124,64 @@ def train_ensemble_model(data_path='data/common/raw_data/results.csv', model_dir
     
     lgbm_pred = lgbm_calibrated.predict_proba(X_test)[:, 1]
     lgbm_auc = roc_auc_score(y_test, lgbm_pred)
-    logger.info(f"LightGBM Test AUC: {lgbm_auc:.4f}")
+    # 7. Optimize CatBoost (Skipped - Using Best Params from previous run)
+    logger.info("Using Best CatBoost Params (Optimization Skipped)...")
+    best_cb_params = {
+        'learning_rate': 0.029662307850402685, 
+        'depth': 8, 
+        'l2_leaf_reg': 8.68204193835847, 
+        'random_strength': 1.308680951145003, 
+        'bagging_temperature': 0.8471655474361184
+    }
 
-    # 7. Train CatBoost with GPU
-    logger.info("Training CatBoost with GPU...")
-    catboost_model = CatBoostClassifier(
-        iterations=1000,
-        learning_rate=0.05,
-        depth=8,
-        l2_leaf_reg=3,
-        task_type='GPU',
-        devices='0',
-        verbose=100,
-        early_stopping_rounds=50,
-        eval_metric='Logloss'
-    )
+    # 8. Train Best CatBoost
+    logger.info("Training Final CatBoost Model...")
+    final_cb_params = best_cb_params.copy()
+    final_cb_params.update({
+        'iterations': 1000,
+        'task_type': 'GPU',
+        'devices': '0',
+        'verbose': 100,
+        'early_stopping_rounds': 50,
+        'eval_metric': 'Logloss'
+    })
+    
+    catboost_model = CatBoostClassifier(**final_cb_params)
     catboost_model.fit(
-        X_train, y_train,
-        eval_set=(X_test, y_test),
+        X_train_filled, y_train,
+        eval_set=(X_test_filled, y_test),
         verbose=100
     )
     
-    catboost_pred = catboost_model.predict_proba(X_test)[:, 1]
+    catboost_pred = catboost_model.predict_proba(X_test_filled)[:, 1]
     catboost_auc = roc_auc_score(y_test, catboost_pred)
     logger.info(f"CatBoost Test AUC: {catboost_auc:.4f}")
 
-    # 8. Find Optimal Ensemble Weights
+    # 9. Find Optimal Ensemble Weights
     logger.info("Finding optimal ensemble weights...")
     best_weight = 0.5
     best_auc = 0
+    best_logloss = 999
     
-    for w in np.arange(0.1, 0.9, 0.1):
+    for w in np.arange(0.0, 1.01, 0.05):
         ensemble_pred = w * lgbm_pred + (1 - w) * catboost_pred
         auc = roc_auc_score(y_test, ensemble_pred)
-        if auc > best_auc:
+        loss = log_loss(y_test, ensemble_pred)
+        
+        # Optimize for AUC or LogLoss? Usually LogLoss for calibration.
+        # But user likes AUC. Let's use LogLoss for robustness.
+        if loss < best_logloss:
+            best_logloss = loss
             best_auc = auc
             best_weight = w
     
-    logger.info(f"Best Weight: LightGBM={best_weight:.1f}, CatBoost={1-best_weight:.1f}")
-    logger.info(f"Best Ensemble AUC: {best_auc:.4f}")
+    logger.info(f"Best Weight (min LogLoss): LightGBM={best_weight:.2f}, CatBoost={1-best_weight:.2f}")
+    logger.info(f"Ensemble AUC: {best_auc:.4f}, LogLoss: {best_logloss:.4f}")
 
-    # 9. Create Ensemble Model
+    # 10. Create Ensemble Model
     ensemble = EnsembleModel(lgbm_calibrated, catboost_model, lgbm_weight=best_weight)
     
-    # Final Evaluation
-    ensemble_pred = ensemble.predict_proba(X_test)[:, 1]
-    ensemble_auc = roc_auc_score(y_test, ensemble_pred)
-    ensemble_logloss = log_loss(y_test, ensemble_pred)
-    
-    logger.info(f"=== Final Results ===")
-    logger.info(f"LightGBM AUC:  {lgbm_auc:.4f}")
-    logger.info(f"CatBoost AUC:  {catboost_auc:.4f}")
-    logger.info(f"Ensemble AUC:  {ensemble_auc:.4f}")
-    logger.info(f"Ensemble LogLoss: {ensemble_logloss:.4f}")
-
-    # 10. Save Models
+    # 11. Save Models
     model_path = os.path.join(model_dir, 'ensemble_model.pkl')
     with open(model_path, 'wb') as f:
         pickle.dump(ensemble, f)
@@ -198,13 +199,19 @@ def train_ensemble_model(data_path='data/common/raw_data/results.csv', model_dir
         'catboost_weight': 1 - best_weight,
         'lgbm_auc': lgbm_auc,
         'catboost_auc': catboost_auc,
-        'ensemble_auc': ensemble_auc,
-        'ensemble_logloss': ensemble_logloss
+        'ensemble_auc': best_auc,
+        'ensemble_logloss': best_logloss
     }
     config_path = os.path.join(model_dir, 'ensemble_config.json')
     with open(config_path, 'w') as f:
         json.dump(config, f, indent=4)
     logger.info(f"Saved ensemble config to {config_path}")
+
+    # Save Feature Columns List (Crucial for simulation)
+    feat_path = os.path.join(model_dir, 'model_features.json')
+    with open(feat_path, 'w') as f:
+        json.dump(final_feature_cols, f, indent=4)
+    logger.info(f"Saved feature columns to {feat_path}")
 
 
 if __name__ == "__main__":

@@ -1,8 +1,8 @@
 {
-    "lgbm_weight": 0.8,
-    "catboost_weight": 0.19999999999999996,
-    "lgbm_auc": 0.7879304078175263,
-    "catboost_auc": 0.7810051933620593,
-    "ensemble_auc": 0.7879321473537745,
-    "ensemble_logloss": 0.2264663022242356
+    "lgbm_weight": 0.4,
+    "catboost_weight": 0.6,
+    "lgbm_auc": 0.7891322148751526,
+    "catboost_auc": 0.7872523794460862,
+    "ensemble_auc": 0.7891602869564928,
+    "ensemble_logloss": 0.22630353490593752
 }

@@ -9,6 +9,7 @@ from src.features.engineer import FeatureEngineer
 from src.strategy.betting import BettingStrategy
 from src.model.ensemble import EnsembleModel
 from src.utils.logger import setup_logger
+import json
 
 logger = setup_logger(__name__)
 
@@ -64,11 +65,31 @@ def run_ensemble_simulation(start_year=2023):
     ]
     
     exclude_cols = set(future_info + meta_cols + raw_interactions)
-    feature_cols = [c for c in df.columns if c not in exclude_cols]
-    final_feature_cols = [c for c in feature_cols if pd.api.types.is_numeric_dtype(df[c])]
+    # Transform features using the loaded FeatureEngineer (Target Encoding)
+    logger.info("Applying Target Encoding to simulation data...")
+    df_enc = fe.transform(df, encoding_only=True)
+    
+    # Load exact features used in training
+    feat_path = 'models/model_features.json'
+    if os.path.exists(feat_path):
+        with open(feat_path, 'r') as f:
+            final_feature_cols = json.load(f)
+        logger.info(f"Loaded {len(final_feature_cols)} features from {feat_path}")
+    else:
+        logger.warning(f"Feature list not found at {feat_path}. Deriving from dataframe (Risk of mismatch).")
+        feature_cols = [c for c in df_enc.columns if c not in exclude_cols]
+        final_feature_cols = [c for c in feature_cols if pd.api.types.is_numeric_dtype(df_enc[c])]
+    
+    # Check if all features exist
+    missing_cols = [c for c in final_feature_cols if c not in df_enc.columns]
+    if missing_cols:
+        logger.error(f"Missing columns: {missing_cols}")
+        # Simple fix: add them as 0 or NaN? NaN is safer for LGBM/Catboost filled
+        for c in missing_cols:
+            df_enc[c] = np.nan
     
     # Predict with ensemble
-    X = df[final_feature_cols].fillna(-999)
+    X = df_enc[final_feature_cols].fillna(-999)
     ensemble_probs = ensemble.predict_proba(X)[:, 1]
     df['ensemble_prob'] = ensemble_probs
     

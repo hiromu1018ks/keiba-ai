@@ -298,6 +298,27 @@ class FeatureEngineer:
             except Exception as e:
                 logger.error(f"Failed to create jockey/trainer recent performance: {e}")
 
+            # 3.5 Pace Prediction Features (Race Level Aggregation)
+            if 'race_id' in df.columns:
+                try:
+                    # Expected number of horses for each style (Sum of rates)
+                    # rate_Nigeru_5 is 0.0-1.0 probability of being Nigeru based on last 5 races
+                    for style in ['Nigeru', 'Senko', 'Oikomi']:
+                        col = f'rate_{style}_5'
+                        if col in df.columns:
+                            # Total expected count in the race
+                            df[f'race_expected_{style}_count'] = df.groupby('race_id')[col].transform('sum')
+                            
+                            # Presence of pure style (Max probability)
+                            df[f'race_max_{style}_prob'] = df.groupby('race_id')[col].transform('max')
+                            
+                    # Pace Index: (Nigeru + Senko) - Oikomi ? High value = High Pace
+                    if 'race_expected_Nigeru_count' in df.columns and 'race_expected_Senko_count' in df.columns:
+                        df['race_pace_index'] = df['race_expected_Nigeru_count'] * 1.5 + df['race_expected_Senko_count']
+                        
+                except Exception as e:
+                    logger.error(f"Error creating pace features: {e}")
+
             # 4. Relative Features (Z-Scores, Deviation, Ratio)
             if 'race_id' in df.columns:
                 numeric_cols_for_relative = ['horse_weight', 'age', 'weight', 
@@ -382,6 +403,11 @@ class FeatureEngineer:
         # Add new lags explicitly
         numeric_cols += ['prev_rank_2', 'prev_rank_3', 'prev_prize_2', 'prev_prize_3',
                          'prev_odds_2', 'prev_odds_3']
+                         
+        # Add new Pace/Style features
+        numeric_cols += [c for c in df.columns if 'rate_' in c] # rate_Nigeru_5, etc.
+        numeric_cols += [c for c in df.columns if 'race_expected_' in c]
+        numeric_cols += [c for c in df.columns if 'race_max_' in c or 'race_pace_' in c]
         
         # Define feature type-specific fillna values
         rate_cols = ['jockey_win_rate_100', 'jockey_place_rate_100', 'jockey_show_rate_100',

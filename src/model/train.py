@@ -144,23 +144,21 @@ def train_model(data_path='data/common/raw_data/results.csv', model_dir='models'
         with open(best_params_path, 'r') as f:
             best_params = json.load(f)
     else:
-        # Use subset of Train for speed
-        split_opt_idx = int(len(X_train) * 0.8)
-        X_opt_train = X_train.iloc[:split_opt_idx]
-        y_opt_train = y_train.iloc[:split_opt_idx]
-        X_opt_val = X_train.iloc[split_opt_idx:]
-        y_opt_val = y_train.iloc[split_opt_idx:]
-
+        # Time Series Cross-Validation for Optuna
+        from sklearn.model_selection import TimeSeriesSplit
+        
+        # Sort X_train by index (which is sorted by date) just to be sure
+        # (It should already be sorted from earlier steps)
+        
         def objective(trial):
             param = {
                 'objective': 'binary',
                 'metric': 'binary_logloss',
                 'boosting_type': 'gbdt',
                 'verbosity': -1,
-                'n_estimators': 2000,  # Increased for early stopping
-                'device': 'gpu',  # GPU acceleration
-                'gpu_platform_id': 0,
-                'gpu_device_id': 0,
+                'n_estimators': 1000, 
+                'device': 'cpu', 
+                'n_jobs': -1, 
                 'learning_rate': trial.suggest_float('learning_rate', 0.005, 0.2, log=True),
                 'num_leaves': trial.suggest_int('num_leaves', 20, 500),
                 'max_depth': trial.suggest_int('max_depth', 4, 15),
@@ -172,23 +170,40 @@ def train_model(data_path='data/common/raw_data/results.csv', model_dir='models'
                 'reg_lambda': trial.suggest_float('reg_lambda', 1e-4, 10.0, log=True),
             }
             
-            model = LGBMClassifier(**param)
-            model.fit(
-                X_opt_train, y_opt_train,
-                eval_set=[(X_opt_val, y_opt_val)],
-                callbacks=[lgb.early_stopping(stopping_rounds=50, verbose=False)]
-            )
+            tscv = TimeSeriesSplit(n_splits=5)
+            scores = []
             
-            preds = model.predict_proba(X_opt_val)[:, 1]
-            return log_loss(y_opt_val, preds)
+            for fold, (train_idx, val_idx) in enumerate(tscv.split(X_train)):
+                # Split using integer indices
+                # X_train is a DataFrame, so we use iloc
+                X_fold_train = X_train.iloc[train_idx]
+                y_fold_train = y_train.iloc[train_idx]
+                X_fold_val = X_train.iloc[val_idx]
+                y_fold_val = y_train.iloc[val_idx]
+                
+                model = LGBMClassifier(**param)
+                model.fit(
+                    X_fold_train, y_fold_train,
+                    eval_set=[(X_fold_val, y_fold_val)],
+                    callbacks=[lgb.early_stopping(stopping_rounds=50, verbose=False)]
+                )
+                
+                preds = model.predict_proba(X_fold_val)[:, 1]
+                score = log_loss(y_fold_val, preds)
+                scores.append(score)
+            
+            # Return mean score across folds
+            return np.mean(scores)
 
-        logger.info("Starting Optuna optimization with GPU (100 trials)...")
+        logger.info("Starting Optuna optimization with TSCV (20 trials, n_jobs=1)...")
         study = optuna.create_study(
             direction='minimize',
             sampler=optuna.samplers.TPESampler(multivariate=True, seed=42),
             pruner=optuna.pruners.HyperbandPruner()
         )
-        study.optimize(objective, n_trials=100, show_progress_bar=True)
+        # n_jobs=1: Sequential trials to avoid deadlock/overload with TSCV
+        # Short run: 20 trials for verification
+        study.optimize(objective, n_trials=20, n_jobs=1, show_progress_bar=True)
         
         best_params = study.best_params
         

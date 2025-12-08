@@ -145,6 +145,28 @@ class HistoryFeature:
         if rank_5_mean is not None and prev_rank is not None:
             new_features['rank_momentum_5'] = rank_5_mean - prev_rank
 
+        # --- Running Style History (Pace Prediction Base) ---
+        if 'running_style' in df.columns:
+            # One-hot encode running_style (Unknown will be ignored or separate)
+            styles = ['Nigeru', 'Senko', 'Sashi', 'Oikomi']
+            # We can't easily use get_dummies because we need to group by horse_id
+            # So we create boolean series manually or use get_dummies and merge
+            
+            # Efficient way:
+            for style in styles:
+                # 1 if style matches, 0 otherwise
+                is_style = (df['running_style'] == style).astype(int)
+                
+                # Rolling mean (Rate)
+                # Group by horse_id, shift 1, rolling mean
+                # Note: is_style has same index as df
+                s_grouped = is_style.groupby(df['horse_id'])
+                
+                for w in [5, 10]:
+                    new_features[f'rate_{style}_{w}'] = s_grouped.transform(
+                        lambda x: x.shift(1).rolling(w, min_periods=1).mean()
+                    ).fillna(0)
+
         # --- Context Specific History (Suitability) ---
         # 1. Distance
         if 'distance_category' in df.columns:

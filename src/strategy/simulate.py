@@ -202,52 +202,98 @@ class Backtester:
     def simulate_with_threshold(self, df, ev_threshold, verbose=False):
         """
         Runs betting simulation on pre-calculated predictions.
+        Reports both Raw (EV only) and Filtered (Strategy applied) stats.
         """
         self.strategy.ev_threshold = ev_threshold
-        total_return = 0
-        total_bet_amount = 0
+        
+        # Stats containers
+        stats = {
+            'raw': {'return': 0, 'bet_amount': 0, 'hits': 0, 'bets': 0},
+            'filtered': {'return': 0, 'bet_amount': 0, 'hits': 0, 'bets': 0}
+        }
+        
+        # Group by year for logging
+        years = sorted(df['year'].unique())
+        
         
         # Group by year for logging
         years = sorted(df['year'].unique())
         
         for year in years:
-            year_df = df[df['year'] == year]
-            year_return = 0
-            year_bet_amount = 0
+            year_df = df[df['year'] == year] # Fix: Define year_df here
+            
+            year_stats = {
+                'raw': {'return': 0, 'bet_amount': 0},
+                'filtered': {'return': 0, 'bet_amount': 0}
+            }
             
             for race_id, race_data in year_df.groupby('race_id'):
-                # Ensure odds are present
-                if 'odds' not in race_data.columns:
-                    continue
-                    
-                odds_data = dict(zip(race_data['horse_num'], race_data['odds']))
-                bets = self.strategy.decide_bet(race_data[['horse_num', 'pred_prob']], odds_data)
-                
-                for bet in bets:
-                    amount = bet['amount']
-                    horse_num = bet['horse_num']
-                    year_bet_amount += amount
-                    
-                    # Check result
-                    result_row = race_data[race_data['horse_num'] == horse_num].iloc[0]
-                    if result_row['rank'] == 1:
-                        payout = amount * result_row['odds']
-                        year_return += payout
-            
-            total_return += year_return
-            total_bet_amount += year_bet_amount
-            
-            if verbose:
-                recovery = (year_return / year_bet_amount * 100) if year_bet_amount > 0 else 0
-                logger.info(f"Year {year}: Bet {year_bet_amount} -> Return {int(year_return)} | Recovery: {recovery:.1f}%")
+                if 'odds' not in race_data.columns: continue
 
+                odds_data = dict(zip(race_data['horse_num'], race_data['odds']))
+                
+                # 1. Ask Strategy (Filtered)
+                filtered_bets = self.strategy.decide_bet(race_data[['horse_num', 'pred_prob']], odds_data)
+                
+                # 2. Calculate Raw Bets (EV only, No safety filters)
+                raw_bets = []
+                for _, row in race_data.iterrows():
+                    horse_num = int(row['horse_num'])
+                    prob = row['pred_prob']
+                    odds = odds_data.get(horse_num)
+                    if odds:
+                        ev = prob * odds
+                        if ev > ev_threshold:
+                            raw_bets.append({'horse_num': horse_num, 'amount': 100})
+
+                # Process results helpers
+                def process_bets(bet_list, stats_dict):
+                    local_ret = 0
+                    local_bet = 0
+                    for bet in bet_list:
+                        amount = bet['amount']
+                        horse_num = bet['horse_num']
+                        local_bet += amount
+                        
+                        result_row = race_data[race_data['horse_num'] == horse_num].iloc[0]
+                        if result_row['rank'] == 1:
+                            local_ret += amount * result_row['odds']
+                    
+                    stats_dict['return'] += local_ret
+                    stats_dict['bet_amount'] += local_bet
+                    return local_ret, local_bet
+
+                # Accumulate
+                r_ret, r_bet = process_bets(raw_bets, stats['raw'])
+                f_ret, f_bet = process_bets(filtered_bets, stats['filtered'])
+                
+                year_stats['raw']['return'] += r_ret
+                year_stats['raw']['bet_amount'] += r_bet
+                year_stats['filtered']['return'] += f_ret
+                year_stats['filtered']['bet_amount'] += f_bet
+
+            if verbose:
+                # Calculate Year ROI
+                r_rec = (year_stats['raw']['return'] / year_stats['raw']['bet_amount'] * 100) if year_stats['raw']['bet_amount'] > 0 else 0
+                f_rec = (year_stats['filtered']['return'] / year_stats['filtered']['bet_amount'] * 100) if year_stats['filtered']['bet_amount'] > 0 else 0
+                
+                logger.info(f"Year {year} [Filtered]: Bet {year_stats['filtered']['bet_amount']} -> Ret {int(year_stats['filtered']['return'])} ({f_rec:.1f}%)")
+                logger.info(f"Year {year} [Raw(EV>{ev_threshold})]: Bet {year_stats['raw']['bet_amount']} -> Ret {int(year_stats['raw']['return'])} ({r_rec:.1f}%)")
+
+        # Total Return (Filtered is the main metric for optimization usually, or maybe raw? Strategy drives real profit)
+        # We return Filtered stats as primary to align with 'optimize_thresholds' logic driving real strategy.
+        total_return = stats['filtered']['return']
+        total_bet_amount = stats['filtered']['bet_amount']
         total_recovery = (total_return / total_bet_amount * 100) if total_bet_amount > 0 else 0
+        
         return total_return, total_bet_amount, total_recovery
 
     def optimize_thresholds(self, start_year=2023):
         """
-        Performs Grid Search efficiently.
+        Performs Grid Search efficiently using Parallel processing.
         """
+        from joblib import Parallel, delayed
+        
         # 1. Generate Predictions (Slow, but done once)
         logger.info("Generating predictions for optimization...")
         pred_df = self.run_walk_forward(start_year=start_year)
@@ -259,23 +305,25 @@ class Backtester:
         # Save predictions cache
         pred_df.to_csv('simulation_predictions.csv', index=False)
 
-        logger.info("Starting Threshold Optimization (Grid Search)...")
-        
-        results = []
+        logger.info("Starting Threshold Optimization (Grid Search with Parallel)...")
+        # Optimization: We can run threshold simulations in parallel
         thresholds = [round(x * 0.1, 1) for x in range(10, 21)] 
+        
+        def evaluate_threshold(th):
+            ret, bet, recovery = self.simulate_with_threshold(pred_df, ev_threshold=th, verbose=False)
+            return {'threshold': th, 'recovery': recovery, 'bet': bet, 'return': ret}
+
+        # Run parallel (Limit to 4 jobs to prevent system lag)
+        results = Parallel(n_jobs=4)(delayed(evaluate_threshold)(th) for th in thresholds)
         
         best_recovery = 0
         best_threshold = 0
         
-        for th in thresholds:
-            # 2. Simulate (Fast)
-            ret, bet, recovery = self.simulate_with_threshold(pred_df, ev_threshold=th, verbose=False)
-            logger.info(f"Threshold {th}: Recovery {recovery:.1f}% (Bet {bet})")
-            results.append({'threshold': th, 'recovery': recovery, 'bet': bet, 'return': ret})
-            
-            if recovery > best_recovery and bet > 0:
-                best_recovery = recovery
-                best_threshold = th
+        for res in results:
+            logger.info(f"Threshold {res['threshold']}: Recovery {res['recovery']:.1f}% (Bet {res['bet']})")
+            if res['recovery'] > best_recovery and res['bet'] > 0:
+                best_recovery = res['recovery']
+                best_threshold = res['threshold']
                 
         logger.info(f"=== Optimization Complete ===")
         logger.info(f"Best Threshold: {best_threshold}")
