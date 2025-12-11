@@ -212,15 +212,14 @@ class Backtester:
             'filtered': {'return': 0, 'bet_amount': 0, 'hits': 0, 'bets': 0}
         }
         
-        # Group by year for logging
-        years = sorted(df['year'].unique())
-        
+        # Year-by-year results storage for final summary
+        yearly_results = []
         
         # Group by year for logging
         years = sorted(df['year'].unique())
         
         for year in years:
-            year_df = df[df['year'] == year] # Fix: Define year_df here
+            year_df = df[df['year'] == year]
             
             year_stats = {
                 'raw': {'return': 0, 'bet_amount': 0},
@@ -272,16 +271,47 @@ class Backtester:
                 year_stats['filtered']['return'] += f_ret
                 year_stats['filtered']['bet_amount'] += f_bet
 
-            if verbose:
-                # Calculate Year ROI
-                r_rec = (year_stats['raw']['return'] / year_stats['raw']['bet_amount'] * 100) if year_stats['raw']['bet_amount'] > 0 else 0
-                f_rec = (year_stats['filtered']['return'] / year_stats['filtered']['bet_amount'] * 100) if year_stats['filtered']['bet_amount'] > 0 else 0
-                
-                logger.info(f"Year {year} [Filtered]: Bet {year_stats['filtered']['bet_amount']} -> Ret {int(year_stats['filtered']['return'])} ({f_rec:.1f}%)")
-                logger.info(f"Year {year} [Raw(EV>{ev_threshold})]: Bet {year_stats['raw']['bet_amount']} -> Ret {int(year_stats['raw']['return'])} ({r_rec:.1f}%)")
+            # Store year results
+            r_rec = (year_stats['raw']['return'] / year_stats['raw']['bet_amount'] * 100) if year_stats['raw']['bet_amount'] > 0 else 0
+            f_rec = (year_stats['filtered']['return'] / year_stats['filtered']['bet_amount'] * 100) if year_stats['filtered']['bet_amount'] > 0 else 0
+            
+            yearly_results.append({
+                'year': year,
+                'filtered_bet': year_stats['filtered']['bet_amount'],
+                'filtered_ret': int(year_stats['filtered']['return']),
+                'filtered_rec': f_rec,
+                'raw_bet': year_stats['raw']['bet_amount'],
+                'raw_ret': int(year_stats['raw']['return']),
+                'raw_rec': r_rec
+            })
 
-        # Total Return (Filtered is the main metric for optimization usually, or maybe raw? Strategy drives real profit)
-        # We return Filtered stats as primary to align with 'optimize_thresholds' logic driving real strategy.
+        # === Print Final Summary ===
+        if verbose:
+            print("\n" + "=" * 70)
+            print("【シミュレーション結果サマリー】")
+            print("=" * 70)
+            print(f"\n{'年':<6} | {'Filtered投資':>12} | {'Filtered払戻':>12} | {'回収率':>8} | {'Raw投資':>10} | {'Raw払戻':>10} | {'Raw回収率':>8}")
+            print("-" * 70)
+            
+            total_f_bet = 0
+            total_f_ret = 0
+            total_r_bet = 0
+            total_r_ret = 0
+            
+            for yr in yearly_results:
+                print(f"{yr['year']:<6} | {yr['filtered_bet']:>12,}円 | {yr['filtered_ret']:>12,}円 | {yr['filtered_rec']:>7.1f}% | {yr['raw_bet']:>10,}円 | {yr['raw_ret']:>10,}円 | {yr['raw_rec']:>7.1f}%")
+                total_f_bet += yr['filtered_bet']
+                total_f_ret += yr['filtered_ret']
+                total_r_bet += yr['raw_bet']
+                total_r_ret += yr['raw_ret']
+            
+            print("-" * 70)
+            total_f_rec = (total_f_ret / total_f_bet * 100) if total_f_bet > 0 else 0
+            total_r_rec = (total_r_ret / total_r_bet * 100) if total_r_bet > 0 else 0
+            print(f"{'合計':<6} | {total_f_bet:>12,}円 | {total_f_ret:>12,}円 | {total_f_rec:>7.1f}% | {total_r_bet:>10,}円 | {total_r_ret:>10,}円 | {total_r_rec:>7.1f}%")
+            print("=" * 70 + "\n")
+
+        # Total Return (Filtered is the main metric)
         total_return = stats['filtered']['return']
         total_bet_amount = stats['filtered']['bet_amount']
         total_recovery = (total_return / total_bet_amount * 100) if total_bet_amount > 0 else 0

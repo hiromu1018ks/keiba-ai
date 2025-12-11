@@ -22,7 +22,8 @@ def train_model(data_path='data/common/raw_data/results.csv', model_dir='models'
         os.makedirs(model_dir)
 
     # 1. Load Data / Features
-    cache_path = 'data/cache/features_sim.pkl'
+    # Use separate cache for JRA-VAN integrated features
+    cache_path = 'data/cache/features_sim_jravan.pkl'
     
     if os.path.exists(cache_path):
         logger.info(f"Loading features from cache: {cache_path}")

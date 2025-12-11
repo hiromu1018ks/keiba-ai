@@ -5,15 +5,17 @@ from src.utils.logger import setup_logger
 from src.features.pedigree import PedigreeFeature
 from src.features.connections import ConnectionsFeature
 from src.features.history import HistoryFeature
+from src.features.jravan_features import JraVanFeatures
 
 logger = setup_logger(__name__)
 
 class FeatureEngineer:
-    def __init__(self):
+    def __init__(self, use_jravan=True):
         self.label_encoders = {}
         self.target_encoders = {}
         self.categorical_cols = ['weather', 'condition', 'gender', 'surface', 'distance_category', 'weight_bin',
-                                 'around', 'race_class', 'place', 'running_style']
+                                 'around', 'race_class', 'place', 'running_style',
+                                 'sire_type', 'bms_type']  # JRA-VAN blood type features
         # Added pedigree related columns to id_cols for Target Encoding
         self.id_cols = ['jockey_id', 'trainer_id', 'jockey_trainer_pair',
                         'sire_id', 'bms_id', 'owner_id', 'breeder_id',
@@ -25,6 +27,18 @@ class FeatureEngineer:
         self.pedigree_engineer = PedigreeFeature()
         self.connections_engineer = ConnectionsFeature()
         self.history_engineer = HistoryFeature()
+        
+        # JRA-VAN Feature Integration
+        self.use_jravan = use_jravan
+        if use_jravan:
+            try:
+                self.jravan_engineer = JraVanFeatures()
+            except Exception as e:
+                logger.warning(f"Failed to initialize JraVanFeatures: {e}")
+                self.use_jravan = False
+                self.jravan_engineer = None
+        else:
+            self.jravan_engineer = None
 
     def _extract_place(self, race_id):
         try:
@@ -239,6 +253,14 @@ class FeatureEngineer:
             # 2. Lag Features & Domain Knowledge
             df = self.history_engineer.create_history_features(df)
             
+            # 2.5 JRA-VAN Features Integration (Prev race PCI, running style, etc.)
+            if self.use_jravan and self.jravan_engineer is not None:
+                try:
+                    logger.info("Merging JRA-VAN features...")
+                    df = self.jravan_engineer.merge_all_features(df)
+                except Exception as e:
+                    logger.warning(f"Failed to merge JRA-VAN features: {e}")
+            
             # 3. Interaction Features (Ratios)
             if 'horse_weight' in df.columns and 'weight' in df.columns:
                 try:
@@ -408,6 +430,17 @@ class FeatureEngineer:
         numeric_cols += [c for c in df.columns if 'rate_' in c] # rate_Nigeru_5, etc.
         numeric_cols += [c for c in df.columns if 'race_expected_' in c]
         numeric_cols += [c for c in df.columns if 'race_max_' in c or 'race_pace_' in c]
+        
+        # JRA-VAN derived features (prev race data - no leakage)
+        jravan_numeric_cols = [
+            'prev_pci', 'prev_rpci', 'prev_pci3',
+            'prev_agari3f_rank', 'prev_ave3f', 'prev_3f_diff',
+            'prev_running_style_jv',
+            'prev_corner1', 'prev_corner2', 'prev_corner3', 'prev_corner4',
+            'prev_rank_jv',
+            'weight_change_jv'
+        ]
+        numeric_cols += jravan_numeric_cols
         
         # Define feature type-specific fillna values
         rate_cols = ['jockey_win_rate_100', 'jockey_place_rate_100', 'jockey_show_rate_100',

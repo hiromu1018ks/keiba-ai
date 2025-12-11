@@ -26,8 +26,11 @@ class JraVanLoader:
         dfs = []
         for file in files:
             try:
-                # JRA-VAN CSVs are often Shift-JIS
-                df = pd.read_csv(file, encoding='shift_jis')
+                # JRA-VAN CSVs are often cp932 (superset of Shift-JIS)
+                try:
+                    df = pd.read_csv(file, encoding='cp932', low_memory=False)
+                except UnicodeDecodeError:
+                    df = pd.read_csv(file, encoding='shift_jis', low_memory=False)
                 dfs.append(df)
                 logger.info(f"Loaded {file}")
             except Exception as e:
