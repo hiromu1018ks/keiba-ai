@@ -59,7 +59,10 @@ class FeatureEngine:
         # 4. 基本特徴量のマッピング
         df = self._map_basic_features(df)
 
-        # 5. サブモジュールの特徴量計算（B-2〜B-5 で追加）
+        # 5. サブモジュールの特徴量計算
+        from features.intra_race_features import compute_intra_race_features
+
+        df = compute_intra_race_features(df)
 
         return df
 
