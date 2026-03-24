@@ -1,6 +1,6 @@
 """カテゴリE: レース難易度スコア
 
-difficulty_score = grade_weight × field_factor × (1 - entropy_normalized)
+difficulty_score = grade_weight × field_factor × entropy_normalized
 
 - grade_weight: G1=1.0, G2=0.8, G3=0.6, 重賞(D)=0.4, 特別(E)=0.2, 一般(_)=0.1
 - field_factor: field_size / 18 (最大18頭で正規化)
@@ -29,15 +29,18 @@ def compute_difficulty_score(df: pd.DataFrame) -> pd.DataFrame:
     """レース難易度スコアを計算
 
     Args:
-        df: race_id, field_size, grade_cd, market_entropy を含むDataFrame
+        df: race_id, field_size, grade_cd (または grade_code), market_entropy を含むDataFrame
 
     Returns:
         difficulty_score 列が追加されたDataFrame (0.0〜1.0)
     """
     df = df.copy()
 
+    # グレード列名の互換性 (grade_code は _map_basic_features でリネーム後の名前)
+    grade_col = "grade_cd" if "grade_cd" in df.columns else "grade_code"
+
     # グレード重み
-    df["_grade_weight"] = df["grade_cd"].map(_GRADE_WEIGHTS).fillna(0.1)
+    df["_grade_weight"] = df[grade_col].map(_GRADE_WEIGHTS).fillna(0.1)
 
     # 頭数係数 (正規化)
     df["_field_factor"] = (df["field_size"] / _MAX_FIELD_SIZE).clip(upper=1.0)

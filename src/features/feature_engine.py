@@ -72,6 +72,10 @@ class FeatureEngine:
 
         df = compute_market_bias(df)
 
+        from features.race_difficulty_model import compute_difficulty_score
+
+        df = compute_difficulty_score(df)
+
         return df
 
     def build_features(
