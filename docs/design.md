@@ -2575,6 +2575,184 @@ ValidationSuite の全テスト通過を合格の前提条件とする。
 
 ---
 
+## 14.5. 実装タスクリスト（セッション単位分割）
+
+> コンテキスト飽和を防ぐため、1セッション ≒ 1タスク（1〜3ファイル）で消化可能な粒度に分割。
+> 依存関係に従い順次実装する。完了済みタスクには `[x]` を付与。
+
+### Phase A: 基盤構築（DB不要・Python基盤のみ）
+
+- [ ] **A-1.** プロジェクトスケルトン作成（pyproject.toml, ディレクトリ構成, config/settings.yaml）
+  - 依存: なし
+  - 成果物: `pyproject.toml`, `config/`, `src/`, `tests/`, `notebooks/`, `requirements.txt`
+
+- [ ] **A-2.** データクラス・型定義（Race, Entry, Bet, OddsSnapshot 等）
+  - 依存: A-1
+  - 成果物: `src/domain/` （dataclass群）
+
+- [ ] **A-3.** PostgreSQL スキーマ定義 + DB接続モジュール
+  - 依存: A-1
+  - 成果物: `src/db/schema.py`, `src/db/connection.py`
+  - スキーマ: raw / odds_history / feature / prediction / betting
+
+### Phase B: 特徴量エンジン
+
+- [ ] **B-1.** feature_engine.py（メインエンジン + build_all() インタフェース）
+  - 依存: A-2, A-3
+  - 成果物: `src/features/feature_engine.py`
+
+- [ ] **B-2.** intra_race_features.py（レース内相対特徴量）
+  - 依存: B-1
+  - 成果物: `src/features/intra_race_features.py`
+
+- [ ] **B-3.** odds_dynamics_features.py（オッズ変化率特徴量）
+  - 依存: B-1
+  - 成果物: `src/features/odds_dynamics_features.py`
+
+- [ ] **B-4.** market_bias_features.py（市場歪み特徴量）
+  - 依存: B-1
+  - 成果物: `src/features/market_bias_features.py`
+
+- [ ] **B-5.** info_asymmetry_features.py + race_difficulty_model.py
+  - 依存: B-1
+  - 成果物: `src/features/info_asymmetry_features.py`, `src/features/race_difficulty_model.py`
+
+- [ ] **B-6.** leakage_validators.py（未来情報リーク検証）
+  - 依存: B-1〜B-5
+  - 成果物: `src/features/leakage_validators.py`, `tests/test_leakage.py`
+
+### Phase C: モデル群
+
+- [ ] **C-1.** submodel_manager.py（芝/ダート2分割 + 距離帯one-hot）
+  - 依存: A-2
+  - 成果物: `src/models/submodel_manager.py`
+  - §6参照: 距離帯はモデル分割ではなくone-hot特徴量として追加
+
+- [ ] **C-2.** market_model.py（差分専用・log_error正規化・両側クリップ）
+  - 依存: B-1, C-1
+  - 成果物: `src/models/market_model.py`
+  - §4参照: p_market_predは出力しない、log_error(signed/abs)のみ
+
+- [ ] **C-3.** stage1_ability_model.py（LightGBM Ranker・芝/ダート）
+  - 依存: B-1, C-1
+  - 成果物: `src/models/stage1_ability_model.py`
+  - Rule 1: オッズを入れない
+
+- [ ] **C-4.** two_stage_return_model.py（単勝・複勝2段階モデル）
+  - 依存: C-2, C-3
+  - 成果物: `src/models/two_stage_return_model.py`
+  - §2参照: WinTwoStageModel + PlaceTwoStageModel
+
+- [ ] **C-5.** ev_correction_model.py（P補正 binary init_score + E補正 1/√p重み付き回帰）
+  - 依存: C-4
+  - 成果物: `src/models/ev_correction_model.py`
+  - §3, Rule 12参照: P補正(init_score=logit(p_pred)) × E補正(weight=1/√p)
+
+- [ ] **C-6.** wide_two_stage_model.py（分散ベーススコア EV/(E×√P)）
+  - 依存: C-2, C-3
+  - 成果物: `src/models/wide_two_stage_model.py`
+  - §7, Rule 3, Rule 15参照: シャープレシオ近似
+
+- [ ] **C-7.** race_quality_screener.py（結果ベースproxy）
+  - 依存: C-2
+  - 成果物: `src/models/race_quality_screener.py`
+  - §5, Rule 16参照: EV依存proxy禁止（hist_roi_topk, hist_positive_return_ratio使用）
+
+- [ ] **C-8.** regime_detector.py（3状態分類 + ヒステリシス + 市場指標ラベル）
+  - 依存: C-2
+  - 成果物: `src/models/regime_detector.py`
+  - §9.5, Rule 19参照: 教師ラベルはmarket_efficiencyベース
+
+- [ ] **C-9.** robust_confidence_estimator.py（CP + Rolling Quantile の min）
+  - 依存: C-5
+  - 成果物: `src/models/robust_confidence_estimator.py`
+  - Rule 4参照
+
+### Phase D: ベッティング層
+
+- [ ] **D-1.** stake_calculator.py（edge連動ケリー + 1レース2%キャップ）
+  - 依存: A-2
+  - 成果物: `src/betting/stake_calculator.py`
+  - Rule 6参照
+
+- [ ] **D-2.** drawdown_controller.py（DD×ROI + EWMA + ヒステリシス + Nベット制限）
+  - 依存: A-2
+  - 成果物: `src/betting/drawdown_controller.py`
+  - §9, Rule 9, Rule 17参照: MAX_ADJUSTMENT_PER_N_BETS=20
+
+- [ ] **D-3.** late_money_filter.py（t-3min判定 + t-2minログ）
+  - 依存: A-2
+  - 成果物: `src/betting/late_money_filter.py`
+  - §8, Rule 8, Rule 14参照
+
+- [ ] **D-4.** gate_keeper.py + meta_switcher.py
+  - 依存: C-9, D-1
+  - 成果物: `src/betting/gate_keeper.py`, `src/betting/meta_switcher.py`
+
+- [ ] **D-5.** place_strategy.py + win_strategy.py + wide_strategy.py
+  - 依存: C-4, C-6, D-1
+  - 成果物: `src/betting/place_strategy.py`, `src/betting/win_strategy.py`, `src/betting/wide_strategy.py`
+
+- [ ] **D-6.** orchestrator.py（メインオーケストレーター + finalize_bets）
+  - 依存: C-1〜C-9, D-1〜D-5
+  - 成果物: `src/betting/orchestrator.py`
+  - §12参照: 12ステップのベット決定フロー
+
+### Phase E: パイプライン・検証
+
+- [ ] **E-1.** training_pipeline.py（学習パイプライン全体）
+  - 依存: C-1〜C-9
+  - 成果物: `src/pipelines/training_pipeline.py`
+  - §11参照: MLflow記録含む
+
+- [ ] **E-2.** walk_forward_cv.py（ウォークフォワード交差検証）
+  - 依存: E-1
+  - 成果物: `src/models/walk_forward_cv.py`
+  - Rule 7参照: out-of-sample期間でパラメータ変更禁止
+
+- [ ] **E-3.** backtest/engine.py（バックテストエンジン）
+  - 依存: D-6, E-1
+  - 成果物: `src/backtest/engine.py`
+
+- [ ] **E-4.** validation_suite.py（全テストスイート）
+  - 依存: C-1〜C-9, D-2, D-3
+  - 成果物: `src/backtest/validation_suite.py`
+  - §13参照: 全検証項目（test_stage_b_no_zeros, test_ev_correction_pe_independent 等）
+
+- [ ] **E-5.** parameter_freeze_protocol.py
+  - 依存: E-2
+  - 成果物: `src/backtest/parameter_freeze_protocol.py`
+
+### Phase F: 自動化・監視
+
+- [ ] **F-1.** pat_voter.py + safety_guard.py
+  - 依存: D-6
+  - 成果物: `src/automation/pat_voter.py`, `src/automation/safety_guard.py`
+
+- [ ] **F-2.** scheduler.py（t-3min/t-2min タスク）
+  - 依存: D-3, D-6, F-1
+  - 成果物: `src/automation/scheduler.py`
+
+- [ ] **F-3.** model_monitor.py + auto_retrain_trigger.py + notifier.py
+  - 依存: C-8, E-1
+  - 成果物: `src/monitoring/model_monitor.py`, `src/monitoring/auto_retrain_trigger.py`, `src/monitoring/notifier.py`
+
+- [ ] **F-4.** jvlink_fetcher.py + odds_collector.py
+  - 依存: A-3
+  - 成果物: `src/ingestion/jvlink_fetcher.py`, `src/ingestion/odds_collector.py`
+
+### Phase G: テスト・ノートブック
+
+- [ ] **G-1.** tests/ 全テストファイル
+  - 依存: Phase B〜E の各成果物
+  - 成果物: `tests/test_*.py`（§13, §16参照）
+
+- [ ] **G-2.** notebooks/ 分析ノートブック群
+  - 依存: Phase C, E
+  - 成果物: `notebooks/01_eda.ipynb` 〜 `notebooks/11_holdout_final_evaluation.ipynb`
+
+---
+
 ## 15. 期待値の現実的見積もり・本質的リスク（最終版・v5.4）
 
 ```
