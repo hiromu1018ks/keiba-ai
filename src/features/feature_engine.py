@@ -68,6 +68,10 @@ class FeatureEngine:
 
         df = compute_odds_dynamics(df, odds_ts_df)
 
+        from features.market_bias_features import compute_market_bias
+
+        df = compute_market_bias(df)
+
         return df
 
     def build_features(
