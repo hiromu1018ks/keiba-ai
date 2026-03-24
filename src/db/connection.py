@@ -12,13 +12,16 @@ from sqlalchemy.engine import Engine
 
 from db.schema import ALL_CREATE_STATEMENTS
 
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+_DEFAULT_SETTINGS_PATH = _PROJECT_ROOT / "config" / "settings.yaml"
 
-def _load_settings() -> dict:
+
+def _load_settings(settings_path: Optional[Path] = None) -> dict:
     """config/settings.yaml をロード"""
-    settings_path = Path("config/settings.yaml")
-    if not settings_path.exists():
-        raise FileNotFoundError("config/settings.yaml が見つかりません")
-    with open(settings_path) as f:
+    path = settings_path or _DEFAULT_SETTINGS_PATH
+    if not path.exists():
+        raise FileNotFoundError(f"設定ファイルが見つかりません: {path}")
+    with open(path, encoding="utf-8") as f:
         return yaml.safe_load(f)
 
 
@@ -26,7 +29,8 @@ class DatabaseConnection:
     """データベース接続を管理するクラス（シングルトンエンジン）"""
 
     def __init__(self, settings_path: Optional[str] = None):
-        settings = _load_settings()
+        path = Path(settings_path) if settings_path else None
+        settings = _load_settings(path)
         db = settings["database"]
 
         password = os.environ.get("PGPASSWORD", db.get("password", ""))
