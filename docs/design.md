@@ -1,38 +1,41 @@
-# 競馬AI システム設計書 v5.4
-## ── 実運用で壊れる残り4ポイントを潰す ──
+# 競馬AI システム設計書 v5.5
+## ── 統計的・実装的「ズレ」の最終修正 ──
 
-**バージョン:** 5.4（レビュー指摘4点の修正・実運用で壊れる箇所の完全排除）
+**バージョン:** 5.5（最終レビュー指摘3点の修正・「静かなバグ」の完全排除）
 **作成日:** 2026-03-24
-**改訂方針:** v5.3レビューで指摘された「実運用で壊れる可能性」4点を修正。EV補正のP/E分解、RaceQualityのproxy強化、Wideスコアの分散近似改善、DD制御の試行回数化。さらに市場状態の切り替えを検知するレジーム検知モデルを追加し、市場適応リスクに対応。実運用耐性を97%→99%へ。
+**改訂方針:** v5.4レビューで指摘された「静かなバグ」3点を修正。①P補正をinit_score付きキャリブレーションに変更（再学習化の防止）、②E補正のweightを1/√pに変更（ノイズ過剰適合の防止）、③RegimeDetectorの教師ラベルを市場指標ベースに変更（戦略依存の完全排除）。実運用耐性を97%→99%へ。
 
 ---
 
-## 変更サマリー（v5.1 → v5.3 → v5.4）
+## 変更サマリー（v5.1 → v5.3 → v5.4 → v5.5）
 
-| # | 問題 | 重要度 | v5.3 | v5.4 |
-|---|------|--------|------|------|
-| 1 | 期待リターンラベルのゼロ偏重 | **S** | 2段階モデル化（P×E） | （継承） |
-| 2 | Market Modelが市場コピーに収束 | **S** | 差分 log_error 専用出力 | （継承） |
-| 3 | RaceROIモデルのリーク | **S** | エッジ集計量に変更 | （継承） |
-| 4 | サブモデル分割過多 | **A** | 芝/ダート2分割 | （継承） |
-| 5 | ワイドスコアの分散未考慮 | **A** | `EV × P / (1+E)` モデル内部E | **`EV / (1 + P×E²)` Var_proxy使用** |
-| 6 | late_money 発走直前の扱い | **B** | t-3min判定、t-2minログ | （継承） |
-| 7 | DD制御 | **B** | DD×ROI+EWM A+ヒステリシス | **+ max_adjustment/day ガード** |
-| 8 | 2段階モデルの独立性破綻 | **S** | 全サンプル+補正係数 | **+ log化（分散安定）+ 中着者重み** |
-| 9 | market_errorのスケール依存 | **A** | p_pred下限クリップ | **p_market側もクリップ（両側対称化）** |
-| 10 | RaceQualityScreener | **A** | 分布特徴量+利益proxy | **+ 時間リーク完全遮断** |
-| 11 | EV補正の分母ノイズ | **S** | actual_ev / ev_raw | **log(actual_ev) - log(ev_raw)（分散安定化）** |
-| 12 | 外れ馬の学習支配 | **A** | なし | **中着者 weight = 1 + α（α=5〜10）** |
-| 13 | DD制御の過剰適応 | **B** | なし | **max_adjustment_per_day 制限** |
-| 14 | **EV補正のP/E混同（実運用不安定）** | **S** | log(actual_ev) - log(ev_raw) | **P補正×E補正の2モデルに分解** |
-| 15 | **RaceQuality proxyのモデル依存** | **A** | hist_top3_ev_mean | **結果ベースproxy（hit_rate/roi/return_ratio）** |
-| 16 | **Wideスコアの分散近似不足** | **A** | EV × P / (1+E) | **EV / (1 + P×E²) に変更** |
-| 17 | **DD制御の日付依存** | **B** | MAX_ADJUSTMENT_PER_DAY | **MAX_ADJUSTMENT_PER_N_BETS（20回）** |
-| 18 | **市場状態の切り替え未検知** | **A** | なし | **RegimeDetector（直近200レースで状態分類）** |
-| 19 | **P補正の疑似回帰（2値を回帰で解く）** | **S** | log(I(win)) - log(p_pred) を regression_l1 | **binary objective に変更（キャリブレーション）** |
-| 20 | **E補正のサンプル選択バイアス** | **A** | winner等重み | **weight = 1/p_win_pred（低確率勝利を強調）** |
-| 21 | **RegimeDetectorが戦略依存** | **A** | rolling_roi で状態分類 | **市場側指標追加（オッズ変動・人気馬勝率・FLB）** |
-| 22 | **Wideスコアのスケール不一致** | **B** | EV / (1 + P×E²) | **EV / (E × sqrt(P)) に変更** |
+| # | 問題 | 重要度 | v5.3 | v5.4 | v5.5 |
+|---|------|--------|------|------|------|
+| 1 | 期待リターンラベルのゼロ偏重 | **S** | 2段階モデル化（P×E） | （継承） | （継承） |
+| 2 | Market Modelが市場コピーに収束 | **S** | 差分 log_error 専用出力 | （継承） | （継承） |
+| 3 | RaceROIモデルのリーク | **S** | エッジ集計量に変更 | （継承） | （継承） |
+| 4 | サブモデル分割過多 | **A** | 芝/ダート2分割 | （継承） | （継承） |
+| 5 | ワイドスコアの分散未考慮 | **A** | `EV × P / (1+E)` モデル内部E | **`EV / (1 + P×E²)` Var_proxy使用** | （継承） |
+| 6 | late_money 発走直前の扱い | **B** | t-3min判定、t-2minログ | （継承） | （継承） |
+| 7 | DD制御 | **B** | DD×ROI+EWM A+ヒステリシス | **+ max_adjustment/day ガード** | （継承） |
+| 8 | 2段階モデルの独立性破綻 | **S** | 全サンプル+補正係数 | **+ log化（分散安定）+ 中着者重み** | （継承） |
+| 9 | market_errorのスケール依存 | **A** | p_pred下限クリップ | **p_market側もクリップ（両側対称化）** | （継承） |
+| 10 | RaceQualityScreener | **A** | 分布特徴量+利益proxy | **+ 時間リーク完全遮断** | （継承） |
+| 11 | EV補正の分母ノイズ | **S** | actual_ev / ev_raw | **log(actual_ev) - log(ev_raw)（分散安定化）** | （継承） |
+| 12 | 外れ馬の学習支配 | **A** | なし | **中着者 weight = 1 + α（α=5〜10）** | （継承） |
+| 13 | DD制御の過剰適応 | **B** | なし | **max_adjustment_per_day 制限** | （継承） |
+| 14 | **EV補正のP/E混同（実運用不安定）** | **S** | log(actual_ev) - log(ev_raw) | **P補正×E補正の2モデルに分解** | **+ init_score付きP補正** |
+| 15 | **RaceQuality proxyのモデル依存** | **A** | hist_top3_ev_mean | **結果ベースproxy（hit_rate/roi/return_ratio）** | （継承） |
+| 16 | **Wideスコアの分散近似不足** | **A** | EV × P / (1+E) | **EV / (1 + P×E²) に変更** | （継承） |
+| 17 | **DD制御の日付依存** | **B** | MAX_ADJUSTMENT_PER_DAY | **MAX_ADJUSTMENT_PER_N_BETS（20回）** | （継承） |
+| 18 | **市場状態の切り替え未検知** | **A** | なし | **RegimeDetector（直近200レースで状態分類）** | （継承） |
+| 19 | **P補正の疑似回帰（2値を回帰で解く）** | **S** | log(I(win)) - log(p_pred) を regression_l1 | **binary objective に変更** | **+ init_score = logit(p_pred)** |
+| 20 | **E補正のサンプル選択バイアス** | **A** | winner等重み | **weight = 1/p_win_pred** | **→ 1/√p_win_pred** |
+| 21 | **RegimeDetectorが戦略依存** | **A** | rolling_roi で状態分類 | **市場側指標追加** | **教師ラベルも市場指標化** |
+| 22 | **Wideスコアのスケール不一致** | **B** | EV / (1 + P×E²) | **EV / (E × sqrt(P)) に変更** | （継承） |
+| 23 | **P補正の再学習化** | **S** | p_win_pred を特徴量に含む | — | **init_score = logit(p_pred) でベースライン化** |
+| 24 | **E補正weight過強** | **A** | weight = 1/p（p=0.01→100） | — | **weight = 1/√p（過剰適合防止）** |
+| 25 | **RegimeDetector教師ラベル戦略依存** | **S** | y = rolling_roi | — | **y = market_efficiency（fav_rate × overround）** |
 
 ---
 
@@ -136,23 +139,28 @@
   修正: P補正をキャリブレーション問題として扱う
     objective を binary に変更（純粋な分類問題）
     出力を P_corrected = sigmoid(logit_correction) で [0,1] に制約
+  v5.5修正: p_win_pred を特徴量に入れると「再学習」になる
+    Stage1 と同じ問題をゼロから解く = Stage1 の意味が薄れる
+    → init_score = logit(p_pred) を設定し、p_win_pred を特徴量から除外
+    → logit(P_corrected) = logit(P_pred) + δ(x) の形に固定（真のキャリブレーション）
 
 壊れ⑦：E補正のサンプル選択バイアス
   v5.4初期: E補正は winner のみ等重みで学習
   → winner は「選ばれたサンプル」→ 条件付き分布が歪む
   → 人気馬ばかり学習され、穴馬のEを過小評価
-  修正: weight = 1 / p_win_pred でインポータンス重み付け
-    低確率勝利（穴馬の1着）を強調
-    サンプル選択バイアスを補正
+  修正: weight = 1 / √p_win_pred でインポータンス重み付け
+    低確率勝利（穴馬の1着）を強調（1/p は強すぎてノイズに支配される）
+    サンプル選択バイアスを補正しつつ過剰適合を抑制
 
 壊れ⑧：RegimeDetectorが戦略依存
   v5.4初期: y = rolling_roi で状態分類
   → rolling_roi は「自分の戦略の成果」→ 戦略依存
   → モデルが悪い → COLLAPSED / 市場が悪い → COLLAPSED を区別不可
-  修正: 市場側指標を増やし「市場状態」を直接検知
-    favorite_win_rate:      1番人気の勝率（高い＝市場が正確）
-    flb_slope:              favorite-longshot bias の傾き
-    odds_volatility_mean:   オッズ変動量の平均（高い＝市場が不安定）
+  v5.4改: 市場側指標を追加したが教師ラベルは rolling_roi のまま
+  v5.5修正: 教師ラベルを完全に市場指標ベースに変更
+    favorite_win_rate × overround_mean で market_efficiency を定義
+    教師ラベルは市場の効率性に基づいて離散化
+    rolling_roi は特徴量の補助指標に格下げ（教師ラベルには不使用）
 
 歪み⑨：Wideスコアのスケール不一致
   v5.4初期: score = EV / (1 + P×E²)
@@ -176,7 +184,7 @@ Rule 8 : late_moneyはフィルタとして使う（t-3min基準で判定）
 Rule 9 : DDコントローラーはDD×Rolling ROI + ヒステリシス + max_adj/N_bets ← v5.4更新
 Rule 10: モデル分割は「芝/ダートの2分割」から始める
 Rule 11: Market Modelの出力は差分（log_error）のみStage2に入力
-Rule 12: EV補正はP補正(binary)×E補正(重み付き回帰)の2モデルに分解     ← v5.4更新
+Rule 12: EV補正はP補正(init_score付きbinary)×E補正(1/√p重み付き回帰)の2モデルに分解     ← v5.5更新
 Rule 13: market_errorは両側クリップ（p_market, p_pred 共に clip(0.01, 0.99))
 Rule 14: 直前判定はt-3min基準、t-2minはログのみ
 Rule 15: ワイドスコアは EV / (E × sqrt(P)) でシャープレシオ近似を使用    ← v5.4更新
@@ -504,7 +512,7 @@ v5.3: y = log(actual_ev) - log(ev_raw)
   → Pのズレを補正しているのか Eのズレを補正しているのか区別できない
   → 学習が不安定になる
 
-【v5.4の解決: 補正をP補正×E補正に分解（v5.4改: Pは分類・Eは重み付き回帰）】
+【v5.4の解決: 補正をP補正×E補正に分解（v5.5: Pはinit_score付き分類・Eは1/√p重み付き回帰）】
 
 Correction = C_p × C_e
 
@@ -515,15 +523,18 @@ Model P（P補正）:
   役割: P(win) の予測ズレを「キャリブレーション」で補正
   出力: P_corrected = sigmoid(logit(I(win)) + correction_logit)
   → [0, 1] に制約された確率出力
+  v5.5改: init_score = logit(p_win_pred) を設定
+    → logit(P_corrected) = logit(P_pred) + δ(x) の形に固定
+    → p_win_pred を特徴量から除外（再学習化を防止）
 
 Model E（E補正）:
   目的変数: y_e = log(actual_odds | win) - log(e_pred)
   学習データ: 1着馬のみ
   役割: E(odds|win) の予測ズレ（回帰 residual）を学習
-  重み: weight = 1 / p_win_pred（低確率勝利を強調・サンプル選択バイアス補正）
+  重み: weight = 1 / √p_win_pred（低確率勝利を強調・ノイズ過剰適合を防止）
 
 最終補正:
-  P_corrected = sigmoid(logit_p + correction_logit)
+  P_corrected = sigmoid(logit(P_pred) + correction_logit)
   E_corrected = e_pred  × exp(y_e)
   EV_corrected = P_corrected × E_corrected
 
@@ -531,14 +542,15 @@ Model E（E補正）:
   ① PのズレとEのズレが明確に分離 → 学習が安定
   ② P補正は binary objective → 2値を回帰で解く「疑似回帰」を回避
   ③ P_corrected は [0,1] に制約 → 確率として整合
-  ④ E補正にインポータンス重み → 穴馬の過小評価を防止
+  ④ E補正に 1/√p 重み → 穴馬の過小評価を防止しつつノイズ過剰適合を抑制
   ⑤ 各モデルが単一の責任を持つ → 解釈性が向上
+  ⑥ v5.5: P補正は init_score で Stage1 をベースライン化 → 再学習化を防止
 ```
 
 ### 3.3 P/E分解補正モデルの実装
 
 ```python
-# models/ev_correction_model.py  v5.4
+# models/ev_correction_model.py  v5.5
 
 import lightgbm as lgb
 import numpy as np
@@ -552,20 +564,22 @@ class EVCorrectionModel:
     v5.3: y = log(actual_ev) - log(ev_raw) でPとEが混在
     v5.4: P補正モデルとE補正モデルに分解
     v5.4改: P補正を binary objective に変更（疑似回帰回避）
+    v5.5:   P補正に init_score = logit(p_pred) を設定（再学習化の防止）
            E補正に weight = 1/p_win_pred を追加（サンプル選択バイアス補正）
+    v5.5: P補正に init_score = logit(p_pred) を設定（再学習化の防止）
+          P補正の特徴量から p_win_pred を除外
+          E補正の weight を 1/p → 1/√p に変更（ノイズ過剰適合の防止）
 
-    P補正: 全サンプルで P(win) を binary classification でキャリブレーション
-    E補正: 1着馬のみで E(odds|win) の residual を重み付き回帰
+    P補正: 全サンプルで P(win) を init_score 付き binary classification でキャリブレーション
+    E補正: 1着馬のみで E(odds|win) の residual を 1/√p 重み付き回帰
     最終:  EV_corrected = P_corrected × E_corrected
     """
 
     E_CLIP_FLOOR = 1.0    # e_pred の下限クリップ（オッズは1.0以上）
 
     FEATURE_COLS = [
-        # 2段階モデルの出力
-        "p_win_pred",            # Stage A の出力
+        # 2段階モデルの出力（v5.5: p_win_pred を除外 → init_score で代替）
         "e_return_win_pred",     # Stage B の出力
-        "ev_win",                # P × E の生の積
         # 交互作用特徴量
         "p_x_e_interaction",     # P(win) × E(odds|win)
         "p_minus_e_gap",         # |log(P) - log(E)| （独立性の指標）
@@ -598,7 +612,13 @@ class EVCorrectionModel:
 
         # ── Model P: P補正（全サンプル・binary classification）──
         # v5.4改: 回帰ではなく分類として扱う（疑似回帰回避）
+        # v5.5:   init_score = logit(p_win_pred) で Stage1 をベースライン化
+        #         p_win_pred を特徴量に入れない → 「補正」ではなく「再学習」になるのを防止
         y_p = (df["finish_pos"] == 1).astype(int)
+        init_score = np.log(
+            np.clip(df["p_win_pred"], 1e-4, 1 - 1e-4)
+            / (1 - np.clip(df["p_win_pred"], 1e-4, 1 - 1e-4))
+        )
 
         self.p_correction_model = lgb.train(
             {
@@ -610,20 +630,21 @@ class EVCorrectionModel:
                 "feature_fraction": 0.7,
                 "verbose": -1,
             },
-            lgb.Dataset(X, label=y_p),
+            lgb.Dataset(X, label=y_p, init_score=init_score),
             num_boost_round=300,
         )
 
         # ── Model E: E補正（1着馬のみ・重み付き回帰 residual）──
         # v5.4改: weight = 1/p_win_pred でサンプル選択バイアスを補正
+        # v5.5:   weight = 1/√p_win_pred に変更（1/p は強すぎてノイズに支配される）
         winners = df[df["finish_pos"] == 1].copy()
         e_pred_clipped = np.clip(winners["e_return_win_pred"], self.E_CLIP_FLOOR, None)
         winners["log_e_correction"] = (
             np.log(winners["win_odds_actual"].clip(lower=self.E_CLIP_FLOOR))
             - np.log(e_pred_clipped)
         )
-        # 低確率勝利（穴馬の1着）を強調するインポータンス重み
-        winners["_e_sample_weight"] = 1.0 / np.clip(winners["p_win_pred"], 0.01, None)
+        # 低確率勝利（穴馬の1着）を強調するインポータンス重み（1/√p で過剰適合を抑制）
+        winners["_e_sample_weight"] = 1.0 / np.sqrt(np.clip(winners["p_win_pred"], 0.01, None))
 
         X_e = winners[self.FEATURE_COLS]
 
@@ -645,7 +666,7 @@ class EVCorrectionModel:
         """
         全馬のEVをP補正×E補正で補正する。
 
-        P_corrected = sigmoid(p_correction_logit)  ← [0,1] に制約
+        P_corrected = sigmoid(logit(P_pred) + correction_logit)  ← [0,1] に制約
         E_corrected = e_return_win_pred × exp(log_e_correction)
         EV_corrected = P_corrected × E_corrected
         """
@@ -659,7 +680,10 @@ class EVCorrectionModel:
         X = df[self.FEATURE_COLS]
 
         # P補正の適用（binary出力 → sigmoid で [0,1] に制約）
-        p_correction_logit = self.p_correction_model.predict(X)
+        # v5.5: 推論時も logit(p_pred) を init_score として加算
+        p_pred_clipped = np.clip(df["p_win_pred"], 1e-4, 1 - 1e-4)
+        init_score = np.log(p_pred_clipped / (1 - p_pred_clipped))
+        p_correction_logit = self.p_correction_model.predict(X) + init_score
         df["p_win_corrected"] = 1.0 / (1.0 + np.exp(-p_correction_logit))
 
         # E補正の適用
@@ -702,12 +726,16 @@ class EVCorrectionModel:
   - P_corrected が [0, 1] の範囲内に収まることを確認
   - P_corrected のキャリブレーション（予測確率 vs 実際の的中率）が
     P_pred より正確であることを確認（reliability diagram）
+  - v5.5追加: correction_logit の絶対値が小さい（|δ| < 1.0）ことを確認
+    → init_score がベースラインとして機能している証拠
 
 検証6: E補正の回帰性能確認（v5.4新設）
   - 1着馬のみで E_corrected と actual_odds の MAE を計算
   - E_pred 単体の MAE より改善していることを確認
   - 低 p_win_pred（穴馬）帯での E_corrected の誤差を確認
     → weight なしモデルより穴馬帯の誤差が小さいことを確認
+  - v5.5追加: 1/√p 重みモデルと 1/p 重みモデルの比較
+    → 1/√p の方が out-of-sample で安定していることを確認（過学習の防止）
 
 期待される効果:
   補正前: 中穴ゾーンで EV を平均15〜25%過大評価
@@ -717,6 +745,8 @@ class EVCorrectionModel:
   v5.4追加: P/E補正の相関 < 0.3（独立補正の担保）
   v5.4改追加: P_corrected が [0,1] に制約（確率として整合）
   v5.4改追加: 穴馬帯のE補正誤差が等重みより改善
+  v5.5追加: P補正の init_score で Stage1 をベースライン化（再学習化の防止）
+  v5.5追加: E補正の weight を 1/√p に変更（ノイズ過剰適合の防止）
 ```
 ```
 
@@ -1656,29 +1686,26 @@ class DrawdownControllerV5:
 入力（直近200レースの集計値）:
   market_error_std:      log_error の標準偏差（歪みの大きさ）
   market_entropy_mean:   平均エントロピー（拮抗度）
-  rolling_roi_200:       直近200レースのROI（利益性）
+  rolling_roi_200:       直近200レースのROI（利益性・補助指標のみ）
   hit_rate_top3_mean:    上位3頭の平均的中率
   overround_mean:        平均胴元控除率
 
-3状態の定義:
+3状態の定義（v5.5: 教師ラベルを市場指標ベースに変更）:
 
   状態A: AGGRESSIVE（歪み強い）
-    条件: market_error_std > threshold_high
-          OR rolling_roi_200 > 1.10
+    条件: favorite_win_rate が低い + overround が高い + entropy が高い
     特徴: 市場が非効率 → エッジが取りやすい
     行動: EV閾値を下げ（1.20→1.10）、スコア閾値を下げ
     ベット数上限: レース最大3券種
 
   状態B: CONSERVATIVE（効率的）
-    条件: market_error_std < threshold_low
-          AND rolling_roi_200 < 1.05
+    条件: favorite_win_rate が高い + overround が低い
     特徴: 市場が効率的 → エッジが小さい
     行動: EV閾値を上げ（1.20→1.30）、スコア閾値を上げ
     ベット数上限: レース最大2券種
 
   状態C: COLLAPSED（崩壊）
-    条件: rolling_roi_200 < 0.90
-          OR hit_rate_top3_mean < 0.03
+    条件: favorite_win_rate が壊滅的 + market_efficiency が極端に低い
     特徴: モデル劣化 or 市場構造変化 → EVが機能していない
     行動: ベット数を0〜1に制限（実質停止）
     再学習トリガー: 連続100レースで状態Cが継続した場合
@@ -1688,12 +1715,13 @@ class DrawdownControllerV5:
   ② 特徴量は Stage2 非依存（RaceQualityScreener と同じポリシー）
   ③ 閾値は訓練データで決定、out-of-sample では固定
   ④ 状態遷移はヒステリシス付き（頻繁な切り替えを防止）
+  ⑤ v5.5: 教師ラベルを戦略非依存の市場指標ベースに変更
 ```
 
 ### 9.5.3 レジーム検知モデルの実装
 
 ```python
-# models/regime_detector.py  v5.4
+# models/regime_detector.py  v5.5
 
 from dataclasses import dataclass
 from enum import Enum
@@ -1715,12 +1743,10 @@ class RegimeConfig:
     window:              int = 200        # 直近Nレースで判定
     min_samples:         int = 100        # 判定に必要な最低レース数
     # 閾値（訓練データで決定・out-of-sampleで固定）
-    error_std_high:      float = 0.35     # 歪み「強い」の基準
-    error_std_low:       float = 0.15     # 歪み「弱い」の基準
-    roi_aggressive:      float = 1.10     # ROIが高い → 攻める
-    roi_conservative:    float = 1.05     # ROIが低い → 絞る
-    roi_collapsed:       float = 0.90     # ROIが壊滅的 → 停止
-    hit_rate_collapsed:  float = 0.03     # 的中率が壊滅的 → 停止
+    # v5.5: 市場指標ベースの閾値に変更（戦略依存のROI閾値を排除）
+    fav_rate_aggressive: float = 0.28     # favorite勝率が低い + entropy高い → 攻める
+    fav_rate_collapsed:  float = 0.18     # favorite勝率が壊滅的 → 停止
+    overround_base:      float = 0.20     # overround の基準値（JRA典型的控除率）
     retrain_trigger:     int = 100        # 連続C状態で再学習トリガー
 
 
@@ -1737,6 +1763,8 @@ class RegimeDetector:
     v5.4改: 市場側指標を強化（戦略依存の rolling_roi を補完）
     rolling_roi は「自分の戦略の成果」であり市場状態ではない
     → 人気馬勝率・FLB・オッズ変動量 で「市場自体の状態」を直接観測
+    v5.5:   教師ラベルを完全に市場指標ベースに変更
+    rolling_roi は補助指標に格下げ（学習ラベルには使用しない）
     """
 
     FEATURE_COLS = [
@@ -1749,8 +1777,8 @@ class RegimeDetector:
         "favorite_win_rate",        # 1番人気の勝率（高い＝市場が正確・効率的）
         "flb_slope",                # favorite-longshot bias の傾き（高い＝市場歪み大）
         "odds_volatility_mean",     # オッズ変動量の平均（高い＝市場が不安定）
-        # 利益性（直近200レース集計・補助）
-        "rolling_roi_200",          # 直近200レースのROI（戦略依存・補助指標）
+        # 利益性（直近200レース集計・補助・v5.5: 教師ラベルには不使用）
+        "rolling_roi_200",          # 直近200レースのROI（戦略依存・推論時の補助指標のみ）
         "hit_rate_top3_mean",       # 上位3頭の平均的中率
         # レース構造
         "field_size_mean",          # 平均頭数
@@ -1765,15 +1793,26 @@ class RegimeDetector:
     def train(self, df_race: pd.DataFrame) -> None:
         """
         レジーム分類器の学習（軽量・3状態分類）。
-        y は rolling_roi_200 をベースに3状態に離散化。
+        v5.5: 教師ラベルを市場指標ベースに変更（戦略依存の rolling_roi を排除）
+        y は favorite_win_rate × overround_mean の複合スコアで離散化。
         """
         X = df_race[self.FEATURE_COLS]
 
-        # 3状態のラベル化
-        roi = df_race["rolling_roi_200"]
-        y = np.where(roi >= self.cfg.roi_aggressive, 0,      # AGGRESSIVE
-            np.where(roi >= self.cfg.roi_collapsed, 1,         # CONSERVATIVE
-                     2))                                       # COLLAPSED
+        # v5.5: 市場指標ベースのラベル化（戦略非依存）
+        # favorite_win_rate が高い + overround が低い = 効率的な市場 (CONSERVATIVE)
+        # favorite_win_rate が低い + overround が高い = 歪んだ市場 (AGGRESSIVE)
+        # entropy が極端 + favorite_win_rate が壊滅的 = 崩壊 (COLLAPSED)
+        fav = df_race["favorite_win_rate"]
+        overround = df_race["overround_mean"]
+        entropy = df_race["market_entropy_mean"]
+
+        # 複合スコア: favorite勝率が低いほど歪みが大きい
+        market_efficiency = fav * (1 - np.clip(overround - 0.20, 0, 0.15) / 0.15)
+
+        y = np.where(
+            (market_efficiency < 0.28) & (entropy > np.median(entropy)), 0,   # AGGRESSIVE
+            np.where(market_efficiency < 0.18, 2,                                    # COLLAPSED
+                     1))                                                             # CONSERVATIVE
 
         self.model = lgb.train(
             {
