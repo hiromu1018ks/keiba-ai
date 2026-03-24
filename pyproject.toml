@@ -1,0 +1,45 @@
+[project]
+name = "keiba-ai"
+version = "0.1.0"
+description = "競馬AI予測システム v5.5"
+requires-python = ">=3.11"
+dependencies = [
+    "pandas>=2.2",
+    "numpy>=1.26",
+    "scikit-learn>=1.4",
+    "lightgbm>=4.3",
+    "psycopg2-binary>=2.9",
+    "sqlalchemy>=2.0",
+    "pyyaml>=6.0",
+    "mlflow>=2.12",
+    "pytest>=8.0",
+    "pytest-cov>=5.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "ruff>=0.4",
+    "mypy>=1.10",
+    "ipykernel>=6.29",
+]
+
+[build-system]
+requires = ["setuptools>=69.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W"]
+
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true

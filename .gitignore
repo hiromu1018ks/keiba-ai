@@ -1,0 +1,47 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.pytest_cache/
+dist/
+build/
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+.env.local
+
+# Data
+data/
+*.csv
+*.parquet
+
+# Models
+models/
+*.pkl
+*.lgb
+*.joblib
+
+# MLflow
+mlruns/
+
+# Playwright
+.playwright-mcp/
+
+# Claude
+.claude/

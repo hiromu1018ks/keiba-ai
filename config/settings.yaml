@@ -1,0 +1,37 @@
+database:
+  host: "localhost"
+  port: 5432
+  dbname: "everydb2"
+  user: "postgres"
+  password: ""  # 環境変数 PGPASSWORD で上書き
+
+paths:
+  data_dir: "data"
+  model_dir: "models"
+  mlflow_tracking_uri: "file:///mlruns"
+
+logging:
+  level: "INFO"
+  format: "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+
+feature_engine:
+  exclude_steeple: true  # 障害レース(TrackCD 51-59)を除外
+
+late_money:
+  cancel_threshold: 0.25     # 単勝オッズ25%以上急落→キャンセル
+  add_rise_threshold: 0.30   # 単勝オッズ30%以上急騰→追加候補
+  cancel_time_minutes: 3     # t-3min で判定
+  log_time_minutes: 2        # t-2min でログ
+
+submodel:
+  surfaces: ["turf", "dirt"]
+  distance_bands:
+    turf:
+      sprint: [0, 1400]
+      mile: [1401, 1700]
+      intermediate: [1701, 2100]
+      long: [2101, 9999]
+    dirt:
+      sprint: [0, 1400]
+      mile: [1401, 1700]
+      intermediate: [1701, 9999]
