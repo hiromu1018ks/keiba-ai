@@ -64,6 +64,10 @@ class FeatureEngine:
 
         df = compute_intra_race_features(df)
 
+        from features.odds_dynamics_features import compute_odds_dynamics
+
+        df = compute_odds_dynamics(df, odds_ts_df)
+
         return df
 
     def build_features(
