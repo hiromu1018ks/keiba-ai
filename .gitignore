@@ -45,3 +45,6 @@ mlruns/
 
 # Claude
 .claude/
+
+# Worktrees
+.worktrees/
