@@ -31,8 +31,8 @@ data/
 *.csv
 *.parquet
 
-# Models
-models/
+# Models (ML artifacts only — src/models/ is source code)
+/models/
 *.pkl
 *.lgb
 *.joblib
