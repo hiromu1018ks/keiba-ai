@@ -45,9 +45,7 @@ class WideTwoStageModel:
         pair_df["e_return_given_hit"] = self.return_model.predict(features)
 
         pair_df["ev_wide"] = pair_df["p_hit"] * pair_df["e_return_given_hit"]
-        risk_denom = pair_df["e_return_given_hit"] * np.sqrt(
-            np.clip(pair_df["p_hit"], 0.001, None)
-        )
+        risk_denom = pair_df["e_return_given_hit"] * np.sqrt(np.clip(pair_df["p_hit"], 0.001, None))
         pair_df["wide_score_adj"] = pair_df["ev_wide"] / risk_denom
 
         return pair_df
