@@ -7,7 +7,6 @@ MLflow に実験を記録。
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
 
 import mlflow
 import pandas as pd
@@ -277,7 +276,9 @@ class TrainingPipelineV5:
         """MLflow にモデルとメトリクスを記録"""
         with mlflow.start_run(run_name=f"v5.4_{train_end}"):
             for surface, sub in models.items():
-                mlflow.lightgbm.log_model(sub.stage1.models.get(surface), f"stage1_{surface}")
+                stage1_model = sub.stage1.models.get(surface)
+                if stage1_model is not None:
+                    mlflow.lightgbm.log_model(stage1_model, f"stage1_{surface}")
                 mlflow.lightgbm.log_model(sub.win.hit_model, f"win_hit_{surface}")
                 mlflow.lightgbm.log_model(sub.win.return_model, f"win_ret_{surface}")
                 mlflow.lightgbm.log_model(

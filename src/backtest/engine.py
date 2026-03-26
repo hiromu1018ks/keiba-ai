@@ -277,16 +277,16 @@ class BacktestEngine:
 
         if bet.bet_type == BetType.PLACE:
             if 1 <= finish_pos <= 3:
-                return bet.stake * bet.odds
+                return float(bet.stake * bet.odds)
         elif bet.bet_type == BetType.WIN:
             if finish_pos == 1:
-                return bet.stake * bet.odds
+                return float(bet.stake * bet.odds)
         elif bet.bet_type == BetType.WIDE:
             if 1 <= finish_pos <= 3:
                 pair_b = getattr(bet, "umaban_b", None)
                 if pair_b is not None:
                     pair_horse = race_df[race_df["umaban"] == pair_b]
                     if not pair_horse.empty and int(pair_horse.iloc[0]["finish_pos"]) <= 3:
-                        return bet.stake * bet.odds
+                        return float(bet.stake * bet.odds)
 
         return 0.0
