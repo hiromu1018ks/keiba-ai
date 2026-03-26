@@ -4,8 +4,11 @@ from __future__ import annotations
 
 from typing import Any, cast
 
+import lightgbm as lgb
 import numpy as np
 import pandas as pd
+
+from domain.models import TwoStageConfig
 
 
 class WideTwoStageModel:
@@ -29,6 +32,81 @@ class WideTwoStageModel:
 
     hit_model: Any
     return_model: Any
+
+    def __init__(self) -> None:
+        self.hit_model: Any = None
+        self.return_model: Any = None
+
+    def train_hit_model(
+        self,
+        pair_df: pd.DataFrame,
+        cfg: TwoStageConfig | None = None,
+    ) -> None:
+        """ワイド的中モデルの学習 (binary classification)
+
+        Args:
+            pair_df: WideJointPairBuilder.build() の出力
+            cfg: 学習ハイパーパラメータ
+        """
+        cfg = cfg or TwoStageConfig(hit_leaves=15, hit_rounds=300)
+
+        features = pair_df[self.SHARED_FEATURE_COLS].copy()
+        for col in ["surface", "distance_bin", "grade_code"]:
+            if col in features.columns:
+                features[col] = features[col].astype("category")
+
+        label = pair_df["joint_hit"].values
+
+        train_data = lgb.Dataset(features, label=label)
+        self.hit_model = lgb.train(
+            {
+                "objective": "binary",
+                "metric": "auc",
+                "learning_rate": cfg.hit_lr,
+                "num_leaves": cfg.hit_leaves,
+                "verbose": -1,
+                "is_unbalance": True,
+            },
+            train_data,
+            num_boost_round=cfg.hit_rounds,
+        )
+
+    def train_return_model(
+        self,
+        pair_df: pd.DataFrame,
+        cfg: TwoStageConfig | None = None,
+    ) -> None:
+        """ワイド払戻モデルの学習 (L1 regression — 的中ペアのみ)
+
+        Args:
+            pair_df: WideJointPairBuilder.build() の出力
+            cfg: 学習ハイパーパラメータ
+        """
+        cfg = cfg or TwoStageConfig(return_leaves=15, return_rounds=200)
+
+        hit_df = pair_df[pair_df["joint_hit"] == 1].copy()
+        if len(hit_df) < cfg.min_hit_samples:
+            raise ValueError(f"的中ペアが不足: {len(hit_df)} < {cfg.min_hit_samples}")
+
+        features = hit_df[self.SHARED_FEATURE_COLS].copy()
+        for col in ["surface", "distance_bin", "grade_code"]:
+            if col in features.columns:
+                features[col] = features[col].astype("category")
+
+        label = hit_df["wide_odds"].values
+
+        train_data = lgb.Dataset(features, label=label)
+        self.return_model = lgb.train(
+            {
+                "objective": "regression_l1",
+                "metric": "mae",
+                "learning_rate": cfg.return_lr,
+                "num_leaves": cfg.return_leaves,
+                "verbose": -1,
+            },
+            train_data,
+            num_boost_round=cfg.return_rounds,
+        )
 
     def predict_score(self, pair_df: pd.DataFrame) -> pd.DataFrame:
         """

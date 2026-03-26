@@ -2,10 +2,20 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Optional
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Optional
 
 from domain.types import BetType, RecoveryState, Surface
+
+if TYPE_CHECKING:
+    from models.ev_correction_model import EVCorrectionModel
+    from models.market_model import MarketModel
+    from models.race_quality_screener import RaceQualityScreener
+    from models.regime_detector import RegimeDetector
+    from models.robust_confidence_estimator import RobustConfidenceEstimator
+    from models.stage1_ability_model import AbilityModel
+    from models.two_stage_return_model import PlaceTwoStageModel, WinTwoStageModel
+    from models.wide_two_stage_model import WideTwoStageModel
 
 
 def _surface_from_track_cd(track_cd: int) -> Surface:
@@ -44,20 +54,21 @@ class Race:
 
     複合主キー: (year, month_day, jyo_cd, kaiji, nichiji, race_num)
     """
+
     year: int
-    month_day: str       # MMDD
-    jyo_cd: str          # 場所コード 01-10
-    kaiji: str           # 回次
-    nichiji: str         # 日次
-    race_num: str        # レース番号
-    track_cd: int        # トラックコード
-    distance: int        # 距離(m)
-    tenko_cd: int        # 天候コード
-    baba_cd: int         # 馬場状態コード
-    syubetu_cd: str      # 種別コード
-    jyoken_cd: str       # 条件コード
-    grade_cd: str        # グレードコード
-    field_size: int      # 頭数
+    month_day: str  # MMDD
+    jyo_cd: str  # 場所コード 01-10
+    kaiji: str  # 回次
+    nichiji: str  # 日次
+    race_num: str  # レース番号
+    track_cd: int  # トラックコード
+    distance: int  # 距離(m)
+    tenko_cd: int  # 天候コード
+    baba_cd: int  # 馬場状態コード
+    syubetu_cd: str  # 種別コード
+    jyoken_cd: str  # 条件コード
+    grade_cd: str  # グレードコード
+    field_size: int  # 頭数
 
     # --- 計算プロパティ ---
     @property
@@ -97,18 +108,19 @@ class Race:
 @dataclass
 class Entry:
     """出走馬情報（n_uma_race テーブル対応）"""
+
     race_id: str
-    umaban: int              # 馬番
-    ketto_num: str           # 血統番号
-    finish_pos: int          # 確定着順 (1=1着, 0=取消等)
-    win_odds_actual: float   # 確定単勝オッズ
-    popularity_rank: int     # 人気順位
-    running_style: int       # 脚質 (1=逃げ, 2=先行, 3=差し, 4=追込, 0=不明)
-    ba_taijyu: float         # 馬体重
-    zogen_fugo: int          # 体重増減符号 (1=増, 2=減, 3=不变)
-    zogen_sa: float          # 体重増減幅
-    kisyu_code: str          # 騎手コード
-    chokyosi_code: str       # 調教師コード
+    umaban: int  # 馬番
+    ketto_num: str  # 血統番号
+    finish_pos: int  # 確定着順 (1=1着, 0=取消等)
+    win_odds_actual: float  # 確定単勝オッズ
+    popularity_rank: int  # 人気順位
+    running_style: int  # 脚質 (1=逃げ, 2=先行, 3=差し, 4=追込, 0=不明)
+    ba_taijyu: float  # 馬体重
+    zogen_fugo: int  # 体重増減符号 (1=増, 2=減, 3=不变)
+    zogen_sa: float  # 体重増減幅
+    kisyu_code: str  # 騎手コード
+    chokyosi_code: str  # 調教師コード
 
     @property
     def is_winner(self) -> bool:
@@ -131,12 +143,13 @@ class Entry:
 @dataclass
 class Bet:
     """投票情報"""
+
     race_id: str
     umaban: int
     bet_type: BetType
-    odds: float                  # オッズ
-    ev_lower_corrected: float    # EV下限値（補正済み）
-    stake: float                 # 投票金額
+    odds: float  # オッズ
+    ev_lower_corrected: float  # EV下限値（補正済み）
+    stake: float  # 投票金額
     result: Optional[float] = None  # 払戻金（確定後）
 
     @property
@@ -155,16 +168,18 @@ class Bet:
 @dataclass
 class OddsSnapshot:
     """時系列オッズスナップショット（n_jodds_tanpuku テーブル対応）"""
+
     race_id: str
-    happyo_time: str    # 発表時刻 MMDDHHmm
+    happyo_time: str  # 発表時刻 MMDDHHmm
     umaban: int
-    tan_odds: float     # 単勝オッズ
-    fuku_odds: float    # 複勝オッズ
+    tan_odds: float  # 単勝オッズ
+    fuku_odds: float  # 複勝オッズ
 
 
 @dataclass
 class DDState:
     """ドローダウン状態（§9 DDコントローラー用）"""
+
     current_dd: float
     rolling_roi: float
     n_bets_eval: int
@@ -174,6 +189,7 @@ class DDState:
 @dataclass
 class RegimeConfig:
     """レジーム検知設定（§9.5）"""
+
     window: int = 200
     min_samples: int = 100
     fav_rate_aggressive: float = 0.28
@@ -185,6 +201,7 @@ class RegimeConfig:
 @dataclass
 class TwoStageConfig:
     """2段階モデルハイパーパラメータ（§2）"""
+
     hit_metric: str = "auc"
     hit_leaves: int = 31
     hit_lr: float = 0.03
@@ -194,3 +211,33 @@ class TwoStageConfig:
     return_lr: float = 0.03
     return_rounds: int = 300
     min_hit_samples: int = 200
+
+
+@dataclass
+class SubmodelSet:
+    """サブモデル（芝/ダート）のセット
+
+    TrainingPipelineV5 が各 surface ごとに生成する。
+    """
+
+    market: MarketModel
+    stage1: AbilityModel
+    win: WinTwoStageModel
+    ev_corrector: EVCorrectionModel
+    place: PlaceTwoStageModel
+    wide: WideTwoStageModel
+    confidence: RobustConfidenceEstimator
+
+
+@dataclass
+class TrainedModelsV5:
+    """学習済みモデルのコンテナ (§11)
+
+    全サブモデル + RaceQualityScreener + RegimeDetector を保持。
+    TrainingPipelineV5.run() の戻り値。
+    """
+
+    submodels: dict[str, SubmodelSet]
+    quality_screener: RaceQualityScreener
+    regime_detector: RegimeDetector
+    train_period: tuple[str, str] = field(default=("2020-01-01", "2023-12-31"))
