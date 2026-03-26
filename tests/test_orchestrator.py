@@ -279,3 +279,68 @@ class TestBettingOrchestrator:
         }
         orch.process_race(race, feats, bankroll=100000, dd_ctrl=dd_ctrl)
         stake_calc.check_race_exposure.assert_called_once()
+
+    def test_process_race_blocked_by_safety_guard(
+        self, mock_deps: tuple
+    ) -> None:
+        """SafetyGuard が can_bet=False の場合、空リストを返す"""
+        (
+            stake_calc, dd_ctrl, gk, ms,
+            ps, ws, wids, lm, qs,
+        ) = mock_deps
+
+        from automation.safety_guard import SafetyGuard, SafetyConfig
+        safety_guard = SafetyGuard(SafetyConfig(min_bankroll=200000))
+        # bankroll が min_bankroll を下回る
+        safety_guard.activate_emergency_stop("test")
+
+        orch = BettingOrchestrator(
+            stake_calculator=stake_calc,
+            gate_keeper=gk,
+            meta_switcher=ms,
+            place_strategy=ps,
+            win_strategy=ws,
+            wide_strategy=wids,
+            late_money_filter=lm,
+            quality_screener=qs,
+            safety_guard=safety_guard,
+        )
+
+        race = _make_race()
+        feats = {"race_id": ["2024032501010101"] * 8, "umaban": list(range(1, 9))}
+        bets = orch.process_race(race, feats, bankroll=100000, dd_ctrl=dd_ctrl)
+        assert bets == []
+
+    def test_process_race_passes_with_safety_guard_ok(
+        self, mock_deps: tuple
+    ) -> None:
+        """SafetyGuard が can_bet=True の場合、通常通りベットを返す"""
+        (
+            stake_calc, dd_ctrl, gk, ms,
+            ps, ws, wids, lm, qs,
+        ) = mock_deps
+
+        from automation.safety_guard import SafetyGuard
+        safety_guard = SafetyGuard()
+
+        orch = BettingOrchestrator(
+            stake_calculator=stake_calc,
+            gate_keeper=gk,
+            meta_switcher=ms,
+            place_strategy=ps,
+            win_strategy=ws,
+            wide_strategy=wids,
+            late_money_filter=lm,
+            quality_screener=qs,
+            safety_guard=safety_guard,
+        )
+
+        race = _make_race()
+        feats = {
+            "race_id": ["2024032501010101"] * 8,
+            "umaban": list(range(1, 9)),
+            "ev_lower_place": [1.20, 1.05, 0.90, 0.80, 0.70, 0.60, 0.50, 0.40],
+            "place_odds": [2.0] * 8,
+        }
+        bets = orch.process_race(race, feats, bankroll=100000, dd_ctrl=dd_ctrl)
+        assert isinstance(bets, list)

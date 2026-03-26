@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import logging
-from typing import Protocol, runtime_checkable
+from typing import Optional, Protocol, runtime_checkable
 
-from domain.models import Bet, Race
+from domain.models import Bet, Race, SafetyCheckResult
 from domain.types import BetType
 
 logger = logging.getLogger(__name__)
@@ -73,6 +73,11 @@ class DrawdownControllerProtocol(Protocol):
     ) -> float: ...
 
 
+@runtime_checkable
+class SafetyGuardProtocol(Protocol):
+    def check(self, bankroll: float) -> SafetyCheckResult: ...
+
+
 class BettingOrchestrator:
     """
     ベッティング決定の12ステップフローを統括する。
@@ -96,6 +101,7 @@ class BettingOrchestrator:
         wide_strategy: WideStrategyProtocol,
         late_money_filter: LateMoneyFilterProtocol,
         quality_screener: QualityScreenerProtocol,
+        safety_guard: Optional[SafetyGuardProtocol] = None,
     ) -> None:
         self.stake_calculator = stake_calculator
         self.gate_keeper = gate_keeper
@@ -105,6 +111,7 @@ class BettingOrchestrator:
         self.wide_strategy = wide_strategy
         self.late_money_filter = late_money_filter
         self.quality_screener = quality_screener
+        self.safety_guard = safety_guard
 
     def process_race(
         self,
@@ -174,9 +181,12 @@ class BettingOrchestrator:
         # ⑩ 1レース露出キャップ（2%）
         all_bets = self.stake_calculator.check_race_exposure(all_bets, bankroll)
 
-        # ⑪ SafetyGuard（Phase F で実装。この段階ではスキップ）
-        # if not self.safety_guard.check(bankroll).can_bet:
-        #     return []
+        # ⑪ SafetyGuard チェック
+        if self.safety_guard is not None:
+            check_result = self.safety_guard.check(bankroll)
+            if not check_result.can_bet:
+                logger.warning(f"[{race.race_id}] Bets blocked by SafetyGuard: {check_result.reason}")
+                return []
 
         # 最小投票額フィルタ
         pending_bets = [b for b in all_bets if b.stake >= 100]
