@@ -1,17 +1,16 @@
 """src/domain モジュールのテスト"""
 
-import pytest
 
-from domain.types import BetType, RecoveryState, RegimeState, Surface
 from domain.models import (
-    Race,
-    Entry,
     Bet,
-    OddsSnapshot,
     DDState,
+    Entry,
+    OddsSnapshot,
+    Race,
     RegimeConfig,
     TwoStageConfig,
 )
+from domain.types import BetType, RecoveryState, RegimeState, Surface
 
 
 class TestEnums:

@@ -289,7 +289,7 @@ class TestBettingOrchestrator:
             ps, ws, wids, lm, qs,
         ) = mock_deps
 
-        from automation.safety_guard import SafetyGuard, SafetyConfig
+        from automation.safety_guard import SafetyConfig, SafetyGuard
         safety_guard = SafetyGuard(SafetyConfig(min_bankroll=200000))
         # bankroll が min_bankroll を下回る
         safety_guard.activate_emergency_stop("test")

@@ -3,16 +3,14 @@
 import os
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from db.connection import DatabaseConnection
 from db.schema import (
-    SCHEMA_RAW,
-    SCHEMA_ODDS_HISTORY,
-    SCHEMA_FEATURE,
-    SCHEMA_PREDICTION,
-    SCHEMA_BETTING,
     ALL_CREATE_STATEMENTS,
+    SCHEMA_BETTING,
+    SCHEMA_FEATURE,
+    SCHEMA_ODDS_HISTORY,
+    SCHEMA_PREDICTION,
+    SCHEMA_RAW,
 )
 
 

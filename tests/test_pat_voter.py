@@ -4,9 +4,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-import pytest
-
-from domain.models import Bet, SafetyCheckResult, SafetyConfig
+from domain.models import Bet, SafetyCheckResult
 from domain.types import BetType
 
 

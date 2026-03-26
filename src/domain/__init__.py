@@ -1,4 +1,3 @@
-from domain.types import BetType, RecoveryState, RegimeState, Surface
 from domain.models import (
     Bet,
     DDState,
@@ -8,6 +7,7 @@ from domain.models import (
     RegimeConfig,
     TwoStageConfig,
 )
+from domain.types import BetType, RecoveryState, RegimeState, Surface
 
 __all__ = [
     "BetType",

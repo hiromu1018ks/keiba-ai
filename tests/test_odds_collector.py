@@ -4,11 +4,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-import pandas as pd
-import pytest
-
-from domain.models import Bet, Race
-from domain.types import BetType
+from domain.models import Race
 
 
 def _make_race() -> Race:
