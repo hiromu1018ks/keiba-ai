@@ -82,3 +82,19 @@ class TestCompositeNotifier:
         result = notifier.send("テスト", level="info")
 
         assert result is False
+
+    def test_send_continues_on_exception(self, caplog: pytest.LogCaptureFixture) -> None:
+        """例外が発生しても他の通知先に継続する"""
+        mock_fail = MagicMock()
+        mock_fail.send.side_effect = RuntimeError("Connection failed")
+        mock_ok = MagicMock()
+        mock_ok.send.return_value = True
+
+        from monitoring.notifier import CompositeNotifier
+
+        notifier = CompositeNotifier([mock_fail, mock_ok])
+        result = notifier.send("テスト", level="info")
+
+        assert result is True  # The second notifier succeeded
+        mock_ok.send.assert_called_once()  # Second notifier was still called
+        assert "Notifier failed" in caplog.text  # Exception was logged
