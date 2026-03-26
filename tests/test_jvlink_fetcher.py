@@ -10,15 +10,6 @@ import pytest
 from domain.models import Entry, Race
 
 
-def _make_race() -> Race:
-    return Race(
-        year=2024, month_day="0325", jyo_cd="01", kaiji="01",
-        nichiji="01", race_num="01", track_cd=10, distance=1600,
-        tenko_cd=1, baba_cd=1, syubetu_cd="0", jyoken_cd="0",
-        grade_cd="0", field_size=8,
-    )
-
-
 class TestJVLinkFetcher:
     def test_fetch_race_cards_returns_races(self) -> None:
         """指定日のレースカードを取得して Race リストを返す"""
@@ -95,3 +86,25 @@ class TestJVLinkFetcher:
         races = fetcher.fetch_race_cards("2024-01-01")
 
         assert races == []
+
+    def test_fetch_results_empty_dataframe(self) -> None:
+        """結果がない日は空リストを返す"""
+        mock_db = MagicMock()
+        mock_db.load_entries_with_results.return_value = pd.DataFrame()
+
+        from ingestion.jvlink_fetcher import JVLinkFetcher
+        fetcher = JVLinkFetcher(db=mock_db)
+        entries = fetcher.fetch_results("2024-01-01")
+
+        assert entries == []
+
+    def test_fetch_odds_snapshot_empty_dataframe(self) -> None:
+        """オッズがないレースは空 dict を返す"""
+        mock_db = MagicMock()
+        mock_db.load_odds_time_series.return_value = pd.DataFrame()
+
+        from ingestion.jvlink_fetcher import JVLinkFetcher
+        fetcher = JVLinkFetcher(db=mock_db)
+        snapshot = fetcher.fetch_odds_snapshot("2024010101010101")
+
+        assert snapshot == {}

@@ -40,10 +40,14 @@ class JVLinkFetcher:
             Race リスト。レースがない日は空リスト。
         """
         date_compact = date.replace("-", "")
+        logger.debug("Fetching race cards for %s", date)
         df = self.db.load_races(date_compact, date_compact)
         if df.empty:
+            logger.debug("No races found for %s", date)
             return []
-        return [self._row_to_race(row) for _, row in df.iterrows()]
+        races = [self._row_to_race(row) for _, row in df.iterrows()]
+        logger.debug("Found %d races for %s", len(races), date)
+        return races
 
     def fetch_results(self, date: str) -> list[Entry]:
         """指定日の出走馬結果を取得
