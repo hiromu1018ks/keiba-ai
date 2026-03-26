@@ -241,3 +241,21 @@ class TrainedModelsV5:
     quality_screener: RaceQualityScreener
     regime_detector: RegimeDetector
     train_period: tuple[str, str] = field(default=("2020-01-01", "2023-12-31"))
+
+
+@dataclass
+class SafetyConfig:
+    """SafetyGuard 設定 (§12 ステップ ⑪)"""
+
+    min_bankroll: float = 10000.0
+    max_daily_loss: float = 10000.0
+    max_weekly_loss: float = 30000.0
+    max_consecutive_losses: int = 10
+
+
+@dataclass(frozen=True)
+class SafetyCheckResult:
+    """SafetyGuard チェック結果"""
+
+    can_bet: bool
+    reason: str = ""
