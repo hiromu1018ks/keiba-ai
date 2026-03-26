@@ -1,0 +1,25 @@
+# バックテスト設定
+
+walk_forward:
+  train_years: 4
+  test_years: 1
+  step_years: 1
+
+holdout:
+  start: "2022-01-01"
+  end: "2024-12-31"
+
+pass_criteria:
+  place_roi: 1.00        # 複勝回収率 >= 100%
+  wide_roi: 1.03         # ワイド回収率 >= 103%
+  overall_roi: 1.01      # 全体回収率 >= 101%
+  max_drawdown: 0.16     # 最大DD <= 16%
+  min_profitable_months: 22  # 月次100%超 >= 22/36
+
+ev_correction:
+  mae_improvement: 0.10  # EV補正MAE改善 >= 10%
+  mid_range_improvement: 0.15  # 中穴ゾーン改善 >= 15%
+
+validation:
+  min_submodel_samples: 20000  # サブモデル最低サンプル数
+  p_e_correlation_max: 0.30    # P補正とE補正の相関上限
