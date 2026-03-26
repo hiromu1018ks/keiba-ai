@@ -79,6 +79,16 @@ class BacktestValidationSuite:
         if feature_cols:
             tests.append(self.test_race_quality_no_ev_dependent_features(feature_cols))
 
+        # §13.1 追加テスト (G-1)
+        if not test_df.empty and "ev_win_corrected" in test_df.columns:
+            tests.append(self.test_ev_correction_reduces_error(test_df))
+            tests.append(self.test_ev_correction_mid_range_improvement(test_df))
+            tests.append(self.test_ev_correction_winner_weight(test_df))
+        if not test_df.empty and "quality_score" in test_df.columns:
+            tests.append(self.test_race_quality_screener_independence(test_df))
+        if not test_df.empty and "hist_mean" in test_df.columns:
+            tests.append(self.test_race_quality_no_temporal_leak(test_df))
+
         passed = all(t["passed"] for t in tests)
         failed = [t for t in tests if not t["passed"]]
 
@@ -308,6 +318,145 @@ class BacktestValidationSuite:
             "name": "race_quality_no_ev_dependent_features",
             "passed": len(found) == 0,
             "message": f"EV依存特徴量が含まれています: {found}" if found else "OK",
+        }
+
+    def test_ev_correction_reduces_error(self, df: pd.DataFrame) -> dict[str, Any]:
+        """v5.4: EV補正モデルがEVのMAEを改善することを確認 (§13.1)"""
+        required = ["ev_win", "ev_win_corrected", "win_odds_actual", "finish_pos"]
+        missing = [c for c in required if c not in df.columns]
+        if missing:
+            return {
+                "name": "ev_correction_reduces_error",
+                "passed": False,
+                "message": f"Missing columns: {missing}",
+            }
+        actual_ev = df["win_odds_actual"] * (df["finish_pos"] == 1).astype(int)
+        mae_raw = float(np.mean(np.abs(df["ev_win"] - actual_ev)))
+        mae_corrected = float(np.mean(np.abs(df["ev_win_corrected"] - actual_ev)))
+        if bool(mae_corrected < mae_raw):
+            return {
+                "name": "ev_correction_reduces_error",
+                "passed": True,
+                "message": f"OK (MAE: {mae_raw:.4f} → {mae_corrected:.4f})",
+            }
+        return {
+            "name": "ev_correction_reduces_error",
+            "passed": False,
+            "message": f"MAE悪化: {mae_raw:.4f} → {mae_corrected:.4f}",
+        }
+
+    def test_ev_correction_mid_range_improvement(self, df: pd.DataFrame) -> dict[str, Any]:
+        """v5.4: 中穴ゾーン(P=0.05-0.15)で補正改善>10% (§13.1)"""
+        required = ["p_win_pred", "ev_win", "ev_win_corrected", "win_odds_actual", "finish_pos"]
+        missing = [c for c in required if c not in df.columns]
+        if missing:
+            return {
+                "name": "ev_correction_mid_range_improvement",
+                "passed": False,
+                "message": f"Missing columns: {missing}",
+            }
+        mid = df[df["p_win_pred"].between(0.05, 0.15)]
+        if len(mid) < 100:
+            return {
+                "name": "ev_correction_mid_range_improvement",
+                "passed": True,
+                "message": f"SKIP (中穴ゾーン {len(mid)} < 100)",
+            }
+        actual_ev = mid["win_odds_actual"] * (mid["finish_pos"] == 1).astype(int)
+        mae_raw = float(np.mean(np.abs(mid["ev_win"] - actual_ev)))
+        mae_corrected = float(np.mean(np.abs(mid["ev_win_corrected"] - actual_ev)))
+        if mae_raw == 0:
+            return {
+                "name": "ev_correction_mid_range_improvement",
+                "passed": True,
+                "message": "SKIP (MAE_raw=0)",
+            }
+        improvement = (mae_raw - mae_corrected) / mae_raw
+        ok = bool(improvement > 0.10)
+        return {
+            "name": "ev_correction_mid_range_improvement",
+            "passed": ok,
+            "message": f"{'OK' if ok else 'FAIL'} 改善率={improvement:.1%}",
+        }
+
+    def test_ev_correction_winner_weight(self, df: pd.DataFrame) -> dict[str, Any]:
+        """v5.4: 1着馬P_corrected中央値>=P_pred中央値 (§13.1)"""
+        required = ["finish_pos", "p_win_pred", "p_win_corrected"]
+        missing = [c for c in required if c not in df.columns]
+        if missing:
+            return {
+                "name": "ev_correction_winner_weight",
+                "passed": False,
+                "message": f"Missing columns: {missing}",
+            }
+        winners = df[df["finish_pos"] == 1]
+        if len(winners) < 50:
+            return {
+                "name": "ev_correction_winner_weight",
+                "passed": True,
+                "message": f"SKIP (winner {len(winners)} < 50)",
+            }
+        ok = bool(winners["p_win_corrected"].median() >= winners["p_win_pred"].median())
+        return {
+            "name": "ev_correction_winner_weight",
+            "passed": ok,
+            "message": (
+                f"{'OK' if ok else 'FAIL'} "
+                f"P_corrected_median={winners['p_win_corrected'].median():.4f} "
+                f"vs P_pred_median={winners['p_win_pred'].median():.4f}"
+            ),
+        }
+
+    def test_race_quality_screener_independence(self, df: pd.DataFrame) -> dict[str, Any]:
+        """v5.4: 品質スコアとedge_maxの相関<0.30 (§13.1)"""
+        required = ["quality_score", "edge_max_per_race"]
+        missing = [c for c in required if c not in df.columns]
+        if missing:
+            return {
+                "name": "race_quality_screener_independence",
+                "passed": True,
+                "message": f"SKIP (columns not available: {missing})",
+            }
+        corr = float(np.corrcoef(df["quality_score"], df["edge_max_per_race"])[0, 1])
+        ok = bool(abs(corr) < 0.30)
+        return {
+            "name": "race_quality_screener_independence",
+            "passed": ok,
+            "message": f"{'OK' if ok else 'FAIL'} corr={corr:.3f}",
+        }
+
+    def test_race_quality_no_temporal_leak(self, df: pd.DataFrame) -> dict[str, Any]:
+        """v5.4: hist特徴量に未来情報リークがないこと (§13.1)"""
+        required = ["race_date", "hist_mean"]
+        missing = [c for c in required if c not in df.columns]
+        if missing:
+            return {
+                "name": "race_quality_no_temporal_leak",
+                "passed": True,
+                "message": f"SKIP (columns not available: {missing})",
+            }
+        if "value" not in df.columns:
+            return {
+                "name": "race_quality_no_temporal_leak",
+                "passed": True,
+                "message": "SKIP (value column not available)",
+            }
+        sorted_df = df.sort_values("race_date").reset_index(drop=True)
+        leaked = 0
+        for i in range(1, len(sorted_df)):
+            race_date = sorted_df.iloc[i]["race_date"]
+            hist_rows = sorted_df[sorted_df["race_date"] < race_date]
+            if len(hist_rows) == 0:
+                continue
+            expected = hist_rows["value"].mean()
+            actual = sorted_df.iloc[i]["hist_mean"]
+            if pd.notna(actual) and abs(actual - expected) > 1e-6:
+                leaked += 1
+        ok = bool(leaked == 0)
+        return {
+            "name": "race_quality_no_temporal_leak",
+            "passed": ok,
+            "message": f"{'OK' if ok else f'FAIL ({leaked} rows with leak)'}",
         }
 
     def check_holdout_criteria(

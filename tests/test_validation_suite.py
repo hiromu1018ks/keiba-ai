@@ -221,6 +221,89 @@ class TestBacktestValidationSuite:
         result = suite.test_race_quality_uses_profitability_proxy(cols_bad)
         assert result["passed"] is False
 
+    def test_ev_correction_reduces_error(self) -> None:
+        """EV補正でMAE改善"""
+        from backtest.validation_suite import BacktestValidationSuite
+
+        suite = BacktestValidationSuite()
+        df = pd.DataFrame({
+            "ev_win": [0.50, 0.80, 1.20],
+            "ev_win_corrected": [0.55, 0.75, 1.15],
+            "win_odds_actual": [4.0, 6.0, 10.0],
+            "finish_pos": [1, 2, 1],
+        })
+        result = suite.test_ev_correction_reduces_error(df)
+        assert result["passed"] is True
+        assert result["name"] == "ev_correction_reduces_error"
+
+    def test_ev_correction_reduces_error_fail(self) -> None:
+        """EV補正でMAE悪化の場合は FAIL"""
+        from backtest.validation_suite import BacktestValidationSuite
+
+        suite = BacktestValidationSuite()
+        # All non-winners: actual_ev = 0 for all rows
+        # ev_win is close to 0 (good), ev_win_corrected is far from 0 (bad)
+        df = pd.DataFrame({
+            "ev_win": [0.10, 0.20, 0.05, 0.15],
+            "ev_win_corrected": [5.00, 6.00, 4.00, 7.00],
+            "win_odds_actual": [10.0, 8.0, 20.0, 15.0],
+            "finish_pos": [2, 3, 4, 5],
+        })
+        result = suite.test_ev_correction_reduces_error(df)
+        assert result["passed"] is False
+
+    def test_ev_correction_mid_range_improvement(self) -> None:
+        """中穴ゾーン改善率テスト"""
+        from backtest.validation_suite import BacktestValidationSuite
+
+        suite = BacktestValidationSuite()
+        rows = []
+        for _ in range(150):
+            rows.append({"p_win_pred": 0.10, "ev_win": 1.0, "ev_win_corrected": 0.70,
+                          "win_odds_actual": 5.0, "finish_pos": 2})
+        df = pd.DataFrame(rows)
+        result = suite.test_ev_correction_mid_range_improvement(df)
+        assert result["passed"] is True
+
+    def test_ev_correction_winner_weight(self) -> None:
+        """1着馬P_corrected中央値テスト"""
+        from backtest.validation_suite import BacktestValidationSuite
+
+        suite = BacktestValidationSuite()
+        rows = []
+        for _ in range(60):
+            rows.append({"finish_pos": 1, "p_win_pred": 0.15, "p_win_corrected": 0.20})
+        for _ in range(40):
+            rows.append({"finish_pos": 2, "p_win_pred": 0.10, "p_win_corrected": 0.08})
+        df = pd.DataFrame(rows)
+        result = suite.test_ev_correction_winner_weight(df)
+        assert result["passed"] is True
+
+    def test_race_quality_screener_independence(self) -> None:
+        """品質スコア独立性テスト"""
+        from backtest.validation_suite import BacktestValidationSuite
+
+        suite = BacktestValidationSuite()
+        np.random.seed(42)
+        df = pd.DataFrame({
+            "quality_score": np.random.normal(0.5, 0.15, 200),
+            "edge_max_per_race": np.random.normal(1.1, 0.2, 200),
+        })
+        result = suite.test_race_quality_screener_independence(df)
+        assert result["passed"] is True
+
+    def test_race_quality_no_temporal_leak(self) -> None:
+        """時間リークテスト"""
+        from backtest.validation_suite import BacktestValidationSuite
+
+        suite = BacktestValidationSuite()
+        dates = pd.date_range("2020-01-01", periods=10, freq="D")
+        values = np.arange(1.0, 11.0)
+        hist_means = [float("nan")] + [float(np.mean(values[:i])) for i in range(1, 10)]
+        df = pd.DataFrame({"race_date": dates, "value": values, "hist_mean": hist_means})
+        result = suite.test_race_quality_no_temporal_leak(df)
+        assert result["passed"] is True
+
     def test_check_holdout_criteria(self) -> None:
         """§13.2 Hold-out 合格基準のチェック"""
         from backtest.validation_suite import BacktestValidationSuite
