@@ -201,7 +201,7 @@ NB11（ホールドアウト最終評価）は**1回のみ実行**してくだ�
 
 ---
 
-> **深掘り:** 設計書のバックテスト関連セクションは [design.md](../../design.md) を参照してください。ノートブックのソースコードは [notebooks/](../../notebooks/) にあります。バックテストエンジンの実装は [backtest/engine.py](../../src/backtest/engine.py)、検証スイートは [backtest/validation_suite.py](../../src/backtest/validation_suite.py)、パラメータ凍結プロトコルは [backtest/parameter_freeze_protocol.py](../../src/backtest/parameter_freeze_protocol.py) を参照してください。
+> **深掘り:** 設計書のバックテスト関連セクションは [design.md](../design.md) を参照してください。ノートブックのソースコードは [notebooks/](../../notebooks/) にあります。バックテストエンジンの実装は [backtest/engine.py](../../src/backtest/engine.py)、検証スイートは [backtest/validation_suite.py](../../src/backtest/validation_suite.py)、パラメータ凍結プロトコルは [backtest/parameter_freeze_protocol.py](../../src/backtest/parameter_freeze_protocol.py) を参照してください。
 
 ---
 
