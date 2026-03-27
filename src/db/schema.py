@@ -110,6 +110,7 @@ CREATE TABLE IF NOT EXISTS odds_history.odds_time_series (
     umaban      INTEGER NOT NULL,
     tan_odds    FLOAT,
     fuku_odds   FLOAT,
+    ninki       INTEGER,
     PRIMARY KEY (race_id, happyo_time, umaban)
 );
 
