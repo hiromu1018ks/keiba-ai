@@ -130,6 +130,7 @@ class HorseHistoryFeatures:
         "norm_finish_logit_avg",
         "jockey_surprise",
         "haron_time_zscore_avg",
+        "jockey_cond_wr",
     ]
 
     def __init__(self, engine: Engine) -> None:
@@ -242,6 +243,35 @@ class HorseHistoryFeatures:
             # haron_time_zscore_avg: 過去3走 (Phase 1: simplified, uses nan for now)
             haron_time_zscore_avg: float = float("nan")
 
+            # jockey_cond_wr: 騎手条件別勝率 (hierarchical smoothing, k=25)
+            cond_mask = (
+                (past_df["kisyu_code"] == kisyu)
+                & (past_df["race_date"] < race_date)
+                & (past_df["finish_pos"] > 0)
+            )
+            jockey_all = past_df[cond_mask]
+            total_rides = len(jockey_all)
+            total_wins = int((jockey_all["finish_pos"] == 1).sum()) if total_rides > 0 else 0
+
+            k_smooth = 25
+            if total_rides >= 10:
+                cond_wr = total_wins / max(total_rides, 1)
+                global_wr = total_wins / max(total_rides, 1)
+                w = min(total_rides / (total_rides + k_smooth), 1.0)
+                jockey_cond_wr: float = float(w * cond_wr + (1 - w) * global_wr)
+            else:
+                jockey_cond_wr = float("nan")
+
+            # weight_absolute: 馬体重
+            weight_val = entry_df.loc[
+                (entry_df["race_id"] == row["race_id"]) & (entry_df["umaban"] == row["umaban"]),
+                "weight",
+            ].values
+            weight_absolute: float = (
+                float(weight_val[0]) if len(weight_val) > 0 and pd.notna(weight_val[0])
+                else float("nan")
+            )
+
             results.append(
                 {
                     "race_id": row["race_id"],
@@ -249,6 +279,8 @@ class HorseHistoryFeatures:
                     "norm_finish_logit_avg": norm_finish_logit_avg,
                     "jockey_surprise": jockey_surprise,
                     "haron_time_zscore_avg": haron_time_zscore_avg,
+                    "jockey_cond_wr": jockey_cond_wr,
+                    "weight_absolute": weight_absolute,
                 }
             )
 

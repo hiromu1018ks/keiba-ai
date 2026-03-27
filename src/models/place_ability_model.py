@@ -39,6 +39,11 @@ class PlaceAbilityModel:
         "norm_finish_logit_avg_race_pct",
         "jockey_surprise_race_pct",
         "haron_time_zscore_avg_race_pct",
+        # Phase 2 (4)
+        "jockey_cond_wr",
+        "jockey_cond_wr_race_z",
+        "jockey_cond_wr_race_pct",
+        "weight_absolute",
     ]
 
     def __init__(self) -> None:

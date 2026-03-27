@@ -37,6 +37,11 @@ def train_df() -> pd.DataFrame:
             "norm_finish_logit_avg_race_pct": rng.uniform(0, 1, 8),
             "jockey_surprise_race_pct": rng.uniform(0, 1, 8),
             "haron_time_zscore_avg_race_pct": rng.uniform(0, 1, 8),
+            # Phase 2 (4)
+            "jockey_cond_wr": rng.uniform(0, 0.3, 8),
+            "jockey_cond_wr_race_z": rng.uniform(-2, 2, 8),
+            "jockey_cond_wr_race_pct": rng.uniform(0, 1, 8),
+            "weight_absolute": rng.uniform(400, 550, 8),
             "distance": [1600] * 4 + [1200] * 4,
             "finish_pos": [1, 2, 3, 4, 1, 3, 2, 4],
         }

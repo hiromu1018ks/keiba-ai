@@ -155,6 +155,11 @@ def _make_feature_df(n: int = 5000, n_races: int = 500) -> pd.DataFrame:
                     "norm_finish_logit_avg_race_pct": np.random.uniform(0, 1),
                     "jockey_surprise_race_pct": np.random.uniform(0, 1),
                     "haron_time_zscore_avg_race_pct": np.random.uniform(0, 1),
+                    # Phase 2 (4)
+                    "jockey_cond_wr": np.random.uniform(0, 0.3),
+                    "jockey_cond_wr_race_z": np.random.uniform(-2, 2),
+                    "jockey_cond_wr_race_pct": np.random.uniform(0, 1),
+                    "weight_absolute": np.random.uniform(400, 550),
                     "odds_change_rate_30min": np.random.normal(0, 0.1),
                     "odds_volatility_60min": np.random.uniform(0, 0.5),
                     "signed_log_error_win": np.random.normal(0, 0.3),

@@ -120,6 +120,7 @@ class TestRaceTransforms:
                 "norm_finish_logit_avg": [2.0, 1.0, 0.0, -1.0],
                 "jockey_surprise": [0.1, 0.05, -0.02, -0.08],
                 "haron_time_zscore_avg": [1.5, 0.5, -0.5, -1.5],
+                "jockey_cond_wr": [0.15, 0.10, 0.05, 0.02],
             }
         )
 
@@ -144,6 +145,7 @@ class TestRaceTransforms:
                 "norm_finish_logit_avg": [1.0, 1.0, 1.0],
                 "jockey_surprise": [0.0, 0.0, 0.0],
                 "haron_time_zscore_avg": [0.0, 0.0, 0.0],
+                "jockey_cond_wr": [0.0, 0.0, 0.0],
             }
         )
         result = HorseHistoryFeatures.add_race_transforms(df)
@@ -204,6 +206,7 @@ class TestLeakPrevention:
                     "umaban": [1],
                     "ketto_num": ["H001"],
                     "kisyu_code": ["J001"],
+                    "weight": [480.0],
                 }
             )
             result = hist.compute(race_df, entry_df, np.array(["r1"]))

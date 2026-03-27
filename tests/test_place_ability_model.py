@@ -31,6 +31,11 @@ def _make_train_df(n_races: int = 20, field_size: int = 8):
                 "norm_finish_logit_avg_race_pct": np.random.rand(),
                 "jockey_surprise_race_pct": np.random.rand(),
                 "haron_time_zscore_avg_race_pct": np.random.rand(),
+                # Phase 2 (4)
+                "jockey_cond_wr": np.random.uniform(0, 0.3),
+                "jockey_cond_wr_race_z": np.random.randn(),
+                "jockey_cond_wr_race_pct": np.random.rand(),
+                "weight_absolute": np.random.uniform(400, 550),
                 "finish_pos": h + 1,
                 "p_ability_win": 1.0 / field_size,
             })
