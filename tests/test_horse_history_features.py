@@ -32,22 +32,22 @@ class TestNormFinishLogitAvg:
         assert np.isnan(result)
 
     def test_mid_rank(self):
-        """8着/16頭 → logit(0.5) ≈ 0.0（中央値）"""
+        """8着/16頭 → logit(0.533) ≈ 0.13"""
         from features.horse_history_features import _norm_finish_logit
 
         result = _norm_finish_logit(finish_pos=8, field_size=16)
-        assert -0.1 < result < 0.1
+        assert -0.2 < result < 0.2
 
 
 class TestJockeySurprise:
     """jockey_surprise (Beta事前分布スムージング) のテスト"""
 
     def test_zero_wins_100_races(self):
-        """100戦0勝 → surprise ≈ 0 - 0.0476 ≈ -0.0476"""
+        """100戦0勝 → surprise ≈ 0.00826 - 0.0476 ≈ -0.0394"""
         from features.horse_history_features import _compute_jockey_surprise
 
         result = _compute_jockey_surprise(actual_wins=0, n_races=100, expected_wins=8.0)
-        assert -0.06 < result < -0.04
+        assert -0.05 < result < -0.03
 
     def test_above_expectation(self):
         """期待以上の勝率 → 正のsurprise"""

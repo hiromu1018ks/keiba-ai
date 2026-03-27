@@ -34,7 +34,7 @@ def _norm_finish_logit(finish_pos: int, field_size: int) -> float:
     if field_size < 8:
         return float("nan")
 
-    score = 1.0 - (finish_pos - 0.5) / (field_size - 1)
+    score = 1.0 - (finish_pos - 1) / (field_size - 1)
     score = max(CLIP_LO, min(CLIP_HI, score))
     return math.log(score / (1.0 - score))
 
@@ -57,7 +57,7 @@ def _compute_jockey_surprise(actual_wins: int, n_races: int, expected_wins: floa
     alpha_post = alpha_prior + actual_wins
     beta_post = beta_prior + n_races - actual_wins
 
-    smoothed_wr = alpha_post / (alpha_post + beta_post) * PAYOUT_RATE
+    smoothed_wr = alpha_post / (alpha_post + beta_post)
     baseline_wr = alpha_prior / (alpha_prior + beta_prior)
 
     return smoothed_wr - baseline_wr
