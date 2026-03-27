@@ -21,6 +21,7 @@ class TestTrainedModelsV5:
         sub = SubmodelSet(
             market=None,
             stage1=None,
+            place_ability=None,
             win=None,
             ev_corrector=None,
             place=None,
@@ -37,6 +38,7 @@ class TestTrainedModelsV5:
                 "turf": SubmodelSet(
                     market=None,
                     stage1=None,
+                    place_ability=None,
                     win=None,
                     ev_corrector=None,
                     place=None,
@@ -58,6 +60,7 @@ class TestTrainedModelsV5:
                 "turf": SubmodelSet(
                     market="m_turf",
                     stage1="s_turf",
+                    place_ability=None,
                     win="w_turf",
                     ev_corrector="e_turf",
                     place="p_turf",
@@ -67,6 +70,7 @@ class TestTrainedModelsV5:
                 "dirt": SubmodelSet(
                     market="m_dirt",
                     stage1="s_dirt",
+                    place_ability=None,
                     win="w_dirt",
                     ev_corrector="e_dirt",
                     place="p_dirt",
@@ -112,6 +116,18 @@ def _make_feature_df(n: int = 5000, n_races: int = 500) -> pd.DataFrame:
                     "overround": np.random.uniform(0.15, 0.30),
                     "weight_diff_from_mean": np.random.uniform(-10, 10),
                     "difficulty_score": np.random.uniform(0, 1),
+                    # Phase 1: 馬の過去成績
+                    "norm_finish_logit_avg": np.random.uniform(-2, 2),
+                    "jockey_surprise": np.random.uniform(-1, 1),
+                    "haron_time_zscore_avg": np.random.uniform(-3, 3),
+                    # Phase 1: レース内z-score
+                    "norm_finish_logit_avg_race_z": np.random.uniform(-2, 2),
+                    "jockey_surprise_race_z": np.random.uniform(-2, 2),
+                    "haron_time_zscore_avg_race_z": np.random.uniform(-2, 2),
+                    # Phase 1: レース内pct
+                    "norm_finish_logit_avg_race_pct": np.random.uniform(0, 1),
+                    "jockey_surprise_race_pct": np.random.uniform(0, 1),
+                    "haron_time_zscore_avg_race_pct": np.random.uniform(0, 1),
                     "odds_change_rate_30min": np.random.normal(0, 0.1),
                     "odds_volatility_60min": np.random.uniform(0, 0.5),
                     "signed_log_error_win": np.random.normal(0, 0.3),

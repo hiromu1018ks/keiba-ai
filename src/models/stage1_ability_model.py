@@ -25,16 +25,20 @@ class AbilityModel:
     """
 
     FEATURE_COLS: list[str] = [
-        # レース条件
-        "surface",
-        "distance_bin",
-        "track_condition_code",
-        "grade_code",
-        "field_size",
-        # 馬の基本情報 (オッズ以外)
-        "weight_diff_from_mean",
-        # レース難易度
-        "difficulty_score",
+        # 既存 (7)
+        "surface", "distance_bin", "track_condition_code",
+        "grade_code", "field_size",
+        "weight_diff_from_mean", "difficulty_score",
+        # Phase 1: 馬の過去成績 (3)
+        "norm_finish_logit_avg", "jockey_surprise", "haron_time_zscore_avg",
+        # Phase 1: レース内z-score (3)
+        "norm_finish_logit_avg_race_z",
+        "jockey_surprise_race_z",
+        "haron_time_zscore_avg_race_z",
+        # Phase 1: レース内pct (3)
+        "norm_finish_logit_avg_race_pct",
+        "jockey_surprise_race_pct",
+        "haron_time_zscore_avg_race_pct",
     ]
 
     def __init__(self) -> None:
@@ -105,9 +109,5 @@ class AbilityModel:
             df.loc[mask, "p_ability_win"] = np.exp(df.loc[mask, "_raw_score"] - log_sum_exp)
 
         df = df.drop(columns=["_raw_score"], errors="ignore")
-
-        # p_ability_place: 複勝的中確率の近似 (p_ability_winの線形変換)
-        # 実際の学習では別モデルだが、初期実装では単勝確率から近似
-        df["p_ability_place"] = np.clip(df["p_ability_win"] * 3.0, 0, 1)
 
         return df

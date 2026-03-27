@@ -173,6 +173,7 @@ class TrainingPipelineV5:
         return SubmodelSet(
             market=market,
             stage1=stage1,
+            place_ability=None,
             win=win_2s,
             ev_corrector=ev_corrector,
             place=place_2s,

@@ -14,6 +14,7 @@ from models.stage1_ability_model import AbilityModel
 @pytest.fixture
 def train_df() -> pd.DataFrame:
     """2レース x 4頭の学習データ"""
+    rng = np.random.default_rng(42)
     return pd.DataFrame(
         {
             "race_id": ["R1"] * 4 + ["R2"] * 4,
@@ -24,6 +25,18 @@ def train_df() -> pd.DataFrame:
             "field_size": [4] * 8,
             "weight_diff_from_mean": [0.0, -2.0, 1.0, 5.0, -1.0, 0.0, 2.0, -3.0],
             "difficulty_score": [0.5] * 8,
+            # Phase 1: 馬の過去成績
+            "norm_finish_logit_avg": rng.uniform(-2, 2, 8),
+            "jockey_surprise": rng.uniform(-1, 1, 8),
+            "haron_time_zscore_avg": rng.uniform(-3, 3, 8),
+            # Phase 1: レース内z-score
+            "norm_finish_logit_avg_race_z": rng.uniform(-2, 2, 8),
+            "jockey_surprise_race_z": rng.uniform(-2, 2, 8),
+            "haron_time_zscore_avg_race_z": rng.uniform(-2, 2, 8),
+            # Phase 1: レース内pct
+            "norm_finish_logit_avg_race_pct": rng.uniform(0, 1, 8),
+            "jockey_surprise_race_pct": rng.uniform(0, 1, 8),
+            "haron_time_zscore_avg_race_pct": rng.uniform(0, 1, 8),
             "distance": [1600] * 4 + [1200] * 4,
             "finish_pos": [1, 2, 3, 4, 1, 3, 2, 4],
         }
@@ -77,7 +90,8 @@ class TestAbilityModelPredict:
         """add_ability_probs が確率列を追加する"""
         result = trained_ability_model.add_ability_probs(train_df)
         assert "p_ability_win" in result.columns
-        assert "p_ability_place" in result.columns
+        # p_ability_place は PlaceAbilityModel が担当 (AbilityModel では出力しない)
+        assert "p_ability_place" not in result.columns
 
     def test_probs_sum_to_one_within_race(
         self,
@@ -97,7 +111,6 @@ class TestAbilityModelPredict:
     ) -> None:
         result = trained_ability_model.add_ability_probs(train_df)
         assert (result["p_ability_win"] > 0).all()
-        assert (result["p_ability_place"] > 0).all()
 
     def test_returns_new_dataframe(
         self,
