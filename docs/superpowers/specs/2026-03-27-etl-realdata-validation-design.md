@@ -96,34 +96,61 @@ FK: `raw.entries.race_id` は `(year || monthday || jyocd || kaiji || nichiji ||
 
 FK: `n_harai` の複合キー `(year, monthday, jyocd, kaiji, nichiji, racenum)` でrace_idを生成。
 
+#### 共通: レースキーによる race_id 生成
+
+全EveryDB2テーブルはレース識別の6カラム `year`, `monthday`, `jyocd`, `kaiji`, `nichiji`, `racenum` を持つ。`raw.races` に対応するレースが存在する場合のみロードし、race_idは `year || monthday || jyocd || kaiji || nichiji || racenum` で生成する。
+
 #### カラムマッピング: n_odds_tanpuku → odds_history.odds_snapshots
 
-| EveryDB2 | odds_history.odds_snapshots |
-|----------|----------------------------|
-| `umaban` | `umaban` |
-| `tanodds` | `tan_odds` |
-| `fukuoddslow` | `fuku_odds` |
-
-FK: 複合キーでrace_idを生成。
+| EveryDB2 | odds_history.odds_snapshots | 備考 |
+|----------|----------------------------|------|
+| `year`, `monthday`, `jyocd`, `kaiji`, `nichiji`, `racenum` | `race_id` | 6カラム結合で生成 |
+| `umaban` | `umaban` | VARCHAR→INT |
+| `tanodds` | `tan_odds` | VARCHAR→FLOAT |
+| `fukuoddslow` | `fuku_odds` | VARCHAR→FLOAT |
 
 #### カラムマッピング: n_odds_wide → odds_history.wide_odds
 
-| EveryDB2 | odds_history.wide_odds |
-|----------|----------------------|
-| `kumi` | `kumi` |
-| `oddslow` | `odds_low` |
-| `oddshigh` | `odds_high` |
+| EveryDB2 | odds_history.wide_odds | 備考 |
+|----------|----------------------|------|
+| `year`, `monthday`, `jyocd`, `kaiji`, `nichiji`, `racenum` | `race_id` | 6カラム結合で生成 |
+| `kumi` | `kumi` | そのまま（例: "3-7"） |
+| `oddslow` | `odds_low` | VARCHAR→FLOAT |
+| `oddshigh` | `odds_high` | VARCHAR→FLOAT |
 
 #### カラムマッピング: n_jodds_tanpuku → odds_history.odds_time_series
 
-| EveryDB2 | odds_history.odds_time_series |
-|----------|------------------------------|
-| `happyotime` | `happyo_time` |
-| `umaban` | `umaban` |
-| `tanodds` | `tan_odds` |
-| `fukuoddslow` | `fuku_odds` |
+| EveryDB2 | odds_history.odds_time_series | 備考 |
+|----------|------------------------------|------|
+| `year`, `monthday`, `jyocd`, `kaiji`, `nichiji`, `racenum` | `race_id` | 6カラム結合で生成 |
+| `happyotime` | `happyo_time` | そのまま（MMDDHHmm形式） |
+| `umaban` | `umaban` | VARCHAR→INT |
+| `tanodds` | `tan_odds` | VARCHAR→FLOAT |
+| `tanninki` | — | 特徴量エンジン用に保持（odds_dynamics_featuresのpopularity_change_30_10で使用） |
+| `fukuoddslow` | `fuku_odds` | VARCHAR→FLOAT |
 
-注意: `n_jodds_tanpuku` は8,300万行と非常に大きい。ETL時は年次で分割してロードすること。
+注意: `n_jodds_tanpuku` は8,300万行と非常に大きい。パフォーマンス対策は下記「大規模テーブルのETL戦略」を参照。
+
+#### 大規模テーブルのETL戦略（n_jodds_tanpuku: 83M行）
+
+1. **年次分割ロード**: `WHERE year = :year` で1年ずつ処理（1年あたり約5-7M行）
+2. **バッチINSERT**: 50,000行ずつ `executemany()` でバッチ挿入
+3. **インデックス制御**: ロード前にPKインデックスをDROP、ロード後に再作成
+4. **Copyプロトコル**: pandasの `to_sql()` より `COPY` プロトコル（`psycopg2.extras.execute_values`）を使用して速度向上
+5. **推定所要時間**: COPY + バッチで1年あたり数分、全期間で30-60分程度
+
+#### ETLの冪等性（再実行対応）
+
+- `raw.races`, `raw.entries`, `raw.payouts`: `INSERT ... ON CONFLICT DO NOTHING` で重複回避
+- `odds_history.*`: 同様に `ON CONFLICT DO NOTHING` で対応（PK制約があるため）
+- `run_full_etl()` は何度実行しても同じ結果になる（冪等性保証）
+
+#### FK制約の設計意図
+
+`odds_history.*` テーブルには `raw.races` へのFK制約を設定しない。理由:
+- 83M行のテーブルにFK制約を置くとINSERT性能が大幅に低下
+- オッズ時系列データは参照整合性より書き込み性能を優先
+- アプリケーション層でrace_idの存在チェックを行う
 
 #### baba_cd（馬場状態）の選択ロジック
 
