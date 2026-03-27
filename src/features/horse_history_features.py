@@ -9,8 +9,13 @@
 from __future__ import annotations
 
 import math
+from typing import TYPE_CHECKING, Optional
 
+import numpy as np
 import pandas as pd
+
+if TYPE_CHECKING:
+    from sqlalchemy.engine import Engine
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -19,6 +24,10 @@ import pandas as pd
 PAYOUT_RATE: float = 0.80  # JRA控除率20%
 CLIP_LO: float = 0.05
 CLIP_HI: float = 0.95
+
+# Beta prior parameters for jockey surprise smoothing
+ALPHA_PRIOR: float = 1.0
+BETA_PRIOR: float = 20.0
 
 # ---------------------------------------------------------------------------
 # Helper: normalised finish-logit
@@ -44,7 +53,11 @@ def _norm_finish_logit(finish_pos: int, field_size: int) -> float:
 # ---------------------------------------------------------------------------
 
 
-def _compute_jockey_surprise(actual_wins: int, n_races: int, expected_wins: float) -> float:
+def _compute_jockey_surprise(
+    actual_wins: int,
+    n_races: int,
+    expected_wins: float,  # noqa: ARG001 — signature matches spec; used by caller
+) -> float:
     """Beta事前分布でスムージングした騎手勝率のサプライズ値を返す。
 
     n_races < 30 の場合は NaN を返す。
@@ -52,13 +65,11 @@ def _compute_jockey_surprise(actual_wins: int, n_races: int, expected_wins: floa
     if n_races < 30:
         return float("nan")
 
-    alpha_prior: float = 1.0
-    beta_prior: float = 20.0
-    alpha_post = alpha_prior + actual_wins
-    beta_post = beta_prior + n_races - actual_wins
+    alpha_post = ALPHA_PRIOR + actual_wins
+    beta_post = BETA_PRIOR + n_races - actual_wins
 
     smoothed_wr = alpha_post / (alpha_post + beta_post)
-    baseline_wr = alpha_prior / (alpha_prior + beta_prior)
+    baseline_wr = ALPHA_PRIOR / (ALPHA_PRIOR + BETA_PRIOR)
 
     return smoothed_wr - baseline_wr
 
@@ -100,8 +111,10 @@ def _get_group_stats(
             return float(stats["mean"]), float(stats["std"])
 
     # final fallback
-    stats = global_stats[("all",)]
-    return float(stats["mean"]), float(stats["std"])
+    fallback = global_stats.get(("all",))
+    if fallback is None:
+        return float("nan"), float("nan")
+    return float(fallback["mean"]), float(fallback["std"])
 
 
 # ---------------------------------------------------------------------------
@@ -118,14 +131,14 @@ class HorseHistoryFeatures:
         "haron_time_zscore_avg",
     ]
 
-    def __init__(self, engine: object) -> None:
+    def __init__(self, engine: Engine) -> None:
         self.engine = engine
 
     def compute(
         self,
         race_df: pd.DataFrame,
         entry_df: pd.DataFrame,
-        target_race_ids: object = None,
+        target_race_ids: Optional[np.ndarray] = None,
     ) -> pd.DataFrame:
         """特徴量を計算してDataFrameを返す (stub)。"""
         return pd.DataFrame(columns=["race_id", "umaban"] + self.BASE_COLS)
