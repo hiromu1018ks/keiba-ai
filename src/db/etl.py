@@ -12,6 +12,7 @@ from typing import Optional
 
 import pandas as pd
 from sqlalchemy import text
+from tqdm.auto import tqdm
 from sqlalchemy.engine import Engine
 
 from db.schema import ALL_CREATE_STATEMENTS
@@ -25,17 +26,23 @@ logger = logging.getLogger(__name__)
 
 
 def _to_int(val: str | None) -> Optional[int]:
-    """空文字 → None、それ以外は int に変換"""
+    """空文字・非数値 → None、それ以外は int に変換"""
     if val is None or val == "":
         return None
-    return int(val)
+    try:
+        return int(val)
+    except (ValueError, TypeError):
+        return None
 
 
 def _to_float(val: str | None) -> Optional[float]:
-    """空文字 → None、それ以外は float に変換"""
+    """空文字・非数値 → None、それ以外は float に変換"""
     if val is None or val == "":
         return None
-    return float(val)
+    try:
+        return float(val)
+    except (ValueError, TypeError):
+        return None
 
 
 def _make_race_id(
@@ -64,7 +71,11 @@ def _insert_on_conflict(
     schema: str,
     pk_columns: list[str],
 ) -> int:
-    """psycopg2.extras.execute_values で ON CONFLICT DO NOTHING 挿入（冪等）
+    """ステージングテーブル + ON CONFLICT DO NOTHING で冪等挿入
+
+    pandas to_sql で一時テーブルに書き込み後、
+    ON CONFLICT DO NOTHING で本テーブルにコピーする。
+    to_sql が型変換を適切に処理するため、varchar桁数エラーを回避。
 
     Parameters
     ----------
@@ -81,22 +92,38 @@ def _insert_on_conflict(
     if df.empty:
         return 0
 
-    from psycopg2.extras import execute_values
+    staging = f"_etl_staging_{table}"
 
-    cols = list(df.columns)
-    tuples = [
-        tuple(None if pd.isna(v) else v for v in row)
-        for row in df[cols].itertuples(index=False, name=None)
-    ]
-    pk_str = ", ".join(pk_columns)
-    sql = (
-        f'INSERT INTO {schema}.{table} ({", ".join(cols)}) '
-        f"VALUES %s ON CONFLICT ({pk_str}) DO NOTHING"
-    )
+    # ステージングテーブルに書き込み（to_sql が型変換を処理）
+    df.to_sql(staging, engine, if_exists="replace", index=False)
+
+    # ON CONFLICT DO NOTHING で本テーブルに挿入
+    cols = ", ".join(f'"{c}"' for c in df.columns)
+    pk_conflict = ", ".join(f'"{c}"' for c in pk_columns)
+
+    insert_sql = f"""
+        INSERT INTO {schema}.{table} ({cols})
+        SELECT {cols} FROM {staging}
+        ON CONFLICT ({pk_conflict}) DO NOTHING
+    """
+    try:
+        with engine.begin() as conn:
+            result = conn.execute(text(insert_sql))
+            inserted = result.rowcount
+    except Exception as e:
+        # ステージングテーブルを削除（エラー時も掃除）
+        with engine.begin() as conn:
+            conn.execute(text(f"DROP TABLE IF EXISTS {staging}"))
+        logger.error(
+            "%s.%s 挿入失敗: %s — カラム型の不整合可能性",
+            schema, table, e,
+        )
+        raise
+
+    # ステージングテーブルを削除
     with engine.begin() as conn:
-        result = conn.connection.cursor()
-        execute_values(result, sql, tuples, page_size=50000)
-        inserted = result.rowcount
+        conn.execute(text(f"DROP TABLE IF EXISTS {staging}"))
+
     logger.info("%s.%s: %d 件挿入", schema, table, inserted)
     return inserted
 
@@ -154,6 +181,7 @@ def etl_races(engine: Engine, start: str, end: str) -> int:
             syussotosu
         FROM n_race
         WHERE (year || monthday)::int BETWEEN :start AND :end
+          AND trackcd::int NOT BETWEEN 51 AND 59
     """)
     df = pd.read_sql(sql, engine, params={"start": start, "end": end})
 
@@ -241,7 +269,7 @@ def etl_entries(engine: Engine, start: str, end: str) -> int:
             r.race_id
         FROM n_uma_race s
         JOIN raw.races r
-            ON s.year = r.year AND s.monthday = r.month_day
+            ON s.year::int = r.year AND s.monthday = r.month_day
             AND s.jyocd = r.jyo_cd AND s.kaiji = r.kaiji
             AND s.nichiji = r.nichiji AND s.racenum = r.race_num
         WHERE (s.year || s.monthday)::int BETWEEN :start AND :end
@@ -260,7 +288,7 @@ def etl_entries(engine: Engine, start: str, end: str) -> int:
     df["win_odds"] = df["odds"].apply(_to_float)
     df["ninki"] = df["ninki"].apply(_to_int)
     df["ba_taijyu"] = df["bataijyu"].apply(_to_float)
-    df["zogen_fugo"] = df["zogenfugo"].apply(_to_int)
+    df["zogen_fugo"] = df["zogenfugo"]
     df["zogen_sa"] = df["zogensa"].apply(_to_float)
     df["kisyu_code"] = df["kisyucode"]
     df["chokyosi_code"] = df["chokyosicode"]
@@ -321,7 +349,7 @@ def etl_payouts(engine: Engine, start: str, end: str) -> int:
             r.race_id
         FROM n_harai s
         JOIN raw.races r
-            ON s.year = r.year AND s.monthday = r.month_day
+            ON s.year::int = r.year AND s.monthday = r.month_day
             AND s.jyocd = r.jyo_cd AND s.kaiji = r.kaiji
             AND s.nichiji = r.nichiji AND s.racenum = r.race_num
         WHERE (s.year || s.monthday)::int BETWEEN :start AND :end
@@ -381,7 +409,7 @@ def etl_odds_snapshots(engine: Engine, start: str, end: str) -> int:
             r.race_id
         FROM n_odds_tanpuku s
         JOIN raw.races r
-            ON s.year = r.year AND s.monthday = r.month_day
+            ON s.year::int = r.year AND s.monthday = r.month_day
             AND s.jyocd = r.jyo_cd AND s.kaiji = r.kaiji
             AND s.nichiji = r.nichiji AND s.racenum = r.race_num
         WHERE (s.year || s.monthday)::int BETWEEN :start AND :end
@@ -425,7 +453,7 @@ def etl_wide_odds(engine: Engine, start: str, end: str) -> int:
             r.race_id
         FROM n_odds_wide s
         JOIN raw.races r
-            ON s.year = r.year AND s.monthday = r.month_day
+            ON s.year::int = r.year AND s.monthday = r.month_day
             AND s.jyocd = r.jyo_cd AND s.kaiji = r.kaiji
             AND s.nichiji = r.nichiji AND s.racenum = r.race_num
         WHERE (s.year || s.monthday)::int BETWEEN :start AND :end
@@ -470,10 +498,10 @@ def etl_odds_timeseries(engine: Engine, start: str, end: str) -> int:
 
     total_inserted = 0
 
-    for year in range(start_year, end_year + 1):
+    for year in tqdm(range(start_year, end_year + 1), desc="odds_timeseries (年)"):
         sql = text("""
             SELECT
-                s.happyo_time,
+                s.happyotime,
                 s.umaban,
                 s.tanodds,
                 s.fukuoddslow,
@@ -481,10 +509,10 @@ def etl_odds_timeseries(engine: Engine, start: str, end: str) -> int:
                 r.race_id
             FROM n_jodds_tanpuku s
             JOIN raw.races r
-                ON s.year = r.year AND s.monthday = r.month_day
+                ON s.year::int = r.year AND s.monthday = r.month_day
                 AND s.jyocd = r.jyo_cd AND s.kaiji = r.kaiji
                 AND s.nichiji = r.nichiji AND s.racenum = r.race_num
-            WHERE s.year = :year
+            WHERE s.year::int = :year
               AND (s.year || s.monthday)::int BETWEEN :start AND :end
         """)
         df = pd.read_sql(
@@ -496,6 +524,7 @@ def etl_odds_timeseries(engine: Engine, start: str, end: str) -> int:
             continue
 
         # 型変換・リネーム
+        df["happyo_time"] = df["happyotime"]
         df["umaban"] = df["umaban"].apply(_to_int)
         df["tan_odds"] = df["tanodds"].apply(_to_float)
         df["fuku_odds"] = df["fukuoddslow"].apply(_to_float)
@@ -530,13 +559,18 @@ def run_full_etl(engine: Engine, start: str, end: str) -> dict[str, int]:
     """
     create_project_schemas(engine)
 
+    etl_steps = [
+        ("raw.races", etl_races),
+        ("raw.entries", etl_entries),
+        ("raw.payouts", etl_payouts),
+        ("odds_history.odds_snapshots", etl_odds_snapshots),
+        ("odds_history.wide_odds", etl_wide_odds),
+        ("odds_history.odds_time_series", etl_odds_timeseries),
+    ]
+
     counts: dict[str, int] = {}
-    counts["raw.races"] = etl_races(engine, start, end)
-    counts["raw.entries"] = etl_entries(engine, start, end)
-    counts["raw.payouts"] = etl_payouts(engine, start, end)
-    counts["odds_history.odds_snapshots"] = etl_odds_snapshots(engine, start, end)
-    counts["odds_history.wide_odds"] = etl_wide_odds(engine, start, end)
-    counts["odds_history.odds_time_series"] = etl_odds_timeseries(engine, start, end)
+    for name, func in tqdm(etl_steps, desc="ETL テーブル"):
+        counts[name] = func(engine, start, end)
 
     logger.info("ETL完了: %s", counts)
     return counts

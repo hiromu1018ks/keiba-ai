@@ -24,7 +24,7 @@ CREATE TABLE IF NOT EXISTS raw.races (
     track_cd      INTEGER NOT NULL,
     distance      INTEGER NOT NULL,
     tenko_cd      INTEGER NOT NULL,
-    baba_cd       INTEGER NOT NULL,
+    baba_cd       INTEGER,
     syubetu_cd    VARCHAR(4) NOT NULL,
     jyoken_cd     VARCHAR(4) NOT NULL,
     grade_cd      VARCHAR(1) NOT NULL DEFAULT '_',
@@ -33,7 +33,7 @@ CREATE TABLE IF NOT EXISTS raw.races (
     race_id       VARCHAR(16) GENERATED ALWAYS AS (
         year::text || month_day || jyo_cd || kaiji || nichiji || race_num
     ) STORED UNIQUE,
-    surface       VARCHAR(5) GENERATED ALWAYS AS (
+    surface       VARCHAR(10) GENERATED ALWAYS AS (
         CASE
             WHEN track_cd BETWEEN 10 AND 22 THEN 'turf'
             WHEN track_cd BETWEEN 23 AND 29 THEN 'dirt'
@@ -62,7 +62,7 @@ CREATE TABLE IF NOT EXISTS raw.races (
 );
 
 CREATE TABLE IF NOT EXISTS raw.entries (
-    race_id       VARCHAR(16) NOT NULL REFERENCES raw.races ON DELETE CASCADE,
+    race_id       VARCHAR(16) NOT NULL REFERENCES raw.races(race_id) ON DELETE CASCADE,
     umaban        INTEGER NOT NULL,
     ketto_num     VARCHAR(10) NOT NULL,
     finish_pos    INTEGER NOT NULL DEFAULT 0,
@@ -71,17 +71,17 @@ CREATE TABLE IF NOT EXISTS raw.entries (
     ninki         INTEGER,
     win_odds      FLOAT,
     ba_taijyu     FLOAT,
-    zogen_fugo    INTEGER,
+    zogen_fugo    VARCHAR(1),
     zogen_sa      FLOAT,
-    kisyu_code    VARCHAR(5),
-    chokyosi_code VARCHAR(5),
+    kisyu_code    VARCHAR(10),
+    chokyosi_code VARCHAR(10),
     kyakusitu     INTEGER,
     honsyokin     INTEGER,
     PRIMARY KEY (race_id, umaban)
 );
 
 CREATE TABLE IF NOT EXISTS raw.payouts (
-    race_id       VARCHAR(16) NOT NULL REFERENCES raw.races ON DELETE CASCADE,
+    race_id       VARCHAR(16) NOT NULL REFERENCES raw.races(race_id) ON DELETE CASCADE,
     tan_umaban    INTEGER,
     tan_pay       FLOAT,
     fuku_umaban1  INTEGER,  fuku_pay1  FLOAT,
@@ -116,7 +116,7 @@ CREATE TABLE IF NOT EXISTS odds_history.odds_time_series (
 
 CREATE TABLE IF NOT EXISTS odds_history.wide_odds (
     race_id     VARCHAR(16) NOT NULL,
-    kumi        VARCHAR(5) NOT NULL,  -- "3-7" 形式
+    kumi        VARCHAR(10) NOT NULL,  -- "3-7" 形式
     odds_low    FLOAT,
     odds_high   FLOAT,
     PRIMARY KEY (race_id, kumi)
@@ -180,9 +180,9 @@ CREATE TABLE IF NOT EXISTS betting.bets (
     settled_at            TIMESTAMP
 );
 
-CREATE INDEX idx_bets_race_id ON betting.bets (race_id);
-CREATE INDEX idx_bets_created_at ON betting.bets (created_at);
-CREATE INDEX idx_bets_bet_type ON betting.bets (bet_type);
+CREATE INDEX IF NOT EXISTS idx_bets_race_id ON betting.bets (race_id);
+CREATE INDEX IF NOT EXISTS idx_bets_created_at ON betting.bets (created_at);
+CREATE INDEX IF NOT EXISTS idx_bets_bet_type ON betting.bets (bet_type);
 """
 
 ALL_CREATE_STATEMENTS = [

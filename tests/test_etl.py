@@ -112,13 +112,14 @@ class TestInsertOnConflict:
         assert result == 0
         mock_engine.begin.assert_not_called()
 
-    @patch("psycopg2.extras.execute_values")
-    def test_inserts_data(self, mock_execute_values):
+    @patch.object(pd.DataFrame, "to_sql")
+    def test_staging_table_pattern(self, mock_to_sql):
+        """ステージングテーブル → ON CONFLICT DO NOTHING → DROP の流れを検証"""
         mock_engine = MagicMock()
-        mock_cursor = MagicMock()
-        mock_cursor.rowcount = 3
+        mock_result = MagicMock()
+        mock_result.rowcount = 3
         mock_conn = MagicMock()
-        mock_conn.connection.cursor.return_value = mock_cursor
+        mock_conn.execute.return_value = mock_result
         mock_cm = MagicMock()
         mock_cm.__enter__ = MagicMock(return_value=mock_conn)
         mock_cm.__exit__ = MagicMock(return_value=False)
@@ -128,13 +129,25 @@ class TestInsertOnConflict:
         result = _insert_on_conflict(mock_engine, df, "test_table", "test_schema", ["id"])
 
         assert result == 3
-        mock_execute_values.assert_called_once()
-        # Verify the SQL contains ON CONFLICT
-        call_args = mock_execute_values.call_args
-        sql = call_args[0][1]
-        assert "ON CONFLICT" in sql
-        assert "DO NOTHING" in sql
-        assert "test_schema.test_table" in sql
+
+        # to_sql がステージングテーブルに書き込み（if_exists="replace"）
+        mock_to_sql.assert_called_once_with(
+            "_etl_staging_test_table", mock_engine, if_exists="replace", index=False
+        )
+
+        # engine.begin() が2回呼ばれる（INSERT + DROP）
+        assert mock_engine.begin.call_count == 2
+
+        # 実行されたSQLを検証
+        sql_calls = [c[0][0].text for c in mock_conn.execute.call_args_list]
+        insert_sql = sql_calls[0]
+        assert "ON CONFLICT" in insert_sql
+        assert "DO NOTHING" in insert_sql
+        assert "test_schema.test_table" in insert_sql
+
+        drop_sql = sql_calls[1]
+        assert "DROP TABLE" in drop_sql
+        assert "_etl_staging_test_table" in drop_sql
 
 
 # ---------------------------------------------------------------------------
