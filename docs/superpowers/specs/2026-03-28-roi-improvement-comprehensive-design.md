@@ -63,8 +63,11 @@ Phase 5: 検証基盤強化
 # TrainingPipelineV5._train_submodel() 内
 from features.horse_history_features import HorseHistoryFeatures
 
-hist = HorseHistoryFeatures(engine=self.engine)
-hist_df = hist.compute(race_df, entry_df)
+# self.db は DatabaseConnection。self.db.engine が SQLAlchemy engine。
+hist = HorseHistoryFeatures(engine=self.db.engine)
+# df は feat_df（FeatureEngine.build_all() 出力 + distance_band 追加済み）
+# race_df, entry_df は run() でロード済み。race_date 列は entry_df に含まれる。
+hist_df = hist.compute(race_df, entry_df, df["race_id"].unique())
 df = df.merge(hist_df, on=["race_id", "umaban"], how="left")
 df = hist.add_race_transforms(df)  # z-score + pct
 ```
@@ -93,6 +96,7 @@ norm_finish_logit_avg = logit_scores[-3:].mean()
 
 - 1着/16頭 = logit(0.95) ≈ 2.94、最下位/16頭 = logit(0.05) ≈ -2.94
 - 初出走馬: NaN（LightGBM自動処理）
+- **NaN率の想定**: JRAの8頭未満レースは全体の約5-10%（障害・小倉等）。これらの馬の過去3走が全て8頭未満の場合NaN。LightGBMのnative NaN handlingで対処可能。NaN率は10%未満を想定。
 - **リーク防止**: 当該レース日付より前のレースのみ使用
 
 ### 1-1b. jockey_surprise（Beta事前分布スムージング・控除率補正）
@@ -195,7 +199,7 @@ for col in [norm_finish_logit_avg, jockey_surprise, haron_time_zscore_avg]:
 | API | `lgb.LGBMClassifier`（sklearn互換） |
 | objective | binary |
 | label | `finish_pos <= 3` (1 or 0) |
-| 特徴量 | Stage1 FEATURE_COLS と同一 |
+| 特徴量 | Phase 1 拡張後 FEATURE_COLS（16列）と同一。HorseHistoryFeatures.merge 済みの df を使用。AbilityModel と同じ FEATURE_COLS を参照。 |
 | 学習データ | Stage1と同じ期間 |
 | クラス不均衡対応 | `scale_pos_weight = n_neg / n_pos` |
 | 校正 | Isotonic regression (`CalibratedClassifierCV`) |
@@ -247,10 +251,18 @@ df["p_ability_place"] = df["p_ability_place"] * (3.0 / race_sum.clip(lower=1e-6)
 
 温度T=0.7により、強い馬はより強く、弱い馬はより弱く。過正規化（全馬p≈0.3への収束）を防止。
 
+**制約の優先順位**: sum(p_place) ≈ 3（確率として正しい） > p_place >= p_win。両立不可能な場合は sum=3 を優先。再正規化後に p_place < p_win となる馬がいる可能性を許容する。
+
+**注**: p in (0,1) に対して `p^(1/T)` で T < 1 のとき、1/T > 1 となり、p^a (a>1) は0と1から離れた中間値を圧縮し、極端値を強調する。これが「尖り」効果の数学的根拠。
+
 ### 時系列バリデーション分割
 
+PlaceAbilityModel の train() は `_train_submodel()` 内で呼ばれる。`_train_submodel(df)` は surface フィルタ済みの df を受け取る。`race_date` は `run()` でロードした `entry_df` から `feat_df` に伝播される（`FeatureEngine.build_all()` が `race_date` を保持）。
+
 ```python
+# df["race_date"] は feat_df から取得可能（FeatureEngine.build_all() が保持）
 # 日付でソート済み前提。最後の20%を校正用に使用
+assert "race_date" in df.columns, "race_date が必要。FeatureEngine.build_all() 出力を確認"
 dates = sorted(df["race_date"].unique())
 split_date = dates[int(len(dates) * 0.8)]
 place_train = df[df["race_date"] < split_date]
@@ -296,7 +308,17 @@ WinTwoStage → EVCorrection → PlaceTwoStage → Wide
 
 ### BacktestEngine 推論フロー
 
-1. FeatureEngine.build_all() → HorseHistoryFeatures 呼び出し
+BacktestEngine も DB接続（`self.db.engine`）を保持するため、HorseHistoryFeatures に渡す。
+
+```python
+# BacktestEngine 内の推論パス
+hist = HorseHistoryFeatures(engine=self.db.engine)
+hist_df = hist.compute(race_df, entry_df, df["race_id"].unique())
+df = df.merge(hist_df, on=["race_id", "umaban"], how="left")
+df = hist.add_race_transforms(df)
+```
+
+1. FeatureEngine.build_all() → HorseHistoryFeatures.compute() + merge
 2. AbilityModel.add_ability_probs() → p_ability_win のみ
 3. PlaceAbilityModel.predict() → p_ability_place 設定（温度スケーリング + 正規化 + 整合性制約）
 4. WinTwoStage → EVCorrection → PlaceTwoStage → Wide
@@ -359,7 +381,12 @@ df["jockey_cond_wr_race_pct"] = ...
 
 ```python
 # 馬の実際の負担重量（斤量）
-df["weight_absolute"] = df["futan"]  # n_uma_race.futan
+# ソース: n_uma_race.futan (INTEGER)
+# ETL: db/etl.py の load_entries_with_results() で entry_df に含まれる
+# FeatureEngine.build_all() で "weight" 列として出力される
+# weight_diff_from_mean = weight - race_mean(weight) が既存
+# weight_absolute = weight をそのまま使用
+df["weight_absolute"] = df["weight"]  # FeatureEngine 出力の weight 列
 ```
 
 LGBMの非線形分割で処理（55kg vs 58kgの急激な悪化を自動捕捉）。
@@ -376,7 +403,7 @@ FEATURE_COLS = [
     "norm_finish_logit_avg", "jockey_surprise", "haron_time_zscore_avg",
     "norm_finish_logit_avg_race_z", "jockey_surprise_race_z", "haron_time_zscore_avg_race_z",
     "norm_finish_logit_avg_race_pct", "jockey_surprise_race_pct", "haron_time_zscore_avg_race_pct",
-    # Phase 2 (5)
+    # Phase 2 (4)
     "jockey_cond_wr",
     "jockey_cond_wr_race_z",
     "jockey_cond_wr_race_pct",
@@ -384,7 +411,7 @@ FEATURE_COLS = [
 ]
 ```
 
-合計21特徴量。
+合計20特徴量（7 + 9 + 4）。
 
 ---
 
@@ -395,13 +422,55 @@ FEATURE_COLS = [
 `features/market_bias_features.py` に新規関数 `compute_flb_slope()` を追加。
 
 ```python
-def compute_flb_slope(race_feat_df):
+def compute_flb_slope(race_feat_df: pd.DataFrame) -> pd.Series:
     """過去200レースのオッズ-勝率関係からFLB傾きを推定。
-    明示的に過去レースのみ使用（当該レースは含めない）。"""
-    # 人気順位別の勝率を集計
-    # オッズ逆数 vs 実勝率 の回帰傾き
-    # 傾き < 1 → 人気薄が過小評価
-    # 傾き > 1 → 人気薄が過大評価
+    明示的に過去レースのみ使用（当該レースは含めない）。
+
+    入力: race_feat_df — race_id, popularity_rank, win_odds_actual, finish_pos, race_date を含む
+    出力: pd.Series (index=race_feat_df.index, float) — 各行の直近200レースFLB傾き
+
+    アルゴリズム:
+    1. race_date でソート済み前提。各行について、過去200レース（同日含まず）を取得
+    2. 人気帯 (1-3, 4-7, 8+) 毎に:
+       - p_implied = mean(1 / win_odds_actual)  # 市場暗示確率
+       - p_actual  = mean(finish_pos == 1)       # 実勝率
+    3. (p_implied, p_actual) の3点で OLS 回帰: p_actual = slope * p_implied + intercept
+    4. slope が FLB 傾き
+
+    値域: 通常 [0.5, 1.5]
+    - slope < 1 → 人気薄が過小評価（longshot bias）
+    - slope = 1 → 効率的市場
+    - slope > 1 → 人気薄が過大評価
+    - サンプル不足 (<50レース): NaN
+    """
+    required_cols = ["race_date", "popularity_rank", "win_odds_actual", "finish_pos"]
+    assert all(c in race_feat_df.columns for c in required_cols)
+
+    df = race_feat_df.sort_values("race_date").reset_index(drop=True)
+    result = pd.Series(np.nan, index=df.index)
+
+    window = 200
+    for i in range(window, len(df)):
+        past = df.iloc[i - window : i]  # 過去200レース（同日含まず）
+        if len(past) < 50:
+            continue
+
+        bands = {"fav": (1, 3), "mid": (4, 7), "long": (8, 99)}
+        p_implied, p_actual = [], []
+        for lo, hi in bands.values():
+            mask = (past["popularity_rank"] >= lo) & (past["popularity_rank"] <= hi)
+            subset = past[mask]
+            if len(subset) < 5:
+                continue
+            p_implied.append((1.0 / subset["win_odds_actual"].clip(lower=1.1)).mean())
+            p_actual.append((subset["finish_pos"] == 1).mean())
+
+        if len(p_implied) < 2:
+            continue
+        slope = np.polyfit(p_implied, p_actual, 1)[0]
+        result.iloc[i] = slope
+
+    return result
 ```
 
 ## 3-2. odds_volatility_mean（時点固定）
@@ -409,8 +478,29 @@ def compute_flb_slope(race_feat_df):
 ```python
 # 発走10分前 (t-10min) のオッズスナップショット時点の変動率のみ使用
 # t-3min 直前データは late_money_filter 用なので混ぜない
-from features.odds_dynamics_features import compute_rolling_volatility
-stats["odds_volatility_mean"] = compute_rolling_volatility(race_feat_df)
+
+def compute_rolling_volatility(race_feat_df: pd.DataFrame) -> pd.Series:
+    """直近200レースのオッズ変動ボラティリティを計算。
+
+    入力: race_feat_df — race_id, race_date, odds_volatility_t10 を含む
+    出力: pd.Series (index=race_feat_df.index, float)
+
+    odds_volatility_t10 は odds_dynamics_features.py の既存計算を活用:
+    FeatureEngine.build_all() → OddsDynamicsFeatures.build() で
+    t-10minスナップショットの変動率が計算済み。
+
+    アルゴリズム:
+    1. race_date でソート済み前提
+    2. 各行について過去200レースの odds_volatility_t10 の rolling mean
+    3. rolling(200, min_periods=50).mean()
+    4. NaN埋め: 0.1（ダミー値ではなく、経験的な中央値）
+    """
+    df = race_feat_df.sort_values("race_date").reset_index(drop=True)
+    col = "odds_volatility_t10"  # FeatureEngine.build_all() で計算済み
+    if col not in df.columns:
+        # fallback: 既存の odds_dynamics 列から推定
+        return pd.Series(0.1, index=df.index)
+    return df[col].rolling(window=200, min_periods=50).mean().fillna(0.1)
 ```
 
 ## 3-3. 人気帯別回収率（EMA）
@@ -450,7 +540,12 @@ stats["mid_roi_ema"] = ...
 stats["longshot_roi_ema"] = ...
 ```
 
-RegimeDetector.FEATURE_COLS 更新:
+**削除列と理由**:
+- `rolling_roi_200` → `favorite_roi_ema`, `mid_roi_ema`, `longshot_roi_ema` に分割（3列に置き換え）
+- `hit_rate_top3_mean` → `favorite_win_rate * 3.0` と等価（冗長）のため削除
+- `market_entropy_mean` は FEATURE_COLS から外すが、教師ラベル生成（`train()` 内）では引き続き使用。FEATURE_COLS に `overround_mean` があるため重複回避。
+
+RegimeDetector.FEATURE_COLS 更新（10列 → 11列）:
 
 ```python
 FEATURE_COLS = [
@@ -601,6 +696,38 @@ Window 3: 2020-2023 train → 2024 test
 - p_ability_place 置き換え: PlaceAbilityModel の出力が正しく設定されるテスト
 - HorseHistoryFeatures 結合: merge 後に全特徴量列が存在するテスト
 - SubmodelSet: place_ability フィールドが正しく格納されるテスト
+
+## test_phase2_features.py（Phase 2 新規）
+
+- jockey_cond_wr: hierarchical smoothing の正確性テスト（shrinkage確認）
+- jockey_cond_wr: サンプル10未満で NaN → global_wr にshrink テスト
+- jockey_cond_wr_race_z / _race_pct: レース内変換テスト
+- weight_absolute: FeatureEngine 出力 weight 列からのマッピングテスト
+- FEATURE_COLS: Phase 2 最終20列が全て存在するテスト
+
+## test_regime_detector_real.py（Phase 3 新規）
+
+- compute_flb_slope: サンプル不足(<50)で NaN テスト
+- compute_flb_slope: 正常時の slope 範囲 [0.5, 1.5] テスト
+- compute_rolling_volatility: 過去200レースのrolling mean テスト
+- 人気帯別ROI EMA: 正しいEMA計算テスト
+- 人気帯別ROI EMA: 同日レース除外テスト
+- FEATURE_COLS: 旧10列→新11列の整合性テスト
+- 削除列確認: hit_rate_top3_mean, rolling_roi_200 が FEATURE_COLS に含まれないテスト
+
+## test_wide_strategy_constraints.py（Phase 4 新規）
+
+- 同一馬制約: 同じ馬を含む複数ペアが選択されないテスト
+- 人気帯制約: 同一人気帯ペアが複数選択されないテスト
+- Fractional Kelly: FRACTIONAL_KELLY=0.5 で full Kelly の半分になるテスト
+- Fractional Kelly: CI下限 < 1.0 で stake=0 テスト
+- 2%キャップ: stake が bankroll * 0.02 を超えないテスト
+
+## test_validation_infrastructure.py（Phase 5 新規）
+
+- Walk-forward CV: ウィンドウ境界が正しいテスト（4年train/1年test）
+- パラメータフリーズ: FE コード commit hash が記録されるテスト
+- 自動ホールドアウト: run_all() が基準を正しく判定するテスト
 
 ---
 
