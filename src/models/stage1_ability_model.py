@@ -21,7 +21,7 @@ class AbilityModel:
 
     出力:
       p_ability_win:  レース内相対確率 (softmax変換)
-      p_ability_place: 複勝的中確率 (rankを3着内/それ以外に変換)
+      (p_ability_place は PlaceAbilityModel で別途計算)
     """
 
     FEATURE_COLS: list[str] = [
@@ -81,7 +81,6 @@ class AbilityModel:
         """
         Ranker の出力をレース内 softmax で確率に変換して追加する。
         p_ability_win: 単勝的中確率 (softmax)
-        p_ability_place: 複勝的中確率 (3着内ランクの確率)
         """
         df = df.copy()
 
