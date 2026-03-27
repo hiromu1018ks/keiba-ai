@@ -5,7 +5,6 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 import pytest
-from unittest.mock import MagicMock, patch
 
 
 class TestNormFinishLogitAvg:
@@ -14,24 +13,28 @@ class TestNormFinishLogitAvg:
     def test_1st_of_16(self):
         """1着/16頭 → logit(15/15) clipped to logit(0.95) ≈ 2.94"""
         from features.horse_history_features import _norm_finish_logit
+
         result = _norm_finish_logit(finish_pos=1, field_size=16)
         assert 2.9 < result < 3.0
 
     def test_last_of_16(self):
         """最下位/16頭 → logit(1/15) clipped to logit(0.05) ≈ -2.94"""
         from features.horse_history_features import _norm_finish_logit
+
         result = _norm_finish_logit(finish_pos=16, field_size=16)
         assert -3.0 < result < -2.9
 
     def test_field_size_under_8_returns_nan(self):
         """8頭未満レース → NaN"""
         from features.horse_history_features import _norm_finish_logit
+
         result = _norm_finish_logit(finish_pos=1, field_size=7)
         assert np.isnan(result)
 
     def test_mid_rank(self):
         """8着/16頭 → logit(0.5) ≈ 0.0（中央値）"""
         from features.horse_history_features import _norm_finish_logit
+
         result = _norm_finish_logit(finish_pos=8, field_size=16)
         assert -0.1 < result < 0.1
 
@@ -42,23 +45,27 @@ class TestJockeySurprise:
     def test_zero_wins_100_races(self):
         """100戦0勝 → surprise ≈ 0 - 0.0476 ≈ -0.0476"""
         from features.horse_history_features import _compute_jockey_surprise
+
         result = _compute_jockey_surprise(actual_wins=0, n_races=100, expected_wins=8.0)
-        assert result < 0
+        assert -0.06 < result < -0.04
 
     def test_above_expectation(self):
         """期待以上の勝率 → 正のsurprise"""
         from features.horse_history_features import _compute_jockey_surprise
+
         result = _compute_jockey_surprise(actual_wins=15, n_races=100, expected_wins=8.0)
-        assert result > 0
+        assert 0.05 < result < 0.15
 
     def test_payout_rate_applied(self):
         """控除率補正（0.80）が適用される"""
-        from features.horse_history_features import _compute_jockey_surprise, PAYOUT_RATE
+        from features.horse_history_features import PAYOUT_RATE
+
         assert PAYOUT_RATE == 0.80
 
     def test_min_samples_returns_nan(self):
         """30レース未満 → NaN"""
         from features.horse_history_features import _compute_jockey_surprise
+
         result = _compute_jockey_surprise(actual_wins=5, n_races=25, expected_wins=2.0)
         assert np.isnan(result)
 
@@ -69,14 +76,17 @@ class TestHaronTimeZscore:
     def test_fallback_l1_to_l2(self):
         """Level 1 サンプル不足 → Level 2 にfallback"""
         from features.horse_history_features import _get_group_stats
+
         global_stats = {
             ("sprint", "turf", "1"): {"mean": 12.5, "std": 0.3, "n": 10},  # L1: 不足
-            ("sprint", "turf"): {"mean": 12.3, "std": 0.4, "n": 80},       # L2: OK
-            ("sprint",): {"mean": 12.4, "std": 0.5, "n": 200},             # L3
-            ("all",): {"mean": 12.4, "std": 0.5, "n": 5000},               # L4
+            ("sprint", "turf"): {"mean": 12.3, "std": 0.4, "n": 80},  # L2: OK
+            ("sprint",): {"mean": 12.4, "std": 0.5, "n": 200},  # L3
+            ("all",): {"mean": 12.4, "std": 0.5, "n": 5000},  # L4
         }
         mean, std = _get_group_stats(
-            distance_bin="sprint", surface="turf", baba_cd="1",
+            distance_bin="sprint",
+            surface="turf",
+            baba_cd="1",
             global_stats=global_stats,
         )
         assert mean == 12.3
@@ -85,11 +95,14 @@ class TestHaronTimeZscore:
     def test_fallback_to_global(self):
         """全レベル不足 → グローバルfallback"""
         from features.horse_history_features import _get_group_stats
+
         global_stats = {
             ("all",): {"mean": 12.4, "std": 0.5, "n": 5000},
         }
         mean, std = _get_group_stats(
-            distance_bin="long", surface="dirt", baba_cd="3",
+            distance_bin="long",
+            surface="dirt",
+            baba_cd="3",
             global_stats=global_stats,
         )
         assert mean == 12.4
@@ -99,17 +112,20 @@ class TestRaceTransforms:
     """レース内z-score + pct のテスト"""
 
     def _make_race_df(self):
-        return pd.DataFrame({
-            "race_id": ["r1"] * 4,
-            "umaban": [1, 2, 3, 4],
-            "norm_finish_logit_avg": [2.0, 1.0, 0.0, -1.0],
-            "jockey_surprise": [0.1, 0.05, -0.02, -0.08],
-            "haron_time_zscore_avg": [1.5, 0.5, -0.5, -1.5],
-        })
+        return pd.DataFrame(
+            {
+                "race_id": ["r1"] * 4,
+                "umaban": [1, 2, 3, 4],
+                "norm_finish_logit_avg": [2.0, 1.0, 0.0, -1.0],
+                "jockey_surprise": [0.1, 0.05, -0.02, -0.08],
+                "haron_time_zscore_avg": [1.5, 0.5, -0.5, -1.5],
+            }
+        )
 
     def test_z_score_sum_approx_zero(self):
         """レース内z-scoreの合計 ≈ 0"""
         from features.horse_history_features import HorseHistoryFeatures
+
         df = self._make_race_df()
         result = HorseHistoryFeatures.add_race_transforms(df)
         z_col = "norm_finish_logit_avg_race_z"
@@ -119,19 +135,23 @@ class TestRaceTransforms:
     def test_std_zero_no_nan(self):
         """全馬同じ値（std=0）でも NaN にならない"""
         from features.horse_history_features import HorseHistoryFeatures
-        df = pd.DataFrame({
-            "race_id": ["r1"] * 3,
-            "umaban": [1, 2, 3],
-            "norm_finish_logit_avg": [1.0, 1.0, 1.0],
-            "jockey_surprise": [0.0, 0.0, 0.0],
-            "haron_time_zscore_avg": [0.0, 0.0, 0.0],
-        })
+
+        df = pd.DataFrame(
+            {
+                "race_id": ["r1"] * 3,
+                "umaban": [1, 2, 3],
+                "norm_finish_logit_avg": [1.0, 1.0, 1.0],
+                "jockey_surprise": [0.0, 0.0, 0.0],
+                "haron_time_zscore_avg": [0.0, 0.0, 0.0],
+            }
+        )
         result = HorseHistoryFeatures.add_race_transforms(df)
         assert not result["norm_finish_logit_avg_race_z"].isna().any()
 
     def test_pct_range(self):
         """pct は [0, 1] の範囲"""
         from features.horse_history_features import HorseHistoryFeatures
+
         df = self._make_race_df()
         result = HorseHistoryFeatures.add_race_transforms(df)
         pct_col = "norm_finish_logit_avg_race_pct"
@@ -144,4 +164,4 @@ class TestLeakPrevention:
 
     def test_future_race_excluded(self):
         """当該レース日付より後のデータが特徴量に含まれない"""
-        pass
+        pytest.skip("TODO: implement after horse_history_features module exists")
