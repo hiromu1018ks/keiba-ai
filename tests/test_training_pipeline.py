@@ -117,6 +117,7 @@ def _make_feature_df(n: int = 5000, n_races: int = 500) -> pd.DataFrame:
                     "signed_log_error_win": np.random.normal(0, 0.3),
                     "abs_log_error_win": np.random.uniform(0, 1.0),
                     "market_error_rank_in_race": np.random.uniform(0, 1),
+                    "p_ability_win": np.random.uniform(0.01, 0.5),
                     # WinTwoStageModel 必須
                     "odds_drop_rate_60_10": np.random.normal(0, 0.1),
                     "odds_drop_rate_30_10": np.random.normal(0, 0.05),

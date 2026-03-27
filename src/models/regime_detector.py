@@ -56,6 +56,9 @@ class RegimeDetector:
         v5.5: 教師ラベルを市場指標ベースに変更 (Rule 19)。
         """
         features = df_race[self.FEATURE_COLS].copy()
+        for col in features.columns:
+            if pd.api.types.is_integer_dtype(features[col]):
+                features[col] = features[col].astype(float)
 
         fav = df_race["favorite_win_rate"]
         overround = df_race["overround_mean"]

@@ -93,11 +93,37 @@ class TrainingPipelineV5:
                 logger.warning(f"Skipping {surface}: insufficient data ({len(subset_df)})")
                 continue
 
-            sub = self._train_submodel(subset_df)
+            sub, processed_df = self._train_submodel(subset_df)
             models[surface] = sub
             logger.info(f"Trained {surface} submodel")
 
-        # 4. レースレベル特徴量を構築
+            # market model の出力列を feat_df に反映
+            market_cols = ["signed_log_error_win", "abs_log_error_win",
+                           "market_error_rank_in_race", "market_pred_error_win",
+                           "market_log_error_win", "p_ability_win", "p_ability_place"]
+            for col in market_cols:
+                if col in processed_df.columns and col not in feat_df.columns:
+                    feat_df[col] = pd.NA
+                if col in processed_df.columns:
+                    feat_df.loc[feat_df["surface"] == surface, col] = (
+                        processed_df[col].values
+                    )
+
+        # 4. feat_df の object 数値列を float64 に統一
+        for col in feat_df.columns:
+            if feat_df[col].dtype == object:
+                try:
+                    feat_df[col] = feat_df[col].astype(float)
+                except (ValueError, TypeError):
+                    pass
+
+        # 5. レースレベル特徴量を構築
+        required_cols = ["signed_log_error_win", "abs_log_error_win"]
+        missing = [c for c in required_cols if c not in feat_df.columns]
+        if missing:
+            logger.warning("Market model columns missing: %s — skipping race-level features", missing)
+            for c in missing:
+                feat_df[c] = 0.0
         race_feat_df = self._build_race_level_features(feat_df)
 
         # 5. RaceQualityScreener
@@ -122,17 +148,42 @@ class TrainingPipelineV5:
             train_period=(train_start, train_end),
         )
 
-    def _train_submodel(self, df: pd.DataFrame) -> SubmodelSet:
-        """単一 surface のサブモデル群を学習"""
+    def _train_submodel(self, df: pd.DataFrame) -> tuple[SubmodelSet, pd.DataFrame]:
+        """単一 surface のサブモデル群を学習
+
+        Returns:
+            (学習済みサブモデル群, 特徴量追加済みDataFrame)
+        """
         # 1. Market Model (正規化差分 log_error のみ出力)
+        # object型の数値列 (pd.NA含む) → float64 (2回目のsurface処理でpd.NAが混入するため)
+        for col in df.columns:
+            if df[col].dtype == object:
+                try:
+                    df[col] = df[col].astype(float)
+                except (ValueError, TypeError):
+                    pass
+
         market = MarketModel()
         market.train(df)
         df = market.predict_and_calc_error(df)
+
+        # nullable int (Int64) → float64 (market model が Int64 を追加するため)
+        for col in df.columns:
+            if pd.api.types.is_integer_dtype(df[col]):
+                df[col] = df[col].astype(float)
 
         # 2. Stage1 (オッズなし・能力推定)
         stage1 = AbilityModel()
         stage1.train(df)
         df = stage1.add_ability_probs(df)
+
+        # 新規追加列の pd.NA含む object → float64 変換
+        for col in df.columns:
+            if df[col].dtype == object:
+                try:
+                    df[col] = df[col].astype(float)
+                except (ValueError, TypeError):
+                    pass
 
         # 3. 単勝 2段階モデル
         win_2s = WinTwoStageModel()
@@ -170,14 +221,17 @@ class TrainingPipelineV5:
         place_calib_df["ev_place_corrected"] = df["ev_place"]
         conf.calibrate(win_calib_df, place_calib_df)
 
-        return SubmodelSet(
-            market=market,
-            stage1=stage1,
-            win=win_2s,
-            ev_corrector=ev_corrector,
-            place=place_2s,
-            wide=wide_2s,
-            confidence=conf,
+        return (
+            SubmodelSet(
+                market=market,
+                stage1=stage1,
+                win=win_2s,
+                ev_corrector=ev_corrector,
+                place=place_2s,
+                wide=wide_2s,
+                confidence=conf,
+            ),
+            df,
         )
 
     def _build_race_level_features(self, feat_df: pd.DataFrame) -> pd.DataFrame:

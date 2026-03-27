@@ -48,6 +48,10 @@ class WinTwoStageModel:
 
     def _prepare_features(self, df: pd.DataFrame) -> pd.DataFrame:
         features = df[self.FEATURE_COLS].copy()
+        # Int64 (nullable int) → float64 (LightGBMが対応する型)
+        for col in features.columns:
+            if pd.api.types.is_integer_dtype(features[col]):
+                features[col] = features[col].astype(float)
         for col in ["surface", "distance_bin", "grade_code"]:
             if col in features.columns:
                 features[col] = features[col].astype("category")
@@ -130,6 +134,10 @@ class PlaceTwoStageModel:
 
     def _prepare_features(self, df: pd.DataFrame) -> pd.DataFrame:
         features = df[self.FEATURE_COLS].copy()
+        # Int64 (nullable int) → float64 (LightGBMが対応する型)
+        for col in features.columns:
+            if pd.api.types.is_integer_dtype(features[col]):
+                features[col] = features[col].astype(float)
         for col in ["surface", "distance_bin", "grade_code"]:
             if col in features.columns:
                 features[col] = features[col].astype("category")

@@ -26,6 +26,6 @@ def compute_intra_race_features(df: pd.DataFrame) -> pd.DataFrame:
     if "win_odds" in df.columns:
         df["odds_rank"] = df.groupby("race_id")["win_odds"].rank(
             method="min", ascending=True
-        ).astype(int)
+        ).astype("Int64")
 
     return df

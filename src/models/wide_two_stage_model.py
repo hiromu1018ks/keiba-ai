@@ -51,6 +51,9 @@ class WideTwoStageModel:
         cfg = cfg or TwoStageConfig(hit_leaves=15, hit_rounds=300)
 
         features = pair_df[self.SHARED_FEATURE_COLS].copy()
+        for col in features.columns:
+            if pd.api.types.is_integer_dtype(features[col]):
+                features[col] = features[col].astype(float)
         for col in ["surface", "distance_bin", "grade_code"]:
             if col in features.columns:
                 features[col] = features[col].astype("category")
@@ -89,6 +92,9 @@ class WideTwoStageModel:
             raise ValueError(f"的中ペアが不足: {len(hit_df)} < {cfg.min_hit_samples}")
 
         features = hit_df[self.SHARED_FEATURE_COLS].copy()
+        for col in features.columns:
+            if pd.api.types.is_integer_dtype(features[col]):
+                features[col] = features[col].astype(float)
         for col in ["surface", "distance_bin", "grade_code"]:
             if col in features.columns:
                 features[col] = features[col].astype("category")
@@ -115,6 +121,9 @@ class WideTwoStageModel:
         """
         pair_df = pair_df.copy()
         features = pair_df[self.SHARED_FEATURE_COLS].copy()
+        for col in features.columns:
+            if pd.api.types.is_integer_dtype(features[col]):
+                features[col] = features[col].astype(float)
         for col in ["surface", "distance_bin", "grade_code"]:
             if col in features.columns:
                 features[col] = features[col].astype("category")

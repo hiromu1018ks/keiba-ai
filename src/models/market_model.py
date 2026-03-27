@@ -40,6 +40,10 @@ class MarketModel:
         features = df[self.FEATURE_COLS].copy()
         target = df["p_market_win_adj"]
 
+        # Int64 (nullable int) → float64
+        for col in features.columns:
+            if pd.api.types.is_integer_dtype(features[col]):
+                features[col] = features[col].astype(float)
         # カテゴリカル特徴量の処理
         for col in ["surface", "distance_bin", "grade_code"]:
             if col in features.columns:
@@ -99,12 +103,12 @@ class MarketModel:
         # 生の差分も保持 (後方互換・分析用)
         df["market_pred_error_win"] = raw_error
 
-        # レース内相対ランク
+        # レース内相対ランク (NaN対応: nullable int)
         df["market_error_rank_in_race"] = (
             df["market_log_error_win"]
             .groupby(df["race_id"])
             .rank(method="first", ascending=True)
-            .astype(int)
+            .astype("Int64")
         )
 
         # p_market_pred は Stage2 に渡さない (Rule 11)

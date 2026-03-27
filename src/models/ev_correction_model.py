@@ -51,6 +51,9 @@ class EVCorrectionModel:
     def _prepare_features(self, df: pd.DataFrame) -> pd.DataFrame:
         """特徴量データフレームを準備する"""
         features = df[self.FEATURE_COLS].copy()
+        for col in features.columns:
+            if pd.api.types.is_integer_dtype(features[col]):
+                features[col] = features[col].astype(float)
         for col in ["surface", "distance_bin"]:
             if col in features.columns:
                 features[col] = features[col].astype("category")

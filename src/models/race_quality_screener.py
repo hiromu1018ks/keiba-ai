@@ -75,6 +75,9 @@ class RaceQualityScreener:
     def _prepare_features(self, df: pd.DataFrame) -> pd.DataFrame:
         """カテゴリ列を category 型に変換"""
         df = df.copy()
+        for col in df.columns:
+            if pd.api.types.is_integer_dtype(df[col]):
+                df[col] = df[col].astype(float)
         for col in self._CATEGORY_COLS:
             if col in df.columns:
                 df[col] = df[col].astype("category")
