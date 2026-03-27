@@ -43,14 +43,15 @@ class AbilityModel:
 
     def train(self, df: pd.DataFrame) -> None:
         """芝/ダート別に LightGBM Ranker を学習"""
-        for key in SubModelManager.VALID_KEYS:
+        # DataFrame内に実際に存在するsurfaceのみ処理
+        surfaces_in_data = set(df["surface"].unique()) & set(SubModelManager.VALID_KEYS)
+        for key in surfaces_in_data:
             key_df = df[df["surface"] == key].copy()
-            if len(key_df) == 0:
-                logger.warning(f"SubModel '{key}' に学習データなし")
-                continue
-
             key_df = key_df.sort_values("race_id")
             features = key_df[self.FEATURE_COLS].copy()
+            for col in features.columns:
+                if pd.api.types.is_integer_dtype(features[col]):
+                    features[col] = features[col].astype(float)
             for col in ["surface", "distance_bin", "grade_code"]:
                 if col in features.columns:
                     features[col] = features[col].astype("category")
