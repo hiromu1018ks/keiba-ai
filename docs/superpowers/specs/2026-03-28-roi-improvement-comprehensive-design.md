@@ -543,7 +543,8 @@ stats["longshot_roi_ema"] = ...
 **削除列と理由**:
 - `rolling_roi_200` → `favorite_roi_ema`, `mid_roi_ema`, `longshot_roi_ema` に分割（3列に置き換え）
 - `hit_rate_top3_mean` → `favorite_win_rate * 3.0` と等価（冗長）のため削除
-- `market_entropy_mean` は FEATURE_COLS から外すが、教師ラベル生成（`train()` 内）では引き続き使用。FEATURE_COLS に `overround_mean` があるため重複回避。
+
+**維持列**: `market_entropy_mean` は FEATURE_COLS に維持（`train()` 内の教師ラベル生成にも使用）。`overround_mean` とは異なる情報（エントロピーは分布の平坦さ、overround は控除率指標）。
 
 RegimeDetector.FEATURE_COLS 更新（10列 → 11列）:
 
