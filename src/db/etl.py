@@ -182,6 +182,7 @@ def etl_races(engine: Engine, start: str, end: str) -> int:
         FROM n_race
         WHERE (year || monthday)::int BETWEEN :start AND :end
           AND trackcd::int NOT BETWEEN 51 AND 59
+          AND jyocd BETWEEN '01' AND '10'
     """)
     df = pd.read_sql(sql, engine, params={"start": start, "end": end})
 

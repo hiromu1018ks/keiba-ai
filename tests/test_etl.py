@@ -405,7 +405,7 @@ class TestEtlOddsTimeseries:
         """複数年にまたがる場合、yearごとにクエリが発行される"""
         mock_engine = MagicMock()
         mock_read_sql.return_value = pd.DataFrame({
-            "happyo_time": ["03241505"],
+            "happyotime": ["03241505"],
             "umaban": ["1"],
             "tanodds": ["3.2"],
             "fukuoddslow": ["1.3"],
@@ -425,7 +425,7 @@ class TestEtlOddsTimeseries:
     def test_column_mapping(self, mock_read_sql, mock_insert):
         mock_engine = MagicMock()
         mock_read_sql.return_value = pd.DataFrame({
-            "happyo_time": ["03241505", "03241600"],
+            "happyotime": ["03241505", "03241600"],
             "umaban": ["1", "2"],
             "tanodds": ["3.2", "5.4"],
             "fukuoddslow": ["1.3", "2.1"],
