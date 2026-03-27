@@ -811,6 +811,24 @@ git commit -m "feat: FEATURE_COLS 16列化 + SubmodelSet に place_ability 追�
 **Files:**
 - Modify: `src/pipelines/training_pipeline.py`
 
+- [ ] **Step 0: run() 内で race_df, entry_df をインスタンス属性に保存**
+
+`_train_submodel()` は `df: pd.DataFrame`（surface フィルタ済み feat_df）のみを受け取る。`race_df` と `entry_df` は `run()` 内のローカル変数であり、`_train_submodel()` からはアクセスできない。
+
+`run()` メソッドのデータロード直後にインスタンス属性として保存:
+
+```python
+def run(self, train_start: str, train_end: str) -> TrainedModelsV5:
+    # ... existing data loading ...
+    race_df = self.db.load_races(start, end)         # line 66
+    entry_df = self.db.load_entries_with_results(start, end)  # line 67
+
+    # NEW: _train_submodel 内で HorseHistoryFeatures が使用するため保存
+    self._race_df = race_df
+    self._entry_df = entry_df
+    # ... rest of run() ...
+```
+
 - [ ] **Step 1: _train_submodel() に HorseHistoryFeatures + PlaceAbilityModel 統合**
 
 `_train_submodel()` の先頭に HorseHistoryFeatures 呼び出しを追加:
@@ -820,6 +838,7 @@ def _train_submodel(self, df: pd.DataFrame) -> tuple[SubmodelSet, pd.DataFrame]:
     # NEW: 馬過去成績特徴量
     from features.horse_history_features import HorseHistoryFeatures
     hist = HorseHistoryFeatures(engine=self.db.get_engine())
+    # self._race_df, self._entry_df は run() で保存済み
     hist_df = hist.compute(self._race_df, self._entry_df, df["race_id"].unique())
     df = df.merge(hist_df, on=["race_id", "umaban"], how="left")
     df = HorseHistoryFeatures.add_race_transforms(df)
@@ -877,6 +896,21 @@ git commit -m "feat: TrainingPipeline に HorseHistory + PlaceAbility 統合 (Ph
 
 推論ループ内でサブモデル選択後、HorseHistoryFeatures と PlaceAbilityModel の推論を追加:
 
+**前提: `run()` メソッド内のローカル変数 `race_df`, `entry_df` をインスタンス属性に保存する必要がある:**
+
+```python
+def run(self, test_start, test_end):
+    # ... existing data loading (line 88-92) ...
+    race_df = self.db.load_races(start, end)
+    entry_df = self.db.load_entries_with_results(start, end)
+    # NEW: HorseHistoryFeatures 用にインスタンス属性に保存
+    self._race_df = race_df
+    self._entry_df = entry_df
+    # ... rest of run() ...
+```
+
+**レースループ内の推論パス:**
+
 ```python
 # 3b. サブモデル選択 (既存)
 surface_key = race_df_single["surface_key"].iloc[0]
@@ -887,6 +921,7 @@ submodel = self.models.submodels[surface_key]
 # NEW: HorseHistoryFeatures 推論
 from features.horse_history_features import HorseHistoryFeatures
 hist = HorseHistoryFeatures(engine=self.db.get_engine())
+# self._race_df, self._entry_df は run() 先頭で保存済み
 hist_df = hist.compute(self._race_df, self._entry_df, [race_id])
 race_df_single = race_df_single.merge(hist_df, on=["race_id", "umaban"], how="left")
 race_df_single = HorseHistoryFeatures.add_race_transforms(race_df_single)
@@ -895,6 +930,8 @@ race_df_single = HorseHistoryFeatures.add_race_transforms(race_df_single)
 if hasattr(submodel, "place_ability") and submodel.place_ability is not None:
     race_df_single = submodel.place_ability.predict(race_df_single)
 ```
+
+**注意**: `db` パラメータが `None` の場合、`HorseHistoryFeatures` はDB接続に失敗する。`BacktestEngine(db=DatabaseConnection())` のように必ずDB接続を渡すこと。
 
 - [ ] **Step 2: テスト実行**
 
