@@ -45,6 +45,21 @@ def _to_float(val: str | None) -> Optional[float]:
         return None
 
 
+def _to_odds(val: str | None, divisor: int = 10) -> Optional[float]:
+    """EveryDB2 オッズ文字列 → float (÷ divisor)
+
+    EveryDB2はオッズをゼロ埋め整数で保存:
+    - tan/fuku: "0014" → 1.4 (÷10)
+    - wide:     "03783" → 37.83 (÷100)
+    """
+    if val is None or val == "":
+        return None
+    try:
+        return float(val) / divisor
+    except (ValueError, TypeError):
+        return None
+
+
 def _make_race_id(
     year: str, monthday: str, jyocd: str, kaiji: str, nichiji: str, racenum: str
 ) -> str:
@@ -286,7 +301,7 @@ def etl_entries(engine: Engine, start: str, end: str) -> int:
     df["ketto_num"] = df["kettonum"]
     df["finish_pos"] = df["kakuteijyuni"].apply(_to_int)
     df["finish_time"] = df["time"].apply(_to_float)
-    df["win_odds"] = df["odds"].apply(_to_float)
+    df["win_odds"] = df["odds"].apply(_to_odds)
     df["ninki"] = df["ninki"].apply(_to_int)
     df["ba_taijyu"] = df["bataijyu"].apply(_to_float)
     df["zogen_fugo"] = df["zogenfugo"]
@@ -423,8 +438,8 @@ def etl_odds_snapshots(engine: Engine, start: str, end: str) -> int:
 
     # 型変換・リネーム
     df["umaban"] = df["umaban"].apply(_to_int)
-    df["tan_odds"] = df["tanodds"].apply(_to_float)
-    df["fuku_odds"] = df["fukuoddslow"].apply(_to_float)
+    df["tan_odds"] = df["tanodds"].apply(_to_odds)
+    df["fuku_odds"] = df["fukuoddslow"].apply(_to_odds)
 
     out = df[["race_id", "umaban", "tan_odds", "fuku_odds"]]
 
@@ -466,8 +481,8 @@ def etl_wide_odds(engine: Engine, start: str, end: str) -> int:
         return 0
 
     # 型変換・リネーム
-    df["odds_low"] = df["oddslow"].apply(_to_float)
-    df["odds_high"] = df["oddshigh"].apply(_to_float)
+    df["odds_low"] = df["oddslow"].apply(lambda v: _to_odds(v, divisor=100))
+    df["odds_high"] = df["oddshigh"].apply(lambda v: _to_odds(v, divisor=100))
 
     out = df[["race_id", "kumi", "odds_low", "odds_high"]]
 
@@ -527,8 +542,8 @@ def etl_odds_timeseries(engine: Engine, start: str, end: str) -> int:
         # 型変換・リネーム
         df["happyo_time"] = df["happyotime"]
         df["umaban"] = df["umaban"].apply(_to_int)
-        df["tan_odds"] = df["tanodds"].apply(_to_float)
-        df["fuku_odds"] = df["fukuoddslow"].apply(_to_float)
+        df["tan_odds"] = df["tanodds"].apply(_to_odds)
+        df["fuku_odds"] = df["fukuoddslow"].apply(_to_odds)
         df["ninki"] = df["tanninki"].apply(_to_int)
 
         out = df[["race_id", "happyo_time", "umaban", "tan_odds", "fuku_odds", "ninki"]]

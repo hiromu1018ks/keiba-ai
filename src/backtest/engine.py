@@ -141,11 +141,18 @@ class BacktestEngine:
             race_df_single = submodel.ev_corrector.correct_ev(race_df_single)
             race_df_single = submodel.place.predict_ev(race_df_single)
 
+            # ev_place_corrected は複勝EV補正モデルがないため ev_place を代用
+            if "ev_place_corrected" not in race_df_single.columns:
+                race_df_single["ev_place_corrected"] = race_df_single.get("ev_place", 0.0)
+
             # 信頼区間
             win_df, place_df = submodel.confidence.predict_lower_bound(
                 race_df_single, race_df_single
             )
             race_df_single = win_df
+            # place 信頼区間下限をマージ
+            if "EV_lower_place" in place_df.columns:
+                race_df_single["EV_lower_place"] = place_df["EV_lower_place"].values
 
             # 3d. RaceQualityScreener
             race_features = self._build_race_features(race_df_single)
@@ -250,23 +257,29 @@ class BacktestEngine:
         """簡易ベット生成 (EV条件を満たす馬にベット)"""
         bets: list[Bet] = []
         ev_threshold = regime_params.get("ev_threshold", 1.20)
+        max_bets = regime_params.get("max_bets_per_race", 3)
 
         # 複勝ベット
         if "ev_place" in race_df.columns and "place_odds_actual" in race_df.columns:
-            for _, row in race_df.iterrows():
-                if row.get("ev_place", 0) >= ev_threshold:
-                    stake = 100.0  # 固定100円ベット (簡易版)
-                    if bankroll >= stake:
-                        bets.append(
-                            Bet(
-                                race_id=row["race_id"],
-                                umaban=int(row["umaban"]),
-                                bet_type=BetType.PLACE,
-                                odds=float(row["place_odds_actual"]),
-                                ev_lower_corrected=float(row.get("ev_place", 0)),
-                                stake=stake,
-                            )
+            candidates = race_df[
+                race_df["ev_place"].fillna(0) >= ev_threshold
+            ].copy()
+            # ev_place 降順でソートし、上位 max_bets 頭のみベット
+            candidates = candidates.nlargest(max_bets, "ev_place")
+
+            for _, row in candidates.iterrows():
+                stake = 100.0  # 固定100円ベット (簡易版)
+                if bankroll >= stake:
+                    bets.append(
+                        Bet(
+                            race_id=row["race_id"],
+                            umaban=int(row["umaban"]),
+                            bet_type=BetType.PLACE,
+                            odds=float(row["place_odds_actual"]),
+                            ev_lower_corrected=float(row.get("ev_place", 0)),
+                            stake=stake,
                         )
+                    )
 
         return bets
 

@@ -11,6 +11,7 @@ from db.etl import (
     _select_baba_cd,
     _to_float,
     _to_int,
+    _to_odds,
     etl_entries,
     etl_odds_snapshots,
     etl_odds_timeseries,
@@ -60,6 +61,43 @@ class TestToFloat:
 
     def test_zero(self):
         assert _to_float("0") == pytest.approx(0.0)
+
+
+class TestToOdds:
+    """EveryDB2 ゼロ埋め整数オッズ → float 変換のテスト"""
+
+    def test_favorite_odds(self):
+        """1番人気: "0014" → 1.4"""
+        assert _to_odds("0014") == pytest.approx(1.4)
+
+    def test_mid_odds(self):
+        """中間オッズ: "0325" → 32.5"""
+        assert _to_odds("0325") == pytest.approx(32.5)
+
+    def test_longshot_odds(self):
+        """大穴: "6510" → 651.0"""
+        assert _to_odds("6510") == pytest.approx(651.0)
+
+    def test_wide_odds_divisor_100(self):
+        """ワイドオッズ (÷100): "03783" → 37.83"""
+        assert _to_odds("03783", divisor=100) == pytest.approx(37.83)
+
+    def test_wide_odds_low_divisor_100(self):
+        """ワイドオッズ低額 (÷100): "00591" → 5.91"""
+        assert _to_odds("00591", divisor=100) == pytest.approx(5.91)
+
+    def test_empty_string_returns_none(self):
+        assert _to_odds("") is None
+
+    def test_none_returns_none(self):
+        assert _to_odds(None) is None
+
+    def test_non_numeric_returns_none(self):
+        assert _to_odds("****") is None
+
+    def test_default_divisor_is_10(self):
+        """デフォルトの divisor は 10"""
+        assert _to_odds("0050") == pytest.approx(5.0)
 
 
 class TestMakeRaceId:
@@ -255,7 +293,7 @@ class TestEtlEntries:
             "kettonum": ["0001234567"],
             "kakuteijyuni": ["3"],
             "time": ["95.3"],
-            "odds": ["5.4"],
+            "odds": ["0054"],
             "ninki": ["3"],
             "bataijyu": ["480"],
             "zogenfugo": ["2"],
@@ -279,6 +317,7 @@ class TestEtlEntries:
         assert "finish_pos" in inserted_df.columns
         assert "win_odds" in inserted_df.columns
         assert "race_id" in inserted_df.columns
+        assert inserted_df["win_odds"].iloc[0] == pytest.approx(5.4)
 
 
 class TestEtlPayouts:
@@ -343,8 +382,8 @@ class TestEtlOddsSnapshots:
         mock_engine = MagicMock()
         mock_read_sql.return_value = pd.DataFrame({
             "umaban": ["1", "2"],
-            "tanodds": ["3.2", "5.4"],
-            "fukuoddslow": ["1.3", "2.1"],
+            "tanodds": ["0032", "0054"],
+            "fukuoddslow": ["0013", "0021"],
             "race_id": ["2024032405030208", "2024032405030208"],
         })
 
@@ -354,6 +393,8 @@ class TestEtlOddsSnapshots:
         call_args = mock_insert.call_args
         inserted_df = call_args[0][1]
         assert list(inserted_df.columns) == ["race_id", "umaban", "tan_odds", "fuku_odds"]
+        assert inserted_df["tan_odds"].iloc[0] == pytest.approx(3.2)
+        assert inserted_df["fuku_odds"].iloc[0] == pytest.approx(1.3)
 
 
 class TestEtlWideOdds:
@@ -374,8 +415,8 @@ class TestEtlWideOdds:
         mock_engine = MagicMock()
         mock_read_sql.return_value = pd.DataFrame({
             "kumi": ["1-2", "1-3"],
-            "oddslow": ["3.2", "5.1"],
-            "oddshigh": ["4.5", "7.8"],
+            "oddslow": ["00320", "00510"],
+            "oddshigh": ["00450", "00780"],
             "race_id": ["2024032405030208", "2024032405030208"],
         })
 
@@ -385,6 +426,8 @@ class TestEtlWideOdds:
         call_args = mock_insert.call_args
         inserted_df = call_args[0][1]
         assert list(inserted_df.columns) == ["race_id", "kumi", "odds_low", "odds_high"]
+        assert inserted_df["odds_low"].iloc[0] == pytest.approx(3.20)
+        assert inserted_df["odds_high"].iloc[0] == pytest.approx(4.50)
 
 
 class TestEtlOddsTimeseries:
@@ -407,8 +450,8 @@ class TestEtlOddsTimeseries:
         mock_read_sql.return_value = pd.DataFrame({
             "happyotime": ["03241505"],
             "umaban": ["1"],
-            "tanodds": ["3.2"],
-            "fukuoddslow": ["1.3"],
+            "tanodds": ["0032"],
+            "fukuoddslow": ["0013"],
             "tanninki": ["1"],
             "race_id": ["2024032405030208"],
         })
@@ -427,8 +470,8 @@ class TestEtlOddsTimeseries:
         mock_read_sql.return_value = pd.DataFrame({
             "happyotime": ["03241505", "03241600"],
             "umaban": ["1", "2"],
-            "tanodds": ["3.2", "5.4"],
-            "fukuoddslow": ["1.3", "2.1"],
+            "tanodds": ["0032", "0054"],
+            "fukuoddslow": ["0013", "0021"],
             "tanninki": ["1", "2"],
             "race_id": ["2024032405030208", "2024032405030208"],
         })
