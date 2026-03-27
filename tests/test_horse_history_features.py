@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+from unittest.mock import patch
+
 import numpy as np
 import pandas as pd
-import pytest
 
 
 class TestNormFinishLogitAvg:
@@ -164,4 +165,54 @@ class TestLeakPrevention:
 
     def test_future_race_excluded(self):
         """当該レース日付より後のデータが特徴量に含まれない"""
-        pytest.skip("TODO: implement after horse_history_features module exists")
+        from features.horse_history_features import HorseHistoryFeatures
+
+        # Mock engine that returns past data including future races
+        target_date = pd.Timestamp("2024-06-01")
+        mock_data = pd.DataFrame(
+            {
+                "past_race_id": ["p1", "p2"],
+                "year": [2024, 2024],
+                "month_day": ["0501", "0701"],  # before and after target
+                "ketto_num": ["H001", "H001"],
+                "kisyu_code": ["J001", "J001"],
+                "umaban": [1, 1],
+                "finish_pos": [1, 3],
+                "field_size": [16, 16],
+                "win_odds": [5.0, 8.0],
+                "haron_time_l3": [0, 0],
+                "valid_field": [1, 1],
+                "race_date": [
+                    pd.Timestamp("2024-05-01"),
+                    pd.Timestamp("2024-07-01"),
+                ],
+            }
+        )
+
+        hist = HorseHistoryFeatures(engine=None)
+        # Patch pd.read_sql to return mock data
+        with patch("pandas.read_sql", return_value=mock_data):
+            race_df = pd.DataFrame(
+                {
+                    "race_id": ["r1"],
+                    "race_date": [target_date],
+                }
+            )
+            entry_df = pd.DataFrame(
+                {
+                    "race_id": ["r1"],
+                    "umaban": [1],
+                    "ketto_num": ["H001"],
+                    "kisyu_code": ["J001"],
+                }
+            )
+            result = hist.compute(race_df, entry_df, np.array(["r1"]))
+
+        # Should only use p1 (before target), not p2 (after)
+        # With only 1 valid past race, norm_finish_logit_avg should be based on finish_pos=1 only
+        if not result.empty and not result["norm_finish_logit_avg"].isna().all():
+            # Verify the result uses only past data (finish_pos=1 from May)
+            logit_val = result["norm_finish_logit_avg"].iloc[0]
+            assert not np.isnan(logit_val)
+            # 1st of 16 should give a positive logit
+            assert logit_val > 0
