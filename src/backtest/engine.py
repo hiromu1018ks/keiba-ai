@@ -86,9 +86,11 @@ class BacktestEngine:
             BacktestResult
         """
         # 1. データロード
-        race_df = self.db.load_races(test_start, test_end)
-        entry_df = self.db.load_entries_with_results(test_start, test_end)
-        odds_df = self.db.load_odds_snapshots(test_start, test_end)
+        start = test_start.replace("-", "")
+        end = test_end.replace("-", "")
+        race_df = self.db.load_races(start, end)
+        entry_df = self.db.load_entries_with_results(start, end)
+        odds_df = self.db.load_odds_snapshots(start, end)
 
         if race_df.empty:
             logger.warning(f"No races found in {test_start} ~ {test_end}")
@@ -100,7 +102,8 @@ class BacktestEngine:
 
         feat_engine = FeatureEngine()
         submodel_mgr = SubModelManager()
-        feat_df = feat_engine.build_all(race_df, entry_df, odds_df)
+        odds_ts_df = self.db.load_odds_time_series_range(start, end)
+        feat_df = feat_engine.build_all(race_df, entry_df, odds_df, odds_ts_df=odds_ts_df)
         feat_df = submodel_mgr.add_distance_band_features(feat_df)
 
         # 3. レースごとにシミュレーション
