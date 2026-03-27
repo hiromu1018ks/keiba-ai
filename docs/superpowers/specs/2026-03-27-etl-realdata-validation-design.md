@@ -126,7 +126,7 @@ FK: `n_harai` の複合キー `(year, monthday, jyocd, kaiji, nichiji, racenum)`
 | `happyotime` | `happyo_time` | そのまま（MMDDHHmm形式） |
 | `umaban` | `umaban` | VARCHAR→INT |
 | `tanodds` | `tan_odds` | VARCHAR→FLOAT |
-| `tanninki` | — | 特徴量エンジン用に保持（odds_dynamics_featuresのpopularity_change_30_10で使用） |
+| `tanninki` | — | DBには保存せず、ETL関数の出力DataFrameに一時カラム `ninki` として追加。特徴量エンジン(`odds_dynamics_features.py`)が `if "ninki" in ts.columns` で参照する |
 | `fukuoddslow` | `fuku_odds` | VARCHAR→FLOAT |
 
 注意: `n_jodds_tanpuku` は8,300万行と非常に大きい。パフォーマンス対策は下記「大規模テーブルのETL戦略」を参照。
