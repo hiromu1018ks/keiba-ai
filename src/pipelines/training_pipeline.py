@@ -66,6 +66,10 @@ class TrainingPipelineV5:
         race_df = self.db.load_races(start, end)
         entry_df = self.db.load_entries_with_results(start, end)
         odds_df = self.db.load_odds_snapshots(start, end)
+
+        # NEW: _train_submodel 内で HorseHistoryFeatures が使用するため保存
+        self._race_df = race_df
+        self._entry_df = entry_df
         odds_ts_df = self.db.load_odds_time_series_range(start, end)
 
         # 2. 特徴量生成
@@ -124,6 +128,14 @@ class TrainingPipelineV5:
 
     def _train_submodel(self, df: pd.DataFrame) -> SubmodelSet:
         """単一 surface のサブモデル群を学習"""
+        # NEW: 馬過去成績特徴量
+        from features.horse_history_features import HorseHistoryFeatures
+
+        hist = HorseHistoryFeatures(engine=self.db.get_engine())
+        hist_df = hist.compute(self._race_df, self._entry_df, df["race_id"].unique())
+        df = df.merge(hist_df, on=["race_id", "umaban"], how="left")
+        df = HorseHistoryFeatures.add_race_transforms(df)
+
         # 1. Market Model (正規化差分 log_error のみ出力)
         market = MarketModel()
         market.train(df)
@@ -133,6 +145,13 @@ class TrainingPipelineV5:
         stage1 = AbilityModel()
         stage1.train(df)
         df = stage1.add_ability_probs(df)
+
+        # NEW: PlaceAbilityModel
+        from models.place_ability_model import PlaceAbilityModel
+
+        place_ability = PlaceAbilityModel()
+        place_ability.train(df)
+        df = place_ability.predict(df)
 
         # 3. 単勝 2段階モデル
         win_2s = WinTwoStageModel()
@@ -173,7 +192,7 @@ class TrainingPipelineV5:
         return SubmodelSet(
             market=market,
             stage1=stage1,
-            place_ability=None,
+            place_ability=place_ability,
             win=win_2s,
             ev_corrector=ev_corrector,
             place=place_2s,

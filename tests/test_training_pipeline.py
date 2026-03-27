@@ -13,6 +13,33 @@ from models.submodel_manager import SubModelManager
 from pipelines.training_pipeline import TrainingPipelineV5
 
 
+class _FakeHistFeatures:
+    """HorseHistoryFeatures のスタブ (DB不要)"""
+
+    def __init__(self, *args, **kwargs):  # noqa: ARG002
+        pass
+
+    def compute(self, race_df, entry_df, target_race_ids=None):  # noqa: ARG002
+        return pd.DataFrame(columns=["race_id", "umaban"])
+
+    @staticmethod
+    def add_race_transforms(df):
+        return df
+
+
+class _FakePlaceAbilityModel:
+    """PlaceAbilityModel のスタブ (学習不要)"""
+
+    def train(self, df):  # noqa: ARG002
+        pass
+
+    def predict(self, df):
+        df = df.copy()
+        df["p_ability_place"] = 0.3
+        df["p_ability_place_raw"] = 0.3
+        return df
+
+
 class TestTrainedModelsV5:
     """TrainedModelsV5 コンテナのテスト"""
 
@@ -169,12 +196,20 @@ class TestTrainingPipelineV5:
                 "add_distance_band_features",
                 side_effect=lambda df: df.copy(),
             ):
-                pipeline = TrainingPipelineV5.__new__(TrainingPipelineV5)
-                pipeline.db = mock_db
-                pipeline.feature_engine = FeatureEngine()
-                pipeline.submodel_mgr = SubModelManager()
+                with patch(
+                    "features.horse_history_features.HorseHistoryFeatures",
+                    _FakeHistFeatures,
+                ):
+                    with patch(
+                        "models.place_ability_model.PlaceAbilityModel",
+                        _FakePlaceAbilityModel,
+                    ):
+                        pipeline = TrainingPipelineV5.__new__(TrainingPipelineV5)
+                        pipeline.db = mock_db
+                        pipeline.feature_engine = FeatureEngine()
+                        pipeline.submodel_mgr = SubModelManager()
 
-                result = pipeline.run("2020-01-01", "2023-12-31")
+                        result = pipeline.run("2020-01-01", "2023-12-31")
 
         assert isinstance(result, TrainedModelsV5)
         assert "turf" in result.submodels or "dirt" in result.submodels
@@ -207,12 +242,20 @@ class TestTrainingPipelineV5:
                 "add_distance_band_features",
                 side_effect=lambda df: df.copy(),
             ):
-                pipeline = TrainingPipelineV5.__new__(TrainingPipelineV5)
-                pipeline.db = mock_db
-                pipeline.feature_engine = FeatureEngine()
-                pipeline.submodel_mgr = SubModelManager()
+                with patch(
+                    "features.horse_history_features.HorseHistoryFeatures",
+                    _FakeHistFeatures,
+                ):
+                    with patch(
+                        "models.place_ability_model.PlaceAbilityModel",
+                        _FakePlaceAbilityModel,
+                    ):
+                        pipeline = TrainingPipelineV5.__new__(TrainingPipelineV5)
+                        pipeline.db = mock_db
+                        pipeline.feature_engine = FeatureEngine()
+                        pipeline.submodel_mgr = SubModelManager()
 
-                result = pipeline.run("2020-01-01", "2023-12-31")
+                        result = pipeline.run("2020-01-01", "2023-12-31")
 
         assert len(result.submodels) >= 1
 
@@ -237,11 +280,19 @@ class TestTrainingPipelineV5:
                 "add_distance_band_features",
                 side_effect=lambda df: df.copy(),
             ):
-                pipeline = TrainingPipelineV5.__new__(TrainingPipelineV5)
-                pipeline.db = mock_db
-                pipeline.feature_engine = FeatureEngine()
-                pipeline.submodel_mgr = SubModelManager()
+                with patch(
+                    "features.horse_history_features.HorseHistoryFeatures",
+                    _FakeHistFeatures,
+                ):
+                    with patch(
+                        "models.place_ability_model.PlaceAbilityModel",
+                        _FakePlaceAbilityModel,
+                    ):
+                        pipeline = TrainingPipelineV5.__new__(TrainingPipelineV5)
+                        pipeline.db = mock_db
+                        pipeline.feature_engine = FeatureEngine()
+                        pipeline.submodel_mgr = SubModelManager()
 
-                pipeline.run("2020-01-01", "2023-12-31")
+                        pipeline.run("2020-01-01", "2023-12-31")
 
         mock_mlflow.start_run.assert_called_once()
