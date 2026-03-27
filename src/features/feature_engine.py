@@ -174,4 +174,14 @@ class FeatureEngine:
         if "surface" in df.columns:
             df["surface_key"] = df["surface"]
 
+        # running_style (kyakusitu = 脚質: 1=逃げ, 2=先行, 3=差し, 4=追込, 0=不明)
+        if "kyakusitu" in df.columns:
+            df["running_style"] = df["kyakusitu"].fillna(0).astype(int)
+
+        # actual odds (DB値と予測値を区別するため別名で保持)
+        if "win_odds" in df.columns:
+            df["win_odds_actual"] = df["win_odds"]
+        if "fuku_odds" in df.columns:
+            df["place_odds_actual"] = df["fuku_odds"]
+
         return df
