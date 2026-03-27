@@ -43,6 +43,11 @@ class TrainingPipelineV5:
         self.feature_engine = FeatureEngine()
         self.submodel_mgr = SubModelManager()
 
+    @staticmethod
+    def _to_yyyymmdd(date_str: str) -> str:
+        """YYYY-MM-DD → YYYYMMDD"""
+        return date_str.replace("-", "")
+
     def run(self, train_start: str, train_end: str) -> TrainedModelsV5:
         """全モデルを学習し TrainedModelsV5 を返す
 
@@ -53,16 +58,32 @@ class TrainingPipelineV5:
         Returns:
             学習済みモデルのコンテナ
         """
+        start = self._to_yyyymmdd(train_start)
+        end = self._to_yyyymmdd(train_end)
+
         # 1. データロード
         logger.info(f"Loading data: {train_start} ~ {train_end}")
-        race_df = self.db.load_races(train_start, train_end)
-        entry_df = self.db.load_entries_with_results(train_start, train_end)
-        odds_df = self.db.load_odds_snapshots(train_start, train_end)
+        race_df = self.db.load_races(start, end)
+        entry_df = self.db.load_entries_with_results(start, end)
+        odds_df = self.db.load_odds_snapshots(start, end)
+        odds_ts_df = self.db.load_odds_time_series_range(start, end)
 
         # 2. 特徴量生成
         logger.info("Building features")
-        feat_df = self.feature_engine.build_all(race_df, entry_df, odds_df)
+        feat_df = self.feature_engine.build_all(race_df, entry_df, odds_df, odds_ts_df=odds_ts_df)
         feat_df = self.submodel_mgr.add_distance_band_features(feat_df)
+
+        # 2b. ワイドオッズを pivot して特徴量に merge
+        wide_odds_df = self.db.load_wide_odds(start, end)
+        if wide_odds_df is not None and not wide_odds_df.empty:
+            wide_pivot = wide_odds_df.pivot_table(
+                index="race_id", columns="kumi", values="odds_low"
+            )
+            wide_pivot.columns = [
+                f"wide_odds_{kumi.replace('-', '_')}" for kumi in wide_pivot.columns
+            ]
+            wide_pivot = wide_pivot.reset_index()
+            feat_df = feat_df.merge(wide_pivot, on="race_id", how="left")
 
         # 3. 各 surface ごとに学習
         models: dict[str, SubmodelSet] = {}
