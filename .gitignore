@@ -39,6 +39,14 @@ data/
 
 # MLflow
 mlruns/
+mlflow.db
+notebooks/mlflow.db
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Generated images
+*.png
 
 # Playwright
 .playwright-mcp/
