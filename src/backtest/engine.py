@@ -11,7 +11,8 @@ from typing import TYPE_CHECKING, Any
 
 import pandas as pd
 
-from db.connection import DatabaseConnection
+from db.parquet_store import ParquetStore
+from db.repository import DataRepository
 from domain.models import Bet, BetType
 
 if TYPE_CHECKING:
@@ -58,18 +59,18 @@ class BacktestEngine:
     Args:
         models: 学習済みモデル
         initial_bankroll: 初期資金 (デフォルト 100,000円)
-        db: データベース接続 (省略時は新規接続)
+        repo: データリポジトリ (省略時は新規 ParquetStore)
     """
 
     def __init__(
         self,
         models: TrainedModelsV5,
         initial_bankroll: float = 100_000,
-        db: DatabaseConnection | None = None,
+        repo: DataRepository | None = None,
     ) -> None:
         self.models = models
         self.initial_bankroll = initial_bankroll
-        self.db = db or DatabaseConnection()
+        self.repo = repo or DataRepository(ParquetStore())
 
     def run(
         self,
@@ -88,9 +89,9 @@ class BacktestEngine:
         # 1. データロード
         start = test_start.replace("-", "")
         end = test_end.replace("-", "")
-        race_df = self.db.load_races(start, end)
-        entry_df = self.db.load_entries_with_results(start, end)
-        odds_df = self.db.load_odds_snapshots(start, end)
+        race_df = self.repo.load_races(start, end)
+        entry_df = self.repo.load_entries(start, end)
+        odds_df = self.repo.load_odds_snapshots(start, end)
 
         # HorseHistoryFeatures 用にインスタンス属性に保存
         self._race_df = race_df
@@ -106,7 +107,7 @@ class BacktestEngine:
 
         feat_engine = FeatureEngine()
         submodel_mgr = SubModelManager()
-        odds_ts_df = self.db.load_odds_time_series_range(start, end)
+        odds_ts_df = self.repo.load_odds_time_series_range(start, end)
         feat_df = feat_engine.build_all(race_df, entry_df, odds_df, odds_ts_df=odds_ts_df)
         feat_df = submodel_mgr.add_distance_band_features(feat_df)
 
@@ -145,11 +146,9 @@ class BacktestEngine:
             # HorseHistoryFeatures 推論
             from features.horse_history_features import HorseHistoryFeatures
 
-            hist = HorseHistoryFeatures(engine=self.db.get_engine())
+            hist = HorseHistoryFeatures(repo=self.repo)
             hist_df = hist.compute(self._race_df, self._entry_df, [race_id])
-            race_df_single = race_df_single.merge(
-                hist_df, on=["race_id", "umaban"], how="left"
-            )
+            race_df_single = race_df_single.merge(hist_df, on=["race_id", "umaban"], how="left")
             race_df_single = HorseHistoryFeatures.add_race_transforms(race_df_single)
 
             # PlaceAbilityModel 推論
@@ -279,9 +278,7 @@ class BacktestEngine:
 
         # 複勝ベット
         if "ev_place" in race_df.columns and "place_odds_actual" in race_df.columns:
-            candidates = race_df[
-                race_df["ev_place"].fillna(0) >= ev_threshold
-            ].copy()
+            candidates = race_df[race_df["ev_place"].fillna(0) >= ev_threshold].copy()
             # ev_place 降順でソートし、上位 max_bets 頭のみベット
             candidates = candidates.nlargest(max_bets, "ev_place")
 

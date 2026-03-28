@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 import pandas as pd
 import pytest
 
+from db.repository import DataRepository
 from domain.models import SubmodelSet, TrainedModelsV5
 from domain.types import RegimeState
 
@@ -89,85 +90,85 @@ class TestBacktestEngine:
         engine = BacktestEngine(models=mock_models, initial_bankroll=200000)
         assert engine.initial_bankroll == 200000
 
-    @patch("backtest.engine.DatabaseConnection")
+    @patch("backtest.engine.DataRepository")
     def test_run_returns_backtest_result(
         self,
-        mock_db_cls: MagicMock,
+        mock_repo_cls: MagicMock,
         mock_models: MagicMock,
     ) -> None:
         """run() が BacktestResult を返す"""
-        mock_db = MagicMock()
-        mock_db_cls.return_value = mock_db
-        mock_db.load_races.return_value = pd.DataFrame()
-        mock_db.load_entries_with_results.return_value = pd.DataFrame()
-        mock_db.load_odds_snapshots.return_value = pd.DataFrame()
+        mock_repo = MagicMock(spec=DataRepository)
+        mock_repo_cls.return_value = mock_repo
+        mock_repo.load_races.return_value = pd.DataFrame()
+        mock_repo.load_entries.return_value = pd.DataFrame()
+        mock_repo.load_odds_snapshots.return_value = pd.DataFrame()
 
         from backtest.engine import BacktestEngine
 
-        engine = BacktestEngine(models=mock_models)
+        engine = BacktestEngine(models=mock_models, repo=mock_repo)
         result = engine.run("2024-01-01", "2024-12-31")
 
         assert hasattr(result, "total_roi")
         assert hasattr(result, "max_drawdown")
         assert hasattr(result, "total_bets")
 
-    @patch("backtest.engine.DatabaseConnection")
+    @patch("backtest.engine.DataRepository")
     def test_empty_period_returns_zero_bets(
         self,
-        mock_db_cls: MagicMock,
+        mock_repo_cls: MagicMock,
         mock_models: MagicMock,
     ) -> None:
         """レースがない期間は0ベット"""
-        mock_db = MagicMock()
-        mock_db_cls.return_value = mock_db
-        mock_db.load_races.return_value = pd.DataFrame()
-        mock_db.load_entries_with_results.return_value = pd.DataFrame()
-        mock_db.load_odds_snapshots.return_value = pd.DataFrame()
+        mock_repo = MagicMock(spec=DataRepository)
+        mock_repo_cls.return_value = mock_repo
+        mock_repo.load_races.return_value = pd.DataFrame()
+        mock_repo.load_entries.return_value = pd.DataFrame()
+        mock_repo.load_odds_snapshots.return_value = pd.DataFrame()
 
         from backtest.engine import BacktestEngine
 
-        engine = BacktestEngine(models=mock_models)
+        engine = BacktestEngine(models=mock_models, repo=mock_repo)
         result = engine.run("2024-01-01", "2024-12-31")
 
         assert result.total_bets == 0
 
-    @patch("backtest.engine.DatabaseConnection")
+    @patch("backtest.engine.DataRepository")
     def test_bankroll_tracking(
         self,
-        mock_db_cls: MagicMock,
+        mock_repo_cls: MagicMock,
         mock_models: MagicMock,
     ) -> None:
         """資金の推移が追跡される"""
-        mock_db = MagicMock()
-        mock_db_cls.return_value = mock_db
-        mock_db.load_races.return_value = pd.DataFrame()
-        mock_db.load_entries_with_results.return_value = pd.DataFrame()
-        mock_db.load_odds_snapshots.return_value = pd.DataFrame()
+        mock_repo = MagicMock(spec=DataRepository)
+        mock_repo_cls.return_value = mock_repo
+        mock_repo.load_races.return_value = pd.DataFrame()
+        mock_repo.load_entries.return_value = pd.DataFrame()
+        mock_repo.load_odds_snapshots.return_value = pd.DataFrame()
 
         from backtest.engine import BacktestEngine
 
-        engine = BacktestEngine(models=mock_models, initial_bankroll=100000)
+        engine = BacktestEngine(models=mock_models, initial_bankroll=100000, repo=mock_repo)
         result = engine.run("2024-01-01", "2024-12-31")
 
         # 空期間なので資金は変化しない
         assert result.final_bankroll == 100000
 
-    @patch("backtest.engine.DatabaseConnection")
+    @patch("backtest.engine.DataRepository")
     def test_default_result_values(
         self,
-        mock_db_cls: MagicMock,
+        mock_repo_cls: MagicMock,
         mock_models: MagicMock,
     ) -> None:
         """空データのデフォルト値が正しい"""
-        mock_db = MagicMock()
-        mock_db_cls.return_value = mock_db
-        mock_db.load_races.return_value = pd.DataFrame()
-        mock_db.load_entries_with_results.return_value = pd.DataFrame()
-        mock_db.load_odds_snapshots.return_value = pd.DataFrame()
+        mock_repo = MagicMock(spec=DataRepository)
+        mock_repo_cls.return_value = mock_repo
+        mock_repo.load_races.return_value = pd.DataFrame()
+        mock_repo.load_entries.return_value = pd.DataFrame()
+        mock_repo.load_odds_snapshots.return_value = pd.DataFrame()
 
         from backtest.engine import BacktestEngine
 
-        engine = BacktestEngine(models=mock_models)
+        engine = BacktestEngine(models=mock_models, repo=mock_repo)
         result = engine.run("2024-01-01", "2024-12-31")
 
         assert result.total_stake == 0.0
