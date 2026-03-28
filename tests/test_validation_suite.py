@@ -226,12 +226,14 @@ class TestBacktestValidationSuite:
         from backtest.validation_suite import BacktestValidationSuite
 
         suite = BacktestValidationSuite()
-        df = pd.DataFrame({
-            "ev_win": [0.50, 0.80, 1.20],
-            "ev_win_corrected": [0.55, 0.75, 1.15],
-            "win_odds_actual": [4.0, 6.0, 10.0],
-            "finish_pos": [1, 2, 1],
-        })
+        df = pd.DataFrame(
+            {
+                "ev_win": [0.50, 0.80, 1.20],
+                "ev_win_corrected": [0.55, 0.75, 1.15],
+                "win_odds_actual": [4.0, 6.0, 10.0],
+                "finish_pos": [1, 2, 1],
+            }
+        )
         result = suite.test_ev_correction_reduces_error(df)
         assert result["passed"] is True
         assert result["name"] == "ev_correction_reduces_error"
@@ -243,12 +245,14 @@ class TestBacktestValidationSuite:
         suite = BacktestValidationSuite()
         # All non-winners: actual_ev = 0 for all rows
         # ev_win is close to 0 (good), ev_win_corrected is far from 0 (bad)
-        df = pd.DataFrame({
-            "ev_win": [0.10, 0.20, 0.05, 0.15],
-            "ev_win_corrected": [5.00, 6.00, 4.00, 7.00],
-            "win_odds_actual": [10.0, 8.0, 20.0, 15.0],
-            "finish_pos": [2, 3, 4, 5],
-        })
+        df = pd.DataFrame(
+            {
+                "ev_win": [0.10, 0.20, 0.05, 0.15],
+                "ev_win_corrected": [5.00, 6.00, 4.00, 7.00],
+                "win_odds_actual": [10.0, 8.0, 20.0, 15.0],
+                "finish_pos": [2, 3, 4, 5],
+            }
+        )
         result = suite.test_ev_correction_reduces_error(df)
         assert result["passed"] is False
 
@@ -259,8 +263,15 @@ class TestBacktestValidationSuite:
         suite = BacktestValidationSuite()
         rows = []
         for _ in range(150):
-            rows.append({"p_win_pred": 0.10, "ev_win": 1.0, "ev_win_corrected": 0.70,
-                          "win_odds_actual": 5.0, "finish_pos": 2})
+            rows.append(
+                {
+                    "p_win_pred": 0.10,
+                    "ev_win": 1.0,
+                    "ev_win_corrected": 0.70,
+                    "win_odds_actual": 5.0,
+                    "finish_pos": 2,
+                }
+            )
         df = pd.DataFrame(rows)
         result = suite.test_ev_correction_mid_range_improvement(df)
         assert result["passed"] is True
@@ -285,10 +296,12 @@ class TestBacktestValidationSuite:
 
         suite = BacktestValidationSuite()
         np.random.seed(42)
-        df = pd.DataFrame({
-            "quality_score": np.random.normal(0.5, 0.15, 200),
-            "edge_max_per_race": np.random.normal(1.1, 0.2, 200),
-        })
+        df = pd.DataFrame(
+            {
+                "quality_score": np.random.normal(0.5, 0.15, 200),
+                "edge_max_per_race": np.random.normal(1.1, 0.2, 200),
+            }
+        )
         result = suite.test_race_quality_screener_independence(df)
         assert result["passed"] is True
 
@@ -338,7 +351,7 @@ class TestWalkForwardCV:
         from backtest.validation_suite import BacktestValidationSuite
 
         # --- arrange ---
-        suite = BacktestValidationSuite(db=None)
+        suite = BacktestValidationSuite(repo=None)
 
         # TrainingPipelineV5().run() → TrainedModelsV5 mock
         mock_models = MagicMock(name="TrainedModelsV5")
@@ -410,7 +423,7 @@ class TestWalkForwardCV:
         """各ウィンドウで異なる ROI を返す場合、_overall の集計が正しい"""
         from backtest.validation_suite import BacktestValidationSuite
 
-        suite = BacktestValidationSuite(db=None)
+        suite = BacktestValidationSuite(repo=None)
 
         mock_pipeline = MagicMock()
         mock_pipeline.run.return_value = MagicMock(name="TrainedModelsV5")
@@ -457,7 +470,7 @@ class TestWalkForwardCV:
         """Rule 7 違反があった場合、rule7_passed が False になる"""
         from backtest.validation_suite import BacktestValidationSuite
 
-        suite = BacktestValidationSuite(db=None)
+        suite = BacktestValidationSuite(repo=None)
 
         mock_pipeline = MagicMock()
         mock_pipeline.run.return_value = MagicMock(name="TrainedModelsV5")

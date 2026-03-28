@@ -14,7 +14,7 @@ import numpy as np
 import pandas as pd
 
 if TYPE_CHECKING:
-    from db.connection import DatabaseConnection
+    from db.repository import DataRepository
 
 logger = logging.getLogger(__name__)
 
@@ -27,8 +27,8 @@ class BacktestValidationSuite:
     run_walk_forward_cv() で3-window walk-forward CV を実行。
     """
 
-    def __init__(self, db: DatabaseConnection | None = None) -> None:
-        self.db = db
+    def __init__(self, repo: DataRepository | None = None) -> None:
+        self.repo = repo
 
     def run_all(
         self,
@@ -567,9 +567,7 @@ class BacktestValidationSuite:
 
         # git hash for reproducibility tracking
         try:
-            git_hash = subprocess.check_output(
-                ["git", "rev-parse", "HEAD"], text=True
-            ).strip()[:7]
+            git_hash = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()[:7]
         except (subprocess.CalledProcessError, FileNotFoundError):
             git_hash = "unknown"
 
@@ -586,7 +584,7 @@ class BacktestValidationSuite:
             )
 
             # 1. Train
-            pipeline = TrainingPipelineV5(db=self.db)
+            pipeline = TrainingPipelineV5(repo=self.repo)
             trained = pipeline.run(w["train"][0], w["train"][1])
 
             # 2. Freeze parameters (Rule 7)
@@ -594,7 +592,7 @@ class BacktestValidationSuite:
             protocol.freeze()
 
             # 3. Backtest on test period (OOS)
-            engine = BacktestEngine(models=trained, db=self.db)
+            engine = BacktestEngine(models=trained, repo=self.repo)
             bt_result = engine.run(w["test"][0], w["test"][1])
 
             # 4. Verify parameters unchanged
