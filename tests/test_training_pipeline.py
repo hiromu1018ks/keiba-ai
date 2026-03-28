@@ -13,6 +13,15 @@ from models.submodel_manager import SubModelManager
 from pipelines.training_pipeline import TrainingPipelineV5
 
 
+def _make_mock_repo() -> MagicMock:
+    """DataRepository のモックを作成"""
+    mock_repo = MagicMock()
+    mock_repo.load_races.return_value = pd.DataFrame()
+    mock_repo.load_entries.return_value = pd.DataFrame()
+    mock_repo.load_odds_snapshots.return_value = pd.DataFrame()
+    return mock_repo
+
+
 class _FakeHistFeatures:
     """HorseHistoryFeatures のスタブ (DB不要)"""
 
@@ -182,18 +191,12 @@ class TestTrainingPipelineV5:
     """TrainingPipelineV5 のテスト"""
 
     @patch("pipelines.training_pipeline.mlflow")
-    @patch("pipelines.training_pipeline.DatabaseConnection")
     def test_run_returns_trained_models_v5(
         self,
-        mock_db_cls: MagicMock,
         mock_mlflow: MagicMock,
     ) -> None:
         """run() が TrainedModelsV5 を返す"""
-        mock_db = MagicMock()
-        mock_db_cls.return_value = mock_db
-        mock_db.load_races.return_value = pd.DataFrame()
-        mock_db.load_entries_with_results.return_value = pd.DataFrame()
-        mock_db.load_odds_snapshots.return_value = pd.DataFrame()
+        mock_repo = _make_mock_repo()
 
         feat_df = _make_feature_df(5000, 500)
         with patch.object(FeatureEngine, "build_all", return_value=feat_df):
@@ -211,7 +214,8 @@ class TestTrainingPipelineV5:
                         _FakePlaceAbilityModel,
                     ):
                         pipeline = TrainingPipelineV5.__new__(TrainingPipelineV5)
-                        pipeline.db = mock_db
+                        pipeline.repo = mock_repo
+                        pipeline.db = None
                         pipeline.feature_engine = FeatureEngine()
                         pipeline.submodel_mgr = SubModelManager()
 
@@ -223,10 +227,8 @@ class TestTrainingPipelineV5:
         assert result.regime_detector is not None
 
     @patch("pipelines.training_pipeline.mlflow")
-    @patch("pipelines.training_pipeline.DatabaseConnection")
     def test_pipeline_trains_per_surface(
         self,
-        mock_db_cls: MagicMock,
         mock_mlflow: MagicMock,
     ) -> None:
         """芝・ダートそれぞれでサブモデルが学習される"""
@@ -236,11 +238,7 @@ class TestTrainingPipelineV5:
         feat_df.loc[:2500, "surface"] = "turf"
         feat_df.loc[2500:, "surface"] = "dirt"
 
-        mock_db = MagicMock()
-        mock_db_cls.return_value = mock_db
-        mock_db.load_races.return_value = pd.DataFrame()
-        mock_db.load_entries_with_results.return_value = pd.DataFrame()
-        mock_db.load_odds_snapshots.return_value = pd.DataFrame()
+        mock_repo = _make_mock_repo()
 
         with patch.object(FeatureEngine, "build_all", return_value=feat_df):
             with patch.object(
@@ -257,7 +255,8 @@ class TestTrainingPipelineV5:
                         _FakePlaceAbilityModel,
                     ):
                         pipeline = TrainingPipelineV5.__new__(TrainingPipelineV5)
-                        pipeline.db = mock_db
+                        pipeline.repo = mock_repo
+                        pipeline.db = None
                         pipeline.feature_engine = FeatureEngine()
                         pipeline.submodel_mgr = SubModelManager()
 
@@ -266,18 +265,12 @@ class TestTrainingPipelineV5:
         assert len(result.submodels) >= 1
 
     @patch("pipelines.training_pipeline.mlflow")
-    @patch("pipelines.training_pipeline.DatabaseConnection")
     def test_pipeline_logs_to_mlflow(
         self,
-        mock_db_cls: MagicMock,
         mock_mlflow: MagicMock,
     ) -> None:
         """MLflow にモデルが記録される"""
-        mock_db = MagicMock()
-        mock_db_cls.return_value = mock_db
-        mock_db.load_races.return_value = pd.DataFrame()
-        mock_db.load_entries_with_results.return_value = pd.DataFrame()
-        mock_db.load_odds_snapshots.return_value = pd.DataFrame()
+        mock_repo = _make_mock_repo()
 
         feat_df = _make_feature_df(5000, 500)
         with patch.object(FeatureEngine, "build_all", return_value=feat_df):
@@ -295,7 +288,8 @@ class TestTrainingPipelineV5:
                         _FakePlaceAbilityModel,
                     ):
                         pipeline = TrainingPipelineV5.__new__(TrainingPipelineV5)
-                        pipeline.db = mock_db
+                        pipeline.repo = mock_repo
+                        pipeline.db = None
                         pipeline.feature_engine = FeatureEngine()
                         pipeline.submodel_mgr = SubModelManager()
 

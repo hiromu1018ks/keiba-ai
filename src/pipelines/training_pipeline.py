@@ -7,12 +7,17 @@ MLflow に実験を記録。
 from __future__ import annotations
 
 import logging
+from typing import TYPE_CHECKING
 
 import mlflow
 import pandas as pd
 
-from db.connection import DatabaseConnection
+from db.parquet_store import ParquetStore
+from db.repository import DataRepository
 from domain.models import SubmodelSet, TrainedModelsV5
+
+if TYPE_CHECKING:
+    from db.connection import DatabaseConnection
 from features.feature_engine import FeatureEngine
 from models.ev_correction_model import EVCorrectionModel
 from models.market_model import MarketModel
@@ -36,10 +41,12 @@ class TrainingPipelineV5:
 
     def __init__(
         self,
+        repo: DataRepository | None = None,
         db: DatabaseConnection | None = None,
         settings_path: str | None = None,
     ) -> None:
-        self.db = db or DatabaseConnection(settings_path)
+        self.repo = repo or DataRepository(ParquetStore())
+        self.db = db  # kept for etl_to_parquet if needed, can be None
         self.feature_engine = FeatureEngine()
         self.submodel_mgr = SubModelManager()
 
@@ -63,14 +70,14 @@ class TrainingPipelineV5:
 
         # 1. データロード
         logger.info(f"Loading data: {train_start} ~ {train_end}")
-        race_df = self.db.load_races(start, end)
-        entry_df = self.db.load_entries_with_results(start, end)
-        odds_df = self.db.load_odds_snapshots(start, end)
+        race_df = self.repo.load_races(start, end)
+        entry_df = self.repo.load_entries(start, end)
+        odds_df = self.repo.load_odds_snapshots(start, end)
 
         # NEW: _train_submodel 内で HorseHistoryFeatures が使用するため保存
         self._race_df = race_df
         self._entry_df = entry_df
-        odds_ts_df = self.db.load_odds_time_series_range(start, end)
+        odds_ts_df = self.repo.load_odds_time_series_range(start, end)
 
         # 2. 特徴量生成
         logger.info("Building features")
@@ -78,7 +85,7 @@ class TrainingPipelineV5:
         feat_df = self.submodel_mgr.add_distance_band_features(feat_df)
 
         # 2b. ワイドオッズを pivot して特徴量に merge
-        wide_odds_df = self.db.load_wide_odds(start, end)
+        wide_odds_df = self.repo.load_wide_odds(start, end)
         if wide_odds_df is not None and not wide_odds_df.empty:
             wide_pivot = wide_odds_df.pivot_table(
                 index="race_id", columns="kumi", values="odds_low"
@@ -113,7 +120,9 @@ class TrainingPipelineV5:
         required_cols = ["signed_log_error_win", "abs_log_error_win"]
         missing = [c for c in required_cols if c not in feat_df.columns]
         if missing:
-            logger.warning("Market model columns missing: %s — skipping race-level features", missing)
+            logger.warning(
+                "Market model columns missing: %s — skipping race-level features", missing
+            )
             for c in missing:
                 feat_df[c] = 0.0
         race_feat_df = self._build_race_level_features(feat_df)
@@ -145,11 +154,10 @@ class TrainingPipelineV5:
         # NEW: 馬過去成績特徴量
         from features.horse_history_features import HorseHistoryFeatures
 
-        hist = HorseHistoryFeatures(engine=self.db.get_engine())
+        hist = HorseHistoryFeatures(repo=self.repo)
         hist_df = hist.compute(self._race_df, self._entry_df, df["race_id"].unique())
         df = df.merge(hist_df, on=["race_id", "umaban"], how="left")
         df = HorseHistoryFeatures.add_race_transforms(df)
-
 
         # 1. Market Model (正規化差分 log_error のみ出力)
         # object型の数値列 (pd.NA含む) → float64 (2回目のsurface処理でpd.NAが混入するため)
@@ -180,7 +188,6 @@ class TrainingPipelineV5:
         place_ability = PlaceAbilityModel()
         place_ability.train(df)
         df = place_ability.predict(df)
-
 
         # 3. 単勝 2段階モデル
         win_2s = WinTwoStageModel()
