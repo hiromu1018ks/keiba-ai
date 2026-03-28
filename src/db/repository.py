@@ -24,7 +24,9 @@ def _date_filters(start: str, end: str) -> list[tuple]:
 
 
 def _exclude_steeple(df: pd.DataFrame) -> pd.DataFrame:
-    """障害レース除外（track_cd 51-59）。track_cd列が必須。"""
+    """障害レース除外（track_cd 51-59）。track_cd列がなければそのまま返す。"""
+    if "track_cd" not in df.columns:
+        return df
     return df[~df["track_cd"].between(51, 59)].copy()
 
 

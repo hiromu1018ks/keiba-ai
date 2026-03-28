@@ -26,9 +26,10 @@ class TestHelpers:
         assert list(result["track_cd"]) == [30, 10]
 
     def test_exclude_steeple_no_track_cd_column(self) -> None:
+        """track_cd列がない場合はそのまま返す（entriesテーブル等）"""
         df = pd.DataFrame({"a": [1, 2]})
-        with pytest.raises(KeyError):
-            _exclude_steeple(df)
+        result = _exclude_steeple(df)
+        assert len(result) == 2
 
 
 @pytest.fixture
