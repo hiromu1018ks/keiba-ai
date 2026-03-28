@@ -64,12 +64,15 @@ class DataRepository:
     # --- 全履歴参照（HorseHistoryFeatures用） ---
 
     def load_history_entries(self, lookback_years: int = 5) -> pd.DataFrame:
-        """過去N年のentriesをロード。lookback_yearsでメモリ制御。"""
+        """過去N年のentriesをロード。lookback_yearsでメモリ制御。
+
+        注意: 障害レースを含む。HorseHistoryFeaturesが全成績を評価するため。
+        """
         cutoff = datetime.now() - timedelta(days=lookback_years * 365)
         return self.store.read("raw", "entries", filters=[("race_date", ">=", cutoff)])
 
     def load_history_races(self, lookback_years: int = 5) -> pd.DataFrame:
-        """過去N年のracesをロード。"""
+        """過去N年のracesをロード。障害レースを含む（HorseHistoryFeatures用）。"""
         cutoff = datetime.now() - timedelta(days=lookback_years * 365)
         return self.store.read("raw", "races", filters=[("race_date", ">=", cutoff)])
 
