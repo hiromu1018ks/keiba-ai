@@ -13,10 +13,9 @@ from typing import TYPE_CHECKING, Optional
 
 import numpy as np
 import pandas as pd
-from sqlalchemy import text
 
 if TYPE_CHECKING:
-    from sqlalchemy.engine import Engine
+    from db.repository import DataRepository
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -133,8 +132,18 @@ class HorseHistoryFeatures:
         "jockey_cond_wr",
     ]
 
-    def __init__(self, engine: Engine) -> None:
-        self.engine = engine
+    def __init__(self, repo: DataRepository) -> None:
+        self.repo = repo
+        self._entries_cache: pd.DataFrame | None = None
+        self._races_cache: pd.DataFrame | None = None
+
+    def _get_history(self) -> tuple[pd.DataFrame, pd.DataFrame]:
+        """Load history entries and races (cached)."""
+        if self._entries_cache is None:
+            self._entries_cache = self.repo.load_history_entries()
+        if self._races_cache is None:
+            self._races_cache = self.repo.load_history_races()
+        return self._entries_cache, self._races_cache
 
     def compute(
         self,
@@ -158,45 +167,41 @@ class HorseHistoryFeatures:
         if not unique_ketto:
             return pd.DataFrame(columns=["race_id", "umaban"] + self.BASE_COLS)
 
-        # SQL: 過去レースデータを一括取得（ETL済みテーブルを使用）
-        sql = text("""
-            SELECT
-                e.race_id AS past_race_id,
-                ra.year, ra.month_day,
-                e.ketto_num, e.kisyu_code, e.umaban,
-                e.finish_pos,
-                ra.field_size,
-                e.win_odds,
-                e.haron_time_l3,
-                CASE WHEN ra.field_size >= 8 THEN 1 ELSE 0 END AS valid_field
-            FROM raw.entries e
-            JOIN raw.races ra ON e.race_id = ra.race_id
-            WHERE e.ketto_num IN :ketto_nums
-               OR e.kisyu_code IN :kisyu_codes
-            ORDER BY ra.year, ra.month_day
-        """)
+        # Load history data via repository
+        entries_hist, races_hist = self._get_history()
 
-        past_df = pd.read_sql(
-            sql,
-            self.engine,
-            params={
-                "ketto_nums": tuple(unique_ketto),
-                "kisyu_codes": tuple(unique_kisyu),
-            },
-        )
+        # Filter to relevant horses/jockeys
+        ketto_set = set(unique_ketto)
+        kisyu_set = set(unique_kisyu)
 
-        if past_df.empty:
+        entries_filtered = entries_hist[
+            entries_hist["ketto_num"].isin(ketto_set) | entries_hist["kisyu_code"].isin(kisyu_set)
+        ].copy()
+
+        if entries_filtered.empty:
             return pd.DataFrame(columns=["race_id", "umaban"] + self.BASE_COLS)
 
-        # race_date 生成
-        past_df["race_date"] = pd.to_datetime(
-            past_df["year"].astype(str) + past_df["month_day"].astype(str),
-            format="%Y%m%d",
+        # Merge with races to get field_size, race_date
+        race_cols = ["race_id", "field_size", "race_date"]
+        races_subset = races_hist[races_hist["race_id"].isin(entries_filtered["race_id"].unique())]
+        past_df = entries_filtered.merge(
+            races_subset[race_cols].drop_duplicates("race_id"),
+            on="race_id",
+            how="left",
         )
 
+        # Add valid_field column
+        past_df["valid_field"] = (past_df["field_size"] >= 8).astype(int)
+
         # 馬ごとに特徴量計算
+        total = len(horses)
         results: list[dict] = []
-        for _, row in horses.iterrows():
+        for i, (_, row) in enumerate(horses.iterrows()):
+            if i % 200 == 0:
+                print(
+                    f"  HorseHistoryFeatures: {i}/{total} ({i / max(total, 1) * 100:.0f}%)",
+                    flush=True,
+                )
             race_date = row["race_date"]
             ketto = row["ketto_num"]
             kisyu = row["kisyu_code"]
@@ -258,12 +263,14 @@ class HorseHistoryFeatures:
                 jockey_cond_wr = float("nan")
 
             # weight_absolute: 馬体重
+            weight_col = "ba_taijyu" if "ba_taijyu" in entry_df.columns else "weight"
             weight_val = entry_df.loc[
                 (entry_df["race_id"] == row["race_id"]) & (entry_df["umaban"] == row["umaban"]),
-                "weight",
+                weight_col,
             ].values
             weight_absolute: float = (
-                float(weight_val[0]) if len(weight_val) > 0 and pd.notna(weight_val[0])
+                float(weight_val[0])
+                if len(weight_val) > 0 and pd.notna(weight_val[0])
                 else float("nan")
             )
 
@@ -279,6 +286,7 @@ class HorseHistoryFeatures:
                 }
             )
 
+        print(f"  HorseHistoryFeatures: done ({len(results)} rows)", flush=True)
         return pd.DataFrame(results)
 
     @staticmethod
