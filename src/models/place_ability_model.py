@@ -32,13 +32,14 @@ class PlaceAbilityModel:
         "difficulty_score",
         "norm_finish_logit_avg",
         "jockey_surprise",
-        "haron_time_zscore_avg",
+        # haron_time_zscore_avg: Phase 1では常にNaNのため除外
+        # "haron_time_zscore_avg",
         "norm_finish_logit_avg_race_z",
         "jockey_surprise_race_z",
-        "haron_time_zscore_avg_race_z",
+        # "haron_time_zscore_avg_race_z",
         "norm_finish_logit_avg_race_pct",
         "jockey_surprise_race_pct",
-        "haron_time_zscore_avg_race_pct",
+        # "haron_time_zscore_avg_race_pct",
         # Phase 2 (4)
         "jockey_cond_wr",
         "jockey_cond_wr_race_z",
