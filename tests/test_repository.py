@@ -75,6 +75,41 @@ class TestDataRepositoryLoadEntries:
         call_args = mock_store.read.call_args
         assert call_args[0][:2] == ("raw", "entries")
 
+    def test_excludes_steeple(self, repo: DataRepository, mock_store: MagicMock) -> None:
+        mock_store.read.return_value = pd.DataFrame(
+            {
+                "race_date": [datetime(2020, 6, 1)] * 3,
+                "track_cd": [10, 51, 55],
+            }
+        )
+        result = repo.load_entries("20200101", "20201231")
+        assert len(result) == 1
+        assert result["track_cd"].iloc[0] == 10
+
+
+class TestDataRepositoryLoadOddsSnapshots:
+    def test_calls_store_correctly(self, repo: DataRepository, mock_store: MagicMock) -> None:
+        mock_store.read.return_value = pd.DataFrame({"race_date": [datetime(2020, 6, 1)]})
+        repo.load_odds_snapshots("20200101", "20201231")
+        call_args = mock_store.read.call_args
+        assert call_args[0][:2] == ("odds", "snapshots")
+
+
+class TestDataRepositoryLoadWideOdds:
+    def test_calls_store_correctly(self, repo: DataRepository, mock_store: MagicMock) -> None:
+        mock_store.read.return_value = pd.DataFrame({"race_date": [datetime(2020, 6, 1)]})
+        repo.load_wide_odds("20200101", "20201231")
+        call_args = mock_store.read.call_args
+        assert call_args[0][:2] == ("odds", "wide")
+
+
+class TestDataRepositoryLoadPayouts:
+    def test_calls_store_correctly(self, repo: DataRepository, mock_store: MagicMock) -> None:
+        mock_store.read.return_value = pd.DataFrame({"race_date": [datetime(2020, 6, 1)]})
+        repo.load_payouts("20200101", "20201231")
+        call_args = mock_store.read.call_args
+        assert call_args[0][:2] == ("raw", "payouts")
+
 
 class TestDataRepositoryLoadOddsTimeSeries:
     def test_range_calls_partitioned_table(
