@@ -170,11 +170,28 @@ class FeatureEngine:
         if "ninki" in df.columns:
             df["popularity_rank"] = df["ninki"]
 
-        # track_cd → surface (芝:20-29, ダート:10-19, 障害:51-59)
+        # track_cd → surface (芝:10-22, ダート:23-29, 障害:51-59)
+        # 設計書 everydb2-data-reference §3.1 / domain.models._surface_from_track_cd
         if "surface" not in df.columns and "track_cd" in df.columns:
             df["surface"] = df["track_cd"].apply(
-                lambda x: "turf" if 20 <= x <= 29 else "dirt" if 10 <= x <= 29 else "other"
+                lambda x: "turf" if 10 <= x <= 22 else "dirt" if 23 <= x <= 29 else "other"
             )
+
+        # surface + distance → distance_bin (Parquet ETLには含まれないGenerated列)
+        # domain.models._distance_band と同じロジックをベクトル化
+        if "distance_bin" not in df.columns and "distance" in df.columns and "surface" in df.columns:
+            is_turf = df["surface"] == "turf"
+            dist = df["distance"]
+            df["distance_bin"] = "unknown"
+            # Turf: sprint(<=1400), mile(<=1700), intermediate(<=2100), long(>2100)
+            df.loc[is_turf & (dist > 2100), "distance_bin"] = "long"
+            df.loc[is_turf & (dist <= 2100), "distance_bin"] = "intermediate"
+            df.loc[is_turf & (dist <= 1700), "distance_bin"] = "mile"
+            df.loc[is_turf & (dist <= 1400), "distance_bin"] = "sprint"
+            # Dirt: sprint(<=1400), mile(<=1700), intermediate(>1700)
+            df.loc[~is_turf & (dist > 1700), "distance_bin"] = "intermediate"
+            df.loc[~is_turf & (dist <= 1700), "distance_bin"] = "mile"
+            df.loc[~is_turf & (dist <= 1400), "distance_bin"] = "sprint"
 
         # surface_key (downstream SubModelManager フィルタ用)
         if "surface" in df.columns:
