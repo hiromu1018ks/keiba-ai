@@ -111,7 +111,7 @@ class TrainingPipelineV5:
         logger.info("Trained RaceQualityScreener")
 
         # 6. RegimeDetector
-        regime_stats_df = self._build_regime_stats(race_feat_df)
+        regime_stats_df = self._build_regime_stats(race_feat_df, feat_df)
         regime_det = RegimeDetector()
         regime_det.train(regime_stats_df)
         logger.info("Trained RegimeDetector")
@@ -274,11 +274,13 @@ class TrainingPipelineV5:
 
         return race_feat
 
-    def _build_regime_stats(self, race_feat_df: pd.DataFrame) -> pd.DataFrame:
+    def _build_regime_stats(
+        self, race_feat_df: pd.DataFrame, feat_df: pd.DataFrame
+    ) -> pd.DataFrame:
         """RegimeDetector 用の rolling 統計を構築
 
-        RegimeDetector.FEATURE_COLS (10列) に対応。
-        直近200レースの window 統計。
+        RegimeDetector.FEATURE_COLS (11列) に対応。
+        直近200レースの window 統計。実データ計算を使用。
         """
         if "race_date" in race_feat_df.columns:
             race_feat_df = race_feat_df.sort_values("race_date").reset_index(drop=True)
@@ -291,19 +293,47 @@ class TrainingPipelineV5:
             if col in stats.columns:
                 stats[f"{col}_rolling"] = stats[col].rolling(window=window, min_periods=50).mean()
 
-        # ROI rolling (ダミー — 実際はベット結果から計算)
-        stats["rolling_roi"] = (
-            stats["favorite_win_rate"].rolling(window=window, min_periods=50).mean()
-        )
-
         # RegimeDetector.FEATURE_COLS に必要な列をマッピング
         stats["market_error_std"] = stats["market_log_error_std"].fillna(0.2)
         stats["market_error_mean"] = stats["market_log_error_mean"].fillna(0.0)
-        stats["flb_slope"] = 0.0
-        stats["odds_volatility_mean"] = 0.1
-        stats["rolling_roi_200"] = stats["rolling_roi"].fillna(0.5)
-        stats["hit_rate_top3_mean"] = stats["favorite_win_rate"].fillna(0.3) * 3.0
         stats["field_size_mean"] = stats["field_size"].fillna(14.0).astype(float)
+
+        # --- Phase 3: 実データ化 ---
+        # FLB slope: 馬レベル feat_df から計算 → レース単位に集約
+        from features.market_bias_features import compute_flb_slope
+
+        if all(c in feat_df.columns for c in ["race_id", "tan_odds", "finish_pos"]):
+            flb_series = compute_flb_slope(feat_df)
+            feat_copy = feat_df.copy()
+            feat_copy["flb_slope"] = flb_series.values
+            race_flb = feat_copy.groupby("race_id")["flb_slope"].first()
+            stats["flb_slope"] = stats["race_id"].map(race_flb).fillna(0.0)
+        else:
+            stats["flb_slope"] = 0.0
+
+        # Rolling volatility: 馬レベル odds_volatility → レース平均 → rolling
+        from features.odds_dynamics_features import compute_rolling_volatility
+
+        if "odds_volatility" in feat_df.columns:
+            feat_copy = feat_df.copy()
+            vol_series = compute_rolling_volatility(feat_copy, window=window, min_periods=50)
+            feat_copy["odds_volatility_rolling"] = vol_series.values
+            race_vol = feat_copy.groupby("race_id")["odds_volatility_rolling"].mean()
+            stats["odds_volatility_mean"] = stats["race_id"].map(race_vol).fillna(0.1)
+        else:
+            stats["odds_volatility_mean"] = 0.1
+
+        # ROI EMA: 人気層別の指数移動平均
+        from features.odds_dynamics_features import compute_roi_ema
+
+        roi_ema_df = compute_roi_ema(feat_df, span=50, min_periods=50)
+        # レース単位に集約 (人気層別 ROI EMA の平均)
+        for band in ["favorite", "mid", "longshot"]:
+            col = f"{band}_roi_ema"
+            feat_copy = feat_df.copy()
+            feat_copy[col] = roi_ema_df[col].values
+            race_ema = feat_copy.groupby("race_id")[col].mean()
+            stats[col] = stats["race_id"].map(race_ema).fillna(0.0)
 
         return stats
 

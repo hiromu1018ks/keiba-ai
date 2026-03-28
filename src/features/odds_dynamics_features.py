@@ -119,3 +119,116 @@ def compute_odds_dynamics(
         df = df.merge(merged, on=["race_id", "umaban"], how="left")
 
     return df
+
+
+def compute_rolling_volatility(
+    race_feat_df: pd.DataFrame,
+    window: int = 200,
+    min_periods: int = 50,
+) -> pd.Series:
+    """レースレベルの rolling オッズボラティリティを計算
+
+    各レース内の odds_volatility の平均をレースレベル集約とし、
+    それを rolling window で平滑化。
+
+    Args:
+        race_feat_df: race_id, odds_volatility を含む DataFrame
+        window: rolling window size
+        min_periods: rolling の最小サンプル数
+
+    Returns:
+        odds_volatility_rolling_mean Series
+    """
+    # odds_volatility 列が無ければ NaN Series を返す
+    if "odds_volatility" not in race_feat_df.columns:
+        return pd.Series(np.nan, index=race_feat_df.index, name="odds_volatility_rolling_mean")
+
+    # レースごとの odds_volatility 平均
+    race_vol = race_feat_df.groupby("race_id")["odds_volatility"].mean()
+
+    # rolling 平均 (時系列順)
+    if "race_date" in race_feat_df.columns:
+        date_map = race_feat_df.groupby("race_id")["race_date"].first()
+        race_vol = race_vol.to_frame("odds_volatility")
+        race_vol["race_date"] = date_map
+        race_vol = race_vol.sort_values("race_date")
+        rolling_mean = race_vol["odds_volatility"].rolling(
+            window=window, min_periods=min_periods
+        ).mean()
+    else:
+        rolling_mean = race_vol.rolling(window=window, min_periods=min_periods).mean()
+
+    # レースごとの rolling 値を元 DataFrame にマップ
+    result = race_feat_df["race_id"].map(rolling_mean)
+    result.name = "odds_volatility_rolling_mean"
+    return result
+
+
+def compute_roi_ema(
+    race_feat_df: pd.DataFrame,
+    span: int = 50,
+    min_periods: int = 50,
+) -> pd.DataFrame:
+    """人気層別 ROI EMA を計算
+
+    各レースの人気層 (favorite/mid/longshot) ごとの ROI を
+    指数移動平均 (EMA) で平滑化。
+
+    Args:
+        race_feat_df: race_id, finish_pos, tan_odds, popularity_rank を含む DataFrame
+        span: EMA の span
+        min_periods: 計算に必要な最小サンプル数
+
+    Returns:
+        favorite_roi_ema, mid_roi_ema, longshot_roi_ema 列を追加した DataFrame
+    """
+    df = race_feat_df.copy()
+
+    # 必須列チェック
+    required = {"finish_pos", "tan_odds", "popularity_rank", "race_id"}
+    if not required.issubset(df.columns):
+        df["favorite_roi_ema"] = 0.0
+        df["mid_roi_ema"] = 0.0
+        df["longshot_roi_ema"] = 0.0
+        return df
+
+    # 各馬の ROI (= odds × win) を計算
+    df["is_win"] = (df["finish_pos"] == 1).astype(float)
+    df["roi"] = df["tan_odds"] * df["is_win"]
+
+    # 人気層分類: favorite (1-3), mid (4-8), longshot (9+)
+    df["pop_band"] = pd.cut(
+        df["popularity_rank"],
+        bins=[0, 3, 8, float("inf")],
+        labels=["favorite", "mid", "longshot"],
+    )
+
+    # レースごと・人気層ごとの平均 ROI
+    race_band_roi = df.groupby(["race_id", "pop_band"], observed=False)["roi"].mean().unstack(
+        fill_value=0.0
+    )
+
+    # 時系列ソート
+    if "race_date" in df.columns:
+        date_map = df.groupby("race_id")["race_date"].first()
+        race_band_roi["race_date"] = date_map
+        race_band_roi = race_band_roi.sort_values("race_date")
+        race_band_roi = race_band_roi.drop(columns=["race_date"])
+
+    # EMA 計算
+    ema_cols: dict[str, pd.Series] = {}
+    for band in ["favorite", "mid", "longshot"]:
+        if band in race_band_roi.columns:
+            series = race_band_roi[band]
+        else:
+            series = pd.Series(0.0, index=race_band_roi.index)
+        ema = series.ewm(span=span, min_periods=min_periods).mean()
+        ema_cols[f"{band}_roi_ema"] = ema
+
+    # レースごとの EMA 値を元 DataFrame にマップ
+    for col_name, ema_series in ema_cols.items():
+        df[col_name] = df["race_id"].map(ema_series).fillna(0.0)
+
+    # 作業列を除去
+    df = df.drop(columns=["is_win", "roi", "pop_band"], errors="ignore")
+    return df

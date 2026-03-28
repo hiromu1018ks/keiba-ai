@@ -25,8 +25,9 @@ def regime_stats_df() -> pd.DataFrame:
             "favorite_win_rate": [0.22, 0.35, 0.15, 0.40, 0.18],
             "flb_slope": [0.8, 0.3, 1.2, 0.2, 1.0],
             "odds_volatility_mean": [0.15, 0.08, 0.25, 0.05, 0.20],
-            "rolling_roi_200": [0.95, 1.10, 0.80, 1.20, 0.85],
-            "hit_rate_top3_mean": [0.25, 0.35, 0.15, 0.40, 0.20],
+            "favorite_roi_ema": [0.95, 1.10, 0.80, 1.20, 0.85],
+            "mid_roi_ema": [0.90, 1.05, 0.75, 1.15, 0.80],
+            "longshot_roi_ema": [0.85, 1.00, 0.70, 1.10, 0.75],
             "field_size_mean": [14, 12, 16, 10, 15],
         }
     )
@@ -115,8 +116,9 @@ class TestRegimeDetector:
                 "favorite_win_rate": [0.30],
                 "flb_slope": [0.3],
                 "odds_volatility_mean": [0.05],
-                "rolling_roi_200": [1.0],
-                "hit_rate_top3_mean": [0.30],
+                "favorite_roi_ema": [1.0],
+                "mid_roi_ema": [0.9],
+                "longshot_roi_ema": [0.8],
                 "field_size_mean": [12],
             }
         )
@@ -127,3 +129,9 @@ class TestRegimeDetector:
         """教師ラベルに戦略依存指標を使用しない (Rule 19)"""
         assert "favorite_win_rate" in RegimeDetector.FEATURE_COLS
         assert "flb_slope" in RegimeDetector.FEATURE_COLS
+        # Phase 3: ROI EMA columns replaced rolling_roi_200 + hit_rate_top3_mean
+        assert "favorite_roi_ema" in RegimeDetector.FEATURE_COLS
+        assert "mid_roi_ema" in RegimeDetector.FEATURE_COLS
+        assert "longshot_roi_ema" in RegimeDetector.FEATURE_COLS
+        assert "rolling_roi_200" not in RegimeDetector.FEATURE_COLS
+        assert "hit_rate_top3_mean" not in RegimeDetector.FEATURE_COLS

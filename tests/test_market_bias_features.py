@@ -5,7 +5,7 @@ import math
 import pandas as pd
 import pytest
 
-from features.market_bias_features import compute_market_bias
+from features.market_bias_features import compute_flb_slope, compute_market_bias
 
 
 @pytest.fixture
@@ -96,3 +96,57 @@ class TestMarketBiasFeatures:
         assert "race_id" in result.columns
         assert "umaban" in result.columns
         assert "tan_odds" in result.columns
+
+
+class TestComputeFlbSlope:
+    def test_returns_series(self) -> None:
+        """Series を返す"""
+        df = pd.DataFrame(
+            {
+                "race_id": ["R1"] * 5,
+                "umaban": [1, 2, 3, 4, 5],
+                "tan_odds": [2.0, 3.0, 5.0, 10.0, 20.0],
+                "finish_pos": [1, 2, 3, 4, 5],
+            }
+        )
+        result = compute_flb_slope(df)
+        assert isinstance(result, pd.Series)
+        assert len(result) == len(df)
+
+    def test_single_race_returns_same_value(self) -> None:
+        """同一レース内の全行が同じ slope 値を持つ"""
+        df = pd.DataFrame(
+            {
+                "race_id": ["R1"] * 6,
+                "umaban": [1, 2, 3, 4, 5, 6],
+                "tan_odds": [2.0, 3.0, 4.0, 6.0, 10.0, 20.0],
+                "finish_pos": [1, 2, 3, 4, 5, 6],
+            }
+        )
+        result = compute_flb_slope(df)
+        # 全行同じ値
+        assert result.nunique() == 1
+
+    def test_missing_columns_returns_zeros(self) -> None:
+        """必須列がない場合は 0.0 を返す"""
+        df = pd.DataFrame({"race_id": ["R1", "R1"], "umaban": [1, 2]})
+        result = compute_flb_slope(df)
+        assert (result == 0.0).all()
+
+    def test_multi_race_independent(self) -> None:
+        """複数レースで独立に計算"""
+        df = pd.DataFrame(
+            {
+                "race_id": ["R1"] * 4 + ["R2"] * 4,
+                "umaban": [1, 2, 3, 4] * 2,
+                "tan_odds": [2.0, 4.0, 6.0, 10.0, 3.0, 3.0, 3.0, 3.0],
+                "finish_pos": [1, 2, 3, 4, 1, 2, 3, 4],
+            }
+        )
+        result = compute_flb_slope(df)
+        # R1 と R2 で異なる値
+        r1_val = result.iloc[0]
+        r2_val = result.iloc[4]
+        # R2 の方がオッズが均等なので傾きが異なるはず
+        assert isinstance(r1_val, float)
+        assert isinstance(r2_val, float)
