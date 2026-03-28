@@ -135,21 +135,21 @@ class BacktestEngine:
             regime = self.models.regime_detector.current_regime
             regime_params = self.models.regime_detector.get_strategy_params(regime)
 
-            # 3c. 特徴量 → 予測
-            try:
-                race_df_single = submodel.market.predict_and_calc_error(race_df_single)
-            except Exception as e:
-                logger.debug("Skipping race %s: market prediction failed: %s", race_id, e)
-                continue
-            race_df_single = submodel.stage1.add_ability_probs(race_df_single)
-
-            # HorseHistoryFeatures 推論
+            # 3c. HorseHistoryFeatures 推論 (AbilityModelのFEATURE_COLSに必要な列を生成)
             from features.horse_history_features import HorseHistoryFeatures
 
             hist = HorseHistoryFeatures(repo=self.repo)
             hist_df = hist.compute(self._race_df, self._entry_df, [race_id])
             race_df_single = race_df_single.merge(hist_df, on=["race_id", "umaban"], how="left")
             race_df_single = HorseHistoryFeatures.add_race_transforms(race_df_single)
+
+            # 3d. 特徴量 → 予測
+            try:
+                race_df_single = submodel.market.predict_and_calc_error(race_df_single)
+            except Exception as e:
+                logger.debug("Skipping race %s: market prediction failed: %s", race_id, e)
+                continue
+            race_df_single = submodel.stage1.add_ability_probs(race_df_single)
 
             # PlaceAbilityModel 推論
             race_df_single = submodel.place_ability.predict(race_df_single)
