@@ -162,7 +162,7 @@ class HorseHistoryFeatures:
         sql = text("""
             SELECT
                 ur.race_id AS past_race_id,
-                r.year, r.month_day,
+                r.year, r.monthday,
                 ur.ketto_num, ur.kisyu_code, ur.umaban,
                 ur.kakutei_jyuni AS finish_pos,
                 r.torosu AS field_size,
@@ -171,14 +171,14 @@ class HorseHistoryFeatures:
                 CASE WHEN r.torosu >= 8 THEN 1 ELSE 0 END AS valid_field
             FROM n_uma_race ur
             JOIN n_race r ON ur.year = r.year
-                AND ur.monthday = r.month_day
+                AND ur.monthday = r.monthday
                 AND ur.jyocd = r.jyocd
                 AND ur.kaiji = r.kaiji
                 AND ur.nichiji = r.nichiji
                 AND ur.racenum = r.racenum
             WHERE ur.ketto_num IN :ketto_nums
                OR ur.kisyu_code IN :kisyu_codes
-            ORDER BY r.year, r.month_day
+            ORDER BY r.year, r.monthday
         """)
 
         past_df = pd.read_sql(
@@ -195,7 +195,7 @@ class HorseHistoryFeatures:
 
         # race_date 生成
         past_df["race_date"] = pd.to_datetime(
-            past_df["year"].astype(str) + past_df["month_day"].astype(str),
+            past_df["year"].astype(str) + past_df["monthday"].astype(str),
             format="%Y%m%d",
         )
 
