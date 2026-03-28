@@ -1,7 +1,7 @@
 # Parquet Migration Design
 
 **Date:** 2026-03-28
-**Status:** Approved (Rev 2 — レビュー指摘対応済み)
+**Status:** Approved (Rev 3 — レビュー2巡目指摘対応済み)
 **Scope:** 全データ層のPostgreSQL → Parquet移行
 
 ## 1. 目的
@@ -15,11 +15,12 @@ MLパイプライン（学習・バックテスト・推論）のデータアク
 | 移行範囲 | 全データ層（ETL + 特徴量 + 予測 + 馬券） |
 | PostgreSQLの役割 | EveryDB2外部テーブルからのETL入力のみ |
 | DataFrameライブラリ | pandas（`pd.read_parquet()`） |
-| ファイル構成 | テーブル単位（1テーブル = 1ファイル） |
-| ETL更新方法 | 全上書き |
+| ファイル構成 | テーブル単位。ただし `time_series` は年/月パーティション |
+| ETL更新方法 | races/entries等は全上書き、time_seriesは増分更新 |
 | アプローチ | B（役割ごとにクラスを分ける） |
 | race_id生成 | Python/pandasで計算（PostgreSQLのGENERATED COLUMNに依存しない） |
-| 日付フォーマット | `"YYYYMMDD"` 文字列（既存と同一）。Parquet内には `race_date` (datetime) 列を永続化 |
+| 日付フォーマット | API境界は `"YYYYMMDD"` 文字列。内部は `datetime64` に統一 |
+| 将来拡張 | DataRepositoryを唯一のアクセス層とし、将来DuckDB/Polarsへの移行を妨げない |
 
 ## 3. アーキテクチャ
 
@@ -47,7 +48,12 @@ data/                          # .gitignore に追加
 │   └── payouts.parquet        # 払戻情報（race_date列を含む）
 ├── odds/
 │   ├── snapshots.parquet      # 最終オッズ（race_date列を含む）
-│   ├── time_series.parquet    # オッズ時系列（race_date列を含む）
+│   ├── time_series/           # ★ パーティション（年/月）
+│   │   ├── year=2020/month=01/
+│   │   │   └── part-0.parquet
+│   │   ├── year=2020/month=02/
+│   │   │   └── part-0.parquet
+│   │   └── ...
 │   └── wide.parquet           # ワイドオッズ（race_date列を含む）
 ├── features/
 │   └── horse_features.parquet # 馬の過去成績特徴量（キャッシュ）
@@ -57,8 +63,16 @@ data/                          # .gitignore に追加
     └── bets.parquet           # 馬券記録
 ```
 
+### パーティション戦略
+
+| テーブル | 粒度 | 理由 |
+|---|---|---|
+| races, entries, payouts | 1ファイル | 数十万〜数百万行。単一ファイルで十分 |
+| odds/snapshots, wide | 1ファイル | 同上 |
+| **odds/time_series** | **年/月パーティション** | 83M行。月単位でpyarrowがファイル単位スキップ可能に |
+| features, predictions, bets | 1ファイル | 書き込み頻度低く、データ量も小さい |
+
 全テーブルに `race_date` (datetime64) 列をETL時に永続化する。
-これにより `filter_by_date()` は `race_date` 列でシンプルにフィルタできる。
 
 ## 5. クラス設計
 
@@ -75,26 +89,45 @@ class ParquetStore:
         """例: store.read("raw", "races")
         filters: pyarrow述語プッシュダウン用 [(column, op, value), ...]
         例: [("race_date", ">=", "2020-01-01")]
+        パーティションテーブルの場合は pyarrow.dataset で読み取り。
         """
-        path = self.data_dir / category / f"{name}.parquet"
-        return pd.read_parquet(path, filters=filters)
+        path = self.data_dir / category / name
+        if path.is_dir():
+            # パーティションテーブル → pyarrow.dataset
+            import pyarrow.dataset as ds
+            dataset = ds.dataset(str(path), format="parquet", partitioning="hive")
+            return dataset.to_table(filter=...).to_pandas()
+        return pd.read_parquet(path.with_suffix(".parquet"), filters=filters)
 
-    def write(self, category: str, name: str, df: pd.DataFrame) -> None:
-        """DataFrameをParquetにアトミック書き込み（temp → rename）"""
-        path = self.data_dir / category / f"{name}.parquet"
+    def write(self, category: str, name: str, df: pd.DataFrame, partition_cols: list[str] | None = None) -> None:
+        """DataFrameをParquetにアトミック書き込み（temp → rename）
+        partition_cols: 指定時はパーティション書き込み
+        """
+        path = self.data_dir / category / name
         path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = path.with_suffix(".parquet.tmp")
-        df.to_parquet(tmp, index=False)
-        tmp.replace(path)  # アトミックリネーム
+
+        if partition_cols:
+            # パーティション書き込み
+            import pyarrow as pa
+            table = pa.Table.from_pandas(df)
+            pq.write_to_dataset(table, root_path=str(path), partition_cols=partition_cols)
+        else:
+            # 単一ファイル（アトミック）
+            file_path = path.with_suffix(".parquet")
+            tmp = file_path.with_suffix(".parquet.tmp")
+            df.to_parquet(tmp, index=False)
+            tmp.replace(file_path)
 
     def exists(self, category: str, name: str) -> bool:
-        """ファイルが存在するか"""
-        return (self.data_dir / category / f"{name}.parquet").exists()
+        """ファイル or ディレクトリが存在するか"""
+        path = self.data_dir / category / name
+        return path.with_suffix(".parquet").exists() or path.is_dir()
 ```
 
 **ポイント:**
-- `filters` パラメータで pyarrow 述語プッシュダウンを利用 → 大きなファイルでも必要行だけ読める
-- `write()` はテンポラリファイルに書き出してからリネーム → クラッシュ時の破損防止
+- ディレクトリ（パーティション）か単一ファイルかを自動判定
+- `filters` パラメータで pyarrow 述語プッシュダウン → 大きなファイルでも必要行だけ読める
+- 単一ファイルの `write()` はテンポラリファイル → リネームで原子性担保
 
 ### 5.2 DatabaseConnection（変更: `src/db/connection.py`）
 
@@ -111,7 +144,9 @@ Parquet移行後は **pandasで `race_id` を計算** する:
 
 ```python
 def _compute_race_id(df: pd.DataFrame) -> pd.DataFrame:
-    """year + month_day + jyo_cd + kaiji + nichiji + race_num → race_id"""
+    """year + month_day + jyo_cd + kaiji + nichiji + race_num → race_id
+    フォーマット契約: YYYY MMDD JJ KK NN RR (16桁)
+    """
     df["race_id"] = (
         df["year"].astype(str).str.zfill(4)
         + df["month_day"].astype(str).str.zfill(4)
@@ -136,6 +171,7 @@ def _compute_race_date(df: pd.DataFrame) -> pd.DataFrame:
 1. `etl_races()` — EveryDB2 `n_race` → DataFrame → `_compute_race_id()` + `_compute_race_date()` → `ParquetStore.write("raw", "races")`
 2. `etl_entries()` — EveryDB2 `n_uma_race` → DataFrame → `races.parquet` をメモリでJOIN → `ParquetStore.write("raw", "entries")`
 3. 以降のETLも同様に、`races.parquet` をメモリでJOIN
+4. `etl_odds_timeseries()` — EveryDB2 `n_jodds_tanpuku` → DataFrame → `ParquetStore.write("odds", "time_series", df, partition_cols=["year", "month"])`
 
 **重要:** PostgreSQL内部スキーマ (raw.*, odds_history.*) への書き込みは完全に廃止。
 ETLは EveryDB2 → DataFrame → Parquet のみ。
@@ -143,74 +179,85 @@ ETLは EveryDB2 → DataFrame → Parquet のみ。
 ### 5.3 DataRepository（新規: `src/db/repository.py`）
 
 MLパイプラインの唯一のデータアクセス窓口。
+**将来DuckDB/Polarsへの移行を妨げないよう、この層が唯一のアクセス経路。**
 
-**日付パラメータ:** `start`, `end` は `"YYYYMMDD"` 文字列（既存コードとの互換）。
-内部で `datetime` に変換し、`race_date` 列でフィルタ。
-障害除外（`track_cd NOT BETWEEN 51 AND 59`）もここで処理。
+**日付パラメータ:** `start`, `end` は `"YYYYMMDD"` 文字列（I/O境界）。
+内部は `datetime` に変換し、pyarrow filters でプッシュダウン。
+障害除外は専用メソッドで明示的に処理。
 
 ```python
-def _parse_date(d: str) -> datetime:
-    return datetime.strptime(d, "%Y%m%d")
+from datetime import datetime
 
-def _filter(df: pd.DataFrame, start: str, end: str) -> pd.DataFrame:
-    """race_date で日付フィルタ + 障害除外"""
-    s, e = _parse_date(start), _parse_date(end)
-    mask = (df["race_date"] >= s) & (df["race_date"] <= e)
-    if "track_cd" in df.columns:
-        mask &= ~df["track_cd"].between(51, 59)
-    return df[mask].copy()
+def _to_dt(yyyymmdd: str) -> datetime:
+    return datetime.strptime(yyyymmdd, "%Y%m%d")
+
+def _date_filters(start: str, end: str) -> list:
+    """pyarrow述語プッシュダウン用フィルタを生成"""
+    s, e = _to_dt(start), _to_dt(end)
+    return [("race_date", ">=", s), ("race_date", "<=", e)]
+
+def _exclude_steeple(df: pd.DataFrame) -> pd.DataFrame:
+    """障害レース除外（track_cd 51-59）"""
+    return df[~df["track_cd"].between(51, 59)].copy()
 
 
 class DataRepository:
     def __init__(self, store: ParquetStore):
         self.store = store
 
-    # --- 読み取り ---
+    # --- 読み取り（pyarrow filtersでプッシュダウン） ---
 
     def load_races(self, start: str, end: str) -> pd.DataFrame:
-        df = self.store.read("raw", "races")
-        return _filter(df, start, end)
+        df = self.store.read("raw", "races", filters=_date_filters(start, end))
+        return _exclude_steeple(df)
 
     def load_entries(self, start: str, end: str) -> pd.DataFrame:
-        df = self.store.read("raw", "entries")
-        return _filter(df, start, end)
+        df = self.store.read("raw", "entries", filters=_date_filters(start, end))
+        return _exclude_steeple(df)
 
     def load_odds_snapshots(self, start: str, end: str) -> pd.DataFrame:
-        df = self.store.read("odds", "snapshots")
-        return _filter(df, start, end)
+        return self.store.read("odds", "snapshots", filters=_date_filters(start, end))
 
     def load_odds_time_series_range(self, start: str, end: str) -> pd.DataFrame:
-        """オッズ時系列（日付範囲）"""
-        df = self.store.read("odds", "time_series")
-        return _filter(df, start, end)
+        """オッズ時系列（日付範囲）— パーティションテーブル"""
+        return self.store.read("odds", "time_series", filters=_date_filters(start, end))
 
     def load_odds_time_series(self, race_id: str) -> pd.DataFrame:
         """オッズ時系列（単一レース）"""
-        df = self.store.read("odds", "time_series")
-        return df[df["race_id"] == race_id].copy()
+        return self.store.read("odds", "time_series",
+            filters=[("race_id", "==", race_id)])
 
     def load_wide_odds(self, start: str, end: str) -> pd.DataFrame:
-        df = self.store.read("odds", "wide")
-        return _filter(df, start, end)
+        return self.store.read("odds", "wide", filters=_date_filters(start, end))
 
     def load_payouts(self, start: str, end: str) -> pd.DataFrame:
-        df = self.store.read("raw", "payouts")
-        return _filter(df, start, end)
+        return self.store.read("raw", "payouts", filters=_date_filters(start, end))
 
-    def load_all_races(self) -> pd.DataFrame:
-        """日付フィルタなし。HorseHistoryFeatures等の全履歴参照用"""
-        return self.store.read("raw", "races")
+    # --- 全履歴参照（HorseHistoryFeatures用） ---
 
-    def load_all_entries(self) -> pd.DataFrame:
-        """日付フィルタなし。HorseHistoryFeatures等の全履歴参照用"""
-        return self.store.read("raw", "entries")
+    def load_history_entries(self, lookback_years: int = 5) -> pd.DataFrame:
+        """過去N年のentriesをロード。HorseHistoryFeatures等の全履歴参照用。
+        lookback_yearsでメモリ使用量を制御。
+        """
+        from datetime import timedelta
+        cutoff = datetime.now() - timedelta(days=lookback_years * 365)
+        return self.store.read("raw", "entries",
+            filters=[("race_date", ">=", cutoff)])
+
+    def load_history_races(self, lookback_years: int = 5) -> pd.DataFrame:
+        """過去N年のracesをロード"""
+        from datetime import timedelta
+        cutoff = datetime.now() - timedelta(days=lookback_years * 365)
+        return self.store.read("raw", "races",
+            filters=[("race_date", ">=", cutoff)])
 
     # --- 特徴量キャッシュ ---
 
     def load_features(self, start: str, end: str) -> pd.DataFrame | None:
         """特徴量キャッシュがあれば返す、なければNone"""
         if self.store.exists("features", "horse_features"):
-            return _filter(self.store.read("features", "horse_features"), start, end)
+            return self.store.read("features", "horse_features",
+                filters=_date_filters(start, end))
         return None
 
     def save_features(self, df: pd.DataFrame) -> None:
@@ -236,13 +283,15 @@ PostgreSQL (EveryDB2外部テーブル)
   → _compute_race_id() + _compute_race_date() でrace_id/race_date付与
   → races: ParquetStore.write("raw", "races")
   → entries以降: races.parquet をメモリでJOIN → ParquetStore.write()
+  → time_series: ParquetStore.write("odds", "time_series", df, partition_cols=["year", "month"])
 ```
 
 ### 5.5 HorseHistoryFeatures（変更: `src/features/horse_history_features.py`）
 
 - 現在: 直接SQLで `raw.entries JOIN raw.races` をクエリ（馬ごと）
-- 変更後: `DataRepository.load_all_entries()` + `load_all_races()` で全データをメモリにロードし、pandasのフィルタで過去成績を検索
-- 初回ロード後はキャッシュして再利用（同じセッション内のバックテスト等で何度も呼ばれるため）
+- 変更後: `DataRepository.load_history_entries(lookback_years=5)` + `load_history_races()` で過去データをロード
+- `lookback_years` でメモリ使用量を制御（デフォルト5年）
+- ロードしたデータはキャッシュして再利用（同じセッション内のバックテスト等で何度も呼ばれるため）
 
 ## 6. 影響を受けるファイル
 
@@ -252,7 +301,7 @@ PostgreSQL (EveryDB2外部テーブル)
 | `src/db/etl.py` | `DatabaseConnection` に統合して **削除** |
 | `src/db/parquet_store.py` | **新規** |
 | `src/db/repository.py` | **新規** |
-| `src/features/horse_history_features.py` | SQL直接アクセス → DataRepository 経由（メモリフィルタ） |
+| `src/features/horse_history_features.py` | SQL直接アクセス → DataRepository 経由（lookback_years制御付き） |
 | `src/features/feature_engine.py` | DataRepository からデータを受け取る |
 | `src/pipelines/training_pipeline.py` | DatabaseConnection → DataRepository |
 | `src/backtest/engine.py` | 同上。レースごとの再クエリ → メモリフィルタ |
@@ -273,12 +322,20 @@ PostgreSQL (EveryDB2外部テーブル)
 
 現在のバックテストエンジンはレースごとにDB再クエリしている。Parquet化により:
 
-- 全データをメモリに1回だけロード
+- データを `DataRepository` 経由でロード（pyarrow filtersで必要範囲のみ）
 - レースごとは `df[df["race_id"] == target]` でフィルタ
-- HorseHistoryFeatures もメモリ上で過去データを検索
+- HorseHistoryFeatures は `load_history_entries(lookback_years=5)` で制御付きロード
 - ネットワークI/Oがゼロになり、大幅な高速化が期待できる
-- オッズ時系列（83M行）は pyarrow 述語プッシュダウンで必要範囲のみ読み取り
+- time_series（83M行）は 年/月パーティション + pyarrow で該当月のみ読み取り
 
 ## 8. CLAUDE.md更新
 
 ArchitectureセクションをParquetベースの構成に更新。将来のセッションでLLMが一目でアーキテクチャを理解できるようにする。
+
+## 9. 将来拡張
+
+DataRepositoryを唯一のデータアクセス層とすることで、将来以下への移行を妨げない:
+
+- **DuckDB**: ParquetStoreの内部実装をDuckDBに差し替え可能。SQLクエリによる高速JOIN/集計が可能。
+- **Polars**: DataRepositoryの返り値をPolars DataFrameに変更可能。
+- **クラウドストレージ**: ParquetStoreのパスをS3/GCSに変更可能。
