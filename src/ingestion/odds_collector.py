@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Optional, Protocol, runtime_checkable
 import pandas as pd
 
 if TYPE_CHECKING:
-    from db.connection import DatabaseConnection
+    from db.repository import DataRepository
 
 logger = logging.getLogger(__name__)
 
@@ -32,10 +32,10 @@ class OddsCollector:
     def __init__(
         self,
         fetcher: OddsFetcherProtocol,
-        db: Optional[DatabaseConnection] = None,
+        repo: Optional[DataRepository] = None,
     ) -> None:
         self.fetcher = fetcher
-        self.db = db
+        self.repo = repo
 
     def collect_t3_snapshot(self, race_id: str) -> dict[int, float]:
         """発走3分前のオッズスナップショットを取得
@@ -43,9 +43,7 @@ class OddsCollector:
         LateMoneyFilter.process_last_minute() の odds_t3_snapshot に使用。
         """
         snapshot = self.fetcher.fetch_odds_snapshot(race_id)
-        logger.info(
-            f"[t-3min] race={race_id} n_horses={len(snapshot)}"
-        )
+        logger.info(f"[t-3min] race={race_id} n_horses={len(snapshot)}")
         return snapshot
 
     def collect_t2_snapshot(self, race_id: str) -> dict[int, float]:
@@ -54,9 +52,7 @@ class OddsCollector:
         設計書 §8: 判定には使わない。将来のチューニングデータ。
         """
         snapshot = self.fetcher.fetch_odds_snapshot(race_id)
-        logger.info(
-            f"[t-2min LOG ONLY] race={race_id} n_horses={len(snapshot)}"
-        )
+        logger.info(f"[t-2min LOG ONLY] race={race_id} n_horses={len(snapshot)}")
         return snapshot
 
     def store_snapshot(
@@ -73,26 +69,27 @@ class OddsCollector:
             timing: "t3" or "t2"
             snapshot: horse_no → odds
         """
-        if self.db is None:
+        if self.repo is None:
             return
 
         rows = []
         for horse_no, odds in snapshot.items():
-            rows.append({
-                "race_id": race_id,
-                "horse_no": horse_no,
-                "tan_odds": odds,
-                "timing": timing,
-            })
+            rows.append(
+                {
+                    "race_id": race_id,
+                    "horse_no": horse_no,
+                    "tan_odds": odds,
+                    "timing": timing,
+                }
+            )
         df = pd.DataFrame(rows)
-        self.db.save_predictions(df)
-        logger.info(
-            f"[{timing}] Saved {len(rows)} odds for race={race_id}"
-        )
+        self.repo.save_predictions(df)
+        logger.info(f"[{timing}] Saved {len(rows)} odds for race={race_id}")
 
     @staticmethod
     def get_odds_change_rate(
-        odds_before: float, odds_after: float,
+        odds_before: float,
+        odds_after: float,
     ) -> Optional[float]:
         """オッズ変化率を計算 (正値 = 急落、負値 = 急騰)
 
