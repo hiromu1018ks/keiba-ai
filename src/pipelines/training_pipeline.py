@@ -18,6 +18,7 @@ from domain.models import SubmodelSet, TrainedModelsV5
 
 if TYPE_CHECKING:
     from db.connection import DatabaseConnection
+
 from features.feature_engine import FeatureEngine
 from models.ev_correction_model import EVCorrectionModel
 from models.market_model import MarketModel
