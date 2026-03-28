@@ -116,6 +116,44 @@ Phase A (done) → B (features/) → C (models/) → D (betting/) → E (backtes
 - テストは DB不要 (全て mock) — `unittest.mock` を使用
 - コミットメッセージ: Conventional Commits (日本語)
 
+## Pipeline Scripts (実行順序)
+
+```bash
+# 環境変数（PostgreSQLパスワード）
+export PGPASSWORD=<password>
+
+# Step 1: ETL — PostgreSQL (EveryDB2) → Parquet
+python scripts/run_etl.py --start 20140101 --end 20231231
+
+# Step 2: 学習 — Parquet → 特徴量生成 → LightGBM Ranker + 補正モデル
+python scripts/run_train.py --start 20200101 --end 20231231
+
+# Step 3: バックテスト — 学習 + テスト期間のシミュレーション
+python scripts/run_backtest.py \
+  --train-start 20200101 --train-end 20231231 \
+  --test-start 20240101 --test-end 20241231
+```
+
+### 各スクリプトの詳細
+
+| スクリプト | 役割 | 入力 | 出力 | 所要時間 |
+|-----------|------|------|------|---------|
+| `scripts/run_etl.py` | PostgreSQL→Parquet抽出 | EveryDB2外部テーブル | `data/raw/*.parquet`, `data/odds/*.parquet` | ~5分 |
+| `scripts/run_train.py` | MLモデル学習 | Parquetファイル群 | MLflowモデル, 特徴量キャッシュ | ~68分 |
+| `scripts/run_backtest.py` | 学習+バックテスト | Parquet + 学習済みモデル | `backtest_result.json` | ~80分 |
+
+### 直近のバックテスト結果 (2024年テスト)
+
+- ROI: 66.3% (改善前63.8%から+2.5%向上)
+- ベット数: 2,967 / 投資額: 296,700円 / 払戻額: 196,780円
+- 学習: 2020-2023 / テスト: 2024
+
+### 既知の制約
+
+- PostgreSQL GENERATED列（`distance_band`, `surface` via `track_cd`）はParquet ETLに含まれない → `FeatureEngine._map_basic_features()` でPython再計算
+- Phase 1プレースホルダー: `haron_time_zscore_avg` は常にNaN → LightGBMはNaN処理可能だが `PlaceAbilityModel.train()` の `dropna()` で除外済み
+- `run_backtest.py` は毎回学習し直す設計（再現性保証）。モデルの保存/読み込みはMLflow経由
+
 ## Configuration
 
 `config/settings.yaml` — database, paths, logging, feature_engine, late_money, submodel の設定。
