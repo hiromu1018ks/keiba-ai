@@ -13,6 +13,33 @@ from models.submodel_manager import SubModelManager
 from pipelines.training_pipeline import TrainingPipelineV5
 
 
+class _FakeHistFeatures:
+    """HorseHistoryFeatures のスタブ (DB不要)"""
+
+    def __init__(self, *args, **kwargs):  # noqa: ARG002
+        pass
+
+    def compute(self, race_df, entry_df, target_race_ids=None):  # noqa: ARG002
+        return pd.DataFrame(columns=["race_id", "umaban"])
+
+    @staticmethod
+    def add_race_transforms(df):
+        return df
+
+
+class _FakePlaceAbilityModel:
+    """PlaceAbilityModel のスタブ (学習不要)"""
+
+    def train(self, df):  # noqa: ARG002
+        pass
+
+    def predict(self, df):
+        df = df.copy()
+        df["p_ability_place"] = 0.3
+        df["p_ability_place_raw"] = 0.3
+        return df
+
+
 class TestTrainedModelsV5:
     """TrainedModelsV5 コンテナのテスト"""
 
@@ -21,6 +48,7 @@ class TestTrainedModelsV5:
         sub = SubmodelSet(
             market=None,
             stage1=None,
+            place_ability=None,
             win=None,
             ev_corrector=None,
             place=None,
@@ -37,6 +65,7 @@ class TestTrainedModelsV5:
                 "turf": SubmodelSet(
                     market=None,
                     stage1=None,
+                    place_ability=None,
                     win=None,
                     ev_corrector=None,
                     place=None,
@@ -58,6 +87,7 @@ class TestTrainedModelsV5:
                 "turf": SubmodelSet(
                     market="m_turf",
                     stage1="s_turf",
+                    place_ability=None,
                     win="w_turf",
                     ev_corrector="e_turf",
                     place="p_turf",
@@ -67,6 +97,7 @@ class TestTrainedModelsV5:
                 "dirt": SubmodelSet(
                     market="m_dirt",
                     stage1="s_dirt",
+                    place_ability=None,
                     win="w_dirt",
                     ev_corrector="e_dirt",
                     place="p_dirt",
@@ -112,6 +143,23 @@ def _make_feature_df(n: int = 5000, n_races: int = 500) -> pd.DataFrame:
                     "overround": np.random.uniform(0.15, 0.30),
                     "weight_diff_from_mean": np.random.uniform(-10, 10),
                     "difficulty_score": np.random.uniform(0, 1),
+                    # Phase 1: 馬の過去成績
+                    "norm_finish_logit_avg": np.random.uniform(-2, 2),
+                    "jockey_surprise": np.random.uniform(-1, 1),
+                    "haron_time_zscore_avg": np.random.uniform(-3, 3),
+                    # Phase 1: レース内z-score
+                    "norm_finish_logit_avg_race_z": np.random.uniform(-2, 2),
+                    "jockey_surprise_race_z": np.random.uniform(-2, 2),
+                    "haron_time_zscore_avg_race_z": np.random.uniform(-2, 2),
+                    # Phase 1: レース内pct
+                    "norm_finish_logit_avg_race_pct": np.random.uniform(0, 1),
+                    "jockey_surprise_race_pct": np.random.uniform(0, 1),
+                    "haron_time_zscore_avg_race_pct": np.random.uniform(0, 1),
+                    # Phase 2 (4)
+                    "jockey_cond_wr": np.random.uniform(0, 0.3),
+                    "jockey_cond_wr_race_z": np.random.uniform(-2, 2),
+                    "jockey_cond_wr_race_pct": np.random.uniform(0, 1),
+                    "weight_absolute": np.random.uniform(400, 550),
                     "odds_change_rate_30min": np.random.normal(0, 0.1),
                     "odds_volatility_60min": np.random.uniform(0, 0.5),
                     "signed_log_error_win": np.random.normal(0, 0.3),
@@ -154,12 +202,20 @@ class TestTrainingPipelineV5:
                 "add_distance_band_features",
                 side_effect=lambda df: df.copy(),
             ):
-                pipeline = TrainingPipelineV5.__new__(TrainingPipelineV5)
-                pipeline.db = mock_db
-                pipeline.feature_engine = FeatureEngine()
-                pipeline.submodel_mgr = SubModelManager()
+                with patch(
+                    "features.horse_history_features.HorseHistoryFeatures",
+                    _FakeHistFeatures,
+                ):
+                    with patch(
+                        "models.place_ability_model.PlaceAbilityModel",
+                        _FakePlaceAbilityModel,
+                    ):
+                        pipeline = TrainingPipelineV5.__new__(TrainingPipelineV5)
+                        pipeline.db = mock_db
+                        pipeline.feature_engine = FeatureEngine()
+                        pipeline.submodel_mgr = SubModelManager()
 
-                result = pipeline.run("2020-01-01", "2023-12-31")
+                        result = pipeline.run("2020-01-01", "2023-12-31")
 
         assert isinstance(result, TrainedModelsV5)
         assert "turf" in result.submodels or "dirt" in result.submodels
@@ -192,12 +248,20 @@ class TestTrainingPipelineV5:
                 "add_distance_band_features",
                 side_effect=lambda df: df.copy(),
             ):
-                pipeline = TrainingPipelineV5.__new__(TrainingPipelineV5)
-                pipeline.db = mock_db
-                pipeline.feature_engine = FeatureEngine()
-                pipeline.submodel_mgr = SubModelManager()
+                with patch(
+                    "features.horse_history_features.HorseHistoryFeatures",
+                    _FakeHistFeatures,
+                ):
+                    with patch(
+                        "models.place_ability_model.PlaceAbilityModel",
+                        _FakePlaceAbilityModel,
+                    ):
+                        pipeline = TrainingPipelineV5.__new__(TrainingPipelineV5)
+                        pipeline.db = mock_db
+                        pipeline.feature_engine = FeatureEngine()
+                        pipeline.submodel_mgr = SubModelManager()
 
-                result = pipeline.run("2020-01-01", "2023-12-31")
+                        result = pipeline.run("2020-01-01", "2023-12-31")
 
         assert len(result.submodels) >= 1
 
@@ -222,11 +286,19 @@ class TestTrainingPipelineV5:
                 "add_distance_band_features",
                 side_effect=lambda df: df.copy(),
             ):
-                pipeline = TrainingPipelineV5.__new__(TrainingPipelineV5)
-                pipeline.db = mock_db
-                pipeline.feature_engine = FeatureEngine()
-                pipeline.submodel_mgr = SubModelManager()
+                with patch(
+                    "features.horse_history_features.HorseHistoryFeatures",
+                    _FakeHistFeatures,
+                ):
+                    with patch(
+                        "models.place_ability_model.PlaceAbilityModel",
+                        _FakePlaceAbilityModel,
+                    ):
+                        pipeline = TrainingPipelineV5.__new__(TrainingPipelineV5)
+                        pipeline.db = mock_db
+                        pipeline.feature_engine = FeatureEngine()
+                        pipeline.submodel_mgr = SubModelManager()
 
-                pipeline.run("2020-01-01", "2023-12-31")
+                        pipeline.run("2020-01-01", "2023-12-31")
 
         mock_mlflow.start_run.assert_called_once()

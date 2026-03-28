@@ -92,6 +92,10 @@ class BacktestEngine:
         entry_df = self.db.load_entries_with_results(start, end)
         odds_df = self.db.load_odds_snapshots(start, end)
 
+        # HorseHistoryFeatures 用にインスタンス属性に保存
+        self._race_df = race_df
+        self._entry_df = entry_df
+
         if race_df.empty:
             logger.warning(f"No races found in {test_start} ~ {test_end}")
             return BacktestResult(final_bankroll=self.initial_bankroll)
@@ -137,6 +141,20 @@ class BacktestEngine:
                 logger.debug("Skipping race %s: market prediction failed: %s", race_id, e)
                 continue
             race_df_single = submodel.stage1.add_ability_probs(race_df_single)
+
+            # HorseHistoryFeatures 推論
+            from features.horse_history_features import HorseHistoryFeatures
+
+            hist = HorseHistoryFeatures(engine=self.db.get_engine())
+            hist_df = hist.compute(self._race_df, self._entry_df, [race_id])
+            race_df_single = race_df_single.merge(
+                hist_df, on=["race_id", "umaban"], how="left"
+            )
+            race_df_single = HorseHistoryFeatures.add_race_transforms(race_df_single)
+
+            # PlaceAbilityModel 推論
+            race_df_single = submodel.place_ability.predict(race_df_single)
+
             race_df_single = submodel.win.predict_ev(race_df_single)
             race_df_single = submodel.ev_corrector.correct_ev(race_df_single)
             race_df_single = submodel.place.predict_ev(race_df_single)

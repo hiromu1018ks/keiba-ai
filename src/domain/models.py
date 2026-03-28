@@ -10,6 +10,7 @@ from domain.types import BetType, RecoveryState, Surface
 if TYPE_CHECKING:
     from models.ev_correction_model import EVCorrectionModel
     from models.market_model import MarketModel
+    from models.place_ability_model import PlaceAbilityModel
     from models.race_quality_screener import RaceQualityScreener
     from models.regime_detector import RegimeDetector
     from models.robust_confidence_estimator import RobustConfidenceEstimator
@@ -222,6 +223,7 @@ class SubmodelSet:
 
     market: MarketModel
     stage1: AbilityModel
+    place_ability: PlaceAbilityModel
     win: WinTwoStageModel
     ev_corrector: EVCorrectionModel
     place: PlaceTwoStageModel

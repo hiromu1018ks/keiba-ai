@@ -52,6 +52,43 @@ class TestStakeCalculator:
         stake_high = calc.calc_stake(1.50, 5.0, 100000, BetType.PLACE)
         assert stake_high > stake_low
 
+    def test_calc_stake_fractional_kelly_halves_stake(self, calc: StakeCalculator) -> None:
+        """Fractional Kelly (0.5x) が適用される"""
+        # Kelly fraction = (1.30-1)/(5.0-1) = 0.30/4 = 0.075
+        # After FRACTIONAL_KELLY: 0.075 * 0.5 = 0.0375
+        # raw_stake = 100000 * 0.0375 = 3750
+        # floor(3750/100)*100 = 3700
+        stake = calc.calc_stake(1.30, 5.0, 100000, BetType.PLACE)
+        assert stake == 3700.0
+
+    def test_calc_stake_effective_cap(self, calc: StakeCalculator) -> None:
+        """有効キャップ = KELLY_FRACTION_CAP * FRACTIONAL_KELLY = 0.125"""
+        # Very high EV: edge/(odds-1) would exceed cap
+        # kelly = (10.0-1)/(2.0-1) = 9.0
+        # After fractional: 9.0 * 0.5 = 4.5
+        # Capped at 0.25 * 0.5 = 0.125
+        # raw_stake = 100000 * 0.125 = 12500
+        # floor(12500/100)*100 = 12500 -> capped at MAX_STAKE=10000
+        stake = calc.calc_stake(10.0, 2.0, 100000, BetType.PLACE)
+        assert stake == 10000.0  # MAX_STAKE cap
+
+    def test_calc_stake_max_stake_cap(self, calc: StakeCalculator) -> None:
+        """MAX_STAKE=10000 でキャップされる"""
+        # Large bankroll + high edge -> would exceed 10K without cap
+        stake = calc.calc_stake(3.0, 2.0, 1000000, BetType.PLACE)
+        # edge=2.0, kelly=2.0, *0.5=1.0, capped at 0.125
+        # raw = 1000000 * 0.125 = 125000 -> capped at 10000
+        assert stake <= 10000.0
+
+    def test_calc_stake_fractional_kelly_constants(self, calc: StakeCalculator) -> None:
+        """FRACTIONAL_KELLY が 0.5 であることを確認"""
+        assert calc.FRACTIONAL_KELLY == 0.5
+        assert calc.MAX_STAKE == 10000
+
+    def test_calc_stake_no_kelly_fraction_cap_constant(self, calc: StakeCalculator) -> None:
+        """KELLY_FRACTION_CAP は 0.25 のまま（FRACTIONAL_KELLY で乗算）"""
+        assert calc.KELLY_FRACTION_CAP == 0.25
+
     def test_check_race_exposure_caps_at_2pct(self, calc: StakeCalculator) -> None:
         """1レースの総stakeが資金の2%を超えたら削減"""
         bets = [

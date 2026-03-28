@@ -66,6 +66,10 @@ class TrainingPipelineV5:
         race_df = self.db.load_races(start, end)
         entry_df = self.db.load_entries_with_results(start, end)
         odds_df = self.db.load_odds_snapshots(start, end)
+
+        # NEW: _train_submodel 内で HorseHistoryFeatures が使用するため保存
+        self._race_df = race_df
+        self._entry_df = entry_df
         odds_ts_df = self.db.load_odds_time_series_range(start, end)
 
         # 2. 特徴量生成
@@ -93,21 +97,9 @@ class TrainingPipelineV5:
                 logger.warning(f"Skipping {surface}: insufficient data ({len(subset_df)})")
                 continue
 
-            sub, processed_df = self._train_submodel(subset_df)
+            sub = self._train_submodel(subset_df)
             models[surface] = sub
             logger.info(f"Trained {surface} submodel")
-
-            # market model の出力列を feat_df に反映
-            market_cols = ["signed_log_error_win", "abs_log_error_win",
-                           "market_error_rank_in_race", "market_pred_error_win",
-                           "market_log_error_win", "p_ability_win", "p_ability_place"]
-            for col in market_cols:
-                if col in processed_df.columns and col not in feat_df.columns:
-                    feat_df[col] = pd.NA
-                if col in processed_df.columns:
-                    feat_df.loc[feat_df["surface"] == surface, col] = (
-                        processed_df[col].values
-                    )
 
         # 4. feat_df の object 数値列を float64 に統一
         for col in feat_df.columns:
@@ -133,7 +125,7 @@ class TrainingPipelineV5:
         logger.info("Trained RaceQualityScreener")
 
         # 6. RegimeDetector
-        regime_stats_df = self._build_regime_stats(race_feat_df)
+        regime_stats_df = self._build_regime_stats(race_feat_df, feat_df)
         regime_det = RegimeDetector()
         regime_det.train(regime_stats_df)
         logger.info("Trained RegimeDetector")
@@ -148,12 +140,17 @@ class TrainingPipelineV5:
             train_period=(train_start, train_end),
         )
 
-    def _train_submodel(self, df: pd.DataFrame) -> tuple[SubmodelSet, pd.DataFrame]:
-        """単一 surface のサブモデル群を学習
+    def _train_submodel(self, df: pd.DataFrame) -> SubmodelSet:
+        """単一 surface のサブモデル群を学習"""
+        # NEW: 馬過去成績特徴量
+        from features.horse_history_features import HorseHistoryFeatures
 
-        Returns:
-            (学習済みサブモデル群, 特徴量追加済みDataFrame)
-        """
+        hist = HorseHistoryFeatures(engine=self.db.get_engine())
+        hist_df = hist.compute(self._race_df, self._entry_df, df["race_id"].unique())
+        df = df.merge(hist_df, on=["race_id", "umaban"], how="left")
+        df = HorseHistoryFeatures.add_race_transforms(df)
+
+
         # 1. Market Model (正規化差分 log_error のみ出力)
         # object型の数値列 (pd.NA含む) → float64 (2回目のsurface処理でpd.NAが混入するため)
         for col in df.columns:
@@ -177,13 +174,13 @@ class TrainingPipelineV5:
         stage1.train(df)
         df = stage1.add_ability_probs(df)
 
-        # 新規追加列の pd.NA含む object → float64 変換
-        for col in df.columns:
-            if df[col].dtype == object:
-                try:
-                    df[col] = df[col].astype(float)
-                except (ValueError, TypeError):
-                    pass
+        # NEW: PlaceAbilityModel
+        from models.place_ability_model import PlaceAbilityModel
+
+        place_ability = PlaceAbilityModel()
+        place_ability.train(df)
+        df = place_ability.predict(df)
+
 
         # 3. 単勝 2段階モデル
         win_2s = WinTwoStageModel()
@@ -221,17 +218,15 @@ class TrainingPipelineV5:
         place_calib_df["ev_place_corrected"] = df["ev_place"]
         conf.calibrate(win_calib_df, place_calib_df)
 
-        return (
-            SubmodelSet(
-                market=market,
-                stage1=stage1,
-                win=win_2s,
-                ev_corrector=ev_corrector,
-                place=place_2s,
-                wide=wide_2s,
-                confidence=conf,
-            ),
-            df,
+        return SubmodelSet(
+            market=market,
+            stage1=stage1,
+            place_ability=place_ability,
+            win=win_2s,
+            ev_corrector=ev_corrector,
+            place=place_2s,
+            wide=wide_2s,
+            confidence=conf,
         )
 
     def _build_race_level_features(self, feat_df: pd.DataFrame) -> pd.DataFrame:
@@ -308,11 +303,13 @@ class TrainingPipelineV5:
 
         return race_feat
 
-    def _build_regime_stats(self, race_feat_df: pd.DataFrame) -> pd.DataFrame:
+    def _build_regime_stats(
+        self, race_feat_df: pd.DataFrame, feat_df: pd.DataFrame
+    ) -> pd.DataFrame:
         """RegimeDetector 用の rolling 統計を構築
 
-        RegimeDetector.FEATURE_COLS (10列) に対応。
-        直近200レースの window 統計。
+        RegimeDetector.FEATURE_COLS (11列) に対応。
+        直近200レースの window 統計。実データ計算を使用。
         """
         if "race_date" in race_feat_df.columns:
             race_feat_df = race_feat_df.sort_values("race_date").reset_index(drop=True)
@@ -325,19 +322,47 @@ class TrainingPipelineV5:
             if col in stats.columns:
                 stats[f"{col}_rolling"] = stats[col].rolling(window=window, min_periods=50).mean()
 
-        # ROI rolling (ダミー — 実際はベット結果から計算)
-        stats["rolling_roi"] = (
-            stats["favorite_win_rate"].rolling(window=window, min_periods=50).mean()
-        )
-
         # RegimeDetector.FEATURE_COLS に必要な列をマッピング
         stats["market_error_std"] = stats["market_log_error_std"].fillna(0.2)
         stats["market_error_mean"] = stats["market_log_error_mean"].fillna(0.0)
-        stats["flb_slope"] = 0.0
-        stats["odds_volatility_mean"] = 0.1
-        stats["rolling_roi_200"] = stats["rolling_roi"].fillna(0.5)
-        stats["hit_rate_top3_mean"] = stats["favorite_win_rate"].fillna(0.3) * 3.0
         stats["field_size_mean"] = stats["field_size"].fillna(14.0).astype(float)
+
+        # --- Phase 3: 実データ化 ---
+        # FLB slope: 馬レベル feat_df から計算 → レース単位に集約
+        from features.market_bias_features import compute_flb_slope
+
+        if all(c in feat_df.columns for c in ["race_id", "tan_odds", "finish_pos"]):
+            flb_series = compute_flb_slope(feat_df)
+            feat_copy = feat_df.copy()
+            feat_copy["flb_slope"] = flb_series.values
+            race_flb = feat_copy.groupby("race_id")["flb_slope"].first()
+            stats["flb_slope"] = stats["race_id"].map(race_flb).fillna(0.0)
+        else:
+            stats["flb_slope"] = 0.0
+
+        # Rolling volatility: 馬レベル odds_volatility → レース平均 → rolling
+        from features.odds_dynamics_features import compute_rolling_volatility
+
+        if "odds_volatility" in feat_df.columns:
+            feat_copy = feat_df.copy()
+            vol_series = compute_rolling_volatility(feat_copy, window=window, min_periods=50)
+            feat_copy["odds_volatility_rolling"] = vol_series.values
+            race_vol = feat_copy.groupby("race_id")["odds_volatility_rolling"].mean()
+            stats["odds_volatility_mean"] = stats["race_id"].map(race_vol).fillna(0.1)
+        else:
+            stats["odds_volatility_mean"] = 0.1
+
+        # ROI EMA: 人気層別の指数移動平均
+        from features.odds_dynamics_features import compute_roi_ema
+
+        roi_ema_df = compute_roi_ema(feat_df, span=50, min_periods=50)
+        # レース単位に集約 (人気層別 ROI EMA の平均)
+        for band in ["favorite", "mid", "longshot"]:
+            col = f"{band}_roi_ema"
+            feat_copy = feat_df.copy()
+            feat_copy[col] = roi_ema_df[col].values
+            race_ema = feat_copy.groupby("race_id")[col].mean()
+            stats[col] = stats["race_id"].map(race_ema).fillna(0.0)
 
         return stats
 

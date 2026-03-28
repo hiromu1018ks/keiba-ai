@@ -4,7 +4,11 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from features.odds_dynamics_features import compute_odds_dynamics
+from features.odds_dynamics_features import (
+    compute_odds_dynamics,
+    compute_roi_ema,
+    compute_rolling_volatility,
+)
 
 
 @pytest.fixture
@@ -155,3 +159,90 @@ class TestOddsDynamicsFeatures:
         result = compute_odds_dynamics(base_df, odds_ts_df)
         assert "race_id" in result.columns
         assert "umaban" in result.columns
+
+
+class TestComputeRollingVolatility:
+    def test_returns_series(self) -> None:
+        """Series を返す"""
+        df = pd.DataFrame(
+            {
+                "race_id": ["R1", "R1", "R2", "R2"],
+                "odds_volatility": [0.1, 0.2, 0.3, 0.4],
+            }
+        )
+        result = compute_rolling_volatility(df)
+        assert isinstance(result, pd.Series)
+        assert len(result) == len(df)
+
+    def test_missing_column_returns_nan(self) -> None:
+        """odds_volatility 列がない場合は NaN"""
+        df = pd.DataFrame({"race_id": ["R1", "R1"], "umaban": [1, 2]})
+        result = compute_rolling_volatility(df)
+        assert result.isna().all()
+
+    def test_rolling_window_produces_nans_for_short_data(self) -> None:
+        """min_periods=50 の場合、短いデータは NaN"""
+        df = pd.DataFrame(
+            {
+                "race_id": [f"R{i}" for i in range(10)] * 2,
+                "odds_volatility": np.random.uniform(0, 0.5, 20),
+            }
+        )
+        result = compute_rolling_volatility(df, window=200, min_periods=50)
+        # データが10レースしかないので rolling 結果は NaN
+        assert result.isna().all()
+
+
+class TestComputeRoiEma:
+    def test_returns_dataframe_with_ema_columns(self) -> None:
+        """3つの ROI EMA 列を含む DataFrame を返す"""
+        np.random.seed(42)
+        n_races = 60
+        rows = []
+        for r in range(n_races):
+            for h in range(10):
+                rows.append(
+                    {
+                        "race_id": f"R{r:04d}",
+                        "umaban": h + 1,
+                        "finish_pos": 1 if h == 0 else np.random.randint(2, 11),
+                        "tan_odds": np.random.uniform(1.5, 100.0),
+                        "popularity_rank": h + 1,
+                    }
+                )
+        df = pd.DataFrame(rows)
+        result = compute_roi_ema(df, span=20, min_periods=10)
+        assert "favorite_roi_ema" in result.columns
+        assert "mid_roi_ema" in result.columns
+        assert "longshot_roi_ema" in result.columns
+        assert len(result) == len(df)
+
+    def test_missing_columns_returns_zeros(self) -> None:
+        """必須列がない場合は 0.0 を返す"""
+        df = pd.DataFrame({"race_id": ["R1", "R1"], "umaban": [1, 2]})
+        result = compute_roi_ema(df)
+        assert (result["favorite_roi_ema"] == 0.0).all()
+        assert (result["mid_roi_ema"] == 0.0).all()
+        assert (result["longshot_roi_ema"] == 0.0).all()
+
+    def test_ema_increases_with_more_wins(self) -> None:
+        """勝利が多いほど favorite ROI EMA が大きい"""
+        np.random.seed(42)
+        rows = []
+        # 前半: favorite がよく勝つ
+        for r in range(30):
+            for h in range(10):
+                rows.append(
+                    {
+                        "race_id": f"R{r:04d}",
+                        "umaban": h + 1,
+                        "finish_pos": 1 if h == 0 else np.random.randint(2, 11),
+                        "tan_odds": 3.0,
+                        "popularity_rank": h + 1,
+                    }
+                )
+        df = pd.DataFrame(rows)
+        result = compute_roi_ema(df, span=10, min_periods=5)
+        # 最後のレースの favorite_roi_ema は 0 より大きいはず
+        last_race = result[result["race_id"] == "R0029"]
+        assert last_race["favorite_roi_ema"].mean() > 0.0

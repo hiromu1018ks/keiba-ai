@@ -32,9 +32,10 @@ class RegimeDetector:
         "favorite_win_rate",
         "flb_slope",
         "odds_volatility_mean",
-        # 利益性 (補助・v5.5: 教師ラベルには不使用)
-        "rolling_roi_200",
-        "hit_rate_top3_mean",
+        # ROI EMA (Phase 3: 実データ化, v5.5: 教師ラベルには不使用)
+        "favorite_roi_ema",
+        "mid_roi_ema",
+        "longshot_roi_ema",
         # レース構造
         "field_size_mean",
     ]

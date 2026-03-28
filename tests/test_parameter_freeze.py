@@ -28,6 +28,7 @@ def mock_models() -> TrainedModelsV5:
             "turf": SubmodelSet(
                 market=mock_market,
                 stage1=mock_stage1,
+                place_ability=MagicMock(),
                 win=mock_win,
                 ev_corrector=MagicMock(),
                 place=MagicMock(),
@@ -74,6 +75,7 @@ class TestParameterFreezeProtocol:
         mock_models.submodels["turf"] = SubmodelSet(
             market=MagicMock(),
             stage1=MagicMock(),
+            place_ability=MagicMock(),
             win=MagicMock(),
             ev_corrector=MagicMock(),
             place=MagicMock(),
@@ -106,6 +108,7 @@ class TestParameterFreezeProtocol:
                 mock_models.submodels["turf"] = SubmodelSet(
                     market=MagicMock(),
                     stage1=MagicMock(),
+                    place_ability=MagicMock(),
                     win=MagicMock(),
                     ev_corrector=MagicMock(),
                     place=MagicMock(),

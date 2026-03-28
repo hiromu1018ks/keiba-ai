@@ -14,16 +14,18 @@ class StakeCalculator:
     賭け金計算: EV下限値に連動したケリー基準。
 
     Kelly fraction = (ev_lower - 1) / (odds - 1)
-    実際のstake = bankroll × kelly_fraction × kelly_fraction_cap
+    実際のstake = bankroll × kelly_fraction × FRACTIONAL_KELLY
     100円単位に切り捨て。
 
     Rule 6: 1レースの最大リスクは資金の2%。
     """
 
     MIN_EV_THRESHOLD: float = 1.05  # EV下限がこれ未満ならベットしない
+    FRACTIONAL_KELLY: float = 0.5  # ハーフケリー
     KELLY_FRACTION_CAP: float = 0.25  # Kelly fraction の最大値（full Kellyの1/4）
     RACE_EXPOSURE_CAP: float = 0.02  # 1レースの最大露出率（2%）
     MIN_STAKE: int = 100  # 最低投票額
+    MAX_STAKE: int = 10000  # 最大投票額 (10K yen cap)
 
     def calc_stake(
         self,
@@ -34,6 +36,9 @@ class StakeCalculator:
     ) -> float:
         """
         EV下限値からケリー基準で賭け金を計算する。
+
+        Fractional Kelly (0.5x) を適用し、有効キャップは
+        KELLY_FRACTION_CAP × FRACTIONAL_KELLY = 0.125。
 
         Args:
             ev_lower: EV下限値（RobustConfidenceEstimator出力）
@@ -49,10 +54,20 @@ class StakeCalculator:
 
         edge = ev_lower - 1.0
         kelly_fraction = edge / (odds - 1.0)
-        kelly_fraction = min(kelly_fraction, self.KELLY_FRACTION_CAP)
+
+        # Fractional Kelly (0.5x) を適用
+        kelly_fraction = kelly_fraction * self.FRACTIONAL_KELLY
+
+        # 有効キャップ: KELLY_FRACTION_CAP × FRACTIONAL_KELLY = 0.125
+        effective_cap = self.KELLY_FRACTION_CAP * self.FRACTIONAL_KELLY
+        kelly_fraction = min(kelly_fraction, effective_cap)
 
         raw_stake = bankroll * kelly_fraction
         stake = max(0, int(math.floor(raw_stake / self.MIN_STAKE)) * self.MIN_STAKE)
+
+        # MAX_STAKE でキャップ
+        stake = min(stake, self.MAX_STAKE)
+
         return float(stake)
 
     def check_race_exposure(
