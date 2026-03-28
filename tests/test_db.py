@@ -3,7 +3,9 @@
 import os
 from unittest.mock import MagicMock, patch
 
-from db.connection import DatabaseConnection
+import pandas as pd
+
+from db.connection import DatabaseConnection, _compute_race_date, _compute_race_id
 from db.schema import (
     ALL_CREATE_STATEMENTS,
     SCHEMA_BETTING,
@@ -156,3 +158,24 @@ class TestDatabaseConnection:
 
             # 17個の個別SQLステートメントが実行される
             assert mock_engine.begin.call_count == 17
+
+
+class TestComputeHelpers:
+    def test_compute_race_id(self) -> None:
+        df = pd.DataFrame(
+            {
+                "year": [2020],
+                "month_day": [101],
+                "jyo_cd": [5],
+                "kaiji": [1],
+                "nichiji": [1],
+                "race_num": [11],
+            }
+        )
+        result = _compute_race_id(df)
+        assert result["race_id"].iloc[0] == "2020010105010111"
+
+    def test_compute_race_date(self) -> None:
+        df = pd.DataFrame({"year": [2020], "month_day": [315]})
+        result = _compute_race_date(df)
+        assert result["race_date"].iloc[0] == pd.Timestamp("2020-03-15")

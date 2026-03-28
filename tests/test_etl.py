@@ -209,23 +209,25 @@ class TestEtlRaces:
     @patch("db.etl.pd.read_sql")
     def test_calls_insert_with_correct_data(self, mock_read_sql, mock_insert):
         mock_engine = MagicMock()
-        mock_read_sql.return_value = pd.DataFrame({
-            "year": ["2024"],
-            "monthday": ["0324"],
-            "jyocd": ["05"],
-            "kaiji": ["03"],
-            "nichiji": ["02"],
-            "racenum": ["08"],
-            "trackcd": ["11"],
-            "kyori": ["1600"],
-            "tenkocd": ["1"],
-            "sibababacd": ["2"],
-            "dirtbabacd": ["3"],
-            "syubetucd": ["13"],
-            "jyokencd1": ["999"],
-            "gradecd": ["_"],
-            "syussotosu": ["18"],
-        })
+        mock_read_sql.return_value = pd.DataFrame(
+            {
+                "year": ["2024"],
+                "monthday": ["0324"],
+                "jyocd": ["05"],
+                "kaiji": ["03"],
+                "nichiji": ["02"],
+                "racenum": ["08"],
+                "trackcd": ["11"],
+                "kyori": ["1600"],
+                "tenkocd": ["1"],
+                "sibababacd": ["2"],
+                "dirtbabacd": ["3"],
+                "syubetucd": ["13"],
+                "jyokencd1": ["999"],
+                "gradecd": ["_"],
+                "syussotosu": ["18"],
+            }
+        )
 
         result = etl_races(mock_engine, "20240101", "20241231")
 
@@ -245,23 +247,25 @@ class TestEtlRaces:
     @patch("db.etl.pd.read_sql")
     def test_empty_grade_cd_defaults_to_underscore(self, mock_read_sql, mock_insert):
         mock_engine = MagicMock()
-        mock_read_sql.return_value = pd.DataFrame({
-            "year": ["2024"],
-            "monthday": ["0324"],
-            "jyocd": ["05"],
-            "kaiji": ["03"],
-            "nichiji": ["02"],
-            "racenum": ["08"],
-            "trackcd": ["23"],
-            "kyori": ["1200"],
-            "tenkocd": ["1"],
-            "sibababacd": ["2"],
-            "dirtbabacd": ["3"],
-            "syubetucd": ["13"],
-            "jyokencd1": ["999"],
-            "gradecd": [""],
-            "syussotosu": ["14"],
-        })
+        mock_read_sql.return_value = pd.DataFrame(
+            {
+                "year": ["2024"],
+                "monthday": ["0324"],
+                "jyocd": ["05"],
+                "kaiji": ["03"],
+                "nichiji": ["02"],
+                "racenum": ["08"],
+                "trackcd": ["23"],
+                "kyori": ["1200"],
+                "tenkocd": ["1"],
+                "sibababacd": ["2"],
+                "dirtbabacd": ["3"],
+                "syubetucd": ["13"],
+                "jyokencd1": ["999"],
+                "gradecd": [""],
+                "syussotosu": ["14"],
+            }
+        )
 
         result = etl_races(mock_engine, "20240101", "20241231")
 
@@ -288,23 +292,25 @@ class TestEtlEntries:
     @patch("db.etl.pd.read_sql")
     def test_column_mapping(self, mock_read_sql, mock_insert):
         mock_engine = MagicMock()
-        mock_read_sql.return_value = pd.DataFrame({
-            "umaban": ["1"],
-            "kettonum": ["0001234567"],
-            "kakuteijyuni": ["3"],
-            "time": ["95.3"],
-            "odds": ["0054"],
-            "ninki": ["3"],
-            "bataijyu": ["480"],
-            "zogenfugo": ["2"],
-            "zogensa": ["-4"],
-            "kisyucode": ["01056"],
-            "chokyosicode": ["01023"],
-            "harontimel3": ["33.5"],
-            "honsyokin": ["0"],
-            "kyakusitukubun": ["0"],
-            "race_id": ["2024032405030208"],
-        })
+        mock_read_sql.return_value = pd.DataFrame(
+            {
+                "umaban": ["1"],
+                "kettonum": ["0001234567"],
+                "kakuteijyuni": ["3"],
+                "time": ["95.3"],
+                "odds": ["0054"],
+                "ninki": ["3"],
+                "bataijyu": ["480"],
+                "zogenfugo": ["2"],
+                "zogensa": ["-4"],
+                "kisyucode": ["01056"],
+                "chokyosicode": ["01023"],
+                "harontimel3": ["33.5"],
+                "honsyokin": ["0"],
+                "kyakusitukubun": ["0"],
+                "race_id": ["2024032405030208"],
+            }
+        )
 
         result = etl_entries(mock_engine, "20240101", "20241231")
 
@@ -336,21 +342,23 @@ class TestEtlPayouts:
     @patch("db.etl.pd.read_sql")
     def test_column_mapping(self, mock_read_sql, mock_insert):
         mock_engine = MagicMock()
-        mock_read_sql.return_value = pd.DataFrame({
-            "paytansyoumaban1": ["3"],
-            "paytansyopay1": ["540"],
-            "payfukusyoumaban1": ["3"],
-            "payfukusyopay1": ["140"],
-            "payfukusyoumaban2": ["7"],
-            "payfukusyopay2": ["240"],
-            "payfukusyoumaban3": ["1"],
-            "payfukusyopay3": ["120"],
-            "payfukusyoumaban4": ["5"],
-            "payfukusyopay4": ["360"],
-            "payfukusyoumaban5": ["9"],
-            "payfukusyopay5": ["890"],
-            "race_id": ["2024032405030208"],
-        })
+        mock_read_sql.return_value = pd.DataFrame(
+            {
+                "paytansyoumaban1": ["3"],
+                "paytansyopay1": ["540"],
+                "payfukusyoumaban1": ["3"],
+                "payfukusyopay1": ["140"],
+                "payfukusyoumaban2": ["7"],
+                "payfukusyopay2": ["240"],
+                "payfukusyoumaban3": ["1"],
+                "payfukusyopay3": ["120"],
+                "payfukusyoumaban4": ["5"],
+                "payfukusyopay4": ["360"],
+                "payfukusyoumaban5": ["9"],
+                "payfukusyopay5": ["890"],
+                "race_id": ["2024032405030208"],
+            }
+        )
 
         result = etl_payouts(mock_engine, "20240101", "20241231")
 
@@ -380,12 +388,14 @@ class TestEtlOddsSnapshots:
     @patch("db.etl.pd.read_sql")
     def test_column_mapping(self, mock_read_sql, mock_insert):
         mock_engine = MagicMock()
-        mock_read_sql.return_value = pd.DataFrame({
-            "umaban": ["1", "2"],
-            "tanodds": ["0032", "0054"],
-            "fukuoddslow": ["0013", "0021"],
-            "race_id": ["2024032405030208", "2024032405030208"],
-        })
+        mock_read_sql.return_value = pd.DataFrame(
+            {
+                "umaban": ["1", "2"],
+                "tanodds": ["0032", "0054"],
+                "fukuoddslow": ["0013", "0021"],
+                "race_id": ["2024032405030208", "2024032405030208"],
+            }
+        )
 
         result = etl_odds_snapshots(mock_engine, "20240101", "20241231")
 
@@ -413,12 +423,14 @@ class TestEtlWideOdds:
     @patch("db.etl.pd.read_sql")
     def test_column_mapping(self, mock_read_sql, mock_insert):
         mock_engine = MagicMock()
-        mock_read_sql.return_value = pd.DataFrame({
-            "kumi": ["1-2", "1-3"],
-            "oddslow": ["00320", "00510"],
-            "oddshigh": ["00450", "00780"],
-            "race_id": ["2024032405030208", "2024032405030208"],
-        })
+        mock_read_sql.return_value = pd.DataFrame(
+            {
+                "kumi": ["1-2", "1-3"],
+                "oddslow": ["00320", "00510"],
+                "oddshigh": ["00450", "00780"],
+                "race_id": ["2024032405030208", "2024032405030208"],
+            }
+        )
 
         result = etl_wide_odds(mock_engine, "20240101", "20241231")
 
@@ -447,14 +459,16 @@ class TestEtlOddsTimeseries:
     def test_year_by_year_loading(self, mock_read_sql, mock_insert):
         """複数年にまたがる場合、yearごとにクエリが発行される"""
         mock_engine = MagicMock()
-        mock_read_sql.return_value = pd.DataFrame({
-            "happyotime": ["03241505"],
-            "umaban": ["1"],
-            "tanodds": ["0032"],
-            "fukuoddslow": ["0013"],
-            "tanninki": ["1"],
-            "race_id": ["2024032405030208"],
-        })
+        mock_read_sql.return_value = pd.DataFrame(
+            {
+                "happyotime": ["03241505"],
+                "umaban": ["1"],
+                "tanodds": ["0032"],
+                "fukuoddslow": ["0013"],
+                "tanninki": ["1"],
+                "race_id": ["2024032405030208"],
+            }
+        )
 
         # 2023-01-01 ~ 2024-12-31 -> 2年分
         result = etl_odds_timeseries(mock_engine, "20230101", "20241231")
@@ -467,14 +481,16 @@ class TestEtlOddsTimeseries:
     @patch("db.etl.pd.read_sql")
     def test_column_mapping(self, mock_read_sql, mock_insert):
         mock_engine = MagicMock()
-        mock_read_sql.return_value = pd.DataFrame({
-            "happyotime": ["03241505", "03241600"],
-            "umaban": ["1", "2"],
-            "tanodds": ["0032", "0054"],
-            "fukuoddslow": ["0013", "0021"],
-            "tanninki": ["1", "2"],
-            "race_id": ["2024032405030208", "2024032405030208"],
-        })
+        mock_read_sql.return_value = pd.DataFrame(
+            {
+                "happyotime": ["03241505", "03241600"],
+                "umaban": ["1", "2"],
+                "tanodds": ["0032", "0054"],
+                "fukuoddslow": ["0013", "0021"],
+                "tanninki": ["1", "2"],
+                "race_id": ["2024032405030208", "2024032405030208"],
+            }
+        )
 
         result = etl_odds_timeseries(mock_engine, "20240101", "20241231")
 
@@ -552,3 +568,28 @@ class TestRunFullEtl:
         result = run_full_etl(mock_engine, "20990101", "20991231")
 
         assert all(v == 0 for v in result.values())
+
+
+# ---------------------------------------------------------------------------
+# run_full_etl_to_parquet tests
+# ---------------------------------------------------------------------------
+
+
+class TestRunFullEtlToParquet:
+    @patch("db.etl.pd.read_sql")
+    def test_writes_to_parquet_store(self, mock_read_sql) -> None:
+        """Verify run_full_etl_to_parquet writes to ParquetStore, not PostgreSQL"""
+        from db.etl import run_full_etl_to_parquet
+
+        mock_engine = MagicMock()
+        mock_store = MagicMock()
+
+        # Return empty for all SQL queries
+        mock_read_sql.return_value = pd.DataFrame()
+
+        result = run_full_etl_to_parquet(mock_engine, mock_store, "20240101", "20241231")
+
+        # Verify store.write was NOT called (empty data)
+        mock_store.write.assert_not_called()
+        assert result["races"] == 0
+        assert result["entries"] == 0

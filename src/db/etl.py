@@ -8,14 +8,17 @@ n_odds_wide, n_jodds_tanpuku) からプロジェクトスキーマ(raw.*, odds_h
 from __future__ import annotations
 
 import logging
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 import pandas as pd
 from sqlalchemy import text
-from tqdm.auto import tqdm
 from sqlalchemy.engine import Engine
+from tqdm.auto import tqdm
 
 from db.schema import ALL_CREATE_STATEMENTS
+
+if TYPE_CHECKING:
+    from db.parquet_store import ParquetStore
 
 logger = logging.getLogger(__name__)
 
@@ -131,7 +134,9 @@ def _insert_on_conflict(
             conn.execute(text(f"DROP TABLE IF EXISTS {staging}"))
         logger.error(
             "%s.%s 挿入失敗: %s — カラム型の不整合可能性",
-            schema, table, e,
+            schema,
+            table,
+            e,
         )
         raise
 
@@ -214,9 +219,7 @@ def etl_races(engine: Engine, start: str, end: str) -> int:
     df["distance"] = df["kyori"].apply(_to_int)
     df["tenko_cd"] = df["tenkocd"].apply(_to_int)
     df["baba_cd"] = df.apply(
-        lambda row: _select_baba_cd(
-            row["track_cd"], row["sibababacd"], row["dirtbabacd"]
-        ),
+        lambda row: _select_baba_cd(row["track_cd"], row["sibababacd"], row["dirtbabacd"]),
         axis=1,
     )
     df["syubetu_cd"] = df["syubetucd"]
@@ -443,9 +446,7 @@ def etl_odds_snapshots(engine: Engine, start: str, end: str) -> int:
 
     out = df[["race_id", "umaban", "tan_odds", "fuku_odds"]]
 
-    return _insert_on_conflict(
-        engine, out, "odds_snapshots", "odds_history", ["race_id", "umaban"]
-    )
+    return _insert_on_conflict(engine, out, "odds_snapshots", "odds_history", ["race_id", "umaban"])
 
 
 def etl_wide_odds(engine: Engine, start: str, end: str) -> int:
@@ -486,9 +487,7 @@ def etl_wide_odds(engine: Engine, start: str, end: str) -> int:
 
     out = df[["race_id", "kumi", "odds_low", "odds_high"]]
 
-    return _insert_on_conflict(
-        engine, out, "wide_odds", "odds_history", ["race_id", "kumi"]
-    )
+    return _insert_on_conflict(engine, out, "wide_odds", "odds_history", ["race_id", "kumi"])
 
 
 def etl_odds_timeseries(engine: Engine, start: str, end: str) -> int:
@@ -531,9 +530,7 @@ def etl_odds_timeseries(engine: Engine, start: str, end: str) -> int:
             WHERE s.year::int = :year
               AND (s.year || s.monthday)::int BETWEEN :start AND :end
         """)
-        df = pd.read_sql(
-            sql, engine, params={"year": year, "start": start, "end": end}
-        )
+        df = pd.read_sql(sql, engine, params={"year": year, "start": start, "end": end})
 
         if df.empty:
             logger.info("etl_odds_timeseries: year=%d 該当データなし", year)
@@ -589,4 +586,315 @@ def run_full_etl(engine: Engine, start: str, end: str) -> dict[str, int]:
         counts[name] = func(engine, start, end)
 
     logger.info("ETL完了: %s", counts)
+    return counts
+
+
+# ---------------------------------------------------------------------------
+# Parquet ETL (EveryDB2 → Parquet via ParquetStore)
+# ---------------------------------------------------------------------------
+
+
+def run_full_etl_to_parquet(
+    engine: Engine, store: "ParquetStore", start: str, end: str
+) -> dict[str, int]:
+    """EveryDB2 → Parquet ETL。
+
+    既存のSQL読み取り（EveryDB2外部テーブル）はそのまま使い、
+    書き込み先をPostgreSQL内部スキーマ → Parquetに変更。
+    """
+    from db.connection import _compute_race_date, _compute_race_id
+
+    counts: dict[str, int] = {}
+
+    # 1. races — EveryDB2 n_race から直接読み取り（JOIN不要）
+    races_sql = text("""
+        SELECT
+            year, monthday, jyocd, kaiji, nichiji, racenum,
+            trackcd, kyori, tenkocd, sibababacd, dirtbabacd,
+            syubetucd, jyokencd1, gradecd, syussotosu
+        FROM n_race
+        WHERE (year || monthday)::int BETWEEN :start AND :end
+          AND trackcd::int NOT BETWEEN 51 AND 59
+          AND jyocd BETWEEN '01' AND '10'
+    """)
+    races_df = pd.read_sql(races_sql, engine, params={"start": int(start), "end": int(end)})
+
+    if not races_df.empty:
+        # Apply same transformations as etl_races
+        races_df["year"] = races_df["year"].apply(_to_int)
+        races_df["month_day"] = races_df["monthday"]
+        races_df["jyo_cd"] = races_df["jyocd"]
+        races_df["race_num"] = races_df["racenum"]
+        races_df["track_cd"] = races_df["trackcd"].apply(_to_int)
+        races_df["distance"] = races_df["kyori"].apply(_to_int)
+        races_df["tenko_cd"] = races_df["tenkocd"].apply(_to_int)
+        races_df["baba_cd"] = races_df.apply(
+            lambda row: _select_baba_cd(row["track_cd"], row["sibababacd"], row["dirtbabacd"]),
+            axis=1,
+        )
+        races_df["syubetu_cd"] = races_df["syubetucd"]
+        races_df["jyoken_cd"] = races_df["jyokencd1"]
+        races_df["grade_cd"] = races_df["gradecd"].apply(lambda x: x if x and x != "" else "_")
+        races_df["field_size"] = races_df["syussotosu"].apply(_to_int)
+
+        races_out = races_df[
+            [
+                "year",
+                "month_day",
+                "jyo_cd",
+                "kaiji",
+                "nichiji",
+                "race_num",
+                "track_cd",
+                "distance",
+                "tenko_cd",
+                "baba_cd",
+                "syubetu_cd",
+                "jyoken_cd",
+                "grade_cd",
+                "field_size",
+            ]
+        ]
+        _compute_race_id(races_out)
+        _compute_race_date(races_out)
+        store.write("raw", "races", races_out)
+        counts["races"] = len(races_out)
+    else:
+        counts["races"] = 0
+
+    # Build race key map for pandas merge
+    # (entries, payouts, etc. need race_id and race_date)
+    race_key_cols = ["year", "month_day", "jyo_cd", "kaiji", "nichiji", "race_num"]
+    if not races_df.empty:
+        race_keys = races_out[race_key_cols + ["race_id", "race_date"]].copy()
+    else:
+        race_keys = pd.DataFrame(columns=race_key_cols + ["race_id", "race_date"])
+
+    # 2. entries — n_uma_race (no JOIN with raw.races)
+    entries_sql = text("""
+        SELECT
+            year, monthday, jyocd, kaiji, nichiji, racenum,
+            umaban, kettonum, kakuteijyuni, time, odds, ninki,
+            bataijyu, zogenfugo, zogensa, kisyucode, chokyosicode,
+            harontimel3, honsyokin, kyakusitukubun
+        FROM n_uma_race
+        WHERE (year || monthday)::int BETWEEN :start AND :end
+    """)
+    entries_df = pd.read_sql(entries_sql, engine, params={"start": int(start), "end": int(end)})
+
+    if not entries_df.empty:
+        entries_df["jyo_cd"] = entries_df["jyocd"]
+        entries_df["race_num"] = entries_df["racenum"]
+        entries_df["month_day"] = entries_df["monthday"]
+        entries_df["year"] = entries_df["year"].apply(_to_int)
+        entries_df = entries_df.merge(race_keys, on=race_key_cols, how="inner")
+
+        entries_df["umaban"] = entries_df["umaban"].apply(_to_int)
+        entries_df["ketto_num"] = entries_df["kettonum"]
+        entries_df["finish_pos"] = entries_df["kakuteijyuni"].apply(_to_int)
+        entries_df["finish_time"] = entries_df["time"].apply(_to_float)
+        entries_df["win_odds"] = entries_df["odds"].apply(_to_odds)
+        entries_df["ninki"] = entries_df["ninki"].apply(_to_int)
+        entries_df["ba_taijyu"] = entries_df["bataijyu"].apply(_to_float)
+        entries_df["zogen_fugo"] = entries_df["zogenfugo"]
+        entries_df["zogen_sa"] = entries_df["zogensa"].apply(_to_float)
+        entries_df["kisyu_code"] = entries_df["kisyucode"]
+        entries_df["chokyosi_code"] = entries_df["chokyosicode"]
+        entries_df["haron_time_l3"] = entries_df["harontimel3"].apply(_to_float)
+        entries_df["honsyokin"] = entries_df["honsyokin"].apply(_to_int)
+        entries_df["kyakusitu"] = entries_df["kyakusitukubun"].apply(_to_int)
+
+        entries_out = entries_df[
+            [
+                "race_id",
+                "umaban",
+                "ketto_num",
+                "finish_pos",
+                "finish_time",
+                "haron_time_l3",
+                "ninki",
+                "win_odds",
+                "ba_taijyu",
+                "zogen_fugo",
+                "zogen_sa",
+                "kisyu_code",
+                "chokyosi_code",
+                "kyakusitu",
+                "honsyokin",
+                "race_date",
+            ]
+        ]
+        store.write("raw", "entries", entries_out)
+        counts["entries"] = len(entries_out)
+    else:
+        counts["entries"] = 0
+
+    # 3. payouts — n_harai (no JOIN with raw.races)
+    payouts_sql = text("""
+        SELECT
+            year, monthday, jyocd, kaiji, nichiji, racenum,
+            paytansyoumaban1, paytansyopay1,
+            payfukusyoumaban1, payfukusyopay1,
+            payfukusyoumaban2, payfukusyopay2,
+            payfukusyoumaban3, payfukusyopay3,
+            payfukusyoumaban4, payfukusyopay4,
+            payfukusyoumaban5, payfukusyopay5
+        FROM n_harai
+        WHERE (year || monthday)::int BETWEEN :start AND :end
+    """)
+    payouts_df = pd.read_sql(payouts_sql, engine, params={"start": int(start), "end": int(end)})
+
+    if not payouts_df.empty:
+        payouts_df["jyo_cd"] = payouts_df["jyocd"]
+        payouts_df["race_num"] = payouts_df["racenum"]
+        payouts_df["month_day"] = payouts_df["monthday"]
+        payouts_df["year"] = payouts_df["year"].apply(_to_int)
+        payouts_df = payouts_df.merge(race_keys, on=race_key_cols, how="inner")
+
+        payouts_df["tan_umaban"] = payouts_df["paytansyoumaban1"].apply(_to_int)
+        payouts_df["tan_pay"] = payouts_df["paytansyopay1"].apply(_to_float)
+        for i in range(1, 6):
+            payouts_df[f"fuku_umaban{i}"] = payouts_df[f"payfukusyoumaban{i}"].apply(_to_int)
+            payouts_df[f"fuku_pay{i}"] = payouts_df[f"payfukusyopay{i}"].apply(_to_float)
+
+        payouts_out = payouts_df[
+            [
+                "race_id",
+                "tan_umaban",
+                "tan_pay",
+                "fuku_umaban1",
+                "fuku_pay1",
+                "fuku_umaban2",
+                "fuku_pay2",
+                "fuku_umaban3",
+                "fuku_pay3",
+                "fuku_umaban4",
+                "fuku_pay4",
+                "fuku_umaban5",
+                "fuku_pay5",
+                "race_date",
+            ]
+        ]
+        store.write("raw", "payouts", payouts_out)
+        counts["payouts"] = len(payouts_out)
+    else:
+        counts["payouts"] = 0
+
+    # 4. odds_snapshots — n_odds_tanpuku (no JOIN with raw.races)
+    snapshots_sql = text("""
+        SELECT
+            year, monthday, jyocd, kaiji, nichiji, racenum,
+            umaban, tanodds, fukuoddslow
+        FROM n_odds_tanpuku
+        WHERE (year || monthday)::int BETWEEN :start AND :end
+    """)
+    snapshots_df = pd.read_sql(snapshots_sql, engine, params={"start": int(start), "end": int(end)})
+
+    if not snapshots_df.empty:
+        snapshots_df["jyo_cd"] = snapshots_df["jyocd"]
+        snapshots_df["race_num"] = snapshots_df["racenum"]
+        snapshots_df["month_day"] = snapshots_df["monthday"]
+        snapshots_df["year"] = snapshots_df["year"].apply(_to_int)
+        snapshots_df = snapshots_df.merge(race_keys, on=race_key_cols, how="inner")
+
+        snapshots_df["umaban"] = snapshots_df["umaban"].apply(_to_int)
+        snapshots_df["tan_odds"] = snapshots_df["tanodds"].apply(_to_odds)
+        snapshots_df["fuku_odds"] = snapshots_df["fukuoddslow"].apply(_to_odds)
+
+        snapshots_out = snapshots_df[["race_id", "umaban", "tan_odds", "fuku_odds", "race_date"]]
+        store.write("odds", "snapshots", snapshots_out)
+        counts["odds_snapshots"] = len(snapshots_out)
+    else:
+        counts["odds_snapshots"] = 0
+
+    # 5. wide_odds — n_odds_wide (no JOIN with raw.races)
+    wide_sql = text("""
+        SELECT
+            year, monthday, jyocd, kaiji, nichiji, racenum,
+            kumi, oddslow, oddshigh
+        FROM n_odds_wide
+        WHERE (year || monthday)::int BETWEEN :start AND :end
+    """)
+    wide_df = pd.read_sql(wide_sql, engine, params={"start": int(start), "end": int(end)})
+
+    if not wide_df.empty:
+        wide_df["jyo_cd"] = wide_df["jyocd"]
+        wide_df["race_num"] = wide_df["racenum"]
+        wide_df["month_day"] = wide_df["monthday"]
+        wide_df["year"] = wide_df["year"].apply(_to_int)
+        wide_df = wide_df.merge(race_keys, on=race_key_cols, how="inner")
+
+        wide_df["odds_low"] = wide_df["oddslow"].apply(lambda v: _to_odds(v, divisor=100))
+        wide_df["odds_high"] = wide_df["oddshigh"].apply(lambda v: _to_odds(v, divisor=100))
+
+        wide_out = wide_df[["race_id", "kumi", "odds_low", "odds_high", "race_date"]]
+        store.write("odds", "wide", wide_out)
+        counts["wide_odds"] = len(wide_out)
+    else:
+        counts["wide_odds"] = 0
+
+    # 6. odds_time_series — n_jodds_tanpuku (year-by-year, partitioned write)
+    start_int = int(start)
+    end_int = int(end)
+    start_year = start_int // 10000
+    end_year = end_int // 10000
+    total_ts = 0
+
+    ts_frames: list[pd.DataFrame] = []
+    for year in range(start_year, end_year + 1):
+        ts_sql = text("""
+            SELECT
+                year, monthday, jyocd, kaiji, nichiji, racenum,
+                happyotime, umaban, tanodds, fukuoddslow, tanninki
+            FROM n_jodds_tanpuku
+            WHERE year::int = :year
+              AND (year || monthday)::int BETWEEN :start AND :end
+        """)
+        ts_df = pd.read_sql(ts_sql, engine, params={"year": year, "start": start, "end": end})
+        if not ts_df.empty:
+            ts_df["jyo_cd"] = ts_df["jyocd"]
+            ts_df["race_num"] = ts_df["racenum"]
+            ts_df["month_day"] = ts_df["monthday"]
+            ts_df["year_int"] = ts_df["year"].apply(_to_int)
+            ts_df = ts_df.merge(
+                race_keys,
+                left_on=[
+                    "year_int",
+                    "month_day",
+                    "jyo_cd",
+                    "kaiji",
+                    "nichiji",
+                    "race_num",
+                ],
+                right_on=race_key_cols,
+                how="inner",
+            )
+            ts_df["happyo_time"] = ts_df["happyotime"]
+            ts_df["umaban"] = ts_df["umaban"].apply(_to_int)
+            ts_df["tan_odds"] = ts_df["tanodds"].apply(_to_odds)
+            ts_df["fuku_odds"] = ts_df["fukuoddslow"].apply(_to_odds)
+            ts_df["ninki"] = ts_df["tanninki"].apply(_to_int)
+            ts_frames.append(
+                ts_df[
+                    [
+                        "race_id",
+                        "happyo_time",
+                        "umaban",
+                        "tan_odds",
+                        "fuku_odds",
+                        "ninki",
+                        "race_date",
+                    ]
+                ]
+            )
+
+    if ts_frames:
+        ts_out = pd.concat(ts_frames, ignore_index=True)
+        ts_out["year"] = ts_out["race_date"].dt.year
+        ts_out["month"] = ts_out["race_date"].dt.month
+        store.write("odds", "time_series", ts_out, partition_cols=["year", "month"])
+        total_ts = len(ts_out)
+    counts["odds_time_series"] = total_ts
+
+    logger.info("ETL to Parquet完了: %s", counts)
     return counts
