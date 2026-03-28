@@ -33,9 +33,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="モデル学習")
     parser.add_argument("--start", required=True, help="学習開始日 (YYYYMMDD)")
     parser.add_argument("--end", required=True, help="学習終了日 (YYYYMMDD)")
-    parser.add_argument(
-        "--experiment", default="keiba-v5", help="MLflow実験名 (default: keiba-v5)"
-    )
+    parser.add_argument("--experiment", default="keiba-v5", help="MLflow実験名 (default: keiba-v5)")
     args = parser.parse_args()
 
     train_start = to_dash_date(args.start)
