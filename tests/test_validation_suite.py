@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pandas as pd
@@ -320,3 +320,173 @@ class TestBacktestValidationSuite:
         mock_result.total_roi = 0.95
         result = suite.check_holdout_criteria(mock_result)
         assert result["passed"] is False
+
+
+class TestWalkForwardCV:
+    """run_walk_forward_cv() のテスト (mock-based)"""
+
+    @patch("backtest.parameter_freeze_protocol.ParameterFreezeProtocol")
+    @patch("backtest.engine.BacktestEngine")
+    @patch("pipelines.training_pipeline.TrainingPipelineV5")
+    def test_run_walk_forward_cv_returns_all_windows(
+        self,
+        mock_pipeline_cls: MagicMock,
+        mock_engine_cls: MagicMock,
+        mock_freeze_cls: MagicMock,
+    ) -> None:
+        """run_walk_forward_cv() が3ウィンドウ分の結果と _overall を返す"""
+        from backtest.validation_suite import BacktestValidationSuite
+
+        # --- arrange ---
+        suite = BacktestValidationSuite(db=None)
+
+        # TrainingPipelineV5().run() → TrainedModelsV5 mock
+        mock_models = MagicMock(name="TrainedModelsV5")
+        mock_pipeline = MagicMock()
+        mock_pipeline.run.return_value = mock_models
+        mock_pipeline_cls.return_value = mock_pipeline
+
+        # BacktestEngine(models=..., db=...).run() → BacktestResult mock
+        mock_bt_result = MagicMock(name="BacktestResult")
+        mock_bt_result.total_roi = 1.05
+        mock_bt_result.max_drawdown = 0.08
+        mock_bt_result.total_bets = 500
+        mock_engine = MagicMock()
+        mock_engine.run.return_value = mock_bt_result
+        mock_engine_cls.return_value = mock_engine
+
+        # ParameterFreezeProtocol(models).freeze() / verify()
+        mock_protocol = MagicMock()
+        mock_protocol.freeze.return_value = None
+        mock_protocol.verify.return_value = {"passed": True, "message": "OK"}
+        mock_freeze_cls.return_value = mock_protocol
+
+        # --- act ---
+        results = suite.run_walk_forward_cv()
+
+        # --- assert ---
+        assert "Window 1" in results
+        assert "Window 2" in results
+        assert "Window 3" in results
+        assert "_overall" in results
+
+        # 各ウィンドウの構造を確認
+        for name in ["Window 1", "Window 2", "Window 3"]:
+            w = results[name]
+            assert "roi" in w
+            assert "max_dd" in w
+            assert "total_bets" in w
+            assert "git_hash" in w
+            assert "rule7_passed" in w
+            assert "train_period" in w
+            assert "test_period" in w
+            assert w["roi"] == 1.05
+            assert w["rule7_passed"] is True
+
+        # _overall の構造を確認
+        overall = results["_overall"]
+        assert "mean_roi" in overall
+        assert "std_roi" in overall
+        assert "git_hash" in overall
+        assert "n_windows" in overall
+        assert overall["n_windows"] == 3
+
+        # TrainingPipeline.run が3回呼ばれたこと
+        assert mock_pipeline.run.call_count == 3
+        # BacktestEngine.run が3回呼ばれたこと
+        assert mock_engine.run.call_count == 3
+        # ParameterFreezeProtocol が3回インスタンス化されたこと
+        assert mock_freeze_cls.call_count == 3
+
+    @patch("backtest.parameter_freeze_protocol.ParameterFreezeProtocol")
+    @patch("backtest.engine.BacktestEngine")
+    @patch("pipelines.training_pipeline.TrainingPipelineV5")
+    def test_run_walk_forward_cv_per_window_roi(
+        self,
+        mock_pipeline_cls: MagicMock,
+        mock_engine_cls: MagicMock,
+        mock_freeze_cls: MagicMock,
+    ) -> None:
+        """各ウィンドウで異なる ROI を返す場合、_overall の集計が正しい"""
+        from backtest.validation_suite import BacktestValidationSuite
+
+        suite = BacktestValidationSuite(db=None)
+
+        mock_pipeline = MagicMock()
+        mock_pipeline.run.return_value = MagicMock(name="TrainedModelsV5")
+        mock_pipeline_cls.return_value = mock_pipeline
+
+        # 各ウィンドウで異なる ROI を返す
+        rois = [1.02, 1.08, 0.95]
+        mock_engine_instances = []
+        for roi in rois:
+            bt = MagicMock()
+            bt.total_roi = roi
+            bt.max_drawdown = 0.10
+            bt.total_bets = 300
+            eng = MagicMock()
+            eng.run.return_value = bt
+            mock_engine_instances.append(eng)
+        mock_engine_cls.side_effect = mock_engine_instances
+
+        mock_protocol = MagicMock()
+        mock_protocol.freeze.return_value = None
+        mock_protocol.verify.return_value = {"passed": True, "message": "OK"}
+        mock_freeze_cls.return_value = mock_protocol
+
+        results = suite.run_walk_forward_cv()
+
+        # 各ウィンドウの ROI を確認
+        assert results["Window 1"]["roi"] == 1.02
+        assert results["Window 2"]["roi"] == 1.08
+        assert results["Window 3"]["roi"] == 0.95
+
+        # _overall の mean_roi を確認
+        expected_mean = np.mean(rois)
+        assert abs(results["_overall"]["mean_roi"] - expected_mean) < 1e-10
+
+    @patch("backtest.parameter_freeze_protocol.ParameterFreezeProtocol")
+    @patch("backtest.engine.BacktestEngine")
+    @patch("pipelines.training_pipeline.TrainingPipelineV5")
+    def test_run_walk_forward_cv_rule7_violation(
+        self,
+        mock_pipeline_cls: MagicMock,
+        mock_engine_cls: MagicMock,
+        mock_freeze_cls: MagicMock,
+    ) -> None:
+        """Rule 7 違反があった場合、rule7_passed が False になる"""
+        from backtest.validation_suite import BacktestValidationSuite
+
+        suite = BacktestValidationSuite(db=None)
+
+        mock_pipeline = MagicMock()
+        mock_pipeline.run.return_value = MagicMock(name="TrainedModelsV5")
+        mock_pipeline_cls.return_value = mock_pipeline
+
+        mock_bt = MagicMock()
+        mock_bt.total_roi = 1.05
+        mock_bt.max_drawdown = 0.08
+        mock_bt.total_bets = 500
+        mock_engine = MagicMock()
+        mock_engine.run.return_value = mock_bt
+        mock_engine_cls.return_value = mock_engine
+
+        # 2番目のウィンドウで Rule 7 違反
+        mock_protocol_ok = MagicMock()
+        mock_protocol_ok.freeze.return_value = None
+        mock_protocol_ok.verify.return_value = {"passed": True, "message": "OK"}
+
+        mock_protocol_fail = MagicMock()
+        mock_protocol_fail.freeze.return_value = None
+        mock_protocol_fail.verify.return_value = {
+            "passed": False,
+            "message": "Parameters changed",
+        }
+
+        mock_freeze_cls.side_effect = [mock_protocol_ok, mock_protocol_fail, mock_protocol_ok]
+
+        results = suite.run_walk_forward_cv()
+
+        assert results["Window 1"]["rule7_passed"] is True
+        assert results["Window 2"]["rule7_passed"] is False
+        assert results["Window 3"]["rule7_passed"] is True

@@ -7,10 +7,14 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+import subprocess
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import pandas as pd
+
+if TYPE_CHECKING:
+    from db.connection import DatabaseConnection
 
 logger = logging.getLogger(__name__)
 
@@ -20,7 +24,11 @@ class BacktestValidationSuite:
 
     各テストは passed (bool) + message (str) を返す。
     run_all() で全テストを一括実行。
+    run_walk_forward_cv() で3-window walk-forward CV を実行。
     """
+
+    def __init__(self, db: DatabaseConnection | None = None) -> None:
+        self.db = db
 
     def run_all(
         self,
@@ -517,3 +525,103 @@ class BacktestValidationSuite:
             ),
             "criteria": criteria,
         }
+
+    def run_walk_forward_cv(
+        self,
+        train_start: str = "2018-01-01",
+        train_end: str = "2023-12-31",
+    ) -> dict[str, Any]:
+        """Run 3-window walk-forward CV with parameter freeze.
+
+        Each window: train on expanding period, backtest on next year.
+        Parameters are frozen during OOS evaluation (Rule 7).
+
+        Args:
+            train_start: Start of overall training period
+            train_end: End of overall training period
+
+        Returns:
+            dict with per-window and overall metrics.
+        """
+        from backtest.engine import BacktestEngine
+        from backtest.parameter_freeze_protocol import ParameterFreezeProtocol
+        from pipelines.training_pipeline import TrainingPipelineV5
+
+        windows = [
+            {
+                "name": "Window 1",
+                "train": ("2018-01-01", "2021-12-31"),
+                "test": ("2022-01-01", "2022-12-31"),
+            },
+            {
+                "name": "Window 2",
+                "train": ("2019-01-01", "2022-12-31"),
+                "test": ("2023-01-01", "2023-12-31"),
+            },
+            {
+                "name": "Window 3",
+                "train": ("2020-01-01", "2023-12-31"),
+                "test": ("2024-01-01", "2024-12-31"),
+            },
+        ]
+
+        # git hash for reproducibility tracking
+        try:
+            git_hash = subprocess.check_output(
+                ["git", "rev-parse", "HEAD"], text=True
+            ).strip()[:7]
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            git_hash = "unknown"
+
+        results: dict[str, Any] = {}
+
+        for w in windows:
+            logger.info(
+                "Walk-forward %s: train %s~%s, test %s~%s",
+                w["name"],
+                w["train"][0],
+                w["train"][1],
+                w["test"][0],
+                w["test"][1],
+            )
+
+            # 1. Train
+            pipeline = TrainingPipelineV5(db=self.db)
+            trained = pipeline.run(w["train"][0], w["train"][1])
+
+            # 2. Freeze parameters (Rule 7)
+            protocol = ParameterFreezeProtocol(trained)
+            protocol.freeze()
+
+            # 3. Backtest on test period (OOS)
+            engine = BacktestEngine(models=trained, db=self.db)
+            bt_result = engine.run(w["test"][0], w["test"][1])
+
+            # 4. Verify parameters unchanged
+            freeze_result = protocol.verify()
+            if not freeze_result["passed"]:
+                logger.warning("Rule 7 violation in %s: %s", w["name"], freeze_result["message"])
+
+            results[w["name"]] = {
+                "roi": bt_result.total_roi,
+                "max_dd": bt_result.max_drawdown,
+                "total_bets": bt_result.total_bets,
+                "logloss": None,  # TODO: compute from predictions
+                "spearman_rho": None,  # TODO: compute from predictions
+                "git_hash": git_hash,
+                "rule7_passed": freeze_result["passed"],
+                "train_period": w["train"],
+                "test_period": w["test"],
+            }
+
+        # Overall summary
+        rois = [r["roi"] for r in results.values()]
+        overall_roi = float(np.mean(rois)) if rois else 0.0
+        results["_overall"] = {
+            "mean_roi": overall_roi,
+            "std_roi": float(np.std(rois)) if len(rois) > 1 else 0.0,
+            "git_hash": git_hash,
+            "n_windows": len(windows),
+        }
+
+        return results
