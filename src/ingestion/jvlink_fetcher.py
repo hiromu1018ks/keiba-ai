@@ -2,7 +2,7 @@
 
 JRA-VAN の JV-Link からレースカード・結果・オッズを取得する。
 実際の JV-Link SDK は Windows COM コンポーネントのため、
-DatabaseConnection 経由でデータにアクセスする設計。
+DataRepository 経由でデータにアクセスする設計。
 """
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ import pandas as pd
 from domain.models import Entry, Race
 
 if TYPE_CHECKING:
-    from db.connection import DatabaseConnection
+    from db.repository import DataRepository
 
 logger = logging.getLogger(__name__)
 
@@ -23,12 +23,12 @@ logger = logging.getLogger(__name__)
 class JVLinkFetcher:
     """レースデータ・オッズの取得インタフェース
 
-    JV-Link SDK (Windows COM) または DatabaseConnection 経由で
-    データを取得する。テストでは mock DB を注入可能。
+    JV-Link SDK (Windows COM) または DataRepository 経由で
+    データを取得する。テストでは mock repo を注入可能。
     """
 
-    def __init__(self, db: DatabaseConnection) -> None:
-        self.db = db
+    def __init__(self, repo: DataRepository) -> None:
+        self.repo = repo
 
     def fetch_race_cards(self, date: str) -> list[Race]:
         """指定日のレースカードを取得
@@ -41,7 +41,7 @@ class JVLinkFetcher:
         """
         date_compact = date.replace("-", "")
         logger.debug("Fetching race cards for %s", date)
-        df = self.db.load_races(date_compact, date_compact)
+        df = self.repo.load_races(date_compact, date_compact)
         if df.empty:
             logger.debug("No races found for %s", date)
             return []
@@ -59,7 +59,7 @@ class JVLinkFetcher:
             Entry リスト。
         """
         date_compact = date.replace("-", "")
-        df = self.db.load_entries_with_results(date_compact, date_compact)
+        df = self.repo.load_entries(date_compact, date_compact)
         if df.empty:
             return []
         return [self._row_to_entry(row) for _, row in df.iterrows()]
@@ -73,7 +73,7 @@ class JVLinkFetcher:
         Returns:
             horse_no → tan_odds の dict。
         """
-        df = self.db.load_odds_time_series(race_id)
+        df = self.repo.load_odds_time_series(race_id)
         if df.empty:
             return {}
         # 最新時刻の行のみ使用
