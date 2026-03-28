@@ -170,6 +170,12 @@ class FeatureEngine:
         if "ninki" in df.columns:
             df["popularity_rank"] = df["ninki"]
 
+        # track_cd → surface (芝:20-29, ダート:10-19, 障害:51-59)
+        if "surface" not in df.columns and "track_cd" in df.columns:
+            df["surface"] = df["track_cd"].apply(
+                lambda x: "turf" if 20 <= x <= 29 else "dirt" if 10 <= x <= 29 else "other"
+            )
+
         # surface_key (downstream SubModelManager フィルタ用)
         if "surface" in df.columns:
             df["surface_key"] = df["surface"]
