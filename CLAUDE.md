@@ -52,22 +52,50 @@ PostgreSQL が `localhost:5432/everydb2` で稼働前提。パスワードは環
 
 ## Architecture
 
-### Current State (Phase A: Foundation)
+### Data Layer (Parquet-based)
 
 ```
-src/
-├── domain/          # データクラス・型定義 (Race, Entry, Bet, OddsSnapshot, DDState, etc.)
-│   ├── types.py     # Enum: Surface, BetType, RecoveryState, RegimeState
-│   └── models.py    # frozen dataclass群 (computed properties付き)
-└── db/
-    ├── schema.py    # PostgreSQL DDL (5スキーマ: raw, odds_history, feature, prediction, betting)
-    └── connection.py # SQLAlchemy Core接続 (ORM不使用), データローダー/セーバー
+EveryDB2外部テーブル → PostgreSQL (ETL入力のみ) → Parquetファイル群
+                                                      ↓
+                         ParquetStore → DataRepository → MLパイプライン
 ```
 
-- **SQLAlchemy Core のみ使用** — ORM は不使用
-- **Race識別子**: 複合PK `(year, month_day, jyo_cd, kaiji, nichiji, race_num)` + `GENERATED ALWAYS AS` で `race_id` 文字列生成
-- **EveryDB2外部テーブル** (読取専用): `n_race`, `n_uma_race`, `n_uma`, `n_harai`, `n_odds_tanpuku`, `n_odds_wide` 等
-- **import path**: `from domain.types import ...` (pythonpath = `[".", "src"]` 設定済み)
+### Class Structure
+
+- **`ParquetStore`** (`src/db/parquet_store.py`) — Parquetファイルの読み書き。単一ファイル + 年/月パーティション対応。pyarrow述語プッシュダウン。
+- **`DataRepository`** (`src/db/repository.py`) — MLパイプラインの唯一のデータアクセス窓口。日付フィルタ・障害除外・キャッシュ制御。
+- **`DatabaseConnection`** (`src/db/connection.py`) — PostgreSQL ETL専用。EveryDB2 → Parquet への書き出し。
+
+### Parquet Files
+
+```
+data/raw/races.parquet, entries.parquet, payouts.parquet
+data/odds/snapshots.parquet, time_series/ (年/月パーティション), wide.parquet
+data/features/horse_features.parquet  (特徴量キャッシュ)
+data/predictions/predictions.parquet
+data/bets/bets.parquet
+```
+
+全テーブルに `race_date` (datetime64) 列を含む。
+`race_id` は `_compute_race_id()` でpandas計算（PostgreSQL GENERATED COLUMN不使用）。
+
+### Key Dependencies
+
+- `src/db/parquet_store.py` — pyarrow, pandas
+- `src/db/repository.py` — ParquetStore, pandas
+- `src/db/connection.py` — SQLAlchemy Core, ParquetStore, pandas
+
+### Consumer Migration
+
+全MLパイプラインコンポーネントは `DataRepository` を使用:
+`TrainingPipelineV5`, `BacktestEngine`, `JVLinkFetcher`, `OddsCollector`, `BacktestValidationSuite`
+
+### import path
+
+- `from db.repository import DataRepository` — MLパイプライン用
+- `from db.parquet_store import ParquetStore` — 低レベルI/O
+- `from db.connection import DatabaseConnection` — ETL専用
+- `from domain.types import ...` (pythonpath = `[".", "src"]` 設定済み)
 
 ### Planned Phases (design.md 参照)
 
