@@ -1,3 +1,9 @@
 {
+  "permissions": {
+    "allow": [
+      "Bash(git:*)",
+      "Bash(wc:*)"
+    ]
+  },
   "outputStyle": "Explanatory"
 }

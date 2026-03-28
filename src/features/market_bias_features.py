@@ -87,7 +87,7 @@ def compute_flb_slope(race_feat_df: pd.DataFrame) -> pd.Series:
         sorted_win = win[valid][order]
         if len(sorted_log_odds) < 3:
             return 0.0
-        slope = np.polyfit(sorted_log_odds, sorted_win, 1)[0]
+        slope = float(np.polyfit(sorted_log_odds, sorted_win, 1)[0])
         return float(slope)
 
     slopes = race_feat_df.groupby("race_id").apply(_race_flb, include_groups=False)
