@@ -182,9 +182,13 @@ class HorseHistoryFeatures:
             return pd.DataFrame(columns=["race_id", "umaban"] + self.BASE_COLS)
 
         # Merge with races to get field_size, race_date
+        # entries_filtered also has race_date from load_history_entries,
+        # so merge前にentries側のrace_dateを削除して重複を防ぐ
         race_cols = ["race_id", "field_size", "race_date"]
         races_subset = races_hist[races_hist["race_id"].isin(entries_filtered["race_id"].unique())]
-        past_df = entries_filtered.merge(
+        # entries側のrace_dateを削除（merge後の重複を防ぐため）
+        entries_no_date = entries_filtered.drop(columns=["race_date"], errors="ignore")
+        past_df = entries_no_date.merge(
             races_subset[race_cols].drop_duplicates("race_id"),
             on="race_id",
             how="left",
