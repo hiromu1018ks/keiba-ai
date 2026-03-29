@@ -283,7 +283,7 @@ def etl_entries(engine: Engine, start: str, end: str) -> int:
             s.kisyucode,
             s.chokyosicode,
             s.harontimel3,
-            s.timedifn,
+            s.timediff,
             s.jyuni1c,
             s.jyuni4c,
             s.honsyokin,
@@ -315,7 +315,7 @@ def etl_entries(engine: Engine, start: str, end: str) -> int:
     df["kisyu_code"] = df["kisyucode"]
     df["chokyosi_code"] = df["chokyosicode"]
     df["haron_time_l3"] = df["harontimel3"].apply(_to_float)
-    df["time_diff"] = df["timedifn"].apply(_to_float)
+    df["time_diff"] = df["timediff"].apply(_to_float)
     df["corner_1c"] = df["jyuni1c"].apply(_to_int)
     df["corner_4c"] = df["jyuni4c"].apply(_to_int)
     df["honsyokin"] = df["honsyokin"].apply(_to_int)
@@ -631,9 +631,9 @@ def _etl_horses_to_parquet(engine: Engine, store: "ParquetStore") -> int:
             kyori6chakukaisu1, kyori6chakukaisu2, kyori6chakukaisu3, kyori6chakukaisu4,
             kyori6chakukaisu5, kyori6chakukaisu6,
             chuochakukaisu1, chuochakukaisu2, chuochakukaisu3, chuochakukaisu4, chuochakukaisu5, chuochakukaisu6,
-            ruikeihonsyoheichi,
+            ruikeihonsyoheiti,
             kyakusitu1, kyakusitu2, kyakusitu3, kyakusitu4
-        FROM x_uma
+        FROM n_uma
         WHERE kettonum IS NOT NULL
     """)
     df = pd.read_sql(sql, engine)
@@ -641,12 +641,12 @@ def _etl_horses_to_parquet(engine: Engine, store: "ParquetStore") -> int:
     if df.empty:
         return 0
 
-    # Convert numeric columns: all chakukaisu columns to int, ruikeihonsyoheichi to float
+    # Convert numeric columns: all chakukaisu columns to int, ruikeihonsyoheiti to float
     chakukaisu_cols = [c for c in df.columns if "chakukaisu" in c]
     for col in chakukaisu_cols:
         df[col] = df[col].apply(_to_int)
 
-    df["ruikeihonsyoheichi"] = df["ruikeihonsyoheichi"].apply(_to_float)
+    df["ruikeihonsyoheiti"] = df["ruikeihonsyoheiti"].apply(_to_float)
 
     # Convert kyakusitu columns to int
     for col in ["kyakusitu1", "kyakusitu2", "kyakusitu3", "kyakusitu4"]:
@@ -692,7 +692,7 @@ def _etl_jockey_stats_to_parquet(engine: Engine, store: "ParquetStore") -> int:
             kyori6chakukaisu1, kyori6chakukaisu2, kyori6chakukaisu3,
             kyori6chakukaisu4, kyori6chakukaisu5, kyori6chakukaisu6,
             honsyokinheichi
-        FROM x_kisyu_seiseki
+        FROM n_kisyu_seiseki
         WHERE setyear IS NOT NULL
     """)
     df = pd.read_sql(sql, engine)
@@ -741,7 +741,7 @@ def _etl_trainer_stats_to_parquet(engine: Engine, store: "ParquetStore") -> int:
             kyori6chakukaisu1, kyori6chakukaisu2, kyori6chakukaisu3,
             kyori6chakukaisu4, kyori6chakukaisu5, kyori6chakukaisu6,
             honsyokinheichi
-        FROM x_chokyo_seiseki
+        FROM n_chokyo_seiseki
         WHERE setyear IS NOT NULL
     """)
     df = pd.read_sql(sql, engine)
@@ -842,7 +842,7 @@ def run_full_etl_to_parquet(
             year, monthday, jyocd, kaiji, nichiji, racenum,
             umaban, kettonum, kakuteijyuni, time, odds, ninki,
             bataijyu, zogenfugo, zogensa, kisyucode, chokyosicode,
-            harontimel3, timedifn, jyuni1c, jyuni4c, honsyokin, kyakusitukubun
+            harontimel3, timediff, jyuni1c, jyuni4c, honsyokin, kyakusitukubun
         FROM n_uma_race
         WHERE (year || monthday)::int BETWEEN :start AND :end
     """)
@@ -867,7 +867,7 @@ def run_full_etl_to_parquet(
         entries_df["kisyu_code"] = entries_df["kisyucode"]
         entries_df["chokyosi_code"] = entries_df["chokyosicode"]
         entries_df["haron_time_l3"] = entries_df["harontimel3"].apply(_to_float)
-        entries_df["time_diff"] = entries_df["timedifn"].apply(_to_float)
+        entries_df["time_diff"] = entries_df["timediff"].apply(_to_float)
         entries_df["corner_1c"] = entries_df["jyuni1c"].apply(_to_int)
         entries_df["corner_4c"] = entries_df["jyuni4c"].apply(_to_int)
         entries_df["honsyokin"] = entries_df["honsyokin"].apply(_to_int)

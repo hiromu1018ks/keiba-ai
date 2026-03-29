@@ -117,7 +117,7 @@ class BloodlineFeatures:
             feats["blood_total_wr"] = self._smoothed_wr(chuo_wins, chuo_total)
 
             # --- 累計賞金 (log変換) ---
-            prize = row.get("ruikeihonsyoheichi")
+            prize = row.get("ruikeihonsyoheiti")
             if pd.notna(prize) and float(prize) > 0:
                 feats["blood_prize_log"] = float(np.log1p(float(prize)))
             else:

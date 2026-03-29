@@ -306,7 +306,7 @@ class TestEtlEntries:
                 "kisyucode": ["01056"],
                 "chokyosicode": ["01023"],
                 "harontimel3": ["33.5"],
-                "timedifn": ["0.3"],
+                "timediff": ["0.3"],
                 "jyuni1c": ["2"],
                 "jyuni4c": ["3"],
                 "honsyokin": ["0"],

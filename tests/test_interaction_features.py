@@ -44,6 +44,27 @@ def test_weight_x_distance_nan():
     assert pd.isna(result["weight_x_distance"].iloc[1])
     assert pd.isna(result["weight_x_distance"].iloc[2])
 
+def test_kyakusitu_fallback():
+    """kyakusitu_cd がなく kyakusitu があればそちらを使う"""
+    df = pd.DataFrame({
+        "kyakusitu": [1.0, 2.0],
+        "distance_bin": ["sprint", "mile"],
+        "surface": ["turf", "dirt"],
+    })
+    result = compute_interaction_features(df)
+    assert "kyakusitu_x_distance" in result.columns
+    assert "kyakusitu_x_surface" in result.columns
+
+def test_ba_taijyu_fallback():
+    """weight_absolute がなく ba_taijyu があればそちらを使う"""
+    df = pd.DataFrame({
+        "ba_taijyu": [450.0, 500.0],
+        "distance": [1200, 2400],
+    })
+    result = compute_interaction_features(df)
+    assert "weight_x_distance" in result.columns
+    assert result["weight_x_distance"].tolist() == [450.0 * 1200, 500.0 * 2400]
+
 def test_missing_columns():
     """必要列がない場合は追加しない"""
     df = pd.DataFrame({"other_col": [1, 2, 3]})

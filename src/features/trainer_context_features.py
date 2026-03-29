@@ -55,6 +55,11 @@ class TrainerContextFeatures:
         entry_df = entry_df.copy()
         entry_df["race_year"] = pd.to_datetime(entry_df["race_date"]).dt.year
 
+        # chokyosi_code の型を統一 (entry: float64, stats: object の不一致を回避)
+        entry_df["chokyosi_code"] = entry_df["chokyosi_code"].astype(str)
+        stats_df = stats_df.copy()
+        stats_df["chokyosicode"] = stats_df["chokyosicode"].astype(str)
+
         merged = entry_df[["race_id", "umaban", "chokyosi_code", "race_year"]].merge(
             stats_df, left_on="chokyosi_code", right_on="chokyosicode", how="left"
         )

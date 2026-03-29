@@ -78,7 +78,8 @@ class TrainingPipelineV5:
         # NEW: _train_submodel 内で HorseHistoryFeatures が使用するため保存
         self._race_df = race_df
         self._entry_df = entry_df
-        odds_ts_df = self.repo.load_odds_time_series_range(start, end)
+        # odds_ts_df は Stage1 FEATURE_COLS で未使用 (2.5 GiB のメモリ消費を回避)
+        odds_ts_df = None
 
         # 2. 特徴量生成
         logger.info("Building features")

@@ -50,8 +50,19 @@ class DataRepository:
         return self.store.read("odds", "snapshots", filters=_date_filters(start, end))
 
     def load_odds_time_series_range(self, start: str, end: str) -> pd.DataFrame:
-        """オッズ時系列（日付範囲）— パーティションテーブル"""
-        return self.store.read("odds", "time_series", filters=_date_filters(start, end))
+        """オッズ時系列（日付範囲）— パーティションテーブル
+
+        year/month パーティションに対して述語プッシュダウンを効かせるため、
+        race_date フィルタに加えて year フィルタも追加。
+        """
+        s, e = _to_dt(start), _to_dt(end)
+        filters = [
+            ("year", ">=", s.year),
+            ("year", "<=", e.year),
+            ("race_date", ">=", s),
+            ("race_date", "<=", e),
+        ]
+        return self.store.read("odds", "time_series", filters=filters)
 
     def load_odds_time_series(self, race_id: str) -> pd.DataFrame:
         """オッズ時系列（単一レース）"""

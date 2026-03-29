@@ -107,7 +107,7 @@ class BacktestEngine:
 
         feat_engine = FeatureEngine()
         submodel_mgr = SubModelManager()
-        odds_ts_df = self.repo.load_odds_time_series_range(start, end)
+        odds_ts_df = None  # Stage1 FEATURE_COLS で未使用 (メモリ節約)
         feat_df = feat_engine.build_all(race_df, entry_df, odds_df, odds_ts_df=odds_ts_df, repo=self.repo)
         feat_df = submodel_mgr.add_distance_band_features(feat_df)
 

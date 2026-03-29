@@ -55,6 +55,11 @@ class JockeyContextFeatures:
         entry_df = entry_df.copy()
         entry_df["race_year"] = pd.to_datetime(entry_df["race_date"]).dt.year
 
+        # kisyu_code の型を統一 (entry: float64, stats: object の不一致を回避)
+        entry_df["kisyu_code"] = entry_df["kisyu_code"].astype(str)
+        stats_df = stats_df.copy()
+        stats_df["kisyucode"] = stats_df["kisyucode"].astype(str)
+
         merged = entry_df[["race_id", "umaban", "kisyu_code", "race_year"]].merge(
             stats_df, left_on="kisyu_code", right_on="kisyucode", how="left"
         )

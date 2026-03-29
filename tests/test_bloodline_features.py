@@ -42,7 +42,7 @@ def _make_horses_row(
     kyori1_total: int = 30,
     chuochakukaisu1: int = 10,
     chuo_total: int = 80,
-    ruikeihonsyoheichi: float = 50000.0,
+    ruikeihonsyoheiti: float = 50000.0,
 ) -> dict:
     """Build one row of x_UMA data with sensible defaults.
 
@@ -74,7 +74,7 @@ def _make_horses_row(
         "chuochakukaisu4": chuo_rest // 5,
         "chuochakukaisu5": chuo_rest // 5,
         "chuochakukaisu6": chuo_rest - 4 * (chuo_rest // 5),
-        "ruikeihonsyoheichi": ruikeihonsyoheichi,
+        "ruikeihonsyoheiti": ruikeihonsyoheiti,
     }
 
 
@@ -167,8 +167,8 @@ class TestBloodPrizeLog:
     """blood_prize_log: log(1 + prize) 変換"""
 
     def test_blood_prize_log(self):
-        """ruikeihonsyoheichi=50000 -> log1p(50000)"""
-        horses = pd.DataFrame([_make_horses_row(ruikeihonsyoheichi=50000.0)])
+        """ruikeihonsyoheiti=50000 -> log1p(50000)"""
+        horses = pd.DataFrame([_make_horses_row(ruikeihonsyoheiti=50000.0)])
         repo = _make_repo(horses)
         feat = BloodlineFeatures(repo)
         entry = _make_entry()
@@ -178,7 +178,7 @@ class TestBloodPrizeLog:
 
     def test_blood_prize_log_zero(self):
         """prize=0 -> NaN"""
-        horses = pd.DataFrame([_make_horses_row(ruikeihonsyoheichi=0.0)])
+        horses = pd.DataFrame([_make_horses_row(ruikeihonsyoheiti=0.0)])
         repo = _make_repo(horses)
         feat = BloodlineFeatures(repo)
         entry = _make_entry()
@@ -187,7 +187,7 @@ class TestBloodPrizeLog:
 
     def test_blood_prize_log_nan(self):
         """prize=NaN -> NaN"""
-        horses = pd.DataFrame([_make_horses_row(ruikeihonsyoheichi=float("nan"))])
+        horses = pd.DataFrame([_make_horses_row(ruikeihonsyoheiti=float("nan"))])
         repo = _make_repo(horses)
         feat = BloodlineFeatures(repo)
         entry = _make_entry()

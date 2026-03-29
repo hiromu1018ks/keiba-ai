@@ -39,7 +39,7 @@ class TestEtlHorsesToParquet:
                 "ketto3infohansyokunum1": ["A001", "A002"],
                 "ba1chakukaisu1": ["10", "5"],
                 "ba1chakukaisu2": ["8", "3"],
-                "ruikeihonsyoheichi": ["1500.5", "800.0"],
+                "ruikeihonsyoheiti": ["1500.5", "800.0"],
                 "kyakusitu1": ["1", "2"],
                 "chuochakukaisu1": ["4", "6"],
             }
@@ -63,7 +63,7 @@ class TestEtlHorsesToParquet:
                 "kettonum": ["0001234567"],
                 "ketto3infohansyokunum1": ["A001"],
                 "ba1chakukaisu1": ["10"],
-                "ruikeihonsyoheichi": ["1500.5"],
+                "ruikeihonsyoheiti": ["1500.5"],
                 "kyakusitu1": ["1"],
                 "chuochakukaisu1": ["4"],
             }
@@ -74,8 +74,8 @@ class TestEtlHorsesToParquet:
         written_df = mock_store.write.call_args[0][2]
         # chakukaisu columns should be int
         assert written_df["ba1chakukaisu1"].iloc[0] == 10
-        # ruikeihonsyoheichi should be float
-        assert written_df["ruikeihonsyoheichi"].iloc[0] == pytest.approx(1500.5)
+        # ruikeihonsyoheiti should be float
+        assert written_df["ruikeihonsyoheiti"].iloc[0] == pytest.approx(1500.5)
         # bloodline columns should be str
         assert isinstance(written_df["ketto3infohansyokunum1"].iloc[0], str)
         # kyakusitu should be int
@@ -90,7 +90,7 @@ class TestEtlHorsesToParquet:
                 "kettonum": ["0001234567"],
                 "ketto3infohansyokunum1": ["A001"],
                 "ba1chakukaisu1": [""],
-                "ruikeihonsyoheichi": [""],
+                "ruikeihonsyoheiti": [""],
                 "kyakusitu1": [""],
                 "chuochakukaisu1": [""],
             }
@@ -100,7 +100,7 @@ class TestEtlHorsesToParquet:
 
         written_df = mock_store.write.call_args[0][2]
         assert pd.isna(written_df["ba1chakukaisu1"].iloc[0])
-        assert pd.isna(written_df["ruikeihonsyoheichi"].iloc[0])
+        assert pd.isna(written_df["ruikeihonsyoheiti"].iloc[0])
         assert pd.isna(written_df["kyakusitu1"].iloc[0])
 
 
