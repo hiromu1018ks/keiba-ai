@@ -78,7 +78,6 @@ class BloodlineFeatures:
         """
         horses_df = self._load_horses()
 
-        # ketto_num で join (entry -> horses)
         if "ketto_num" not in entry_df.columns or horses_df.empty:
             return entry_df[["race_id", "umaban"]].assign(
                 **{c: float("nan") for c in FEATURE_COLS}
@@ -88,51 +87,45 @@ class BloodlineFeatures:
             horses_df, left_on="ketto_num", right_on="kettonum", how="left"
         )
 
-        rows: list[dict[str, float | int | str]] = []
-        for _, row in merged.iterrows():
-            feats: dict[str, float | int | str] = {}
+        result = merged[["race_id", "umaban"]].copy()
 
-            # --- 馬場別勝率 (芝 = ba1) ---
-            ba1_wins = self._safe_int(row.get("ba1chakukaisu1", 0))
-            ba1_total = sum(
-                self._safe_int(row.get(f"ba1chakukaisu{i}", 0)) for i in range(1, 7)
-            )
-            feats["blood_surface_wr"] = self._smoothed_wr(ba1_wins, ba1_total)
+        # --- 馬場別勝率 (芝 = ba1) ---
+        ba_cols = [f"ba1chakukaisu{i}" for i in range(1, 7)]
+        ba_data = merged[ba_cols].fillna(0).astype(float)
+        ba1_wins = ba_data["ba1chakukaisu1"]
+        ba1_total = ba_data[ba_cols].sum(axis=1)
+        result["blood_surface_wr"] = np.where(
+            ba1_total == 0, np.nan, (ba1_wins + ALPHA_PRIOR) / (ba1_total + TOTAL_OFFSET)
+        )
 
-            # --- 距離別勝率 (短距離 = kyori1) ---
-            ky1_wins = self._safe_int(row.get("kyori1chakukaisu1", 0))
-            ky1_total = sum(
-                self._safe_int(row.get(f"kyori1chakukaisu{i}", 0)) for i in range(1, 7)
-            )
-            feats["blood_distance_wr"] = self._smoothed_wr(ky1_wins, ky1_total)
+        # --- 距離別勝率 (短距離 = kyori1) ---
+        ky_cols = [f"kyori1chakukaisu{i}" for i in range(1, 7)]
+        ky_data = merged[ky_cols].fillna(0).astype(float)
+        ky1_wins = ky_data["kyori1chakukaisu1"]
+        ky1_total = ky_data[ky_cols].sum(axis=1)
+        result["blood_distance_wr"] = np.where(
+            ky1_total == 0, np.nan, (ky1_wins + ALPHA_PRIOR) / (ky1_total + TOTAL_OFFSET)
+        )
 
-            # --- 馬場状態別勝率 — Phase 2 ---
-            feats["blood_condition_wr"] = float("nan")
+        # --- 馬場状態別勝率 — Phase 2 ---
+        result["blood_condition_wr"] = np.nan
 
-            # --- 総合成績勝率 (中央 = chuo) ---
-            chuo_wins = self._safe_int(row.get("chuochakukaisu1", 0))
-            chuo_total = sum(
-                self._safe_int(row.get(f"chuochakukaisu{i}", 0)) for i in range(1, 7)
-            )
-            feats["blood_total_wr"] = self._smoothed_wr(chuo_wins, chuo_total)
+        # --- 総合成績勝率 (中央 = chuo) ---
+        ch_cols = [f"chuochakukaisu{i}" for i in range(1, 7)]
+        ch_data = merged[ch_cols].fillna(0).astype(float)
+        ch_wins = ch_data["chuochakukaisu1"]
+        ch_total = ch_data[ch_cols].sum(axis=1)
+        result["blood_total_wr"] = np.where(
+            ch_total == 0, np.nan, (ch_wins + ALPHA_PRIOR) / (ch_total + TOTAL_OFFSET)
+        )
 
-            # --- 累計賞金 (log変換) ---
-            prize = row.get("ruikeihonsyoheiti")
-            if pd.notna(prize) and float(prize) > 0:
-                feats["blood_prize_log"] = float(np.log1p(float(prize)))
-            else:
-                feats["blood_prize_log"] = float("nan")
+        # --- 累計賞金 (log変換) ---
+        prize = pd.to_numeric(merged["ruikeihonsyoheiti"], errors="coerce")
+        result["blood_prize_log"] = np.where(
+            prize.fillna(0) > 0, np.log1p(prize.fillna(0)), np.nan
+        )
 
-            # --- 系統コード — Phase 2 (x_KEITO join needed) ---
-            feats["blood_keito_cd"] = float("nan")
+        # --- 系統コード — Phase 2 ---
+        result["blood_keito_cd"] = np.nan
 
-            feats["race_id"] = row["race_id"]
-            feats["umaban"] = row["umaban"]
-            rows.append(feats)
-
-        result = pd.DataFrame(rows)
-        if result.empty:
-            return entry_df[["race_id", "umaban"]].assign(
-                **{c: float("nan") for c in FEATURE_COLS}
-            )
         return result[["race_id", "umaban"] + FEATURE_COLS]
