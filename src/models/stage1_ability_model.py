@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 
 import lightgbm as lgb
 import numpy as np
@@ -90,6 +91,7 @@ class AbilityModel:
                     "learning_rate": 0.03,
                     "num_leaves": 31,
                     "feature_fraction": 0.7,
+                    "num_threads": max(1, (os.cpu_count() or 4) // 2),
                     "verbose": -1,
                 },
                 lgb.Dataset(features, label=y, group=groups),

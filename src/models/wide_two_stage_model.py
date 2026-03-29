@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from typing import Any, cast
 
 import lightgbm as lgb
@@ -67,6 +68,7 @@ class WideTwoStageModel:
                 "metric": "auc",
                 "learning_rate": cfg.hit_lr,
                 "num_leaves": cfg.hit_leaves,
+                "num_threads": max(1, (os.cpu_count() or 4) // 2),
                 "verbose": -1,
                 "is_unbalance": True,
             },
@@ -108,6 +110,7 @@ class WideTwoStageModel:
                 "metric": "mae",
                 "learning_rate": cfg.return_lr,
                 "num_leaves": cfg.return_leaves,
+                "num_threads": max(1, (os.cpu_count() or 4) // 2),
                 "verbose": -1,
             },
             train_data,

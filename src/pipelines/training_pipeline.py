@@ -7,6 +7,8 @@ MLflow に実験を記録。
 from __future__ import annotations
 
 import logging
+import os
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import TYPE_CHECKING
 
 import mlflow
@@ -98,17 +100,36 @@ class TrainingPipelineV5:
             wide_pivot = wide_pivot.reset_index()
             feat_df = feat_df.merge(wide_pivot, on="race_id", how="left")
 
-        # 3. 各 surface ごとに学習
+        # 3. 各 surface ごとに学習 (parallel)
         models: dict[str, SubmodelSet] = {}
+        surfaces_to_train: list[tuple[str, pd.DataFrame]] = []
         for surface in ["turf", "dirt"]:
             subset_df = feat_df[feat_df["surface"] == surface].copy()
             if len(subset_df) < 1000:
                 logger.warning(f"Skipping {surface}: insufficient data ({len(subset_df)})")
                 continue
+            surfaces_to_train.append((surface, subset_df))
 
+        if len(surfaces_to_train) == 1:
+            # Single surface — no parallelism needed
+            surface, subset_df = surfaces_to_train[0]
             sub = self._train_submodel(subset_df)
             models[surface] = sub
             logger.info(f"Trained {surface} submodel")
+        elif len(surfaces_to_train) >= 2:
+            with ThreadPoolExecutor(max_workers=2) as executor:
+                futures = {
+                    executor.submit(self._train_submodel, subset_df): surface
+                    for surface, subset_df in surfaces_to_train
+                }
+                for future in as_completed(futures):
+                    surface = futures[future]
+                    try:
+                        models[surface] = future.result()
+                        logger.info(f"Trained {surface} submodel (parallel)")
+                    except Exception as e:
+                        logger.error(f"Failed to train {surface} submodel: {e}")
+                        raise
 
         # 4. feat_df の object 数値列を float64 に統一
         for col in feat_df.columns:
