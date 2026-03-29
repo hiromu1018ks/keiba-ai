@@ -1,0 +1,78 @@
+{
+  "timestamp": "2026-03-29T10:54:08",
+  "format_pages": {},
+  "code_tables": {
+    "2001": {
+      "table_name": "競馬場コード",
+      "n_entries": 1
+    },
+    "2002": {
+      "table_name": "曜日コード",
+      "n_entries": 1
+    },
+    "2003": {
+      "table_name": "グレードコード",
+      "n_entries": 1
+    },
+    "2005": {
+      "table_name": "競走種別コード",
+      "n_entries": 1
+    },
+    "2006": {
+      "table_name": "競走記号コード",
+      "n_entries": 1
+    },
+    "2007": {
+      "table_name": "競走条件コード",
+      "n_entries": 1
+    },
+    "2008": {
+      "table_name": "重量種別コード",
+      "n_entries": 1
+    },
+    "2009": {
+      "table_name": "トラックコード",
+      "n_entries": 1
+    },
+    "2010": {
+      "table_name": "馬場状態コード",
+      "n_entries": 1
+    },
+    "2011": {
+      "table_name": "天候コード",
+      "n_entries": 1
+    },
+    "2101": {
+      "table_name": "異常区分コード",
+      "n_entries": 1
+    },
+    "2102": {
+      "table_name": "着差コード",
+      "n_entries": 4
+    },
+    "2201": {
+      "table_name": "品種コード",
+      "n_entries": 1
+    },
+    "2202": {
+      "table_name": "性別コード",
+      "n_entries": 1
+    },
+    "2203": {
+      "table_name": "毛色コード",
+      "n_entries": 1
+    },
+    "2204": {
+      "table_name": "馬記号コード",
+      "n_entries": 1
+    },
+    "2301": {
+      "table_name": "東西所属コード",
+      "n_entries": 1
+    },
+    "2303": {
+      "table_name": "騎手見習コード",
+      "n_entries": 1
+    }
+  }
+}

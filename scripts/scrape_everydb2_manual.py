@@ -544,7 +544,8 @@ def scrape_code_tables(context: Any) -> list[CodeTable]:
             title_text = _normalize_text(title_cell.inner_text())
 
             # Extract code ID and name from title
-            code_id_match = re.search(r"(\d{4})\s+(.+)", title_text)
+            # Format: "2001.競馬場コード" or "2001 競馬場コード"
+            code_id_match = re.search(r"(\d{4})[.\s]+(.+)", title_text)
             if not code_id_match:
                 logger.debug("テーブル %d: コードIDを検出できません ('%s')", table_idx, title_text)
                 continue
@@ -552,16 +553,10 @@ def scrape_code_tables(context: Any) -> list[CodeTable]:
             table_name = code_id_match.group(2).strip()
 
             # Determine header structure
-            # Row 1 may be meta headers, row 2 may be sub-headers
-            # We need to find the actual data rows
-            header_row_idx = 1
-            if len(rows) > 2:
-                # Check if row 1 has meta info and row 2 has actual headers
-                row1_cells = rows[1].query_selector_all("th, td")
-                row1_texts = [_normalize_text(c.inner_text()) for c in row1_cells]
-                # If row 1 looks like meta info (single cell or few cells), skip it
-                if len(row1_cells) <= 2 and any("コード" in t for t in row1_texts):
-                    header_row_idx = 2
+            # Actual structure: Row 0=title, Row 1=meta(バイト数,値,内容),
+            # Row 2=sub-headers, Row 3+=data
+            header_row_idx = 2
+            data_start_idx = 3
 
             # Extract headers
             if header_row_idx < len(rows):
@@ -570,10 +565,10 @@ def scrape_code_tables(context: Any) -> list[CodeTable]:
             else:
                 headers = []
 
-            # Extract data rows (everything after header row)
+            # Extract data rows (everything after sub-headers)
             entries: list[CodeEntry] = []
-            for row_idx in range(header_row_idx + 1, len(rows)):
-                cells = rows[row_idx].query_selector_all("td")
+            for row_idx in range(data_start_idx, len(rows)):
+                cells = rows[row_idx].query_selector_all("th, td")
                 if not cells:
                     continue
                 cell_texts = [_normalize_text(c.inner_text()) for c in cells]

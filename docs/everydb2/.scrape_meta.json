@@ -1,0 +1,374 @@
+{
+  "timestamp": "2026-03-29T10:57:29",
+  "format_pages": {
+    "01-TOKU_RACE": {
+      "table_name_en": "TK",
+      "record_spec": "TK",
+      "n_fields": 36
+    },
+    "02-TOKU": {
+      "table_name_en": "",
+      "record_spec": "",
+      "n_fields": 17
+    },
+    "03-RACE": {
+      "table_name_en": "RA",
+      "record_spec": "RA",
+      "n_fields": 110
+    },
+    "04-UMA_RACE": {
+      "table_name_en": "SE",
+      "record_spec": "SE",
+      "n_fields": 73
+    },
+    "05-HARAI": {
+      "table_name_en": "HR",
+      "record_spec": "HR",
+      "n_fields": 199
+    },
+    "06-HYOSU": {
+      "table_name_en": "H1",
+      "record_spec": "H1",
+      "n_fields": 77
+    },
+    "07-HYOSU_TANPUKU": {
+      "table_name_en": "",
+      "record_spec": "",
+      "n_fields": 12
+    },
+    "08-HYOSU_WAKU": {
+      "table_name_en": "",
+      "record_spec": "",
+      "n_fields": 10
+    },
+    "09-HYOSU_UMARENWIDE": {
+      "table_name_en": "",
+      "record_spec": "",
+      "n_fields": 12
+    },
+    "10-HYOSU_UMATAN": {
+      "table_name_en": "",
+      "record_spec": "",
+      "n_fields": 10
+    },
+    "11-HYOSU_SANREN": {
+      "table_name_en": "",
+      "record_spec": "",
+      "n_fields": 10
+    },
+    "12-HYOSU2": {
+      "table_name_en": "H6",
+      "record_spec": "H6",
+      "n_fields": 32
+    },
+    "13-HYOSU_SANRENTAN": {
+      "table_name_en": "",
+      "record_spec": "",
+      "n_fields": 10
+    },
+    "14-ODDS_TANPUKUWAKU_HEAD": {
+      "table_name_en": "",
+      "record_spec": "",
+      "n_fields": 19
+    },
+    "15-ODDS_TANPUKU": {
+      "table_name_en": "",
+      "record_spec": "",
+      "n_fields": 13
+    },
+    "16-ODDS_WAKU": {
+      "table_name_en": "",
+      "record_spec": "",
+      "n_fields": 10
+    },
+    "17-ODDS_UMAREN_HEAD": {
+      "table_name_en": "",
+      "record_spec": "",
+      "n_fields": 14
+    },
+    "18-ODDS_UMAREN": {
+      "table_name_en": "",
+      "record_spec": "",
+      "n_fields": 10
+    },
+    "19-ODDS_WIDE_HEAD": {
+      "table_name_en": "",
+      "record_spec": "",
+      "n_fields": 14
+    },
+    "20-ODDS_WIDE": {
+      "table_name_en": "",
+      "record_spec": "",
+      "n_fields": 11
+    },
+    "21-ODDS_UMATAN_HEAD": {
+      "table_name_en": "",
+      "record_spec": "",
+      "n_fields": 14
+    },
+    "22-ODDS_UMATAN": {
+      "table_name_en": "",
+      "record_spec": "",
+      "n_fields": 10
+    },
+    "23-ODDS_SANREN_HEAD": {
+      "table_name_en": "",
+      "record_spec": "",
+      "n_fields": 14
+    },
+    "24-ODDS_SANREN": {
+      "table_name_en": "",
+      "record_spec": "",
+      "n_fields": 10
+    },
+    "25-ODDS_SANRENTAN_HEAD": {
+      "table_name_en": "",
+      "record_spec": "",
+      "n_fields": 14
+    },
+    "26-ODDS_SANRENTAN": {
+      "table_name_en": "",
+      "record_spec": "",
+      "n_fields": 10
+    },
+    "27-UMA": {
+      "table_name_en": "UM",
+      "record_spec": "UM",
+      "n_fields": 227
+    },
+    "28-KISYU": {
+      "table_name_en": "KS",
+      "record_spec": "KS",
+      "n_fields": 67
+    },
+    "29-KISYU_SEISEKI": {
+      "table_name_en": "",
+      "record_spec": "",
+      "n_fields": 176
+    },
+    "30-CHOKYO": {
+      "table_name_en": "CH",
+      "record_spec": "CH",
+      "n_fields": 42
+    },
+    "31-CHOKYO_SEISEKI": {
+      "table_name_en": "",
+      "record_spec": "",
+      "n_fields": 176
+    },
+    "32-SEISAN": {
+      "table_name_en": "BR",
+      "record_spec": "BR",
+      "n_fields": 27
+    },
+    "33-BANUSI": {
+      "table_name_en": "BN",
+      "record_spec": "BN",
+      "n_fields": 27
+    },
+    "34-HANSYOKU": {
+      "table_name_en": "HN",
+      "record_spec": "HN",
+      "n_fields": 19
+    },
+    "35-SANKU": {
+      "table_name_en": "SK",
+      "record_spec": "SK",
+      "n_fields": 26
+    },
+    "36-RECORD": {
+      "table_name_en": "RC",
+      "record_spec": "RC",
+      "n_fields": 48
+    },
+    "37-HANRO": {
+      "table_name_en": "HC",
+      "record_spec": "HC",
+      "n_fields": 14
+    },
+    "38-BATAIJYU": {
+      "table_name_en": "WH",
+      "record_spec": "WH",
+      "n_fields": 100
+    },
+    "39-TENKO_BABA": {
+      "table_name_en": "WE",
+      "record_spec": "WE",
+      "n_fields": 16
+    },
+    "40-TORIKESI_JYOGAI": {
+      "table_name_en": "AV",
+      "record_spec": "AV",
+      "n_fields": 13
+    },
+    "41-KISYU_CHANGE": {
+      "table_name_en": "JC",
+      "record_spec": "JC",
+      "n_fields": 20
+    },
+    "42-HASSOU_JIKOKU_CHANGE": {
+      "table_name_en": "TC",
+      "record_spec": "TC",
+      "n_fields": 14
+    },
+    "43-COURSE_CHANGE": {
+      "table_name_en": "CC",
+      "record_spec": "CC",
+      "n_fields": 15
+    },
+    "44-MINING": {
+      "table_name_en": "DM",
+      "record_spec": "DM",
+      "n_fields": 82
+    },
+    "45-SCHEDULE": {
+      "table_name_en": "YS",
+      "record_spec": "YS",
+      "n_fields": 45
+    },
+    "46-JODDS_TANPUKUWAKU_HEAD": {
+      "table_name_en": "",
+      "record_spec": "",
+      "n_fields": 19
+    },
+    "47-JODDS_TANPUKU": {
+      "table_name_en": "",
+      "record_spec": "",
+      "n_fields": 14
+    },
+    "48-JODDS_WAKU": {
+      "table_name_en": "",
+      "record_spec": "",
+      "n_fields": 11
+    },
+    "49-JODDS_UMAREN_HEAD": {
+      "table_name_en": "",
+      "record_spec": "",
+      "n_fields": 14
+    },
+    "50-JODDS_UMAREN": {
+      "table_name_en": "",
+      "record_spec": "",
+      "n_fields": 11
+    },
+    "51-SALE": {
+      "table_name_en": "HS",
+      "record_spec": "HS",
+      "n_fields": 14
+    },
+    "52-BAMEIORIGIN": {
+      "table_name_en": "HY",
+      "record_spec": "HY",
+      "n_fields": 6
+    },
+    "53-KEITO": {
+      "table_name_en": "BT",
+      "record_spec": "BT",
+      "n_fields": 7
+    },
+    "54-COURSE": {
+      "table_name_en": "CS",
+      "record_spec": "CS",
+      "n_fields": 8
+    },
+    "55-TAISENGATA_MINING": {
+      "table_name_en": "TM",
+      "record_spec": "TM",
+      "n_fields": 46
+    },
+    "56-JYUSYOSIKI_HEAD": {
+      "table_name_en": "WF",
+      "record_spec": "WF",
+      "n_fields": 38
+    },
+    "57-JYUSYOSIKI": {
+      "table_name_en": "",
+      "record_spec": "",
+      "n_fields": 6
+    },
+    "58-JOGAIBA": {
+      "table_name_en": "JG",
+      "record_spec": "JG",
+      "n_fields": 14
+    },
+    "59-WOOD_CHIP": {
+      "table_name_en": "WC",
+      "record_spec": "WC",
+      "n_fields": 29
+    }
+  },
+  "code_tables": {
+    "2001": {
+      "table_name": "競馬場コード",
+      "n_entries": 1
+    },
+    "2002": {
+      "table_name": "曜日コード",
+      "n_entries": 1
+    },
+    "2003": {
+      "table_name": "グレードコード",
+      "n_entries": 1
+    },
+    "2005": {
+      "table_name": "競走種別コード",
+      "n_entries": 1
+    },
+    "2006": {
+      "table_name": "競走記号コード",
+      "n_entries": 1
+    },
+    "2007": {
+      "table_name": "競走条件コード",
+      "n_entries": 1
+    },
+    "2008": {
+      "table_name": "重量種別コード",
+      "n_entries": 1
+    },
+    "2009": {
+      "table_name": "トラックコード",
+      "n_entries": 1
+    },
+    "2010": {
+      "table_name": "馬場状態コード",
+      "n_entries": 1
+    },
+    "2011": {
+      "table_name": "天候コード",
+      "n_entries": 1
+    },
+    "2101": {
+      "table_name": "異常区分コード",
+      "n_entries": 1
+    },
+    "2102": {
+      "table_name": "着差コード",
+      "n_entries": 4
+    },
+    "2201": {
+      "table_name": "品種コード",
+      "n_entries": 1
+    },
+    "2202": {
+      "table_name": "性別コード",
+      "n_entries": 1
+    },
+    "2203": {
+      "table_name": "毛色コード",
+      "n_entries": 1
+    },
+    "2204": {
+      "table_name": "馬記号コード",
+      "n_entries": 1
+    },
+    "2301": {
+      "table_name": "東西所属コード",
+      "n_entries": 1
+    },
+    "2303": {
+      "table_name": "騎手見習コード",
+      "n_entries": 1
+    }
+  }
+}
