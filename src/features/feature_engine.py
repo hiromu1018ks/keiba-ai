@@ -85,10 +85,9 @@ class FeatureEngine:
             bloodline_df = bloodline.compute(df)
             df = pd.merge(df, bloodline_df, on=["race_id", "umaban"], how="left")
 
-        # Group E: 交互作用特徴量
-        from features.interaction_features import compute_interaction_features
-
-        df = compute_interaction_features(df)
+        # NOTE: Group E (interaction features) は HorseHistoryFeatures 後に呼ぶこと。
+        # kyakusitu_cd が必要なため、build_all では実行しない。
+        # _train_submodel / BacktestEngine で hist_df merge 後に呼び出す。
 
         return df
 

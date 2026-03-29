@@ -143,6 +143,11 @@ class BacktestEngine:
             race_df_single = race_df_single.merge(hist_df, on=["race_id", "umaban"], how="left")
             race_df_single = HorseHistoryFeatures.add_race_transforms(race_df_single)
 
+            # Group E: 交互作用特徴量 (HorseHistoryFeatures 後に実行 — kyakusitu_cd が必要)
+            from features.interaction_features import compute_interaction_features
+
+            race_df_single = compute_interaction_features(race_df_single)
+
             # 3d. 特徴量 → 予測
             try:
                 race_df_single = submodel.market.predict_and_calc_error(race_df_single)

@@ -45,15 +45,16 @@ def test_weight_x_distance_nan():
     assert pd.isna(result["weight_x_distance"].iloc[2])
 
 def test_kyakusitu_fallback():
-    """kyakusitu_cd がなく kyakusitu があればそちらを使う"""
+    """kyakusitu_cd がなければ脚質交互作用は生成しない (リーク防止)"""
     df = pd.DataFrame({
         "kyakusitu": [1.0, 2.0],
         "distance_bin": ["sprint", "mile"],
         "surface": ["turf", "dirt"],
     })
     result = compute_interaction_features(df)
-    assert "kyakusitu_x_distance" in result.columns
-    assert "kyakusitu_x_surface" in result.columns
+    # kyakusitu_cd がない場合、ポストレースkyakusituへのフォールバックは禁止
+    assert "kyakusitu_x_distance" not in result.columns
+    assert "kyakusitu_x_surface" not in result.columns
 
 def test_ba_taijyu_fallback():
     """weight_absolute がなく ba_taijyu があればそちらを使う"""

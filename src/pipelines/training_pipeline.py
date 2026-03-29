@@ -161,6 +161,11 @@ class TrainingPipelineV5:
         df = df.merge(hist_df, on=["race_id", "umaban"], how="left")
         df = HorseHistoryFeatures.add_race_transforms(df)
 
+        # Group E: 交互作用特徴量 (HorseHistoryFeatures 後に実行 — kyakusitu_cd が必要)
+        from features.interaction_features import compute_interaction_features
+
+        df = compute_interaction_features(df)
+
         # 1. Market Model (正規化差分 log_error のみ出力)
         # object型の数値列 (pd.NA含む) → float64 (2回目のsurface処理でpd.NAが混入するため)
         for col in df.columns:
