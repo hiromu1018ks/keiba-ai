@@ -68,6 +68,9 @@ CREATE TABLE IF NOT EXISTS raw.entries (
     finish_pos    INTEGER NOT NULL DEFAULT 0,
     finish_time   FLOAT,
     haron_time_l3 FLOAT,
+    time_diff     FLOAT,       -- 勝馬差タイム (TimeDIFN)
+    corner_1c     INTEGER,     -- 1コーナー通過順位 (Jyuni1c)
+    corner_4c     INTEGER,     -- 4コーナー通過順位 (Jyuni4c)
     ninki         INTEGER,
     win_odds      FLOAT,
     ba_taijyu     FLOAT,

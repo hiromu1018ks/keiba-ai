@@ -283,6 +283,9 @@ def etl_entries(engine: Engine, start: str, end: str) -> int:
             s.kisyucode,
             s.chokyosicode,
             s.harontimel3,
+            s.timedifn,
+            s.jyuni1c,
+            s.jyuni4c,
             s.honsyokin,
             s.kyakusitukubun,
             r.race_id
@@ -312,6 +315,9 @@ def etl_entries(engine: Engine, start: str, end: str) -> int:
     df["kisyu_code"] = df["kisyucode"]
     df["chokyosi_code"] = df["chokyosicode"]
     df["haron_time_l3"] = df["harontimel3"].apply(_to_float)
+    df["time_diff"] = df["timedifn"].apply(_to_float)
+    df["corner_1c"] = df["jyuni1c"].apply(_to_int)
+    df["corner_4c"] = df["jyuni4c"].apply(_to_int)
     df["honsyokin"] = df["honsyokin"].apply(_to_int)
     df["kyakusitu"] = df["kyakusitukubun"].apply(_to_int)
 
@@ -323,6 +329,9 @@ def etl_entries(engine: Engine, start: str, end: str) -> int:
             "finish_pos",
             "finish_time",
             "haron_time_l3",
+            "time_diff",
+            "corner_1c",
+            "corner_4c",
             "ninki",
             "win_odds",
             "ba_taijyu",
@@ -676,7 +685,7 @@ def run_full_etl_to_parquet(
             year, monthday, jyocd, kaiji, nichiji, racenum,
             umaban, kettonum, kakuteijyuni, time, odds, ninki,
             bataijyu, zogenfugo, zogensa, kisyucode, chokyosicode,
-            harontimel3, honsyokin, kyakusitukubun
+            harontimel3, timedifn, jyuni1c, jyuni4c, honsyokin, kyakusitukubun
         FROM n_uma_race
         WHERE (year || monthday)::int BETWEEN :start AND :end
     """)
@@ -701,6 +710,9 @@ def run_full_etl_to_parquet(
         entries_df["kisyu_code"] = entries_df["kisyucode"]
         entries_df["chokyosi_code"] = entries_df["chokyosicode"]
         entries_df["haron_time_l3"] = entries_df["harontimel3"].apply(_to_float)
+        entries_df["time_diff"] = entries_df["timedifn"].apply(_to_float)
+        entries_df["corner_1c"] = entries_df["jyuni1c"].apply(_to_int)
+        entries_df["corner_4c"] = entries_df["jyuni4c"].apply(_to_int)
         entries_df["honsyokin"] = entries_df["honsyokin"].apply(_to_int)
         entries_df["kyakusitu"] = entries_df["kyakusitukubun"].apply(_to_int)
 
@@ -712,6 +724,9 @@ def run_full_etl_to_parquet(
                 "finish_pos",
                 "finish_time",
                 "haron_time_l3",
+                "time_diff",
+                "corner_1c",
+                "corner_4c",
                 "ninki",
                 "win_odds",
                 "ba_taijyu",

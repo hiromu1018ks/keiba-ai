@@ -306,6 +306,9 @@ class TestEtlEntries:
                 "kisyucode": ["01056"],
                 "chokyosicode": ["01023"],
                 "harontimel3": ["33.5"],
+                "timedifn": ["0.3"],
+                "jyuni1c": ["2"],
+                "jyuni4c": ["3"],
                 "honsyokin": ["0"],
                 "kyakusitukubun": ["0"],
                 "race_id": ["2024032405030208"],
@@ -323,7 +326,13 @@ class TestEtlEntries:
         assert "finish_pos" in inserted_df.columns
         assert "win_odds" in inserted_df.columns
         assert "race_id" in inserted_df.columns
+        assert "time_diff" in inserted_df.columns
+        assert "corner_1c" in inserted_df.columns
+        assert "corner_4c" in inserted_df.columns
         assert inserted_df["win_odds"].iloc[0] == pytest.approx(5.4)
+        assert inserted_df["time_diff"].iloc[0] == pytest.approx(0.3)
+        assert inserted_df["corner_1c"].iloc[0] == 2
+        assert inserted_df["corner_4c"].iloc[0] == 3
 
 
 class TestEtlPayouts:
