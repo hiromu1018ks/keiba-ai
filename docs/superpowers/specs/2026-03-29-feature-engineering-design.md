@@ -97,7 +97,8 @@ AbilityModel から haron_time 系3列を除外した同一構成。
 | kyakusitu_cd | **新規** | 公式脚質コード (1=逃/2=先/3=差/4=追) | x_UMA_RACE.KyakusituKubun |
 
 **リーク防止:** 全て `race_date < target_date` で厳格フィルタ + `.tail(3)` で直近3走のみ。
-**haron_time修正:** `HorseHistoryFeatures.compute()` 内のハードコードNaN (`haron_time_zscore_avg = float("nan")`) を実際の計算に置換。`HaronTimeL3`列がentries_histに存在する場合は利用、無い場合はNaNを返す（既存のfallbackロジックは維持）。
+
+**haron_time修正について:** `haron_time_l3` 列自体は `entries.parquet` に既にETL済み（`schema.py:70` で定義、`etl.py:314` で変換）。現在dead featureなのは `HorseHistoryFeatures.compute()` 内でハードコード `float("nan")` を返しているのが原因（`horse_history_features.py:248`）。これを実際の `haron_time_l3` 値を使う計算に置換する。
 
 ### Group B: 血統・産駒成績 (新規)
 
@@ -227,9 +228,16 @@ LightGBMが自動検出するが、明示的に与えることで少ないツリ
 ### 馬体 (1) — 変更なし
 30. weight_absolute
 
-**合計: 30特徴量** (既存17 + 新規16 - 削除3)
+**合計: 30特徴量**
+
+内訳:
+- 既存20 → -6 (騎手系→Stage2移動) - 3 (dead haron_time) - 1 (race_z/race_pct→rank統合でzを削除) = 10維持
+- 新規追加20 (過走成績+7, 血統+6, 交互作用+3, race_rank+4)
+- 10 + 20 = 30
 
 **PlaceAbilityModel:** 同じ30特徴量からStage1出力(`p_ability_win`)を追加して31特徴量。
+
+**Group G (ペース適性) について:** `pace_aptitude`は上り3Fタイムの可用性に依存するため、Phase 2で検証後に追加。Section 4のStage1特徴量リストには含めない。Group Gの定義自体は残し、実装順序をPhase 2に位置付ける。
 
 ---
 
@@ -288,11 +296,11 @@ LightGBMが自動検出するが、明示的に与えることで少ないツリ
 
 `entries.parquet` のETLで以下を追加取得:
 
-- `HaronTimeL3` (上り3Fタイム) — 既にETL済みのはず、要確認
-- `TimeDIFN` (勝馬差タイム) — 新規取得
-- `Jyuni1c` (1コーナー通過順位) — 新規取得
-- `Jyuni4c` (4コーナー通過順位) — 新規取得
-- `KyakusituKubun` (公式脚質コード) — 新規取得
+- `HaronTimeL3` (上り3Fタイム) — **既にETL済** (`haron_time_l3` としてentriesに存在)
+- `KyakusituKubun` (公式脚質コード) — **既にETL済** (`kyakusitu` としてentriesに存在)
+- `TimeDIFN` (勝馬差タイム) — **新規取得必要**
+- `Jyuni1c` (1コーナー通過順位) — **新規取得必要**
+- `Jyuni4c` (4コーナー通過順位) — **新規取得必要**
 
 ### 6.4 DataRepository拡張
 
@@ -334,7 +342,9 @@ src/features/
 
 ## 9. 実装順序
 
-1. **ETL拡張** — x_UMA, x_KISYU_SEISEKI, x_CHOKYO_SEISEKI のParquet化 + entries追加カラム
+### Phase 1 (本実装)
+
+1. **ETL拡張** — x_UMA, x_KISYU_SEISEKI, x_CHOKYO_SEISEKI のParquet化 + entries追加カラム (TimeDIFN, Jyuni1c, Jyuni4c)
 2. **DataRepository拡張** — 新Parquetファイルのローダー追加
 3. **Group A: 過走成績修正** — haron_time計算実装 + 新特徴量追加
 4. **Group B: 血統特徴量** — 新規ファイル作成
@@ -344,3 +354,8 @@ src/features/
 8. **Group C/D: 騎手・調教師コンテキスト** — Stage2移動 + 新規特徴量
 9. **Stage2 FEATURE_COLS更新** — EVCorrectionModel
 10. **バックテスト検証** — 2024テストでROI比較
+
+### Phase 2 (Phase 1検証後)
+
+11. **Group G: ペース適性** — 上り3Fが安定取得できる場合のみ追加
+12. **dm_time検証** — JRAデータマイニング予測のリークリスク評価後に判断
