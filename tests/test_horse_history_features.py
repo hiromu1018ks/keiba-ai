@@ -113,7 +113,7 @@ class TestHaronTimeZscore:
 
 
 class TestRaceTransforms:
-    """レース内z-score + pct のテスト"""
+    """レース内 percentile rank (race_rank) のテスト"""
 
     def _make_race_df(self):
         return pd.DataFrame(
@@ -122,47 +122,91 @@ class TestRaceTransforms:
                 "umaban": [1, 2, 3, 4],
                 "norm_finish_logit_avg": [2.0, 1.0, 0.0, -1.0],
                 "jockey_surprise": [0.1, 0.05, -0.02, -0.08],
-                "haron_time_zscore_avg": [1.5, 0.5, -0.5, -1.5],
+                "haron_time_l3_avg": [34.0, 35.0, 36.0, 37.0],
                 "jockey_cond_wr": [0.15, 0.10, 0.05, 0.02],
             }
         )
 
-    def test_z_score_sum_approx_zero(self):
-        """レース内z-scoreの合計 ≈ 0"""
+    def test_rank_column_created(self):
+        """_race_rank 列が数値BASE_COLS について生成される"""
         from features.horse_history_features import HorseHistoryFeatures
 
         df = self._make_race_df()
         result = HorseHistoryFeatures.add_race_transforms(df)
-        z_col = "norm_finish_logit_avg_race_z"
-        assert z_col in result.columns
-        assert abs(result[z_col].sum()) < 1e-6
+        assert "norm_finish_logit_avg_race_rank" in result.columns
+        assert "haron_time_l3_avg_race_rank" in result.columns
 
-    def test_std_zero_no_nan(self):
-        """全馬同じ値（std=0）でも NaN にならない"""
+    def test_no_z_or_pct_columns(self):
+        """_race_z と _race_pct 列は生成されない"""
+        from features.horse_history_features import HorseHistoryFeatures
+
+        df = self._make_race_df()
+        result = HorseHistoryFeatures.add_race_transforms(df)
+        z_cols = [c for c in result.columns if c.endswith("_race_z")]
+        pct_cols = [c for c in result.columns if c.endswith("_race_pct")]
+        assert len(z_cols) == 0, f"Unexpected _race_z columns: {z_cols}"
+        assert len(pct_cols) == 0, f"Unexpected _race_pct columns: {pct_cols}"
+
+    def test_rank_range(self):
+        """race_rank は [0, 1] の範囲"""
+        from features.horse_history_features import HorseHistoryFeatures
+
+        df = self._make_race_df()
+        result = HorseHistoryFeatures.add_race_transforms(df)
+        rank_col = "norm_finish_logit_avg_race_rank"
+        assert result[rank_col].min() >= 0
+        assert result[rank_col].max() <= 1
+
+    def test_rank_ordering(self):
+        """値が大きいほど race_rank も大きい"""
+        from features.horse_history_features import HorseHistoryFeatures
+
+        df = self._make_race_df()
+        result = HorseHistoryFeatures.add_race_transforms(df)
+        rank_col = "norm_finish_logit_avg_race_rank"
+        # norm_finish_logit_avg: [2.0, 1.0, 0.0, -1.0]
+        # rank should be [1.0, 0.75, 0.5, 0.25] (descending by value)
+        ranks = result[rank_col].tolist()
+        assert ranks[0] > ranks[3]  # 2.0 should rank higher than -1.0
+
+    def test_category_cols_excluded(self):
+        """kyakusitu_cd (カテゴリ列) は race_rank を生成しない"""
+        from features.horse_history_features import HorseHistoryFeatures
+
+        df = self._make_race_df()
+        df["kyakusitu_cd"] = [1, 2, 3, 4]
+        result = HorseHistoryFeatures.add_race_transforms(df)
+        assert "kyakusitu_cd_race_rank" not in result.columns
+
+    def test_jockey_cols_excluded(self):
+        """jockey_surprise, jockey_cond_wr は race_rank を生成しない"""
+        from features.horse_history_features import HorseHistoryFeatures
+
+        df = self._make_race_df()
+        result = HorseHistoryFeatures.add_race_transforms(df)
+        assert "jockey_surprise_race_rank" not in result.columns
+        assert "jockey_cond_wr_race_rank" not in result.columns
+
+    def test_tied_values_use_average(self):
+        """同値は method='average' で平均ランク"""
         from features.horse_history_features import HorseHistoryFeatures
 
         df = pd.DataFrame(
             {
-                "race_id": ["r1"] * 3,
-                "umaban": [1, 2, 3],
-                "norm_finish_logit_avg": [1.0, 1.0, 1.0],
-                "jockey_surprise": [0.0, 0.0, 0.0],
-                "haron_time_zscore_avg": [0.0, 0.0, 0.0],
-                "jockey_cond_wr": [0.0, 0.0, 0.0],
+                "race_id": ["r1"] * 4,
+                "umaban": [1, 2, 3, 4],
+                "norm_finish_logit_avg": [1.0, 1.0, 0.0, 0.0],
             }
         )
         result = HorseHistoryFeatures.add_race_transforms(df)
-        assert not result["norm_finish_logit_avg_race_z"].isna().any()
-
-    def test_pct_range(self):
-        """pct は [0, 1] の範囲"""
-        from features.horse_history_features import HorseHistoryFeatures
-
-        df = self._make_race_df()
-        result = HorseHistoryFeatures.add_race_transforms(df)
-        pct_col = "norm_finish_logit_avg_race_pct"
-        assert result[pct_col].min() >= 0
-        assert result[pct_col].max() <= 1
+        rank_col = "norm_finish_logit_avg_race_rank"
+        # Two tied at 1.0 (ranks 3,4 → avg 3.5 → pct 3.5/4=0.875)
+        # Two tied at 0.0 (ranks 1,2 → avg 1.5 → pct 1.5/4=0.375)
+        ranks = result[rank_col].tolist()
+        assert abs(ranks[0] - 0.875) < 1e-6
+        assert abs(ranks[1] - 0.875) < 1e-6
+        assert abs(ranks[2] - 0.375) < 1e-6
+        assert abs(ranks[3] - 0.375) < 1e-6
 
 
 class TestLeakPrevention:

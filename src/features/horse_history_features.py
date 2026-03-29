@@ -395,14 +395,26 @@ class HorseHistoryFeatures:
 
     @staticmethod
     def add_race_transforms(df: pd.DataFrame) -> pd.DataFrame:
-        """BASE_COLS の各列についてレース内 z-score と rank percentile を追加する。"""
+        """数値BASE_COLS の各列についてレース内 percentile rank を追加。
+        カテゴリ列 (kyakusitu_cd 等) は除外。jockey系は Stage2 に移動後、
+        race_rank を生成しない (Task 9 で BASE_COLS から除外)。
+        """
+        # race_rank を生成する列を明示 (数値のみ)
+        _RACE_RANK_COLS = [
+            "norm_finish_logit_avg",
+            "haron_time_l3_avg",
+            "haron_time_l3_zscore",
+            "time_diff_avg",
+            "corner_1c_avg",
+            "corner_4c_avg",
+            "closing_index_avg",
+            # 注意: kyakusitu_cd, jockey_surprise, jockey_cond_wr は race_rank を生成しない
+        ]
         df = df.copy()
-        for col in HorseHistoryFeatures.BASE_COLS:
+        for col in _RACE_RANK_COLS:
             if col not in df.columns:
                 continue
-            race_mean = df.groupby("race_id")[col].transform("mean")
-            race_std = df.groupby("race_id")[col].transform("std")
-            race_std = race_std.clip(lower=1e-6).fillna(1e-6)
-            df[f"{col}_race_z"] = (df[col] - race_mean) / race_std
-            df[f"{col}_race_pct"] = df.groupby("race_id")[col].rank(pct=True)
+            df[f"{col}_race_rank"] = df.groupby("race_id")[col].rank(
+                pct=True, method="average"
+            )
         return df
