@@ -314,7 +314,7 @@ class HorseHistoryFeatures:
                     zscores: list[float] = []
                     for _, r in horse_past.loc[valid].iterrows():
                         bin_key = r["distance_bin"]
-                        if bin_key in grp_stats.index and not pd.isna(grp_stats.loc[bin_key, "std"]):
+                        if bin_key in grp_stats.index and grp_stats.loc[bin_key, "std"] > 0:
                             z = (r["haron_time_l3"] - grp_stats.loc[bin_key, "mean"]) / grp_stats.loc[bin_key, "std"]
                             zscores.append(z)
                         else:
