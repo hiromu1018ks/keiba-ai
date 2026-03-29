@@ -38,6 +38,16 @@ class EVCorrectionModel:
         "distance_bin",
         "track_condition_code",
         "field_size",
+        # 騎手コンテキスト (Group C, Stage2)
+        "jockey_wr_overall",
+        "jockey_wr_distance",
+        "jockey_wr_venue",
+        "jockey_prize_log",
+        # 調教師コンテキスト (Group D, Stage2)
+        "trainer_wr_overall",
+        "trainer_wr_distance",
+        "trainer_wr_venue",
+        "trainer_prize_log",
     ]
 
     def _add_interaction_features(self, df: pd.DataFrame) -> pd.DataFrame:

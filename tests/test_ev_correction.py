@@ -30,6 +30,16 @@ def pre_ev_df() -> pd.DataFrame:
             "distance_bin": ["mile"] * 8,
             "track_condition_code": [1] * 8,
             "field_size": [8] * 8,
+            # 騎手コンテキスト (Group C)
+            "jockey_wr_overall": [0.12] * 8,
+            "jockey_wr_distance": [0.10] * 8,
+            "jockey_wr_venue": [0.11] * 8,
+            "jockey_prize_log": [11.0] * 8,
+            # 調教師コンテキスト (Group D)
+            "trainer_wr_overall": [0.14] * 8,
+            "trainer_wr_distance": [0.12] * 8,
+            "trainer_wr_venue": [0.13] * 8,
+            "trainer_prize_log": [10.5] * 8,
         }
     )
 
@@ -148,6 +158,16 @@ def large_ev_df() -> pd.DataFrame:
                 "distance_bin": np.random.choice(["sprint", "mile", "intermediate", "long"]),
                 "track_condition_code": 1,
                 "field_size": n_horses,
+                # 騎手コンテキスト (Group C)
+                "jockey_wr_overall": float(np.random.uniform(0.05, 0.20)),
+                "jockey_wr_distance": float(np.random.uniform(0.03, 0.18)),
+                "jockey_wr_venue": float(np.random.uniform(0.04, 0.19)),
+                "jockey_prize_log": float(np.random.uniform(8.0, 12.0)),
+                # 調教師コンテキスト (Group D)
+                "trainer_wr_overall": float(np.random.uniform(0.05, 0.20)),
+                "trainer_wr_distance": float(np.random.uniform(0.03, 0.18)),
+                "trainer_wr_venue": float(np.random.uniform(0.04, 0.19)),
+                "trainer_prize_log": float(np.random.uniform(7.0, 11.5)),
             })
     return pd.DataFrame(rows)
 

@@ -196,6 +196,18 @@ class TrainingPipelineV5:
         win_2s.train_return_model(df)
         df = win_2s.predict_ev(df)
 
+        # Group C/D: 騎手/調教師コンテキスト (Stage2)
+        from features.jockey_context_features import JockeyContextFeatures
+        from features.trainer_context_features import TrainerContextFeatures
+
+        jockey_ctx = JockeyContextFeatures(self.repo)
+        jockey_df = jockey_ctx.compute(df)
+        df = pd.merge(df, jockey_df, on=["race_id", "umaban"], how="left")
+
+        trainer_ctx = TrainerContextFeatures(self.repo)
+        trainer_df = trainer_ctx.compute(df)
+        df = pd.merge(df, trainer_df, on=["race_id", "umaban"], how="left")
+
         # 4. EV補正モデル (P/E分解)
         ev_corrector = EVCorrectionModel()
         ev_corrector.train(df)

@@ -155,6 +155,22 @@ class BacktestEngine:
             race_df_single = submodel.place_ability.predict(race_df_single)
 
             race_df_single = submodel.win.predict_ev(race_df_single)
+
+            # Group C/D: 騎手/調教師コンテキスト (Stage2)
+            from features.jockey_context_features import JockeyContextFeatures
+            from features.trainer_context_features import TrainerContextFeatures
+
+            jockey_ctx = JockeyContextFeatures(self.repo)
+            jockey_df = jockey_ctx.compute(race_df_single)
+            race_df_single = race_df_single.merge(
+                jockey_df, on=["race_id", "umaban"], how="left"
+            )
+            trainer_ctx = TrainerContextFeatures(self.repo)
+            trainer_df = trainer_ctx.compute(race_df_single)
+            race_df_single = race_df_single.merge(
+                trainer_df, on=["race_id", "umaban"], how="left"
+            )
+
             race_df_single = submodel.ev_corrector.correct_ev(race_df_single)
             race_df_single = submodel.place.predict_ev(race_df_single)
 
