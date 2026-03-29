@@ -146,7 +146,7 @@ def _etl_horses_to_parquet(store: ParquetStore) -> None:
             ketto3infohansyokunum13, ketto3infohansyokunum14,
             ba1chakukaisu1, ba1chakukaisu2, ba1chakukaisu3, ba1chakukaisu4, ba1chakukaisu5, ba1chakukaisu6,
             ba2chakukaisu1, ba2chakukaisu2, ba2chakukaisu3, ba2chakukaisu4, ba2chakukaisu5, ba2chakukaisu6,
-            ba3chakukaisu1, ba3chakukaisu3, ba3chakukaisu4, ba3chakukaisu5, ba3chakukaisu6,
+            ba3chakukaisu1, ba3chakukaisu2, ba3chakukaisu3, ba3chakukaisu4, ba3chakukaisu5, ba3chakukaisu6,
             ba4chakukaisu1, ba4chakukaisu2, ba4chakukaisu3, ba4chakukaisu4, ba4chakukaisu5, ba4chakukaisu6,
             ba5chakukaisu1, ba5chakukaisu2, ba5chakukaisu3, ba5chakukaisu4, ba5chakukaisu5, ba5chakukaisu6,
             ba6chakukaisu1, ba6chakukaisu2, ba6chakukaisu3, ba6chakukaisu4, ba6chakukaisu5, ba6chakukaisu6,
@@ -156,7 +156,7 @@ def _etl_horses_to_parquet(store: ParquetStore) -> None:
             kyori4chakukaisu1, kyori4chakukaisu2, kyori4chakukaisu3, kyori4chakukaisu4, kyori4chakukaisu5, kyori4chakukaisu6,
             kyori5chakukaisu1, kyori5chakukaisu2, kyori5chakukaisu3, kyori5chakukaisu4, kyori5chakukaisu5, kyori5chakukaisu6,
             kyori6chakukaisu1, kyori6chakukaisu2, kyori6chakukaisu3, kyori6chakukaisu4, kyori6chakukaisu5, kyori6chakukaisu6,
-            chuochakukaisu1, chuochakukaisu2, chuochakukaisu3, chuochakaisu4, chuochakukaisu5, chuochakukaisu6,
+            chuochakukaisu1, chuochakukaisu2, chuochakukaisu3, chuochakukaisu4, chuochakukaisu5, chuochakukaisu6,
             ruikeihonsyoheichi,
             kyakusitu1, kyakusitu2, kyakusitu3, kyakusitu4
         FROM x_uma
@@ -221,15 +221,15 @@ git commit -m "feat: ETLにhorses/jockey_stats/trainer_stats Parquet出力を追
 # src/db/repository.py — DataRepository に追加
 def load_horses(self) -> pd.DataFrame:
     """x_UMA 馬マスターデータ (血統・産駒成績)"""
-    return self._store.read("raw", "horses")
+    return self.store.read("raw", "horses")
 
 def load_jockey_stats(self) -> pd.DataFrame:
     """x_KISYU_SEISEKI 騎手年度別成績"""
-    return self._store.read("raw", "jockey_stats")
+    return self.store.read("raw", "jockey_stats")
 
 def load_trainer_stats(self) -> pd.DataFrame:
     """x_CHOKYO_SEISEKI 調教師年度別成績"""
-    return self._store.read("raw", "trainer_stats")
+    return self.store.read("raw", "trainer_stats")
 ```
 
 - [ ] **Step 2: テスト確認**
@@ -328,7 +328,28 @@ else:
     haron_time_l3_avg = float("nan")
 
 # haron_time_l3_zscore: 距離bin別z-scoreの3走平均
-# (距離bin別平均/stdを過去データから expanding で計算)
+# 過去データ全体から距離bin別の平均・stdを計算し、各過去レースのz-scoreを算出。
+# リーク防止: horse_past は既に target_date < race_date でフィルタ済み。
+if "haron_time_l3" in horse_past.columns and "distance_bin" in horse_past.columns:
+    ht = horse_past["haron_time_l3"]
+    db = horse_past["distance_bin"]
+    valid = ht.notna() & db.notna()
+    if valid.sum() > 0:
+        # 距離bin別の統計量
+        grp_stats = horse_past.loc[valid].groupby("distance_bin")["haron_time_l3"].agg(["mean", "std"])
+        zscores = []
+        for _, r in horse_past.loc[valid].iterrows():
+            bin_key = r["distance_bin"]
+            if bin_key in grp_stats.index and not pd.isna(grp_stats.loc[bin_key, "std"]):
+                z = (r["haron_time_l3"] - grp_stats.loc[bin_key, "mean"]) / grp_stats.loc[bin_key, "std"]
+                zscores.append(z)
+            else:
+                zscores.append(float("nan"))
+        haron_time_l3_zscore = float(pd.Series(zscores).tail(3).mean()) if zscores else float("nan")
+    else:
+        haron_time_l3_zscore = float("nan")
+else:
+    haron_time_l3_zscore = float("nan")
 
 # time_diff_avg: 勝馬差タイム3走平均
 if "time_diff" in horse_past.columns:
@@ -337,9 +358,43 @@ if "time_diff" in horse_past.columns:
 else:
     time_diff_avg = float("nan")
 
-# corner_1c_avg, corner_4c_avg
-# closing_index_avg = normalized(4c) - normalized(finish) の3走平均
-# kyakusitu_cd = 最新走の KyakusituKubun
+# corner_1c_avg: 1コーナー通過順位の3走平均
+if "corner_1c" in horse_past.columns:
+    c1_vals = horse_past["corner_1c"].dropna()
+    corner_1c_avg = float(c1_vals.tail(3).mean()) if len(c1_vals) > 0 else float("nan")
+else:
+    corner_1c_avg = float("nan")
+
+# corner_4c_avg: 4コーナー通過順位の3走平均
+if "corner_4c" in horse_past.columns:
+    c4_vals = horse_past["corner_4c"].dropna()
+    corner_4c_avg = float(c4_vals.tail(3).mean()) if len(c4_vals) > 0 else float("nan")
+else:
+    corner_4c_avg = float("nan")
+
+# closing_index_avg: 追い込み指数 = (normalized_4c - normalized_finish) の3走平均
+# normalized_rank = (position - 1) / (field_size - 1), range [0,1]
+# closing_index > 0: 末脚あり (4Cよりゴールで順位上げた)
+if all(c in horse_past.columns for c in ["corner_4c", "kakuteijyuni", "field_size"]):
+    valid_ci = horse_past.dropna(subset=["corner_4c", "kakuteijyuni", "field_size"])
+    valid_ci = valid_ci[valid_ci["field_size"] > 1]  # 1頭-only防止
+    if len(valid_ci) > 0:
+        norm_4c = (valid_ci["corner_4c"] - 1) / (valid_ci["field_size"] - 1)
+        norm_finish = (valid_ci["kakuteijyuni"] - 1) / (valid_ci["field_size"] - 1)
+        closing_indices = norm_4c - norm_finish
+        closing_index_avg = float(closing_indices.tail(3).mean())
+    else:
+        closing_index_avg = float("nan")
+else:
+    closing_index_avg = float("nan")
+
+# kyakusitu_cd: 最新走の公式脚質コード (1=逃/2=先/3=差/4=追)
+# ※ 過去レースの最新の kyakusitukubun を使用 (entry_df の現在レース分ではない)
+if "kyakusitukubun" in horse_past.columns:
+    kt_vals = horse_past["kyakusitukubun"].dropna()
+    kyakusitu_cd = int(kt_vals.iloc[-1]) if len(kt_vals) > 0 else float("nan")
+else:
+    kyakusitu_cd = float("nan")
 ```
 
 - [ ] **Step 5: テスト実行 (PASS確認)**
@@ -439,20 +494,58 @@ class BloodlineFeatures:
             return float("nan")
         return (wins + ALPHA_PRIOR) / (total + TOTAL_OFFSET)
 
-    def compute(self, entry_df: pd.DataFrame) -> pd.DataFrame:
+        def compute(self, entry_df: pd.DataFrame) -> pd.DataFrame:
         """
-        entry_df (race_id, umaban, ketto_num) → 血統特徴量DataFrame
+        entry_df (race_id, umaban, ketto_num) → 血統特徴量DataFrame。
+        x_UMA の産駒成績 (Ba*/Kyori*/ChuoChakukaisu*/RuikeiHonsyo*) を使用。
+        blood_condition_wr と blood_keito_cd は Phase 2 で実装 (現在はNaN)。
         """
         horses_df = self._load_horses()
-        # entry_df.ketto_num で join
-        # 各馬の x_UMA 成績列から smooth_wr を計算
-        # surface: ba1-6 の着数1/(着数1+...+着数6)
-        # distance: kyori1-6 の着数1/(着数1+...+着数6)
-        # condition: jyotai は entries にはない → Phase 2
-        # total: chuo 着数1/(着数1+...+着数6)
-        # prize: log(1 + ruikeihonsyoheichi)
-        # keito_cd: 保留 (x_KEITO join が必要) → Phase 2
-        ...
+
+        # ketto_num で join (entry → horses)
+        merged = entry_df[["race_id", "umaban", "ketto_num"]].merge(
+            horses_df, left_on="ketto_num", right_on="kettonum", how="left"
+        )
+
+        rows: list[dict] = []
+        for _, row in merged.iterrows():
+            feats: dict[str, float] = {}
+
+            # --- 馬場別勝率 (turf = ba1) ---
+            ba1_wins = int(row.get("ba1chakukaisu1", 0) or 0)
+            ba1_total = sum(int(row.get(f"ba1chakukaisu{i}", 0) or 0) for i in range(1, 7))
+            feats["blood_surface_wr"] = self._smoothed_wr(ba1_wins, ba1_total)
+
+            # --- 距離別勝率 (短距離 = kyori1) ---
+            # 代表値として短距離(S)勝率を使用。Stage1のdistance_bin交互作用で補正。
+            ky1_wins = int(row.get("kyori1chakukaisu1", 0) or 0)
+            ky1_total = sum(int(row.get(f"kyori1chakukaisu{i}", 0) or 0) for i in range(1, 7))
+            feats["blood_distance_wr"] = self._smoothed_wr(ky1_wins, ky1_total)
+
+            # --- 馬場状態別勝率 — Phase 2 ---
+            feats["blood_condition_wr"] = float("nan")
+
+            # --- 総合成績勝率 (中央 = chuo) ---
+            chuo_wins = int(row.get("chuochakukaisu1", 0) or 0)
+            chuo_total = sum(int(row.get(f"chuochakukaisu{i}", 0) or 0) for i in range(1, 7))
+            feats["blood_total_wr"] = self._smoothed_wr(chuo_wins, chuo_total)
+
+            # --- 累計賞金 (log変換) ---
+            prize = row.get("ruikeihonsyoheichi")
+            if pd.notna(prize) and float(prize) > 0:
+                feats["blood_prize_log"] = float(np.log1p(float(prize)))
+            else:
+                feats["blood_prize_log"] = float("nan")
+
+            # --- 系統コード — Phase 2 (x_KEITO join が必要) ---
+            feats["blood_keito_cd"] = float("nan")
+
+            feats["race_id"] = row["race_id"]
+            feats["umaban"] = row["umaban"]
+            rows.append(feats)
+
+        result = pd.DataFrame(rows)
+        return result[["race_id", "umaban"] + FEATURE_COLS]
 ```
 
 - [ ] **Step 4: テスト実行 (PASS確認)**
@@ -486,12 +579,25 @@ git commit -m "feat: BloodlineFeatures (Group B) 血統・産駒成績を追加"
 
 @staticmethod
 def add_race_transforms(df: pd.DataFrame) -> pd.DataFrame:
-    """BASE_COLS の各列についてレース内 percentile rank を追加。"""
+    """数値BASE_COLS の各列についてレース内 percentile rank を追加。
+    カテゴリ列 (kyakusitu_cd 等) は除外。jockey系は Stage2 に移動後、
+    race_rank を生成しない (Task 9 で BASE_COLS から除外)。
+    """
+    # race_rank を生成する列を明示 (数値のみ)
+    _RACE_RANK_COLS = [
+        "norm_finish_logit_avg",
+        "haron_time_l3_avg",
+        "haron_time_l3_zscore",
+        "time_diff_avg",
+        "corner_1c_avg",
+        "corner_4c_avg",
+        "closing_index_avg",
+        # 注意: kyakusitu_cd, jockey_surprise, jockey_cond_wr は race_rank を生成しない
+    ]
     df = df.copy()
-    for col in HorseHistoryFeatures.BASE_COLS:
+    for col in _RACE_RANK_COLS:
         if col not in df.columns:
             continue
-        # percentile rank only (z-scoreは削除)
         df[f"{col}_race_rank"] = df.groupby("race_id")[col].rank(
             pct=True, method="average"
         )
@@ -574,10 +680,14 @@ def compute_interaction_features(df: pd.DataFrame) -> pd.DataFrame:
         ).astype("category")
 
     # 馬体重×距離 (数値積)
+    # NaNポリシー: いずれかがNaNなら結果もNaN (fillna(0)は使わない)
     if "weight_absolute" in df.columns and "distance" in df.columns:
         df["weight_x_distance"] = (
-            df["weight_absolute"].fillna(0) * df["distance"].fillna(0)
-        ).astype(float)
+            df["weight_absolute"] * df["distance"]
+        ).where(
+            df["weight_absolute"].notna() & df["distance"].notna(),
+            other=float("nan"),
+        )
 
     return df
 ```
@@ -604,6 +714,38 @@ git commit -m "feat: InteractionFeatures (Group E) 脚質×距離/馬場/体重�
 - Modify: `src/models/stage1_ability_model.py` (~line 27-47)
 - Modify: `src/models/place_ability_model.py` (~line 25-48, line 59)
 - Modify: `src/pipelines/training_pipeline.py` (~line 404)
+
+- [ ] **Step 0: FeatureEngine.build_all() シグネチャに `repo` 引数を追加**
+
+```python
+# src/features/feature_engine.py
+# 変更前:
+def build_all(
+    self,
+    race_df: pd.DataFrame,
+    entry_df: pd.DataFrame,
+    odds_df: pd.DataFrame,
+    odds_ts_df: pd.DataFrame | None = None,
+) -> pd.DataFrame:
+
+# 変更後:
+def build_all(
+    self,
+    race_df: pd.DataFrame,
+    entry_df: pd.DataFrame,
+    odds_df: pd.DataFrame,
+    odds_ts_df: pd.DataFrame | None = None,
+    repo: "DataRepository | None" = None,
+) -> pd.DataFrame:
+```
+
+```python
+# src/pipelines/training_pipeline.py
+# build_all() 呼び出し箇所に repo=self.repo を追加:
+features_df = self.feature_engine.build_all(
+    race_df, entry_df, odds_df, odds_ts_df=odds_ts_df, repo=self.repo
+)
+```
 
 - [ ] **Step 1: FeatureEngine.build_all() にGroup B/Eを追加**
 
@@ -763,7 +905,50 @@ class JockeyContextFeatures:
         entry_df (race_id, umaban, kisyu_code, race_date) → 騎手特徴量DataFrame
         SetYear < race_year の最新年を使用。
         """
-        ...
+        stats_df = self._load_stats()
+        if stats_df.empty:
+            nan_cols = [c for c in FEATURE_COLS if c.startswith("jockey_wr") or c == "jockey_prize_log"]
+            return entry_df[["race_id", "umaban"]].assign(**{c: float("nan") for c in nan_cols})
+
+        entry_df = entry_df.copy()
+        entry_df["race_year"] = pd.to_datetime(entry_df["race_date"]).dt.year
+
+        merged = entry_df[["race_id", "umaban", "kisyu_code", "race_year"]].merge(
+            stats_df, on="kisyu_code", how="left"
+        )
+        merged = merged[merged["setyear"] < merged["race_year"]]
+        if merged.empty:
+            nan_cols = [c for c in FEATURE_COLS if c.startswith("jockey_wr") or c == "jockey_prize_log"]
+            return entry_df[["race_id", "umaban"]].assign(**{c: float("nan") for c in nan_cols})
+
+        latest = merged.sort_values("setyear").groupby(
+            ["race_id", "umaban", "kisyu_code"]
+        ).last().reset_index()
+
+        rows = []
+        for _, r in latest.iterrows():
+            feats = {}
+            wins = int(r.get("heichichakukaisu1", 0) or 0)
+            total = sum(int(r.get(f"heichichakukaisu{i}", 0) or 0) for i in range(1, 7))
+            feats["jockey_wr_overall"] = (wins + 1) / (total + 11) if total > 0 else float("nan")
+
+            ky1_w = int(r.get("kyori1chakukaisu1", 0) or 0)
+            ky1_t = sum(int(r.get(f"kyori1chakukaisu{i}", 0) or 0) for i in range(1, 7))
+            feats["jockey_wr_distance"] = (ky1_w + 1) / (ky1_t + 11) if ky1_t > 0 else float("nan")
+
+            j5_w = int(r.get("jyo5chakukaisu1", 0) or 0)
+            j5_t = sum(int(r.get(f"jyo5chakukaisu{i}", 0) or 0) for i in range(1, 7))
+            feats["jockey_wr_venue"] = (j5_w + 1) / (j5_t + 11) if j5_t > 0 else float("nan")
+
+            prize = r.get("honsyokinheichi", 0)
+            feats["jockey_prize_log"] = float(np.log1p(float(prize or 0)))
+
+            feats["race_id"] = r["race_id"]
+            feats["umaban"] = r["umaban"]
+            rows.append(feats)
+
+        result = pd.DataFrame(rows)
+        return result[["race_id", "umaban", "jockey_wr_overall", "jockey_wr_distance", "jockey_wr_venue", "jockey_prize_log"]]
 ```
 
 - [ ] **Step 3: TrainerContextFeatures 実装 (同パターン)**
