@@ -93,10 +93,6 @@ class BacktestEngine:
         entry_df = self.repo.load_entries(start, end)
         odds_df = self.repo.load_odds_snapshots(start, end)
 
-        # HorseHistoryFeatures 用にインスタンス属性に保存
-        self._race_df = race_df
-        self._entry_df = entry_df
-
         if race_df.empty:
             logger.warning(f"No races found in {test_start} ~ {test_end}")
             return BacktestResult(final_bankroll=self.initial_bankroll)
@@ -111,44 +107,57 @@ class BacktestEngine:
         feat_df = feat_engine.build_all(race_df, entry_df, odds_df, odds_ts_df=odds_ts_df, repo=self.repo)
         feat_df = submodel_mgr.add_distance_band_features(feat_df)
 
-        # 3. レースごとにシミュレーション
+        # 3. 特徴量の一括事前計算 (ループ外で全レース分を一度に計算)
+        from features.horse_history_features import HorseHistoryFeatures
+        from features.interaction_features import compute_interaction_features
+        from features.jockey_context_features import JockeyContextFeatures
+        from features.trainer_context_features import TrainerContextFeatures
+
+        race_ids = feat_df["race_id"].unique()
+
+        logger.info("Pre-computing HorseHistoryFeatures for %d races...", len(race_ids))
+        hist_all = HorseHistoryFeatures(repo=self.repo)
+        hist_df_all = hist_all.compute(race_df, entry_df, race_ids)
+
+        logger.info("Pre-computing JockeyContextFeatures for %d entries...", len(entry_df))
+        jockey_ctx = JockeyContextFeatures(self.repo)
+        jockey_df_all = jockey_ctx.compute(entry_df)
+
+        logger.info("Pre-computing TrainerContextFeatures for %d entries...", len(entry_df))
+        trainer_ctx = TrainerContextFeatures(self.repo)
+        trainer_df_all = trainer_ctx.compute(entry_df)
+
+        # 4. レースごとにシミュレーション
         bankroll = self.initial_bankroll
         peak_bankroll = bankroll
         max_dd = 0.0
         bet_history: list[dict[str, Any]] = []
         monthly_returns: dict[str, float] = {}
 
-        race_ids = feat_df["race_id"].unique()
-
         for race_id in race_ids:
             race_df_single = feat_df[feat_df["race_id"] == race_id].copy()
             if race_df_single.empty:
                 continue
 
-            # 3a. サブモデル選択
+            # 4a. サブモデル選択
             surface_key = race_df_single["surface_key"].iloc[0]
             if surface_key not in self.models.submodels:
                 continue
             submodel = self.models.submodels[surface_key]
 
-            # 3b. レジーム検知
+            # 4b. レジーム検知
             regime = self.models.regime_detector.current_regime
             regime_params = self.models.regime_detector.get_strategy_params(regime)
 
-            # 3c. HorseHistoryFeatures 推論 (AbilityModelのFEATURE_COLSに必要な列を生成)
-            from features.horse_history_features import HorseHistoryFeatures
-
-            hist = HorseHistoryFeatures(repo=self.repo)
-            hist_df = hist.compute(self._race_df, self._entry_df, [race_id])
-            race_df_single = race_df_single.merge(hist_df, on=["race_id", "umaban"], how="left")
+            # 4c. HorseHistoryFeatures (事前計算済みからマージ)
+            hist_df_race = hist_df_all[hist_df_all["race_id"] == race_id]
+            race_df_single = race_df_single.merge(hist_df_race, on=["race_id", "umaban"], how="left")
             race_df_single = HorseHistoryFeatures.add_race_transforms(race_df_single)
 
             # Group E: 交互作用特徴量 (HorseHistoryFeatures 後に実行 — kyakusitu_cd が必要)
-            from features.interaction_features import compute_interaction_features
-
             race_df_single = compute_interaction_features(race_df_single)
 
-            # 3d. 特徴量 → 予測
+            # 4d. 特徴量 → 予測
             try:
                 race_df_single = submodel.market.predict_and_calc_error(race_df_single)
             except Exception as e:
@@ -161,19 +170,14 @@ class BacktestEngine:
 
             race_df_single = submodel.win.predict_ev(race_df_single)
 
-            # Group C/D: 騎手/調教師コンテキスト (Stage2)
-            from features.jockey_context_features import JockeyContextFeatures
-            from features.trainer_context_features import TrainerContextFeatures
-
-            jockey_ctx = JockeyContextFeatures(self.repo)
-            jockey_df = jockey_ctx.compute(race_df_single)
+            # Group C/D: 騎手/調教師コンテキスト (事前計算済みからマージ)
+            jockey_df_race = jockey_df_all[jockey_df_all["race_id"] == race_id]
             race_df_single = race_df_single.merge(
-                jockey_df, on=["race_id", "umaban"], how="left"
+                jockey_df_race, on=["race_id", "umaban"], how="left"
             )
-            trainer_ctx = TrainerContextFeatures(self.repo)
-            trainer_df = trainer_ctx.compute(race_df_single)
+            trainer_df_race = trainer_df_all[trainer_df_all["race_id"] == race_id]
             race_df_single = race_df_single.merge(
-                trainer_df, on=["race_id", "umaban"], how="left"
+                trainer_df_race, on=["race_id", "umaban"], how="left"
             )
 
             race_df_single = submodel.ev_corrector.correct_ev(race_df_single)
@@ -192,15 +196,15 @@ class BacktestEngine:
             if "EV_lower_place" in place_df.columns:
                 race_df_single["EV_lower_place"] = place_df["EV_lower_place"].values
 
-            # 3d. RaceQualityScreener
+            # 4g. RaceQualityScreener
             race_features = self._build_race_features(race_df_single)
             if not self.models.quality_screener.should_bet(race_features):
                 continue
 
-            # 3e. ベット生成
+            # 4h. ベット生成
             bets = self._generate_bets(race_df_single, bankroll, regime_params)
 
-            # 3f. 結果判定
+            # 4i. 結果判定
             for bet in bets:
                 bet_result = self._settle_bet(bet, race_df_single)
                 bet_history.append(
@@ -223,7 +227,7 @@ class BacktestEngine:
                 dd = (peak_bankroll - bankroll) / peak_bankroll if peak_bankroll > 0 else 0
                 max_dd = max(max_dd, dd)
 
-        # 4. ROI 計算
+        # 5. ROI 計算
         total_stake = sum(b["stake"] for b in bet_history)
         total_return = sum(b["result"] for b in bet_history if b["result"] > 0)
         total_bets = len(bet_history)
