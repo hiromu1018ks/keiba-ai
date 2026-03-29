@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+
 import lightgbm as lgb
 import numpy as np
 import pandas as pd
@@ -92,6 +94,7 @@ class EVCorrectionModel:
                 "num_leaves": 15,
                 "is_unbalance": True,
                 "feature_fraction": 0.7,
+                "num_threads": max(1, (os.cpu_count() or 4) // 2),
                 "verbose": -1,
             },
             lgb.Dataset(features, label=y_p, init_score=init_score),
@@ -115,6 +118,7 @@ class EVCorrectionModel:
                 "learning_rate": 0.03,
                 "num_leaves": 15,
                 "feature_fraction": 0.7,
+                "num_threads": max(1, (os.cpu_count() or 4) // 2),
                 "verbose": -1,
             },
             lgb.Dataset(

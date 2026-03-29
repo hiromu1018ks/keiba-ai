@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+
 import lightgbm as lgb
 import pandas as pd
 
@@ -70,6 +72,7 @@ class WinTwoStageModel:
                 "num_leaves": self.cfg.hit_leaves,
                 "is_unbalance": True,
                 "feature_fraction": 0.7,
+                "num_threads": max(1, (os.cpu_count() or 4) // 2),
                 "verbose": -1,
             },
             lgb.Dataset(features, label=y),
@@ -98,6 +101,7 @@ class WinTwoStageModel:
                 "learning_rate": self.cfg.return_lr,
                 "num_leaves": self.cfg.return_leaves,
                 "feature_fraction": 0.7,
+                "num_threads": max(1, (os.cpu_count() or 4) // 2),
                 "verbose": -1,
             },
             lgb.Dataset(features, label=y),
@@ -156,6 +160,7 @@ class PlaceTwoStageModel:
                 "num_leaves": self.cfg.hit_leaves,
                 "is_unbalance": True,
                 "feature_fraction": 0.7,
+                "num_threads": max(1, (os.cpu_count() or 4) // 2),
                 "verbose": -1,
             },
             lgb.Dataset(features, label=y),
@@ -176,6 +181,7 @@ class PlaceTwoStageModel:
                 "learning_rate": self.cfg.return_lr,
                 "num_leaves": 25,  # 複勝はサンプル多めなので少し深く
                 "feature_fraction": 0.7,
+                "num_threads": max(1, (os.cpu_count() or 4) // 2),
                 "verbose": -1,
             },
             lgb.Dataset(features, label=y),

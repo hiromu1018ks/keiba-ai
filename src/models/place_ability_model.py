@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from typing import TYPE_CHECKING
 
 import lightgbm as lgb
@@ -99,6 +100,7 @@ class PlaceAbilityModel:
             reg_lambda=1.0,
             learning_rate=0.03,
             n_estimators=500,
+            n_jobs=max(1, (os.cpu_count() or 4) // 2),
             verbose=-1,
         )
         self._model.fit(X_train, y_train)

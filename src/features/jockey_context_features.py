@@ -76,36 +76,33 @@ class JockeyContextFeatures:
             .reset_index()
         )
 
-        rows: list[dict] = []
-        for _, r in latest.iterrows():
-            feats: dict = {}
+        # Vectorized feature computation
+        heichi_cols = [f"heichichakukaisu{i}" for i in range(1, 7)]
+        heichi_data = latest[heichi_cols].fillna(0).astype(float)
+        wins = heichi_data["heichichakukaisu1"]
+        total = heichi_data[heichi_cols].sum(axis=1)
+        result = latest[["race_id", "umaban"]].copy()
+        result["jockey_wr_overall"] = np.where(
+            total == 0, np.nan, (wins + 1) / (total + 11)
+        )
 
-            # Overall win rate
-            wins = int(r.get("heichichakukaisu1", 0) or 0)
-            total = sum(int(r.get(f"heichichakukaisu{i}", 0) or 0) for i in range(1, 7))
-            feats["jockey_wr_overall"] = self._smoothed_wr(wins, total)
+        ky_cols = [f"kyori1chakukaisu{i}" for i in range(1, 7)]
+        ky_data = latest[ky_cols].fillna(0).astype(float)
+        ky1_w = ky_data["kyori1chakukaisu1"]
+        ky1_t = ky_data[ky_cols].sum(axis=1)
+        result["jockey_wr_distance"] = np.where(
+            ky1_t == 0, np.nan, (ky1_w + 1) / (ky1_t + 11)
+        )
 
-            # Distance win rate (short = kyori1)
-            ky1_w = int(r.get("kyori1chakukaisu1", 0) or 0)
-            ky1_t = sum(int(r.get(f"kyori1chakukaisu{i}", 0) or 0) for i in range(1, 7))
-            feats["jockey_wr_distance"] = self._smoothed_wr(ky1_w, ky1_t)
+        j5_cols = [f"jyo5chakukaisu{i}" for i in range(1, 7)]
+        j5_data = latest[j5_cols].fillna(0).astype(float)
+        j5_w = j5_data["jyo5chakukaisu1"]
+        j5_t = j5_data[j5_cols].sum(axis=1)
+        result["jockey_wr_venue"] = np.where(
+            j5_t == 0, np.nan, (j5_w + 1) / (j5_t + 11)
+        )
 
-            # Venue win rate (Tokyo = jyo5)
-            j5_w = int(r.get("jyo5chakukaisu1", 0) or 0)
-            j5_t = sum(int(r.get(f"jyo5chakukaisu{i}", 0) or 0) for i in range(1, 7))
-            feats["jockey_wr_venue"] = self._smoothed_wr(j5_w, j5_t)
+        prize = pd.to_numeric(latest["honsyokinheichi"], errors="coerce")
+        result["jockey_prize_log"] = np.log1p(prize.fillna(0))
 
-            # Prize log
-            prize = r.get("honsyokinheichi")
-            feats["jockey_prize_log"] = float(np.log1p(float(prize or 0)))
-
-            feats["race_id"] = r["race_id"]
-            feats["umaban"] = r["umaban"]
-            rows.append(feats)
-
-        result = pd.DataFrame(rows)
-        if result.empty:
-            return entry_df[["race_id", "umaban"]].assign(
-                **{c: float("nan") for c in FEATURE_COLS}
-            )
         return result[["race_id", "umaban"] + FEATURE_COLS]

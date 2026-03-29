@@ -55,6 +55,15 @@ def _norm_finish_logit(finish_pos: int, field_size: int) -> float:
     return math.log(score / (1.0 - score))
 
 
+def _norm_finish_logit_vec(finish_pos: np.ndarray, field_size: np.ndarray) -> np.ndarray:
+    """Vectorized version of _norm_finish_logit."""
+    score = 1.0 - (finish_pos - 1) / np.maximum(field_size - 1, 1)
+    score = np.clip(score, CLIP_LO, CLIP_HI)
+    result = np.log(score / (1.0 - score))
+    result[field_size < 8] = np.nan
+    return result
+
+
 # ---------------------------------------------------------------------------
 # Helper: jockey surprise
 # ---------------------------------------------------------------------------
@@ -164,7 +173,7 @@ class HorseHistoryFeatures:
         entry_df: pd.DataFrame,
         target_race_ids: Optional[np.ndarray] = None,
     ) -> pd.DataFrame:
-        """過去成績特徴量を計算"""
+        """過去成績特徴量を計算（pre-indexed lookup + searchsorted 高速版）"""
         if target_race_ids is not None:
             entry_df = entry_df[entry_df["race_id"].isin(target_race_ids)]
 
@@ -195,11 +204,8 @@ class HorseHistoryFeatures:
             return pd.DataFrame(columns=["race_id", "umaban"] + self.BASE_COLS)
 
         # Merge with races to get field_size, race_date
-        # entries_filtered also has race_date from load_history_entries,
-        # so merge前にentries側のrace_dateを削除して重複を防ぐ
         race_cols = ["race_id", "field_size", "race_date", "track_cd", "distance"]
         races_subset = races_hist[races_hist["race_id"].isin(entries_filtered["race_id"].unique())]
-        # entries側のrace_dateを削除（merge後の重複を防ぐため）
         entries_no_date = entries_filtered.drop(columns=["race_date"], errors="ignore")
         past_df = entries_no_date.merge(
             races_subset[race_cols].drop_duplicates("race_id"),
@@ -207,7 +213,7 @@ class HorseHistoryFeatures:
             how="left",
         )
 
-        # Add distance_bin for haron_time_l3_zscore calculation
+        # Add distance_bin
         if "distance_bin" not in past_df.columns and "track_cd" in past_df.columns and "distance" in past_df.columns:
             is_turf = (past_df["track_cd"] >= 10) & (past_df["track_cd"] <= 22)
             dist = past_df["distance"]
@@ -220,12 +226,39 @@ class HorseHistoryFeatures:
             past_df.loc[~is_turf & (dist <= 1700), "distance_bin"] = "mile"
             past_df.loc[~is_turf & (dist <= 1400), "distance_bin"] = "sprint"
 
-        # Add valid_field column
         past_df["valid_field"] = (past_df["field_size"] >= 8).astype(int)
 
-        # 馬ごとに特徴量計算
+        # Pre-index past data by ketto_num (sorted by race_date)
+        past_df_sorted = past_df.sort_values(["ketto_num", "race_date"]).reset_index(drop=True)
+        past_by_ketto: dict[str, pd.DataFrame] = {
+            k: g.reset_index(drop=True)
+            for k, g in past_df_sorted.groupby("ketto_num")
+        }
+
+        # Pre-index past data by kisyu_code for jockey_surprise (finish_pos > 0 AND win_odds > 0)
+        past_by_kisyu: dict[str, pd.DataFrame] = {
+            k: g.reset_index(drop=True)
+            for k, g in past_df_sorted[
+                (past_df_sorted["finish_pos"] > 0) & (past_df_sorted["win_odds"] > 0)
+            ].groupby("kisyu_code")
+        }
+
+        # Pre-index past data by kisyu_code for jockey_cond_wr
+        # (finish_pos > 0 only, no win_odds filter)
+        past_by_kisyu_all: dict[str, pd.DataFrame] = {
+            k: g.reset_index(drop=True)
+            for k, g in past_df_sorted[
+                (past_df_sorted["finish_pos"] > 0)
+            ].groupby("kisyu_code")
+        }
+
+        # Weight column name
+        weight_col = "ba_taijyu" if "ba_taijyu" in entry_df.columns else "weight"
+
         total = len(horses)
         results: list[dict] = []
+        empty_past = pd.DataFrame()
+
         for i, (_, row) in enumerate(horses.iterrows()):
             if i % 200 == 0:
                 print(
@@ -236,33 +269,43 @@ class HorseHistoryFeatures:
             ketto = row["ketto_num"]
             kisyu = row["kisyu_code"]
 
-            # norm_finish_logit_avg: 同じ馬の過去3走
-            horse_past = past_df[
-                (past_df["ketto_num"] == ketto)
-                & (past_df["race_date"] < race_date)
-                & (past_df["valid_field"] == 1)
-                & (past_df["finish_pos"] > 0)
-            ].tail(3)
+            # --- Horse features: O(1) lookup + O(log m) searchsorted ---
+            horse_past_all = past_by_ketto.get(ketto, empty_past)
+            if len(horse_past_all) > 0:
+                valid_past = horse_past_all[
+                    (horse_past_all["valid_field"] == 1)
+                    & (horse_past_all["finish_pos"] > 0)
+                ]
+                # searchsorted for date cutoff (ensure datetime64 types)
+                if len(valid_past) > 0:
+                    dates_np = valid_past["race_date"].values.astype("datetime64[ns]")
+                    target_date_np = np.datetime64(race_date, "ns")
+                    idx = dates_np.searchsorted(target_date_np, side="left")
+                    horse_past = valid_past.iloc[max(0, idx - 3):idx]
+                else:
+                    horse_past = valid_past
+            else:
+                horse_past = empty_past
 
+            # norm_finish_logit_avg
             if len(horse_past) > 0:
-                logits = horse_past.apply(
-                    lambda r: _norm_finish_logit(r["finish_pos"], r["field_size"]),
-                    axis=1,
+                logits = _norm_finish_logit_vec(
+                    horse_past["finish_pos"].values.astype(float),
+                    horse_past["field_size"].values.astype(float),
                 )
-                norm_finish_logit_avg: float = logits.mean()
+                norm_finish_logit_avg: float = float(np.nanmean(logits))
             else:
                 norm_finish_logit_avg = float("nan")
 
-            # --- 新規特徴量 (7個) ---
-            # haron_time_l3_avg: 直近3走のハロンタイム平均
-            if "haron_time_l3" in horse_past.columns:
+            # haron_time_l3_avg
+            if "haron_time_l3" in horse_past.columns and len(horse_past) > 0:
                 ht_vals = horse_past["haron_time_l3"].dropna()
                 haron_time_l3_avg: float = float(ht_vals.tail(3).mean()) if len(ht_vals) > 0 else float("nan")
             else:
                 haron_time_l3_avg = float("nan")
 
-            # haron_time_l3_zscore: 距離ビンz-score、直近3走平均
-            if "haron_time_l3" in horse_past.columns and "distance_bin" in horse_past.columns:
+            # haron_time_l3_zscore
+            if "haron_time_l3" in horse_past.columns and "distance_bin" in horse_past.columns and len(horse_past) > 0:
                 ht = horse_past["haron_time_l3"]
                 db = horse_past["distance_bin"]
                 valid = ht.notna() & db.notna()
@@ -282,29 +325,29 @@ class HorseHistoryFeatures:
             else:
                 haron_time_l3_zscore = float("nan")
 
-            # time_diff_avg: 直近3走のタイム差平均
-            if "time_diff" in horse_past.columns:
+            # time_diff_avg
+            if "time_diff" in horse_past.columns and len(horse_past) > 0:
                 td_vals = horse_past["time_diff"].dropna()
                 time_diff_avg: float = float(td_vals.tail(3).mean()) if len(td_vals) > 0 else float("nan")
             else:
                 time_diff_avg = float("nan")
 
-            # corner_1c_avg: 直近3走の1コーナー通過位置平均
-            if "corner_1c" in horse_past.columns:
+            # corner_1c_avg
+            if "corner_1c" in horse_past.columns and len(horse_past) > 0:
                 c1_vals = horse_past["corner_1c"].dropna()
                 corner_1c_avg: float = float(c1_vals.tail(3).mean()) if len(c1_vals) > 0 else float("nan")
             else:
                 corner_1c_avg = float("nan")
 
-            # corner_4c_avg: 直近3走の4コーナー通過位置平均
-            if "corner_4c" in horse_past.columns:
+            # corner_4c_avg
+            if "corner_4c" in horse_past.columns and len(horse_past) > 0:
                 c4_vals = horse_past["corner_4c"].dropna()
                 corner_4c_avg: float = float(c4_vals.tail(3).mean()) if len(c4_vals) > 0 else float("nan")
             else:
                 corner_4c_avg = float("nan")
 
-            # closing_index_avg: (4C正規化 - 着順正規化) の直近3走平均
-            if all(c in horse_past.columns for c in ["corner_4c", "finish_pos", "field_size"]):
+            # closing_index_avg
+            if all(c in horse_past.columns for c in ["corner_4c", "finish_pos", "field_size"]) and len(horse_past) > 0:
                 valid_ci = horse_past.dropna(subset=["corner_4c", "finish_pos", "field_size"])
                 valid_ci = valid_ci[valid_ci["field_size"] > 1]
                 if len(valid_ci) > 0:
@@ -317,20 +360,22 @@ class HorseHistoryFeatures:
             else:
                 closing_index_avg = float("nan")
 
-            # kyakusitu_cd: 直近走の脚質コード
-            if "kyakusitu" in horse_past.columns:
+            # kyakusitu_cd
+            if "kyakusitu" in horse_past.columns and len(horse_past) > 0:
                 kt_vals = horse_past["kyakusitu"].dropna()
                 kyakusitu_cd: float | int = int(kt_vals.iloc[-1]) if len(kt_vals) > 0 else float("nan")
             else:
                 kyakusitu_cd = float("nan")
 
-            # jockey_surprise: 騎手の過去100戦
-            jockey_past = past_df[
-                (past_df["kisyu_code"] == kisyu)
-                & (past_df["race_date"] < race_date)
-                & (past_df["finish_pos"] > 0)
-                & (past_df["win_odds"] > 0)
-            ].tail(100)
+            # --- Jockey features: O(1) lookup + O(log m) searchsorted ---
+            jockey_past_all = past_by_kisyu.get(kisyu, empty_past)
+            if len(jockey_past_all) > 0:
+                dates_np = jockey_past_all["race_date"].values.astype("datetime64[ns]")
+                target_date_np = np.datetime64(race_date, "ns")
+                idx = dates_np.searchsorted(target_date_np, side="left")
+                jockey_past = jockey_past_all.iloc[max(0, idx - 100):idx]
+            else:
+                jockey_past = empty_past
 
             if len(jockey_past) >= 30:
                 expected = (PAYOUT_RATE / jockey_past["win_odds"].clip(lower=1.1)).sum()
@@ -341,14 +386,17 @@ class HorseHistoryFeatures:
             else:
                 jockey_surprise = float("nan")
 
-            # jockey_cond_wr: 騎手条件別勝率 (hierarchical smoothing, k=25)
-            cond_mask = (
-                (past_df["kisyu_code"] == kisyu)
-                & (past_df["race_date"] < race_date)
-                & (past_df["finish_pos"] > 0)
-            )
-            jockey_all = past_df[cond_mask]
-            total_rides = len(jockey_all)
+            # jockey_cond_wr — uses past_by_kisyu_all (finish_pos > 0 only, no win_odds filter)
+            jockey_all_past = past_by_kisyu_all.get(kisyu, empty_past)
+            if len(jockey_all_past) > 0:
+                dates_np = jockey_all_past["race_date"].values.astype("datetime64[ns]")
+                target_date_np = np.datetime64(race_date, "ns")
+                idx = dates_np.searchsorted(target_date_np, side="left")
+                jockey_all = jockey_all_past.iloc[:idx]
+                total_rides = len(jockey_all)
+            else:
+                jockey_all = empty_past
+                total_rides = 0
             total_wins = int((jockey_all["finish_pos"] == 1).sum()) if total_rides > 0 else 0
 
             k_smooth = 25
@@ -360,8 +408,7 @@ class HorseHistoryFeatures:
             else:
                 jockey_cond_wr = float("nan")
 
-            # weight_absolute: 馬体重
-            weight_col = "ba_taijyu" if "ba_taijyu" in entry_df.columns else "weight"
+            # weight_absolute
             weight_val = entry_df.loc[
                 (entry_df["race_id"] == row["race_id"]) & (entry_df["umaban"] == row["umaban"]),
                 weight_col,

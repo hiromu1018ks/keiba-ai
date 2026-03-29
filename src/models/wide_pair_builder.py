@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from itertools import combinations
 from typing import Any
 
 import pandas as pd
@@ -23,14 +24,7 @@ class WideJointPairBuilder:
     """
 
     def build(self, entry_df: pd.DataFrame) -> pd.DataFrame:
-        """全レースの馬ペアを構築
-
-        Args:
-            entry_df: 馬レベルの特徴量DataFrame (1行=1馬)
-
-        Returns:
-            ペアDataFrame (1行=1ペア)
-        """
+        """全レースの馬ペアを構築"""
         if entry_df.empty:
             return pd.DataFrame()
 
@@ -39,14 +33,46 @@ class WideJointPairBuilder:
         for _, group in entry_df.groupby("race_id"):
             horses = group.sort_values("umaban").reset_index(drop=True)
             n = len(horses)
+            if n < 2:
+                continue
 
-            for i in range(n):
-                for j in range(i + 1, n):
-                    a = horses.iloc[i]
-                    b = horses.iloc[j]
+            # Pre-extract as numpy arrays for fast access
+            umabans = horses["umaban"].values.astype(int)
+            finish_positions = horses["finish_pos"].values.astype(int)
+            popularity_ranks = horses["popularity_rank"].values.astype(int)
+            running_styles = horses["running_style"].values.astype(int)
 
-                    pair = self._build_pair(a, b, group)
-                    all_pairs.append(pair)
+            # Get wide odds columns from first row
+            first_row = horses.iloc[0]
+            race_shared: dict[str, Any] = {
+                "race_id": first_row["race_id"],
+                "surface": first_row["surface"],
+                "distance_bin": first_row["distance_bin"],
+                "track_condition_code": first_row["track_condition_code"],
+                "grade_code": first_row["grade_code"],
+                "field_size": first_row["field_size"],
+            }
+
+            # Build wide_odds lookup from first row columns
+            wide_odds_cache: dict[str, float] = {}
+            for col in horses.columns:
+                if col.startswith("wide_odds_"):
+                    val = horses[col].iloc[0]
+                    wide_odds_cache[col] = float(val) if not pd.isna(val) else 0.0
+
+            for i, j in combinations(range(n), 2):
+                lo, hi = min(umabans[i], umabans[j]), max(umabans[i], umabans[j])
+                odds_col = f"wide_odds_{lo}_{hi}"
+
+                all_pairs.append({
+                    **race_shared,
+                    "umaban_a": int(umabans[i]),
+                    "umaban_b": int(umabans[j]),
+                    "joint_hit": int(finish_positions[i] <= 3 and finish_positions[j] <= 3),
+                    "popularity_sum": int(popularity_ranks[i] + popularity_ranks[j]),
+                    "running_style_combo": int(running_styles[i] + running_styles[j]),
+                    "wide_odds": wide_odds_cache.get(odds_col, 0.0),
+                })
 
         if not all_pairs:
             return pd.DataFrame()
@@ -54,45 +80,3 @@ class WideJointPairBuilder:
         pair_df = pd.DataFrame(all_pairs)
         logger.info(f"Built {len(pair_df)} pairs from {entry_df['race_id'].nunique()} races")
         return pair_df
-
-    def _build_pair(
-        self,
-        a: pd.Series,
-        b: pd.Series,
-        race_group: pd.DataFrame,
-    ) -> dict[str, Any]:
-        """単一ペアを構築"""
-        pair: dict[str, Any] = {
-            "race_id": a["race_id"],
-            "umaban_a": int(a["umaban"]),
-            "umaban_b": int(b["umaban"]),
-            # 共通特徴量 (馬Aの値を使用 — レース内で同一)
-            "surface": a["surface"],
-            "distance_bin": a["distance_bin"],
-            "track_condition_code": a["track_condition_code"],
-            "grade_code": a["grade_code"],
-            "field_size": a["field_size"],
-            # ラベル
-            "joint_hit": int(a["finish_pos"] <= 3 and b["finish_pos"] <= 3),
-            "popularity_sum": int(a["popularity_rank"]) + int(b["popularity_rank"]),
-            "running_style_combo": int(a["running_style"]) + int(b["running_style"]),
-        }
-
-        # wide_odds 検索
-        pair["wide_odds"] = self._lookup_wide_odds(race_group, int(a["umaban"]), int(b["umaban"]))
-
-        return pair
-
-    @staticmethod
-    def _lookup_wide_odds(
-        race_group: pd.DataFrame,
-        umaban_a: int,
-        umaban_b: int,
-    ) -> float:
-        """wide_odds_{min}_{max} 列からオッズを検索"""
-        lo, hi = min(umaban_a, umaban_b), max(umaban_a, umaban_b)
-        col = f"wide_odds_{lo}_{hi}"
-        if col in race_group.columns:
-            val = race_group[col].iloc[0]
-            return float(val) if not pd.isna(val) else 0.0
-        return 0.0
