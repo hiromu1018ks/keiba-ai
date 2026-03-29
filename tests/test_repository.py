@@ -185,3 +185,40 @@ class TestDataRepositorySave:
         df = pd.DataFrame({"a": [1]})
         repo.save_bets(df)
         mock_store.write.assert_called_once_with("bets", "bets", df)
+
+
+class TestDataRepositoryLoadHorses:
+    def test_calls_store_correctly(self, repo: DataRepository, mock_store: MagicMock) -> None:
+        mock_store.read.return_value = pd.DataFrame({"horse_id": [1]})
+        result = repo.load_horses()
+        mock_store.read.assert_called_once_with("raw", "horses")
+        assert result is not None
+
+    def test_no_date_filters(self, repo: DataRepository, mock_store: MagicMock) -> None:
+        """静的マスターデータには日付フィルタが不要"""
+        mock_store.read.return_value = pd.DataFrame({"horse_id": [1]})
+        repo.load_horses()
+        call_args = mock_store.read.call_args
+        # filters が渡されていない（位置引数は2つのみ、キーワードもなし）
+        assert call_args[0] == ("raw", "horses")
+        assert "filters" not in call_args[1]
+
+
+class TestDataRepositoryLoadJockeyStats:
+    def test_calls_store_correctly(
+        self, repo: DataRepository, mock_store: MagicMock
+    ) -> None:
+        mock_store.read.return_value = pd.DataFrame({"jockey_id": [1]})
+        result = repo.load_jockey_stats()
+        mock_store.read.assert_called_once_with("raw", "jockey_stats")
+        assert result is not None
+
+
+class TestDataRepositoryLoadTrainerStats:
+    def test_calls_store_correctly(
+        self, repo: DataRepository, mock_store: MagicMock
+    ) -> None:
+        mock_store.read.return_value = pd.DataFrame({"trainer_id": [1]})
+        result = repo.load_trainer_stats()
+        mock_store.read.assert_called_once_with("raw", "trainer_stats")
+        assert result is not None

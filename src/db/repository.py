@@ -78,6 +78,20 @@ class DataRepository:
         cutoff = datetime.now() - timedelta(days=lookback_years * 365)
         return self.store.read("raw", "races", filters=[("race_date", ">=", cutoff)])
 
+    # --- 静的マスターデータ (horses/jockey/trainer stats) ---
+
+    def load_horses(self) -> pd.DataFrame:
+        """x_UMA 馬マスターデータ (血統・産駒成績) — 日付フィルタ不要"""
+        return self.store.read("raw", "horses")
+
+    def load_jockey_stats(self) -> pd.DataFrame:
+        """x_KISYU_SEISEKI 騎手年度別成績 — 日付フィルタ不要"""
+        return self.store.read("raw", "jockey_stats")
+
+    def load_trainer_stats(self) -> pd.DataFrame:
+        """x_CHOKYO_SEISEKI 調教師年度別成績 — 日付フィルタ不要"""
+        return self.store.read("raw", "trainer_stats")
+
     # --- 特徴量キャッシュ ---
 
     def load_features(self, start: str, end: str) -> pd.DataFrame | None:
