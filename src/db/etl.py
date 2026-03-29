@@ -603,6 +603,163 @@ def run_full_etl(engine: Engine, start: str, end: str) -> dict[str, int]:
 # ---------------------------------------------------------------------------
 
 
+def _etl_horses_to_parquet(engine: Engine, store: "ParquetStore") -> int:
+    """x_UMA → data/raw/horses.parquet — 馬マスターデータ (血統・産駒成績)"""
+    sql = text("""
+        SELECT
+            kettonum,
+            ketto3infohansyokunum1, ketto3infohansyokunum2, ketto3infohansyokunum3, ketto3infohansyokunum4,
+            ketto3infohansyokunum5, ketto3infohansyokunum6, ketto3infohansyokunum7, ketto3infohansyokunum8,
+            ketto3infohansyokunum9, ketto3infohansyokunum10, ketto3infohansyokunum11, ketto3infohansyokunum12,
+            ketto3infohansyokunum13, ketto3infohansyokunum14,
+            ba1chakukaisu1, ba1chakukaisu2, ba1chakukaisu3, ba1chakukaisu4, ba1chakukaisu5, ba1chakukaisu6,
+            ba2chakukaisu1, ba2chakukaisu2, ba2chakukaisu3, ba2chakukaisu4, ba2chakukaisu5, ba2chakukaisu6,
+            ba3chakukaisu1, ba3chakukaisu2, ba3chakukaisu3, ba3chakukaisu4, ba3chakukaisu5, ba3chakukaisu6,
+            ba4chakukaisu1, ba4chakukaisu2, ba4chakukaisu3, ba4chakukaisu4, ba4chakukaisu5, ba4chakukaisu6,
+            ba5chakukaisu1, ba5chakukaisu2, ba5chakukaisu3, ba5chakukaisu4, ba5chakukaisu5, ba5chakukaisu6,
+            ba6chakukaisu1, ba6chakukaisu2, ba6chakukaisu3, ba6chakukaisu4, ba6chakukaisu5, ba6chakukaisu6,
+            kyori1chakukaisu1, kyori1chakukaisu2, kyori1chakukaisu3, kyori1chakukaisu4,
+            kyori1chakukaisu5, kyori1chakukaisu6,
+            kyori2chakukaisu1, kyori2chakukaisu2, kyori2chakukaisu3, kyori2chakukaisu4,
+            kyori2chakukaisu5, kyori2chakukaisu6,
+            kyori3chakukaisu1, kyori3chakukaisu2, kyori3chakukaisu3, kyori3chakukaisu4,
+            kyori3chakukaisu5, kyori3chakukaisu6,
+            kyori4chakukaisu1, kyori4chakukaisu2, kyori4chakukaisu3, kyori4chakukaisu4,
+            kyori4chakukaisu5, kyori4chakukaisu6,
+            kyori5chakukaisu1, kyori5chakukaisu2, kyori5chakukaisu3, kyori5chakukaisu4,
+            kyori5chakukaisu5, kyori5chakukaisu6,
+            kyori6chakukaisu1, kyori6chakukaisu2, kyori6chakukaisu3, kyori6chakukaisu4,
+            kyori6chakukaisu5, kyori6chakukaisu6,
+            chuochakukaisu1, chuochakukaisu2, chuochakukaisu3, chuochakukaisu4, chuochakukaisu5, chuochakukaisu6,
+            ruikeihonsyoheichi,
+            kyakusitu1, kyakusitu2, kyakusitu3, kyakusitu4
+        FROM x_uma
+        WHERE kettonum IS NOT NULL
+    """)
+    df = pd.read_sql(sql, engine)
+
+    if df.empty:
+        return 0
+
+    # Convert numeric columns: all chakukaisu columns to int, ruikeihonsyoheichi to float
+    chakukaisu_cols = [c for c in df.columns if "chakukaisu" in c]
+    for col in chakukaisu_cols:
+        df[col] = df[col].apply(_to_int)
+
+    df["ruikeihonsyoheichi"] = df["ruikeihonsyoheichi"].apply(_to_float)
+
+    # Convert kyakusitu columns to int
+    for col in ["kyakusitu1", "kyakusitu2", "kyakusitu3", "kyakusitu4"]:
+        if col in df.columns:
+            df[col] = df[col].apply(_to_int)
+
+    # Convert bloodline columns to string (ketto3infohansyokunum*)
+    blood_cols = [c for c in df.columns if c.startswith("ketto3infohansyokunum")]
+    for col in blood_cols:
+        df[col] = df[col].astype(str)
+
+    store.write("raw", "horses", df)
+    return len(df)
+
+
+def _etl_jockey_stats_to_parquet(engine: Engine, store: "ParquetStore") -> int:
+    """x_KISYU_SEISEKI → data/raw/jockey_stats.parquet — 騎手年度別成績"""
+    sql = text("""
+        SELECT
+            setyear, kisyucode,
+            heichichakukaisu1, heichichakukaisu2, heichichakukaisu3,
+            heichichakukaisu4, heichichakukaisu5, heichichakukaisu6,
+            jyo1chakukaisu1, jyo1chakukaisu2, jyo1chakukaisu3,
+            jyo1chakukaisu4, jyo1chakukaisu5, jyo1chakukaisu6,
+            jyo2chakukaisu1, jyo2chakukaisu2, jyo2chakukaisu3,
+            jyo2chakukaisu4, jyo2chakukaisu5, jyo2chakukaisu6,
+            jyo3chakukaisu1, jyo3chakukaisu2, jyo3chakukaisu3,
+            jyo3chakukaisu4, jyo3chakukaisu5, jyo3chakukaisu6,
+            jyo4chakukaisu1, jyo4chakukaisu2, jyo4chakukaisu3,
+            jyo4chakukaisu4, jyo4chakukaisu5, jyo4chakukaisu6,
+            jyo5chakukaisu1, jyo5chakukaisu2, jyo5chakukaisu3,
+            jyo5chakukaisu4, jyo5chakukaisu5, jyo5chakukaisu6,
+            kyori1chakukaisu1, kyori1chakukaisu2, kyori1chakukaisu3,
+            kyori1chakukaisu4, kyori1chakukaisu5, kyori1chakukaisu6,
+            kyori2chakukaisu1, kyori2chakukaisu2, kyori2chakukaisu3,
+            kyori2chakukaisu4, kyori2chakukaisu5, kyori2chakukaisu6,
+            kyori3chakukaisu1, kyori3chakukaisu2, kyori3chakukaisu3,
+            kyori3chakukaisu4, kyori3chakukaisu5, kyori3chakukaisu6,
+            kyori4chakukaisu1, kyori4chakukaisu2, kyori4chakukaisu3,
+            kyori4chakukaisu4, kyori4chakukaisu5, kyori4chakukaisu6,
+            kyori5chakukaisu1, kyori5chakukaisu2, kyori5chakukaisu3,
+            kyori5chakukaisu4, kyori5chakukaisu5, kyori5chakukaisu6,
+            kyori6chakukaisu1, kyori6chakukaisu2, kyori6chakukaisu3,
+            kyori6chakukaisu4, kyori6chakukaisu5, kyori6chakukaisu6,
+            honsyokinheichi
+        FROM x_kisyu_seiseki
+        WHERE setyear IS NOT NULL
+    """)
+    df = pd.read_sql(sql, engine)
+
+    if df.empty:
+        return 0
+
+    # Type conversions
+    chakukaisu_cols = [c for c in df.columns if "chakukaisu" in c]
+    for col in chakukaisu_cols:
+        df[col] = df[col].apply(_to_int)
+    df["setyear"] = df["setyear"].apply(_to_int)
+    df["honsyokinheichi"] = df["honsyokinheichi"].apply(_to_float)
+
+    store.write("raw", "jockey_stats", df)
+    return len(df)
+
+
+def _etl_trainer_stats_to_parquet(engine: Engine, store: "ParquetStore") -> int:
+    """x_CHOKYO_SEISEKI → data/raw/trainer_stats.parquet — 調教師年度別成績"""
+    sql = text("""
+        SELECT
+            setyear, chokyosicode,
+            heichichakukaisu1, heichichakukaisu2, heichichakukaisu3,
+            heichichakukaisu4, heichichakukaisu5, heichichakukaisu6,
+            jyo1chakukaisu1, jyo1chakukaisu2, jyo1chakukaisu3,
+            jyo1chakukaisu4, jyo1chakukaisu5, jyo1chakukaisu6,
+            jyo2chakukaisu1, jyo2chakukaisu2, jyo2chakukaisu3,
+            jyo2chakukaisu4, jyo2chakukaisu5, jyo2chakukaisu6,
+            jyo3chakukaisu1, jyo3chakukaisu2, jyo3chakukaisu3,
+            jyo3chakukaisu4, jyo3chakukaisu5, jyo3chakukaisu6,
+            jyo4chakukaisu1, jyo4chakukaisu2, jyo4chakukaisu3,
+            jyo4chakukaisu4, jyo4chakukaisu5, jyo4chakukaisu6,
+            jyo5chakukaisu1, jyo5chakukaisu2, jyo5chakukaisu3,
+            jyo5chakukaisu4, jyo5chakukaisu5, jyo5chakukaisu6,
+            kyori1chakukaisu1, kyori1chakukaisu2, kyori1chakukaisu3,
+            kyori1chakukaisu4, kyori1chakukaisu5, kyori1chakukaisu6,
+            kyori2chakukaisu1, kyori2chakukaisu2, kyori2chakukaisu3,
+            kyori2chakukaisu4, kyori2chakukaisu5, kyori2chakukaisu6,
+            kyori3chakukaisu1, kyori3chakukaisu2, kyori3chakukaisu3,
+            kyori3chakukaisu4, kyori3chakukaisu5, kyori3chakukaisu6,
+            kyori4chakukaisu1, kyori4chakukaisu2, kyori4chakukaisu3,
+            kyori4chakukaisu4, kyori4chakukaisu5, kyori4chakukaisu6,
+            kyori5chakukaisu1, kyori5chakukaisu2, kyori5chakukaisu3,
+            kyori5chakukaisu4, kyori5chakukaisu5, kyori5chakukaisu6,
+            kyori6chakukaisu1, kyori6chakukaisu2, kyori6chakukaisu3,
+            kyori6chakukaisu4, kyori6chakukaisu5, kyori6chakukaisu6,
+            honsyokinheichi
+        FROM x_chokyo_seiseki
+        WHERE setyear IS NOT NULL
+    """)
+    df = pd.read_sql(sql, engine)
+
+    if df.empty:
+        return 0
+
+    # Type conversions
+    chakukaisu_cols = [c for c in df.columns if "chakukaisu" in c]
+    for col in chakukaisu_cols:
+        df[col] = df[col].apply(_to_int)
+    df["setyear"] = df["setyear"].apply(_to_int)
+    df["honsyokinheichi"] = df["honsyokinheichi"].apply(_to_float)
+
+    store.write("raw", "trainer_stats", df)
+    return len(df)
+
+
 def run_full_etl_to_parquet(
     engine: Engine, store: "ParquetStore", start: str, end: str
 ) -> dict[str, int]:
@@ -910,6 +1067,15 @@ def run_full_etl_to_parquet(
         store.write("odds", "time_series", ts_out, partition_cols=["year", "month"])
         total_ts = len(ts_out)
     counts["odds_time_series"] = total_ts
+
+    # 7. horses — x_uma (bloodline stats)
+    counts["horses"] = _etl_horses_to_parquet(engine, store)
+
+    # 8. jockey_stats — x_kisyu_seiseki
+    counts["jockey_stats"] = _etl_jockey_stats_to_parquet(engine, store)
+
+    # 9. trainer_stats — x_chokyo_seiseki
+    counts["trainer_stats"] = _etl_trainer_stats_to_parquet(engine, store)
 
     logger.info("ETL to Parquet完了: %s", counts)
     return counts
