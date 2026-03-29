@@ -193,6 +193,8 @@ class TestLeakPrevention:
                     pd.Timestamp("2024-05-01"),
                     pd.Timestamp("2024-07-01"),
                 ],
+                "track_cd": [11, 11],
+                "distance": [1600, 1600],
             }
         )
 
@@ -256,6 +258,8 @@ class TestHorseHistoryFeaturesWithRepo:
                 "race_id": ["r1"],
                 "race_date": [pd.Timestamp("2020-01-01")],
                 "field_size": [16],
+                "track_cd": [11],
+                "distance": [1600],
             }
         )
         hhf = HorseHistoryFeatures(repo=mock_repo)
@@ -291,6 +295,8 @@ class TestHorseHistoryFeaturesWithRepo:
                 "race_id": ["r1"],
                 "race_date": [pd.Timestamp("2020-01-01")],
                 "field_size": [16],
+                "track_cd": [11],
+                "distance": [1600],
             }
         )
         hhf = HorseHistoryFeatures(repo=mock_repo)

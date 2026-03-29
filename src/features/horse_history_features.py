@@ -2,8 +2,15 @@
 
 主な特徴量:
   - norm_finish_logit_avg: 着順をログット変換したスコアの平均
+  - haron_time_l3_avg: 直近3走のハロンタイム平均
+  - haron_time_l3_zscore: 距離ビンz-scoreの直近3走平均
+  - time_diff_avg: 直近3走のタイム差平均
+  - corner_1c_avg: 直近3走の1コーナー通過位置平均
+  - corner_4c_avg: 直近3走の4コーナー通過位置平均
+  - closing_index_avg: (4C正規化 - 着順正規化) の直近3走平均
+  - kyakusitu_cd: 直近走の脚質コード
   - jockey_surprise: Beta事前分布でスムージングした騎手勝率サプライズ
-  - haron_time_zscore_avg: 階層fallback付きハロンタイムz-score平均
+  - jockey_cond_wr: 騎手条件別勝率
 """
 
 from __future__ import annotations
@@ -127,9 +134,15 @@ class HorseHistoryFeatures:
 
     BASE_COLS: list[str] = [
         "norm_finish_logit_avg",
-        "jockey_surprise",
-        "haron_time_zscore_avg",
-        "jockey_cond_wr",
+        "haron_time_l3_avg",      # NEW - replaces haron_time_zscore_avg
+        "haron_time_l3_zscore",   # NEW
+        "time_diff_avg",           # NEW
+        "corner_1c_avg",           # NEW
+        "corner_4c_avg",           # NEW
+        "closing_index_avg",       # NEW
+        "kyakusitu_cd",            # NEW (non-numeric, category)
+        "jockey_surprise",         # existing (will move to Stage2 in Task 9)
+        "jockey_cond_wr",          # existing (will move to Stage2 in Task 9)
     ]
 
     def __init__(self, repo: DataRepository) -> None:
@@ -184,7 +197,7 @@ class HorseHistoryFeatures:
         # Merge with races to get field_size, race_date
         # entries_filtered also has race_date from load_history_entries,
         # so merge前にentries側のrace_dateを削除して重複を防ぐ
-        race_cols = ["race_id", "field_size", "race_date"]
+        race_cols = ["race_id", "field_size", "race_date", "track_cd", "distance"]
         races_subset = races_hist[races_hist["race_id"].isin(entries_filtered["race_id"].unique())]
         # entries側のrace_dateを削除（merge後の重複を防ぐため）
         entries_no_date = entries_filtered.drop(columns=["race_date"], errors="ignore")
@@ -193,6 +206,19 @@ class HorseHistoryFeatures:
             on="race_id",
             how="left",
         )
+
+        # Add distance_bin for haron_time_l3_zscore calculation
+        if "distance_bin" not in past_df.columns and "track_cd" in past_df.columns and "distance" in past_df.columns:
+            is_turf = (past_df["track_cd"] >= 10) & (past_df["track_cd"] <= 22)
+            dist = past_df["distance"]
+            past_df["distance_bin"] = "unknown"
+            past_df.loc[is_turf & (dist > 2100), "distance_bin"] = "long"
+            past_df.loc[is_turf & (dist <= 2100), "distance_bin"] = "intermediate"
+            past_df.loc[is_turf & (dist <= 1700), "distance_bin"] = "mile"
+            past_df.loc[is_turf & (dist <= 1400), "distance_bin"] = "sprint"
+            past_df.loc[~is_turf & (dist > 1700), "distance_bin"] = "intermediate"
+            past_df.loc[~is_turf & (dist <= 1700), "distance_bin"] = "mile"
+            past_df.loc[~is_turf & (dist <= 1400), "distance_bin"] = "sprint"
 
         # Add valid_field column
         past_df["valid_field"] = (past_df["field_size"] >= 8).astype(int)
@@ -227,6 +253,77 @@ class HorseHistoryFeatures:
             else:
                 norm_finish_logit_avg = float("nan")
 
+            # --- 新規特徴量 (7個) ---
+            # haron_time_l3_avg: 直近3走のハロンタイム平均
+            if "haron_time_l3" in horse_past.columns:
+                ht_vals = horse_past["haron_time_l3"].dropna()
+                haron_time_l3_avg: float = float(ht_vals.tail(3).mean()) if len(ht_vals) > 0 else float("nan")
+            else:
+                haron_time_l3_avg = float("nan")
+
+            # haron_time_l3_zscore: 距離ビンz-score、直近3走平均
+            if "haron_time_l3" in horse_past.columns and "distance_bin" in horse_past.columns:
+                ht = horse_past["haron_time_l3"]
+                db = horse_past["distance_bin"]
+                valid = ht.notna() & db.notna()
+                if valid.sum() > 0:
+                    grp_stats = horse_past.loc[valid].groupby("distance_bin")["haron_time_l3"].agg(["mean", "std"])
+                    zscores: list[float] = []
+                    for _, r in horse_past.loc[valid].iterrows():
+                        bin_key = r["distance_bin"]
+                        if bin_key in grp_stats.index and not pd.isna(grp_stats.loc[bin_key, "std"]):
+                            z = (r["haron_time_l3"] - grp_stats.loc[bin_key, "mean"]) / grp_stats.loc[bin_key, "std"]
+                            zscores.append(z)
+                        else:
+                            zscores.append(float("nan"))
+                    haron_time_l3_zscore: float = float(pd.Series(zscores).tail(3).mean()) if zscores else float("nan")
+                else:
+                    haron_time_l3_zscore = float("nan")
+            else:
+                haron_time_l3_zscore = float("nan")
+
+            # time_diff_avg: 直近3走のタイム差平均
+            if "time_diff" in horse_past.columns:
+                td_vals = horse_past["time_diff"].dropna()
+                time_diff_avg: float = float(td_vals.tail(3).mean()) if len(td_vals) > 0 else float("nan")
+            else:
+                time_diff_avg = float("nan")
+
+            # corner_1c_avg: 直近3走の1コーナー通過位置平均
+            if "corner_1c" in horse_past.columns:
+                c1_vals = horse_past["corner_1c"].dropna()
+                corner_1c_avg: float = float(c1_vals.tail(3).mean()) if len(c1_vals) > 0 else float("nan")
+            else:
+                corner_1c_avg = float("nan")
+
+            # corner_4c_avg: 直近3走の4コーナー通過位置平均
+            if "corner_4c" in horse_past.columns:
+                c4_vals = horse_past["corner_4c"].dropna()
+                corner_4c_avg: float = float(c4_vals.tail(3).mean()) if len(c4_vals) > 0 else float("nan")
+            else:
+                corner_4c_avg = float("nan")
+
+            # closing_index_avg: (4C正規化 - 着順正規化) の直近3走平均
+            if all(c in horse_past.columns for c in ["corner_4c", "finish_pos", "field_size"]):
+                valid_ci = horse_past.dropna(subset=["corner_4c", "finish_pos", "field_size"])
+                valid_ci = valid_ci[valid_ci["field_size"] > 1]
+                if len(valid_ci) > 0:
+                    norm_4c = (valid_ci["corner_4c"] - 1) / (valid_ci["field_size"] - 1)
+                    norm_finish = (valid_ci["finish_pos"] - 1) / (valid_ci["field_size"] - 1)
+                    closing_indices = norm_4c - norm_finish
+                    closing_index_avg: float = float(closing_indices.tail(3).mean())
+                else:
+                    closing_index_avg = float("nan")
+            else:
+                closing_index_avg = float("nan")
+
+            # kyakusitu_cd: 直近走の脚質コード
+            if "kyakusitu" in horse_past.columns:
+                kt_vals = horse_past["kyakusitu"].dropna()
+                kyakusitu_cd: float | int = int(kt_vals.iloc[-1]) if len(kt_vals) > 0 else float("nan")
+            else:
+                kyakusitu_cd = float("nan")
+
             # jockey_surprise: 騎手の過去100戦
             jockey_past = past_df[
                 (past_df["kisyu_code"] == kisyu)
@@ -243,9 +340,6 @@ class HorseHistoryFeatures:
                 )
             else:
                 jockey_surprise = float("nan")
-
-            # haron_time_zscore_avg: 過去3走 (Phase 1: simplified, uses nan for now)
-            haron_time_zscore_avg: float = float("nan")
 
             # jockey_cond_wr: 騎手条件別勝率 (hierarchical smoothing, k=25)
             cond_mask = (
@@ -283,8 +377,14 @@ class HorseHistoryFeatures:
                     "race_id": row["race_id"],
                     "umaban": row["umaban"],
                     "norm_finish_logit_avg": norm_finish_logit_avg,
+                    "haron_time_l3_avg": haron_time_l3_avg,
+                    "haron_time_l3_zscore": haron_time_l3_zscore,
+                    "time_diff_avg": time_diff_avg,
+                    "corner_1c_avg": corner_1c_avg,
+                    "corner_4c_avg": corner_4c_avg,
+                    "closing_index_avg": closing_index_avg,
+                    "kyakusitu_cd": kyakusitu_cd,
                     "jockey_surprise": jockey_surprise,
-                    "haron_time_zscore_avg": haron_time_zscore_avg,
                     "jockey_cond_wr": jockey_cond_wr,
                     "weight_absolute": weight_absolute,
                 }
