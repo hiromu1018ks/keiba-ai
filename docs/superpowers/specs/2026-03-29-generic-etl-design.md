@@ -8,7 +8,7 @@ EveryDB2 (JRA-VAN DataLab) の PostgreSQL 外部テーブル103個をすべて P
 
 1. PostgreSQL の103テーブル (n_ 53個 + s_ 50個) をすべて Parquet に出力
 2. s_ テーブルを利用した差分更新（upsert/delete）に対応
-3. カラムはそのまま出力（リネーム・型変換なし）。後から必要テーブルのみ設定追加
+3. カラムは生のまま出力（リネーム・型変換なし）。MLパイプライン側も生カラム名（`trackcd`, `kyori`等）を使用する
 4. 既存の ParquetStore / DatabaseConnection インフラを活用
 5. 既存の `etl.py` を汎用版に置き換え
 
@@ -774,20 +774,22 @@ def _add_race_date(df: pd.DataFrame) -> pd.DataFrame: ...
 - `src/db/etl.py` — フルリプレイス（既存のカスタム変換ロジックを削除）
 - `scripts/run_etl.py` — `--mode` 引数追加
 - `config/etl_tables.yaml` — 新規作成（103テーブル定義）
-- `src/db/repository.py` — **要更新**: EveryDB2 生カラム名（`trackcd`等）→ リネーム（`track_cd`等）+ `race_id` 計算を追加
+- `src/db/repository.py` — **要更新**: `race_id` 計算を追加。フィルタ・型変換のカラム名を生名に修正
 - `src/db/parquet_store.py` — 変更なし
-- MLパイプライン — 変更なし（DataRepository 経由で同じ列名でアクセス）
+- MLパイプライン — **要更新**: FeatureEngine・モデル等のカラム参照を生名（`trackcd`, `kyori`等）に変更
 
-### DataRepository の更新内容
+### カラム名の統一方針
 
-汎用 ETL が出力する Parquet ファイルは EveryDB2 の生カラム名（`trackcd`, `jyocd`等）を含む。DataRepository は読み込み時に以下の変換を行う:
+ETL も ML パイプラインも EveryDB2 の生カラム名（`trackcd`, `kyori`, `jyocd` 等）で統一する。リネーム変換レイヤーは導入しない。
 
-1. **カラムリネーム**: `trackcd` → `track_cd`, `jyocd` → `jyo_cd` 等の snake_case 変換
-2. **`race_id` 計算**: `year + monthday + jyocd + kaiji + nichiji + racenum` → 16桁文字列
-3. **型変換**: varchar → int/float（オッズ、着順等）
-4. **フィルタ**: 障害除外（`trackcd NOT IN (51-59)`）等
+DataRepository は読み込み時に以下のみを行う:
 
-**Why:** ETL 層は「データのダンプ」に専念し、ドメイン変換はデータアクセス層で実行する責務分離。カラムリネームは `_rename_columns(df, mapping)` ヘルパーで一括処理。
+1. **`race_id` 計算**: `year + monthday + jyocd + kaiji + nichiji + racenum` → 16桁文字列（JOIN key として必要）
+2. **フィルタ**: 障害除外（`trackcd NOT IN (51-59)`）等
+
+MLパイプライン側の FeatureEngine、モデル等は `track_cd` → `trackcd`, `distance` → `kyori` 等に修正する。
+
+**Why:** 中間変換レイヤーをなくすことで、ETL→Parquet→ML パイプライン間の認知負荷を下げる。EveryDB2 のドキュメントとコードのカラム名が一致するためデバッグが容易になる。
 
 ### 大規模テーブルの考慮事項
 
