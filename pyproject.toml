@@ -24,6 +24,9 @@ dev = [
     "mypy>=1.10",
     "ipykernel>=6.29",
 ]
+scraping = [
+    "playwright>=1.40",
+]
 
 [build-system]
 requires = ["setuptools>=69.0"]
