@@ -48,7 +48,65 @@ AbilityModel から haron_time 系3列を除外した同一構成。
 
 ---
 
-## 2. 改善方針
+## 2. 設計ルール（全特徴量に適用）
+
+### 2.0.1 時間軸ルール
+
+| 特徴量グループ | 時点制約 | 理由 |
+|---------------|---------|------|
+| 過走成績 (Group A) | `race_date < target_date` 厳格 | 過去レースのみ使用 |
+| 血統 (Group B) | **時点制約なし** (ETL時点の最新累計) | x_UMAは馬マスターテーブル。歴史スナップショットなし。数百戦の馬では1レース増分 <0.5%。本番運用でも同じETL時点値を使用するため、学習・推論で整合 |
+| 騎手 (Group C) | `SetYear < race_year` (年単位近似) | x_KISYU_SEISEKIは年度集約。同一年内の1月レースでは前年末までの成績のみ。日付レベル分解は過剰 (YAGNI) |
+| 調教師 (Group D) | `SetYear < race_year` (同上) | 騎手と同様 |
+| 交互作用 (Group E) | 依存元特徴量に従う | 派生特徴量のため独自制約なし |
+| レース内正規化 (Group F) | 推論時のみ計算 (リークなし) | レース内相対値。学習時には当該レースの全馬の値を使う |
+
+**血統特徴量の時点制約なしについての設計根拠:**
+- x_UMAは馬1頭につき1レコードのマスターテーブル。時系列スナップショットは存在しない
+- ETLで取得するのは「ETL実行時点での累計値」。過去レースの学習では、現在の累計値を使うことになる
+- 影響評価: 100戦の馬で1レースの増分は着率にして <0.5%。新馬・未勝利では累計値自体が小さく情報量も少ない
+- 本番運用との整合: 推論時も同じETL時点値を使うため、学習時と条件は一致する
+- **結論: 時系列スナップショットが存在しない以上、ETL時点の近似は最善の手。他特徴量との厳格制約との違いを明示的に受け入れる**
+
+### 2.0.2 数学的定義
+
+**race_rank (レース内percentile rank):**
+```
+race_rank = groupby("race_id")[col].rank(pct=True, method="average")
+```
+- 範囲: [0, 1] (0=最下位, 1=最上位)
+- ties: 平均値 (pandas method="average")
+- 欠損値: 元がNaN → race_rankもNaN (計算から除外)
+- 標準化方法: percentile rank (min-maxやz-scoreではない)
+
+**closing_index (追い込み指数):**
+```
+closing_index = normalized_4c_rank - normalized_finish_rank
+```
+ここで `normalized_rank = (position - 1) / (field_size - 1)` (範囲 [0,1], 0=先頭, 1=最後尾)
+- closing_index > 0: 4コーナーよりもゴールで順位を上げた（末脚あり）
+- closing_index < 0: 4コーナーよりもゴールで順位を下げた（失速）
+- closing_index ≈ 0: 4コーナーから順位変わらず
+
+**Beta平滑化パラメータ:**
+- α=1, β=10 のBeta事前分布
+- 根拠: 事前期待勝率 = 1/(1+10) ≈ 9%。これはJRA全体の平均単勝勝率（約7-10%）に概ね整合
+- 5戦10勝→smoothed=11/16=0.69、50戦100勝→smoothed=101/61=1.66(クリップ必要)→実際は(total+α)/(total+α+β)で計算
+- total=0 → NaN (事前分布のみは情報量ゼロとみなす)
+
+### 2.0.3 NaNポリシー
+
+| パターン | 扱い | 理由 |
+|----------|------|------|
+| 過去成績なし (新馬等) | NaNのまま | LightGBMはNaNをネイティブ扱い。欠損自体が情報（初出走） |
+| haron_time_l3 なし | NaN | 全カラムの上り3Fが取得できない場合。LightGBMが処理 |
+| 血統成績 total=0 | NaN | Beta事前分布のみは情報量ゼロ |
+| レース内正規化 1頭のみ | NaN | rank計算不能 (分母=0) |
+| PlaceAbilityModel学習時 | **dropna()前にfillna(-999)で置換** | dropna()が新規特徴量のNaNで行を削除する問題を回避。LightGBMは-999を欠損として扱わないため、NaN専用の分岐パスが必要。→ PlaceAbilityModel.train()のdropna()を `fillna(feature_cols, -999)` に変更するか、dropnaを削除してLightGBMに任せる |
+
+---
+
+## 2.1 改善方針
 
 ### 2.1 コードレビュー指摘への対応
 
@@ -64,10 +122,10 @@ AbilityModel から haron_time 系3列を除外した同一構成。
 
 ### 2.2 Stage分離の再設計
 
-**Stage1 (純粋能力):** 馬そのものの能力のみ。騎手・調教師コンテキストを含めない。
+**Stage1 (条件付き能力評価):** 馬の能力をレース条件（距離・馬場・クラス）で評価するが、**騎手・調教師のコンテキストは含めない**。weight_diff_from_mean, difficulty_score等のレース条件由来特徴量は含む。
 → AbilityModel, PlaceAbilityModel
 
-**Stage2 (コンテキスト補正):** 騎手・調教師・市場情報による補正。
+**Stage2 (コンテキスト補正):** 騎手・調教師・市場情報による補正。Stage1の能力評価に外部コンテキストを乗せる。
 → MarketModel, EVCorrectionModel (既存), + 新規: JockeyContextFeatures, TrainerContextFeatures
 
 ### 2.3 設計決定事項
@@ -155,9 +213,16 @@ LightGBMが自動検出するが、明示的に与えることで少ないツリ
 
 | 特徴量名 | 説明 | 計算方法 |
 |----------|------|----------|
-| kyakusitu_x_distance | 脚質×距離bin | 逃げ×短距離 など (カテゴリ積) |
-| kyakusitu_x_surface | 脚質×馬場 | 逃げ×芝 など (カテゴリ積) |
+| kyakusitu_x_distance | 脚質×距離bin | 文字列結合: "1_sprint" 等 (cat) |
+| kyakusitu_x_surface | 脚質×馬場 | 文字列結合: "1_turf" 等 (cat) |
 | weight_x_distance | 馬体重×距離 | 数値の積 (距離が長いほど体重の影響増) |
+
+**カテゴリ積のエンコーディング定義:**
+- 実装: `df["kyakusitu_x_distance"] = df["kyakusitu_cd"].astype(str) + "_" + df["distance_bin"].astype(str)`
+- LightGBMカテゴリ特徴量として扱う (`astype("category")`)
+- LightGBM内部でoptimal splitting (one-hot / target encoding は自動選択)
+- 表現例: "1_sprint" (逃げ×短距離), "3_mile" (差し×マイル)
+- 水準数: 4脚質 × 4距離bin ≈ 16水準, 4脚質 × 2馬場 = 8水準 (いずれもLightGBMのmax_bin制約内)
 
 ### Group F: レース内正規化 (修正)
 
@@ -180,7 +245,13 @@ LightGBMが自動検出するが、明示的に与えることで少ないツリ
 |----------|------|----------|
 | pace_aptitude | 前傾/後傾ペースでの着順差 | 前傾レース着順 - 後傾レース着順の平均 |
 
-**ペース判定:** レースの上り3Fタイムが距離別中央値より速ければ前傾、遅ければ後傾。データが不足している初期段階ではNaN。
+**ペース判定基準:**
+- 母集団: 距離bin × 馬場(surface) ごとの `expanding().shift(1)` 上り3F中央値 (リーク防止)
+- 前傾レース: 当該レースの上り3Fタイム < 母集団中央値 → ペースが速い
+- 後傾レース: 当該レースの上り3Fタイム > 母集団中央値 → ペースが遅い
+- 中間: |差| < 0.1秒 → 除外 (pace_aptitudeはNaN)
+- データ不足: 母集団 < 30サンプル → NaN
+- Phase 2で実装 (Phase 1ではスキップ)
 
 ---
 
