@@ -25,24 +25,37 @@ class AbilityModel:
     """
 
     FEATURE_COLS: list[str] = [
-        # 既存 (7)
+        # レース条件 (7)
         "surface", "distance_bin", "track_condition_code",
         "grade_code", "field_size",
         "weight_diff_from_mean", "difficulty_score",
-        # Phase 1: 馬の過去成績 (3)
-        "norm_finish_logit_avg", "jockey_surprise", "haron_time_zscore_avg",
-        # Phase 1: レース内z-score (3)
-        "norm_finish_logit_avg_race_z",
-        "jockey_surprise_race_z",
-        "haron_time_zscore_avg_race_z",
-        # Phase 1: レース内pct (3)
-        "norm_finish_logit_avg_race_pct",
-        "jockey_surprise_race_pct",
-        "haron_time_zscore_avg_race_pct",
-        # Phase 2 (4)
-        "jockey_cond_wr",
-        "jockey_cond_wr_race_z",
-        "jockey_cond_wr_race_pct",
+        # 過去成績 (8)
+        "norm_finish_logit_avg",
+        "haron_time_l3_avg",
+        "haron_time_l3_zscore",
+        "time_diff_avg",
+        "corner_1c_avg",
+        "corner_4c_avg",
+        "closing_index_avg",
+        "kyakusitu_cd",
+        # 血統 (6)
+        "blood_surface_wr",
+        "blood_distance_wr",
+        "blood_condition_wr",
+        "blood_total_wr",
+        "blood_prize_log",
+        "blood_keito_cd",
+        # 交互作用 (3)
+        "kyakusitu_x_distance",
+        "kyakusitu_x_surface",
+        "weight_x_distance",
+        # レース内正規化 (5) — race_rank
+        "norm_finish_logit_avg_race_rank",
+        "haron_time_l3_avg_race_rank",
+        "time_diff_avg_race_rank",
+        "corner_1c_avg_race_rank",
+        "closing_index_avg_race_rank",
+        # 馬体 (1)
         "weight_absolute",
     ]
 
@@ -61,7 +74,8 @@ class AbilityModel:
             for col in features.columns:
                 if pd.api.types.is_integer_dtype(features[col]):
                     features[col] = features[col].astype(float)
-            for col in ["surface", "distance_bin", "grade_code"]:
+            for col in ["surface", "distance_bin", "grade_code", "kyakusitu_cd",
+                        "blood_keito_cd", "kyakusitu_x_distance", "kyakusitu_x_surface"]:
                 if col in features.columns:
                     features[col] = features[col].astype("category")
 
@@ -98,7 +112,8 @@ class AbilityModel:
                 continue
 
             features = df.loc[mask, self.FEATURE_COLS].copy()
-            for col in ["surface", "distance_bin", "grade_code"]:
+            for col in ["surface", "distance_bin", "grade_code", "kyakusitu_cd",
+                        "blood_keito_cd", "kyakusitu_x_distance", "kyakusitu_x_surface"]:
                 if col in features.columns:
                     features[col] = features[col].astype("category")
 

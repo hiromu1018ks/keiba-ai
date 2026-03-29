@@ -32,6 +32,7 @@ class FeatureEngine:
         entry_df: pd.DataFrame,
         odds_df: pd.DataFrame,
         odds_ts_df: pd.DataFrame | None = None,
+        repo: object | None = None,
     ) -> pd.DataFrame:
         """バッチ特徴量生成（TrainingPipelineV5 から呼ばれる）
 
@@ -75,6 +76,19 @@ class FeatureEngine:
         from features.race_difficulty_model import compute_difficulty_score
 
         df = compute_difficulty_score(df)
+
+        # Group B: 血統特徴量
+        if repo is not None:
+            from features.bloodline_features import BloodlineFeatures
+
+            bloodline = BloodlineFeatures(repo)
+            bloodline_df = bloodline.compute(df)
+            df = pd.merge(df, bloodline_df, on=["race_id", "umaban"], how="left")
+
+        # Group E: 交互作用特徴量
+        from features.interaction_features import compute_interaction_features
+
+        df = compute_interaction_features(df)
 
         return df
 

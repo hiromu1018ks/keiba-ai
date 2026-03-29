@@ -82,7 +82,7 @@ class TrainingPipelineV5:
 
         # 2. 特徴量生成
         logger.info("Building features")
-        feat_df = self.feature_engine.build_all(race_df, entry_df, odds_df, odds_ts_df=odds_ts_df)
+        feat_df = self.feature_engine.build_all(race_df, entry_df, odds_df, odds_ts_df=odds_ts_df, repo=self.repo)
         feat_df = self.submodel_mgr.add_distance_band_features(feat_df)
 
         # 2b. ワイドオッズを pivot して特徴量に merge

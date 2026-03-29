@@ -23,28 +23,40 @@ class PlaceAbilityModel:
     """
 
     FEATURE_COLS: list[str] = [
-        "surface",
-        "distance_bin",
-        "track_condition_code",
-        "grade_code",
-        "field_size",
-        "weight_diff_from_mean",
-        "difficulty_score",
+        # レース条件 (7)
+        "surface", "distance_bin", "track_condition_code",
+        "grade_code", "field_size",
+        "weight_diff_from_mean", "difficulty_score",
+        # 過去成績 (8)
         "norm_finish_logit_avg",
-        "jockey_surprise",
-        # haron_time_zscore_avg: Phase 1では常にNaNのため除外
-        # "haron_time_zscore_avg",
-        "norm_finish_logit_avg_race_z",
-        "jockey_surprise_race_z",
-        # "haron_time_zscore_avg_race_z",
-        "norm_finish_logit_avg_race_pct",
-        "jockey_surprise_race_pct",
-        # "haron_time_zscore_avg_race_pct",
-        # Phase 2 (4)
-        "jockey_cond_wr",
-        "jockey_cond_wr_race_z",
-        "jockey_cond_wr_race_pct",
+        "haron_time_l3_avg",
+        "haron_time_l3_zscore",
+        "time_diff_avg",
+        "corner_1c_avg",
+        "corner_4c_avg",
+        "closing_index_avg",
+        "kyakusitu_cd",
+        # 血統 (6)
+        "blood_surface_wr",
+        "blood_distance_wr",
+        "blood_condition_wr",
+        "blood_total_wr",
+        "blood_prize_log",
+        "blood_keito_cd",
+        # 交互作用 (3)
+        "kyakusitu_x_distance",
+        "kyakusitu_x_surface",
+        "weight_x_distance",
+        # レース内正規化 (5) — race_rank
+        "norm_finish_logit_avg_race_rank",
+        "haron_time_l3_avg_race_rank",
+        "time_diff_avg_race_rank",
+        "corner_1c_avg_race_rank",
+        "closing_index_avg_race_rank",
+        # 馬体 (1)
         "weight_absolute",
+        # Stage1 output
+        "p_ability_win",
     ]
 
     def __init__(self) -> None:
@@ -56,10 +68,11 @@ class PlaceAbilityModel:
         assert "race_date" in df.columns, "race_date が必要"
         assert "finish_pos" in df.columns, "finish_pos が必要"
 
-        df = df.dropna(subset=self.FEATURE_COLS).copy()
+        df = df.copy()
         y = (df["finish_pos"] <= 3).astype(int)
         X = df[self.FEATURE_COLS].copy()  # noqa: N806
-        for col in ["surface", "distance_bin", "grade_code"]:
+        for col in ["surface", "distance_bin", "grade_code", "kyakusitu_cd",
+                    "blood_keito_cd", "kyakusitu_x_distance", "kyakusitu_x_surface"]:
             if col in X.columns:
                 X[col] = X[col].astype("category")
 
@@ -107,7 +120,8 @@ class PlaceAbilityModel:
         """p_ability_place を設定して df を返す"""
         df = df.copy()
         X = df[self.FEATURE_COLS].copy()  # noqa: N806
-        for col in ["surface", "distance_bin", "grade_code"]:
+        for col in ["surface", "distance_bin", "grade_code", "kyakusitu_cd",
+                    "blood_keito_cd", "kyakusitu_x_distance", "kyakusitu_x_surface"]:
             if col in X.columns:
                 X[col] = X[col].astype("category")
 

@@ -129,15 +129,19 @@ def _make_feature_df(n: int = 5000, n_races: int = 500) -> pd.DataFrame:
     rows = []
     for r in range(n_races):
         race_id = f"2020{r:04d}0101{r:02d}"
+        surface = "turf" if r < n_races // 2 else "dirt"
+        distance = np.random.choice([1200, 1400, 1600, 1800, 2000, 2400])
+        dist_bin = np.random.choice(["sprint", "mile", "intermediate", "long"])
         for h in range(horses_per_race):
+            kyakusitu = np.random.randint(1, 5)
             rows.append(
                 {
                     "race_id": race_id,
                     "umaban": h + 1,
-                    "surface": "turf" if r < n_races // 2 else "dirt",
-                    "surface_key": "turf" if r < n_races // 2 else "dirt",
-                    "distance": np.random.choice([1200, 1400, 1600, 1800, 2000, 2400]),
-                    "distance_bin": np.random.choice(["sprint", "mile", "intermediate", "long"]),
+                    "surface": surface,
+                    "surface_key": surface,
+                    "distance": distance,
+                    "distance_bin": dist_bin,
                     "track_condition_code": np.random.randint(1, 4),
                     "grade_code": np.random.choice(["A", "B", "C", "D", "E"]),
                     "field_size": horses_per_race,
@@ -152,22 +156,33 @@ def _make_feature_df(n: int = 5000, n_races: int = 500) -> pd.DataFrame:
                     "overround": np.random.uniform(0.15, 0.30),
                     "weight_diff_from_mean": np.random.uniform(-10, 10),
                     "difficulty_score": np.random.uniform(0, 1),
-                    # Phase 1: 馬の過去成績
+                    # 過去成績 (8)
                     "norm_finish_logit_avg": np.random.uniform(-2, 2),
-                    "jockey_surprise": np.random.uniform(-1, 1),
-                    "haron_time_zscore_avg": np.random.uniform(-3, 3),
-                    # Phase 1: レース内z-score
-                    "norm_finish_logit_avg_race_z": np.random.uniform(-2, 2),
-                    "jockey_surprise_race_z": np.random.uniform(-2, 2),
-                    "haron_time_zscore_avg_race_z": np.random.uniform(-2, 2),
-                    # Phase 1: レース内pct
-                    "norm_finish_logit_avg_race_pct": np.random.uniform(0, 1),
-                    "jockey_surprise_race_pct": np.random.uniform(0, 1),
-                    "haron_time_zscore_avg_race_pct": np.random.uniform(0, 1),
-                    # Phase 2 (4)
-                    "jockey_cond_wr": np.random.uniform(0, 0.3),
-                    "jockey_cond_wr_race_z": np.random.uniform(-2, 2),
-                    "jockey_cond_wr_race_pct": np.random.uniform(0, 1),
+                    "haron_time_l3_avg": np.random.uniform(-3, 3),
+                    "haron_time_l3_zscore": np.random.uniform(-2, 2),
+                    "time_diff_avg": np.random.uniform(-1, 1),
+                    "corner_1c_avg": np.random.uniform(1, 10),
+                    "corner_4c_avg": np.random.uniform(1, 10),
+                    "closing_index_avg": np.random.uniform(-0.5, 0.5),
+                    "kyakusitu_cd": kyakusitu,
+                    # 血統 (6)
+                    "blood_surface_wr": np.random.uniform(0.05, 0.2),
+                    "blood_distance_wr": np.random.uniform(0.05, 0.2),
+                    "blood_condition_wr": float("nan"),
+                    "blood_total_wr": np.random.uniform(0.05, 0.2),
+                    "blood_prize_log": np.random.uniform(10, 15),
+                    "blood_keito_cd": float("nan"),
+                    # 交互作用 (3)
+                    "kyakusitu_x_distance": f"{kyakusitu}_{dist_bin}",
+                    "kyakusitu_x_surface": f"{kyakusitu}_{surface}",
+                    "weight_x_distance": np.random.uniform(640000, 880000),
+                    # レース内正規化 (5) — race_rank
+                    "norm_finish_logit_avg_race_rank": np.random.uniform(0, 1),
+                    "haron_time_l3_avg_race_rank": np.random.uniform(0, 1),
+                    "time_diff_avg_race_rank": np.random.uniform(0, 1),
+                    "corner_1c_avg_race_rank": np.random.uniform(0, 1),
+                    "closing_index_avg_race_rank": np.random.uniform(0, 1),
+                    # 馬体 (1)
                     "weight_absolute": np.random.uniform(400, 550),
                     "odds_change_rate_30min": np.random.normal(0, 0.1),
                     "odds_volatility_60min": np.random.uniform(0, 0.5),

@@ -25,22 +25,35 @@ def train_df() -> pd.DataFrame:
             "field_size": [4] * 8,
             "weight_diff_from_mean": [0.0, -2.0, 1.0, 5.0, -1.0, 0.0, 2.0, -3.0],
             "difficulty_score": [0.5] * 8,
-            # Phase 1: 馬の過去成績
+            # 過去成績 (8)
             "norm_finish_logit_avg": rng.uniform(-2, 2, 8),
-            "jockey_surprise": rng.uniform(-1, 1, 8),
-            "haron_time_zscore_avg": rng.uniform(-3, 3, 8),
-            # Phase 1: レース内z-score
-            "norm_finish_logit_avg_race_z": rng.uniform(-2, 2, 8),
-            "jockey_surprise_race_z": rng.uniform(-2, 2, 8),
-            "haron_time_zscore_avg_race_z": rng.uniform(-2, 2, 8),
-            # Phase 1: レース内pct
-            "norm_finish_logit_avg_race_pct": rng.uniform(0, 1, 8),
-            "jockey_surprise_race_pct": rng.uniform(0, 1, 8),
-            "haron_time_zscore_avg_race_pct": rng.uniform(0, 1, 8),
-            # Phase 2 (4)
-            "jockey_cond_wr": rng.uniform(0, 0.3, 8),
-            "jockey_cond_wr_race_z": rng.uniform(-2, 2, 8),
-            "jockey_cond_wr_race_pct": rng.uniform(0, 1, 8),
+            "haron_time_l3_avg": rng.uniform(-3, 3, 8),
+            "haron_time_l3_zscore": rng.uniform(-2, 2, 8),
+            "time_diff_avg": rng.uniform(-1, 1, 8),
+            "corner_1c_avg": rng.uniform(1, 10, 8),
+            "corner_4c_avg": rng.uniform(1, 10, 8),
+            "closing_index_avg": rng.uniform(-0.5, 0.5, 8),
+            "kyakusitu_cd": [1, 2, 3, 4, 1, 2, 3, 4],
+            # 血統 (6)
+            "blood_surface_wr": rng.uniform(0.05, 0.2, 8),
+            "blood_distance_wr": rng.uniform(0.05, 0.2, 8),
+            "blood_condition_wr": [float("nan")] * 8,
+            "blood_total_wr": rng.uniform(0.05, 0.2, 8),
+            "blood_prize_log": rng.uniform(10, 15, 8),
+            "blood_keito_cd": [float("nan")] * 8,
+            # 交互作用 (3)
+            "kyakusitu_x_distance": ["1_mile", "2_mile", "3_mile", "4_mile",
+                                      "1_sprint", "2_sprint", "3_sprint", "4_sprint"],
+            "kyakusitu_x_surface": ["1_turf", "2_turf", "3_turf", "4_turf",
+                                     "1_dirt", "2_dirt", "3_dirt", "4_dirt"],
+            "weight_x_distance": rng.uniform(640000, 880000, 8),
+            # レース内正規化 (5) — race_rank
+            "norm_finish_logit_avg_race_rank": rng.uniform(0, 1, 8),
+            "haron_time_l3_avg_race_rank": rng.uniform(0, 1, 8),
+            "time_diff_avg_race_rank": rng.uniform(0, 1, 8),
+            "corner_1c_avg_race_rank": rng.uniform(0, 1, 8),
+            "closing_index_avg_race_rank": rng.uniform(0, 1, 8),
+            # 馬体 (1)
             "weight_absolute": rng.uniform(400, 550, 8),
             "distance": [1600] * 4 + [1200] * 4,
             "finish_pos": [1, 2, 3, 4, 1, 3, 2, 4],
