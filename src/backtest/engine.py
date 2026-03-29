@@ -151,7 +151,9 @@ class BacktestEngine:
 
             # 4c. HorseHistoryFeatures (事前計算済みからマージ)
             hist_df_race = hist_df_all[hist_df_all["race_id"] == race_id]
-            race_df_single = race_df_single.merge(hist_df_race, on=["race_id", "umaban"], how="left")
+            race_df_single = race_df_single.merge(
+                hist_df_race, on=["race_id", "umaban"], how="left"
+            )
             race_df_single = HorseHistoryFeatures.add_race_transforms(race_df_single)
 
             # Group E: 交互作用特徴量 (HorseHistoryFeatures 後に実行 — kyakusitu_cd が必要)
