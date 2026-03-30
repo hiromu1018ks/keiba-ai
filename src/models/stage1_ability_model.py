@@ -142,6 +142,9 @@ class AbilityModel:
         最後に全データで最終モデルを学習し、推論に備える。
         """
         df = df.copy()
+        # race_date が文字列の場合に datetime に変換
+        if df["race_date"].dtype == object:
+            df["race_date"] = pd.to_datetime(df["race_date"])
         df = df.sort_values("race_date").reset_index(drop=True)
         oof_preds = pd.Series(np.nan, index=df.index, dtype=np.float64)
 

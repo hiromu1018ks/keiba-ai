@@ -122,7 +122,7 @@ class TestTrainedModelsV5:
         assert models.submodels["dirt"].win == "w_dirt"
 
 
-def _make_feature_df(n: int = 5000, n_races: int = 500) -> pd.DataFrame:
+def _make_feature_df(n: int = 8000, n_races: int = 800) -> pd.DataFrame:
     """テスト用特徴量DataFrameを生成 (モデル学習に必要な全列を含む)"""
     np.random.seed(42)
     horses_per_race = n // n_races
@@ -196,7 +196,7 @@ def _make_feature_df(n: int = 5000, n_races: int = 500) -> pd.DataFrame:
                     "odds_velocity": np.random.normal(0, 0.02),
                     "odds_volatility": np.random.uniform(0, 0.3),
                     "popularity_change_30_10": np.random.normal(0, 1),
-                    "race_date": f"2020-01-{(r % 28 + 1):02d}",
+                    "race_date": f"2020-{(r // 28) % 12 + 1:02d}-{(r % 28) + 1:02d}",
                 }
             )
     return pd.DataFrame(rows)
@@ -213,7 +213,7 @@ class TestTrainingPipelineV5:
         """run() が TrainedModelsV5 を返す"""
         mock_repo = _make_mock_repo()
 
-        feat_df = _make_feature_df(5000, 500)
+        feat_df = _make_feature_df(8000, 800)
         with patch.object(FeatureEngine, "build_all", return_value=feat_df):
             with patch.object(
                 SubModelManager,
@@ -247,11 +247,11 @@ class TestTrainingPipelineV5:
         mock_mlflow: MagicMock,
     ) -> None:
         """芝・ダートそれぞれでサブモデルが学習される"""
-        feat_df = _make_feature_df(5000, 500)
-        feat_df.loc[:2500, "surface_key"] = "turf"
-        feat_df.loc[2500:, "surface_key"] = "dirt"
-        feat_df.loc[:2500, "surface"] = "turf"
-        feat_df.loc[2500:, "surface"] = "dirt"
+        feat_df = _make_feature_df(8000, 800)
+        feat_df.loc[:4000, "surface_key"] = "turf"
+        feat_df.loc[4000:, "surface_key"] = "dirt"
+        feat_df.loc[:4000, "surface"] = "turf"
+        feat_df.loc[4000:, "surface"] = "dirt"
 
         mock_repo = _make_mock_repo()
 
@@ -287,7 +287,7 @@ class TestTrainingPipelineV5:
         """MLflow にモデルが記録される"""
         mock_repo = _make_mock_repo()
 
-        feat_df = _make_feature_df(5000, 500)
+        feat_df = _make_feature_df(8000, 800)
         with patch.object(FeatureEngine, "build_all", return_value=feat_df):
             with patch.object(
                 SubModelManager,

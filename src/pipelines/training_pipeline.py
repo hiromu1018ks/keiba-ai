@@ -204,49 +204,50 @@ class TrainingPipelineV5:
             if pd.api.types.is_integer_dtype(df[col]):
                 df[col] = df[col].astype(float)
 
-        # 2. Stage1 (オッズなし・能力推定)
+        # 2. Stage1: OOF predictions (リーク防止)
         stage1 = AbilityModel()
-        stage1.train(df)
-        df = stage1.add_ability_probs(df)
+        df = stage1.train_oof(df, n_folds=3)
+        oof_mask = df["p_ability_win"].notna()
+        df_oof = df[oof_mask].copy()
 
         # NEW: PlaceAbilityModel
         from models.place_ability_model import PlaceAbilityModel
 
         place_ability = PlaceAbilityModel()
-        place_ability.train(df)
-        df = place_ability.predict(df)
+        place_ability.train(df_oof)
+        df_oof = place_ability.predict(df_oof)
 
         # 3. 単勝 2段階モデル
         win_2s = WinTwoStageModel()
-        win_2s.train_hit_model(df)
-        win_2s.train_return_model(df)
-        df = win_2s.predict_ev(df)
+        win_2s.train_hit_model(df_oof)
+        win_2s.train_return_model(df_oof)
+        df_oof = win_2s.predict_ev(df_oof)
 
         # Group C/D: 騎手/調教師コンテキスト (Stage2)
         from features.jockey_context_features import JockeyContextFeatures
         from features.trainer_context_features import TrainerContextFeatures
 
         jockey_ctx = JockeyContextFeatures(self.repo)
-        jockey_df = jockey_ctx.compute(df)
-        df = pd.merge(df, jockey_df, on=["race_id", "umaban"], how="left")
+        jockey_df = jockey_ctx.compute(df_oof)
+        df_oof = pd.merge(df_oof, jockey_df, on=["race_id", "umaban"], how="left")
 
         trainer_ctx = TrainerContextFeatures(self.repo)
-        trainer_df = trainer_ctx.compute(df)
-        df = pd.merge(df, trainer_df, on=["race_id", "umaban"], how="left")
+        trainer_df = trainer_ctx.compute(df_oof)
+        df_oof = pd.merge(df_oof, trainer_df, on=["race_id", "umaban"], how="left")
 
         # 4. EV補正モデル (P/E分解)
         ev_corrector = EVCorrectionModel()
-        ev_corrector.train(df)
-        df = ev_corrector.correct_ev(df)
+        ev_corrector.train(df_oof)
+        df_oof = ev_corrector.correct_ev(df_oof)
 
         # 5. 複勝 2段階モデル
         place_2s = PlaceTwoStageModel()
-        place_2s.train_hit_model(df)
-        place_2s.train_return_model(df)
-        df = place_2s.predict_ev(df)
+        place_2s.train_hit_model(df_oof)
+        place_2s.train_return_model(df_oof)
+        df_oof = place_2s.predict_ev(df_oof)
 
         # 6. ワイド 2段階モデル
-        pair_df = WideJointPairBuilder().build(df)
+        pair_df = WideJointPairBuilder().build(df_oof)
         wide_2s = WideTwoStageModel()
         if len(pair_df) > 0:
             wide_2s.train_hit_model(pair_df)
@@ -254,14 +255,15 @@ class TrainingPipelineV5:
 
         # 7. 信頼区間キャリブレーション
         conf = RobustConfidenceEstimator()
-        win_calib_df = df.copy()
-        win_calib_df["actual_ev_win"] = df["win_odds_actual"] * (df["finish_pos"] == 1).astype(int)
-        place_calib_df = df.copy()
-        place_calib_df["actual_ev_place"] = df["place_odds_actual"] * (
-            df["finish_pos"] <= 3
-        ).astype(int)
-        # ev_place_corrected は複勝EV補正モデルがないため ev_place を代用
-        place_calib_df["ev_place_corrected"] = df["ev_place"]
+        win_calib_df = df_oof.copy()
+        win_calib_df["actual_ev_win"] = (
+            df_oof["win_odds_actual"] * (df_oof["finish_pos"] == 1).astype(int)
+        )
+        place_calib_df = df_oof.copy()
+        place_calib_df["actual_ev_place"] = (
+            df_oof["place_odds_actual"] * (df_oof["finish_pos"] <= 3).astype(int)
+        )
+        place_calib_df["ev_place_corrected"] = df_oof["ev_place"]
         conf.calibrate(win_calib_df, place_calib_df)
 
         return SubmodelSet(
