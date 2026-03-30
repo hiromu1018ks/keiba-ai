@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>バックテストレポート</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="stylesheet" href="https://cdn.datatables.net/1.13.7/css/jquery.dataTables.min.css">
+    <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+    <script src="https://cdn.datatables.net/1.13.7/js/jquery.dataTables.min.js"></script>
+    <style>
+        :root {
+            --primary: #2563eb;
+            --success: #16a34a;
+            --danger: #dc2626;
+            --bg: #f8fafc;
+            --card-bg: #ffffff;
+            --text: #1e293b;
+            --text-muted: #64748b;
+            --border: #e2e8f0;
+        }
+        * { box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: var(--bg); color: var(--text);
+            margin: 0; padding: 20px;
+        }
+        .container { max-width: 1200px; margin: 0 auto; }
+        h1 { text-align: center; margin-bottom: 5px; font-size: 1.8em; }
+        .subtitle { text-align: center; color: var(--text-muted); margin-bottom: 30px; }
+        .meta {
+            display: flex; justify-content: space-between; flex-wrap: wrap; gap: 10px;
+            margin-bottom: 20px; font-size: 13px; color: var(--text-muted);
+        }
+        .section {
+            background: var(--card-bg); border-radius: 8px; padding: 20px;
+            margin-bottom: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        .section h2 {
+            margin-top: 0; border-bottom: 2px solid var(--primary); padding-bottom: 10px;
+            font-size: 1.3em;
+        }
+        .section h3 { font-size: 1.1em; margin-top: 20px; margin-bottom: 10px; }
+        .kpi-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 15px;
+        }
+        .kpi-card {
+            background: var(--bg); border-radius: 8px; padding: 15px; text-align: center;
+        }
+        .kpi-label {
+            font-size: 12px; color: var(--text-muted);
+            text-transform: uppercase; letter-spacing: 1px;
+        }
+        .kpi-value { font-size: 28px; font-weight: 700; margin-top: 5px; }
+        .kpi-value.positive { color: var(--success); }
+        .kpi-value.negative { color: var(--danger); }
+        .chart-container { position: relative; height: 300px; }
+        .charts-row { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+        @media (max-width: 768px) { .charts-row { grid-template-columns: 1fr; } }
+        .heatmap-positive { background-color: #dcfce7; }
+        .heatmap-negative { background-color: #fee2e2; }
+        .win-row { background-color: #f0fdf4 !important; }
+        .footer {
+            text-align: center; color: var(--text-muted);
+            font-size: 12px; margin-top: 30px;
+        }
+        .no-data { color: var(--text-muted); font-style: italic; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>バックテストレポート</h1>
+    <p class="subtitle">{{ summary.test_period or "テスト期間未設定" }}</p>
+
+    <div class="meta">
+        <span>学習期間: {{ summary.train_period or "-" }}</span>
+        <span>生成日時: {{ summary.generated_at }}</span>
+    </div>
+
+    <!-- Section 1: KPI Cards -->
+    <div class="section">
+        <h2>サマリー</h2>
+        <div class="kpi-grid">
+            <div class="kpi-card">
+                <div class="kpi-label">ROI</div>
+                <div class="kpi-value {{ 'positive' if summary.roi >= 1 else 'negative' }}">
+                    {{ "%.1f%%"|format(summary.roi * 100) }}
+                </div>
+            </div>
+            <div class="kpi-card">
+                <div class="kpi-label">的中率</div>
+                <div class="kpi-value">{{ "%.1f%%"|format(summary.win_rate * 100) }}</div>
+            </div>
+            <div class="kpi-card">
+                <div class="kpi-label">総利益</div>
+                <div class="kpi-value {{ 'positive' if summary.profit >= 0 else 'negative' }}">
+                    &yen;{{ "{:,.0f}"|format(summary.profit) }}
+                </div>
+            </div>
+            <div class="kpi-card">
+                <div class="kpi-label">最大DD</div>
+                <div class="kpi-value negative">{{ "%.1f%%"|format(summary.max_dd * 100) }}</div>
+            </div>
+            <div class="kpi-card">
+                <div class="kpi-label">最終資金</div>
+                <div class="kpi-value">&yen;{{ "{:,.0f}"|format(summary.final_bankroll) }}</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Section 2: Bankroll Chart -->
+    <div class="section">
+        <h2>資金推移</h2>
+        {% if bankroll_series %}
+        <div class="chart-container">
+            <canvas id="bankroll-chart"></canvas>
+        </div>
+        {% else %}
+        <p class="no-data">データなし</p>
+        {% endif %}
+    </div>
+
+    <!-- Section 3: Monthly Dashboard -->
+    <div class="section">
+        <h2>月次ダッシュボード</h2>
+        {% if monthly_stats %}
+        <div class="charts-row">
+            <div class="chart-container"><canvas id="monthly-roi-chart"></canvas></div>
+            <div class="chart-container"><canvas id="monthly-bets-chart"></canvas></div>
+        </div>
+        <table class="display" style="width:100%; margin-top: 20px;">
+            <thead>
+                <tr>
+                    <th>月</th><th>ベット数</th><th>的中</th><th>的中率</th>
+                    <th>投資額</th><th>払戻額</th><th>ROI</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for m in monthly_stats %}
+                <tr>
+                    <td>{{ m.month }}</td>
+                    <td>{{ m.bets }}</td>
+                    <td>{{ m.wins }}</td>
+                    <td>{{ "%.1f%%"|format(m.win_rate * 100) }}</td>
+                    <td>&yen;{{ "{:,.0f}"|format(m.stake) }}</td>
+                    <td>&yen;{{ "{:,.0f}"|format(m.total_return) }}</td>
+                    <td style="color: {{ 'green' if m.roi >= 1 else 'red' }}">
+                        {{ "%.1f%%"|format(m.roi * 100) }}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p class="no-data">データなし</p>
+        {% endif %}
+    </div>
+
+    <!-- Section 4: Condition Analysis -->
+    <div class="section">
+        <h2>条件分析</h2>
+        {% if condition_stats.surface_distance %}
+        <h3>路面 x 距離帯</h3>
+        <table class="display" style="width:100%; margin-bottom: 20px;">
+            <thead>
+                <tr><th>路面</th><th>距離帯</th><th>ベット数</th><th>的中率</th><th>ROI</th></tr>
+            </thead>
+            <tbody>
+                {% for row in condition_stats.surface_distance %}
+                <tr class="{{ 'heatmap-positive' if row.roi >= 1 else 'heatmap-negative' }}">
+                    <td>{{ "芝" if row.surface == "turf" else "ダート" }}</td>
+                    <td>{{ row.distance_band }}</td>
+                    <td>{{ row.bets }}</td>
+                    <td>{{ "%.1f%%"|format(row.win_rate * 100) }}</td>
+                    <td>{{ "%.1f%%"|format(row.roi * 100) }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% endif %}
+
+        {% if condition_stats.popularity_bands or condition_stats.ev_bands %}
+        <div class="charts-row">
+            {% if condition_stats.popularity_bands %}
+            <div>
+                <h3>人気帯</h3>
+                <table class="display" style="width:100%;">
+                    <thead>
+                        <tr><th>人気帯</th><th>ベット数</th><th>的中率</th><th>平均払戻</th><th>ROI</th></tr>
+                    </thead>
+                    <tbody>
+                        {% for row in condition_stats.popularity_bands %}
+                        <tr class="{{ 'heatmap-positive' if row.roi >= 1 else 'heatmap-negative' }}">
+                            <td>{{ row.band }}</td><td>{{ row.bets }}</td>
+                            <td>{{ "%.1f%%"|format(row.win_rate * 100) }}</td>
+                            <td>&yen;{{ "{:,.0f}"|format(row.avg_payout) }}</td>
+                            <td>{{ "%.1f%%"|format(row.roi * 100) }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% endif %}
+            {% if condition_stats.ev_bands %}
+            <div>
+                <h3>EV帯</h3>
+                <table class="display" style="width:100%;">
+                    <thead>
+                        <tr><th>EV帯</th><th>ベット数</th><th>的中率</th><th>平均払戻</th><th>ROI</th></tr>
+                    </thead>
+                    <tbody>
+                        {% for row in condition_stats.ev_bands %}
+                        <tr class="{{ 'heatmap-positive' if row.roi >= 1 else 'heatmap-negative' }}">
+                            <td>{{ row.band }}</td><td>{{ row.bets }}</td>
+                            <td>{{ "%.1f%%"|format(row.win_rate * 100) }}</td>
+                            <td>&yen;{{ "{:,.0f}"|format(row.avg_payout) }}</td>
+                            <td>{{ "%.1f%%"|format(row.roi * 100) }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% endif %}
+        </div>
+        {% else %}
+        <p class="no-data">データなし</p>
+        {% endif %}
+    </div>
+
+    <!-- Section 5: Bet Detail Table -->
+    <div class="section">
+        <h2>ベット明細</h2>
+        {% if bet_details %}
+        <table id="bet-table" class="display" style="width:100%;">
+            <thead>
+                <tr>
+                    <th>日付</th><th>race_id</th><th>馬番</th><th>路面</th>
+                    <th>距離</th><th>人気</th><th>EV</th><th>オッズ</th>
+                    <th>ベット額</th><th>払戻</th><th>利益</th><th>結果</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for bet in bet_details %}
+                <tr class="{{ 'win-row' if bet.is_win }}">
+                    <td>{{ bet.race_date }}</td>
+                    <td>{{ bet.race_id }}</td>
+                    <td>{{ bet.umaban }}</td>
+                    <td>{{ "芝" if bet.surface == "turf" else "ダート" }}</td>
+                    <td>{{ bet.distance }}</td>
+                    <td>{{ bet.popularity }}</td>
+                    <td>{{ "%.2f"|format(bet.ev) }}</td>
+                    <td>{{ "%.1f"|format(bet.odds) }}</td>
+                    <td>&yen;{{ "{:,.0f}"|format(bet.stake) }}</td>
+                    <td>&yen;{{ "{:,.0f}"|format(bet.result) }}</td>
+                    <td style="color: {{ 'green' if bet.profit > 0 else 'red' }}">
+                        &yen;{{ "{:,.0f}"|format(bet.profit) }}
+                    </td>
+                    <td>{{ "的中" if bet.is_win else "外れ" }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p class="no-data">データなし</p>
+        {% endif %}
+    </div>
+
+    <div class="footer">
+        <p>Generated by keiba-ai backtest report generator</p>
+        <p>{{ footer_info }}</p>
+    </div>
+</div>
+
+<script>
+// --- Bankroll Chart ---
+{% if bankroll_series %}
+(function() {
+    const data = {{ bankroll_series | tojson }};
+    new Chart(document.getElementById('bankroll-chart').getContext('2d'), {
+        type: 'line',
+        data: {
+            labels: data.map(d => d.date),
+            datasets: [{
+                label: '資金 (¥)',
+                data: data.map(d => d.bankroll),
+                borderColor: '#2563eb',
+                backgroundColor: 'rgba(37, 99, 235, 0.1)',
+                fill: true, tension: 0.1, pointRadius: 0,
+            }, {
+                label: 'DD (%)',
+                data: data.map(d => -(d.drawdown * 100)),
+                borderColor: '#dc2626',
+                backgroundColor: 'rgba(220, 38, 38, 0.1)',
+                fill: true, tension: 0.1, pointRadius: 0,
+                yAxisID: 'y1',
+            }]
+        },
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            interaction: { mode: 'index', intersect: false },
+            scales: {
+                y: { title: { display: true, text: '資金 (¥)' } },
+                y1: { position: 'right', title: { display: true, text: 'DD (%)' },
+                      grid: { drawOnChartArea: false } },
+            },
+        },
+    });
+})();
+{% endif %}
+
+// --- Monthly Charts ---
+{% if monthly_stats %}
+(function() {
+    const data = {{ monthly_stats | tojson }};
+    new Chart(document.getElementById('monthly-roi-chart').getContext('2d'), {
+        type: 'bar',
+        data: {
+            labels: data.map(d => d.month),
+            datasets: [{
+                label: 'ROI (%)',
+                data: data.map(d => (d.roi - 1) * 100),
+                backgroundColor: data.map(d => d.roi >= 1 ? '#16a34a' : '#dc2626'),
+            }]
+        },
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            scales: { y: { title: { display: true, text: 'ROI (%)' } } },
+        },
+    });
+    new Chart(document.getElementById('monthly-bets-chart').getContext('2d'), {
+        type: 'bar',
+        data: {
+            labels: data.map(d => d.month),
+            datasets: [{
+                label: 'ベット数',
+                data: data.map(d => d.bets),
+                backgroundColor: '#2563eb',
+            }]
+        },
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            scales: { y: { title: { display: true, text: 'ベット数' } } },
+        },
+    });
+})();
+{% endif %}
+
+// --- DataTables ---
+$(document).ready(function() {
+    {% if bet_details %}
+    $('#bet-table').DataTable({
+        pageLength: 25,
+        order: [[0, 'desc']],
+        language: { url: '//cdn.datatables.net/plug-ins/1.13.7/i18n/ja.json' }
+    });
+    {% endif %}
+    $('.section table.display').not('#bet-table').DataTable({
+        paging: false, searching: false, info: false,
+        language: { url: '//cdn.datatables.net/plug-ins/1.13.7/i18n/ja.json' }
+    });
+});
+</script>
+</body>
+</html>
