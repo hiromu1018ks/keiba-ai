@@ -367,36 +367,9 @@ git commit -m "feat: AbilityModel.train_oof() を追加 (K-fold expanding window
 **Files:**
 - Modify: `src/pipelines/training_pipeline.py:208-265`
 
-現在の `_train_submodel()` 内の該当箇所（lines 208-265）:
-
-```python
-# 現在 (lines 208-210):
-submodel.stage1.train(df)
-df = submodel.stage1.add_ability_probs(df)
-
-# lines 213-217:
-submodel.place_ability.train(df)
-df = submodel.place_ability.predict(df)
-
-# lines 220-223:
-submodel.win.train_hit_model(df)
-submodel.win.train_return_model(df)
-df = submodel.win.predict_ev(df)
-
-# lines 226-235: Jockey/Trainer context (df使用)
-
-# lines 238-240:
-submodel.ev_corrector.train(df)
-df = submodel.ev_corrector.correct_ev(df)
-
-# lines 243-246:
-submodel.place.train_hit_model(df)
-submodel.place.train_return_model(df)
-df = submodel.place.predict_ev(df)
-
-# lines 249-253: Wide model (df使用)
-# lines 256-265: Confidence calibration (df使用)
-```
+> **注意:** `_train_submodel()` の冒頭部分（lines 174-206: HorseHistoryFeatures,
+> compute_interaction_features, MarketModel）は `df` をそのまま使用し、
+> **変更しない**。OOFマスクは Stage1 以降の下流モデルのみに適用する。
 
 - [ ] **Step 1: Stage1 を train_oof に変更し、OOFマスクを作成**
 
@@ -430,15 +403,16 @@ Lines 220-223:
 
 - [ ] **Step 4: Jockey/Trainer context を df_oof に変更**
 
-Lines 226-235:
+Lines 226-235。`compute()` は `entry_df` のみを受け取る（`target_race_ids` 引数なし）:
 
 ```python
-        jockey_df = JockeyContextFeatures(self.repo).compute(
-            df_oof, target_race_ids=None
-        )
-        trainer_df = TrainerContextFeatures(self.repo).compute(
-            df_oof, target_race_ids=None
-        )
+        jockey_ctx = JockeyContextFeatures(self.repo)
+        jockey_df = jockey_ctx.compute(df_oof)
+        df_oof = pd.merge(df_oof, jockey_df, on=["race_id", "umaban"], how="left")
+
+        trainer_ctx = TrainerContextFeatures(self.repo)
+        trainer_df = trainer_ctx.compute(df_oof)
+        df_oof = pd.merge(df_oof, trainer_df, on=["race_id", "umaban"], how="left")
 ```
 
 - [ ] **Step 5: EVCorrectionModel を df_oof に変更**
@@ -462,7 +436,29 @@ Lines 243-246:
 
 - [ ] **Step 7: WideTwoStageModel と Confidence を df_oof に変更**
 
-Lines 249-265: 同様に `df` を `df_oof` に置換。
+Lines 249-265。`df` → `df_oof` の具体的な置換:
+
+```python
+        # WideTwoStageModel
+        pair_df = WideJointPairBuilder().build(df_oof)
+        wide_2s = WideTwoStageModel()
+        if len(pair_df) > 0:
+            wide_2s.train_hit_model(pair_df)
+            wide_2s.train_return_model(pair_df)
+
+        # RobustConfidenceEstimator
+        conf = RobustConfidenceEstimator()
+        win_calib_df = df_oof.copy()
+        win_calib_df["actual_ev_win"] = (
+            df_oof["win_odds_actual"] * (df_oof["finish_pos"] == 1).astype(int)
+        )
+        place_calib_df = df_oof.copy()
+        place_calib_df["actual_ev_place"] = (
+            df_oof["place_odds_actual"] * (df_oof["finish_pos"] <= 3).astype(int)
+        )
+        place_calib_df["ev_place_corrected"] = df_oof["ev_place"]
+        conf.calibrate(win_calib_df, place_calib_df)
+```
 
 - [ ] **Step 8: テストを実行**
 
