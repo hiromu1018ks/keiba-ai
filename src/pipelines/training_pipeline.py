@@ -7,9 +7,12 @@ MLflow に実験を記録。
 from __future__ import annotations
 
 import logging
+import os
+import tempfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import TYPE_CHECKING
 
+import joblib
 import mlflow
 import pandas as pd
 
@@ -84,7 +87,9 @@ class TrainingPipelineV5:
 
         # 2. 特徴量生成
         logger.info("Building features")
-        feat_df = self.feature_engine.build_all(race_df, entry_df, odds_df, odds_ts_df=odds_ts_df, repo=self.repo)
+        feat_df = self.feature_engine.build_all(
+            race_df, entry_df, odds_df, odds_ts_df=odds_ts_df, repo=self.repo
+        )
         feat_df = self.submodel_mgr.add_distance_band_features(feat_df)
 
         # 2b. ワイドオッズを pivot して特徴量に merge
@@ -162,7 +167,7 @@ class TrainingPipelineV5:
         logger.info("Trained RegimeDetector")
 
         # 7. MLflow 記録
-        self._log_to_mlflow(models, quality_screen, regime_det, train_end)
+        self._log_to_mlflow(models, quality_screen, regime_det, train_start, train_end)
 
         return TrainedModelsV5(
             submodels=models,
@@ -256,13 +261,13 @@ class TrainingPipelineV5:
         # 7. 信頼区間キャリブレーション
         conf = RobustConfidenceEstimator()
         win_calib_df = df_oof.copy()
-        win_calib_df["actual_ev_win"] = (
-            df_oof["win_odds_actual"] * (df_oof["finish_pos"] == 1).astype(int)
-        )
+        win_calib_df["actual_ev_win"] = df_oof["win_odds_actual"] * (
+            df_oof["finish_pos"] == 1
+        ).astype(int)
         place_calib_df = df_oof.copy()
-        place_calib_df["actual_ev_place"] = (
-            df_oof["place_odds_actual"] * (df_oof["finish_pos"] <= 3).astype(int)
-        )
+        place_calib_df["actual_ev_place"] = df_oof["place_odds_actual"] * (
+            df_oof["finish_pos"] <= 3
+        ).astype(int)
         place_calib_df["ev_place_corrected"] = df_oof["ev_place"]
         conf.calibrate(win_calib_df, place_calib_df)
 
@@ -419,25 +424,75 @@ class TrainingPipelineV5:
         models: dict[str, SubmodelSet],
         quality_screen: RaceQualityScreener,
         regime_det: RegimeDetector,
+        train_start: str,
         train_end: str,
     ) -> None:
-        """MLflow にモデルとメトリクスを記録"""
-        with mlflow.start_run(run_name=f"v5.4_{train_end}"):
+        """MLflow に全モデルとメトリクスを記録 (Paper Trading対応)"""
+        with mlflow.start_run(run_name=f"v5.5_{train_end}"):
             for surface, sub in models.items():
+                # Stage1 (AbilityModel per surface)
                 stage1_model = sub.stage1.models.get(surface)
                 if stage1_model is not None:
                     mlflow.lightgbm.log_model(stage1_model, f"stage1_{surface}")
+
+                # MarketModel
+                mlflow.lightgbm.log_model(sub.market.model, f"market_{surface}")
+
+                # WinTwoStageModel
                 mlflow.lightgbm.log_model(sub.win.hit_model, f"win_hit_{surface}")
                 mlflow.lightgbm.log_model(sub.win.return_model, f"win_ret_{surface}")
+
+                # EVCorrectionModel
                 mlflow.lightgbm.log_model(
                     sub.ev_corrector.p_correction_model, f"ev_corrector_p_{surface}"
                 )
                 mlflow.lightgbm.log_model(
                     sub.ev_corrector.e_correction_model, f"ev_corrector_e_{surface}"
                 )
+
+                # PlaceTwoStageModel
                 mlflow.lightgbm.log_model(sub.place.hit_model, f"place_hit_{surface}")
                 mlflow.lightgbm.log_model(sub.place.return_model, f"place_ret_{surface}")
+
+                # PlaceAbilityModel (sklearn CalibratedClassifierCV → joblib)
+                calibrated = sub.place_ability._calibrated or sub.place_ability._model
+                if calibrated is not None:
+                    _tmp_path: str | None = None
+                    try:
+                        with tempfile.NamedTemporaryFile(suffix=".joblib", delete=False) as f:
+                            _tmp_path = f.name
+                            joblib.dump(calibrated, f.name)
+                        mlflow.log_artifact(_tmp_path, f"place_ability_{surface}")
+                    finally:
+                        if _tmp_path and os.path.exists(_tmp_path):
+                            os.unlink(_tmp_path)
+
+                # WideTwoStageModel
+                mlflow.lightgbm.log_model(sub.wide.hit_model, f"wide_hit_{surface}")
+                mlflow.lightgbm.log_model(sub.wide.return_model, f"wide_ret_{surface}")
+
+            # RaceQualityScreener
             mlflow.lightgbm.log_model(quality_screen.model, "race_quality")
+            mlflow.log_param("quality_threshold", quality_screen.threshold)
+
+            # RegimeDetector
             mlflow.lightgbm.log_model(regime_det.model, "regime_detector")
+
+            # RobustConfidenceEstimator キャリブレーション値 (JSON)
+            first_sub = next(iter(models.values()))
+            conf = first_sub.confidence
+            if hasattr(conf, "_calibrated") and conf._calibrated:
+                conf_params = {
+                    "alpha": conf.alpha,
+                    "rolling_window": conf.rolling_window,
+                    "win_cp_quantile": conf._win_cp_quantile,
+                    "place_cp_quantile": conf._place_cp_quantile,
+                    "win_rolling_quantile": conf._win_rolling_quantile,
+                    "place_rolling_quantile": conf._place_rolling_quantile,
+                }
+                mlflow.log_dict(conf_params, "confidence_params.json")
+
+            mlflow.log_param("train_start", train_start)
             mlflow.log_param("train_end", train_end)
             mlflow.log_param("n_surfaces", str(len(models)))
+            mlflow.log_param("pipeline_version", "v5.5")

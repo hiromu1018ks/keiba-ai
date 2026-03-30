@@ -39,6 +39,9 @@ class _FakeHistFeatures:
 class _FakePlaceAbilityModel:
     """PlaceAbilityModel のスタブ (学習不要)"""
 
+    _calibrated = None
+    _model = None
+
     def train(self, df):  # noqa: ARG002
         pass
 
