@@ -203,42 +203,48 @@ class TestBetHistoryEnrichment:
         # --- repo mock ---
         mock_repo = MagicMock(spec=DataRepository)
         mock_repo_cls.return_value = mock_repo
-        mock_repo.load_races.return_value = pd.DataFrame({
-            "race_id": ["20240101010101"],
-            "race_date": pd.to_datetime("2024-01-01"),
-        })
-        mock_repo.load_entries.return_value = pd.DataFrame({
-            "race_id": ["20240101010101"],
-            "umaban": [1],
-            "ketto_num": [1234],
-            "finish_pos": [2],
-            "win_odds": [5.0],
-            "popularity_rank": [3],
-            "ba_taijyu": [480],
-            "zogen_fugo": [0],
-            "zogen_sa": [0],
-            "kisyu_code": [100],
-            "chokyosi_code": [200],
-        })
+        mock_repo.load_races.return_value = pd.DataFrame(
+            {
+                "race_id": ["20240101010101"],
+                "race_date": pd.to_datetime("2024-01-01"),
+            }
+        )
+        mock_repo.load_entries.return_value = pd.DataFrame(
+            {
+                "race_id": ["20240101010101"],
+                "umaban": [1],
+                "ketto_num": [1234],
+                "finish_pos": [2],
+                "win_odds": [5.0],
+                "popularity_rank": [3],
+                "ba_taijyu": [480],
+                "zogen_fugo": [0],
+                "zogen_sa": [0],
+                "kisyu_code": [100],
+                "chokyosi_code": [200],
+            }
+        )
         mock_repo.load_odds_snapshots.return_value = pd.DataFrame()
 
         # --- feat_df (complete columns for pipeline) ---
-        feat_df = pd.DataFrame({
-            "race_id": ["20240101010101"],
-            "umaban": [1],
-            "surface_key": ["turf"],
-            "surface": ["turf"],
-            "distance": [1200],
-            "distance_bin": ["sprint"],
-            "popularity_rank": [3],
-            "ninki": [3],
-            "ev_place": [1.5],
-            "place_odds_actual": [2.4],
-            "finish_pos": [2],
-            "ketto_num": [1234],
-            "win_odds": [5.0],
-            "ba_taijyu": [480],
-        })
+        feat_df = pd.DataFrame(
+            {
+                "race_id": ["20240101010101"],
+                "umaban": [1],
+                "surface_key": ["turf"],
+                "surface": ["turf"],
+                "distance": [1200],
+                "distance_bin": ["sprint"],
+                "popularity_rank": [3],
+                "ninki": [3],
+                "ev_place": [1.5],
+                "place_odds_actual": [2.4],
+                "finish_pos": [2],
+                "ketto_num": [1234],
+                "win_odds": [5.0],
+                "ba_taijyu": [480],
+            }
+        )
 
         # --- FeatureEngine mock ---
         mock_feat_engine = MagicMock()

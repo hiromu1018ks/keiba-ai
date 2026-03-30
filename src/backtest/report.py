@@ -87,7 +87,8 @@ class BacktestReportGenerator:
 
     def load_bet_history(self, path: Path) -> list[dict[str, Any]]:
         """bet_history JSON を読み込み"""
-        return json.loads(path.read_text(encoding="utf-8"))
+        data: list[dict[str, Any]] = json.loads(path.read_text(encoding="utf-8"))
+        return data
 
     def _derive_fields(self, bet_history: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """race_date, profit, is_win を派生フィールドとして追加"""
@@ -214,7 +215,9 @@ class BacktestReportGenerator:
                         "wins": int(g["wins"]),
                         "win_rate": g["wins"] / n if n > 0 else 0.0,
                         "avg_payout": g["total_payout"] / g["wins"] if g["wins"] > 0 else 0.0,
-                        "roi": g["total_payout"] / g["total_stake"] if g["total_stake"] > 0 else 0.0,
+                        "roi": (
+                            g["total_payout"] / g["total_stake"] if g["total_stake"] > 0 else 0.0
+                        ),
                     }
                 )
             return result

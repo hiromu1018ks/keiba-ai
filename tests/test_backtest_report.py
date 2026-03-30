@@ -304,23 +304,54 @@ class TestHtmlGeneration:
         from backtest.engine import BacktestResult
 
         result = BacktestResult(
-            total_bets=3, total_stake=300.0, total_return=420.0,
-            winning_bets=1, total_roi=1.4, max_drawdown=0.05,
+            total_bets=3,
+            total_stake=300.0,
+            total_return=420.0,
+            winning_bets=1,
+            total_roi=1.4,
+            max_drawdown=0.05,
             final_bankroll=100200.0,
         )
         bet_history = [
-            {"race_id": "20240105010101", "bet_type": "place", "umaban": 3,
-             "stake": 100.0, "odds": 2.4, "result": 240.0,
-             "surface": "turf", "distance": 1200, "ev": 1.5,
-             "popularity": 3, "bankroll_after": 100200.0},
-            {"race_id": "20240110010101", "bet_type": "place", "umaban": 5,
-             "stake": 100.0, "odds": 3.0, "result": 0.0,
-             "surface": "dirt", "distance": 1600, "ev": 1.3,
-             "popularity": 6, "bankroll_after": 100100.0},
-            {"race_id": "20240115010101", "bet_type": "place", "umaban": 1,
-             "stake": 100.0, "odds": 1.8, "result": 180.0,
-             "surface": "turf", "distance": 1800, "ev": 1.6,
-             "popularity": 2, "bankroll_after": 100280.0},
+            {
+                "race_id": "20240105010101",
+                "bet_type": "place",
+                "umaban": 3,
+                "stake": 100.0,
+                "odds": 2.4,
+                "result": 240.0,
+                "surface": "turf",
+                "distance": 1200,
+                "ev": 1.5,
+                "popularity": 3,
+                "bankroll_after": 100200.0,
+            },
+            {
+                "race_id": "20240110010101",
+                "bet_type": "place",
+                "umaban": 5,
+                "stake": 100.0,
+                "odds": 3.0,
+                "result": 0.0,
+                "surface": "dirt",
+                "distance": 1600,
+                "ev": 1.3,
+                "popularity": 6,
+                "bankroll_after": 100100.0,
+            },
+            {
+                "race_id": "20240115010101",
+                "bet_type": "place",
+                "umaban": 1,
+                "stake": 100.0,
+                "odds": 1.8,
+                "result": 180.0,
+                "surface": "turf",
+                "distance": 1800,
+                "ev": 1.6,
+                "popularity": 2,
+                "bankroll_after": 100280.0,
+            },
         ]
         return result, bet_history
 
@@ -376,9 +407,16 @@ class TestBetHistorySerialization:
 
         gen = BacktestReportGenerator(output_dir=tmp_path)
         original = [
-            {"race_id": "20240101010101", "stake": 100.0, "result": 240.0,
-             "surface": "turf", "distance": 1200, "ev": 1.5,
-             "popularity": 3, "bankroll_after": 100200.0},
+            {
+                "race_id": "20240101010101",
+                "stake": 100.0,
+                "result": 240.0,
+                "surface": "turf",
+                "distance": 1200,
+                "ev": 1.5,
+                "popularity": 3,
+                "bankroll_after": 100200.0,
+            },
         ]
         json_path = gen.save_bet_history(original)
         loaded = gen.load_bet_history(json_path)
@@ -431,14 +469,27 @@ class TestCliReportFlag:
         from backtest.engine import BacktestResult
 
         mock_result = BacktestResult(
-            total_bets=10, total_stake=1000.0, total_return=1500.0,
-            winning_bets=3, total_roi=1.5, max_drawdown=0.05,
+            total_bets=10,
+            total_stake=1000.0,
+            total_return=1500.0,
+            winning_bets=3,
+            total_roi=1.5,
+            max_drawdown=0.05,
             final_bankroll=101500.0,
             bet_history=[
-                {"race_id": "20240101010101", "bet_type": "place", "umaban": 1,
-                 "stake": 100.0, "odds": 2.4, "result": 240.0,
-                 "surface": "turf", "distance": 1200, "ev": 1.5,
-                 "popularity": 3, "bankroll_after": 100200.0},
+                {
+                    "race_id": "20240101010101",
+                    "bet_type": "place",
+                    "umaban": 1,
+                    "stake": 100.0,
+                    "odds": 2.4,
+                    "result": 240.0,
+                    "surface": "turf",
+                    "distance": 1200,
+                    "ev": 1.5,
+                    "popularity": 3,
+                    "bankroll_after": 100200.0,
+                },
             ],
         )
         mock_engine = MagicMock()
@@ -451,13 +502,23 @@ class TestCliReportFlag:
         mock_gen.save_bet_history.return_value = MagicMock()
 
         # sys.argv を直接操作 (main() は argparse で読む)
-        with patch("sys.argv", [
-            "run_backtest.py",
-            "--train-start", "20200101", "--train-end", "20231231",
-            "--test-start", "20240101", "--test-end", "20241231",
-            "--report",
-        ]):
+        with patch(
+            "sys.argv",
+            [
+                "run_backtest.py",
+                "--train-start",
+                "20200101",
+                "--train-end",
+                "20231231",
+                "--test-start",
+                "20240101",
+                "--test-end",
+                "20241231",
+                "--report",
+            ],
+        ):
             from scripts.run_backtest import main
+
             main()
 
         # Verify report generator was called

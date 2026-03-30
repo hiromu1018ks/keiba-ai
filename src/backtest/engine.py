@@ -220,8 +220,7 @@ class BacktestEngine:
                 horse_rows = race_df_single[race_df_single["umaban"] == bet.umaban]
                 pop_val = (
                     horse_rows["popularity_rank"].iloc[0]
-                    if not horse_rows.empty
-                    and "popularity_rank" in horse_rows.columns
+                    if not horse_rows.empty and "popularity_rank" in horse_rows.columns
                     else 0
                 )
 
@@ -234,7 +233,11 @@ class BacktestEngine:
                         "odds": bet.odds,
                         "result": bet_result,
                         "surface": surface_key,
-                        "distance": int(race_df_single["distance"].iloc[0]) if "distance" in race_df_single.columns else 0,
+                        "distance": (
+                            int(race_df_single["distance"].iloc[0])
+                            if "distance" in race_df_single.columns
+                            else 0
+                        ),
                         "ev": float(bet.ev_lower_corrected),
                         "popularity": int(pop_val),
                         "bankroll_after": round(bankroll, 2),

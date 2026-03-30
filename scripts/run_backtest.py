@@ -159,8 +159,10 @@ def main() -> None:
         train_period_str = f"{train_start} ~ {train_end}"
         test_period_str = f"{test_start} ~ {test_end}"
         report_path = gen.generate(
-            result, result.bet_history,
-            train_period=train_period_str, test_period=test_period_str,
+            result,
+            result.bet_history,
+            train_period=train_period_str,
+            test_period=test_period_str,
         )
         print(f"レポート生成: {report_path}")
     else:
