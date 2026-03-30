@@ -133,3 +133,58 @@ class AbilityModel:
         df = df.drop(columns=["_raw_score"], errors="ignore")
 
         return df
+
+    def train_oof(self, df: pd.DataFrame, n_folds: int = 3) -> pd.DataFrame:
+        """K-fold expanding window で OOF p_ability_win を生成する。
+
+        レース日を時系列順にソートし、expanding window で fold を分割する。
+        各 fold のテスト期間データに対して OOF (out-of-fold) 予測を行う。
+        最後に全データで最終モデルを学習し、推論に備える。
+        """
+        df = df.copy()
+        df = df.sort_values("race_date").reset_index(drop=True)
+        oof_preds = pd.Series(np.nan, index=df.index, dtype=np.float64)
+
+        dates = sorted(df["race_date"].unique())
+        n_dates = len(dates)
+
+        # データ不足時はフォールバック
+        if n_dates < n_folds + 1:
+            self.train(df)
+            return self.add_ability_probs(df)
+
+        # fold 境界: n_folds+1 個の等分割点
+        boundaries = [
+            dates[n_dates * (i + 1) // (n_folds + 1)]
+            for i in range(n_folds)
+        ]
+
+        for i in range(n_folds):
+            train_end = boundaries[i]
+            test_end = (
+                boundaries[i + 1]
+                if i + 1 < n_folds
+                else dates[-1] + pd.Timedelta(days=1)
+            )
+
+            train_mask = df["race_date"] < train_end
+            test_mask = (df["race_date"] >= train_end) & (df["race_date"] < test_end)
+
+            train_df = df.loc[train_mask].copy()
+            test_df = df.loc[test_mask].copy()
+
+            if len(train_df) == 0 or len(test_df) == 0:
+                continue
+
+            fold_model = AbilityModel()
+            fold_model.train(train_df)
+            test_df = fold_model.add_ability_probs(test_df)
+
+            oof_preds.loc[test_mask] = test_df["p_ability_win"].values
+
+        # 最終モデルを全データで学習（推論用）
+        self.train(df)
+
+        # OOF 予測を設定
+        df["p_ability_win"] = oof_preds
+        return df
