@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -342,8 +343,8 @@ class TestHtmlGeneration:
 
     def test_html_with_empty_history(self, tmp_path: Path) -> None:
         """空の bet_history でもHTMLが生成される"""
-        from backtest.report import BacktestReportGenerator
         from backtest.engine import BacktestResult
+        from backtest.report import BacktestReportGenerator
 
         gen = BacktestReportGenerator(output_dir=tmp_path)
         result = BacktestResult()
@@ -395,3 +396,73 @@ class TestBetHistorySerialization:
         path = gen.save_bet_history([{"race_id": "20240101010101", "stake": 100.0, "result": 0.0}])
         assert path.exists()
         assert path.suffix == ".json"
+
+
+class TestCliReportFlag:
+    """--report フラグのテスト"""
+
+    @patch("backtest.report.BacktestReportGenerator")
+    @patch("pipelines.training_pipeline.TrainingPipelineV5")
+    @patch("backtest.engine.BacktestEngine")
+    @patch("db.repository.DataRepository")
+    @patch("db.parquet_store.ParquetStore")
+    def test_report_flag_triggers_generation(
+        self,
+        mock_store_cls: MagicMock,
+        mock_repo_cls: MagicMock,
+        mock_engine_cls: MagicMock,
+        mock_pipeline_cls: MagicMock,
+        mock_report_gen_cls: MagicMock,
+    ) -> None:
+        """--report フラグでレポート生成が呼ばれる"""
+        # Setup mocks
+        mock_store = MagicMock()
+        mock_store_cls.return_value = mock_store
+        mock_store.exists.return_value = True
+
+        mock_repo = MagicMock()
+        mock_repo_cls.return_value = mock_repo
+
+        mock_models = MagicMock()
+        mock_pipeline = MagicMock()
+        mock_pipeline_cls.return_value = mock_pipeline
+        mock_pipeline.run.return_value = mock_models
+
+        from backtest.engine import BacktestResult
+
+        mock_result = BacktestResult(
+            total_bets=10, total_stake=1000.0, total_return=1500.0,
+            winning_bets=3, total_roi=1.5, max_drawdown=0.05,
+            final_bankroll=101500.0,
+            bet_history=[
+                {"race_id": "20240101010101", "bet_type": "place", "umaban": 1,
+                 "stake": 100.0, "odds": 2.4, "result": 240.0,
+                 "surface": "turf", "distance": 1200, "ev": 1.5,
+                 "popularity": 3, "bankroll_after": 100200.0},
+            ],
+        )
+        mock_engine = MagicMock()
+        mock_engine_cls.return_value = mock_engine
+        mock_engine.run.return_value = mock_result
+
+        mock_gen = MagicMock()
+        mock_report_gen_cls.return_value = mock_gen
+        mock_gen.generate.return_value = MagicMock()
+        mock_gen.save_bet_history.return_value = MagicMock()
+
+        # sys.argv を直接操作 (main() は argparse で読む)
+        with patch("sys.argv", [
+            "run_backtest.py",
+            "--train-start", "20200101", "--train-end", "20231231",
+            "--test-start", "20240101", "--test-end", "20241231",
+            "--report",
+        ]):
+            from scripts.run_backtest import main
+            main()
+
+        # Verify report generator was called
+        mock_report_gen_cls.assert_called_once()
+        mock_gen.generate.assert_called_once()
+        mock_gen.save_bet_history.assert_called_once()
+        call_args = mock_gen.generate.call_args
+        assert call_args[0][0].total_roi == 1.5  # BacktestResult passed

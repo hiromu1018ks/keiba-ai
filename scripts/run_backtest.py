@@ -13,6 +13,7 @@ import os
 import sys
 import time
 import warnings
+from pathlib import Path
 
 warnings.filterwarnings("ignore")
 
@@ -40,6 +41,7 @@ def main() -> None:
     parser.add_argument("--train-end", required=True, help="学習終了日 (YYYYMMDD)")
     parser.add_argument("--test-start", required=True, help="テスト開始日 (YYYYMMDD)")
     parser.add_argument("--test-end", required=True, help="テスト終了日 (YYYYMMDD)")
+    parser.add_argument("--report", action="store_true", help="HTMLレポートを生成")
     args = parser.parse_args()
 
     train_start = to_dash_date(args.train_start)
@@ -123,7 +125,7 @@ def main() -> None:
     print(f"  差分:           {diff:+.1%}")
     print(f"  判定:           {status}")
 
-    # JSON保存
+    # JSON出力
     out = {
         "before_roi": before_roi,
         "total_roi": result.total_roi,
@@ -137,10 +139,36 @@ def main() -> None:
         "train_seconds": round(elapsed_train),
         "test_seconds": round(elapsed_test),
     }
-    outpath = os.path.join(ROOT, "backtest_result.json")
-    with open(outpath, "w", encoding="utf-8") as f:
-        json.dump(out, f, indent=2, ensure_ascii=False)
-    print(f"\n結果保存: {outpath}")
+
+    # --report フラグ: 全出力を data/backtest/ に集約
+    if args.report:
+        from backtest.report import BacktestReportGenerator
+
+        output_dir = os.path.join(ROOT, "data", "backtest")
+        os.makedirs(output_dir, exist_ok=True)
+
+        gen = BacktestReportGenerator(output_dir=Path(output_dir))
+        bet_history_path = gen.save_bet_history(result.bet_history)
+        print(f"\nbet_history保存: {bet_history_path}")
+
+        result_path = os.path.join(output_dir, "backtest_result.json")
+        with open(result_path, "w", encoding="utf-8") as f:
+            json.dump(out, f, indent=2, ensure_ascii=False)
+        print(f"結果保存: {result_path}")
+
+        train_period_str = f"{train_start} ~ {train_end}"
+        test_period_str = f"{test_start} ~ {test_end}"
+        report_path = gen.generate(
+            result, result.bet_history,
+            train_period=train_period_str, test_period=test_period_str,
+        )
+        print(f"レポート生成: {report_path}")
+    else:
+        # 従来通りプロジェクトルートに保存
+        outpath = os.path.join(ROOT, "backtest_result.json")
+        with open(outpath, "w", encoding="utf-8") as f:
+            json.dump(out, f, indent=2, ensure_ascii=False)
+        print(f"\n結果保存: {outpath}")
 
 
 if __name__ == "__main__":
