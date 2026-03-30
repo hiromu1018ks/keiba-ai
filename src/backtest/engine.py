@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Any
 
 import pandas as pd
 
+from backtest.race_predictor import RacePredictor
 from db.parquet_store import ParquetStore
 from db.repository import DataRepository
 from domain.models import Bet, BetType
@@ -71,6 +72,7 @@ class BacktestEngine:
         self.models = models
         self.initial_bankroll = initial_bankroll
         self.repo = repo or DataRepository(ParquetStore())
+        self._race_predictor = RacePredictor(models)
 
     def run(
         self,
@@ -111,7 +113,6 @@ class BacktestEngine:
 
         # 3. 特徴量の一括事前計算 (ループ外で全レース分を一度に計算)
         from features.horse_history_features import HorseHistoryFeatures
-        from features.interaction_features import compute_interaction_features
         from features.jockey_context_features import JockeyContextFeatures
         from features.trainer_context_features import TrainerContextFeatures
 
@@ -129,7 +130,7 @@ class BacktestEngine:
         trainer_ctx = TrainerContextFeatures(self.repo)
         trainer_df_all = trainer_ctx.compute(entry_df)
 
-        # 4. レースごとにシミュレーション
+        # 4. レースごとにシミュレーション (推論は RacePredictor に委譲)
         bankroll = self.initial_bankroll
         peak_bankroll = bankroll
         max_dd = 0.0
@@ -141,83 +142,37 @@ class BacktestEngine:
             if race_df_single.empty:
                 continue
 
-            # 4a. サブモデル選択
-            surface_key = race_df_single["surface_key"].iloc[0]
-            if surface_key not in self.models.submodels:
-                continue
-            submodel = self.models.submodels[surface_key]
-
-            # 4b. レジーム検知
-            regime = self.models.regime_detector.current_regime
-            regime_params = self.models.regime_detector.get_strategy_params(regime)
-
-            # 4c. HorseHistoryFeatures (事前計算済みからマージ)
+            # 事前計算済み特徴量をマージ
             hist_df_race = hist_df_all[hist_df_all["race_id"] == race_id]
-            race_df_single = race_df_single.merge(
-                hist_df_race, on=["race_id", "umaban"], how="left"
-            )
-            race_df_single = HorseHistoryFeatures.add_race_transforms(race_df_single)
-
-            # Group E: 交互作用特徴量 (HorseHistoryFeatures 後に実行 — kyakusitu_cd が必要)
-            race_df_single = compute_interaction_features(race_df_single)
-
-            # 4d. 特徴量 → 予測
-            try:
-                race_df_single = submodel.market.predict_and_calc_error(race_df_single)
-            except Exception as e:
-                logger.debug("Skipping race %s: market prediction failed: %s", race_id, e)
-                continue
-            race_df_single = submodel.stage1.add_ability_probs(race_df_single)
-
-            # PlaceAbilityModel 推論
-            race_df_single = submodel.place_ability.predict(race_df_single)
-
-            race_df_single = submodel.win.predict_ev(race_df_single)
-
-            # Group C/D: 騎手/調教師コンテキスト (事前計算済みからマージ)
             jockey_df_race = jockey_df_all[jockey_df_all["race_id"] == race_id]
-            race_df_single = race_df_single.merge(
-                jockey_df_race, on=["race_id", "umaban"], how="left"
-            )
             trainer_df_race = trainer_df_all[trainer_df_all["race_id"] == race_id]
-            race_df_single = race_df_single.merge(
-                trainer_df_race, on=["race_id", "umaban"], how="left"
+
+            # RacePredictor に委譲
+            result_df = self._race_predictor.predict(
+                race_df_single,
+                hist_features=hist_df_race,
+                jockey_features=jockey_df_race,
+                trainer_features=trainer_df_race,
             )
-
-            race_df_single = submodel.ev_corrector.correct_ev(race_df_single)
-            race_df_single = submodel.place.predict_ev(race_df_single)
-
-            # ev_place_corrected は複勝EV補正モデルがないため ev_place を代用
-            if "ev_place_corrected" not in race_df_single.columns:
-                race_df_single["ev_place_corrected"] = race_df_single.get("ev_place", 0.0)
-
-            # 信頼区間
-            win_df, place_df = submodel.confidence.predict_lower_bound(
-                race_df_single, race_df_single
-            )
-            race_df_single = win_df
-            # place 信頼区間下限をマージ
-            if "EV_lower_place" in place_df.columns:
-                race_df_single["EV_lower_place"] = place_df["EV_lower_place"].values
-
-            # 4g. RaceQualityScreener
-            race_features = self._build_race_features(race_df_single)
-            if not self.models.quality_screener.should_bet(race_features):
+            if result_df.empty:
                 continue
 
-            # 4h. ベット生成
-            bets = self._generate_bets(race_df_single, bankroll, regime_params)
+            # Quality screening
+            if not self._race_predictor.should_bet(result_df):
+                continue
 
-            # 4i. 結果判定
+            # Bet generation
+            surface_key = result_df["surface_key"].iloc[0]
+            bets = self._race_predictor.select_bets(result_df, bankroll)
+
+            # Settlement (BacktestEngine 固有)
             for bet in bets:
-                bet_result = self._settle_bet(bet, race_df_single)
-
+                bet_result = self._settle_bet(bet, result_df)
                 bankroll -= bet.stake
                 if bet_result > 0:
                     bankroll += bet_result
 
-                # 拡張フィールド: popularity は馬ごと、それ以外はレースごと
-                horse_rows = race_df_single[race_df_single["umaban"] == bet.umaban]
+                horse_rows = result_df[result_df["umaban"] == bet.umaban]
                 pop_val = (
                     horse_rows["popularity_rank"].iloc[0]
                     if not horse_rows.empty and "popularity_rank" in horse_rows.columns
@@ -234,8 +189,8 @@ class BacktestEngine:
                         "result": bet_result,
                         "surface": surface_key,
                         "distance": (
-                            int(race_df_single["distance"].iloc[0])
-                            if "distance" in race_df_single.columns
+                            int(result_df["distance"].iloc[0])
+                            if "distance" in result_df.columns
                             else 0
                         ),
                         "ev": float(bet.ev_lower_corrected),
@@ -244,7 +199,6 @@ class BacktestEngine:
                     }
                 )
 
-                # DD 追跡
                 peak_bankroll = max(peak_bankroll, bankroll)
                 dd = (peak_bankroll - bankroll) / peak_bankroll if peak_bankroll > 0 else 0
                 max_dd = max(max_dd, dd)
@@ -269,6 +223,9 @@ class BacktestEngine:
 
     def _build_race_features(self, race_df: pd.DataFrame) -> dict[str, Any]:
         """レースレベル特徴量を dict に変換 (QualityScreener 用)
+
+        NOTE: 現在は RacePredictor.build_race_features() に委譲されている。
+        互換性のため残している (テスト等で参照される可能性がある)。
 
         RaceQualityScreener.FEATURE_COLS (20列) に対応。
         """
@@ -318,7 +275,11 @@ class BacktestEngine:
         bankroll: float,
         regime_params: dict[str, Any],
     ) -> list[Bet]:
-        """簡易ベット生成 (EV条件を満たす馬にベット)"""
+        """簡易ベット生成 (EV条件を満たす馬にベット)
+
+        NOTE: 現在は RacePredictor.select_bets() に委譲されている。
+        互換性のため残している (テスト等で参照される可能性がある)。
+        """
         bets: list[Bet] = []
         ev_threshold = regime_params.get("ev_threshold", 1.20)
         max_bets = regime_params.get("max_bets_per_race", 3)
