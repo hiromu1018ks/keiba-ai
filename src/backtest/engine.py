@@ -234,7 +234,7 @@ class BacktestEngine:
                         "odds": bet.odds,
                         "result": bet_result,
                         "surface": surface_key,
-                        "distance": int(race_df_single["distance"].iloc[0]),
+                        "distance": int(race_df_single["distance"].iloc[0]) if "distance" in race_df_single.columns else 0,
                         "ev": float(bet.ev_lower_corrected),
                         "popularity": int(pop_val),
                         "bankroll_after": round(bankroll, 2),

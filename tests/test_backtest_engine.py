@@ -299,3 +299,4 @@ class TestBetHistoryEnrichment:
         assert bet["popularity"] == 3
         assert "bankroll_after" in bet
         assert isinstance(bet["bankroll_after"], float)
+        assert bet["bankroll_after"] == 100140.0
