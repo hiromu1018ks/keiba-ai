@@ -96,7 +96,7 @@
             <div class="kpi-card">
                 <div class="kpi-label">総利益</div>
                 <div class="kpi-value {{ 'positive' if summary.profit >= 0 else 'negative' }}">
-                    &yen;{{ "{:,.0f}"|format(summary.profit) }}
+                    &yen;{{ summary.profit|format_number }}
                 </div>
             </div>
             <div class="kpi-card">
@@ -105,7 +105,7 @@
             </div>
             <div class="kpi-card">
                 <div class="kpi-label">最終資金</div>
-                <div class="kpi-value">&yen;{{ "{:,.0f}"|format(summary.final_bankroll) }}</div>
+                <div class="kpi-value">&yen;{{ summary.final_bankroll|format_number }}</div>
             </div>
         </div>
     </div>
@@ -144,8 +144,8 @@
                     <td>{{ m.bets }}</td>
                     <td>{{ m.wins }}</td>
                     <td>{{ "%.1f%%"|format(m.win_rate * 100) }}</td>
-                    <td>&yen;{{ "{:,.0f}"|format(m.stake) }}</td>
-                    <td>&yen;{{ "{:,.0f}"|format(m.total_return) }}</td>
+                    <td>&yen;{{ m.stake|format_number }}</td>
+                    <td>&yen;{{ m.total_return|format_number }}</td>
                     <td style="color: {{ 'green' if m.roi >= 1 else 'red' }}">
                         {{ "%.1f%%"|format(m.roi * 100) }}
                     </td>
@@ -195,7 +195,7 @@
                         <tr class="{{ 'heatmap-positive' if row.roi >= 1 else 'heatmap-negative' }}">
                             <td>{{ row.band }}</td><td>{{ row.bets }}</td>
                             <td>{{ "%.1f%%"|format(row.win_rate * 100) }}</td>
-                            <td>&yen;{{ "{:,.0f}"|format(row.avg_payout) }}</td>
+                            <td>&yen;{{ row.avg_payout|format_number }}</td>
                             <td>{{ "%.1f%%"|format(row.roi * 100) }}</td>
                         </tr>
                         {% endfor %}
@@ -215,7 +215,7 @@
                         <tr class="{{ 'heatmap-positive' if row.roi >= 1 else 'heatmap-negative' }}">
                             <td>{{ row.band }}</td><td>{{ row.bets }}</td>
                             <td>{{ "%.1f%%"|format(row.win_rate * 100) }}</td>
-                            <td>&yen;{{ "{:,.0f}"|format(row.avg_payout) }}</td>
+                            <td>&yen;{{ row.avg_payout|format_number }}</td>
                             <td>{{ "%.1f%%"|format(row.roi * 100) }}</td>
                         </tr>
                         {% endfor %}
@@ -252,10 +252,10 @@
                     <td>{{ bet.popularity }}</td>
                     <td>{{ "%.2f"|format(bet.ev) }}</td>
                     <td>{{ "%.1f"|format(bet.odds) }}</td>
-                    <td>&yen;{{ "{:,.0f}"|format(bet.stake) }}</td>
-                    <td>&yen;{{ "{:,.0f}"|format(bet.result) }}</td>
+                    <td>&yen;{{ bet.stake|format_number }}</td>
+                    <td>&yen;{{ bet.result|format_number }}</td>
                     <td style="color: {{ 'green' if bet.profit > 0 else 'red' }}">
-                        &yen;{{ "{:,.0f}"|format(bet.profit) }}
+                        &yen;{{ bet.profit|format_number }}
                     </td>
                     <td>{{ "的中" if bet.is_win else "外れ" }}</td>
                 </tr>

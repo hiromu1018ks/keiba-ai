@@ -294,3 +294,104 @@ class TestComputeBankrollSeries:
 
         gen = BacktestReportGenerator(output_dir=Path("/tmp"))
         assert gen._compute_bankroll_series([]) == []
+
+
+class TestHtmlGeneration:
+    """HTMLレポート生成のテスト"""
+
+    def _make_result_and_history(self) -> tuple:
+        from backtest.engine import BacktestResult
+
+        result = BacktestResult(
+            total_bets=3, total_stake=300.0, total_return=420.0,
+            winning_bets=1, total_roi=1.4, max_drawdown=0.05,
+            final_bankroll=100200.0,
+        )
+        bet_history = [
+            {"race_id": "20240105010101", "bet_type": "place", "umaban": 3,
+             "stake": 100.0, "odds": 2.4, "result": 240.0,
+             "surface": "turf", "distance": 1200, "ev": 1.5,
+             "popularity": 3, "bankroll_after": 100200.0},
+            {"race_id": "20240110010101", "bet_type": "place", "umaban": 5,
+             "stake": 100.0, "odds": 3.0, "result": 0.0,
+             "surface": "dirt", "distance": 1600, "ev": 1.3,
+             "popularity": 6, "bankroll_after": 100100.0},
+            {"race_id": "20240115010101", "bet_type": "place", "umaban": 1,
+             "stake": 100.0, "odds": 1.8, "result": 180.0,
+             "surface": "turf", "distance": 1800, "ev": 1.6,
+             "popularity": 2, "bankroll_after": 100280.0},
+        ]
+        return result, bet_history
+
+    def test_html_contains_sections(self, tmp_path: Path) -> None:
+        """HTMLに全セクションが含まれる"""
+        from backtest.report import BacktestReportGenerator
+
+        gen = BacktestReportGenerator(output_dir=tmp_path)
+        result, bet_history = self._make_result_and_history()
+        path = gen.generate(result, bet_history, train_period="2020-2023", test_period="2024")
+
+        assert path.exists()
+        html = path.read_text(encoding="utf-8")
+        assert "サマリー" in html
+        assert "資金推移" in html
+        assert "月次ダッシュボード" in html
+        assert "条件分析" in html
+        assert "ベット明細" in html
+        assert "140.0%" in html  # ROI
+
+    def test_html_with_empty_history(self, tmp_path: Path) -> None:
+        """空の bet_history でもHTMLが生成される"""
+        from backtest.report import BacktestReportGenerator
+        from backtest.engine import BacktestResult
+
+        gen = BacktestReportGenerator(output_dir=tmp_path)
+        result = BacktestResult()
+        path = gen.generate(result, [])
+
+        assert path.exists()
+        html = path.read_text(encoding="utf-8")
+        assert "サマリー" in html
+        assert "データなし" in html
+
+    def test_output_path(self, tmp_path: Path) -> None:
+        """出力パスが backtest_report.html"""
+        from backtest.report import BacktestReportGenerator
+
+        gen = BacktestReportGenerator(output_dir=tmp_path)
+        result, bet_history = self._make_result_and_history()
+        path = gen.generate(result, bet_history)
+
+        assert path.name == "backtest_report.html"
+        assert path.parent == tmp_path
+
+
+class TestBetHistorySerialization:
+    """bet_history JSON保存/読み込みのテスト"""
+
+    def test_json_round_trip(self, tmp_path: Path) -> None:
+        """JSON保存→読み込みでデータが保持される"""
+        from backtest.report import BacktestReportGenerator
+
+        gen = BacktestReportGenerator(output_dir=tmp_path)
+        original = [
+            {"race_id": "20240101010101", "stake": 100.0, "result": 240.0,
+             "surface": "turf", "distance": 1200, "ev": 1.5,
+             "popularity": 3, "bankroll_after": 100200.0},
+        ]
+        json_path = gen.save_bet_history(original)
+        loaded = gen.load_bet_history(json_path)
+
+        assert len(loaded) == 1
+        assert loaded[0]["race_id"] == "20240101010101"
+        assert loaded[0]["ev"] == 1.5
+        assert loaded[0]["bankroll_after"] == 100200.0
+
+    def test_save_creates_file(self, tmp_path: Path) -> None:
+        """save_bet_history がJSONファイルを作成する"""
+        from backtest.report import BacktestReportGenerator
+
+        gen = BacktestReportGenerator(output_dir=tmp_path)
+        path = gen.save_bet_history([{"race_id": "20240101010101", "stake": 100.0, "result": 0.0}])
+        assert path.exists()
+        assert path.suffix == ".json"

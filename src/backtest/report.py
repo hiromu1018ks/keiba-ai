@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import subprocess
 from collections import defaultdict
 from datetime import datetime, timezone
@@ -49,6 +50,7 @@ class BacktestReportGenerator:
 
         template_dir = Path(__file__).parent / "templates"
         env = Environment(loader=FileSystemLoader(str(template_dir)), autoescape=True)
+        env.filters["format_number"] = lambda x: f"{x:,.0f}"
         template = env.get_template("report.html")
 
         try:
@@ -76,6 +78,16 @@ class BacktestReportGenerator:
         outpath = self.output_dir / "backtest_report.html"
         outpath.write_text(html, encoding="utf-8")
         return outpath
+
+    def save_bet_history(self, bet_history: list[dict[str, Any]]) -> Path:
+        """bet_history を JSON に保存"""
+        path = self.output_dir / "bet_history.json"
+        path.write_text(json.dumps(bet_history, ensure_ascii=False, indent=2), encoding="utf-8")
+        return path
+
+    def load_bet_history(self, path: Path) -> list[dict[str, Any]]:
+        """bet_history JSON を読み込み"""
+        return json.loads(path.read_text(encoding="utf-8"))
 
     def _derive_fields(self, bet_history: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """race_date, profit, is_win を派生フィールドとして追加"""
