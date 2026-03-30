@@ -179,11 +179,12 @@ class BacktestReportGenerator:
             band_order: list[str],
         ) -> list[dict[str, Any]]:
             groups: dict[str, dict[str, float]] = defaultdict(
-                lambda: {"bets": 0, "wins": 0, "total_payout": 0.0}
+                lambda: {"bets": 0, "wins": 0, "total_payout": 0.0, "total_stake": 0.0}
             )
             for b in bets_list:
                 band = key_fn(b)
                 groups[band]["bets"] += 1
+                groups[band]["total_stake"] += b["stake"]
                 if b["result"] > 0:
                     groups[band]["wins"] += 1
                     groups[band]["total_payout"] += b["result"]
@@ -201,7 +202,7 @@ class BacktestReportGenerator:
                         "wins": int(g["wins"]),
                         "win_rate": g["wins"] / n if n > 0 else 0.0,
                         "avg_payout": g["total_payout"] / g["wins"] if g["wins"] > 0 else 0.0,
-                        "roi": g["total_payout"] / (n * 100.0) if n > 0 else 0.0,
+                        "roi": g["total_payout"] / g["total_stake"] if g["total_stake"] > 0 else 0.0,
                     }
                 )
             return result
