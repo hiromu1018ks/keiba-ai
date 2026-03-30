@@ -211,6 +211,20 @@ class BacktestEngine:
             # 4i. 結果判定
             for bet in bets:
                 bet_result = self._settle_bet(bet, race_df_single)
+
+                bankroll -= bet.stake
+                if bet_result > 0:
+                    bankroll += bet_result
+
+                # 拡張フィールド: popularity は馬ごと、それ以外はレースごと
+                horse_rows = race_df_single[race_df_single["umaban"] == bet.umaban]
+                pop_val = (
+                    horse_rows["popularity_rank"].iloc[0]
+                    if not horse_rows.empty
+                    and "popularity_rank" in horse_rows.columns
+                    else 0
+                )
+
                 bet_history.append(
                     {
                         "race_id": race_id,
@@ -219,12 +233,13 @@ class BacktestEngine:
                         "stake": bet.stake,
                         "odds": bet.odds,
                         "result": bet_result,
+                        "surface": surface_key,
+                        "distance": int(race_df_single["distance"].iloc[0]),
+                        "ev": float(bet.ev_lower_corrected),
+                        "popularity": int(pop_val),
+                        "bankroll_after": round(bankroll, 2),
                     }
                 )
-
-                bankroll -= bet.stake
-                if bet_result > 0:
-                    bankroll += bet_result
 
                 # DD 追跡
                 peak_bankroll = max(peak_bankroll, bankroll)
