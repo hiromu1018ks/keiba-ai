@@ -137,13 +137,11 @@ class PlaceAbilityModel:
         df["p_ability_place_raw"] = raw_p
 
         # 温度スケーリング
-        scaled = raw_p ** (1 / TEMPERATURE)
+        scaled_series = pd.Series(raw_p ** (1 / TEMPERATURE), index=df.index)
 
         # レース内正規化: sum(p_place) ≈ 3
-        race_sum = df.groupby("race_id")["p_ability_place_raw"].transform(
-            lambda s: pd.Series(scaled[s.index], index=s.index).sum()
-        )
-        df["p_ability_place"] = scaled * (3.0 / race_sum.clip(lower=1e-6))
+        race_sum = scaled_series.groupby(df["race_id"]).transform("sum")
+        df["p_ability_place"] = scaled_series * (3.0 / race_sum.clip(lower=1e-6))
 
         # 整合性制約: p_place >= p_win
         if "p_ability_win" in df.columns:
