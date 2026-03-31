@@ -6,20 +6,18 @@ from unittest.mock import MagicMock
 
 import numpy as np
 import pandas as pd
-import pytest
 
 from features.trainer_context_features import FEATURE_COLS, TrainerContextFeatures
-
 
 # ---------------------------------------------------------------------------
 # Helper
 # ---------------------------------------------------------------------------
 
 
-def _make_repo(trainer_stats_df: pd.DataFrame) -> MagicMock:
-    repo = MagicMock()
-    repo.load_trainer_stats.return_value = trainer_stats_df
-    return repo
+def _make_store(trainer_stats_df: pd.DataFrame) -> MagicMock:
+    store = MagicMock()
+    store.read.return_value = trainer_stats_df
+    return store
 
 
 def _make_trainer_stats_row(
@@ -75,7 +73,7 @@ def _make_entry(
         {
             "race_id": ["r1"] * n,
             "umaban": list(range(1, n + 1)),
-            "chokyosi_code": chokyosi_codes,
+            "chokyosicode": chokyosi_codes,
             "race_date": [race_date] * n,
         }
     )
@@ -109,20 +107,22 @@ class TestTrainerWrOverall:
     def test_wr_overall(self):
         """wins=40, total=300 -> (40+1)/(300+11) = 41/311"""
         stats = pd.DataFrame([_make_trainer_stats_row(wins=40, total_starts=300)])
-        repo = _make_repo(stats)
-        feat = TrainerContextFeatures(repo)
+        store = _make_store(stats)
+        feat = TrainerContextFeatures(store)
         entry = _make_entry()
         result = feat.compute(entry)
         expected = (40 + 1) / (300 + 11)
         assert abs(result["trainer_wr_overall"].iloc[0] - expected) < 1e-10
 
     def test_latest_year_used(self):
-        stats = pd.DataFrame([
-            _make_trainer_stats_row(setyear=2022, wins=10, total_starts=100),
-            _make_trainer_stats_row(setyear=2023, wins=40, total_starts=300),
-        ])
-        repo = _make_repo(stats)
-        feat = TrainerContextFeatures(repo)
+        stats = pd.DataFrame(
+            [
+                _make_trainer_stats_row(setyear=2022, wins=10, total_starts=100),
+                _make_trainer_stats_row(setyear=2023, wins=40, total_starts=300),
+            ]
+        )
+        store = _make_store(stats)
+        feat = TrainerContextFeatures(store)
         entry = _make_entry(race_date="2024-06-01")
         result = feat.compute(entry)
         expected = (40 + 1) / (300 + 11)
@@ -139,8 +139,8 @@ class TestTrainerPrizeLog:
 
     def test_prize_log(self):
         stats = pd.DataFrame([_make_trainer_stats_row(honsyokinheichi=80000.0)])
-        repo = _make_repo(stats)
-        feat = TrainerContextFeatures(repo)
+        store = _make_store(stats)
+        feat = TrainerContextFeatures(store)
         entry = _make_entry()
         result = feat.compute(entry)
         expected = float(np.log1p(80000.0))
@@ -148,8 +148,8 @@ class TestTrainerPrizeLog:
 
     def test_prize_log_zero(self):
         stats = pd.DataFrame([_make_trainer_stats_row(honsyokinheichi=0.0)])
-        repo = _make_repo(stats)
-        feat = TrainerContextFeatures(repo)
+        store = _make_store(stats)
+        feat = TrainerContextFeatures(store)
         entry = _make_entry()
         result = feat.compute(entry)
         expected = float(np.log1p(0.0))
@@ -163,12 +163,14 @@ class TestTrainerPrizeLog:
 
 class TestYearBoundary:
     def test_2024_race_uses_2023_stats(self):
-        stats = pd.DataFrame([
-            _make_trainer_stats_row(setyear=2023, wins=25, total_starts=200),
-            _make_trainer_stats_row(setyear=2024, wins=50, total_starts=400),
-        ])
-        repo = _make_repo(stats)
-        feat = TrainerContextFeatures(repo)
+        stats = pd.DataFrame(
+            [
+                _make_trainer_stats_row(setyear=2023, wins=25, total_starts=200),
+                _make_trainer_stats_row(setyear=2024, wins=50, total_starts=400),
+            ]
+        )
+        store = _make_store(stats)
+        feat = TrainerContextFeatures(store)
         entry = _make_entry(race_date="2024-06-01")
         result = feat.compute(entry)
         expected = (25 + 1) / (200 + 11)
@@ -183,8 +185,8 @@ class TestYearBoundary:
 class TestNoStats:
     def test_empty_stats(self):
         stats = pd.DataFrame()
-        repo = _make_repo(stats)
-        feat = TrainerContextFeatures(repo)
+        store = _make_store(stats)
+        feat = TrainerContextFeatures(store)
         entry = _make_entry()
         result = feat.compute(entry)
         for col in FEATURE_COLS:
@@ -194,8 +196,8 @@ class TestNoStats:
 class TestMissingTrainer:
     def test_missing_trainer(self):
         stats = pd.DataFrame([_make_trainer_stats_row(chokyosicode="TR999")])
-        repo = _make_repo(stats)
-        feat = TrainerContextFeatures(repo)
+        store = _make_store(stats)
+        feat = TrainerContextFeatures(store)
         entry = _make_entry(chokyosi_codes=["TR001"])
         result = feat.compute(entry)
         for col in FEATURE_COLS:
@@ -210,8 +212,8 @@ class TestMissingTrainer:
 class TestDistanceAndVenue:
     def test_wr_distance(self):
         stats = pd.DataFrame([_make_trainer_stats_row(ky1_wins=15, ky1_total=100)])
-        repo = _make_repo(stats)
-        feat = TrainerContextFeatures(repo)
+        store = _make_store(stats)
+        feat = TrainerContextFeatures(store)
         entry = _make_entry()
         result = feat.compute(entry)
         expected = (15 + 1) / (100 + 11)
@@ -219,8 +221,8 @@ class TestDistanceAndVenue:
 
     def test_wr_venue(self):
         stats = pd.DataFrame([_make_trainer_stats_row(j5_wins=8, j5_total=60)])
-        repo = _make_repo(stats)
-        feat = TrainerContextFeatures(repo)
+        store = _make_store(stats)
+        feat = TrainerContextFeatures(store)
         entry = _make_entry()
         result = feat.compute(entry)
         expected = (8 + 1) / (60 + 11)
@@ -235,20 +237,22 @@ class TestDistanceAndVenue:
 class TestResultStructure:
     def test_columns(self):
         stats = pd.DataFrame([_make_trainer_stats_row()])
-        repo = _make_repo(stats)
-        feat = TrainerContextFeatures(repo)
+        store = _make_store(stats)
+        feat = TrainerContextFeatures(store)
         entry = _make_entry()
         result = feat.compute(entry)
         expected_cols = ["race_id", "umaban"] + FEATURE_COLS
         assert list(result.columns) == expected_cols
 
     def test_multiple_trainers(self):
-        stats = pd.DataFrame([
-            _make_trainer_stats_row(chokyosicode="TR001", wins=40, total_starts=300),
-            _make_trainer_stats_row(chokyosicode="TR002", wins=8, total_starts=80),
-        ])
-        repo = _make_repo(stats)
-        feat = TrainerContextFeatures(repo)
+        stats = pd.DataFrame(
+            [
+                _make_trainer_stats_row(chokyosicode="TR001", wins=40, total_starts=300),
+                _make_trainer_stats_row(chokyosicode="TR002", wins=8, total_starts=80),
+            ]
+        )
+        store = _make_store(stats)
+        feat = TrainerContextFeatures(store)
         entry = _make_entry(n=2, chokyosi_codes=["TR001", "TR002"])
         result = feat.compute(entry)
         assert len(result) == 2

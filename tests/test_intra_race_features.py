@@ -8,28 +8,30 @@ from features.intra_race_features import compute_intra_race_features
 
 @pytest.fixture
 def merged_df() -> pd.DataFrame:
-    """feature_engine.build_all() 出力を模擬したマージ済みDataFrame"""
-    return pd.DataFrame({
-        "race_id": ["2024032405030208"] * 5,
-        "umaban": [1, 2, 3, 4, 5],
-        "win_odds": [2.0, 5.0, 3.0, 10.0, 8.0],
-        "ninki": [1, 3, 2, 5, 4],
-        "ba_taijyu": [480.0, 470.0, 490.0, 460.0, 500.0],
-        "popularity_rank": [1, 3, 2, 5, 4],
-    })
+    """feature_engine.build_all() 出力を模擬したマージ済みDataFrame — 生カラム名"""
+    return pd.DataFrame(
+        {
+            "race_id": ["2024032405030208"] * 5,
+            "umaban": [1, 2, 3, 4, 5],
+            "odds": [2.0, 5.0, 3.0, 10.0, 8.0],
+            "ninki": [1, 3, 2, 5, 4],
+            "bataijyu": [480.0, 470.0, 490.0, 460.0, 500.0],
+        }
+    )
 
 
 @pytest.fixture
 def multi_race_df() -> pd.DataFrame:
-    """複数レースを含むDataFrame（グループ処理の確認用）"""
-    return pd.DataFrame({
-        "race_id": ["R1"] * 3 + ["R2"] * 4,
-        "umaban": [1, 2, 3, 1, 2, 3, 4],
-        "win_odds": [2.0, 5.0, 8.0, 3.0, 4.0, 10.0, 15.0],
-        "ninki": [1, 2, 3, 1, 2, 3, 4],
-        "ba_taijyu": [480.0, 470.0, 490.0, 485.0, 475.0, 465.0, 495.0],
-        "popularity_rank": [1, 2, 3, 1, 2, 3, 4],
-    })
+    """複数レースを含むDataFrame（グループ処理の確認用）— 生カラム名"""
+    return pd.DataFrame(
+        {
+            "race_id": ["R1"] * 3 + ["R2"] * 4,
+            "umaban": [1, 2, 3, 1, 2, 3, 4],
+            "odds": [2.0, 5.0, 8.0, 3.0, 4.0, 10.0, 15.0],
+            "ninki": [1, 2, 3, 1, 2, 3, 4],
+            "bataijyu": [480.0, 470.0, 490.0, 485.0, 475.0, 465.0, 495.0],
+        }
+    )
 
 
 class TestIntraRaceFeatures:
@@ -55,7 +57,7 @@ class TestIntraRaceFeatures:
     def test_odds_rank(self, merged_df: pd.DataFrame):
         """単勝オッズのレース内順位（低い順=1位）"""
         result = compute_intra_race_features(merged_df)
-        # win_odds: 2.0(rank1), 5.0(rank3), 3.0(rank2), 10.0(rank5), 8.0(rank4)
+        # odds: 2.0(rank1), 5.0(rank3), 3.0(rank2), 10.0(rank5), 8.0(rank4)
         odds_rank_map = {1: 1, 2: 3, 3: 2, 4: 5, 5: 4}
         for _, row in result.iterrows():
             umaban = int(row["umaban"])
@@ -75,7 +77,7 @@ class TestIntraRaceFeatures:
         result = compute_intra_race_features(merged_df)
         assert "race_id" in result.columns
         assert "umaban" in result.columns
-        assert "win_odds" in result.columns
+        assert "odds" in result.columns
 
     def test_returns_new_dataframe(self, merged_df: pd.DataFrame):
         """入力DataFrameを変更しない"""
