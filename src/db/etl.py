@@ -80,6 +80,108 @@ def _compute_race_id(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+_TABLE_TYPE_RULES: dict[str, dict[str, list[str]]] = {
+    "races": {
+        "int": ["trackcd", "kyori", "tenkocd", "syussotosu", "honsyokin"],
+    },
+    "entries": {
+        "int": [
+            "umaban",
+            "kakuteijyuni",
+            "ninki",
+            "kyakusitukubun",
+            "jyuni1c",
+            "jyuni4c",
+            "zogenfugo",
+        ],
+        "float": ["time", "bataijyu", "zogensa", "harontimel3", "timediff"],
+        "odds10": ["odds"],
+    },
+    "odds_tanpuku": {
+        "int": ["umaban"],
+        "odds10": ["tanodds", "fukuoddslow"],
+    },
+    "odds_wide": {
+        "odds100": ["oddslow", "oddshigh"],
+    },
+    "jodds_tanpuku": {
+        "int": ["umaban", "tanninki"],
+        "odds10": ["tanodds", "fukuoddslow"],
+    },
+    "payouts": {
+        "int": ["paytansyoumaban1"] + [f"payfukusyoumaban{i}" for i in range(1, 6)],
+        "float": ["paytansyopay1"] + [f"payfukusyopay{i}" for i in range(1, 6)],
+    },
+}
+
+
+def _apply_type_conversions(df: pd.DataFrame, table_key: str) -> pd.DataFrame:
+    """Apply type conversions based on table key rules."""
+    rules = _TABLE_TYPE_RULES.get(table_key)
+    if rules is None:
+        return df
+
+    def _to_int(val: object) -> int | None:
+        if val is None or val == "":
+            return None
+        try:
+            return int(val)
+        except (ValueError, TypeError):
+            return None
+
+    def _to_float(val: object) -> float | None:
+        if val is None or val == "":
+            return None
+        try:
+            return float(val)
+        except (ValueError, TypeError):
+            return None
+
+    def _to_odds(val: object, divisor: int) -> float | None:
+        f = _to_float(val)
+        return f / divisor if f is not None else None
+
+    for col in rules.get("int", []):
+        if col in df.columns:
+            df[col] = df[col].apply(_to_int).astype("Int64")
+
+    for col in rules.get("float", []):
+        if col in df.columns:
+            df[col] = df[col].apply(_to_float)
+
+    for col in rules.get("odds10", []):
+        if col in df.columns:
+            df[col] = df[col].apply(lambda v: _to_odds(v, 10))
+
+    for col in rules.get("odds100", []):
+        if col in df.columns:
+            df[col] = df[col].apply(lambda v: _to_odds(v, 100))
+
+    return df
+
+
+def _compute_surface(df: pd.DataFrame) -> pd.DataFrame:
+    """trackcd -> surface (turf/dirt/other)."""
+    if "trackcd" in df.columns:
+        df["surface"] = df["trackcd"].apply(
+            lambda x: "turf" if 10 <= x <= 22 else "dirt" if 23 <= x <= 29 else "other"
+        )
+    return df
+
+
+def _compute_track_condition_code(df: pd.DataFrame) -> pd.DataFrame:
+    """sibababacd/dirtbabacd + trackcd -> track_condition_code.
+
+    Turf(trackcd 10-22) uses sibababacd, dirt(23-29) uses dirtbabacd.
+    """
+    if "sibababacd" in df.columns and "dirtbabacd" in df.columns and "trackcd" in df.columns:
+        import numpy as np
+
+        is_turf = df["trackcd"].between(10, 22)
+        df["track_condition_code"] = np.where(is_turf, df["sibababacd"], df["dirtbabacd"])
+    return df
+
+
 def _load_state() -> dict:
     """Load ETL state from JSON file."""
     if _STATE_PATH.exists():
@@ -141,13 +243,18 @@ def run_full_load(
                     if not df.empty:
                         _compute_race_date(df)
                         _compute_race_id(df)
+                        df = _apply_type_conversions(df, key)
+                        if table_type == "raced":
+                            df = _compute_surface(df)
+                            df = _compute_track_condition_code(df)
                         # Add partition columns from race_date
                         if "race_date" in df.columns:
                             df["year"] = df["race_date"].dt.year
                             df["month"] = df["race_date"].dt.month
                         table = pa.Table.from_pandas(df)
-                        pq.write_to_dataset(table, root_path=str(partition_path),
-                                            partition_cols=partition_cols)
+                        pq.write_to_dataset(
+                            table, root_path=str(partition_path), partition_cols=partition_cols
+                        )
                         n = len(df)
                         total_rows += n
                         logger.info("  %s year=%d: %d rows", key, year, n)
@@ -164,6 +271,10 @@ def run_full_load(
                     if table_type == "raced":
                         _compute_race_date(df)
                         _compute_race_id(df)
+                    df = _apply_type_conversions(df, key)
+                    if table_type == "raced":
+                        df = _compute_surface(df)
+                        df = _compute_track_condition_code(df)
                     store.write(category, key, df)
                     counts[key] = len(df)
                 else:
@@ -267,6 +378,10 @@ def run_delta_update(
                     _compute_race_id(merged)
 
             # Write back
+            merged = _apply_type_conversions(merged, key)
+            if is_raced:
+                merged = _compute_surface(merged)
+                merged = _compute_track_condition_code(merged)
             store.write(category, key, merged)
             counts[key] = len(delta_df)
 
