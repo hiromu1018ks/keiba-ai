@@ -192,13 +192,13 @@ tables:
     parquet_key: toku_race
     category: raw
     type: raced
-    pk: [year, tokunum]
+    pk: [year, monthday, jyocd, kaiji, nichiji, racenum]
 
   - db_table: n_toku
     parquet_key: toku
     category: raw
     type: raced
-    pk: [year, tokunum, kettonum]
+    pk: [year, monthday, jyocd, kaiji, nichiji, racenum, num]
 
   - db_table: n_mining
     parquet_key: mining
@@ -327,7 +327,7 @@ tables:
     parquet_key: schedule
     category: raw
     type: master
-    pk: [year, monthday, jyocd]
+    pk: [year, monthday, jyocd, kaiji, nichiji]
 
   - db_table: n_wood_chip
     parquet_key: wood_chip
@@ -565,13 +565,13 @@ tables:
     parquet_key: toku_race
     category: raw
     type: delta
-    pk: [year, tokunum]
+    pk: [year, monthday, jyocd, kaiji, nichiji, racenum]
 
   - db_table: s_toku
     parquet_key: toku
     category: raw
     type: delta
-    pk: [year, tokunum, kettonum]
+    pk: [year, monthday, jyocd, kaiji, nichiji, racenum, num]
 
   - db_table: s_mining
     parquet_key: mining
