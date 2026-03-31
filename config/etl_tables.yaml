@@ -1,0 +1,641 @@
+# EveryDB2 ETL Table Configuration
+# 103 tables: n_ (53 raced/master) + s_ (50 delta)
+#
+# Fields:
+#   db_table:       PostgreSQL table name (required)
+#   parquet_key:    Output parquet file name (required)
+#   category:       Directory category: raw/odds (required)
+#   type:           Table type: raced/master/delta (required)
+#   pk:             Primary key columns for delta merge (required)
+#   partition_cols: Partition columns for large tables (optional)
+
+tables:
+  # ============================================================
+  # n_ raced: race-bound data (date-filtered by year+monthday)
+  # ============================================================
+  - db_table: n_race
+    parquet_key: races
+    category: raw
+    type: raced
+    pk: [year, monthday, jyocd, kaiji, nichiji, racenum]
+
+  - db_table: n_uma_race
+    parquet_key: entries
+    category: raw
+    type: raced
+    pk: [year, monthday, jyocd, kaiji, nichiji, racenum, umaban, kettonum]
+
+  - db_table: n_harai
+    parquet_key: payouts
+    category: raw
+    type: raced
+    pk: [year, monthday, jyocd, kaiji, nichiji, racenum]
+
+  - db_table: n_odds_tanpuku
+    parquet_key: odds_tanpuku
+    category: odds
+    type: raced
+    pk: [year, monthday, jyocd, kaiji, nichiji, racenum, umaban]
+
+  - db_table: n_odds_wide
+    parquet_key: odds_wide
+    category: odds
+    type: raced
+    pk: [year, monthday, jyocd, kaiji, nichiji, racenum, umaban1, umaban2]
+
+  - db_table: n_jodds_tanpuku
+    parquet_key: jodds_tanpuku
+    category: odds
+    type: raced
+    pk: [year, monthday, jyocd, kaiji, nichiji, racenum, umaban, happyotime]
+    partition_cols: [year, month]
+
+  - db_table: n_odds_tanpukuwaku_head
+    parquet_key: odds_tanpukuwaku_head
+    category: odds
+    type: raced
+    pk: [year, monthday, jyocd, kaiji, nichiji, racenum]
+
+  - db_table: n_odds_waku
+    parquet_key: odds_waku
+    category: odds
+    type: raced
+    pk: [year, monthday, jyocd, kaiji, nichiji, racenum, wakuban1, wakuban2]
+
+  - db_table: n_odds_umaren_head
+    parquet_key: odds_umaren_head
+    category: odds
+    type: raced
+    pk: [year, monthday, jyocd, kaiji, nichiji, racenum]
+
+  - db_table: n_odds_umaren
+    parquet_key: odds_umaren
+    category: odds
+    type: raced
+    pk: [year, monthday, jyocd, kaiji, nichiji, racenum, umaban1, umaban2]
+
+  - db_table: n_odds_umatan_head
+    parquet_key: odds_umatan_head
+    category: odds
+    type: raced
+    pk: [year, monthday, jyocd, kaiji, nichiji, racenum]
+
+  - db_table: n_odds_umatan
+    parquet_key: odds_umatan
+    category: odds
+    type: raced
+    pk: [year, monthday, jyocd, kaiji, nichiji, racenum, umaban1, umaban2]
+
+  - db_table: n_odds_sanren_head
+    parquet_key: odds_sanren_head
+    category: odds
+    type: raced
+    pk: [year, monthday, jyocd, kaiji, nichiji, racenum]
+
+  - db_table: n_odds_sanren
+    parquet_key: odds_sanren
+    category: odds
+    type: raced
+    pk: [year, monthday, jyocd, kaiji, nichiji, racenum, umaban1, umaban2, umaban3]
+
+  - db_table: n_odds_sanrentan_head
+    parquet_key: odds_sanrentan_head
+    category: odds
+    type: raced
+    pk: [year, monthday, jyocd, kaiji, nichiji, racenum]
+
+  - db_table: n_odds_sanrentan
+    parquet_key: odds_sanrentan
+    category: odds
+    type: raced
+    pk: [year, monthday, jyocd, kaiji, nichiji, racenum, umaban1, umaban2, umaban3]
+
+  - db_table: n_odds_wide_head
+    parquet_key: odds_wide_head
+    category: odds
+    type: raced
+    pk: [year, monthday, jyocd, kaiji, nichiji, racenum]
+
+  - db_table: n_hyosu
+    parquet_key: hyosu
+    category: raw
+    type: raced
+    pk: [year, monthday, jyocd, kaiji, nichiji, racenum]
+
+  - db_table: n_hyosu_tanpuku
+    parquet_key: hyosu_tanpuku
+    category: raw
+    type: raced
+    pk: [year, monthday, jyocd, kaiji, nichiji, racenum, umaban]
+
+  - db_table: n_hyosu_waku
+    parquet_key: hyosu_waku
+    category: raw
+    type: raced
+    pk: [year, monthday, jyocd, kaiji, nichiji, racenum, wakuban1, wakuban2]
+
+  - db_table: n_hyosu_umarenwide
+    parquet_key: hyosu_umarenwide
+    category: raw
+    type: raced
+    pk: [year, monthday, jyocd, kaiji, nichiji, racenum, umaban1, umaban2]
+
+  - db_table: n_hyosu_umatan
+    parquet_key: hyosu_umatan
+    category: raw
+    type: raced
+    pk: [year, monthday, jyocd, kaiji, nichiji, racenum, umaban1, umaban2]
+
+  - db_table: n_hyosu_sanren
+    parquet_key: hyosu_sanren
+    category: raw
+    type: raced
+    pk: [year, monthday, jyocd, kaiji, nichiji, racenum, umaban1, umaban2, umaban3]
+
+  - db_table: n_hyosu_sanrentan
+    parquet_key: hyosu_sanrentan
+    category: raw
+    type: raced
+    pk: [year, monthday, jyocd, kaiji, nichiji, racenum, umaban1, umaban2, umaban3]
+
+  - db_table: n_hyosu2
+    parquet_key: hyosu2
+    category: raw
+    type: raced
+    pk: [year, monthday, jyocd, kaiji, nichiji, racenum]
+
+  - db_table: n_jodds_tanpukuwaku_head
+    parquet_key: jodds_tanpukuwaku_head
+    category: odds
+    type: raced
+    pk: [year, monthday, jyocd, kaiji, nichiji, racenum]
+
+  - db_table: n_jodds_umaren_head
+    parquet_key: jodds_umaren_head
+    category: odds
+    type: raced
+    pk: [year, monthday, jyocd, kaiji, nichiji, racenum]
+
+  - db_table: n_jodds_umaren
+    parquet_key: jodds_umaren
+    category: odds
+    type: raced
+    pk: [year, monthday, jyocd, kaiji, nichiji, racenum, umaban1, umaban2, happyotime]
+
+  - db_table: n_jodds_waku
+    parquet_key: jodds_waku
+    category: odds
+    type: raced
+    pk: [year, monthday, jyocd, kaiji, nichiji, racenum, wakuban1, wakuban2, happyotime]
+
+  - db_table: n_toku_race
+    parquet_key: toku_race
+    category: raw
+    type: raced
+    pk: [year, tokunum]
+
+  - db_table: n_toku
+    parquet_key: toku
+    category: raw
+    type: raced
+    pk: [year, tokunum, kettonum]
+
+  - db_table: n_mining
+    parquet_key: mining
+    category: raw
+    type: raced
+    pk: [year, monthday, jyocd, kaiji, nichiji, racenum, umaban]
+
+  - db_table: n_taisengata_mining
+    parquet_key: taisengata_mining
+    category: raw
+    type: raced
+    pk: [year, monthday, jyocd, kaiji, nichiji, racenum, umaban1, umaban2]
+
+  - db_table: n_jyusyosiki_head
+    parquet_key: jyusyosiki_head
+    category: raw
+    type: raced
+    pk: [year, monthday, jyocd, kaiji, nichiji, racenum]
+
+  - db_table: n_jyusyosiki
+    parquet_key: jyusyosiki
+    category: raw
+    type: raced
+    pk: [year, monthday, jyocd, kaiji, nichiji, racenum, jyuni]
+
+  - db_table: n_jogaiba
+    parquet_key: jogaiba
+    category: raw
+    type: raced
+    pk: [year, monthday, jyocd, kaiji, nichiji, racenum, umaban]
+
+  # ============================================================
+  # n_ master: reference data (full dump, no date filter)
+  # ============================================================
+  - db_table: n_uma
+    parquet_key: horses
+    category: raw
+    type: master
+    pk: [kettonum]
+
+  - db_table: n_kisyu
+    parquet_key: kisyu
+    category: raw
+    type: master
+    pk: [kisyucode]
+
+  - db_table: n_chokyo
+    parquet_key: chokyo
+    category: raw
+    type: master
+    pk: [chokyosicode]
+
+  - db_table: n_kisyu_seiseki
+    parquet_key: kisyu_seiseki
+    category: raw
+    type: master
+    pk: [kisyucode, num]
+
+  - db_table: n_chokyo_seiseki
+    parquet_key: chokyo_seiseki
+    category: raw
+    type: master
+    pk: [chokyosicode, num]
+
+  - db_table: n_seisan
+    parquet_key: seisan
+    category: raw
+    type: master
+    pk: [seisancode]
+
+  - db_table: n_banusi
+    parquet_key: banusi
+    category: raw
+    type: master
+    pk: [banusicode]
+
+  - db_table: n_hansyoku
+    parquet_key: hansyoku
+    category: raw
+    type: master
+    pk: [kettonum]
+
+  - db_table: n_sanku
+    parquet_key: sanku
+    category: raw
+    type: master
+    pk: [kettonum]
+
+  - db_table: n_keito
+    parquet_key: keito
+    category: raw
+    type: master
+    pk: [keitoucode]
+
+  - db_table: n_course
+    parquet_key: course
+    category: raw
+    type: master
+    pk: [coursecd]
+
+  - db_table: n_bameiorigin
+    parquet_key: bameiorigin
+    category: raw
+    type: master
+    pk: [kettonum]
+
+  - db_table: n_record
+    parquet_key: record
+    category: raw
+    type: master
+    pk: [jyocd, trackcd, kyori]
+
+  - db_table: n_hanro
+    parquet_key: hanro
+    category: raw
+    type: master
+    pk: [jyocd, trackcd, kyori]
+
+  - db_table: n_sale
+    parquet_key: sale
+    category: raw
+    type: master
+    pk: [salecode]
+
+  - db_table: n_schedule
+    parquet_key: schedule
+    category: raw
+    type: master
+    pk: [year, monthday, jyocd]
+
+  - db_table: n_wood_chip
+    parquet_key: wood_chip
+    category: raw
+    type: master
+    pk: [kettonum]
+
+  # ============================================================
+  # s_ delta: incremental updates (merge into existing parquet)
+  # parquet_key matches corresponding n_ table (merge target)
+  # ============================================================
+  - db_table: s_race
+    parquet_key: races
+    category: raw
+    type: delta
+    pk: [year, monthday, jyocd, kaiji, nichiji, racenum]
+
+  - db_table: s_uma_race
+    parquet_key: entries
+    category: raw
+    type: delta
+    pk: [year, monthday, jyocd, kaiji, nichiji, racenum, umaban, kettonum]
+
+  - db_table: s_harai
+    parquet_key: payouts
+    category: raw
+    type: delta
+    pk: [year, monthday, jyocd, kaiji, nichiji, racenum]
+
+  - db_table: s_odds_tanpuku
+    parquet_key: odds_tanpuku
+    category: odds
+    type: delta
+    pk: [year, monthday, jyocd, kaiji, nichiji, racenum, umaban]
+
+  - db_table: s_odds_wide
+    parquet_key: odds_wide
+    category: odds
+    type: delta
+    pk: [year, monthday, jyocd, kaiji, nichiji, racenum, umaban1, umaban2]
+
+  - db_table: s_jodds_tanpuku
+    parquet_key: jodds_tanpuku
+    category: odds
+    type: delta
+    pk: [year, monthday, jyocd, kaiji, nichiji, racenum, umaban, happyotime]
+
+  - db_table: s_odds_tanpukuwaku_head
+    parquet_key: odds_tanpukuwaku_head
+    category: odds
+    type: delta
+    pk: [year, monthday, jyocd, kaiji, nichiji, racenum]
+
+  - db_table: s_odds_waku
+    parquet_key: odds_waku
+    category: odds
+    type: delta
+    pk: [year, monthday, jyocd, kaiji, nichiji, racenum, wakuban1, wakuban2]
+
+  - db_table: s_odds_umaren_head
+    parquet_key: odds_umaren_head
+    category: odds
+    type: delta
+    pk: [year, monthday, jyocd, kaiji, nichiji, racenum]
+
+  - db_table: s_odds_umaren
+    parquet_key: odds_umaren
+    category: odds
+    type: delta
+    pk: [year, monthday, jyocd, kaiji, nichiji, racenum, umaban1, umaban2]
+
+  - db_table: s_odds_umatan_head
+    parquet_key: odds_umatan_head
+    category: odds
+    type: delta
+    pk: [year, monthday, jyocd, kaiji, nichiji, racenum]
+
+  - db_table: s_odds_umatan
+    parquet_key: odds_umatan
+    category: odds
+    type: delta
+    pk: [year, monthday, jyocd, kaiji, nichiji, racenum, umaban1, umaban2]
+
+  - db_table: s_odds_sanren_head
+    parquet_key: odds_sanren_head
+    category: odds
+    type: delta
+    pk: [year, monthday, jyocd, kaiji, nichiji, racenum]
+
+  - db_table: s_odds_sanren
+    parquet_key: odds_sanren
+    category: odds
+    type: delta
+    pk: [year, monthday, jyocd, kaiji, nichiji, racenum, umaban1, umaban2, umaban3]
+
+  - db_table: s_odds_sanrentan_head
+    parquet_key: odds_sanrentan_head
+    category: odds
+    type: delta
+    pk: [year, monthday, jyocd, kaiji, nichiji, racenum]
+
+  - db_table: s_odds_sanrentan
+    parquet_key: odds_sanrentan
+    category: odds
+    type: delta
+    pk: [year, monthday, jyocd, kaiji, nichiji, racenum, umaban1, umaban2, umaban3]
+
+  - db_table: s_odds_wide_head
+    parquet_key: odds_wide_head
+    category: odds
+    type: delta
+    pk: [year, monthday, jyocd, kaiji, nichiji, racenum]
+
+  - db_table: s_jodds_tanpukuwaku_head
+    parquet_key: jodds_tanpukuwaku_head
+    category: odds
+    type: delta
+    pk: [year, monthday, jyocd, kaiji, nichiji, racenum]
+
+  - db_table: s_jodds_umaren_head
+    parquet_key: jodds_umaren_head
+    category: odds
+    type: delta
+    pk: [year, monthday, jyocd, kaiji, nichiji, racenum]
+
+  - db_table: s_jodds_umaren
+    parquet_key: jodds_umaren
+    category: odds
+    type: delta
+    pk: [year, monthday, jyocd, kaiji, nichiji, racenum, umaban1, umaban2, happyotime]
+
+  - db_table: s_jodds_waku
+    parquet_key: jodds_waku
+    category: odds
+    type: delta
+    pk: [year, monthday, jyocd, kaiji, nichiji, racenum, wakuban1, wakuban2, happyotime]
+
+  - db_table: s_hyosu
+    parquet_key: hyosu
+    category: raw
+    type: delta
+    pk: [year, monthday, jyocd, kaiji, nichiji, racenum]
+
+  - db_table: s_hyosu_tanpuku
+    parquet_key: hyosu_tanpuku
+    category: raw
+    type: delta
+    pk: [year, monthday, jyocd, kaiji, nichiji, racenum, umaban]
+
+  - db_table: s_hyosu_waku
+    parquet_key: hyosu_waku
+    category: raw
+    type: delta
+    pk: [year, monthday, jyocd, kaiji, nichiji, racenum, wakuban1, wakuban2]
+
+  - db_table: s_hyosu_umarenwide
+    parquet_key: hyosu_umarenwide
+    category: raw
+    type: delta
+    pk: [year, monthday, jyocd, kaiji, nichiji, racenum, umaban1, umaban2]
+
+  - db_table: s_hyosu_umatan
+    parquet_key: hyosu_umatan
+    category: raw
+    type: delta
+    pk: [year, monthday, jyocd, kaiji, nichiji, racenum, umaban1, umaban2]
+
+  - db_table: s_hyosu_sanren
+    parquet_key: hyosu_sanren
+    category: raw
+    type: delta
+    pk: [year, monthday, jyocd, kaiji, nichiji, racenum, umaban1, umaban2, umaban3]
+
+  - db_table: s_hyosu_sanrentan
+    parquet_key: hyosu_sanrentan
+    category: raw
+    type: delta
+    pk: [year, monthday, jyocd, kaiji, nichiji, racenum, umaban1, umaban2, umaban3]
+
+  - db_table: s_hyosu2
+    parquet_key: hyosu2
+    category: raw
+    type: delta
+    pk: [year, monthday, jyocd, kaiji, nichiji, racenum]
+
+  - db_table: s_uma
+    parquet_key: horses
+    category: raw
+    type: delta
+    pk: [kettonum]
+
+  - db_table: s_kisyu
+    parquet_key: kisyu
+    category: raw
+    type: delta
+    pk: [kisyucode]
+
+  - db_table: s_chokyo
+    parquet_key: chokyo
+    category: raw
+    type: delta
+    pk: [chokyosicode]
+
+  - db_table: s_kisyu_seiseki
+    parquet_key: kisyu_seiseki
+    category: raw
+    type: delta
+    pk: [kisyucode, num]
+
+  - db_table: s_chokyo_seiseki
+    parquet_key: chokyo_seiseki
+    category: raw
+    type: delta
+    pk: [chokyosicode, num]
+
+  - db_table: s_seisan
+    parquet_key: seisan
+    category: raw
+    type: delta
+    pk: [seisancode]
+
+  - db_table: s_banusi
+    parquet_key: banusi
+    category: raw
+    type: delta
+    pk: [banusicode]
+
+  - db_table: s_record
+    parquet_key: record
+    category: raw
+    type: delta
+    pk: [jyocd, trackcd, kyori]
+
+  - db_table: s_toku_race
+    parquet_key: toku_race
+    category: raw
+    type: delta
+    pk: [year, tokunum]
+
+  - db_table: s_toku
+    parquet_key: toku
+    category: raw
+    type: delta
+    pk: [year, tokunum, kettonum]
+
+  - db_table: s_mining
+    parquet_key: mining
+    category: raw
+    type: delta
+    pk: [year, monthday, jyocd, kaiji, nichiji, racenum, umaban]
+
+  - db_table: s_taisengata_mining
+    parquet_key: taisengata_mining
+    category: raw
+    type: delta
+    pk: [year, monthday, jyocd, kaiji, nichiji, racenum, umaban1, umaban2]
+
+  - db_table: s_jyusyosiki_head
+    parquet_key: jyusyosiki_head
+    category: raw
+    type: delta
+    pk: [year, monthday, jyocd, kaiji, nichiji, racenum]
+
+  - db_table: s_jyusyosiki
+    parquet_key: jyusyosiki
+    category: raw
+    type: delta
+    pk: [year, monthday, jyocd, kaiji, nichiji, racenum, jyuni]
+
+  - db_table: s_jogaiba
+    parquet_key: jogaiba
+    category: raw
+    type: delta
+    pk: [year, monthday, jyocd, kaiji, nichiji, racenum, umaban]
+
+  # s_ tables with no n_ counterpart
+  - db_table: s_bataijyu
+    parquet_key: bataijyu
+    category: raw
+    type: delta
+    pk: [year, monthday, jyocd, kaiji, nichiji, racenum]
+
+  - db_table: s_tenko_baba
+    parquet_key: tenko_baba
+    category: raw
+    type: delta
+    pk: [year, monthday, jyocd, kaiji, nichiji, racenum]
+
+  - db_table: s_kisyu_change
+    parquet_key: kisyu_change
+    category: raw
+    type: delta
+    pk: [year, monthday, jyocd, kaiji, nichiji, racenum, umaban]
+
+  - db_table: s_course_change
+    parquet_key: course_change
+    category: raw
+    type: delta
+    pk: [year, monthday, jyocd, kaiji, nichiji, racenum]
+
+  - db_table: s_hassou_jikoku_change
+    parquet_key: hassou_jikoku_change
+    category: raw
+    type: delta
+    pk: [year, monthday, jyocd, kaiji, nichiji, racenum]
+
+  - db_table: s_torikesi_jyogai
+    parquet_key: torikesi_jyogai
+    category: raw
+    type: delta
+    pk: [year, monthday, jyocd, kaiji, nichiji, racenum, umaban]
