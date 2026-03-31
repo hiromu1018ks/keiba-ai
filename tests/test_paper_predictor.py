@@ -32,8 +32,14 @@ class TestPaperPredictor:
     @patch("features.horse_history_features.HorseHistoryFeatures")
     @patch("models.submodel_manager.SubModelManager")
     @patch("features.feature_engine.FeatureEngine")
+    @patch("paper_trading.predictor.load_odds_snapshots")
+    @patch("paper_trading.predictor.load_entries")
+    @patch("paper_trading.predictor.load_races")
     def test_setup_returns_race_schedule(
         self,
+        mock_load_races: MagicMock,
+        mock_load_entries: MagicMock,
+        mock_load_odds: MagicMock,
         mock_feat_cls: MagicMock,
         mock_submgr_cls: MagicMock,
         mock_hist_cls: MagicMock,
@@ -44,21 +50,20 @@ class TestPaperPredictor:
     ) -> None:
         from paper_trading.predictor import PaperPredictor
 
-        mock_repo = MagicMock()
-        mock_repo.load_races.return_value = pd.DataFrame(
+        mock_load_races.return_value = pd.DataFrame(
             {
                 "race_id": ["2026040510010101"],
                 "race_date": pd.to_datetime("2026-04-05"),
             }
         )
-        mock_repo.load_entries.return_value = pd.DataFrame(
+        mock_load_entries.return_value = pd.DataFrame(
             {
                 "race_id": ["2026040510010101"],
                 "umaban": [1],
-                "ketto_num": [1234],
+                "kettonum": [1234],
             }
         )
-        mock_repo.load_odds_snapshots.return_value = pd.DataFrame()
+        mock_load_odds.return_value = pd.DataFrame()
 
         mock_feat = MagicMock()
         mock_feat_cls.return_value = mock_feat
@@ -66,13 +71,13 @@ class TestPaperPredictor:
             {
                 "race_id": ["2026040510010101"],
                 "umaban": [1],
-                "surface_key": ["turf"],
-                "distance": [1200],
-                "finish_pos": [0],
-                "win_odds": [0.0],
-                "popularity_rank": [0],
-                "ba_taijyu": [0],
-                "ketto_num": [1234],
+                "surface": ["turf"],
+                "kyori": [1200],
+                "kakuteijyuni": [0],
+                "odds": [0.0],
+                "ninki": [0],
+                "bataijyu": [0],
+                "kettonum": [1234],
             }
         )
         mock_submgr = MagicMock()
@@ -103,8 +108,9 @@ class TestPaperPredictor:
             },
         ]
 
+        mock_store = MagicMock()
         predictor = PaperPredictor(
-            repo=mock_repo,
+            store=mock_store,
             race_predictor=MagicMock(),
             models=mock_models,
             output_dir=tmp_path / "pt",
@@ -117,20 +123,20 @@ class TestPaperPredictor:
     def test_predict_race_returns_bets(self, mock_models: MagicMock) -> None:
         from paper_trading.predictor import PaperPredictor
 
-        mock_repo = MagicMock()
+        mock_store = MagicMock()
         mock_race_predictor = MagicMock()
 
         pre_computed = pd.DataFrame(
             {
                 "race_id": ["2026040510010101"] * 2,
                 "umaban": [1, 2],
-                "surface_key": ["turf"] * 2,
+                "surface": ["turf"] * 2,
                 "ev_place": [1.5, 0.8],
-                "place_odds_actual": [2.4, 1.5],
+                "fukuoddslow": [2.4, 1.5],
             }
         )
         horse_weights = pd.DataFrame({"umaban": [1, 2], "weight": [480, 470]})
-        odds = pd.DataFrame({"umaban": [1, 2], "tan_odds": [5.0, 2.0], "fuku_odds": [2.4, 1.5]})
+        odds = pd.DataFrame({"umaban": [1, 2], "tanodds": [5.0, 2.0], "fukuoddslow": [2.4, 1.5]})
 
         mock_bet = MagicMock()
         mock_bet.race_id = "2026040510010101"
@@ -146,7 +152,7 @@ class TestPaperPredictor:
         mock_race_predictor.select_bets.return_value = [mock_bet]
 
         predictor = PaperPredictor(
-            repo=mock_repo,
+            store=mock_store,
             race_predictor=mock_race_predictor,
             models=mock_models,
         )

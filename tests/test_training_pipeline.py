@@ -13,13 +13,10 @@ from models.submodel_manager import SubModelManager
 from pipelines.training_pipeline import TrainingPipelineV5
 
 
-def _make_mock_repo() -> MagicMock:
-    """DataRepository のモックを作成"""
-    mock_repo = MagicMock()
-    mock_repo.load_races.return_value = pd.DataFrame()
-    mock_repo.load_entries.return_value = pd.DataFrame()
-    mock_repo.load_odds_snapshots.return_value = pd.DataFrame()
-    return mock_repo
+def _make_mock_store() -> MagicMock:
+    """ParquetStore のモックを作成"""
+    mock_store = MagicMock()
+    return mock_store
 
 
 class _FakeHistFeatures:
@@ -142,16 +139,16 @@ def _make_feature_df(n: int = 8000, n_races: int = 800) -> pd.DataFrame:
                     "race_id": race_id,
                     "umaban": h + 1,
                     "surface": surface,
-                    "surface_key": surface,
-                    "distance": distance,
+                    "kyori": distance,
                     "distance_bin": dist_bin,
                     "track_condition_code": np.random.randint(1, 4),
                     "grade_code": np.random.choice(["A", "B", "C", "D", "E"]),
                     "field_size": horses_per_race,
-                    "finish_pos": h + 1 if h == 0 else np.random.randint(2, horses_per_race + 1),
-                    "win_odds_actual": np.random.uniform(1.5, 100.0),
+                    "kakuteijyuni": h + 1 if h == 0 else np.random.randint(2, horses_per_race + 1),
+                    "odds": np.random.uniform(1.5, 100.0),
+                    "fukuoddslow": np.random.uniform(1.1, 20.0),
                     "place_odds_actual": np.random.uniform(1.1, 20.0),
-                    "tan_odds": np.random.uniform(1.5, 100.0),
+                    "tanodds": np.random.uniform(1.5, 100.0),
                     "popularity_rank": h + 1,
                     "running_style": np.random.randint(0, 5),
                     "p_market_win_adj": np.random.uniform(0.01, 0.5),
@@ -161,13 +158,13 @@ def _make_feature_df(n: int = 8000, n_races: int = 800) -> pd.DataFrame:
                     "difficulty_score": np.random.uniform(0, 1),
                     # 過去成績 (8)
                     "norm_finish_logit_avg": np.random.uniform(-2, 2),
-                    "haron_time_l3_avg": np.random.uniform(-3, 3),
-                    "haron_time_l3_zscore": np.random.uniform(-2, 2),
-                    "time_diff_avg": np.random.uniform(-1, 1),
-                    "corner_1c_avg": np.random.uniform(1, 10),
-                    "corner_4c_avg": np.random.uniform(1, 10),
+                    "harontimel3_avg": np.random.uniform(-3, 3),
+                    "harontimel3_zscore": np.random.uniform(-2, 2),
+                    "timediff_avg": np.random.uniform(-1, 1),
+                    "jyuni1c_avg": np.random.uniform(1, 10),
+                    "jyuni4c_avg": np.random.uniform(1, 10),
                     "closing_index_avg": np.random.uniform(-0.5, 0.5),
-                    "kyakusitu_cd": kyakusitu,
+                    "kyakusitukubun_cd": kyakusitu,
                     # 血統 (6)
                     "blood_surface_wr": np.random.uniform(0.05, 0.2),
                     "blood_distance_wr": np.random.uniform(0.05, 0.2),
@@ -181,9 +178,9 @@ def _make_feature_df(n: int = 8000, n_races: int = 800) -> pd.DataFrame:
                     "weight_x_distance": np.random.uniform(640000, 880000),
                     # レース内正規化 (5) — race_rank
                     "norm_finish_logit_avg_race_rank": np.random.uniform(0, 1),
-                    "haron_time_l3_avg_race_rank": np.random.uniform(0, 1),
-                    "time_diff_avg_race_rank": np.random.uniform(0, 1),
-                    "corner_1c_avg_race_rank": np.random.uniform(0, 1),
+                    "harontimel3_avg_race_rank": np.random.uniform(0, 1),
+                    "timediff_avg_race_rank": np.random.uniform(0, 1),
+                    "jyuni1c_avg_race_rank": np.random.uniform(0, 1),
                     "closing_index_avg_race_rank": np.random.uniform(0, 1),
                     # 馬体 (1)
                     "weight_absolute": np.random.uniform(400, 550),
@@ -214,7 +211,7 @@ class TestTrainingPipelineV5:
         mock_mlflow: MagicMock,
     ) -> None:
         """run() が TrainedModelsV5 を返す"""
-        mock_repo = _make_mock_repo()
+        mock_store = _make_mock_store()
 
         feat_df = _make_feature_df(8000, 800)
         with patch.object(FeatureEngine, "build_all", return_value=feat_df):
@@ -232,7 +229,7 @@ class TestTrainingPipelineV5:
                         _FakePlaceAbilityModel,
                     ):
                         pipeline = TrainingPipelineV5.__new__(TrainingPipelineV5)
-                        pipeline.repo = mock_repo
+                        pipeline.store = mock_store
                         pipeline.db = None
                         pipeline.feature_engine = FeatureEngine()
                         pipeline.submodel_mgr = SubModelManager()
@@ -251,12 +248,10 @@ class TestTrainingPipelineV5:
     ) -> None:
         """芝・ダートそれぞれでサブモデルが学習される"""
         feat_df = _make_feature_df(8000, 800)
-        feat_df.loc[:4000, "surface_key"] = "turf"
-        feat_df.loc[4000:, "surface_key"] = "dirt"
         feat_df.loc[:4000, "surface"] = "turf"
         feat_df.loc[4000:, "surface"] = "dirt"
 
-        mock_repo = _make_mock_repo()
+        mock_store = _make_mock_store()
 
         with patch.object(FeatureEngine, "build_all", return_value=feat_df):
             with patch.object(
@@ -273,7 +268,7 @@ class TestTrainingPipelineV5:
                         _FakePlaceAbilityModel,
                     ):
                         pipeline = TrainingPipelineV5.__new__(TrainingPipelineV5)
-                        pipeline.repo = mock_repo
+                        pipeline.store = mock_store
                         pipeline.db = None
                         pipeline.feature_engine = FeatureEngine()
                         pipeline.submodel_mgr = SubModelManager()
@@ -288,7 +283,7 @@ class TestTrainingPipelineV5:
         mock_mlflow: MagicMock,
     ) -> None:
         """MLflow にモデルが記録される"""
-        mock_repo = _make_mock_repo()
+        mock_store = _make_mock_store()
 
         feat_df = _make_feature_df(8000, 800)
         with patch.object(FeatureEngine, "build_all", return_value=feat_df):
@@ -306,7 +301,7 @@ class TestTrainingPipelineV5:
                         _FakePlaceAbilityModel,
                     ):
                         pipeline = TrainingPipelineV5.__new__(TrainingPipelineV5)
-                        pipeline.repo = mock_repo
+                        pipeline.store = mock_store
                         pipeline.db = None
                         pipeline.feature_engine = FeatureEngine()
                         pipeline.submodel_mgr = SubModelManager()

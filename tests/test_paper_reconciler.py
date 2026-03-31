@@ -25,7 +25,7 @@ class TestPaperReconciler:
         )
 
         reconciler = PaperReconciler(
-            repo=mock_repo,
+            store=mock_repo,
             bets_path=tmp_path / "bets.parquet",
             everydb2=mock_everydb2,
         )
@@ -66,7 +66,7 @@ class TestPaperReconciler:
         mock_everydb2.get_race_results.return_value = pd.DataFrame()
 
         reconciler = PaperReconciler(
-            repo=MagicMock(),
+            store=MagicMock(),
             bets_path=tmp_path / "bets.parquet",
             everydb2=mock_everydb2,
         )

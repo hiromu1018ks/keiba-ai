@@ -41,7 +41,7 @@ class TestBacktestValidationSuite:
 
         df = pd.DataFrame(
             {
-                "finish_pos": [1, 2, 3, 4, 5],
+                "kakuteijyuni": [1, 2, 3, 4, 5],
                 "win_odds_actual": [3.0, 5.0, 8.0, 15.0, 30.0],
             }
         )
@@ -56,7 +56,7 @@ class TestBacktestValidationSuite:
 
         df = pd.DataFrame(
             {
-                "finish_pos": [1, 2, 3, 4, 5],
+                "kakuteijyuni": [1, 2, 3, 4, 5],
                 "win_odds_actual": [0.0, 5.0, 8.0, 15.0, 30.0],
             }
         )
@@ -231,7 +231,7 @@ class TestBacktestValidationSuite:
                 "ev_win": [0.50, 0.80, 1.20],
                 "ev_win_corrected": [0.55, 0.75, 1.15],
                 "win_odds_actual": [4.0, 6.0, 10.0],
-                "finish_pos": [1, 2, 1],
+                "kakuteijyuni": [1, 2, 1],
             }
         )
         result = suite.test_ev_correction_reduces_error(df)
@@ -250,7 +250,7 @@ class TestBacktestValidationSuite:
                 "ev_win": [0.10, 0.20, 0.05, 0.15],
                 "ev_win_corrected": [5.00, 6.00, 4.00, 7.00],
                 "win_odds_actual": [10.0, 8.0, 20.0, 15.0],
-                "finish_pos": [2, 3, 4, 5],
+                "kakuteijyuni": [2, 3, 4, 5],
             }
         )
         result = suite.test_ev_correction_reduces_error(df)
@@ -269,7 +269,7 @@ class TestBacktestValidationSuite:
                     "ev_win": 1.0,
                     "ev_win_corrected": 0.70,
                     "win_odds_actual": 5.0,
-                    "finish_pos": 2,
+                    "kakuteijyuni": 2,
                 }
             )
         df = pd.DataFrame(rows)
@@ -283,9 +283,9 @@ class TestBacktestValidationSuite:
         suite = BacktestValidationSuite()
         rows = []
         for _ in range(60):
-            rows.append({"finish_pos": 1, "p_win_pred": 0.15, "p_win_corrected": 0.20})
+            rows.append({"kakuteijyuni": 1, "p_win_pred": 0.15, "p_win_corrected": 0.20})
         for _ in range(40):
-            rows.append({"finish_pos": 2, "p_win_pred": 0.10, "p_win_corrected": 0.08})
+            rows.append({"kakuteijyuni": 2, "p_win_pred": 0.10, "p_win_corrected": 0.08})
         df = pd.DataFrame(rows)
         result = suite.test_ev_correction_winner_weight(df)
         assert result["passed"] is True
@@ -351,7 +351,7 @@ class TestWalkForwardCV:
         from backtest.validation_suite import BacktestValidationSuite
 
         # --- arrange ---
-        suite = BacktestValidationSuite(repo=None)
+        suite = BacktestValidationSuite(store=None)
 
         # TrainingPipelineV5().run() → TrainedModelsV5 mock
         mock_models = MagicMock(name="TrainedModelsV5")
@@ -423,7 +423,7 @@ class TestWalkForwardCV:
         """各ウィンドウで異なる ROI を返す場合、_overall の集計が正しい"""
         from backtest.validation_suite import BacktestValidationSuite
 
-        suite = BacktestValidationSuite(repo=None)
+        suite = BacktestValidationSuite(store=None)
 
         mock_pipeline = MagicMock()
         mock_pipeline.run.return_value = MagicMock(name="TrainedModelsV5")
@@ -470,7 +470,7 @@ class TestWalkForwardCV:
         """Rule 7 違反があった場合、rule7_passed が False になる"""
         from backtest.validation_suite import BacktestValidationSuite
 
-        suite = BacktestValidationSuite(repo=None)
+        suite = BacktestValidationSuite(store=None)
 
         mock_pipeline = MagicMock()
         mock_pipeline.run.return_value = MagicMock(name="TrainedModelsV5")

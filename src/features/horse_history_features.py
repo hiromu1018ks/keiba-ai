@@ -207,8 +207,8 @@ class HorseHistoryFeatures:
         if entries_filtered.empty:
             return pd.DataFrame(columns=["race_id", "umaban"] + self.BASE_COLS)
 
-        # Merge with races to get field_size, race_date
-        race_cols = ["race_id", "field_size", "race_date", "trackcd", "kyori"]
+        # Merge with races to get syussotosu (field_size), race_date, surface
+        race_cols = ["race_id", "syussotosu", "race_date", "trackcd", "kyori", "surface"]
         races_subset = races_hist[races_hist["race_id"].isin(entries_filtered["race_id"].unique())]
         entries_no_date = entries_filtered.drop(columns=["race_date"], errors="ignore")
         past_df = entries_no_date.merge(
@@ -234,7 +234,7 @@ class HorseHistoryFeatures:
             past_df.loc[~is_turf & (dist <= 1700), "distance_bin"] = "mile"
             past_df.loc[~is_turf & (dist <= 1400), "distance_bin"] = "sprint"
 
-        past_df["valid_field"] = (past_df["field_size"] >= 8).astype(int)
+        past_df["valid_field"] = (past_df["syussotosu"] >= 8).astype(int)
 
         # Pre-index past data by kettonum (sorted by race_date)
         past_df_sorted = past_df.sort_values(["kettonum", "race_date"]).reset_index(drop=True)
@@ -295,7 +295,7 @@ class HorseHistoryFeatures:
             if len(horse_past) > 0:
                 logits = _norm_finish_logit_vec(
                     horse_past["kakuteijyuni"].values.astype(float),
-                    horse_past["field_size"].values.astype(float),
+                    horse_past["syussotosu"].values.astype(float),
                 )
                 norm_finish_logit_avg: float = float(np.nanmean(logits))
             else:
@@ -372,14 +372,14 @@ class HorseHistoryFeatures:
 
             # closing_index_avg
             if (
-                all(c in horse_past.columns for c in ["jyuni4c", "kakuteijyuni", "field_size"])
+                all(c in horse_past.columns for c in ["jyuni4c", "kakuteijyuni", "syussotosu"])
                 and len(horse_past) > 0
             ):
-                valid_ci = horse_past.dropna(subset=["jyuni4c", "kakuteijyuni", "field_size"])
-                valid_ci = valid_ci[valid_ci["field_size"] > 1]
+                valid_ci = horse_past.dropna(subset=["jyuni4c", "kakuteijyuni", "syussotosu"])
+                valid_ci = valid_ci[valid_ci["syussotosu"] > 1]
                 if len(valid_ci) > 0:
-                    norm_4c = (valid_ci["jyuni4c"] - 1) / (valid_ci["field_size"] - 1)
-                    norm_finish = (valid_ci["kakuteijyuni"] - 1) / (valid_ci["field_size"] - 1)
+                    norm_4c = (valid_ci["jyuni4c"] - 1) / (valid_ci["syussotosu"] - 1)
+                    norm_finish = (valid_ci["kakuteijyuni"] - 1) / (valid_ci["syussotosu"] - 1)
                     closing_indices = norm_4c - norm_finish
                     closing_index_avg: float = float(closing_indices.tail(3).mean())
                 else:
@@ -476,7 +476,7 @@ class HorseHistoryFeatures:
         race_rank を生成しない (Task 9 で BASE_COLS から除外)。
         """
         # race_rank を生成する列を明示 (数値のみ)
-        _RACE_RANK_COLS = [
+        race_rank_cols = [
             "norm_finish_logit_avg",
             "harontimel3_avg",
             "harontimel3_zscore",
@@ -487,7 +487,7 @@ class HorseHistoryFeatures:
             # 注意: kyakusitukubun_cd, jockey_surprise, jockey_cond_wr は race_rank を生成しない
         ]
         df = df.copy()
-        for col in _RACE_RANK_COLS:
+        for col in race_rank_cols:
             if col not in df.columns:
                 continue
             df[f"{col}_race_rank"] = df.groupby("race_id")[col].rank(pct=True, method="average")

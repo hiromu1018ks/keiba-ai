@@ -7,7 +7,6 @@ from unittest.mock import MagicMock, patch
 import pandas as pd
 import pytest
 
-from db.repository import DataRepository
 from domain.models import SubmodelSet, TrainedModelsV5
 from domain.types import RegimeState
 
@@ -90,85 +89,97 @@ class TestBacktestEngine:
         engine = BacktestEngine(models=mock_models, initial_bankroll=200000)
         assert engine.initial_bankroll == 200000
 
-    @patch("backtest.engine.DataRepository")
+    @patch("backtest.engine.load_odds_snapshots")
+    @patch("backtest.engine.load_entries")
+    @patch("backtest.engine.load_races")
     def test_run_returns_backtest_result(
         self,
-        mock_repo_cls: MagicMock,
+        mock_load_races: MagicMock,
+        mock_load_entries: MagicMock,
+        mock_load_odds: MagicMock,
         mock_models: MagicMock,
     ) -> None:
         """run() が BacktestResult を返す"""
-        mock_repo = MagicMock(spec=DataRepository)
-        mock_repo_cls.return_value = mock_repo
-        mock_repo.load_races.return_value = pd.DataFrame()
-        mock_repo.load_entries.return_value = pd.DataFrame()
-        mock_repo.load_odds_snapshots.return_value = pd.DataFrame()
+        mock_load_races.return_value = pd.DataFrame()
+        mock_load_entries.return_value = pd.DataFrame()
+        mock_load_odds.return_value = pd.DataFrame()
 
         from backtest.engine import BacktestEngine
 
-        engine = BacktestEngine(models=mock_models, repo=mock_repo)
+        mock_store = MagicMock()
+        engine = BacktestEngine(models=mock_models, store=mock_store)
         result = engine.run("2024-01-01", "2024-12-31")
 
         assert hasattr(result, "total_roi")
         assert hasattr(result, "max_drawdown")
         assert hasattr(result, "total_bets")
 
-    @patch("backtest.engine.DataRepository")
+    @patch("backtest.engine.load_odds_snapshots")
+    @patch("backtest.engine.load_entries")
+    @patch("backtest.engine.load_races")
     def test_empty_period_returns_zero_bets(
         self,
-        mock_repo_cls: MagicMock,
+        mock_load_races: MagicMock,
+        mock_load_entries: MagicMock,
+        mock_load_odds: MagicMock,
         mock_models: MagicMock,
     ) -> None:
         """レースがない期間は0ベット"""
-        mock_repo = MagicMock(spec=DataRepository)
-        mock_repo_cls.return_value = mock_repo
-        mock_repo.load_races.return_value = pd.DataFrame()
-        mock_repo.load_entries.return_value = pd.DataFrame()
-        mock_repo.load_odds_snapshots.return_value = pd.DataFrame()
+        mock_load_races.return_value = pd.DataFrame()
+        mock_load_entries.return_value = pd.DataFrame()
+        mock_load_odds.return_value = pd.DataFrame()
 
         from backtest.engine import BacktestEngine
 
-        engine = BacktestEngine(models=mock_models, repo=mock_repo)
+        mock_store = MagicMock()
+        engine = BacktestEngine(models=mock_models, store=mock_store)
         result = engine.run("2024-01-01", "2024-12-31")
 
         assert result.total_bets == 0
 
-    @patch("backtest.engine.DataRepository")
+    @patch("backtest.engine.load_odds_snapshots")
+    @patch("backtest.engine.load_entries")
+    @patch("backtest.engine.load_races")
     def test_bankroll_tracking(
         self,
-        mock_repo_cls: MagicMock,
+        mock_load_races: MagicMock,
+        mock_load_entries: MagicMock,
+        mock_load_odds: MagicMock,
         mock_models: MagicMock,
     ) -> None:
         """資金の推移が追跡される"""
-        mock_repo = MagicMock(spec=DataRepository)
-        mock_repo_cls.return_value = mock_repo
-        mock_repo.load_races.return_value = pd.DataFrame()
-        mock_repo.load_entries.return_value = pd.DataFrame()
-        mock_repo.load_odds_snapshots.return_value = pd.DataFrame()
+        mock_load_races.return_value = pd.DataFrame()
+        mock_load_entries.return_value = pd.DataFrame()
+        mock_load_odds.return_value = pd.DataFrame()
 
         from backtest.engine import BacktestEngine
 
-        engine = BacktestEngine(models=mock_models, initial_bankroll=100000, repo=mock_repo)
+        mock_store = MagicMock()
+        engine = BacktestEngine(models=mock_models, initial_bankroll=100000, store=mock_store)
         result = engine.run("2024-01-01", "2024-12-31")
 
         # 空期間なので資金は変化しない
         assert result.final_bankroll == 100000
 
-    @patch("backtest.engine.DataRepository")
+    @patch("backtest.engine.load_odds_snapshots")
+    @patch("backtest.engine.load_entries")
+    @patch("backtest.engine.load_races")
     def test_default_result_values(
         self,
-        mock_repo_cls: MagicMock,
+        mock_load_races: MagicMock,
+        mock_load_entries: MagicMock,
+        mock_load_odds: MagicMock,
         mock_models: MagicMock,
     ) -> None:
         """空データのデフォルト値が正しい"""
-        mock_repo = MagicMock(spec=DataRepository)
-        mock_repo_cls.return_value = mock_repo
-        mock_repo.load_races.return_value = pd.DataFrame()
-        mock_repo.load_entries.return_value = pd.DataFrame()
-        mock_repo.load_odds_snapshots.return_value = pd.DataFrame()
+        mock_load_races.return_value = pd.DataFrame()
+        mock_load_entries.return_value = pd.DataFrame()
+        mock_load_odds.return_value = pd.DataFrame()
 
         from backtest.engine import BacktestEngine
 
-        engine = BacktestEngine(models=mock_models, repo=mock_repo)
+        mock_store = MagicMock()
+        engine = BacktestEngine(models=mock_models, store=mock_store)
         result = engine.run("2024-01-01", "2024-12-31")
 
         assert result.total_stake == 0.0
@@ -187,10 +198,14 @@ class TestBetHistoryEnrichment:
     @patch("features.horse_history_features.HorseHistoryFeatures")
     @patch("models.submodel_manager.SubModelManager")
     @patch("features.feature_engine.FeatureEngine")
-    @patch("backtest.engine.DataRepository")
+    @patch("backtest.engine.load_odds_snapshots")
+    @patch("backtest.engine.load_entries")
+    @patch("backtest.engine.load_races")
     def test_engine_populates_enriched_fields(
         self,
-        mock_repo_cls: MagicMock,
+        mock_load_races: MagicMock,
+        mock_load_entries: MagicMock,
+        mock_load_odds: MagicMock,
         mock_feat_engine_cls: MagicMock,
         mock_submodel_mgr_cls: MagicMock,
         mock_hist_cls: MagicMock,
@@ -200,49 +215,46 @@ class TestBetHistoryEnrichment:
         mock_models: MagicMock,
     ) -> None:
         """エンジンループが bet_history に拡張フィールドを付与する"""
-        # --- repo mock ---
-        mock_repo = MagicMock(spec=DataRepository)
-        mock_repo_cls.return_value = mock_repo
-        mock_repo.load_races.return_value = pd.DataFrame(
+        # --- load mocks ---
+        mock_load_races.return_value = pd.DataFrame(
             {
                 "race_id": ["20240101010101"],
                 "race_date": pd.to_datetime("2024-01-01"),
             }
         )
-        mock_repo.load_entries.return_value = pd.DataFrame(
+        mock_load_entries.return_value = pd.DataFrame(
             {
                 "race_id": ["20240101010101"],
                 "umaban": [1],
-                "ketto_num": [1234],
-                "finish_pos": [2],
-                "win_odds": [5.0],
-                "popularity_rank": [3],
-                "ba_taijyu": [480],
+                "kettonum": [1234],
+                "kakuteijyuni": [2],
+                "odds": [5.0],
+                "ninki": [3],
+                "bataijyu": [480],
                 "zogen_fugo": [0],
                 "zogen_sa": [0],
-                "kisyu_code": [100],
-                "chokyosi_code": [200],
+                "kisyucode": [100],
+                "chokyosicode": [200],
             }
         )
-        mock_repo.load_odds_snapshots.return_value = pd.DataFrame()
+        mock_load_odds.return_value = pd.DataFrame()
 
         # --- feat_df (complete columns for pipeline) ---
         feat_df = pd.DataFrame(
             {
                 "race_id": ["20240101010101"],
                 "umaban": [1],
-                "surface_key": ["turf"],
                 "surface": ["turf"],
-                "distance": [1200],
+                "kyori": [1200],
                 "distance_bin": ["sprint"],
                 "popularity_rank": [3],
                 "ninki": [3],
                 "ev_place": [1.5],
-                "place_odds_actual": [2.4],
-                "finish_pos": [2],
-                "ketto_num": [1234],
-                "win_odds": [5.0],
-                "ba_taijyu": [480],
+                "fukuoddslow": [2.4],
+                "kakuteijyuni": [2],
+                "kettonum": [1234],
+                "odds": [5.0],
+                "bataijyu": [480],
             }
         )
 
@@ -289,7 +301,8 @@ class TestBetHistoryEnrichment:
         # --- run engine ---
         from backtest.engine import BacktestEngine
 
-        engine = BacktestEngine(models=mock_models, repo=mock_repo)
+        mock_store = MagicMock()
+        engine = BacktestEngine(models=mock_models, store=mock_store)
         result = engine.run("2024-01-01", "2024-12-31")
 
         # --- assertions ---
@@ -297,8 +310,8 @@ class TestBetHistoryEnrichment:
         bet = result.bet_history[0]
         assert "surface" in bet
         assert bet["surface"] == "turf"
-        assert "distance" in bet
-        assert bet["distance"] == 1200
+        assert "kyori" in bet
+        assert bet["kyori"] == 1200
         assert "ev" in bet
         assert bet["ev"] == 1.5
         assert "popularity" in bet
