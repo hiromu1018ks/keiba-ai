@@ -82,7 +82,7 @@ class EVCorrectionModel:
         features = self._prepare_features(df)
 
         # ── Model P: P補正 (全サンプル・binary classification) ──
-        y_p = (df["finish_pos"] == 1).astype(int)
+        y_p = (df["kakuteijyuni"] == 1).astype(int)
         p_pred_clipped = np.clip(df["p_win_pred"], 1e-4, 1 - 1e-4)
         init_score = np.log(p_pred_clipped / (1 - p_pred_clipped))
 
@@ -102,10 +102,10 @@ class EVCorrectionModel:
         )
 
         # ── Model E: E補正 (1着馬のみ・1/√p 重み付き回帰) ──
-        winners = df[df["finish_pos"] == 1].copy()
+        winners = df[df["kakuteijyuni"] == 1].copy()
         e_pred_clipped = np.clip(winners["e_return_win_pred"], self.E_CLIP_FLOOR, None)
         winners["log_e_correction"] = np.log(
-            winners["win_odds_actual"].clip(lower=self.E_CLIP_FLOOR)
+            winners["odds"].clip(lower=self.E_CLIP_FLOOR)
         ) - np.log(e_pred_clipped)
         winners["_e_sample_weight"] = 1.0 / np.sqrt(np.clip(winners["p_win_pred"], 0.01, None))
 

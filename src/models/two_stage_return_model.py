@@ -62,7 +62,7 @@ class WinTwoStageModel:
     def train_hit_model(self, df: pd.DataFrame) -> None:
         """P(win) の学習 (全出走馬・1着=1 / 他=0)"""
         features = self._prepare_features(df)
-        y = (df["finish_pos"] == 1).astype(int)
+        y = (df["kakuteijyuni"] == 1).astype(int)
 
         self.hit_model = lgb.train(
             {
@@ -84,7 +84,7 @@ class WinTwoStageModel:
         E(win_odds | win) の学習 (1着馬のみ)。
         ゼロ偏重を完全に排除 -- 学習データにゼロが含まれない。
         """
-        hit_df = df[df["finish_pos"] == 1].copy()
+        hit_df = df[df["kakuteijyuni"] == 1].copy()
         if len(hit_df) < self.cfg.min_hit_samples:
             raise ValueError(
                 f"Stage B 学習には最低 {self.cfg.min_hit_samples} 件の"
@@ -92,7 +92,7 @@ class WinTwoStageModel:
             )
 
         features = self._prepare_features(hit_df)
-        y = hit_df["win_odds_actual"]
+        y = hit_df["odds"]
 
         self.return_model = lgb.train(
             {
@@ -150,7 +150,7 @@ class PlaceTwoStageModel:
     def train_hit_model(self, df: pd.DataFrame) -> None:
         """P(place) の学習 (3着以内=1 / それ以外=0)"""
         features = self._prepare_features(df)
-        y = (df["finish_pos"] <= 3).astype(int)
+        y = (df["kakuteijyuni"] <= 3).astype(int)
 
         self.hit_model = lgb.train(
             {
@@ -169,10 +169,10 @@ class PlaceTwoStageModel:
 
     def train_return_model(self, df: pd.DataFrame) -> None:
         """E(place_odds | place) の学習 (3着以内のみ)"""
-        hit_df = df[df["finish_pos"] <= 3].copy()
+        hit_df = df[df["kakuteijyuni"] <= 3].copy()
 
         features = self._prepare_features(hit_df)
-        y = hit_df["place_odds_actual"]
+        y = hit_df["fukuoddslow"]
 
         self.return_model = lgb.train(
             {

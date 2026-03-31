@@ -19,7 +19,7 @@ class WideJointPairBuilder:
 
     必要列 (入力DF):
       race_id, umaban, surface, distance_bin, track_condition_code,
-      grade_code, field_size, finish_pos, popularity_rank, running_style,
+      grade_code, field_size, kakuteijyuni, popularity_rank, running_style,
       wide_odds_{a}_{b} (全ペア分)
     """
 
@@ -38,7 +38,7 @@ class WideJointPairBuilder:
 
             # Pre-extract as numpy arrays for fast access
             umabans = horses["umaban"].values.astype(int)
-            finish_positions = horses["finish_pos"].values.astype(int)
+            finish_positions = horses["kakuteijyuni"].values.astype(int)
             popularity_ranks = horses["popularity_rank"].values.astype(int)
             running_styles = horses["running_style"].values.astype(int)
 
@@ -64,15 +64,17 @@ class WideJointPairBuilder:
                 lo, hi = min(umabans[i], umabans[j]), max(umabans[i], umabans[j])
                 odds_col = f"wide_odds_{lo}_{hi}"
 
-                all_pairs.append({
-                    **race_shared,
-                    "umaban_a": int(umabans[i]),
-                    "umaban_b": int(umabans[j]),
-                    "joint_hit": int(finish_positions[i] <= 3 and finish_positions[j] <= 3),
-                    "popularity_sum": int(popularity_ranks[i] + popularity_ranks[j]),
-                    "running_style_combo": int(running_styles[i] + running_styles[j]),
-                    "wide_odds": wide_odds_cache.get(odds_col, 0.0),
-                })
+                all_pairs.append(
+                    {
+                        **race_shared,
+                        "umaban_a": int(umabans[i]),
+                        "umaban_b": int(umabans[j]),
+                        "joint_hit": int(finish_positions[i] <= 3 and finish_positions[j] <= 3),
+                        "popularity_sum": int(popularity_ranks[i] + popularity_ranks[j]),
+                        "running_style_combo": int(running_styles[i] + running_styles[j]),
+                        "wide_odds": wide_odds_cache.get(odds_col, 0.0),
+                    }
+                )
 
         if not all_pairs:
             return pd.DataFrame()

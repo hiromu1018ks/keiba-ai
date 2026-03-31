@@ -25,9 +25,13 @@ class PlaceAbilityModel:
 
     FEATURE_COLS: list[str] = [
         # レース条件 (7)
-        "surface", "distance_bin", "track_condition_code",
-        "grade_code", "field_size",
-        "weight_diff_from_mean", "difficulty_score",
+        "surface",
+        "distance_bin",
+        "track_condition_code",
+        "grade_code",
+        "field_size",
+        "weight_diff_from_mean",
+        "difficulty_score",
         # 過去成績 (8)
         "norm_finish_logit_avg",
         "haron_time_l3_avg",
@@ -67,13 +71,20 @@ class PlaceAbilityModel:
     def train(self, df: pd.DataFrame) -> None:
         """学習 + Isotonic校正（時系列分割）"""
         assert "race_date" in df.columns, "race_date が必要"
-        assert "finish_pos" in df.columns, "finish_pos が必要"
+        assert "kakuteijyuni" in df.columns, "kakuteijyuni が必要"
 
         df = df.copy()
-        y = (df["finish_pos"] <= 3).astype(int)
+        y = (df["kakuteijyuni"] <= 3).astype(int)
         X = df[self.FEATURE_COLS].copy()  # noqa: N806
-        for col in ["surface", "distance_bin", "grade_code", "kyakusitu_cd",
-                    "blood_keito_cd", "kyakusitu_x_distance", "kyakusitu_x_surface"]:
+        for col in [
+            "surface",
+            "distance_bin",
+            "grade_code",
+            "kyakusitu_cd",
+            "blood_keito_cd",
+            "kyakusitu_x_distance",
+            "kyakusitu_x_surface",
+        ]:
             if col in X.columns:
                 X[col] = X[col].astype("category")
 
@@ -122,8 +133,15 @@ class PlaceAbilityModel:
         """p_ability_place を設定して df を返す"""
         df = df.copy()
         X = df[self.FEATURE_COLS].copy()  # noqa: N806
-        for col in ["surface", "distance_bin", "grade_code", "kyakusitu_cd",
-                    "blood_keito_cd", "kyakusitu_x_distance", "kyakusitu_x_surface"]:
+        for col in [
+            "surface",
+            "distance_bin",
+            "grade_code",
+            "kyakusitu_cd",
+            "blood_keito_cd",
+            "kyakusitu_x_distance",
+            "kyakusitu_x_surface",
+        ]:
             if col in X.columns:
                 X[col] = X[col].astype("category")
 

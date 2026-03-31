@@ -27,9 +27,13 @@ class AbilityModel:
 
     FEATURE_COLS: list[str] = [
         # レース条件 (7)
-        "surface", "distance_bin", "track_condition_code",
-        "grade_code", "field_size",
-        "weight_diff_from_mean", "difficulty_score",
+        "surface",
+        "distance_bin",
+        "track_condition_code",
+        "grade_code",
+        "field_size",
+        "weight_diff_from_mean",
+        "difficulty_score",
         # 過去成績 (8)
         "norm_finish_logit_avg",
         "haron_time_l3_avg",
@@ -75,13 +79,20 @@ class AbilityModel:
             for col in features.columns:
                 if pd.api.types.is_integer_dtype(features[col]):
                     features[col] = features[col].astype(float)
-            for col in ["surface", "distance_bin", "grade_code", "kyakusitu_cd",
-                        "blood_keito_cd", "kyakusitu_x_distance", "kyakusitu_x_surface"]:
+            for col in [
+                "surface",
+                "distance_bin",
+                "grade_code",
+                "kyakusitu_cd",
+                "blood_keito_cd",
+                "kyakusitu_x_distance",
+                "kyakusitu_x_surface",
+            ]:
                 if col in features.columns:
                     features[col] = features[col].astype("category")
 
             # ラベル: 1着=3, 2着=2, 3着=1, 4着以降=0
-            y = key_df["finish_pos"].apply(lambda x: max(0, 4 - x) if x > 0 else 0)
+            y = key_df["kakuteijyuni"].apply(lambda x: max(0, 4 - x) if x > 0 else 0)
             groups = key_df.groupby("race_id").size().values
 
             self.models[key] = lgb.train(
@@ -114,8 +125,15 @@ class AbilityModel:
                 continue
 
             features = df.loc[mask, self.FEATURE_COLS].copy()
-            for col in ["surface", "distance_bin", "grade_code", "kyakusitu_cd",
-                        "blood_keito_cd", "kyakusitu_x_distance", "kyakusitu_x_surface"]:
+            for col in [
+                "surface",
+                "distance_bin",
+                "grade_code",
+                "kyakusitu_cd",
+                "blood_keito_cd",
+                "kyakusitu_x_distance",
+                "kyakusitu_x_surface",
+            ]:
                 if col in features.columns:
                     features[col] = features[col].astype("category")
 
@@ -157,18 +175,11 @@ class AbilityModel:
             return self.add_ability_probs(df)
 
         # fold 境界: n_folds+1 個の等分割点
-        boundaries = [
-            dates[n_dates * (i + 1) // (n_folds + 1)]
-            for i in range(n_folds)
-        ]
+        boundaries = [dates[n_dates * (i + 1) // (n_folds + 1)] for i in range(n_folds)]
 
         for i in range(n_folds):
             train_end = boundaries[i]
-            test_end = (
-                boundaries[i + 1]
-                if i + 1 < n_folds
-                else dates[-1] + pd.Timedelta(days=1)
-            )
+            test_end = boundaries[i + 1] if i + 1 < n_folds else dates[-1] + pd.Timedelta(days=1)
 
             train_mask = df["race_date"] < train_end
             test_mask = (df["race_date"] >= train_end) & (df["race_date"] < test_end)
