@@ -17,7 +17,7 @@ import mlflow
 import pandas as pd
 
 from db.parquet_store import ParquetStore
-from db.repository import DataRepository
+from db.readers import load_entries, load_odds_snapshots, load_races, load_wide_odds
 from domain.models import SubmodelSet, TrainedModelsV5
 
 if TYPE_CHECKING:
@@ -46,11 +46,11 @@ class TrainingPipelineV5:
 
     def __init__(
         self,
-        repo: DataRepository | None = None,
+        store: ParquetStore | None = None,
         db: DatabaseConnection | None = None,
         settings_path: str | None = None,
     ) -> None:
-        self.repo = repo or DataRepository(ParquetStore())
+        self.store = store or ParquetStore()
         self.db = db  # kept for etl_to_parquet if needed, can be None
         self.feature_engine = FeatureEngine()
         self.submodel_mgr = SubModelManager()
@@ -75,9 +75,9 @@ class TrainingPipelineV5:
 
         # 1. データロード
         logger.info(f"Loading data: {train_start} ~ {train_end}")
-        race_df = self.repo.load_races(start, end)
-        entry_df = self.repo.load_entries(start, end)
-        odds_df = self.repo.load_odds_snapshots(start, end)
+        race_df = load_races(self.store, start, end)
+        entry_df = load_entries(self.store, start, end)
+        odds_df = load_odds_snapshots(self.store, start, end)
 
         # NEW: _train_submodel 内で HorseHistoryFeatures が使用するため保存
         self._race_df = race_df
@@ -88,16 +88,14 @@ class TrainingPipelineV5:
         # 2. 特徴量生成
         logger.info("Building features")
         feat_df = self.feature_engine.build_all(
-            race_df, entry_df, odds_df, odds_ts_df=odds_ts_df, repo=self.repo
+            race_df, entry_df, odds_df, odds_ts_df=odds_ts_df, store=self.store
         )
         feat_df = self.submodel_mgr.add_distance_band_features(feat_df)
 
         # 2b. ワイドオッズを pivot して特徴量に merge
-        wide_odds_df = self.repo.load_wide_odds(start, end)
+        wide_odds_df = load_wide_odds(self.store, start, end)
         if wide_odds_df is not None and not wide_odds_df.empty:
-            wide_pivot = wide_odds_df.pivot_table(
-                index="race_id", columns="kumi", values="odds_low"
-            )
+            wide_pivot = wide_odds_df.pivot_table(index="race_id", columns="kumi", values="oddslow")
             wide_pivot.columns = [
                 f"wide_odds_{kumi.replace('-', '_')}" for kumi in wide_pivot.columns
             ]
@@ -181,7 +179,7 @@ class TrainingPipelineV5:
         # NEW: 馬過去成績特徴量
         from features.horse_history_features import HorseHistoryFeatures
 
-        hist = HorseHistoryFeatures(repo=self.repo)
+        hist = HorseHistoryFeatures(store=self.store)
         hist_df = hist.compute(self._race_df, self._entry_df, df["race_id"].unique())
         df = df.merge(hist_df, on=["race_id", "umaban"], how="left")
         df = HorseHistoryFeatures.add_race_transforms(df)
@@ -232,11 +230,11 @@ class TrainingPipelineV5:
         from features.jockey_context_features import JockeyContextFeatures
         from features.trainer_context_features import TrainerContextFeatures
 
-        jockey_ctx = JockeyContextFeatures(self.repo)
+        jockey_ctx = JockeyContextFeatures(self.store)
         jockey_df = jockey_ctx.compute(df_oof)
         df_oof = pd.merge(df_oof, jockey_df, on=["race_id", "umaban"], how="left")
 
-        trainer_ctx = TrainerContextFeatures(self.repo)
+        trainer_ctx = TrainerContextFeatures(self.store)
         trainer_df = trainer_ctx.compute(df_oof)
         df_oof = pd.merge(df_oof, trainer_df, on=["race_id", "umaban"], how="left")
 
@@ -261,12 +259,10 @@ class TrainingPipelineV5:
         # 7. 信頼区間キャリブレーション
         conf = RobustConfidenceEstimator()
         win_calib_df = df_oof.copy()
-        win_calib_df["actual_ev_win"] = df_oof["win_odds_actual"] * (
-            df_oof["finish_pos"] == 1
-        ).astype(int)
+        win_calib_df["actual_ev_win"] = df_oof["odds"] * (df_oof["kakuteijyuni"] == 1).astype(int)
         place_calib_df = df_oof.copy()
-        place_calib_df["actual_ev_place"] = df_oof["place_odds_actual"] * (
-            df_oof["finish_pos"] <= 3
+        place_calib_df["actual_ev_place"] = df_oof["fukuoddslow"] * (
+            df_oof["kakuteijyuni"] <= 3
         ).astype(int)
         place_calib_df["ev_place_corrected"] = df_oof["ev_place"]
         conf.calibrate(win_calib_df, place_calib_df)
@@ -312,7 +308,7 @@ class TrainingPipelineV5:
                 overround_mean=("overround", "first"),
                 # 人気順位統計
                 favorite_win_rate=(
-                    "finish_pos",
+                    "kakuteijyuni",
                     lambda x: (x == 1).mean() if len(x) > 0 else 0.0,
                 ),
             )
@@ -384,7 +380,7 @@ class TrainingPipelineV5:
         # FLB slope: 馬レベル feat_df から計算 → レース単位に集約
         from features.market_bias_features import compute_flb_slope
 
-        if all(c in feat_df.columns for c in ["race_id", "tan_odds", "finish_pos"]):
+        if all(c in feat_df.columns for c in ["race_id", "tanodds", "kakuteijyuni"]):
             flb_series = compute_flb_slope(feat_df)
             feat_copy = feat_df.copy()
             feat_copy["flb_slope"] = flb_series.values
