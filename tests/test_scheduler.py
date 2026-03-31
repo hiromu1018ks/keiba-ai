@@ -12,17 +12,30 @@ from domain.types import BetType
 
 def _make_race(race_num: str = "01") -> Race:
     return Race(
-        year=2024, month_day="0325", jyo_cd="01", kaiji="01",
-        nichiji="01", race_num=race_num, track_cd=10, distance=1600,
-        tenko_cd=1, baba_cd=1, syubetu_cd="0", jyoken_cd="0",
-        grade_cd="0", field_size=8,
+        year=2024,
+        month_day="0325",
+        jyo_cd="01",
+        kaiji="01",
+        nichiji="01",
+        race_num=race_num,
+        track_cd=10,
+        distance=1600,
+        tenko_cd=1,
+        baba_cd=1,
+        syubetu_cd="0",
+        jyoken_cd="0",
+        grade_cd="0",
+        field_size=8,
     )
 
 
 def _make_bet(umaban: int = 1) -> Bet:
     return Bet(
-        race_id="2024032501010101", umaban=umaban,
-        bet_type=BetType.PLACE, odds=3.0, ev_lower_corrected=1.20,
+        race_id="2024032501010101",
+        umaban=umaban,
+        bet_type=BetType.PLACE,
+        odds=3.0,
+        ev_lower_corrected=1.20,
         stake=500.0,
     )
 
@@ -53,6 +66,7 @@ class TestRaceScheduler:
         mock_lmf.log_last_2min.return_value = None
 
         from automation.scheduler import RaceScheduler
+
         return RaceScheduler(
             orchestrator=mock_orch,
             odds_collector=mock_collector,
@@ -120,7 +134,8 @@ class TestRaceScheduler:
         """SafetyGuard が投票不可の場合は process_race が空リストを返す"""
         scheduler = self._make_scheduler()
         scheduler._safety_guard.check.return_value = SafetyCheckResult(
-            can_bet=False, reason="Daily loss exceeded",
+            can_bet=False,
+            reason="Daily loss exceeded",
         )
 
         race = _make_race()
@@ -147,13 +162,18 @@ class TestRaceScheduler:
         scheduler = self._make_scheduler()
         mock_monitor = MagicMock()
         mock_monitor.check_performance.return_value = MagicMock(
-            needs_attention=False, should_retrain=False,
+            needs_attention=False,
+            should_retrain=False,
         )
 
-        results = pd.DataFrame({
-            "race_id": ["R1"], "ev_predicted": [1.0],
-            "ev_actual": [1.2], "hit": [1],
-        })
+        results = pd.DataFrame(
+            {
+                "race_id": ["R1"],
+                "ev_predicted": [1.0],
+                "ev_actual": [1.2],
+                "hit": [1],
+            }
+        )
         report = scheduler.evaluate_model_performance(results, monitor=mock_monitor)
 
         mock_monitor.check_performance.assert_called_once_with(results)
@@ -164,17 +184,25 @@ class TestRaceScheduler:
         scheduler = self._make_scheduler()
         mock_monitor = MagicMock()
         mock_monitor.check_performance.return_value = MagicMock(
-            needs_attention=True, should_retrain=True,
-            hit_rate=0.05, regime="collapsed",
+            needs_attention=True,
+            should_retrain=True,
+            hit_rate=0.05,
+            regime="collapsed",
         )
         mock_notifier = MagicMock()
 
-        results = pd.DataFrame({
-            "race_id": ["R1"], "ev_predicted": [1.0],
-            "ev_actual": [0.0], "hit": [0],
-        })
+        results = pd.DataFrame(
+            {
+                "race_id": ["R1"],
+                "ev_predicted": [1.0],
+                "ev_actual": [0.0],
+                "hit": [0],
+            }
+        )
         scheduler.evaluate_model_performance(
-            results, monitor=mock_monitor, notifier=mock_notifier,
+            results,
+            monitor=mock_monitor,
+            notifier=mock_notifier,
         )
 
         mock_notifier.send.assert_called()

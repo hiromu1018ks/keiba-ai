@@ -14,18 +14,25 @@ logger = logging.getLogger(__name__)
 @runtime_checkable
 class StakeCalculatorProtocol(Protocol):
     def calc_stake(
-        self, ev_lower: float, odds: float,
-        bankroll: float, bet_type: BetType,
+        self,
+        ev_lower: float,
+        odds: float,
+        bankroll: float,
+        bet_type: BetType,
     ) -> float: ...
     def check_race_exposure(
-        self, bets: list[Bet], bankroll: float,
+        self,
+        bets: list[Bet],
+        bankroll: float,
     ) -> list[Bet]: ...
 
 
 @runtime_checkable
 class GateKeeperProtocol(Protocol):
     def filter_bets(
-        self, bets: list[Bet], ev_threshold: float,
+        self,
+        bets: list[Bet],
+        ev_threshold: float,
     ) -> list[Bet]: ...
 
 
@@ -38,23 +45,30 @@ class MetaSwitcherProtocol(Protocol):
 @runtime_checkable
 class BetStrategyProtocol(Protocol):
     def generate(
-        self, feats: dict, bankroll: float,
-        ev_threshold: float, max_bets: int = 3,
+        self,
+        feats: dict,
+        bankroll: float,
+        ev_threshold: float,
+        max_bets: int = 3,
     ) -> list[Bet]: ...
 
 
 @runtime_checkable
 class WideStrategyProtocol(Protocol):
     def select_bets(
-        self, scored_pairs: list[dict], ev_threshold: float,
-        score_threshold: float, max_bets: int = 3,
+        self,
+        scored_pairs: list[dict],
+        ev_threshold: float,
+        score_threshold: float,
+        max_bets: int = 3,
     ) -> list[dict]: ...
 
 
 @runtime_checkable
 class LateMoneyFilterProtocol(Protocol):
     def process_last_minute(
-        self, pending_bets: list[Bet],
+        self,
+        pending_bets: list[Bet],
         odds_t3_snapshot: dict[int, float],
         odds_t10_snapshot: dict[int, float],
         stage2_predictions: object,
@@ -69,7 +83,9 @@ class QualityScreenerProtocol(Protocol):
 @runtime_checkable
 class DrawdownControllerProtocol(Protocol):
     def adjust_stake(
-        self, base_stake: float, bankroll: float,
+        self,
+        base_stake: float,
+        bankroll: float,
     ) -> float: ...
 
 
@@ -152,10 +168,16 @@ class BettingOrchestrator:
 
         # ⑧ ベット候補生成
         place_bets = self.place_strategy.generate(
-            feats, bankroll, ev_threshold, max_bets=max_bets,
+            feats,
+            bankroll,
+            ev_threshold,
+            max_bets=max_bets,
         )
         win_bets = self.win_strategy.generate(
-            feats, bankroll, ev_threshold, max_bets=max_bets,
+            feats,
+            bankroll,
+            ev_threshold,
+            max_bets=max_bets,
         )
         wide_pairs = self.wide_strategy.select_bets(
             feats.get("wide_scored_pairs", []),
@@ -174,7 +196,10 @@ class BettingOrchestrator:
         # ⑨ 賭け金計算
         for bet in all_bets:
             base_stake = self.stake_calculator.calc_stake(
-                bet.ev_lower_corrected, bet.odds, bankroll, bet.bet_type,
+                bet.ev_lower_corrected,
+                bet.odds,
+                bankroll,
+                bet.bet_type,
             )
             bet.stake = dd_ctrl.adjust_stake(base_stake, bankroll)
 
@@ -185,7 +210,9 @@ class BettingOrchestrator:
         if self.safety_guard is not None:
             check_result = self.safety_guard.check(bankroll)
             if not check_result.can_bet:
-                logger.warning(f"[{race.race_id}] Bets blocked by SafetyGuard: {check_result.reason}")
+                logger.warning(
+                    f"[{race.race_id}] Bets blocked by SafetyGuard: {check_result.reason}"
+                )
                 return []
 
         # 最小投票額フィルタ
@@ -213,9 +240,7 @@ class BettingOrchestrator:
         )
 
         if cancelled:
-            logger.info(
-                f"[{race.race_id}] {len(cancelled)} bets cancelled by t-3min trigger"
-            )
+            logger.info(f"[{race.race_id}] {len(cancelled)} bets cancelled by t-3min trigger")
 
         return approved
 

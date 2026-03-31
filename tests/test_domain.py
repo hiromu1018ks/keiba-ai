@@ -1,6 +1,5 @@
 """src/domain モジュールのテスト"""
 
-
 from domain.models import (
     Bet,
     DDState,
@@ -58,33 +57,77 @@ class TestRace:
 
     def test_surface_dirt(self):
         race = Race(
-            year=2024, month_day="0324", jyo_cd="05", kaiji="03", nichiji="02",
-            race_num="08", track_cd=23, distance=1200, tenko_cd=1, baba_cd=1,
-            syubetu_cd=13, jyoken_cd=999, grade_cd="_", field_size=14,
+            year=2024,
+            month_day="0324",
+            jyo_cd="05",
+            kaiji="03",
+            nichiji="02",
+            race_num="08",
+            track_cd=23,
+            distance=1200,
+            tenko_cd=1,
+            baba_cd=1,
+            syubetu_cd=13,
+            jyoken_cd=999,
+            grade_cd="_",
+            field_size=14,
         )
         assert race.surface == Surface.DIRT
 
     def test_race_id_format(self):
         race = Race(
-            year=2024, month_day="0324", jyo_cd="05", kaiji="03", nichiji="02",
-            race_num="08", track_cd=11, distance=1600, tenko_cd=1, baba_cd=1,
-            syubetu_cd=13, jyoken_cd=999, grade_cd="_", field_size=18,
+            year=2024,
+            month_day="0324",
+            jyo_cd="05",
+            kaiji="03",
+            nichiji="02",
+            race_num="08",
+            track_cd=11,
+            distance=1600,
+            tenko_cd=1,
+            baba_cd=1,
+            syubetu_cd=13,
+            jyoken_cd=999,
+            grade_cd="_",
+            field_size=18,
         )
         assert race.race_id == "2024032405030208"
 
     def test_is_good_track(self):
         race = Race(
-            year=2024, month_day="0324", jyo_cd="05", kaiji="03", nichiji="02",
-            race_num="08", track_cd=11, distance=1600, tenko_cd=1, baba_cd=1,
-            syubetu_cd=13, jyoken_cd=999, grade_cd="_", field_size=18,
+            year=2024,
+            month_day="0324",
+            jyo_cd="05",
+            kaiji="03",
+            nichiji="02",
+            race_num="08",
+            track_cd=11,
+            distance=1600,
+            tenko_cd=1,
+            baba_cd=1,
+            syubetu_cd=13,
+            jyoken_cd=999,
+            grade_cd="_",
+            field_size=18,
         )
         assert race.is_good_track is True
 
     def test_is_soft_track(self):
         race = Race(
-            year=2024, month_day="0324", jyo_cd="05", kaiji="03", nichiji="02",
-            race_num="08", track_cd=11, distance=1600, tenko_cd=1, baba_cd=3,
-            syubetu_cd=13, jyoken_cd=999, grade_cd="_", field_size=18,
+            year=2024,
+            month_day="0324",
+            jyo_cd="05",
+            kaiji="03",
+            nichiji="02",
+            race_num="08",
+            track_cd=11,
+            distance=1600,
+            tenko_cd=1,
+            baba_cd=3,
+            syubetu_cd=13,
+            jyoken_cd=999,
+            grade_cd="_",
+            field_size=18,
         )
         assert race.is_good_track is False
         assert race.is_soft_track is True
@@ -111,20 +154,36 @@ class TestEntry:
 
     def test_entry_not_winner(self):
         entry = Entry(
-            race_id="2024032405030208", umaban=5, ketto_num="0001234567",
-            finish_pos=4, win_odds_actual=15.8, popularity_rank=8,
-            running_style=4, ba_taijyu=476, zogen_fugo=1, zogen_sa=2,
-            kisyu_code="01056", chokyosi_code="01023",
+            race_id="2024032405030208",
+            umaban=5,
+            ketto_num="0001234567",
+            finish_pos=4,
+            win_odds_actual=15.8,
+            popularity_rank=8,
+            running_style=4,
+            ba_taijyu=476,
+            zogen_fugo=1,
+            zogen_sa=2,
+            kisyu_code="01056",
+            chokyosi_code="01023",
         )
         assert entry.is_winner is False
         assert entry.is_place is False
 
     def test_entry_cancelled(self):
         entry = Entry(
-            race_id="2024032405030208", umaban=5, ketto_num="0001234567",
-            finish_pos=0, win_odds_actual=0.0, popularity_rank=0,
-            running_style=0, ba_taijyu=0, zogen_fugo=0, zogen_sa=0,
-            kisyu_code="", chokyosi_code="",
+            race_id="2024032405030208",
+            umaban=5,
+            ketto_num="0001234567",
+            finish_pos=0,
+            win_odds_actual=0.0,
+            popularity_rank=0,
+            running_style=0,
+            ba_taijyu=0,
+            zogen_fugo=0,
+            zogen_sa=0,
+            kisyu_code="",
+            chokyosi_code="",
         )
         assert entry.is_winner is False
         assert entry.is_cancelled is True
@@ -145,8 +204,12 @@ class TestBet:
 
     def test_bet_minimum_stake(self):
         bet = Bet(
-            race_id="2024032405030208", umaban=5, bet_type=BetType.WIN,
-            odds=3.2, ev_lower_corrected=1.05, stake=50,
+            race_id="2024032405030208",
+            umaban=5,
+            bet_type=BetType.WIN,
+            odds=3.2,
+            ev_lower_corrected=1.05,
+            stake=50,
         )
         assert bet.stake < 100
         assert bet.is_valid is False

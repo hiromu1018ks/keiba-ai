@@ -79,10 +79,13 @@ class TestTrainOof:
         """train_oof() は p_ability_win 列を含む DataFrame を返す"""
         df = _make_oof_df(n_races=40, horses_per_race=8)
 
-        with patch.object(AbilityModel, "train"), patch.object(
-            AbilityModel, "add_ability_probs", side_effect=lambda d: d.assign(
-                p_ability_win=np.full(len(d), 0.125)
-            )
+        with (
+            patch.object(AbilityModel, "train"),
+            patch.object(
+                AbilityModel,
+                "add_ability_probs",
+                side_effect=lambda d: d.assign(p_ability_win=np.full(len(d), 0.125)),
+            ),
         ):
             model = AbilityModel()
             result = model.train_oof(df)
@@ -105,8 +108,9 @@ class TestTrainOof:
             predict_calls.append(test_df)
             return test_df.assign(p_ability_win=np.full(len(test_df), 0.1))
 
-        with patch.object(AbilityModel, "train", mock_train), patch.object(
-            AbilityModel, "add_ability_probs", mock_predict
+        with (
+            patch.object(AbilityModel, "train", mock_train),
+            patch.object(AbilityModel, "add_ability_probs", mock_predict),
         ):
             model = AbilityModel()
             model.train_oof(df, n_folds=3)
@@ -119,8 +123,7 @@ class TestTrainOof:
             train_max_date = tr["race_date"].max()
             test_min_date = te["race_date"].min()
             assert train_max_date < test_min_date, (
-                f"Fold {i}: train max date {train_max_date} >= "
-                f"predict min date {test_min_date}"
+                f"Fold {i}: train max date {train_max_date} >= predict min date {test_min_date}"
             )
 
     def test_train_oof_trains_final_model_on_all_data(self) -> None:
@@ -131,10 +134,13 @@ class TestTrainOof:
         def mock_train(self: AbilityModel, train_df: pd.DataFrame) -> None:
             train_calls.append(train_df)
 
-        with patch.object(AbilityModel, "train", mock_train), patch.object(
-            AbilityModel, "add_ability_probs", side_effect=lambda d: d.assign(
-                p_ability_win=np.full(len(d), 0.1)
-            )
+        with (
+            patch.object(AbilityModel, "train", mock_train),
+            patch.object(
+                AbilityModel,
+                "add_ability_probs",
+                side_effect=lambda d: d.assign(p_ability_win=np.full(len(d), 0.1)),
+            ),
         ):
             model = AbilityModel()
             model.train_oof(df, n_folds=3)
@@ -150,10 +156,13 @@ class TestTrainOof:
         """最初のfoldのテスト期間データは OOF 予測を持たない (NaN)"""
         df = _make_oof_df(n_races=40, horses_per_race=8)
 
-        with patch.object(AbilityModel, "train"), patch.object(
-            AbilityModel, "add_ability_probs", side_effect=lambda d: d.assign(
-                p_ability_win=np.full(len(d), 0.125)
-            )
+        with (
+            patch.object(AbilityModel, "train"),
+            patch.object(
+                AbilityModel,
+                "add_ability_probs",
+                side_effect=lambda d: d.assign(p_ability_win=np.full(len(d), 0.125)),
+            ),
         ):
             model = AbilityModel()
             result = model.train_oof(df, n_folds=3)
@@ -178,10 +187,13 @@ class TestTrainOof:
         def mock_train(self: AbilityModel, train_df: pd.DataFrame) -> None:
             train_calls.append(train_df)
 
-        with patch.object(AbilityModel, "train", mock_train), patch.object(
-            AbilityModel, "add_ability_probs", side_effect=lambda d: d.assign(
-                p_ability_win=np.full(len(d), 0.125)
-            )
+        with (
+            patch.object(AbilityModel, "train", mock_train),
+            patch.object(
+                AbilityModel,
+                "add_ability_probs",
+                side_effect=lambda d: d.assign(p_ability_win=np.full(len(d), 0.125)),
+            ),
         ):
             model = AbilityModel()
             result = model.train_oof(df)

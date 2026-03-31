@@ -77,9 +77,7 @@ def validate_no_future_leakage(
             past_values = merged.iloc[:i][source_col].dropna()
             if len(past_values) == 0:
                 # 過去データがないのに値がある = リーク
-                issues.append(
-                    f"{hist_col}: 行{i} に値 {actual} があるが過去データが不存在"
-                )
+                issues.append(f"{hist_col}: 行{i} に値 {actual} があるが過去データが不存在")
                 continue
 
             expected = past_values.mean()

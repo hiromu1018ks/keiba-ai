@@ -14,7 +14,6 @@ from db.etl import _compute_race_date, _compute_race_id  # noqa: F401
 from db.schema import ALL_CREATE_STATEMENTS
 
 if TYPE_CHECKING:
-
     from db.parquet_store import ParquetStore
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent

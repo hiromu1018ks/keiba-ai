@@ -13,18 +13,21 @@ def historical_df() -> pd.DataFrame:
     race_date でソート済み。expanding().shift(1) により
     各行は自分より前のデータのみから計算される。
     """
-    return pd.DataFrame({
-        "race_id": ["R1", "R2", "R3", "R4", "R5"],
-        "race_date": pd.to_datetime(["2024-01-01", "2024-01-02", "2024-01-03",
-                                     "2024-01-04", "2024-01-05"]),
-        "surface": ["turf", "turf", "dirt", "turf", "turf"],
-        "distance_band": ["mile", "mile", "sprint", "mile", "mile"],
-        "market_entropy": [2.5, 2.7, 2.0, 2.6, 2.8],
-        "topk_hit": [1, 0, 1, 1, 0],
-        "topk_roi": [1.5, -0.5, 2.0, 1.2, -0.3],
-        "positive_return": [True, False, True, True, False],
-        "is_winner": [1, 0, 0, 1, 0],
-    })
+    return pd.DataFrame(
+        {
+            "race_id": ["R1", "R2", "R3", "R4", "R5"],
+            "race_date": pd.to_datetime(
+                ["2024-01-01", "2024-01-02", "2024-01-03", "2024-01-04", "2024-01-05"]
+            ),
+            "surface": ["turf", "turf", "dirt", "turf", "turf"],
+            "distance_band": ["mile", "mile", "sprint", "mile", "mile"],
+            "market_entropy": [2.5, 2.7, 2.0, 2.6, 2.8],
+            "topk_hit": [1, 0, 1, 1, 0],
+            "topk_roi": [1.5, -0.5, 2.0, 1.2, -0.3],
+            "positive_return": [True, False, True, True, False],
+            "is_winner": [1, 0, 0, 1, 0],
+        }
+    )
 
 
 class TestHistFeatures:

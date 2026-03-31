@@ -13,10 +13,20 @@ from domain.types import BetType
 
 def _make_race() -> Race:
     return Race(
-        year=2024, month_day="0325", jyo_cd="01", kaiji="01",
-        nichiji="01", race_num="01", track_cd=10, distance=1600,
-        tenko_cd=1, baba_cd=1, syubetu_cd="0", jyoken_cd="0",
-        grade_cd="0", field_size=8,
+        year=2024,
+        month_day="0325",
+        jyo_cd="01",
+        kaiji="01",
+        nichiji="01",
+        race_num="01",
+        track_cd=10,
+        distance=1600,
+        tenko_cd=1,
+        baba_cd=1,
+        syubetu_cd="0",
+        jyoken_cd="0",
+        grade_cd="0",
+        field_size=8,
     )
 
 
@@ -63,8 +73,14 @@ def mock_deps() -> tuple:
     quality_screener.should_bet.return_value = True
 
     return (
-        stake_calc, dd_ctrl, gate_keeper, meta_switcher,
-        place_strategy, win_strategy, wide_strategy, late_money,
+        stake_calc,
+        dd_ctrl,
+        gate_keeper,
+        meta_switcher,
+        place_strategy,
+        win_strategy,
+        wide_strategy,
+        late_money,
         quality_screener,
     )
 
@@ -73,8 +89,15 @@ class TestBettingOrchestrator:
     def test_process_race_returns_bets(self, mock_deps: tuple) -> None:
         """process_race が Bet リストを返す"""
         (
-            stake_calc, dd_ctrl, gk, ms,
-            ps, ws, wids, lm, qs,
+            stake_calc,
+            dd_ctrl,
+            gk,
+            ms,
+            ps,
+            ws,
+            wids,
+            lm,
+            qs,
         ) = mock_deps
 
         orch = BettingOrchestrator(
@@ -99,13 +122,18 @@ class TestBettingOrchestrator:
         bets = orch.process_race(race, feats, bankroll=100000, dd_ctrl=dd_ctrl)
         assert isinstance(bets, list)
 
-    def test_process_race_skips_by_quality_screener(
-        self, mock_deps: tuple
-    ) -> None:
+    def test_process_race_skips_by_quality_screener(self, mock_deps: tuple) -> None:
         """QualityScreener が却下した場合、空リスト"""
         (
-            stake_calc, dd_ctrl, gk, ms,
-            ps, ws, wids, lm, qs,
+            stake_calc,
+            dd_ctrl,
+            gk,
+            ms,
+            ps,
+            ws,
+            wids,
+            lm,
+            qs,
         ) = mock_deps
         qs.should_bet.return_value = False
 
@@ -125,13 +153,18 @@ class TestBettingOrchestrator:
         bets = orch.process_race(race, feats, bankroll=100000, dd_ctrl=dd_ctrl)
         assert bets == []
 
-    def test_pairs_to_bets_converts_wide_pairs(
-        self, mock_deps: tuple
-    ) -> None:
+    def test_pairs_to_bets_converts_wide_pairs(self, mock_deps: tuple) -> None:
         """_pairs_to_bets がワイドペアdictをBetリストに変換"""
         (
-            stake_calc, dd_ctrl, gk, ms,
-            ps, ws, wids, lm, qs,
+            stake_calc,
+            dd_ctrl,
+            gk,
+            ms,
+            ps,
+            ws,
+            wids,
+            lm,
+            qs,
         ) = mock_deps
 
         orch = BettingOrchestrator(
@@ -146,10 +179,22 @@ class TestBettingOrchestrator:
         )
 
         pairs = [
-            {"race_id": "R1", "umaban_a": 1, "umaban_b": 3,
-             "wide_score_adj": 0.05, "ev_wide": 1.30, "wide_odds": 5.0},
-            {"race_id": "R1", "umaban_a": 2, "umaban_b": 4,
-             "wide_score_adj": 0.03, "ev_wide": 1.20, "wide_odds": 4.0},
+            {
+                "race_id": "R1",
+                "umaban_a": 1,
+                "umaban_b": 3,
+                "wide_score_adj": 0.05,
+                "ev_wide": 1.30,
+                "wide_odds": 5.0,
+            },
+            {
+                "race_id": "R1",
+                "umaban_a": 2,
+                "umaban_b": 4,
+                "wide_score_adj": 0.03,
+                "ev_wide": 1.20,
+                "wide_odds": 4.0,
+            },
         ]
         bets = orch._pairs_to_bets(pairs)
         assert len(bets) == 2
@@ -157,13 +202,18 @@ class TestBettingOrchestrator:
         assert bets[0].umaban == 1  # 代表馬番
         assert bets[0].ev_lower_corrected == 1.30
 
-    def test_finalize_bets_applies_late_money(
-        self, mock_deps: tuple
-    ) -> None:
+    def test_finalize_bets_applies_late_money(self, mock_deps: tuple) -> None:
         """finalize_bets が late_money_filter を適用"""
         (
-            stake_calc, dd_ctrl, gk, ms,
-            ps, ws, wids, lm, qs,
+            stake_calc,
+            dd_ctrl,
+            gk,
+            ms,
+            ps,
+            ws,
+            wids,
+            lm,
+            qs,
         ) = mock_deps
 
         pending = [
@@ -192,13 +242,18 @@ class TestBettingOrchestrator:
         assert len(approved) == 1
         assert approved[0].umaban == 1
 
-    def test_finalize_bets_empty_input(
-        self, mock_deps: tuple
-    ) -> None:
+    def test_finalize_bets_empty_input(self, mock_deps: tuple) -> None:
         """空リスト入力で空リスト返却"""
         (
-            stake_calc, dd_ctrl, gk, ms,
-            ps, ws, wids, lm, qs,
+            stake_calc,
+            dd_ctrl,
+            gk,
+            ms,
+            ps,
+            ws,
+            wids,
+            lm,
+            qs,
         ) = mock_deps
 
         orch = BettingOrchestrator(
@@ -220,13 +275,18 @@ class TestBettingOrchestrator:
         )
         assert approved == []
 
-    def test_process_race_applies_stake_calc(
-        self, mock_deps: tuple
-    ) -> None:
+    def test_process_race_applies_stake_calc(self, mock_deps: tuple) -> None:
         """process_race が stake_calculator を呼び出す"""
         (
-            stake_calc, dd_ctrl, gk, ms,
-            ps, ws, wids, lm, qs,
+            stake_calc,
+            dd_ctrl,
+            gk,
+            ms,
+            ps,
+            ws,
+            wids,
+            lm,
+            qs,
         ) = mock_deps
 
         orch = BettingOrchestrator(
@@ -250,13 +310,18 @@ class TestBettingOrchestrator:
         orch.process_race(race, feats, bankroll=100000, dd_ctrl=dd_ctrl)
         stake_calc.calc_stake.assert_called()
 
-    def test_process_race_applies_exposure_cap(
-        self, mock_deps: tuple
-    ) -> None:
+    def test_process_race_applies_exposure_cap(self, mock_deps: tuple) -> None:
         """process_race がレース露出キャップを適用"""
         (
-            stake_calc, dd_ctrl, gk, ms,
-            ps, ws, wids, lm, qs,
+            stake_calc,
+            dd_ctrl,
+            gk,
+            ms,
+            ps,
+            ws,
+            wids,
+            lm,
+            qs,
         ) = mock_deps
 
         orch = BettingOrchestrator(
@@ -280,16 +345,22 @@ class TestBettingOrchestrator:
         orch.process_race(race, feats, bankroll=100000, dd_ctrl=dd_ctrl)
         stake_calc.check_race_exposure.assert_called_once()
 
-    def test_process_race_blocked_by_safety_guard(
-        self, mock_deps: tuple
-    ) -> None:
+    def test_process_race_blocked_by_safety_guard(self, mock_deps: tuple) -> None:
         """SafetyGuard が can_bet=False の場合、空リストを返す"""
         (
-            stake_calc, dd_ctrl, gk, ms,
-            ps, ws, wids, lm, qs,
+            stake_calc,
+            dd_ctrl,
+            gk,
+            ms,
+            ps,
+            ws,
+            wids,
+            lm,
+            qs,
         ) = mock_deps
 
         from automation.safety_guard import SafetyConfig, SafetyGuard
+
         safety_guard = SafetyGuard(SafetyConfig(min_bankroll=200000))
         # bankroll が min_bankroll を下回る
         safety_guard.activate_emergency_stop("test")
@@ -311,16 +382,22 @@ class TestBettingOrchestrator:
         bets = orch.process_race(race, feats, bankroll=100000, dd_ctrl=dd_ctrl)
         assert bets == []
 
-    def test_process_race_passes_with_safety_guard_ok(
-        self, mock_deps: tuple
-    ) -> None:
+    def test_process_race_passes_with_safety_guard_ok(self, mock_deps: tuple) -> None:
         """SafetyGuard が can_bet=True の場合、通常通りベットを返す"""
         (
-            stake_calc, dd_ctrl, gk, ms,
-            ps, ws, wids, lm, qs,
+            stake_calc,
+            dd_ctrl,
+            gk,
+            ms,
+            ps,
+            ws,
+            wids,
+            lm,
+            qs,
         ) = mock_deps
 
         from automation.safety_guard import SafetyGuard
+
         safety_guard = SafetyGuard()
 
         orch = BettingOrchestrator(
