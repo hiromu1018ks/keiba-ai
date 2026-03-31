@@ -6,6 +6,8 @@
 
 **Architecture:** ETLが型変換済みParquetを書き出し、readers.pyが薄いI/Oヘルパーを提供。FeatureEngineは派生列（distance_bin等）とMLモデル用別名（field_size, popularity_rank等）のみを計算。DataRepositoryは削除。
 
+**重要な制約**: 全変更は原子性を持って実行する必要がある。ETL型変換後のParquetを旧Repositoryが読むとオッズ二重除算等のデータ破壊が発生するため、Repository削除とパイプライン移行は同時に行う。
+
 **Tech Stack:** Python 3.11, pandas, pyarrow, LightGBM, pytest
 
 **Spec:** `docs/superpowers/specs/2026-03-31-raw-column-names-design.md`
@@ -91,7 +93,7 @@ def _apply_type_conversions(df: pd.DataFrame, table_key: str) -> pd.DataFrame:
     return df
 ```
 
-- [ ] **Step 2: `_compute_surface()` を追加**
+- [ ] **Step 2: `_compute_surface()` と `_compute_track_condition_code()` を追加**
 
 ```python
 def _compute_surface(df: pd.DataFrame) -> pd.DataFrame:
@@ -100,6 +102,18 @@ def _compute_surface(df: pd.DataFrame) -> pd.DataFrame:
         df["surface"] = df["trackcd"].apply(
             lambda x: "turf" if 10 <= x <= 22 else "dirt" if 23 <= x <= 29 else "other"
         )
+    return df
+
+
+def _compute_track_condition_code(df: pd.DataFrame) -> pd.DataFrame:
+    """sibababacd/dirtbabacd + trackcd → track_condition_code.
+
+    芝(trackcd 10-29)はsibababacd、ダート(23-29)はdirtbabacdを使用。
+    """
+    if "sibababacd" in df.columns and "dirtbabacd" in df.columns and "trackcd" in df.columns:
+        import numpy as np
+        is_turf = df["trackcd"].between(10, 29)
+        df["track_condition_code"] = np.where(is_turf, df["sibababacd"], df["dirtbabacd"])
     return df
 ```
 
@@ -110,6 +124,7 @@ def _compute_surface(df: pd.DataFrame) -> pd.DataFrame:
 df = _apply_type_conversions(df, key)
 if table_type == "raced":
     df = _compute_surface(df)
+    df = _compute_track_condition_code(df)
 ```
 
 パーティションテーブル（jodds_tanpuku等）の `pq.write_to_dataset()` の前に:
@@ -181,6 +196,22 @@ class TestComputeSurface:
         df = pd.DataFrame({"col": [1]})
         result = _compute_surface(df)
         assert "surface" not in result.columns
+
+
+class TestComputeTrackConditionCode:
+    def test_turf_uses_sibababacd(self):
+        df = pd.DataFrame({
+            "trackcd": [10, 22, 23, 29],
+            "sibababacd": ["2", "3", "1", "2"],
+            "dirtbabacd": ["1", "2", "3", "4"],
+        })
+        result = _compute_track_condition_code(df)
+        assert result["track_condition_code"].tolist() == [2, 3, 3, 4]
+
+    def test_missing_columns(self):
+        df = pd.DataFrame({"trackcd": [10]})
+        result = _compute_track_condition_code(df)
+        assert "track_condition_code" not in result.columns
 ```
 
 Run: `python -m pytest tests/test_etl_type_conversion.py -v`
@@ -226,12 +257,21 @@ def _date_filters(start: str, end: str) -> list[tuple]:
     return [("race_date", ">=", s), ("race_date", "<=", e)]
 
 
+def _exclude_steeple(df: pd.DataFrame) -> pd.DataFrame:
+    """障害レース除外（trackcd 51-59）。trackcd列がなければそのまま返す。"""
+    if "trackcd" not in df.columns:
+        return df
+    return df[~df["trackcd"].between(51, 59)].copy()
+
+
 def load_races(store: ParquetStore, start: str, end: str) -> pd.DataFrame:
-    return store.read("raw", "races", filters=_date_filters(start, end))
+    df = store.read("raw", "races", filters=_date_filters(start, end))
+    return _exclude_steeple(df)
 
 
 def load_entries(store: ParquetStore, start: str, end: str) -> pd.DataFrame:
-    return store.read("raw", "entries", filters=_date_filters(start, end))
+    df = store.read("raw", "entries", filters=_date_filters(start, end))
+    return _exclude_steeple(df)
 
 
 def load_odds_snapshots(store: ParquetStore, start: str, end: str) -> pd.DataFrame:
@@ -343,7 +383,7 @@ git commit -m "refactor: DataRepositoryとschema.pyを削除"
 
 以下の処理のみにする:
 1. `distance_bin`: `kyori` + `surface` から計算
-2. `track_condition_code`: `sibababacd`/`dirtbabacd` + `trackcd` から計算（既にあればスキップ）
+2. `track_condition_code`: ETLで既にParquetに保存済み。FeatureEngineでは `if "track_condition_code" not in df.columns` ガードのみ残す（推論パス用フォールバック）
 3. `grade_code`: `gradecd` → `grade_code` にコピー
 4. `field_size`: `syussotosu` → `field_size` にコピー
 5. `popularity_rank`: `ninki` → `popularity_rank` にコピー
@@ -354,6 +394,7 @@ git commit -m "refactor: DataRepositoryとschema.pyを削除"
 - `baba_cd` → `track_condition_code` リネーム
 - `grade_cd` → `grade_code` リネーム
 - `surface` 計算（ETLで済）
+- `track_condition_code` 計算（ETLで済 — `_compute_track_condition_code()` でParquetに保存）
 - `surface_key` コピー
 - `win_odds` → `win_odds_actual` コピー
 - `fuku_odds` → `place_odds_actual` コピー
@@ -637,17 +678,32 @@ git commit -m "refactor: BacktestEngineを生カラム名に対応"
 
 - [ ] **Step 2: JVLinkFetcher — `_row_to_race()` カラム名変更**
 
-Spec Section 7の完全マッピングに従い全カラムを生名に変更。
+Spec Section 7マッピングに従い変更。ただし:
+- `baba_cd` → ETLで `track_condition_code` として保存済み → `row["track_condition_code"]` を読む
+- `field_size` → `row["syussotosu"]` を読み、ドメインモデルには `field_size` として渡す
 
 - [ ] **Step 3: JVLinkFetcher — `_row_to_entry()` カラム名変更**
 
-`ketto_num` → `kettonum`, `finish_pos` → `kakuteijyuni`, `win_odds_actual` → `odds`, `ba_taijyu` → `bataijyu`, `kisyu_code` → `kisyucode`, `chokyosi_code` → `chokyosicode`
-注意: `popularity_rank` と `running_style` はParquetに存在しない（FeatureEngine別名）。
-`ninki` を読み、`kyakusitukubun` を読む。
+**重要**: Spec Section 7のマッピングと以下の点で異なる:
+- `popularity_rank` はFeatureEngine別名。生Parquetには `ninki` → `row["ninki"]` を読む
+- `running_style` はFeatureEngine別名。生Parquetには `kyakusitukubun` → `row["kyakusitukubun"]` を読む
+- `baba_cd` / `track_condition_code` はETLで `track_condition_code` としてParquetに保存済み → `row["track_condition_code"]` を読む
+
+変更:
+- `ketto_num` → `kettonum`
+- `finish_pos` → `kakuteijyuni`
+- `win_odds_actual` → `odds`
+- `ba_taijyu` → `bataijyu`
+- `kisyu_code` → `kisyucode`
+- `chokyosi_code` → `chokyosicode`
+- `popularity_rank` → `ninki` (生Parquetのカラム名)
+- `running_style` → `kyakusitukubun` (生Parquetのカラム名)
 
 - [ ] **Step 4: JVLinkFetcher — オッズ時系列参照変更**
 
-`happyo_time` → `happyotime`, `tan_odds` → `tanodds`, `fuku_odds` → `fukuoddslow`
+`load_odds_time_series(race_id)` は現在DataRepositoryでもtransformを適用せず生カラム名を返す。
+よって `happyo_time` → `happyotime`, `tan_odds` → `tanodds`, `fuku_odds` → `fukuoddslow` の変更は
+既存の動作に合わせるもの。念のためコード内の参照を生名に統一。
 
 - [ ] **Step 5: OddsCollector — repo→store**
 
