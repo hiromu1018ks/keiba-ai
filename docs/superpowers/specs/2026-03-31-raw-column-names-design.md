@@ -92,16 +92,21 @@ EveryDB2 (全文字列)
 
 | 削除される名前 | 代わりに使う名前 |
 |-------------|---------------|
-| `popularity_rank` | `ninki` |
 | `win_odds_actual` | `odds` |
 | `place_odds_actual` | `fukuoddslow` |
 | `surface_key` | `surface` |
 
-**FeatureEngineで継続計算する別名** (WidePairBuilder等で参照されるため):
+**注意**: `field_size`, `popularity_rank` はモデルFEATURE_COLSで参照されるため別名として維持（上記「継続計算する別名」参照）。
+
+**FeatureEngineで継続計算する別名** (MLモデルFEATURE_COLSまたは下流コンポーネントで参照されるため):
 
 | 計算列名 | 入力 | 理由 |
 |---------|------|------|
+| `field_size` | `syussotosu` | MarketModel, AbilityModel, PlaceAbilityModel, WinTwoStageModel, EVCorrectionModel, RaceQualityScreener, WideTwoStageModel の FEATURE_COLS で参照 |
+| `popularity_rank` | `ninki` | WinTwoStageModel, EVCorrectionModel, RaceQualityScreener の FEATURE_COLS で参照 |
 | `running_style` | `kyakusitukubun` (intに変換) | WidePairBuilder.build() が `horses["running_style"]` を参照 |
+| `track_condition_code` | `sibababacd`/`dirtbabacd` + `trackcd` | 全モデルの FEATURE_COLS で参照 |
+| `grade_code` | `gradecd` | 全モデルの FEATURE_COLS で参照 |
 
 **変更なしの名前**: `race_id`, `race_date`, `umaban`, `ninki`, `surface`
 
@@ -202,12 +207,14 @@ DataRepositoryの再エクスポートを削除。
 
 **削除**: 全リネーム処理（`grade_cd`→`grade_code`、`ninki`→`popularity_rank`、`win_odds`→`win_odds_actual` 等）
 
-**残す処理** (派生列計算のみ):
+**残す処理** (派生列計算 + MLモデル用別名コピー):
 
 1. `distance_bin`: `kyori` + `surface` から計算（入力を `distance` → `kyori` に変更）
 2. `track_condition_code`: `sibababacd`/`dirtbabacd` + `trackcd` から計算（`trackcd` 10-29=芝 → `sibababacd`、それ以外 → `dirtbabacd`）
 3. `grade_code`: `gradecd` をそのままコピー（数値マッピングは不要、ETLでint変換済み）
-4. `running_style`: `kyakusitukubun` を int に変換してコピー（WidePairBuilder参照のため維持）
+4. `field_size`: `syussotosu` をそのままコピー（7モデルのFEATURE_COLS参照のため）
+5. `popularity_rank`: `ninki` をそのままコピー（3モデルのFEATURE_COLS参照のため）
+6. `running_style`: `kyakusitukubun` を int に変換してコピー（WidePairBuilder参照のため維持）
 
 ### `build_all()` の変更
 
@@ -231,6 +238,7 @@ entry_data = {
     "race_id": race.race_id, "umaban": e.umaban, "kettonum": e.ketto_num,
     "kakuteijyuni": e.finish_pos, "odds": e.win_odds_actual, "ninki": e.popularity_rank,
     "bataijyu": e.ba_taijyu, "kisyucode": e.kisyu_code, "chokyosicode": e.chokyosi_code,
+    # FeatureEngineが ninki→popularity_rank, syussotosu→field_size 等をコピー
 }
 ```
 
@@ -272,23 +280,23 @@ merged = entry_df[["race_id", "umaban", "chokyosicode", "race_year"]].merge(
 
 ### HorseHistoryFeatures
 
-全カラム参照を生名に変更:
+カラム参照を生名に変更（`field_size` はFeatureEngineで別名維持されるため、`_map_basic_features()` 適用後のDataFrameには存在）:
 
-| 旧名 | 新名 |
-|------|------|
-| `ketto_num` | `kettonum` |
-| `kisyu_code` | `kisyucode` |
-| `finish_pos` | `kakuteijyuni` |
-| `win_odds` | `odds` |
-| `field_size` | `syussotosu` |
-| `track_cd` | `trackcd` |
-| `distance` | `kyori` |
-| `haron_time_l3` | `harontimel3` |
-| `time_diff` | `timediff` |
-| `corner_1c` | `jyuni1c` |
-| `corner_4c` | `jyuni4c` |
-| `kyakusitu` | `kyakusitukubun` |
-| `ba_taijyu` | `bataijyu` |
+| 旧名 | 新名 | 備考 |
+|------|------|------|
+| `ketto_num` | `kettonum` | |
+| `kisyu_code` | `kisyucode` | |
+| `finish_pos` | `kakuteijyuni` | |
+| `win_odds` | `odds` | |
+| `field_size` | `field_size` | 変更なし（FeatureEngine別名） |
+| `track_cd` | `trackcd` | |
+| `distance` | `kyori` | |
+| `haron_time_l3` | `harontimel3` | |
+| `time_diff` | `timediff` | |
+| `corner_1c` | `jyuni1c` | |
+| `corner_4c` | `jyuni4c` | |
+| `kyakusitu` | `kyakusitukubun` | |
+| `ba_taijyu` | `bataijyu` | |
 
 ### intra_race_features.py
 
@@ -302,13 +310,13 @@ df["odds_rank"] = df.groupby("race_id")["odds"].rank(...)
 
 | モジュール | 変更内容 |
 |-----------|---------|
-| `odds_dynamics_features.py` | `tan_odds`→`tanodds`, `fuku_odds`→`fukuoddslow`, `finish_pos`→`kakuteijyuni`, `popularity_rank`→`ninki` |
-| `market_bias_features.py` | `win_odds`→`odds`, `popularity_rank`→`ninki`, `finish_pos`→`kakuteijyuni`, `tan_odds`→`tanodds` |
+| `odds_dynamics_features.py` | `tan_odds`→`tanodds`, `fuku_odds`→`fukuoddslow`, `happyo_time`→`happyotime`, `finish_pos`→`kakuteijyuni` |
+| `market_bias_features.py` | `win_odds`→`odds`, `finish_pos`→`kakuteijyuni`, `tan_odds`→`tanodds` |
 | `race_difficulty_model.py` | `grade_cd`/`grade_code` fallback → `gradecd`/`grade_code` |
 | `interaction_features.py` | `kyakusitu`→`kyakusitukubun`, `ba_taijyu`→`bataijyu`, `distance`→`kyori` |
-| `info_asymmetry_features.py` | `win_odds_actual`→`odds`, `place_odds_actual`→`fukuoddslow`, `finish_pos`→`kakuteijyuni`, `popularity_rank`→`ninki` |
+| `info_asymmetry_features.py` | `win_odds_actual`→`odds`, `place_odds_actual`→`fukuoddslow`, `finish_pos`→`kakuteijyuni`, `popularity_rank`→`popularity_rank` (別名維持) |
 | `submodel_manager.py` | `surface_key`→`surface`, `distance`→`kyori` (7箇所参照) |
-| `wide_pair_builder.py` | `finish_pos`→`kakuteijyuni`, `popularity_rank`→`ninki`, `running_style`は計算列として維持 |
+| `wide_pair_builder.py` | `finish_pos`→`kakuteijyuni`, `running_style`は計算列として維持 |
 
 ## セクション6: MLモデル・パイプライン変更
 
@@ -318,12 +326,18 @@ df["odds_rank"] = df.groupby("race_id")["odds"].rank(...)
 
 ### label・キャリブレーション列の変更
 
-| 旧名 | 新名 | 影響モデル |
-|------|------|-----------|
-| `finish_pos` | `kakuteijyuni` | AbilityModel, PlaceAbilityModel, WinTwoStageModel, EVCorrectionModel |
-| `win_odds_actual` | `odds` | WinTwoStageModel, EVCorrectionModel, RobustConfidenceEstimator |
-| `place_odds_actual` | `fukuoddslow` | PlaceTwoStageModel, RobustConfidenceEstimator |
-| `popularity_rank` | `ninki` | WinTwoStageModel, EVCorrectionModel, RaceQualityScreener |
+| 旧名 | 新名 | 影響箇所 |
+|------|------|---------|
+| `finish_pos` | `kakuteijyuni` | 全モデルの `.train()` メソッド内 label参照、HorseHistoryFeatures、キャリブレーション、BacktestEngine |
+| `win_odds_actual` | `odds` | WinTwoStageModel (return label), EVCorrectionModel, RobustConfidenceEstimator, TrainingPipeline キャリブレーション |
+| `place_odds_actual` | `fukuoddslow` | PlaceTwoStageModel (return label), RobustConfidenceEstimator, TrainingPipeline キャリブレーション |
+
+**変更なし** (FeatureEngineで別名維持):
+
+| 列名 | 理由 |
+|------|------|
+| `field_size` | 7つのモデルFEATURE_COLSで参照。FeatureEngineで `syussotosu` → `field_size` をコピー |
+| `popularity_rank` | 3つのモデルFEATURE_COLSで参照。FeatureEngineで `ninki` → `popularity_rank` をコピー |
 
 ### TrainingPipelineV5
 
@@ -370,13 +384,19 @@ TrainingPipelineと同パターン。`repo` → `store`、カラム名を生名�
 | `row["ketto_num"]` | `row["kettonum"]` | `ketto_num` |
 | `row["finish_pos"]` | `row["kakuteijyuni"]` | `finish_pos` |
 | `row["win_odds_actual"]` | `row["odds"]` | `win_odds_actual` |
-| `row["popularity_rank"]` | `row["ninki"]` | `popularity_rank` |
+| `row["popularity_rank"]` | `row["popularity_rank"]` | `popularity_rank` (FeatureEngine別名) |
 | `row["ba_taijyu"]` | `row["bataijyu"]` | `ba_taijyu` |
 | `row["running_style"]` | `row["running_style"]` | `running_style` |
 | `row["zogen_fugo"]` | `row["zogenfugo"]` | `zogen_fugo` |
 | `row["zogen_sa"]` | `row["zogensa"]` | `zogen_sa` |
 | `row["kisyu_code"]` | `row["kisyucode"]` | `kisyu_code` |
 | `row["chokyosi_code"]` | `row["chokyosicode"]` | `chokyosi_code` |
+
+**JVLinkFetcher内のオッズ時系列参照**:
+
+| 変更前 | 変更後 |
+|--------|--------|
+| `happyo_time` | `happyotime` |
 
 ### OddsCollector
 
