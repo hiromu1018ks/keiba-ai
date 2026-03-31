@@ -108,6 +108,17 @@ def _transform_raw_columns(df: pd.DataFrame) -> pd.DataFrame:
     if "win_odds" in df.columns:
         df["win_odds"] = df["win_odds"].apply(_to_odds)
 
+    # Compute baba_cd from sibababacd/dirtbabacd based on surface type
+    if "sibababacd" in df.columns and "dirtbabacd" in df.columns and "track_cd" in df.columns:
+        import numpy as np
+        is_turf = df["track_cd"].apply(lambda x: 10 <= x <= 29 if pd.notna(x) else False)
+        df["track_condition_code"] = np.where(is_turf, df["sibababacd"], df["dirtbabacd"])
+        df["track_condition_code"] = df["track_condition_code"].apply(_to_int)
+    elif "sibababacd" in df.columns:
+        df["track_condition_code"] = df["sibababacd"].apply(_to_int)
+    elif "dirtbabacd" in df.columns:
+        df["track_condition_code"] = df["dirtbabacd"].apply(_to_int)
+
     return df
 
 
@@ -226,7 +237,7 @@ class DataRepository:
         return _exclude_steeple(df)
 
     def load_odds_snapshots(self, start: str, end: str) -> pd.DataFrame:
-        df = self.store.read("odds", "snapshots", filters=_date_filters(start, end))
+        df = self.store.read("odds", "odds_tanpuku", filters=_date_filters(start, end))
         df = _transform_odds_columns(df)
         return df
 
@@ -243,16 +254,16 @@ class DataRepository:
             ("race_date", ">=", s),
             ("race_date", "<=", e),
         ]
-        df = self.store.read("odds", "time_series", filters=filters)
+        df = self.store.read("odds", "jodds_tanpuku", filters=filters)
         df = _transform_time_series_columns(df)
         return df
 
     def load_odds_time_series(self, race_id: str) -> pd.DataFrame:
         """オッズ時系列（単一レース）"""
-        return self.store.read("odds", "time_series", filters=[("race_id", "==", race_id)])
+        return self.store.read("odds", "jodds_tanpuku", filters=[("race_id", "==", race_id)])
 
     def load_wide_odds(self, start: str, end: str) -> pd.DataFrame:
-        df = self.store.read("odds", "wide", filters=_date_filters(start, end))
+        df = self.store.read("odds", "odds_wide", filters=_date_filters(start, end))
         df = _transform_wide_odds_columns(df)
         return df
 
@@ -269,12 +280,18 @@ class DataRepository:
         注意: 障害レースを含む。HorseHistoryFeaturesが全成績を評価するため。
         """
         cutoff = datetime.now() - timedelta(days=lookback_years * 365)
-        return self.store.read("raw", "entries", filters=[("race_date", ">=", cutoff)])
+        df = self.store.read("raw", "entries", filters=[("race_date", ">=", cutoff)])
+        df = _compute_race_id_from_raw(df)
+        df = _transform_raw_columns(df)
+        return df
 
     def load_history_races(self, lookback_years: int = 5) -> pd.DataFrame:
         """過去N年のracesをロード。障害レースを含む（HorseHistoryFeatures用）。"""
         cutoff = datetime.now() - timedelta(days=lookback_years * 365)
-        return self.store.read("raw", "races", filters=[("race_date", ">=", cutoff)])
+        df = self.store.read("raw", "races", filters=[("race_date", ">=", cutoff)])
+        df = _compute_race_id_from_raw(df)
+        df = _transform_raw_columns(df)
+        return df
 
     # --- 静的マスターデータ (horses/jockey/trainer stats) ---
 
@@ -284,11 +301,11 @@ class DataRepository:
 
     def load_jockey_stats(self) -> pd.DataFrame:
         """x_KISYU_SEISEKI 騎手年度別成績 — 日付フィルタ不要"""
-        return self.store.read("raw", "jockey_stats")
+        return self.store.read("raw", "kisyu_seiseki")
 
     def load_trainer_stats(self) -> pd.DataFrame:
         """x_CHOKYO_SEISEKI 調教師年度別成績 — 日付フィルタ不要"""
-        return self.store.read("raw", "trainer_stats")
+        return self.store.read("raw", "chokyo_seiseki")
 
     # --- 特徴量キャッシュ ---
 

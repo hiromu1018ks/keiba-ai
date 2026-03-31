@@ -93,7 +93,7 @@ class TestDataRepositoryLoadOddsSnapshots:
         mock_store.read.return_value = pd.DataFrame({"race_date": [datetime(2020, 6, 1)]})
         repo.load_odds_snapshots("20200101", "20201231")
         call_args = mock_store.read.call_args
-        assert call_args[0][:2] == ("odds", "snapshots")
+        assert call_args[0][:2] == ("odds", "odds_tanpuku")
 
 
 class TestDataRepositoryLoadWideOdds:
@@ -101,7 +101,7 @@ class TestDataRepositoryLoadWideOdds:
         mock_store.read.return_value = pd.DataFrame({"race_date": [datetime(2020, 6, 1)]})
         repo.load_wide_odds("20200101", "20201231")
         call_args = mock_store.read.call_args
-        assert call_args[0][:2] == ("odds", "wide")
+        assert call_args[0][:2] == ("odds", "odds_wide")
 
 
 class TestDataRepositoryLoadPayouts:
@@ -119,7 +119,7 @@ class TestDataRepositoryLoadOddsTimeSeries:
         mock_store.read.return_value = pd.DataFrame({"race_date": [datetime(2020, 6, 1)]})
         repo.load_odds_time_series_range("20200101", "20201231")
         call_args = mock_store.read.call_args
-        assert call_args[0][:2] == ("odds", "time_series")
+        assert call_args[0][:2] == ("odds", "jodds_tanpuku")
 
     def test_single_race_filters_by_race_id(
         self, repo: DataRepository, mock_store: MagicMock
@@ -127,7 +127,7 @@ class TestDataRepositoryLoadOddsTimeSeries:
         mock_store.read.return_value = pd.DataFrame({"race_id": ["abc", "def"]})
         repo.load_odds_time_series("abc")
         call_args = mock_store.read.call_args
-        assert call_args[0][:2] == ("odds", "time_series")
+        assert call_args[0][:2] == ("odds", "jodds_tanpuku")
         filters = call_args[1].get("filters") or call_args[0][2]
         assert any(f[0] == "race_id" for f in filters)
 
@@ -210,7 +210,7 @@ class TestDataRepositoryLoadJockeyStats:
     ) -> None:
         mock_store.read.return_value = pd.DataFrame({"jockey_id": [1]})
         result = repo.load_jockey_stats()
-        mock_store.read.assert_called_once_with("raw", "jockey_stats")
+        mock_store.read.assert_called_once_with("raw", "kisyu_seiseki")
         assert result is not None
 
 
@@ -220,7 +220,7 @@ class TestDataRepositoryLoadTrainerStats:
     ) -> None:
         mock_store.read.return_value = pd.DataFrame({"trainer_id": [1]})
         result = repo.load_trainer_stats()
-        mock_store.read.assert_called_once_with("raw", "trainer_stats")
+        mock_store.read.assert_called_once_with("raw", "chokyo_seiseki")
         assert result is not None
 
 

@@ -122,32 +122,37 @@ def run_full_load(
 
         try:
             if partition_cols and table_type == "raced":
-                # Year-by-year chunked loading for large partitioned tables
+                # Year-by-year streaming write for large partitioned tables
+                import pyarrow as pa
+                import pyarrow.parquet as pq
+
                 start_year = int(start) // 10000
                 end_year = int(end) // 10000
-                frames = []
+                partition_path = store.data_dir / category / key
+                # Clear existing partitioned data to avoid stale year partitions
+                if partition_path.is_dir():
+                    shutil.rmtree(partition_path)
+                partition_path.mkdir(parents=True, exist_ok=True)
+
+                total_rows = 0
                 for year in range(start_year, end_year + 1):
-                    year_start = f"{year}0101"
-                    year_end = f"{year}1231"
-                    df = _read_db_table(engine, cfg, start=year_start, end=year_end)
+                    sql = text(f"SELECT * FROM {cfg['db_table']} WHERE year = :year")
+                    df = pd.read_sql(sql, engine, params={"year": str(year)})
                     if not df.empty:
                         _compute_race_date(df)
                         _compute_race_id(df)
-                        frames.append(df)
-                if frames:
-                    combined = pd.concat(frames, ignore_index=True)
-                    # Add partition columns from race_date
-                    if "race_date" in combined.columns:
-                        combined["year"] = combined["race_date"].dt.year
-                        combined["month"] = combined["race_date"].dt.month
-                    # Clear existing partitioned data to avoid stale year partitions
-                    partition_path = store.data_dir / category / key
-                    if partition_path.is_dir():
-                        shutil.rmtree(partition_path)
-                    store.write(category, key, combined, partition_cols=partition_cols)
-                    counts[key] = len(combined)
-                else:
-                    counts[key] = 0
+                        # Add partition columns from race_date
+                        if "race_date" in df.columns:
+                            df["year"] = df["race_date"].dt.year
+                            df["month"] = df["race_date"].dt.month
+                        table = pa.Table.from_pandas(df)
+                        pq.write_to_dataset(table, root_path=str(partition_path),
+                                            partition_cols=partition_cols)
+                        n = len(df)
+                        total_rows += n
+                        logger.info("  %s year=%d: %d rows", key, year, n)
+                        del df, table
+                counts[key] = total_rows
             else:
                 df = _read_db_table(
                     engine,
