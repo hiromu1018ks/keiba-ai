@@ -47,7 +47,7 @@ class TestDataRepositoryLoadRaces:
         self, repo: DataRepository, mock_store: MagicMock
     ) -> None:
         mock_store.read.return_value = pd.DataFrame(
-            {"race_date": [datetime(2020, 6, 1)], "track_cd": [10]}
+            {"race_date": [datetime(2020, 6, 1)], "trackcd": ["10"]}
         )
         repo.load_races("20200101", "20201231")
         call_args = mock_store.read.call_args
@@ -59,7 +59,7 @@ class TestDataRepositoryLoadRaces:
         mock_store.read.return_value = pd.DataFrame(
             {
                 "race_date": [datetime(2020, 6, 1)] * 3,
-                "track_cd": [10, 51, 55],
+                "trackcd": ["10", "51", "55"],
             }
         )
         result = repo.load_races("20200101", "20201231")
@@ -70,7 +70,7 @@ class TestDataRepositoryLoadRaces:
 class TestDataRepositoryLoadEntries:
     def test_calls_store_correctly(self, repo: DataRepository, mock_store: MagicMock) -> None:
         mock_store.read.return_value = pd.DataFrame(
-            {"race_date": [datetime(2020, 6, 1)], "track_cd": [10]}
+            {"race_date": [datetime(2020, 6, 1)], "trackcd": ["10"]}
         )
         repo.load_entries("20200101", "20201231")
         call_args = mock_store.read.call_args
@@ -80,7 +80,7 @@ class TestDataRepositoryLoadEntries:
         mock_store.read.return_value = pd.DataFrame(
             {
                 "race_date": [datetime(2020, 6, 1)] * 3,
-                "track_cd": [10, 51, 55],
+                "trackcd": ["10", "51", "55"],
             }
         )
         result = repo.load_entries("20200101", "20201231")
@@ -222,3 +222,135 @@ class TestDataRepositoryLoadTrainerStats:
         result = repo.load_trainer_stats()
         mock_store.read.assert_called_once_with("raw", "trainer_stats")
         assert result is not None
+
+
+class TestTransformLayer:
+    def test_load_races_renames_raw_columns(self, repo: DataRepository, mock_store: MagicMock):
+        """Repository が生カラム名をML既存名にリネームする"""
+        mock_store.read.return_value = pd.DataFrame({
+            "race_date": [datetime(2020, 6, 1)],
+            "year": [2020], "monthday": ["0601"],
+            "jyocd": ["05"], "kaiji": ["01"], "nichiji": ["01"], "racenum": ["01"],
+            "trackcd": ["11"], "kyori": ["1600"], "tenkocd": ["1"],
+            "syubetucd": ["13"], "jyokencd1": ["999"],
+            "gradecd": [""], "syussotosu": ["18"],
+        })
+        result = repo.load_races("20200101", "20201231")
+        assert "month_day" in result.columns
+        assert "jyo_cd" in result.columns
+        assert "race_num" in result.columns
+        assert "track_cd" in result.columns
+        assert "distance" in result.columns
+        assert "monthday" not in result.columns
+        assert "jyocd" not in result.columns
+        assert "trackcd" not in result.columns
+
+    def test_load_entries_renames_raw_columns(self, repo: DataRepository, mock_store: MagicMock):
+        """entries の生カラム名がリネームされる"""
+        mock_store.read.return_value = pd.DataFrame({
+            "race_date": [datetime(2020, 6, 1)],
+            "year": [2020], "monthday": ["0601"],
+            "jyocd": ["05"], "kaiji": ["01"], "nichiji": ["01"], "racenum": ["01"],
+            "umaban": ["1"], "kettonum": ["0001234567"],
+            "kakuteijyuni": ["3"], "time": ["95.3"],
+            "odds": ["0054"], "ninki": ["3"],
+            "bataijyu": ["480"], "zogenfugo": [""], "zogensa": [""],
+            "kisyucode": ["01056"], "chokyosicode": ["01023"],
+            "harontimel3": ["33.5"], "timediff": ["0.3"],
+            "jyuni1c": ["2"], "jyuni4c": ["3"],
+            "honsyokin": ["0"], "kyakusitukubun": ["0"],
+        })
+        result = repo.load_entries("20200101", "20201231")
+        assert "ketto_num" in result.columns
+        assert "finish_pos" in result.columns
+        assert "win_odds" in result.columns
+        assert "kisyu_code" in result.columns
+        assert "haron_time_l3" in result.columns
+        assert "kettonum" not in result.columns
+        assert "kakuteijyuni" not in result.columns
+
+    def test_load_races_computes_race_id(self, repo: DataRepository, mock_store: MagicMock):
+        """race_id が生カラムから計算される"""
+        mock_store.read.return_value = pd.DataFrame({
+            "race_date": [datetime(2020, 6, 1)],
+            "year": [2020], "monthday": ["0601"],
+            "jyocd": ["05"], "kaiji": ["01"], "nichiji": ["01"], "racenum": ["01"],
+            "trackcd": ["11"], "kyori": ["1600"],
+        })
+        result = repo.load_races("20200101", "20201231")
+        assert "race_id" in result.columns
+        assert result["race_id"].iloc[0] == "2020060105010101"
+
+    def test_load_races_steeple_exclusion_still_works(self, repo: DataRepository, mock_store: MagicMock):
+        """障害除外が track_cd (変換後int) で動作"""
+        mock_store.read.return_value = pd.DataFrame({
+            "race_date": [datetime(2020, 6, 1)] * 3,
+            "trackcd": ["11", "51", "55"],
+            "year": [2020] * 3, "monthday": ["0601"] * 3,
+            "jyocd": ["05"] * 3, "kaiji": ["01"] * 3,
+            "nichiji": ["01"] * 3, "racenum": ["01"] * 3,
+            "kyori": ["1600"] * 3,
+        })
+        result = repo.load_races("20200101", "20201231")
+        assert len(result) == 1
+        assert result["track_cd"].iloc[0] == 11
+
+
+class TestTransformPayoutsColumns:
+    def test_payouts_columns_renamed(self, repo: DataRepository, mock_store: MagicMock):
+        mock_store.read.return_value = pd.DataFrame({
+            "race_date": [datetime(2020, 6, 1)],
+            "paytansyoumaban1": ["3"], "paytansyopay1": ["540"],
+            "payfukusyoumaban1": ["3"], "payfukusyopay1": ["140"],
+        })
+        result = repo.load_payouts("20200101", "20201231")
+        assert "tan_umaban" in result.columns
+        assert "tan_pay" in result.columns
+        assert "fuku_umaban1" in result.columns
+
+    def test_payouts_types_converted(self, repo: DataRepository, mock_store: MagicMock):
+        mock_store.read.return_value = pd.DataFrame({
+            "race_date": [datetime(2020, 6, 1)],
+            "paytansyoumaban1": ["3"], "paytansyopay1": ["540"],
+        })
+        result = repo.load_payouts("20200101", "20201231")
+        assert result["tan_umaban"].iloc[0] == 3
+        assert result["tan_pay"].iloc[0] == 540.0
+
+
+class TestTransformOddsColumns:
+    def test_odds_snapshots_renamed(self, repo: DataRepository, mock_store: MagicMock):
+        mock_store.read.return_value = pd.DataFrame({
+            "race_date": [datetime(2020, 6, 1)],
+            "umaban": ["1"], "tanodds": ["0032"], "fukuoddslow": ["0013"],
+        })
+        result = repo.load_odds_snapshots("20200101", "20201231")
+        assert "tan_odds" in result.columns
+        assert "fuku_odds" in result.columns
+
+    def test_odds_snapshots_types_converted(self, repo: DataRepository, mock_store: MagicMock):
+        mock_store.read.return_value = pd.DataFrame({
+            "race_date": [datetime(2020, 6, 1)],
+            "umaban": ["1"], "tanodds": ["0032"], "fukuoddslow": ["0013"],
+        })
+        result = repo.load_odds_snapshots("20200101", "20201231")
+        assert result["tan_odds"].iloc[0] == 3.2
+        assert result["fuku_odds"].iloc[0] == 1.3
+
+    def test_wide_odds_renamed(self, repo: DataRepository, mock_store: MagicMock):
+        mock_store.read.return_value = pd.DataFrame({
+            "race_date": [datetime(2020, 6, 1)],
+            "kumi": ["1-2"], "oddslow": ["00320"], "oddshigh": ["00450"],
+        })
+        result = repo.load_wide_odds("20200101", "20201231")
+        assert "odds_low" in result.columns
+        assert "odds_high" in result.columns
+
+    def test_wide_odds_types_converted(self, repo: DataRepository, mock_store: MagicMock):
+        mock_store.read.return_value = pd.DataFrame({
+            "race_date": [datetime(2020, 6, 1)],
+            "kumi": ["1-2"], "oddslow": ["00320"], "oddshigh": ["00450"],
+        })
+        result = repo.load_wide_odds("20200101", "20201231")
+        assert result["odds_low"].iloc[0] == 3.20
+        assert result["odds_high"].iloc[0] == 4.50
