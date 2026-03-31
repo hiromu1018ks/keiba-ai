@@ -8,7 +8,7 @@
 - popularity_change_30_10: t-30min → t-10min の人気順位変化
 
 計算方式:
-- 時系列DataFrameを happyo_time でソート後、先頭を t-60min、末尾を t-10min とみなす
+- 時系列DataFrameを happyotime でソート後、先頭を t-60min、末尾を t-10min とみなす
 - 中間地点を t-30min として 30-10 変化率を計算
 - popularity_change は時系列の ninki 列が必要
 """
@@ -27,7 +27,7 @@ def compute_odds_dynamics(
 
     Args:
         df: race_id, umaban を含むベースDataFrame
-        odds_ts: race_id, happyo_time, umaban, tan_odds を含む時系列DataFrame
+        odds_ts: race_id, happyotime, umaban, tanodds を含む時系列DataFrame
                  ninki 列がある場合は popularity_change も計算
 
     Returns:
@@ -49,12 +49,12 @@ def compute_odds_dynamics(
             df[col] = np.nan
         return df
 
-    ts = odds_ts.sort_values(["race_id", "umaban", "happyo_time"]).copy()
+    ts = odds_ts.sort_values(["race_id", "umaban", "happyotime"]).copy()
     grouped = ts.groupby(["race_id", "umaban"])
 
     # --- 変化率: (early_odds - late_odds) / early_odds ---
-    first_odds = grouped["tan_odds"].first()
-    last_odds = grouped["tan_odds"].last()
+    first_odds = grouped["tanodds"].first()
+    last_odds = grouped["tanodds"].last()
 
     # 60→10: 先頭(=t-60) → 末尾(=t-10)
     drop_60_10 = (first_odds - last_odds) / first_odds.replace(0, np.nan)
@@ -66,7 +66,7 @@ def compute_odds_dynamics(
         if n < 3:
             return np.nan
         mid_idx = n // 2
-        return float(group["tan_odds"].iloc[mid_idx])
+        return float(group["tanodds"].iloc[mid_idx])
 
     mid_odds = grouped.apply(_get_mid_odds, include_groups=False)
     mid_odds.name = "_mid_odds"
@@ -78,7 +78,7 @@ def compute_odds_dynamics(
         if len(group) < 2:
             return np.nan
         x = np.arange(len(group), dtype=float)
-        y = group["tan_odds"].values.astype(float)
+        y = group["tanodds"].values.astype(float)
         slope = np.polyfit(x, y, 1)[0]
         return float(slope)
 
@@ -89,7 +89,7 @@ def compute_odds_dynamics(
     def _calc_volatility(group: pd.DataFrame) -> float:
         if len(group) < 2:
             return np.nan
-        changes = group["tan_odds"].diff().dropna()
+        changes = group["tanodds"].diff().dropna()
         return float(changes.std()) if len(changes) > 0 else np.nan
 
     volatility = grouped.apply(_calc_volatility, include_groups=False)
@@ -152,9 +152,9 @@ def compute_rolling_volatility(
         race_vol = race_vol.to_frame("odds_volatility")
         race_vol["race_date"] = date_map
         race_vol = race_vol.sort_values("race_date")
-        rolling_mean = race_vol["odds_volatility"].rolling(
-            window=window, min_periods=min_periods
-        ).mean()
+        rolling_mean = (
+            race_vol["odds_volatility"].rolling(window=window, min_periods=min_periods).mean()
+        )
     else:
         rolling_mean = race_vol.rolling(window=window, min_periods=min_periods).mean()
 
@@ -175,7 +175,7 @@ def compute_roi_ema(
     指数移動平均 (EMA) で平滑化。
 
     Args:
-        race_feat_df: race_id, finish_pos, tan_odds, popularity_rank を含む DataFrame
+        race_feat_df: race_id, kakuteijyuni, tanodds, popularity_rank を含む DataFrame
         span: EMA の span
         min_periods: 計算に必要な最小サンプル数
 
@@ -185,7 +185,7 @@ def compute_roi_ema(
     df = race_feat_df.copy()
 
     # 必須列チェック
-    required = {"finish_pos", "tan_odds", "popularity_rank", "race_id"}
+    required = {"kakuteijyuni", "tanodds", "popularity_rank", "race_id"}
     if not required.issubset(df.columns):
         df["favorite_roi_ema"] = 0.0
         df["mid_roi_ema"] = 0.0
@@ -193,8 +193,8 @@ def compute_roi_ema(
         return df
 
     # 各馬の ROI (= odds × win) を計算
-    df["is_win"] = (df["finish_pos"] == 1).astype(float)
-    df["roi"] = df["tan_odds"] * df["is_win"]
+    df["is_win"] = (df["kakuteijyuni"] == 1).astype(float)
+    df["roi"] = df["tanodds"] * df["is_win"]
 
     # 人気層分類: favorite (1-3), mid (4-8), longshot (9+)
     df["pop_band"] = pd.cut(
@@ -204,8 +204,8 @@ def compute_roi_ema(
     )
 
     # レースごと・人気層ごとの平均 ROI
-    race_band_roi = df.groupby(["race_id", "pop_band"], observed=False)["roi"].mean().unstack(
-        fill_value=0.0
+    race_band_roi = (
+        df.groupby(["race_id", "pop_band"], observed=False)["roi"].mean().unstack(fill_value=0.0)
     )
 
     # 時系列ソート

@@ -14,12 +14,12 @@ import math
 import pandas as pd
 
 _GRADE_WEIGHTS: dict[str, float] = {
-    "A": 1.0,   # G1
-    "B": 0.8,   # G2
-    "C": 0.6,   # G3
-    "D": 0.4,   # 重賞
-    "E": 0.2,   # 特別
-    "_": 0.1,   # 一般
+    "A": 1.0,  # G1
+    "B": 0.8,  # G2
+    "C": 0.6,  # G3
+    "D": 0.4,  # 重賞
+    "E": 0.2,  # 特別
+    "_": 0.1,  # 一般
 }
 
 _MAX_FIELD_SIZE = 18
@@ -36,8 +36,8 @@ def compute_difficulty_score(df: pd.DataFrame) -> pd.DataFrame:
     """
     df = df.copy()
 
-    # グレード列名の互換性 (grade_code は _map_basic_features でリネーム後の名前)
-    grade_col = "grade_cd" if "grade_cd" in df.columns else "grade_code"
+    # グレード列名の互換性 (gradecd は EveryDB2 生カラム名)
+    grade_col = "gradecd" if "gradecd" in df.columns else "grade_code"
 
     # グレード重み
     df["_grade_weight"] = df[grade_col].map(_GRADE_WEIGHTS).fillna(0.1)
@@ -50,9 +50,9 @@ def compute_difficulty_score(df: pd.DataFrame) -> pd.DataFrame:
     df["_entropy_norm"] = (df["market_entropy"] / max_entropy.replace(0, 1.0)).clip(0, 1)
 
     # 難易度スコア: 高グレード × 大頭数 × 高拮抗 = 高難易度
-    df["difficulty_score"] = (
-        df["_grade_weight"] * df["_field_factor"] * df["_entropy_norm"]
-    ).clip(0, 1)
+    df["difficulty_score"] = (df["_grade_weight"] * df["_field_factor"] * df["_entropy_norm"]).clip(
+        0, 1
+    )
 
     # 作業列を削除
     df = df.drop(columns=["_grade_weight", "_field_factor", "_entropy_norm"])

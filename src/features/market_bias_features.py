@@ -16,21 +16,21 @@ def compute_market_bias(df: pd.DataFrame) -> pd.DataFrame:
     """市場歪み特徴量を計算
 
     Args:
-        df: race_id, umaban, tan_odds を含むDataFrame
+        df: race_id, umaban, tanodds を含むDataFrame
 
     Returns:
         p_market_win_adj, market_entropy, overround 列が追加されたDataFrame
     """
     df = df.copy()
 
-    if "tan_odds" not in df.columns:
+    if "tanodds" not in df.columns:
         df["p_market_win_adj"] = np.nan
         df["market_entropy"] = np.nan
         df["overround"] = np.nan
         return df
 
     # 生の含み確率
-    p_raw = 1.0 / df["tan_odds"].replace(0, np.nan)
+    p_raw = 1.0 / df["tanodds"].replace(0, np.nan)
 
     # Overround: 胴元控除率 (正=控除あり, 負=非現実的)
     overround = p_raw.groupby(df["race_id"]).transform("sum") - 1.0
@@ -62,22 +62,22 @@ def compute_flb_slope(race_feat_df: pd.DataFrame) -> pd.Series:
     傾きが小さいほど FLB が強い (=人気馬が割安)。
 
     Args:
-        race_feat_df: race_id, tan_odds, finish_pos, field_size を含む
+        race_feat_df: race_id, tanodds, kakuteijyuni, field_size を含む
                       レース集計 DataFrame
 
     Returns:
         flb_slope Series (race_id ごとに1値)
     """
-    if "tan_odds" not in race_feat_df.columns or "finish_pos" not in race_feat_df.columns:
+    if "tanodds" not in race_feat_df.columns or "kakuteijyuni" not in race_feat_df.columns:
         return pd.Series(0.0, index=race_feat_df.index, name="flb_slope")
 
     # 馬単位からレース単位で FLB slope を計算
     def _race_flb(group: pd.DataFrame) -> float:
         if len(group) < 3:
             return 0.0
-        log_odds = np.log(group["tan_odds"].replace(0, np.nan).values.astype(float))
+        log_odds = np.log(group["tanodds"].replace(0, np.nan).values.astype(float))
         # 実際勝率: 1着=1, それ以外=0 (単純化)
-        win = (group["finish_pos"] == 1).astype(float).values
+        win = (group["kakuteijyuni"] == 1).astype(float).values
         valid = ~np.isnan(log_odds)
         if valid.sum() < 3:
             return 0.0

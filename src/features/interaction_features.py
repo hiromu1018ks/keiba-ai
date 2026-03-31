@@ -13,7 +13,7 @@ def compute_interaction_features(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
 
     # 脚質×距離bin (カテゴリ積)
-    # LEAK防止: kyakusitu_cd (過去レース脚質) のみ使用。kyakusitu (現在レース=ポストレース) は不可。
+    # LEAK防止: kyakusitu_cd (過去) のみ使用。kyakusitukubun (現在=ポスト) は不可。
     if "kyakusitu_cd" in df.columns and "distance_bin" in df.columns:
         df["kyakusitu_x_distance"] = (
             df["kyakusitu_cd"].astype(str) + "_" + df["distance_bin"].astype(str)
@@ -26,15 +26,13 @@ def compute_interaction_features(df: pd.DataFrame) -> pd.DataFrame:
         ).astype("category")
 
     # 馬体重列名の解決 (weight_absolute または ba_taijyu)
-    weight_col = "weight_absolute" if "weight_absolute" in df.columns else "ba_taijyu"
+    weight_col = "weight_absolute" if "weight_absolute" in df.columns else "bataijyu"
 
     # 馬体重×距離 (数値積)
     # NaNポリシー: いずれかがNaNなら結果もNaN (fillna(0)は使わない)
-    if weight_col in df.columns and "distance" in df.columns:
-        df["weight_x_distance"] = (
-            df[weight_col] * df["distance"]
-        ).where(
-            df[weight_col].notna() & df["distance"].notna(),
+    if weight_col in df.columns and "kyori" in df.columns:
+        df["weight_x_distance"] = (df[weight_col] * df["kyori"]).where(
+            df[weight_col].notna() & df["kyori"].notna(),
             other=float("nan"),
         )
 

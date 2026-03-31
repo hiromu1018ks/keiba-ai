@@ -17,7 +17,7 @@ import numpy as np
 import pandas as pd
 
 if TYPE_CHECKING:
-    from db.repository import DataRepository
+    from db.parquet_store import ParquetStore
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -51,13 +51,15 @@ class BloodlineFeatures:
         except (ValueError, TypeError):
             return 0
 
-    def __init__(self, repo: DataRepository) -> None:
-        self.repo = repo
+    def __init__(self, store: ParquetStore) -> None:
+        self.store = store
         self._horses_cache: pd.DataFrame | None = None
 
     def _load_horses(self) -> pd.DataFrame:
         if self._horses_cache is None:
-            self._horses_cache = self.repo.load_horses()
+            from db.readers import load_horses
+
+            self._horses_cache = load_horses(self.store)
         return self._horses_cache
 
     @staticmethod
@@ -71,20 +73,18 @@ class BloodlineFeatures:
         return (wins + ALPHA_PRIOR) / (total + TOTAL_OFFSET)
 
     def compute(self, entry_df: pd.DataFrame) -> pd.DataFrame:
-        """entry_df (race_id, umaban, ketto_num) -> 血統特徴量 DataFrame。
+        """entry_df (race_id, umaban, kettonum) -> 血統特徴量 DataFrame。
 
         x_UMA の産駒成績列 (Ba*/Kyori*/ChuoChakukaisu*/RuikeiHonsyo*) を使用。
         blood_condition_wr and blood_keito_cd are Phase 2 (currently NaN).
         """
         horses_df = self._load_horses()
 
-        if "ketto_num" not in entry_df.columns or horses_df.empty:
-            return entry_df[["race_id", "umaban"]].assign(
-                **{c: float("nan") for c in FEATURE_COLS}
-            )
+        if "kettonum" not in entry_df.columns or horses_df.empty:
+            return entry_df[["race_id", "umaban"]].assign(**{c: float("nan") for c in FEATURE_COLS})
 
-        merged = entry_df[["race_id", "umaban", "ketto_num"]].merge(
-            horses_df, left_on="ketto_num", right_on="kettonum", how="left"
+        merged = entry_df[["race_id", "umaban", "kettonum"]].merge(
+            horses_df, on="kettonum", how="left"
         )
 
         result = merged[["race_id", "umaban"]].copy()
@@ -121,9 +121,7 @@ class BloodlineFeatures:
 
         # --- 累計賞金 (log変換) ---
         prize = pd.to_numeric(merged["ruikeihonsyoheiti"], errors="coerce")
-        result["blood_prize_log"] = np.where(
-            prize.fillna(0) > 0, np.log1p(prize.fillna(0)), np.nan
-        )
+        result["blood_prize_log"] = np.where(prize.fillna(0) > 0, np.log1p(prize.fillna(0)), np.nan)
 
         # --- 系統コード — Phase 2 ---
         result["blood_keito_cd"] = np.nan

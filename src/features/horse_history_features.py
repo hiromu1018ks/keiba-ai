@@ -2,13 +2,13 @@
 
 主な特徴量:
   - norm_finish_logit_avg: 着順をログット変換したスコアの平均
-  - haron_time_l3_avg: 直近3走のハロンタイム平均
-  - haron_time_l3_zscore: 距離ビンz-scoreの直近3走平均
-  - time_diff_avg: 直近3走のタイム差平均
-  - corner_1c_avg: 直近3走の1コーナー通過位置平均
-  - corner_4c_avg: 直近3走の4コーナー通過位置平均
+  - harontimel3_avg: 直近3走のハロンタイム平均
+  - harontimel3_zscore: 距離ビンz-scoreの直近3走平均
+  - timediff_avg: 直近3走のタイム差平均
+  - jyuni1c_avg: 直近3走の1コーナー通過位置平均
+  - jyuni4c_avg: 直近3走の4コーナー通過位置平均
   - closing_index_avg: (4C正規化 - 着順正規化) の直近3走平均
-  - kyakusitu_cd: 直近走の脚質コード
+  - kyakusitukubun_cd: 直近走の脚質コード
   - jockey_surprise: Beta事前分布でスムージングした騎手勝率サプライズ
   - jockey_cond_wr: 騎手条件別勝率
 """
@@ -22,7 +22,7 @@ import numpy as np
 import pandas as pd
 
 if TYPE_CHECKING:
-    from db.repository import DataRepository
+    from db.parquet_store import ParquetStore
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -143,28 +143,32 @@ class HorseHistoryFeatures:
 
     BASE_COLS: list[str] = [
         "norm_finish_logit_avg",
-        "haron_time_l3_avg",      # NEW - replaces haron_time_zscore_avg
-        "haron_time_l3_zscore",   # NEW
-        "time_diff_avg",           # NEW
-        "corner_1c_avg",           # NEW
-        "corner_4c_avg",           # NEW
-        "closing_index_avg",       # NEW
-        "kyakusitu_cd",            # NEW (non-numeric, category)
-        "jockey_surprise",         # existing (will move to Stage2 in Task 9)
-        "jockey_cond_wr",          # existing (will move to Stage2 in Task 9)
+        "harontimel3_avg",  # NEW - replaces haron_time_zscore_avg
+        "harontimel3_zscore",  # NEW
+        "timediff_avg",  # NEW
+        "jyuni1c_avg",  # NEW
+        "jyuni4c_avg",  # NEW
+        "closing_index_avg",  # NEW
+        "kyakusitukubun_cd",  # NEW (non-numeric, category)
+        "jockey_surprise",  # existing (will move to Stage2 in Task 9)
+        "jockey_cond_wr",  # existing (will move to Stage2 in Task 9)
     ]
 
-    def __init__(self, repo: DataRepository) -> None:
-        self.repo = repo
+    def __init__(self, store: ParquetStore) -> None:
+        self.store = store
         self._entries_cache: pd.DataFrame | None = None
         self._races_cache: pd.DataFrame | None = None
 
     def _get_history(self) -> tuple[pd.DataFrame, pd.DataFrame]:
         """Load history entries and races (cached)."""
         if self._entries_cache is None:
-            self._entries_cache = self.repo.load_history_entries()
+            from db.readers import load_history_entries
+
+            self._entries_cache = load_history_entries(self.store)
         if self._races_cache is None:
-            self._races_cache = self.repo.load_history_races()
+            from db.readers import load_history_races
+
+            self._races_cache = load_history_races(self.store)
         return self._entries_cache, self._races_cache
 
     def compute(
@@ -178,13 +182,13 @@ class HorseHistoryFeatures:
             entry_df = entry_df[entry_df["race_id"].isin(target_race_ids)]
 
         # 対象レースの馬・騎手リスト
-        horses = entry_df[["race_id", "umaban", "ketto_num", "kisyu_code"]].copy()
+        horses = entry_df[["race_id", "umaban", "kettonum", "kisyucode"]].copy()
         if "race_date" not in horses.columns:
             date_map = race_df.set_index("race_id")["race_date"]
             horses["race_date"] = horses["race_id"].map(date_map)
 
-        unique_ketto = horses["ketto_num"].unique().tolist()
-        unique_kisyu = horses["kisyu_code"].unique().tolist()
+        unique_ketto = horses["kettonum"].unique().tolist()
+        unique_kisyu = horses["kisyucode"].unique().tolist()
 
         if not unique_ketto:
             return pd.DataFrame(columns=["race_id", "umaban"] + self.BASE_COLS)
@@ -197,14 +201,14 @@ class HorseHistoryFeatures:
         kisyu_set = set(unique_kisyu)
 
         entries_filtered = entries_hist[
-            entries_hist["ketto_num"].isin(ketto_set) | entries_hist["kisyu_code"].isin(kisyu_set)
+            entries_hist["kettonum"].isin(ketto_set) | entries_hist["kisyucode"].isin(kisyu_set)
         ].copy()
 
         if entries_filtered.empty:
             return pd.DataFrame(columns=["race_id", "umaban"] + self.BASE_COLS)
 
         # Merge with races to get field_size, race_date
-        race_cols = ["race_id", "field_size", "race_date", "track_cd", "distance"]
+        race_cols = ["race_id", "field_size", "race_date", "trackcd", "kyori"]
         races_subset = races_hist[races_hist["race_id"].isin(entries_filtered["race_id"].unique())]
         entries_no_date = entries_filtered.drop(columns=["race_date"], errors="ignore")
         past_df = entries_no_date.merge(
@@ -213,10 +217,14 @@ class HorseHistoryFeatures:
             how="left",
         )
 
-        # Add distance_bin
-        if "distance_bin" not in past_df.columns and "track_cd" in past_df.columns and "distance" in past_df.columns:
-            is_turf = (past_df["track_cd"] >= 10) & (past_df["track_cd"] <= 22)
-            dist = past_df["distance"]
+        # Add distance_bin (surface is computed by ETL from trackcd)
+        if (
+            "distance_bin" not in past_df.columns
+            and "kyori" in past_df.columns
+            and "surface" in past_df.columns
+        ):
+            is_turf = past_df["surface"] == "turf"
+            dist = past_df["kyori"]
             past_df["distance_bin"] = "unknown"
             past_df.loc[is_turf & (dist > 2100), "distance_bin"] = "long"
             past_df.loc[is_turf & (dist <= 2100), "distance_bin"] = "intermediate"
@@ -228,32 +236,29 @@ class HorseHistoryFeatures:
 
         past_df["valid_field"] = (past_df["field_size"] >= 8).astype(int)
 
-        # Pre-index past data by ketto_num (sorted by race_date)
-        past_df_sorted = past_df.sort_values(["ketto_num", "race_date"]).reset_index(drop=True)
+        # Pre-index past data by kettonum (sorted by race_date)
+        past_df_sorted = past_df.sort_values(["kettonum", "race_date"]).reset_index(drop=True)
         past_by_ketto: dict[str, pd.DataFrame] = {
-            k: g.reset_index(drop=True)
-            for k, g in past_df_sorted.groupby("ketto_num")
+            k: g.reset_index(drop=True) for k, g in past_df_sorted.groupby("kettonum")
         }
 
-        # Pre-index past data by kisyu_code for jockey_surprise (finish_pos > 0 AND win_odds > 0)
+        # Pre-index past data by kisyucode for jockey_surprise (kakuteijyuni > 0 AND odds > 0)
         past_by_kisyu: dict[str, pd.DataFrame] = {
             k: g.reset_index(drop=True)
             for k, g in past_df_sorted[
-                (past_df_sorted["finish_pos"] > 0) & (past_df_sorted["win_odds"] > 0)
-            ].groupby("kisyu_code")
+                (past_df_sorted["kakuteijyuni"] > 0) & (past_df_sorted["odds"] > 0)
+            ].groupby("kisyucode")
         }
 
-        # Pre-index past data by kisyu_code for jockey_cond_wr
-        # (finish_pos > 0 only, no win_odds filter)
+        # Pre-index past data by kisyucode for jockey_cond_wr
+        # (kakuteijyuni > 0 only, no odds filter)
         past_by_kisyu_all: dict[str, pd.DataFrame] = {
             k: g.reset_index(drop=True)
-            for k, g in past_df_sorted[
-                (past_df_sorted["finish_pos"] > 0)
-            ].groupby("kisyu_code")
+            for k, g in past_df_sorted[(past_df_sorted["kakuteijyuni"] > 0)].groupby("kisyucode")
         }
 
         # Weight column name
-        weight_col = "ba_taijyu" if "ba_taijyu" in entry_df.columns else "weight"
+        weight_col = "bataijyu" if "bataijyu" in entry_df.columns else "weight"
 
         total = len(horses)
         results: list[dict] = []
@@ -266,22 +271,21 @@ class HorseHistoryFeatures:
                     flush=True,
                 )
             race_date = row["race_date"]
-            ketto = row["ketto_num"]
-            kisyu = row["kisyu_code"]
+            ketto = row["kettonum"]
+            kisyu = row["kisyucode"]
 
             # --- Horse features: O(1) lookup + O(log m) searchsorted ---
             horse_past_all = past_by_ketto.get(ketto, empty_past)
             if len(horse_past_all) > 0:
                 valid_past = horse_past_all[
-                    (horse_past_all["valid_field"] == 1)
-                    & (horse_past_all["finish_pos"] > 0)
+                    (horse_past_all["valid_field"] == 1) & (horse_past_all["kakuteijyuni"] > 0)
                 ]
                 # searchsorted for date cutoff (ensure datetime64 types)
                 if len(valid_past) > 0:
                     dates_np = valid_past["race_date"].values.astype("datetime64[ns]")
                     target_date_np = np.datetime64(race_date, "ns")
                     idx = dates_np.searchsorted(target_date_np, side="left")
-                    horse_past = valid_past.iloc[max(0, idx - 3):idx]
+                    horse_past = valid_past.iloc[max(0, idx - 3) : idx]
                 else:
                     horse_past = valid_past
             else:
@@ -290,69 +294,92 @@ class HorseHistoryFeatures:
             # norm_finish_logit_avg
             if len(horse_past) > 0:
                 logits = _norm_finish_logit_vec(
-                    horse_past["finish_pos"].values.astype(float),
+                    horse_past["kakuteijyuni"].values.astype(float),
                     horse_past["field_size"].values.astype(float),
                 )
                 norm_finish_logit_avg: float = float(np.nanmean(logits))
             else:
                 norm_finish_logit_avg = float("nan")
 
-            # haron_time_l3_avg
-            if "haron_time_l3" in horse_past.columns and len(horse_past) > 0:
-                ht_vals = horse_past["haron_time_l3"].dropna()
-                haron_time_l3_avg: float = float(ht_vals.tail(3).mean()) if len(ht_vals) > 0 else float("nan")
+            # harontimel3_avg
+            if "harontimel3" in horse_past.columns and len(horse_past) > 0:
+                ht_vals = horse_past["harontimel3"].dropna()
+                harontimel3_avg: float = (
+                    float(ht_vals.tail(3).mean()) if len(ht_vals) > 0 else float("nan")
+                )
             else:
-                haron_time_l3_avg = float("nan")
+                harontimel3_avg = float("nan")
 
-            # haron_time_l3_zscore
-            if "haron_time_l3" in horse_past.columns and "distance_bin" in horse_past.columns and len(horse_past) > 0:
-                ht = horse_past["haron_time_l3"]
+            # harontimel3_zscore
+            if (
+                "harontimel3" in horse_past.columns
+                and "distance_bin" in horse_past.columns
+                and len(horse_past) > 0
+            ):
+                ht = horse_past["harontimel3"]
                 db = horse_past["distance_bin"]
                 valid = ht.notna() & db.notna()
                 if valid.sum() > 0:
-                    grp_stats = horse_past.loc[valid].groupby("distance_bin")["haron_time_l3"].agg(["mean", "std"])
+                    grp_stats = (
+                        horse_past.loc[valid]
+                        .groupby("distance_bin")["harontimel3"]
+                        .agg(["mean", "std"])
+                    )
                     zscores: list[float] = []
                     for _, r in horse_past.loc[valid].iterrows():
                         bin_key = r["distance_bin"]
                         if bin_key in grp_stats.index and grp_stats.loc[bin_key, "std"] > 0:
-                            z = (r["haron_time_l3"] - grp_stats.loc[bin_key, "mean"]) / grp_stats.loc[bin_key, "std"]
+                            z = (r["harontimel3"] - grp_stats.loc[bin_key, "mean"]) / grp_stats.loc[
+                                bin_key, "std"
+                            ]
                             zscores.append(z)
                         else:
                             zscores.append(float("nan"))
-                    haron_time_l3_zscore: float = float(pd.Series(zscores).tail(3).mean()) if zscores else float("nan")
+                    harontimel3_zscore: float = (
+                        float(pd.Series(zscores).tail(3).mean()) if zscores else float("nan")
+                    )
                 else:
-                    haron_time_l3_zscore = float("nan")
+                    harontimel3_zscore = float("nan")
             else:
-                haron_time_l3_zscore = float("nan")
+                harontimel3_zscore = float("nan")
 
-            # time_diff_avg
-            if "time_diff" in horse_past.columns and len(horse_past) > 0:
-                td_vals = horse_past["time_diff"].dropna()
-                time_diff_avg: float = float(td_vals.tail(3).mean()) if len(td_vals) > 0 else float("nan")
+            # timediff_avg
+            if "timediff" in horse_past.columns and len(horse_past) > 0:
+                td_vals = horse_past["timediff"].dropna()
+                timediff_avg: float = (
+                    float(td_vals.tail(3).mean()) if len(td_vals) > 0 else float("nan")
+                )
             else:
-                time_diff_avg = float("nan")
+                timediff_avg = float("nan")
 
-            # corner_1c_avg
-            if "corner_1c" in horse_past.columns and len(horse_past) > 0:
-                c1_vals = horse_past["corner_1c"].dropna()
-                corner_1c_avg: float = float(c1_vals.tail(3).mean()) if len(c1_vals) > 0 else float("nan")
+            # jyuni1c_avg
+            if "jyuni1c" in horse_past.columns and len(horse_past) > 0:
+                c1_vals = horse_past["jyuni1c"].dropna()
+                jyuni1c_avg: float = (
+                    float(c1_vals.tail(3).mean()) if len(c1_vals) > 0 else float("nan")
+                )
             else:
-                corner_1c_avg = float("nan")
+                jyuni1c_avg = float("nan")
 
-            # corner_4c_avg
-            if "corner_4c" in horse_past.columns and len(horse_past) > 0:
-                c4_vals = horse_past["corner_4c"].dropna()
-                corner_4c_avg: float = float(c4_vals.tail(3).mean()) if len(c4_vals) > 0 else float("nan")
+            # jyuni4c_avg
+            if "jyuni4c" in horse_past.columns and len(horse_past) > 0:
+                c4_vals = horse_past["jyuni4c"].dropna()
+                jyuni4c_avg: float = (
+                    float(c4_vals.tail(3).mean()) if len(c4_vals) > 0 else float("nan")
+                )
             else:
-                corner_4c_avg = float("nan")
+                jyuni4c_avg = float("nan")
 
             # closing_index_avg
-            if all(c in horse_past.columns for c in ["corner_4c", "finish_pos", "field_size"]) and len(horse_past) > 0:
-                valid_ci = horse_past.dropna(subset=["corner_4c", "finish_pos", "field_size"])
+            if (
+                all(c in horse_past.columns for c in ["jyuni4c", "kakuteijyuni", "field_size"])
+                and len(horse_past) > 0
+            ):
+                valid_ci = horse_past.dropna(subset=["jyuni4c", "kakuteijyuni", "field_size"])
                 valid_ci = valid_ci[valid_ci["field_size"] > 1]
                 if len(valid_ci) > 0:
-                    norm_4c = (valid_ci["corner_4c"] - 1) / (valid_ci["field_size"] - 1)
-                    norm_finish = (valid_ci["finish_pos"] - 1) / (valid_ci["field_size"] - 1)
+                    norm_4c = (valid_ci["jyuni4c"] - 1) / (valid_ci["field_size"] - 1)
+                    norm_finish = (valid_ci["kakuteijyuni"] - 1) / (valid_ci["field_size"] - 1)
                     closing_indices = norm_4c - norm_finish
                     closing_index_avg: float = float(closing_indices.tail(3).mean())
                 else:
@@ -360,12 +387,14 @@ class HorseHistoryFeatures:
             else:
                 closing_index_avg = float("nan")
 
-            # kyakusitu_cd
-            if "kyakusitu" in horse_past.columns and len(horse_past) > 0:
-                kt_vals = horse_past["kyakusitu"].dropna()
-                kyakusitu_cd: float | int = int(kt_vals.iloc[-1]) if len(kt_vals) > 0 else float("nan")
+            # kyakusitukubun_cd
+            if "kyakusitukubun" in horse_past.columns and len(horse_past) > 0:
+                kt_vals = horse_past["kyakusitukubun"].dropna()
+                kyakusitukubun_cd: float | int = (
+                    int(kt_vals.iloc[-1]) if len(kt_vals) > 0 else float("nan")
+                )
             else:
-                kyakusitu_cd = float("nan")
+                kyakusitukubun_cd = float("nan")
 
             # --- Jockey features: O(1) lookup + O(log m) searchsorted ---
             jockey_past_all = past_by_kisyu.get(kisyu, empty_past)
@@ -373,20 +402,20 @@ class HorseHistoryFeatures:
                 dates_np = jockey_past_all["race_date"].values.astype("datetime64[ns]")
                 target_date_np = np.datetime64(race_date, "ns")
                 idx = dates_np.searchsorted(target_date_np, side="left")
-                jockey_past = jockey_past_all.iloc[max(0, idx - 100):idx]
+                jockey_past = jockey_past_all.iloc[max(0, idx - 100) : idx]
             else:
                 jockey_past = empty_past
 
             if len(jockey_past) >= 30:
-                expected = (PAYOUT_RATE / jockey_past["win_odds"].clip(lower=1.1)).sum()
-                actual = int((jockey_past["finish_pos"] == 1).sum())
+                expected = (PAYOUT_RATE / jockey_past["odds"].clip(lower=1.1)).sum()
+                actual = int((jockey_past["kakuteijyuni"] == 1).sum())
                 jockey_surprise: float = _compute_jockey_surprise(
                     actual, len(jockey_past), expected
                 )
             else:
                 jockey_surprise = float("nan")
 
-            # jockey_cond_wr — uses past_by_kisyu_all (finish_pos > 0 only, no win_odds filter)
+            # jockey_cond_wr — uses past_by_kisyu_all (kakuteijyuni > 0 only, no odds filter)
             jockey_all_past = past_by_kisyu_all.get(kisyu, empty_past)
             if len(jockey_all_past) > 0:
                 dates_np = jockey_all_past["race_date"].values.astype("datetime64[ns]")
@@ -397,7 +426,7 @@ class HorseHistoryFeatures:
             else:
                 jockey_all = empty_past
                 total_rides = 0
-            total_wins = int((jockey_all["finish_pos"] == 1).sum()) if total_rides > 0 else 0
+            total_wins = int((jockey_all["kakuteijyuni"] == 1).sum()) if total_rides > 0 else 0
 
             k_smooth = 25
             if total_rides >= 10:
@@ -424,13 +453,13 @@ class HorseHistoryFeatures:
                     "race_id": row["race_id"],
                     "umaban": row["umaban"],
                     "norm_finish_logit_avg": norm_finish_logit_avg,
-                    "haron_time_l3_avg": haron_time_l3_avg,
-                    "haron_time_l3_zscore": haron_time_l3_zscore,
-                    "time_diff_avg": time_diff_avg,
-                    "corner_1c_avg": corner_1c_avg,
-                    "corner_4c_avg": corner_4c_avg,
+                    "harontimel3_avg": harontimel3_avg,
+                    "harontimel3_zscore": harontimel3_zscore,
+                    "timediff_avg": timediff_avg,
+                    "jyuni1c_avg": jyuni1c_avg,
+                    "jyuni4c_avg": jyuni4c_avg,
                     "closing_index_avg": closing_index_avg,
-                    "kyakusitu_cd": kyakusitu_cd,
+                    "kyakusitukubun_cd": kyakusitukubun_cd,
                     "jockey_surprise": jockey_surprise,
                     "jockey_cond_wr": jockey_cond_wr,
                     "weight_absolute": weight_absolute,
@@ -443,25 +472,23 @@ class HorseHistoryFeatures:
     @staticmethod
     def add_race_transforms(df: pd.DataFrame) -> pd.DataFrame:
         """数値BASE_COLS の各列についてレース内 percentile rank を追加。
-        カテゴリ列 (kyakusitu_cd 等) は除外。jockey系は Stage2 に移動後、
+        カテゴリ列 (kyakusitukubun_cd 等) は除外。jockey系は Stage2 に移動後、
         race_rank を生成しない (Task 9 で BASE_COLS から除外)。
         """
         # race_rank を生成する列を明示 (数値のみ)
         _RACE_RANK_COLS = [
             "norm_finish_logit_avg",
-            "haron_time_l3_avg",
-            "haron_time_l3_zscore",
-            "time_diff_avg",
-            "corner_1c_avg",
-            "corner_4c_avg",
+            "harontimel3_avg",
+            "harontimel3_zscore",
+            "timediff_avg",
+            "jyuni1c_avg",
+            "jyuni4c_avg",
             "closing_index_avg",
-            # 注意: kyakusitu_cd, jockey_surprise, jockey_cond_wr は race_rank を生成しない
+            # 注意: kyakusitukubun_cd, jockey_surprise, jockey_cond_wr は race_rank を生成しない
         ]
         df = df.copy()
         for col in _RACE_RANK_COLS:
             if col not in df.columns:
                 continue
-            df[f"{col}_race_rank"] = df.groupby("race_id")[col].rank(
-                pct=True, method="average"
-            )
+            df[f"{col}_race_rank"] = df.groupby("race_id")[col].rank(pct=True, method="average")
         return df
