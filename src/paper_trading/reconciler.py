@@ -79,7 +79,7 @@ class PaperReconciler:
             if result_row.empty:
                 continue
 
-            finish_pos = int(result_row.iloc[0]["finish_pos"])
+            finish_pos = int(result_row.iloc[0]["kakuteijyuni"])
             bet_type = bet_row["bet_type"]
 
             # 複勝的中判定

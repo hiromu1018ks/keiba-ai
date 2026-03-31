@@ -195,7 +195,10 @@ class TestMergeDelta:
         )
         result = _merge_delta(existing, delta, pk=["year", "monthday"])
         assert len(result) == 2
-        assert result[(result["year"] == "2024") & (result["monthday"] == "0101")]["val"].iloc[0] == "A"
+        assert (
+            result[(result["year"] == "2024") & (result["monthday"] == "0101")]["val"].iloc[0]
+            == "A"
+        )
 
     def test_empty_delta_returns_existing(self):
         from db.etl import _merge_delta
@@ -318,7 +321,7 @@ class TestRunFullLoad:
             },
         ]
 
-        result = run_full_load(mock_store, mock_engine, config, "20240101", "20241231")
+        run_full_load(mock_store, mock_engine, config, "20240101", "20241231")
 
         written_df = mock_store.write.call_args[0][2]
         assert "race_date" in written_df.columns

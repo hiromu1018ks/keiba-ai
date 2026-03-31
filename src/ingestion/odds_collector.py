@@ -79,7 +79,7 @@ class OddsCollector:
                 {
                     "race_id": race_id,
                     "horse_no": horse_no,
-                    "tan_odds": odds,
+                    "tanodds": odds,
                     "timing": timing,
                 }
             )

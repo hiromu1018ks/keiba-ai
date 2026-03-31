@@ -17,7 +17,7 @@ class TestPaperReconciler:
             {
                 "race_id": ["2026040510010101"],
                 "umaban": [3],
-                "finish_pos": [2],
+                "kakuteijyuni": [2],
                 "place_pay": [240.0],
                 "place_odds": [2.4],
                 "horse_name": ["テスト馬"],

@@ -51,7 +51,7 @@ class BacktestValidationSuite:
         tests: list[dict[str, Any]] = []
 
         # Stage B ゼロ検出
-        if not test_df.empty and "win_odds_actual" in test_df.columns:
+        if not test_df.empty and "odds" in test_df.columns:
             tests.append(self.test_stage_b_no_zeros(test_df))
 
         # Market Model 検証
@@ -118,7 +118,7 @@ class BacktestValidationSuite:
     def test_stage_b_no_zeros(self, df: pd.DataFrame) -> dict[str, Any]:
         """Stage B の学習データにゼロがないことを確認"""
         hit_df = df[df["kakuteijyuni"] == 1]
-        has_zeros = (hit_df["win_odds_actual"] <= 0).any()
+        has_zeros = (hit_df["odds"] <= 0).any()
         return {
             "name": "stage_b_no_zeros",
             "passed": not has_zeros,
@@ -330,7 +330,7 @@ class BacktestValidationSuite:
 
     def test_ev_correction_reduces_error(self, df: pd.DataFrame) -> dict[str, Any]:
         """v5.4: EV補正モデルがEVのMAEを改善することを確認 (§13.1)"""
-        required = ["ev_win", "ev_win_corrected", "win_odds_actual", "kakuteijyuni"]
+        required = ["ev_win", "ev_win_corrected", "odds", "kakuteijyuni"]
         missing = [c for c in required if c not in df.columns]
         if missing:
             return {
@@ -338,7 +338,7 @@ class BacktestValidationSuite:
                 "passed": False,
                 "message": f"Missing columns: {missing}",
             }
-        actual_ev = df["win_odds_actual"] * (df["kakuteijyuni"] == 1).astype(int)
+        actual_ev = df["odds"] * (df["kakuteijyuni"] == 1).astype(int)
         mae_raw = float(np.mean(np.abs(df["ev_win"] - actual_ev)))
         mae_corrected = float(np.mean(np.abs(df["ev_win_corrected"] - actual_ev)))
         if bool(mae_corrected < mae_raw):
@@ -355,7 +355,7 @@ class BacktestValidationSuite:
 
     def test_ev_correction_mid_range_improvement(self, df: pd.DataFrame) -> dict[str, Any]:
         """v5.4: 中穴ゾーン(P=0.05-0.15)で補正改善>10% (§13.1)"""
-        required = ["p_win_pred", "ev_win", "ev_win_corrected", "win_odds_actual", "kakuteijyuni"]
+        required = ["p_win_pred", "ev_win", "ev_win_corrected", "odds", "kakuteijyuni"]
         missing = [c for c in required if c not in df.columns]
         if missing:
             return {
@@ -370,7 +370,7 @@ class BacktestValidationSuite:
                 "passed": True,
                 "message": f"SKIP (中穴ゾーン {len(mid)} < 100)",
             }
-        actual_ev = mid["win_odds_actual"] * (mid["kakuteijyuni"] == 1).astype(int)
+        actual_ev = mid["odds"] * (mid["kakuteijyuni"] == 1).astype(int)
         mae_raw = float(np.mean(np.abs(mid["ev_win"] - actual_ev)))
         mae_corrected = float(np.mean(np.abs(mid["ev_win_corrected"] - actual_ev)))
         if mae_raw == 0:

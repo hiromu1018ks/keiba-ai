@@ -42,7 +42,7 @@ class TestBacktestValidationSuite:
         df = pd.DataFrame(
             {
                 "kakuteijyuni": [1, 2, 3, 4, 5],
-                "win_odds_actual": [3.0, 5.0, 8.0, 15.0, 30.0],
+                "odds": [3.0, 5.0, 8.0, 15.0, 30.0],
             }
         )
         result = suite.test_stage_b_no_zeros(df)
@@ -57,7 +57,7 @@ class TestBacktestValidationSuite:
         df = pd.DataFrame(
             {
                 "kakuteijyuni": [1, 2, 3, 4, 5],
-                "win_odds_actual": [0.0, 5.0, 8.0, 15.0, 30.0],
+                "odds": [0.0, 5.0, 8.0, 15.0, 30.0],
             }
         )
         result = suite.test_stage_b_no_zeros(df)
@@ -230,7 +230,7 @@ class TestBacktestValidationSuite:
             {
                 "ev_win": [0.50, 0.80, 1.20],
                 "ev_win_corrected": [0.55, 0.75, 1.15],
-                "win_odds_actual": [4.0, 6.0, 10.0],
+                "odds": [4.0, 6.0, 10.0],
                 "kakuteijyuni": [1, 2, 1],
             }
         )
@@ -249,7 +249,7 @@ class TestBacktestValidationSuite:
             {
                 "ev_win": [0.10, 0.20, 0.05, 0.15],
                 "ev_win_corrected": [5.00, 6.00, 4.00, 7.00],
-                "win_odds_actual": [10.0, 8.0, 20.0, 15.0],
+                "odds": [10.0, 8.0, 20.0, 15.0],
                 "kakuteijyuni": [2, 3, 4, 5],
             }
         )
@@ -268,7 +268,7 @@ class TestBacktestValidationSuite:
                     "p_win_pred": 0.10,
                     "ev_win": 1.0,
                     "ev_win_corrected": 0.70,
-                    "win_odds_actual": 5.0,
+                    "odds": 5.0,
                     "kakuteijyuni": 2,
                 }
             )

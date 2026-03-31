@@ -137,7 +137,7 @@ class PaperPredictor:
         # オッズマージ
         if odds is not None and not odds.empty:
             odds_map = dict(zip(odds["umaban"], odds["fukuoddslow"]))
-            race_df["place_odds_actual"] = race_df["umaban"].map(odds_map)
+            race_df["fukuoddslow"] = race_df["umaban"].map(odds_map)
             tan_map = dict(zip(odds["umaban"], odds["tanodds"]))
             race_df["win_odds"] = race_df["umaban"].map(tan_map)
 
@@ -168,9 +168,7 @@ class PaperPredictor:
                     "odds": bet.odds,
                     "result": 0.0,  # 未確定
                     "surface": surface,
-                    "distance": int(result_df["kyori"].iloc[0])
-                    if "kyori" in result_df.columns
-                    else 0,
+                    "kyori": int(result_df["kyori"].iloc[0]) if "kyori" in result_df.columns else 0,
                     "ev": float(bet.ev_lower_corrected),
                     "popularity": 0,
                     "bankroll_after": bankroll - bet.stake,
