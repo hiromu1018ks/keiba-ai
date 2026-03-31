@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import shutil
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -18,6 +19,8 @@ if TYPE_CHECKING:
     from db.parquet_store import ParquetStore
 
 logger = logging.getLogger(__name__)
+
+_SAFE_TABLE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 _DEFAULT_CONFIG_PATH = _PROJECT_ROOT / "config" / "etl_tables.yaml"
@@ -42,6 +45,8 @@ def _read_db_table(
 ) -> pd.DataFrame:
     """Read a table from PostgreSQL. Adds date filter for type=raced."""
     table = cfg["db_table"]
+    if not _SAFE_TABLE.match(table):
+        raise ValueError(f"Invalid table name: {table}")
     table_type = cfg.get("type", "master")
 
     if table_type == "raced" and start and end:
