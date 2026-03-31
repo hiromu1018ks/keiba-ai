@@ -900,7 +900,8 @@ Expected: FAIL (columns like `month_day`, `ketto_num` not found)
 
 - [ ] **Step 3: Implement transform layer in repository.py**
 
-`repository.py` に変換ロジックを追加。リネームだけでなく型変換も行う:
+`repository.py` に変換ロジックを追加。リネームだけでなく型変換も行う。
+payouts と odds系テーブルにも個別の変換が必要 (現在のETLがこれらをリネーム+型変換してParquetに書き込んでいるため):
 
 ```python
 def _to_int(val: str | None) -> int | None:
@@ -1007,6 +1008,88 @@ def _compute_race_id_from_raw(df: pd.DataFrame) -> pd.DataFrame:
             + df["racenum"].astype(str).str.zfill(2)
         )
     return df
+
+
+def _transform_payouts_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """n_harai の生カラム名をML既存名に変換 (payoutsテーブル用)"""
+    rename_map = {
+        "paytansyoumaban1": "tan_umaban",
+        "paytansyopay1": "tan_pay",
+    }
+    for i in range(1, 6):
+        rename_map[f"payfukusyoumaban{i}"] = f"fuku_umaban{i}"
+        rename_map[f"payfukusyoumaban{i}"] = f"fuku_pay{i}"
+    existing = {k: v for k, v in rename_map.items() if k in df.columns}
+    if existing:
+        df = df.rename(columns=existing)
+    # Type conversion
+    if "tan_umaban" in df.columns:
+        df["tan_umaban"] = df["tan_umaban"].apply(_to_int)
+    if "tan_pay" in df.columns:
+        df["tan_pay"] = df["tan_pay"].apply(_to_float)
+    for i in range(1, 6):
+        for prefix in ("fuku_umaban", "fuku_pay"):
+            col = f"{prefix}{i}"
+            if col in df.columns:
+                df[col] = df[col].apply(_to_int if "umaban" in prefix else _to_float)
+    return df
+
+
+def _transform_odds_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """n_odds_tanpuku/n_odds_wide の生カラム名をML既存名に変換 (oddsテーブル用)"""
+    rename_map = {
+        "tanodds": "tan_odds",
+        "fukuoddslow": "fuku_odds",
+    }
+    existing = {k: v for k, v in rename_map.items() if k in df.columns}
+    if existing:
+        df = df.rename(columns=existing)
+    # Type conversion
+    if "umaban" in df.columns:
+        df["umaban"] = df["umaban"].apply(_to_int)
+    if "tan_odds" in df.columns:
+        df["tan_odds"] = df["tan_odds"].apply(_to_odds)
+    if "fuku_odds" in df.columns:
+        df["fuku_odds"] = df["fuku_odds"].apply(_to_odds)
+    return df
+
+
+def _transform_wide_odds_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """n_odds_wide の生カラム名をML既存名に変換 (wide_oddsテーブル用)"""
+    rename_map = {
+        "oddslow": "odds_low",
+        "oddshigh": "odds_high",
+    }
+    existing = {k: v for k, v in rename_map.items() if k in df.columns}
+    if existing:
+        df = df.rename(columns=existing)
+    if "odds_low" in df.columns:
+        df["odds_low"] = df["odds_low"].apply(lambda v: _to_odds(v, divisor=100))
+    if "odds_high" in df.columns:
+        df["odds_high"] = df["odds_high"].apply(lambda v: _to_odds(v, divisor=100))
+    return df
+
+
+def _transform_time_series_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """n_jodds_tanpuku の生カラム名をML既存名に変換 (odds_time_seriesテーブル用)"""
+    rename_map = {
+        "happyotime": "happyo_time",
+        "tanodds": "tan_odds",
+        "fukuoddslow": "fuku_odds",
+        "tanninki": "ninki",
+    }
+    existing = {k: v for k, v in rename_map.items() if k in df.columns}
+    if existing:
+        df = df.rename(columns=existing)
+    if "umaban" in df.columns:
+        df["umaban"] = df["umaban"].apply(_to_int)
+    if "tan_odds" in df.columns:
+        df["tan_odds"] = df["tan_odds"].apply(_to_odds)
+    if "fuku_odds" in df.columns:
+        df["fuku_odds"] = df["fuku_odds"].apply(_to_odds)
+    if "ninki" in df.columns:
+        df["ninki"] = df["ninki"].apply(_to_int)
+    return df
 ```
 
 そして各 `load_*` メソッドで `_transform_raw_columns` を呼ぶ:
@@ -1023,20 +1106,110 @@ def load_entries(self, start: str, end: str) -> pd.DataFrame:
     df = _transform_raw_columns(df)
     return _exclude_steeple(df)
 
-# load_payouts, load_odds_snapshots, load_wide_odds も同様に変換を追加
-# (payouts, odds系はrace_idをParquetに持っているので_compute_race_id_from_rawは不要)
+def load_payouts(self, start: str, end: str) -> pd.DataFrame:
+    df = self.store.read("raw", "payouts", filters=_date_filters(start, end))
+    df = _transform_payouts_columns(df)
+    return df
+
+def load_odds_snapshots(self, start: str, end: str) -> pd.DataFrame:
+    df = self.store.read("odds", "snapshots", filters=_date_filters(start, end))
+    df = _transform_odds_columns(df)
+    return df
+
+def load_wide_odds(self, start: str, end: str) -> pd.DataFrame:
+    df = self.store.read("odds", "wide", filters=_date_filters(start, end))
+    df = _transform_wide_odds_columns(df)
+    return df
+
+def load_odds_time_series_range(self, start: str, end: str) -> pd.DataFrame:
+    """オッズ時系列（日付範囲）— パーティションテーブル"""
+    s, e = _to_dt(start), _to_dt(end)
+    filters = [
+        ("year", ">=", s.year),
+        ("year", "<=", e.year),
+        ("race_date", ">=", s),
+        ("race_date", "<=", e),
+    ]
+    df = self.store.read("odds", "time_series", filters=filters)
+    df = _transform_time_series_columns(df)
+    return df
 ```
 
-- [ ] **Step 4: Run repository tests**
+- [ ] **Step 4: Add tests for payouts/odds transforms**
+
+`tests/test_repository.py` に追加:
+
+```python
+class TestTransformPayoutsColumns:
+    def test_payouts_columns_renamed(self, repo: DataRepository, mock_store: MagicMock):
+        mock_store.read.return_value = pd.DataFrame({
+            "race_date": [datetime(2020, 6, 1)],
+            "paytansyoumaban1": ["3"], "paytansyopay1": ["540"],
+            "payfukusyoumaban1": ["3"], "payfukusyopay1": ["140"],
+        })
+        result = repo.load_payouts("20200101", "20201231")
+        assert "tan_umaban" in result.columns
+        assert "tan_pay" in result.columns
+        assert "fuku_umaban1" in result.columns
+
+    def test_payouts_types_converted(self, repo: DataRepository, mock_store: MagicMock):
+        mock_store.read.return_value = pd.DataFrame({
+            "race_date": [datetime(2020, 6, 1)],
+            "paytansyoumaban1": ["3"], "paytansyopay1": ["540"],
+        })
+        result = repo.load_payouts("20200101", "20201231")
+        assert result["tan_umaban"].iloc[0] == 3
+        assert result["tan_pay"].iloc[0] == 540.0
+
+
+class TestTransformOddsColumns:
+    def test_odds_snapshots_renamed(self, repo: DataRepository, mock_store: MagicMock):
+        mock_store.read.return_value = pd.DataFrame({
+            "race_date": [datetime(2020, 6, 1)],
+            "umaban": ["1"], "tanodds": ["0032"], "fukuoddslow": ["0013"],
+        })
+        result = repo.load_odds_snapshots("20200101", "20201231")
+        assert "tan_odds" in result.columns
+        assert "fuku_odds" in result.columns
+
+    def test_odds_snapshots_types_converted(self, repo: DataRepository, mock_store: MagicMock):
+        mock_store.read.return_value = pd.DataFrame({
+            "race_date": [datetime(2020, 6, 1)],
+            "umaban": ["1"], "tanodds": ["0032"], "fukuoddslow": ["0013"],
+        })
+        result = repo.load_odds_snapshots("20200101", "20201231")
+        assert result["tan_odds"].iloc[0] == 3.2
+        assert result["fuku_odds"].iloc[0] == 1.3
+
+    def test_wide_odds_renamed(self, repo: DataRepository, mock_store: MagicMock):
+        mock_store.read.return_value = pd.DataFrame({
+            "race_date": [datetime(2020, 6, 1)],
+            "kumi": ["1-2"], "oddslow": ["00320"], "oddshigh": ["00450"],
+        })
+        result = repo.load_wide_odds("20200101", "20201231")
+        assert "odds_low" in result.columns
+        assert "odds_high" in result.columns
+
+    def test_wide_odds_types_converted(self, repo: DataRepository, mock_store: MagicMock):
+        mock_store.read.return_value = pd.DataFrame({
+            "race_date": [datetime(2020, 6, 1)],
+            "kumi": ["1-2"], "oddslow": ["00320"], "oddshigh": ["00450"],
+        })
+        result = repo.load_wide_odds("20200101", "20201231")
+        assert result["odds_low"].iloc[0] == 3.20
+        assert result["odds_high"].iloc[0] == 4.50
+```
+
+- [ ] **Step 5: Run repository tests**
 
 Run: `mise exec -- python -m pytest tests/test_repository.py -v`
 Expected: ALL PASS
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
 git add src/db/repository.py tests/test_repository.py
-git commit -m "feat: DataRepositoryに一時変換レイヤーを追加 (生カラム名→ML既存名+型変換)"
+git commit -m "feat: DataRepositoryに一時変換レイヤーを追加 (races/entries/payouts/odds)"
 ```
 
 ---
