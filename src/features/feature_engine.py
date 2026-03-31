@@ -32,7 +32,7 @@ class FeatureEngine:
         entry_df: pd.DataFrame,
         odds_df: pd.DataFrame,
         odds_ts_df: pd.DataFrame | None = None,
-        repo: object | None = None,
+        store: object | None = None,
     ) -> pd.DataFrame:
         """バッチ特徴量生成（TrainingPipelineV5 から呼ばれる）
 
@@ -41,6 +41,7 @@ class FeatureEngine:
             entry_df: 出走馬データ (load_entries_with_results() の出力)
             odds_df: オッズスナップショット (load_odds_snapshots() の出力)
             odds_ts_df: オッズ時系列データ (省略可、B-3 で compute_odds_dynamics() に渡す)
+            store: ParquetStore (省略可、血統特徴量で使用)
 
         Returns:
             全馬の特徴量を含むDataFrame (1行 = 1馬)
@@ -55,7 +56,7 @@ class FeatureEngine:
 
         # 3. 障害レース除外
         if self._exclude_steeple:
-            df = df[df["track_cd"] < 51]
+            df = df[df["trackcd"] < 51]
 
         # 4. 基本特徴量のマッピング
         df = self._map_basic_features(df)
@@ -78,10 +79,10 @@ class FeatureEngine:
         df = compute_difficulty_score(df)
 
         # Group B: 血統特徴量
-        if repo is not None:
+        if store is not None:
             from features.bloodline_features import BloodlineFeatures
 
-            bloodline = BloodlineFeatures(repo)
+            bloodline = BloodlineFeatures(store)
             bloodline_df = bloodline.compute(df)
             df = pd.merge(df, bloodline_df, on=["race_id", "umaban"], how="left")
 
@@ -113,38 +114,34 @@ class FeatureEngine:
         Returns:
             全馬の特徴量を含むDataFrame (1行 = 1馬)
         """
-        # 1. Race → DataFrame
+        # 1. Race → DataFrame (生カラム名)
         race_data = {
             "race_id": race.race_id,
-            "surface": race.surface.value,
-            "distance_band": race.distance_band,
-            "track_cd": race.track_cd,
-            "distance": race.distance,
-            "baba_cd": race.baba_cd,
-            "grade_cd": race.grade_cd,
-            "field_size": race.field_size,
-            "tenko_cd": race.tenko_cd,
-            "syubetu_cd": race.syubetu_cd,
-            "jyoken_cd": race.jyoken_cd,
+            "trackcd": race.track_cd,
+            "kyori": race.distance,
+            "gradecd": race.grade_cd,
+            "syussotosu": race.field_size,
+            "tenkocd": race.tenko_cd,
+            "syubetucd": race.syubetu_cd,
+            "jyokencd1": race.jyoken_cd,
+            "track_condition_code": race.baba_cd,
         }
         race_row = pd.DataFrame([race_data])
 
-        # 2. list[Entry] → DataFrame
+        # 2. list[Entry] → DataFrame (生カラム名)
         entry_rows = []
         for e in entries:
             entry_rows.append(
                 {
                     "race_id": race.race_id,
                     "umaban": e.umaban,
-                    "ketto_num": e.ketto_num,
-                    "finish_pos": e.finish_pos,
-                    "win_odds": e.win_odds_actual,
+                    "kettonum": e.ketto_num,
+                    "kakuteijyuni": e.finish_pos,
+                    "odds": e.win_odds_actual,
                     "ninki": e.popularity_rank,
-                    "ba_taijyu": e.ba_taijyu,
-                    "zogen_fugo": e.zogen_fugo,
-                    "zogen_sa": e.zogen_sa,
-                    "kisyu_code": e.kisyu_code,
-                    "chokyosi_code": e.chokyosi_code,
+                    "bataijyu": e.ba_taijyu,
+                    "kisyucode": e.kisyu_code,
+                    "chokyosicode": e.chokyosi_code,
                 }
             )
         entry_df = pd.DataFrame(entry_rows)
@@ -164,37 +161,15 @@ class FeatureEngine:
         return df
 
     def _map_basic_features(self, df: pd.DataFrame) -> pd.DataFrame:
-        """DB列名 → FEATURE_COLS 名へのマッピング
+        """生カラム名 → ML特徴量名へのマッピング
 
-        rename: distance_band→distance_bin, baba_cd→track_condition_code, grade_cd→grade_code
-        copy: ninki→popularity_rank, surface→surface_key (両方を保持)
+        ETLが型変換・surface・track_condition_codeを処理済みのため、
+        ML固有の別名のみをここで設定する。
         """
-        rename_map: dict[str, str] = {}
-        if "distance_band" in df.columns:
-            rename_map["distance_band"] = "distance_bin"
-        if "baba_cd" in df.columns:
-            rename_map["baba_cd"] = "track_condition_code"
-        if "grade_cd" in df.columns:
-            rename_map["grade_cd"] = "grade_code"
-
-        df = df.rename(columns=rename_map)
-
-        # ninki → popularity_rank (ninki は別用途でも使うためコピー)
-        if "ninki" in df.columns:
-            df["popularity_rank"] = df["ninki"]
-
-        # track_cd → surface (芝:10-22, ダート:23-29, 障害:51-59)
-        # 設計書 everydb2-data-reference §3.1 / domain.models._surface_from_track_cd
-        if "surface" not in df.columns and "track_cd" in df.columns:
-            df["surface"] = df["track_cd"].apply(
-                lambda x: "turf" if 10 <= x <= 22 else "dirt" if 23 <= x <= 29 else "other"
-            )
-
-        # surface + distance → distance_bin (Parquet ETLには含まれないGenerated列)
-        # domain.models._distance_band と同じロジックをベクトル化
-        if "distance_bin" not in df.columns and "distance" in df.columns and "surface" in df.columns:
+        # distance_bin: kyori + surface から計算 (ETLには含まれない)
+        if "distance_bin" not in df.columns and "kyori" in df.columns and "surface" in df.columns:
             is_turf = df["surface"] == "turf"
-            dist = df["distance"]
+            dist = df["kyori"]
             df["distance_bin"] = "unknown"
             # Turf: sprint(<=1400), mile(<=1700), intermediate(<=2100), long(>2100)
             df.loc[is_turf & (dist > 2100), "distance_bin"] = "long"
@@ -206,18 +181,23 @@ class FeatureEngine:
             df.loc[~is_turf & (dist <= 1700), "distance_bin"] = "mile"
             df.loc[~is_turf & (dist <= 1400), "distance_bin"] = "sprint"
 
-        # surface_key (downstream SubModelManager フィルタ用)
-        if "surface" in df.columns:
-            df["surface_key"] = df["surface"]
+        # track_condition_code: ETLが計算済み。推論パス用のガードのみ
+        # (build_features() では race.baba_cd から直接渡される)
 
-        # running_style (kyakusitu = 脚質: 1=逃げ, 2=先行, 3=差し, 4=追込, 0=不明)
-        if "kyakusitu" in df.columns:
-            df["running_style"] = df["kyakusitu"].fillna(0).astype(int)
+        # grade_code: gradecd → grade_code コピー
+        if "gradecd" in df.columns and "grade_code" not in df.columns:
+            df["grade_code"] = df["gradecd"]
 
-        # actual odds (DB値と予測値を区別するため別名で保持)
-        if "win_odds" in df.columns:
-            df["win_odds_actual"] = df["win_odds"]
-        if "fuku_odds" in df.columns:
-            df["place_odds_actual"] = df["fuku_odds"]
+        # field_size: syussotosu → field_size コピー
+        if "syussotosu" in df.columns and "field_size" not in df.columns:
+            df["field_size"] = df["syussotosu"]
+
+        # popularity_rank: ninki → popularity_rank コピー
+        if "ninki" in df.columns and "popularity_rank" not in df.columns:
+            df["popularity_rank"] = df["ninki"]
+
+        # running_style: kyakusitukubun → running_style (int変換)
+        if "kyakusitukubun" in df.columns:
+            df["running_style"] = df["kyakusitukubun"].fillna(0).astype(int)
 
         return df
