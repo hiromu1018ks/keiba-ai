@@ -13,7 +13,7 @@ import pandas as pd
 
 from backtest.race_predictor import RacePredictor
 from db.parquet_store import ParquetStore
-from db.repository import DataRepository
+from db.readers import load_entries, load_odds_snapshots, load_races
 from domain.models import Bet, BetType
 
 if TYPE_CHECKING:
@@ -60,18 +60,18 @@ class BacktestEngine:
     Args:
         models: 学習済みモデル
         initial_bankroll: 初期資金 (デフォルト 100,000円)
-        repo: データリポジトリ (省略時は新規 ParquetStore)
+        store: ParquetStore (省略時は新規インスタンス)
     """
 
     def __init__(
         self,
         models: TrainedModelsV5,
         initial_bankroll: float = 100_000,
-        repo: DataRepository | None = None,
+        store: ParquetStore | None = None,
     ) -> None:
         self.models = models
         self.initial_bankroll = initial_bankroll
-        self.repo = repo or DataRepository(ParquetStore())
+        self.store = store or ParquetStore()
         self._race_predictor = RacePredictor(models)
 
     def run(
@@ -91,9 +91,9 @@ class BacktestEngine:
         # 1. データロード
         start = test_start.replace("-", "")
         end = test_end.replace("-", "")
-        race_df = self.repo.load_races(start, end)
-        entry_df = self.repo.load_entries(start, end)
-        odds_df = self.repo.load_odds_snapshots(start, end)
+        race_df = load_races(self.store, start, end)
+        entry_df = load_entries(self.store, start, end)
+        odds_df = load_odds_snapshots(self.store, start, end)
 
         if race_df.empty:
             logger.warning(f"No races found in {test_start} ~ {test_end}")
@@ -107,7 +107,7 @@ class BacktestEngine:
         submodel_mgr = SubModelManager()
         odds_ts_df = None  # Stage1 FEATURE_COLS で未使用 (メモリ節約)
         feat_df = feat_engine.build_all(
-            race_df, entry_df, odds_df, odds_ts_df=odds_ts_df, repo=self.repo
+            race_df, entry_df, odds_df, odds_ts_df=odds_ts_df, store=self.store
         )
         feat_df = submodel_mgr.add_distance_band_features(feat_df)
 
@@ -119,15 +119,15 @@ class BacktestEngine:
         race_ids = feat_df["race_id"].unique()
 
         logger.info("Pre-computing HorseHistoryFeatures for %d races...", len(race_ids))
-        hist_all = HorseHistoryFeatures(repo=self.repo)
+        hist_all = HorseHistoryFeatures(store=self.store)
         hist_df_all = hist_all.compute(race_df, entry_df, race_ids)
 
         logger.info("Pre-computing JockeyContextFeatures for %d entries...", len(entry_df))
-        jockey_ctx = JockeyContextFeatures(self.repo)
+        jockey_ctx = JockeyContextFeatures(self.store)
         jockey_df_all = jockey_ctx.compute(entry_df)
 
         logger.info("Pre-computing TrainerContextFeatures for %d entries...", len(entry_df))
-        trainer_ctx = TrainerContextFeatures(self.repo)
+        trainer_ctx = TrainerContextFeatures(self.store)
         trainer_df_all = trainer_ctx.compute(entry_df)
 
         # 4. レースごとにシミュレーション (推論は RacePredictor に委譲)
@@ -162,7 +162,7 @@ class BacktestEngine:
                 continue
 
             # Bet generation
-            surface_key = result_df["surface_key"].iloc[0]
+            surface_key = result_df["surface"].iloc[0]
             bets = self._race_predictor.select_bets(result_df, bankroll)
 
             # Settlement (BacktestEngine 固有)
@@ -188,10 +188,8 @@ class BacktestEngine:
                         "odds": bet.odds,
                         "result": bet_result,
                         "surface": surface_key,
-                        "distance": (
-                            int(result_df["distance"].iloc[0])
-                            if "distance" in result_df.columns
-                            else 0
+                        "kyori": (
+                            int(result_df["kyori"].iloc[0]) if "kyori" in result_df.columns else 0
                         ),
                         "ev": float(bet.ev_lower_corrected),
                         "popularity": int(pop_val),
@@ -285,7 +283,7 @@ class BacktestEngine:
         max_bets = regime_params.get("max_bets_per_race", 3)
 
         # 複勝ベット
-        if "ev_place" in race_df.columns and "place_odds_actual" in race_df.columns:
+        if "ev_place" in race_df.columns and "fukuoddslow" in race_df.columns:
             candidates = race_df[race_df["ev_place"].fillna(0) >= ev_threshold].copy()
             # ev_place 降順でソートし、上位 max_bets 頭のみベット
             candidates = candidates.nlargest(max_bets, "ev_place")
@@ -298,7 +296,7 @@ class BacktestEngine:
                             race_id=row["race_id"],
                             umaban=int(row["umaban"]),
                             bet_type=BetType.PLACE,
-                            odds=float(row["place_odds_actual"]),
+                            odds=float(row["fukuoddslow"]),
                             ev_lower_corrected=float(row.get("ev_place", 0)),
                             stake=stake,
                         )
@@ -312,7 +310,7 @@ class BacktestEngine:
         if horse.empty:
             return 0.0
 
-        finish_pos = int(horse.iloc[0]["finish_pos"])
+        finish_pos = int(horse.iloc[0]["kakuteijyuni"])
 
         if bet.bet_type == BetType.PLACE:
             if 1 <= finish_pos <= 3:
@@ -325,7 +323,7 @@ class BacktestEngine:
                 pair_b = getattr(bet, "umaban_b", None)
                 if pair_b is not None:
                     pair_horse = race_df[race_df["umaban"] == pair_b]
-                    if not pair_horse.empty and int(pair_horse.iloc[0]["finish_pos"]) <= 3:
+                    if not pair_horse.empty and int(pair_horse.iloc[0]["kakuteijyuni"]) <= 3:
                         return float(bet.stake * bet.odds)
 
         return 0.0

@@ -162,7 +162,7 @@ class BacktestReportGenerator:
             lambda: {"bets": 0, "wins": 0, "stake": 0.0, "total_return": 0.0}
         )
         for b in bets:
-            band = self._distance_band(b["surface"], b["distance"])
+            band = self._distance_band(b["surface"], b["kyori"])
             key = f"{b['surface']}|{band}"
             sd_groups[key]["bets"] += 1
             sd_groups[key]["stake"] += b["stake"]

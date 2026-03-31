@@ -14,7 +14,7 @@ import numpy as np
 import pandas as pd
 
 if TYPE_CHECKING:
-    from db.repository import DataRepository
+    from db.parquet_store import ParquetStore
 
 logger = logging.getLogger(__name__)
 
@@ -27,8 +27,8 @@ class BacktestValidationSuite:
     run_walk_forward_cv() で3-window walk-forward CV を実行。
     """
 
-    def __init__(self, repo: DataRepository | None = None) -> None:
-        self.repo = repo
+    def __init__(self, store: ParquetStore | None = None) -> None:
+        self.store = store
 
     def run_all(
         self,
@@ -117,7 +117,7 @@ class BacktestValidationSuite:
 
     def test_stage_b_no_zeros(self, df: pd.DataFrame) -> dict[str, Any]:
         """Stage B の学習データにゼロがないことを確認"""
-        hit_df = df[df["finish_pos"] == 1]
+        hit_df = df[df["kakuteijyuni"] == 1]
         has_zeros = (hit_df["win_odds_actual"] <= 0).any()
         return {
             "name": "stage_b_no_zeros",
@@ -330,7 +330,7 @@ class BacktestValidationSuite:
 
     def test_ev_correction_reduces_error(self, df: pd.DataFrame) -> dict[str, Any]:
         """v5.4: EV補正モデルがEVのMAEを改善することを確認 (§13.1)"""
-        required = ["ev_win", "ev_win_corrected", "win_odds_actual", "finish_pos"]
+        required = ["ev_win", "ev_win_corrected", "win_odds_actual", "kakuteijyuni"]
         missing = [c for c in required if c not in df.columns]
         if missing:
             return {
@@ -338,7 +338,7 @@ class BacktestValidationSuite:
                 "passed": False,
                 "message": f"Missing columns: {missing}",
             }
-        actual_ev = df["win_odds_actual"] * (df["finish_pos"] == 1).astype(int)
+        actual_ev = df["win_odds_actual"] * (df["kakuteijyuni"] == 1).astype(int)
         mae_raw = float(np.mean(np.abs(df["ev_win"] - actual_ev)))
         mae_corrected = float(np.mean(np.abs(df["ev_win_corrected"] - actual_ev)))
         if bool(mae_corrected < mae_raw):
@@ -355,7 +355,7 @@ class BacktestValidationSuite:
 
     def test_ev_correction_mid_range_improvement(self, df: pd.DataFrame) -> dict[str, Any]:
         """v5.4: 中穴ゾーン(P=0.05-0.15)で補正改善>10% (§13.1)"""
-        required = ["p_win_pred", "ev_win", "ev_win_corrected", "win_odds_actual", "finish_pos"]
+        required = ["p_win_pred", "ev_win", "ev_win_corrected", "win_odds_actual", "kakuteijyuni"]
         missing = [c for c in required if c not in df.columns]
         if missing:
             return {
@@ -370,7 +370,7 @@ class BacktestValidationSuite:
                 "passed": True,
                 "message": f"SKIP (中穴ゾーン {len(mid)} < 100)",
             }
-        actual_ev = mid["win_odds_actual"] * (mid["finish_pos"] == 1).astype(int)
+        actual_ev = mid["win_odds_actual"] * (mid["kakuteijyuni"] == 1).astype(int)
         mae_raw = float(np.mean(np.abs(mid["ev_win"] - actual_ev)))
         mae_corrected = float(np.mean(np.abs(mid["ev_win_corrected"] - actual_ev)))
         if mae_raw == 0:
@@ -389,7 +389,7 @@ class BacktestValidationSuite:
 
     def test_ev_correction_winner_weight(self, df: pd.DataFrame) -> dict[str, Any]:
         """v5.4: 1着馬P_corrected中央値>=P_pred中央値 (§13.1)"""
-        required = ["finish_pos", "p_win_pred", "p_win_corrected"]
+        required = ["kakuteijyuni", "p_win_pred", "p_win_corrected"]
         missing = [c for c in required if c not in df.columns]
         if missing:
             return {
@@ -397,7 +397,7 @@ class BacktestValidationSuite:
                 "passed": False,
                 "message": f"Missing columns: {missing}",
             }
-        winners = df[df["finish_pos"] == 1]
+        winners = df[df["kakuteijyuni"] == 1]
         if len(winners) < 50:
             return {
                 "name": "ev_correction_winner_weight",
@@ -584,7 +584,7 @@ class BacktestValidationSuite:
             )
 
             # 1. Train
-            pipeline = TrainingPipelineV5(repo=self.repo)
+            pipeline = TrainingPipelineV5(store=self.store)
             trained = pipeline.run(w["train"][0], w["train"][1])
 
             # 2. Freeze parameters (Rule 7)
@@ -592,7 +592,7 @@ class BacktestValidationSuite:
             protocol.freeze()
 
             # 3. Backtest on test period (OOS)
-            engine = BacktestEngine(models=trained, repo=self.repo)
+            engine = BacktestEngine(models=trained, store=self.store)
             bt_result = engine.run(w["test"][0], w["test"][1])
 
             # 4. Verify parameters unchanged

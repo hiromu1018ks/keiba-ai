@@ -44,7 +44,7 @@ class RacePredictor:
             return race_df
 
         # 1. サブモデル選択
-        surface_key = race_df["surface_key"].iloc[0]
+        surface_key = race_df["surface"].iloc[0]
         if surface_key not in self.models.submodels:
             logger.debug("Unknown surface: %s, skipping", surface_key)
             return pd.DataFrame()
@@ -116,7 +116,7 @@ class RacePredictor:
         ev_threshold = regime_params.get("ev_threshold", 1.20)
         max_bets = regime_params.get("max_bets_per_race", 3)
 
-        if "ev_place" not in race_df.columns or "place_odds_actual" not in race_df.columns:
+        if "ev_place" not in race_df.columns or "fukuoddslow" not in race_df.columns:
             return bets
 
         candidates = race_df[race_df["ev_place"].fillna(0) >= ev_threshold].copy()
@@ -130,7 +130,7 @@ class RacePredictor:
                         race_id=row["race_id"],
                         umaban=int(row["umaban"]),
                         bet_type=BetType.PLACE,
-                        odds=float(row["place_odds_actual"]),
+                        odds=float(row["fukuoddslow"]),
                         ev_lower_corrected=float(row.get("ev_place", 0)),
                         stake=stake,
                     )
