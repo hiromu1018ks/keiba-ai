@@ -238,7 +238,7 @@ class TestLeakPrevention:
         races_data = pd.DataFrame(
             {
                 "race_id": ["p1", "p2"],
-                "field_size": [16, 16],
+                "syussotosu": [16, 16],
                 "race_date": [
                     pd.Timestamp("2024-05-01"),
                     pd.Timestamp("2024-07-01"),
@@ -317,7 +317,7 @@ class TestHorseHistoryFeaturesWithStore:
             {
                 "race_id": ["r1"],
                 "race_date": [pd.Timestamp("2020-01-01")],
-                "field_size": [16],
+                "syussotosu": [16],
                 "trackcd": [11],
                 "kyori": [1600],
                 "surface": ["turf"],
@@ -367,7 +367,7 @@ class TestHorseHistoryFeaturesWithStore:
             {
                 "race_id": ["r1"],
                 "race_date": [pd.Timestamp("2020-01-01")],
-                "field_size": [16],
+                "syussotosu": [16],
                 "trackcd": [11],
                 "kyori": [1600],
                 "surface": ["turf"],

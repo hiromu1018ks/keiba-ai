@@ -9,12 +9,14 @@ from features.race_difficulty_model import compute_difficulty_score
 @pytest.fixture
 def race_df() -> pd.DataFrame:
     """様々な条件のレースデータ"""
-    return pd.DataFrame({
-        "race_id": ["G1", "G3", "GENERAL", "BIG_FIELD"],
-        "field_size": [18, 16, 14, 18],
-        "grade_cd": ["A", "C", "_", "_"],
-        "market_entropy": [2.8, 2.5, 1.5, 2.89],  # ln(18)≈2.89 が最大
-    })
+    return pd.DataFrame(
+        {
+            "race_id": ["G1", "G3", "GENERAL", "BIG_FIELD"],
+            "field_size": [18, 16, 14, 18],
+            "gradecd": ["A", "C", "_", "_"],
+            "market_entropy": [2.8, 2.5, 1.5, 2.89],  # ln(18)≈2.89 が最大
+        }
+    )
 
 
 class TestDifficultyScore:

@@ -20,7 +20,7 @@ from datetime import date, timedelta
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from db.repository import DataRepository
+    from db.parquet_store import ParquetStore
     from domain.models import TrainedModelsV5
     from paper_trading.config import PaperTradingConfig
 
@@ -106,28 +106,27 @@ def main() -> None:
 
     # --- リポジトリ ---
     from db.parquet_store import ParquetStore
-    from db.repository import DataRepository
 
-    repo = DataRepository(ParquetStore())
+    store = ParquetStore()
 
     if args.mode == "setup":
-        _run_setup(args, config, models, repo)
+        _run_setup(args, config, models, store)
 
     elif args.mode == "watch":
-        _run_watch(args, config, models, repo)
+        _run_watch(args, config, models, store)
 
     elif args.mode == "reconcile":
-        _run_reconcile(args, config, repo, models)
+        _run_reconcile(args, config, store, models)
 
     elif args.mode == "dry-run":
-        _run_dry_run(args, config, models, repo)
+        _run_dry_run(args, config, models, store)
 
 
 def _run_setup(
     args: argparse.Namespace,
     config: "PaperTradingConfig",
     models: "TrainedModelsV5",
-    repo: "DataRepository",
+    store: "ParquetStore",
 ) -> None:
     from backtest.race_predictor import RacePredictor
     from db.everydb2_queries import EveryDB2Queries
@@ -136,7 +135,7 @@ def _run_setup(
     target_date = date.fromisoformat(args.date)
     race_predictor = RacePredictor(models)
     predictor = PaperPredictor(
-        repo=repo,
+        store=store,
         race_predictor=race_predictor,
         models=models,
         output_dir=config.paper_trading_dir,
@@ -167,7 +166,7 @@ def _run_watch(
     args: argparse.Namespace,
     config: "PaperTradingConfig",
     models: "TrainedModelsV5",
-    repo: "DataRepository",
+    store: "ParquetStore",
 ) -> None:
     from backtest.race_predictor import RacePredictor
     from db.everydb2_queries import EveryDB2Queries
@@ -178,7 +177,7 @@ def _run_watch(
     target_date = date.fromisoformat(args.date)
     race_predictor = RacePredictor(models)
     predictor = PaperPredictor(
-        repo=repo,
+        store=store,
         race_predictor=race_predictor,
         models=models,
         output_dir=config.paper_trading_dir,
@@ -217,7 +216,7 @@ def _run_watch(
 def _run_reconcile(
     args: argparse.Namespace,
     config: "PaperTradingConfig",
-    repo: "DataRepository",
+    store: "ParquetStore",
     models: "TrainedModelsV5 | None" = None,
 ) -> None:
     from db.everydb2_queries import EveryDB2Queries
@@ -228,7 +227,7 @@ def _run_reconcile(
     everydb2 = EveryDB2Queries(connection_string=config.everydb2_connection_string)
 
     reconciler = PaperReconciler(
-        repo=repo,
+        store=store,
         bets_path=config.paper_trading_dir / "bets.parquet",
         everydb2=everydb2,
     )
@@ -264,10 +263,11 @@ def _run_dry_run(
     args: argparse.Namespace,
     config: "PaperTradingConfig",
     models: "TrainedModelsV5",
-    repo: "DataRepository",
+    store: "ParquetStore",
 ) -> None:
     """過去データで本番パイプラインの動作確認"""
     from backtest.race_predictor import RacePredictor
+    from db.readers import load_entries, load_odds_snapshots, load_races
     from features.feature_engine import FeatureEngine
     from features.horse_history_features import HorseHistoryFeatures
     from features.jockey_context_features import JockeyContextFeatures
@@ -296,9 +296,9 @@ def _run_dry_run(
     all_end = dates[-1].strftime("%Y%m%d")
 
     logger.info("Loading data: %s ~ %s", all_start, all_end)
-    race_df = repo.load_races(all_start, all_end)
-    entry_df = repo.load_entries(all_start, all_end)
-    odds_df = repo.load_odds_snapshots(all_start, all_end)
+    race_df = load_races(store, all_start, all_end)
+    entry_df = load_entries(store, all_start, all_end)
+    odds_df = load_odds_snapshots(store, all_start, all_end)
 
     if race_df.empty:
         logger.error("No race data found")
@@ -306,13 +306,13 @@ def _run_dry_run(
 
     feat_engine = FeatureEngine()
     submodel_mgr = SubModelManager()
-    feat_df = feat_engine.build_all(race_df, entry_df, odds_df, repo=repo)
+    feat_df = feat_engine.build_all(race_df, entry_df, odds_df)
     feat_df = submodel_mgr.add_distance_band_features(feat_df)
 
     race_ids = feat_df["race_id"].unique()
-    hist_all = HorseHistoryFeatures(repo=repo).compute(race_df, entry_df, race_ids)
-    jockey_all = JockeyContextFeatures(repo).compute(entry_df)
-    trainer_all = TrainerContextFeatures(repo).compute(entry_df)
+    hist_all = HorseHistoryFeatures(store=store).compute(race_df, entry_df, race_ids)
+    jockey_all = JockeyContextFeatures(store).compute(entry_df)
+    trainer_all = TrainerContextFeatures(store).compute(entry_df)
 
     # 日次シミュレーション
     total_bets = 0

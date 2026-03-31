@@ -79,7 +79,7 @@ class TestAddDistanceBandFeatures:
         return pd.DataFrame(
             {
                 "surface": ["turf", "turf", "dirt", "dirt", "turf"],
-                "distance": [1200, 1600, 1400, 1800, 2200],
+                "kyori": [1200, 1600, 1400, 1800, 2200],
                 "track_condition_code": [1, 3, 2, 4, 1],
             }
         )
@@ -121,6 +121,6 @@ class TestAddDistanceBandFeatures:
     def test_preserves_existing_columns(self, mixed_df: pd.DataFrame) -> None:
         mgr = SubModelManager()
         result = mgr.add_distance_band_features(mixed_df)
-        original_cols = ["surface", "distance", "track_condition_code"]
+        original_cols = ["surface", "kyori", "track_condition_code"]
         assert list(mixed_df.columns) == original_cols
         assert all(c in result.columns for c in original_cols)
