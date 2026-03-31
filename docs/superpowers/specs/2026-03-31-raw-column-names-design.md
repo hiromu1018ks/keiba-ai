@@ -95,8 +95,13 @@ EveryDB2 (全文字列)
 | `popularity_rank` | `ninki` |
 | `win_odds_actual` | `odds` |
 | `place_odds_actual` | `fukuoddslow` |
-| `running_style` | `kyakusitukubun` |
 | `surface_key` | `surface` |
+
+**FeatureEngineで継続計算する別名** (WidePairBuilder等で参照されるため):
+
+| 計算列名 | 入力 | 理由 |
+|---------|------|------|
+| `running_style` | `kyakusitukubun` (intに変換) | WidePairBuilder.build() が `horses["running_style"]` を参照 |
 
 **変更なしの名前**: `race_id`, `race_date`, `umaban`, `ninki`, `surface`
 
@@ -162,6 +167,8 @@ _TABLE_TYPE_RULES: dict[str, dict[str, list[str]]] = {
 
 モジュールレベルのヘルパー関数。型変換・リネームは一切しない。
 
+**前提**: `load_races()`, `load_entries()`, `load_history_entries()`, `load_history_races()` が返すDataFrameには、ETLで事前計算された `race_id` 列が含まれていることを想定。マスターテーブル（`horses`, `kisyu_seiseki`, `chokyo_seiseki`）には `race_id` は含まれない。
+
 ```python
 def load_races(store: ParquetStore, start: str, end: str) -> pd.DataFrame:
 def load_entries(store: ParquetStore, start: str, end: str) -> pd.DataFrame:
@@ -198,8 +205,9 @@ DataRepositoryの再エクスポートを削除。
 **残す処理** (派生列計算のみ):
 
 1. `distance_bin`: `kyori` + `surface` から計算（入力を `distance` → `kyori` に変更）
-2. `track_condition_code`: `sibababacd`/`dirtbabacd` + `trackcd` から計算（入力を `track_cd` → `trackcd` に変更）
+2. `track_condition_code`: `sibababacd`/`dirtbabacd` + `trackcd` から計算（`trackcd` 10-29=芝 → `sibababacd`、それ以外 → `dirtbabacd`）
 3. `grade_code`: `gradecd` をそのままコピー（数値マッピングは不要、ETLでint変換済み）
+4. `running_style`: `kyakusitukubun` を int に変換してコピー（WidePairBuilder参照のため維持）
 
 ### `build_all()` の変更
 
@@ -209,13 +217,15 @@ DataRepositoryの再エクスポートを削除。
 
 ### `build_features()` (推論パス) の変更
 
-ドメインモデル→DataFrame変換で生カラム名を使用:
+ドメインモデル→DataFrame変換で生カラム名を使用。
+`track_condition_code` は推論パスでは `Race.baba_cd` から取得し、`_map_basic_features()` で `track_condition_code` として設定:
 
 ```python
 race_data = {
     "race_id": race.race_id, "trackcd": race.track_cd, "kyori": race.distance,
     "gradecd": race.grade_cd, "syussotosu": race.field_size, "tenkocd": race.tenko_cd,
     "syubetucd": race.syubetu_cd, "jyokencd1": race.jyoken_cd,
+    "track_condition_code": race.baba_cd,  # 推論パス: domain modelのbaba_cdを直接使用
 }
 entry_data = {
     "race_id": race.race_id, "umaban": e.umaban, "kettonum": e.ketto_num,
@@ -229,7 +239,7 @@ entry_data = {
 - `FeatureEngine._map_basic_features()` が唯一の計算箇所
 - `HorseHistoryFeatures.compute()` 内の `distance_bin` 計算ブロックを削除
 - 代わりに `past_df` に `_map_basic_features()` を適用
-- `domain.models._distance_band()` は未使用なら削除
+- `domain.models._distance_band()` は `Race.distance_band` プロパティから使用されているため**削除しない**
 
 ## セクション5: サブ特徴量モジュール変更
 
@@ -292,12 +302,13 @@ df["odds_rank"] = df.groupby("race_id")["odds"].rank(...)
 
 | モジュール | 変更内容 |
 |-----------|---------|
-| `odds_dynamics_features.py` | `tan_odds`→`tanodds`, `fuku_odds`→`fukuoddslow` |
-| `market_bias_features.py` | `win_odds`→`odds`, `popularity_rank`→`ninki` |
+| `odds_dynamics_features.py` | `tan_odds`→`tanodds`, `fuku_odds`→`fukuoddslow`, `finish_pos`→`kakuteijyuni`, `popularity_rank`→`ninki` |
+| `market_bias_features.py` | `win_odds`→`odds`, `popularity_rank`→`ninki`, `finish_pos`→`kakuteijyuni`, `tan_odds`→`tanodds` |
 | `race_difficulty_model.py` | `grade_cd`/`grade_code` fallback → `gradecd`/`grade_code` |
-| `interaction_features.py` | `kyakusitu`→`kyakusitukubun`, `ba_taijyu`→`bataijyu` |
-| `info_asymmetry_features.py` | `win_odds_actual`→`odds`, `place_odds_actual`→`fukuoddslow` |
-| `submodel_manager.py` | `surface_key`→`surface` |
+| `interaction_features.py` | `kyakusitu`→`kyakusitukubun`, `ba_taijyu`→`bataijyu`, `distance`→`kyori` |
+| `info_asymmetry_features.py` | `win_odds_actual`→`odds`, `place_odds_actual`→`fukuoddslow`, `finish_pos`→`kakuteijyuni`, `popularity_rank`→`ninki` |
+| `submodel_manager.py` | `surface_key`→`surface`, `distance`→`kyori` (7箇所参照) |
+| `wide_pair_builder.py` | `finish_pos`→`kakuteijyuni`, `popularity_rank`→`ninki`, `running_style`は計算列として維持 |
 
 ## セクション6: MLモデル・パイプライン変更
 
@@ -333,6 +344,40 @@ TrainingPipelineと同パターン。`repo` → `store`、カラム名を生名�
 
 `_row_to_race()` / `_row_to_entry()` のカラム参照を生名に変更。ドメインモデルのコンストラクタ引数名は変更しない（`track_cd`, `distance` 等のまま）。
 
+**`_row_to_race()` の完全カラムマッピング**:
+
+| 変更前 | 変更後 | ドメインモデル引数 |
+|--------|--------|-----------------|
+| `row["year"]` | `row["year"]` | 変更なし |
+| `row["month_day"]` | `row["monthday"]` | `month_day` |
+| `row["jyo_cd"]` | `row["jyocd"]` | `jyo_cd` |
+| `row["kaiji"]` | `row["kaiji"]` | 変更なし |
+| `row["nichiji"]` | `row["nichiji"]` | 変更なし |
+| `row["race_num"]` | `row["racenum"]` | `race_num` |
+| `row["track_cd"]` | `row["trackcd"]` | `track_cd` |
+| `row["distance"]` | `row["kyori"]` | `distance` |
+| `row["tenko_cd"]` | `row["tenkocd"]` | `tenko_cd` |
+| `row["baba_cd"]` | `row["track_condition_code"]` | `baba_cd` |
+| `row["syubetu_cd"]` | `row["syubetucd"]` | `syubetu_cd` |
+| `row["jyoken_cd"]` | `row["jyokencd1"]` | `jyoken_cd` |
+| `row["grade_cd"]` | `row["gradecd"]` | `grade_cd` |
+| `row["field_size"]` | `row["syussotosu"]` | `field_size` |
+
+**`_row_to_entry()` の完全カラムマッピング**:
+
+| 変更前 | 変更後 | ドメインモデル引数 |
+|--------|--------|-----------------|
+| `row["ketto_num"]` | `row["kettonum"]` | `ketto_num` |
+| `row["finish_pos"]` | `row["kakuteijyuni"]` | `finish_pos` |
+| `row["win_odds_actual"]` | `row["odds"]` | `win_odds_actual` |
+| `row["popularity_rank"]` | `row["ninki"]` | `popularity_rank` |
+| `row["ba_taijyu"]` | `row["bataijyu"]` | `ba_taijyu` |
+| `row["running_style"]` | `row["running_style"]` | `running_style` |
+| `row["zogen_fugo"]` | `row["zogenfugo"]` | `zogen_fugo` |
+| `row["zogen_sa"]` | `row["zogensa"]` | `zogen_sa` |
+| `row["kisyu_code"]` | `row["kisyucode"]` | `kisyu_code` |
+| `row["chokyosi_code"]` | `row["chokyosicode"]` | `chokyosi_code` |
+
 ### OddsCollector
 
 `repo.save_predictions(df)` → `store.write("predictions", "predictions", df)`
@@ -344,7 +389,31 @@ TrainingPipelineと同パターン。`repo` → `store`、カラム名を生名�
 
 ### テスト
 
-**更新**: `test_backtest_engine`, `test_horse_history_features`, `test_jvlink_fetcher`, `test_odds_collector`, `test_history_features_v2`
+**更新** (カラム名変更または `repo` → `store` 変更を必要とするテスト):
+
+| テストファイル | 変更内容 |
+|-------------|---------|
+| `test_feature_engine.py` | `track_cd`→`trackcd`, `distance`→`kyori`, `ketto_num`→`kettonum`, `kisyu_code`→`kisyucode`, `chokyosi_code`→`chokyosicode`, `finish_pos`→`kakuteijyuni`, `win_odds`→`odds`, `ba_taijyu`→`bataijyu`, `popularity_rank`→`ninki`, `tan_odds`→`tanodds`, `fuku_odds`→`fukuoddslow`, `surface_key`→`surface`, `field_size`→`syussotosu`, `running_style`→維持 |
+| `test_intra_race_features.py` | `win_odds`→`odds`, `ba_taijyu`→`bataijyu`, `popularity_rank`→`ninki` |
+| `test_horse_history_features.py` | 全13カラム名変更 (Section 5参照) |
+| `test_bloodline_features.py` | `ketto_num`→`kettonum` |
+| `test_jockey_context_features.py` | `kisyu_code`→`kisyucode` |
+| `test_trainer_context_features.py` | `chokyosi_code`→`chokyosicode` |
+| `test_backtest_engine.py` | `repo`→`store`, カラム名変更 |
+| `test_training_pipeline.py` | `repo`→`store`, カラム名変更 |
+| `test_jvlink_fetcher.py` | 全カラム名変更 (Section 7参照) |
+| `test_odds_collector.py` | `repo`→`store` |
+| `test_history_features_v2.py` | カラム名変更 |
+| `test_validation_suite.py` | `win_odds_actual`→`odds`, `finish_pos`→`kakuteijyuni`, `repo`→`store` |
+| `test_race_predictor.py` | `surface_key`→`surface`, `place_odds_actual`→`fukuoddslow`, `popularity_rank`→`ninki` |
+| `test_ev_correction.py` | `finish_pos`→`kakuteijyuni`, `win_odds_actual`→`odds`, `popularity_rank`→`ninki` |
+| `test_interaction_features.py` | `ba_taijyu`→`bataijyu`, `distance`→`kyori` |
+| `test_wide_pair_builder.py` | `finish_pos`→`kakuteijyuni`, `popularity_rank`→`ninki`, `running_style`は維持 |
+| `test_backtest_report.py` | `distance`→`kyori` (bet_history dict keys) |
+| `test_paper_predictor.py` | `repo`→`store`, `surface_key`→`surface`, `distance`→`kyori`, `place_odds_actual`→`fukuoddslow`, `ba_taijyu`→`bataijyu`, `win_odds`→`odds`, `tan_odds`→`tanodds`, `fuku_odds`→`fukuoddslow` |
+| `test_market_bias_features.py` | `tan_odds`→`tanodds`, `finish_pos`→`kakuteijyuni` |
+| `test_odds_dynamics_features.py` | `tan_odds`→`tanodds`, `finish_pos`→`kakuteijyuni`, `popularity_rank`→`ninki` |
+| `test_db.py` | DataRepository参照を更新 |
 
 **削除**: `test_repository.py`
 
@@ -357,7 +426,8 @@ TrainingPipelineと同パターン。`repo` → `store`、カラム名を生名�
 **Phase 1: ETL型変換 + readers.py**
 - `etl.py` に型変換追加
 - `db/readers.py` 作成
-- `repository.py` は並存
+- `repository.py` は**並存しない** — Phase 1で同時に削除（理由: ETL型変換後のParquetをrepositoryが読むと、オッズが二重除算される等のデータ破壊が発生するため。ETLとRepositoryは原子性を持って切り替える必要がある）
+- Phase 1は Phase 2-3の変更も同時に含む（実質1フェーズ）
 - ETL再実行 → `pytest` 確認
 
 **Phase 2: FeatureEngine + Sub-feature 生名化**
@@ -366,10 +436,10 @@ TrainingPipelineと同パターン。`repo` → `store`、カラム名を生名�
 - MLモデルlabel列名変更
 - `pytest` 確認
 
-**Phase 3: Repository削除 + 全コンシューマ移行**
-- `DataRepository` 削除
-- 全コンシューマを `readers.py` + `ParquetStore` に移行
-- テスト更新
+**Phase 3: 全コンシューマ移行 + テスト更新**
+- TrainingPipeline, BacktestEngine, JVLinkFetcher等の `repo` → `store` 移行
+- 全テストファイル更新
+- テスト削除・新規追加
 - バックテストでROI回帰確認
 
 ### リスク
