@@ -354,3 +354,29 @@ class TestTransformOddsColumns:
         result = repo.load_wide_odds("20200101", "20201231")
         assert result["odds_low"].iloc[0] == 3.20
         assert result["odds_high"].iloc[0] == 4.50
+
+
+class TestTransformTimeSeriesColumns:
+    def test_time_series_renamed(self, repo: DataRepository, mock_store: MagicMock):
+        mock_store.read.return_value = pd.DataFrame({
+            "race_date": [datetime(2020, 6, 1)],
+            "umaban": ["1"], "happyotime": ["202006011200"],
+            "tanodds": ["0032"], "fukuoddslow": ["0013"], "tanninki": ["5"],
+        })
+        result = repo.load_odds_time_series_range("20200101", "20201231")
+        assert "happyo_time" in result.columns
+        assert "tan_odds" in result.columns
+        assert "fuku_odds" in result.columns
+        assert "ninki" in result.columns
+
+    def test_time_series_types_converted(self, repo: DataRepository, mock_store: MagicMock):
+        mock_store.read.return_value = pd.DataFrame({
+            "race_date": [datetime(2020, 6, 1)],
+            "umaban": ["1"], "happyotime": ["202006011200"],
+            "tanodds": ["0032"], "fukuoddslow": ["0013"], "tanninki": ["5"],
+        })
+        result = repo.load_odds_time_series_range("20200101", "20201231")
+        assert result["umaban"].iloc[0] == 1
+        assert result["tan_odds"].iloc[0] == 3.2
+        assert result["fuku_odds"].iloc[0] == 1.3
+        assert result["ninki"].iloc[0] == 5
