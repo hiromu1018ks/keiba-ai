@@ -9,10 +9,12 @@ from typing import TYPE_CHECKING, Any, cast
 
 import pandas as pd
 
+from db.readers import load_entries, load_odds_snapshots, load_races
+
 if TYPE_CHECKING:
     from backtest.race_predictor import RacePredictor
     from db.everydb2_queries import EveryDB2Queries
-    from db.repository import DataRepository
+    from db.parquet_store import ParquetStore
     from domain.models import TrainedModelsV5
 
 logger = logging.getLogger(__name__)
@@ -26,12 +28,12 @@ class PaperPredictor:
 
     def __init__(
         self,
-        repo: DataRepository,
+        store: ParquetStore,
         race_predictor: RacePredictor,
         models: TrainedModelsV5,
         output_dir: Path = Path("data/paper_trading"),
     ) -> None:
-        self.repo = repo
+        self.store = store
         self.race_predictor = race_predictor
         self.models = models
         self.output_dir = output_dir
@@ -62,9 +64,9 @@ class PaperPredictor:
         # 2. Parquet から特徴量を生成
         ymd = target_date.strftime("%Y%m%d")
 
-        race_df = self.repo.load_races(ymd, ymd)
-        entry_df = self.repo.load_entries(ymd, ymd)
-        odds_df = self.repo.load_odds_snapshots(ymd, ymd)
+        race_df = load_races(self.store, ymd, ymd)
+        entry_df = load_entries(self.store, ymd, ymd)
+        odds_df = load_odds_snapshots(self.store, ymd, ymd)
 
         if race_df.empty:
             logger.warning("No race data in Parquet for %s", target_date)
@@ -72,18 +74,20 @@ class PaperPredictor:
 
         feat_engine = FeatureEngine()
         submodel_mgr = SubModelManager()
-        feat_df = feat_engine.build_all(race_df, entry_df, odds_df, odds_ts_df=None, repo=self.repo)
+        feat_df = feat_engine.build_all(
+            race_df, entry_df, odds_df, odds_ts_df=None, store=self.store
+        )
         feat_df = submodel_mgr.add_distance_band_features(feat_df)
 
         # 3. 事前特徴量の計算
         race_ids = feat_df["race_id"].unique()
-        hist_all = HorseHistoryFeatures(repo=self.repo)
+        hist_all = HorseHistoryFeatures(store=self.store)
         hist_df = hist_all.compute(race_df, entry_df, race_ids)
 
-        jockey_ctx = JockeyContextFeatures(self.repo)
+        jockey_ctx = JockeyContextFeatures(self.store)
         jockey_df = jockey_ctx.compute(entry_df)
 
-        trainer_ctx = TrainerContextFeatures(self.repo)
+        trainer_ctx = TrainerContextFeatures(self.store)
         trainer_df = trainer_ctx.compute(entry_df)
 
         # マージして保存
@@ -126,15 +130,15 @@ class PaperPredictor:
         # 馬体重マージ
         if horse_weights is not None and not horse_weights.empty:
             weight_map = dict(zip(horse_weights["umaban"], horse_weights["weight"]))
-            race_df["ba_taijyu"] = race_df["umaban"].map(weight_map)
+            race_df["bataijyu"] = race_df["umaban"].map(weight_map)
             if "weight_absolute" in race_df.columns:
                 race_df["weight_absolute"] = race_df["umaban"].map(weight_map)
 
         # オッズマージ
         if odds is not None and not odds.empty:
-            odds_map = dict(zip(odds["umaban"], odds["fuku_odds"]))
+            odds_map = dict(zip(odds["umaban"], odds["fukuoddslow"]))
             race_df["place_odds_actual"] = race_df["umaban"].map(odds_map)
-            tan_map = dict(zip(odds["umaban"], odds["tan_odds"]))
+            tan_map = dict(zip(odds["umaban"], odds["tanodds"]))
             race_df["win_odds"] = race_df["umaban"].map(tan_map)
 
         # 推論
@@ -152,7 +156,7 @@ class PaperPredictor:
 
         # dict リストに変換 (bet_history スキーマ)
         bet_dicts: list[dict[str, Any]] = []
-        surface_key = result_df["surface_key"].iloc[0]
+        surface = result_df["surface"].iloc[0]
         race_date = pd.Timestamp(f"{race_id[:4]}-{race_id[4:6]}-{race_id[6:8]}")
         for bet in bets:
             bet_dicts.append(
@@ -163,9 +167,9 @@ class PaperPredictor:
                     "stake": bet.stake,
                     "odds": bet.odds,
                     "result": 0.0,  # 未確定
-                    "surface": surface_key,
-                    "distance": int(result_df["distance"].iloc[0])
-                    if "distance" in result_df.columns
+                    "surface": surface,
+                    "distance": int(result_df["kyori"].iloc[0])
+                    if "kyori" in result_df.columns
                     else 0,
                     "ev": float(bet.ev_lower_corrected),
                     "popularity": 0,

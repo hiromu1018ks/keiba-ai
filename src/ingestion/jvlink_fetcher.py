@@ -2,7 +2,7 @@
 
 JRA-VAN の JV-Link からレースカード・結果・オッズを取得する。
 実際の JV-Link SDK は Windows COM コンポーネントのため、
-DataRepository 経由でデータにアクセスする設計。
+ParquetStore + db.readers 経由でデータにアクセスする設計。
 """
 
 from __future__ import annotations
@@ -12,10 +12,11 @@ from typing import TYPE_CHECKING
 
 import pandas as pd
 
+from db.readers import load_entries, load_odds_time_series, load_races
 from domain.models import Entry, Race
 
 if TYPE_CHECKING:
-    from db.repository import DataRepository
+    from db.parquet_store import ParquetStore
 
 logger = logging.getLogger(__name__)
 
@@ -23,12 +24,12 @@ logger = logging.getLogger(__name__)
 class JVLinkFetcher:
     """レースデータ・オッズの取得インタフェース
 
-    JV-Link SDK (Windows COM) または DataRepository 経由で
-    データを取得する。テストでは mock repo を注入可能。
+    JV-Link SDK (Windows COM) または ParquetStore 経由で
+    データを取得する。テストでは mock store を注入可能。
     """
 
-    def __init__(self, repo: DataRepository) -> None:
-        self.repo = repo
+    def __init__(self, store: ParquetStore) -> None:
+        self.store = store
 
     def fetch_race_cards(self, date: str) -> list[Race]:
         """指定日のレースカードを取得
@@ -41,7 +42,7 @@ class JVLinkFetcher:
         """
         date_compact = date.replace("-", "")
         logger.debug("Fetching race cards for %s", date)
-        df = self.repo.load_races(date_compact, date_compact)
+        df = load_races(self.store, date_compact, date_compact)
         if df.empty:
             logger.debug("No races found for %s", date)
             return []
@@ -59,7 +60,7 @@ class JVLinkFetcher:
             Entry リスト。
         """
         date_compact = date.replace("-", "")
-        df = self.repo.load_entries(date_compact, date_compact)
+        df = load_entries(self.store, date_compact, date_compact)
         if df.empty:
             return []
         return [self._row_to_entry(row) for _, row in df.iterrows()]
@@ -73,44 +74,44 @@ class JVLinkFetcher:
         Returns:
             horse_no → tan_odds の dict。
         """
-        df = self.repo.load_odds_time_series(race_id)
+        df = load_odds_time_series(self.store, race_id)
         if df.empty:
             return {}
         # 最新時刻の行のみ使用
-        latest_time = df["happyo_time"].max()
-        latest = df[df["happyo_time"] == latest_time]
-        return dict(zip(latest["umaban"].astype(int), latest["tan_odds"].astype(float)))
+        latest_time = df["happyotime"].max()
+        latest = df[df["happyotime"] == latest_time]
+        return dict(zip(latest["umaban"].astype(int), latest["tanodds"].astype(float)))
 
     def _row_to_race(self, row: pd.Series) -> Race:
         return Race(
             year=int(row["year"]),
-            month_day=str(row["month_day"]),
-            jyo_cd=str(row["jyo_cd"]),
+            month_day=str(row["monthday"]),
+            jyo_cd=str(row["jyocd"]),
             kaiji=str(row["kaiji"]),
             nichiji=str(row["nichiji"]),
-            race_num=str(row["race_num"]),
-            track_cd=int(row["track_cd"]),
-            distance=int(row["distance"]),
-            tenko_cd=int(row["tenko_cd"]),
-            baba_cd=int(row["baba_cd"]),
-            syubetu_cd=str(row["syubetu_cd"]),
-            jyoken_cd=str(row["jyoken_cd"]),
-            grade_cd=str(row["grade_cd"]),
-            field_size=int(row["field_size"]),
+            race_num=str(row["racenum"]),
+            track_cd=int(row["trackcd"]),
+            distance=int(row["kyori"]),
+            tenko_cd=int(row["tenkocd"]),
+            baba_cd=int(row["babacd"]),
+            syubetu_cd=str(row["syubetucd"]),
+            jyoken_cd=str(row["jyokencd"]),
+            grade_cd=str(row["gradecd"]),
+            field_size=int(row["syussotosu"]),
         )
 
     def _row_to_entry(self, row: pd.Series) -> Entry:
         return Entry(
             race_id=str(row["race_id"]),
             umaban=int(row["umaban"]),
-            ketto_num=str(row["ketto_num"]),
-            finish_pos=int(row["finish_pos"]),
-            win_odds_actual=float(row["win_odds_actual"]),
-            popularity_rank=int(row["popularity_rank"]),
-            running_style=int(row["running_style"]),
-            ba_taijyu=float(row["ba_taijyu"]),
-            zogen_fugo=int(row["zogen_fugo"]),
-            zogen_sa=float(row["zogen_sa"]),
-            kisyu_code=str(row["kisyu_code"]),
-            chokyosi_code=str(row["chokyosi_code"]),
+            ketto_num=str(row["kettonum"]),
+            finish_pos=int(row["kakuteijyuni"]),
+            win_odds_actual=float(row["odds"]),
+            popularity_rank=int(row["ninki"]),
+            running_style=int(row["kyakusitukubun"]),
+            ba_taijyu=float(row["bataijyu"]),
+            zogen_fugo=int(row["zogenfugo"]),
+            zogen_sa=float(row["zogensa"]),
+            kisyu_code=str(row["kisyucode"]),
+            chokyosi_code=str(row["chokyosicode"]),
         )

@@ -10,8 +10,10 @@ from typing import TYPE_CHECKING, Optional, Protocol, runtime_checkable
 
 import pandas as pd
 
+from db.readers import save_predictions
+
 if TYPE_CHECKING:
-    from db.repository import DataRepository
+    from db.parquet_store import ParquetStore
 
 logger = logging.getLogger(__name__)
 
@@ -32,10 +34,10 @@ class OddsCollector:
     def __init__(
         self,
         fetcher: OddsFetcherProtocol,
-        repo: Optional[DataRepository] = None,
+        store: Optional[ParquetStore] = None,
     ) -> None:
         self.fetcher = fetcher
-        self.repo = repo
+        self.store = store
 
     def collect_t3_snapshot(self, race_id: str) -> dict[int, float]:
         """発走3分前のオッズスナップショットを取得
@@ -61,15 +63,14 @@ class OddsCollector:
         timing: str,
         snapshot: dict[int, float],
     ) -> None:
-        """スナップショットを DB に保存
+        """スナップショットを Parquet に保存
 
-        DatabaseConnection.save_predictions() を再利用。
         Args:
             race_id: レースID
             timing: "t3" or "t2"
             snapshot: horse_no → odds
         """
-        if self.repo is None:
+        if self.store is None:
             return
 
         rows = []
@@ -83,7 +84,7 @@ class OddsCollector:
                 }
             )
         df = pd.DataFrame(rows)
-        self.repo.save_predictions(df)
+        save_predictions(self.store, df)
         logger.info(f"[{timing}] Saved {len(rows)} odds for race={race_id}")
 
     @staticmethod

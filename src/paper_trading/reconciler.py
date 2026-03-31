@@ -11,7 +11,7 @@ import pandas as pd
 
 if TYPE_CHECKING:
     from db.everydb2_queries import EveryDB2Queries
-    from db.repository import DataRepository
+    from db.parquet_store import ParquetStore
 
 logger = logging.getLogger(__name__)
 
@@ -24,12 +24,12 @@ class PaperReconciler:
 
     def __init__(
         self,
-        repo: DataRepository,
+        store: ParquetStore,
         bets_path: Path,
         everydb2: EveryDB2Queries,
         monitor: Any | None = None,
     ) -> None:
-        self.repo = repo
+        self.store = store
         self.bets_path = bets_path
         self.everydb2 = everydb2
         self.monitor = monitor
