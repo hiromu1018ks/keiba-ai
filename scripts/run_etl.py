@@ -1,7 +1,9 @@
-"""EveryDB2外部テーブル → Parquetエクスポート
+"""Generic ETL: EveryDB2 → Parquet
 
 使い方:
-  python scripts/run_etl.py --start 20150101 --end 20241231
+  python scripts/run_etl.py --mode full --start 20140101 --end 20231231
+  python scripts/run_etl.py --mode delta
+  python scripts/run_etl.py --mode full --tables races entries --start 20140101 --end 20231231
 """
 
 import argparse
@@ -10,7 +12,6 @@ import os
 import sys
 import time
 
-# プロジェクトルートをパスに追加
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 sys.path.insert(0, os.path.join(ROOT, "src"))
@@ -24,23 +25,34 @@ logger = logging.getLogger(__name__)
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="EveryDB2 → Parquet ETL")
-    parser.add_argument("--start", required=True, help="開始日 (YYYYMMDD)")
-    parser.add_argument("--end", required=True, help="終了日 (YYYYMMDD)")
+    parser = argparse.ArgumentParser(description="Generic ETL: EveryDB2 → Parquet")
+    parser.add_argument("--mode", choices=["full", "delta"], required=True,
+                        help="full: n_テーブル全件出力, delta: s_テーブル差分マージ")
+    parser.add_argument("--start", help="開始日 YYYYMMDD (full mode)")
+    parser.add_argument("--end", help="終了日 YYYYMMDD (full mode)")
+    parser.add_argument("--tables", nargs="*", help="対象テーブル (parquet_key指定)")
     args = parser.parse_args()
 
-    # DB接続
+    if args.mode == "full" and (not args.start or not args.end):
+        parser.error("--mode full requires --start and --end")
+
     from db.connection import DatabaseConnection
+    from db.etl import load_table_config, run_full_load, run_delta_update
     from db.parquet_store import ParquetStore
 
+    config = load_table_config()
     store = ParquetStore()
     db = DatabaseConnection()
+    engine = db.get_engine()
 
-    logger.info("ETL開始: %s ~ %s", args.start, args.end)
+    logger.info("ETL開始: mode=%s", args.mode)
     t0 = time.time()
 
     try:
-        counts = db.etl_to_parquet(store, args.start, args.end)
+        if args.mode == "full":
+            counts = run_full_load(store, engine, config, args.start, args.end, args.tables)
+        else:
+            counts = run_delta_update(store, engine, config)
     except KeyboardInterrupt:
         logger.warning("ETLが中断されました")
         sys.exit(1)
