@@ -37,7 +37,7 @@ def main() -> None:
         parser.error("--mode full requires --start and --end")
 
     from db.connection import DatabaseConnection
-    from db.etl import load_table_config, run_full_load, run_delta_update
+    from db.etl import load_table_config, run_delta_update, run_full_load
     from db.parquet_store import ParquetStore
 
     config = load_table_config()
