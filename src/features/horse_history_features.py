@@ -234,7 +234,7 @@ class HorseHistoryFeatures:
             past_df.loc[~is_turf & (dist <= 1700), "distance_bin"] = "mile"
             past_df.loc[~is_turf & (dist <= 1400), "distance_bin"] = "sprint"
 
-        past_df["valid_field"] = (past_df["syussotosu"] >= 8).astype(int)
+        past_df["valid_field"] = (past_df["syussotosu"].fillna(-1) >= 8).astype(int)
 
         # Pre-index past data by kettonum (sorted by race_date)
         past_df_sorted = past_df.sort_values(["kettonum", "race_date"]).reset_index(drop=True)

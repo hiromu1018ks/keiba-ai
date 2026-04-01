@@ -33,6 +33,7 @@ _STRING_COLUMNS: set[str] = {
     "jyokenname", "chokyosiryakusyo", "banusiname",
     "kisyuryakusyo", "kisyuryakusyobefore",
     "kumi",  # ワイドオッズの馬番組み合わせ (e.g. "0102")
+    "surface",  # ETL派生列: "turf"/"dirt"/"other" (文字列)
 }
 
 
