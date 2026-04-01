@@ -8,7 +8,7 @@ def test_kyakusitu_x_distance():
     """脚質×距離bin の文字列結合"""
     df = pd.DataFrame(
         {
-            "kyakusitu_cd": [1.0, 2.0, 3.0],
+            "kyakusitukubun_cd": [1.0, 2.0, 3.0],
             "distance_bin": ["sprint", "mile", "intermediate"],
         }
     )
@@ -21,7 +21,7 @@ def test_kyakusitu_x_surface():
     """脚質×馬場 の文字列結合"""
     df = pd.DataFrame(
         {
-            "kyakusitu_cd": [1.0, 2.0],
+            "kyakusitukubun_cd": [1.0, 2.0],
             "surface": ["turf", "dirt"],
         }
     )
@@ -58,7 +58,7 @@ def test_weight_x_distance_nan():
 
 
 def test_kyakusitu_fallback():
-    """kyakusitu_cd がなければ脚質交互作用は生成しない (リーク防止)"""
+    """kyakusitukubun_cd がなければ脚質交互作用は生成しない (リーク防止)"""
     df = pd.DataFrame(
         {
             "kyakusitu": [1.0, 2.0],

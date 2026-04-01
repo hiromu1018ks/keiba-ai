@@ -53,11 +53,9 @@ def main() -> None:
     mlflow.set_experiment(args.experiment)
 
     # 学習
-    from db.repository import DataRepository
     from pipelines.training_pipeline import TrainingPipelineV5
 
-    repo = DataRepository(store)
-    pipeline = TrainingPipelineV5(repo=repo)
+    pipeline = TrainingPipelineV5(store=store)
 
     logger.info("学習開始: %s ~ %s", train_start, train_end)
     t0 = time.time()

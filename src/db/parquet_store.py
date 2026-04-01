@@ -28,23 +28,54 @@ class ParquetStore:
         path = self.data_dir / category / name
         if path.is_dir():
             dataset = ds.dataset(str(path), format="parquet", partitioning="hive")
-            if filters:
-                mask = None
-                for col, op, val in filters:
-                    if op == ">=":
-                        cond = ds.field(col) >= val
-                    elif op == "<=":
-                        cond = ds.field(col) <= val
-                    elif op == "==":
-                        cond = ds.field(col) == val
-                    else:
-                        raise ValueError(f"Unsupported filter operator: {op}")
-                    mask = cond if mask is None else mask & cond
-                table = dataset.to_table(filter=mask)
-            else:
+            try:
+                if filters:
+                    mask = None
+                    for col, op, val in filters:
+                        if op == ">=":
+                            cond = ds.field(col) >= val
+                        elif op == "<=":
+                            cond = ds.field(col) <= val
+                        elif op == "==":
+                            cond = ds.field(col) == val
+                        else:
+                            raise ValueError(f"Unsupported filter operator: {op}")
+                        mask = cond if mask is None else mask & cond
+                    table = dataset.to_table(filter=mask)
+                else:
+                    table = dataset.to_table()
+                return table.to_pandas()
+            except (pa.ArrowInvalid, pa.ArrowNotImplementedError):
+                # 型不一致（例: 文字列race_date vs datetime filter）のフォールバック
                 table = dataset.to_table()
-            return table.to_pandas()
-        return pd.read_parquet(path.with_suffix(".parquet"), filters=filters)
+                df = table.to_pandas()
+                return self._apply_filters(df, filters)
+        try:
+            return pd.read_parquet(path.with_suffix(".parquet"), filters=filters)
+        except (pa.ArrowInvalid, pa.ArrowNotImplementedError):
+            df = pd.read_parquet(path.with_suffix(".parquet"))
+            return self._apply_filters(df, filters)
+
+    @staticmethod
+    def _apply_filters(df: pd.DataFrame, filters: list[tuple] | None) -> pd.DataFrame:
+        """pandas側でフィルタを適用（pyarrow述語プッシュダウンのフォールバック）。"""
+        if not filters:
+            return df
+        mask = pd.Series(True, index=df.index)
+        for col, op, val in filters:
+            if col not in df.columns:
+                continue
+            series = df[col]
+            # 文字列列とdatetime値の比較をサポート
+            if pd.api.types.is_datetime64_any_dtype(val) and not pd.api.types.is_datetime64_any_dtype(series):
+                series = pd.to_datetime(series)
+            if op == ">=":
+                mask &= series >= val
+            elif op == "<=":
+                mask &= series <= val
+            elif op == "==":
+                mask &= series == val
+        return df[mask]
 
     def write(
         self,

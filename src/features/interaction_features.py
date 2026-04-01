@@ -13,16 +13,16 @@ def compute_interaction_features(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
 
     # 脚質×距離bin (カテゴリ積)
-    # LEAK防止: kyakusitu_cd (過去) のみ使用。kyakusitukubun (現在=ポスト) は不可。
-    if "kyakusitu_cd" in df.columns and "distance_bin" in df.columns:
+    # LEAK防止: kyakusitukubun_cd (過去) のみ使用。kyakusitukubun (現在=ポスト) は不可。
+    if "kyakusitukubun_cd" in df.columns and "distance_bin" in df.columns:
         df["kyakusitu_x_distance"] = (
-            df["kyakusitu_cd"].astype(str) + "_" + df["distance_bin"].astype(str)
+            df["kyakusitukubun_cd"].astype(str) + "_" + df["distance_bin"].astype(str)
         ).astype("category")
 
     # 脚質×馬場 (カテゴリ積)
-    if "kyakusitu_cd" in df.columns and "surface" in df.columns:
+    if "kyakusitukubun_cd" in df.columns and "surface" in df.columns:
         df["kyakusitu_x_surface"] = (
-            df["kyakusitu_cd"].astype(str) + "_" + df["surface"].astype(str)
+            df["kyakusitukubun_cd"].astype(str) + "_" + df["surface"].astype(str)
         ).astype("category")
 
     # 馬体重列名の解決 (weight_absolute または ba_taijyu)

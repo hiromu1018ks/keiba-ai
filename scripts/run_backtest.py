@@ -58,10 +58,7 @@ def main() -> None:
         sys.exit(1)
 
     # データリポジトリ
-    from db.repository import DataRepository
-
-    repo = DataRepository(store)
-    logger.info("DataRepository OK")
+    logger.info("ParquetStore OK")
 
     # 学習
     logger.info("=" * 50)
@@ -71,7 +68,7 @@ def main() -> None:
 
     from pipelines.training_pipeline import TrainingPipelineV5
 
-    pipeline = TrainingPipelineV5(repo=repo)
+    pipeline = TrainingPipelineV5(store=store)
     try:
         models = pipeline.run(train_start, train_end)
     except KeyboardInterrupt:
@@ -92,7 +89,7 @@ def main() -> None:
 
     from backtest.engine import BacktestEngine
 
-    engine = BacktestEngine(models=models, repo=repo)
+    engine = BacktestEngine(models=models, store=store)
     result = engine.run(test_start, test_end)
     elapsed_test = time.time() - t1
     logger.info("バックテスト完了 (%.0f秒)", elapsed_test)

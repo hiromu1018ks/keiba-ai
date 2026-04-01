@@ -1,11 +1,11 @@
 {
   "before_roi": 0.638,
-  "total_roi": 1.3650620347394542,
-  "total_bets": 6045,
-  "total_stake": 604500.0,
-  "total_return": 825180.0,
-  "max_drawdown": 0.042497605155447184,
-  "final_bankroll": 320680.0,
+  "total_roi": 0.0,
+  "total_bets": 0,
+  "total_stake": 0.0,
+  "total_return": 0.0,
+  "max_drawdown": 0.0,
+  "final_bankroll": 100000,
   "train_period": [
     "2020-01-01",
     "2023-12-31"
@@ -14,6 +14,6 @@
     "2024-01-01",
     "2024-12-31"
   ],
-  "train_seconds": 989,
-  "test_seconds": 393
+  "train_seconds": 2251,
+  "test_seconds": 0
 }

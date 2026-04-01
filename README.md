@@ -77,6 +77,88 @@ python scripts/run_backtest.py \
 
 > 現状は固定100円ベットの簡易戦略であり、ROIは市場を上回れていません。改善の余地があります。
 
+## Paper Trading（ペーパートレード）
+
+学習済みモデルを使って、**実際のレース当日にリアルタイムで予測を出力する**システムです。実際の投票は行わず、予測結果と実際のレース結果を比較してモデルの精度を検証します。
+
+### 追加した機能
+
+- **リアルタイム予測** — レース出走前にモデルがベット対象を自動判定
+- **Slack通知** — 予測結果・ベット対象・日次サマリーをSlackに通知
+- **自動確定処理** — レース結果取得後にベットの勝敗を自動計算（冪等設計）
+- **HTMLレポート** — 日次のベット履歴・ROI・ドローダウンをHTMLで可視化
+- **ドライラン** — 過去のレースデータを使って一連の流れをシミュレーション
+
+### アーキテクチャ
+
+```
+PaperTradingConfig（設定管理）
+       │
+ModelLoader（MLflow → 学習済みモデルを読み込み）
+       │
+RacePredictor（共通推論パイプライン: BacktestEngine + PaperPredictor共用）
+       │
+PaperPredictor（setup: 特徴量事前計算 → predict_race: リアルタイム予測）
+       │
+RaceWatcher（レース時刻待機 + リトライ + Slack通知）
+       │
+PaperReconciler（ベット確定・ROI計算・冪等性保証）
+       │
+PaperTradingReport（HTMLレポート生成: Jinja2）
+```
+
+### 実行方法
+
+```bash
+# 環境変数の設定
+export PGPASSWORD=<your_password>
+export SLACK_WEBHOOK_URL=<your_slack_webhook_url>
+
+# Step 1: Setup — その日のレース情報と特徴量を事前計算
+python scripts/run_paper_trading.py --mode setup --date 2026-04-05
+
+# Step 2: Watch — レース時刻に合わせて予測を実行（Slack通知付き）
+python scripts/run_paper_trading.py --mode watch --date 2026-04-05
+
+# Step 3: Reconcile — レース結果を取得してベットの勝敗を確定
+python scripts/run_paper_trading.py --mode reconcile --date 2026-04-05
+
+# (参考) Dry-run — 過去データで一連の流れをシミュレーション
+python scripts/run_paper_trading.py --mode dry-run --date 2024-07-13
+```
+
+### 各モードの説明
+
+| モード | やること | タイミング |
+|--------|---------|-----------|
+| `setup` | レース出走表を取得し、全馬の特徴量を事前計算して保存 | レース前（例: 前日または当日朝） |
+| `watch` | レース時刻まで待機し、馬体重・最新オッズを取得して予測・ベット判定 | レース当日 |
+| `reconcile` | レース結果を取得し、未確定ベットの勝敗を計算してHTMLレポート生成 | レース終了後 |
+| `dry-run` | 過去データで setup→watch→reconcile の全工程を一括シミュレーション | いつでも |
+
+### 次のステップ（稼働前に必要な準備）
+
+1. **EveryDB2のテーブル名確認** — `src/db/everydb2_queries.py` 内のSQLテーブル名を実際のEveryDB2インスタンスに合わせて修正
+2. **モデルの再学習** — `run_train.py` を実行してMLflowに全モデルを保存（ModelLoaderが読み込める形式）
+3. **ドライランで動作確認** — `--mode dry-run --date 2024-07-13` で過去データを使って一連の流れをテスト
+4. **cron等で自動化** — setup/watch/reconcile をそれぞれ適切な時刻に定期実行するようスケジュール設定
+
+### 追加ファイル一覧
+
+| ファイル | 行数 | 役割 |
+|----------|------|------|
+| `src/paper_trading/config.py` | 50 | PaperTradingConfig 設定クラス |
+| `src/paper_trading/predictor.py` | 179 | setup/predict_race オーケストレーション |
+| `src/paper_trading/reconciler.py` | 147 | 冪等性保証のベット確定処理 |
+| `src/paper_trading/watcher.py` | 141 | レース時刻待機 + リトライロジック |
+| `src/paper_trading/report.py` | 156 | HTMLレポート生成（Jinja2） |
+| `src/backtest/race_predictor.py` | 185 | BacktestEngineと共用の推論パイプライン |
+| `src/db/model_loader.py` | 177 | MLflow → TrainedModelsV5 復元 |
+| `src/db/everydb2_queries.py` | 160 | EveryDB2 PostgreSQL クエリラッパー |
+| `src/monitoring/notifier.py` | +57 | Slack通知機能（追加） |
+| `src/pipelines/training_pipeline.py` | +75 | MLflow ログ拡張（追加） |
+| `scripts/run_paper_trading.py` | 393 | CLI エントリーポイント |
+
 ## ドキュメントマップ
 
 知識レベルに合わせてお好きなところから読めます。

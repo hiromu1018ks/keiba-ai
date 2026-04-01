@@ -53,7 +53,7 @@ class RacePredictor:
         df = race_df.copy()
 
         # 2. HorseHistoryFeatures マージ + race_transforms
-        if hist_features is not None and not hist_features.empty:
+        if hist_features is not None:
             df = df.merge(hist_features, on=["race_id", "umaban"], how="left")
         df = HorseHistoryFeatures.add_race_transforms(df)
 
@@ -71,10 +71,10 @@ class RacePredictor:
         df = submodel.win.predict_ev(df)
 
         # 5. 騎手/調教師コンテキスト マージ
-        if jockey_features is not None and not jockey_features.empty:
+        if jockey_features is not None:
             jockey_race = jockey_features[jockey_features["race_id"] == race_df["race_id"].iloc[0]]
             df = df.merge(jockey_race, on=["race_id", "umaban"], how="left")
-        if trainer_features is not None and not trainer_features.empty:
+        if trainer_features is not None:
             trainer_race = trainer_features[
                 trainer_features["race_id"] == race_df["race_id"].iloc[0]
             ]
