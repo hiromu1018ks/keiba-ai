@@ -26,13 +26,14 @@ EveryDB2 PostgreSQLには2024年（5,974レース）、2025年（5,142レース�
 ### Step 1: Full Mode ETL
 
 ```bash
-PGPASSWORD=aa8940aa python scripts/run_etl.py --mode full --start 20150101 --end 20251231
+PGPASSWORD=<password> python scripts/run_etl.py --mode full --start 20150101 --end 20251231
 ```
 
 - raced テーブル（n_race, n_uma_race, n_harai, n_odds_tanpuku, n_odds_wide, n_jodds_tanpuku 等）を 2015-01-01 ~ 2025-12-31 で抽出
 - jodds_tanpuku は year/month Hiveパーティションで再構築（全パーティション削除後に再作成）
 - マスターテーブル（n_uma, n_kisyu_seiseki, n_chokyo_seiseki 等）は日付フィルタなしで全件ダンプ
 - 各ファイルは `.parquet.tmp` → rename で原子書き込み
+- **注意**: `--start 20150101` により既存の2014年データ（races, entries）はParquetから除外される。学習期間2020-2023 + HorseHistoryFeaturesの5年ルックバック（~2015以降）で2014データは使用されないため問題なし
 
 ### Step 2: 2024 Backtest
 
