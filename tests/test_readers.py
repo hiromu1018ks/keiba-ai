@@ -68,18 +68,20 @@ class TestLoadPayouts:
 
 class TestLoadOddsTimeSeries:
     def test_calls_store_with_race_id_filter(self, mock_store):
+        mock_store.exists.return_value = True
         load_odds_time_series(mock_store, "20240101010101")
         mock_store.read.assert_called_once()
         args, kwargs = mock_store.read.call_args
-        assert args == ("odds", "jodds_tanpuku")
+        assert args == ("odds", "time_series")
 
 
 class TestLoadOddsTimeSeriesRange:
     def test_calls_store_with_date_range(self, mock_store):
+        mock_store.exists.return_value = True
         load_odds_time_series_range(mock_store, "20240101", "20241231")
         mock_store.read.assert_called_once()
         args, kwargs = mock_store.read.call_args
-        assert args == ("odds", "jodds_tanpuku")
+        assert args == ("odds", "time_series")
 
 
 class TestLoadStaticTables:

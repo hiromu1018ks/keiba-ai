@@ -48,11 +48,25 @@ class FeatureEngine:
         """
         # 1. race + entry を race_id で結合
         #    race_df は同一 race_id が複数行ある場合があるため dedup
+        #    entries 側の共有列を除外して _x/_y サフィックスを防止
+        #    (race_date, year 等の識別列は race_df から取得;
+        #     harontimel3/4 は HorseHistoryFeatures が self._entry_df から直接参照)
+        _race_entry_shared = [
+            "datakubun", "harontimel3", "harontimel4", "jyocd", "kaiji",
+            "makedate", "monthday", "nichiji", "race_date", "racenum",
+            "recordspec", "recordupkubun", "year",
+        ]
+        entry_subset = entry_df.drop(
+            columns=[c for c in _race_entry_shared if c in entry_df.columns]
+        )
         race_dedup = race_df.drop_duplicates(subset=["race_id"])
-        df = pd.merge(race_dedup, entry_df, on="race_id", how="inner")
+        df = pd.merge(race_dedup, entry_subset, on="race_id", how="inner")
 
         # 2. odds を (race_id, umaban) で結合
-        df = pd.merge(df, odds_df, on=["race_id", "umaban"], how="left")
+        #    entries と odds_tanpuku は year, monthday, race_date 等の共有列があるため、
+        #    不要な列を事前に除外して _x/_y サフィックスの発生を防止する
+        odds_cols = ["race_id", "umaban", "tanodds", "fukuoddslow", "tanninki"]
+        df = pd.merge(df, odds_df[odds_cols], on=["race_id", "umaban"], how="left")
 
         # 3. 障害レース除外
         if self._exclude_steeple:

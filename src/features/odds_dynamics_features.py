@@ -50,6 +50,11 @@ def compute_odds_dynamics(
         return df
 
     ts = odds_ts.sort_values(["race_id", "umaban", "happyotime"]).copy()
+
+    # jodds_tanpuku の tanninki を ninki に正規化 (旧time_series互換)
+    # Int64 (nullable int) の pd.NA を np.nan に変換 — float(pd.NA) が失敗するため
+    if "tanninki" in ts.columns and "ninki" not in ts.columns:
+        ts["ninki"] = ts["tanninki"].astype(float)
     grouped = ts.groupby(["race_id", "umaban"])
 
     # --- 変化率: (early_odds - late_odds) / early_odds ---

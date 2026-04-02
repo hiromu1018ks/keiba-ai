@@ -110,13 +110,27 @@ def load_odds_time_series_range(store: ParquetStore, start: str, end: str) -> pd
         ("race_date", ">=", s),
         ("race_date", "<=", e),
     ]
-    df = store.read("odds", "jodds_tanpuku", filters=filters)
-    return _coerce_types(df)
+    # time_series (旧ETL, 高粒度) を優先、なければ jodds_tanpuku (新ETL) を使用
+    subpath = "time_series" if store.exists("odds", "time_series") else "jodds_tanpuku"
+    df = store.read("odds", subpath, filters=filters)
+    df = _coerce_types(df)
+    # 旧time_seriesの列名を生カラム名に正規化
+    rename_ts = {"happyo_time": "happyotime", "tan_odds": "tanodds", "fuku_odds": "fukuoddslow"}
+    existing = {k: v for k, v in rename_ts.items() if k in df.columns and v not in df.columns}
+    if existing:
+        df = df.rename(columns=existing)
+    return df
 
 
 def load_odds_time_series(store: ParquetStore, race_id: str) -> pd.DataFrame:
-    df = store.read("odds", "jodds_tanpuku", filters=[("race_id", "==", race_id)])
-    return _coerce_types(df)
+    subpath = "time_series" if store.exists("odds", "time_series") else "jodds_tanpuku"
+    df = store.read("odds", subpath, filters=[("race_id", "==", race_id)])
+    df = _coerce_types(df)
+    rename_ts = {"happyo_time": "happyotime", "tan_odds": "tanodds", "fuku_odds": "fukuoddslow"}
+    existing = {k: v for k, v in rename_ts.items() if k in df.columns and v not in df.columns}
+    if existing:
+        df = df.rename(columns=existing)
+    return df
 
 
 def load_wide_odds(store: ParquetStore, start: str, end: str) -> pd.DataFrame:

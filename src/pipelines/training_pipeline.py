@@ -17,7 +17,13 @@ import mlflow
 import pandas as pd
 
 from db.parquet_store import ParquetStore
-from db.readers import load_entries, load_odds_snapshots, load_races, load_wide_odds
+from db.readers import (
+    load_entries,
+    load_odds_snapshots,
+    load_odds_time_series_range,
+    load_races,
+    load_wide_odds,
+)
 from domain.models import SubmodelSet, TrainedModelsV5
 
 if TYPE_CHECKING:
@@ -82,8 +88,8 @@ class TrainingPipelineV5:
         # NEW: _train_submodel 内で HorseHistoryFeatures が使用するため保存
         self._race_df = race_df
         self._entry_df = entry_df
-        # odds_ts_df は Stage1 FEATURE_COLS で未使用 (2.5 GiB のメモリ消費を回避)
-        odds_ts_df = None
+        # オッズ時系列データ — Stage2 (WinTwoStageModel) のオッズ動的特徴量に必須
+        odds_ts_df = load_odds_time_series_range(self.store, start, end)
 
         # 2. 特徴量生成
         logger.info("Building features")
