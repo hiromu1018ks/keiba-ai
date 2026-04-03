@@ -116,6 +116,7 @@ def sample_odds_df() -> pd.DataFrame:
             "race_id": ["2024032405030208"] * 18,
             "umaban": umaban,
             "tanodds": tanodds,
+            "tanninki": list(range(1, 19)),
             "fukuoddslow": [
                 1.1,
                 1.2,

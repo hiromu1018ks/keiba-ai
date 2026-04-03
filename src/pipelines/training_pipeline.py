@@ -6,10 +6,12 @@ MLflow に実験を記録。
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import tempfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import joblib
@@ -435,26 +437,40 @@ class TrainingPipelineV5:
                 # Stage1 (AbilityModel per surface)
                 stage1_model = sub.stage1.models.get(surface)
                 if stage1_model is not None:
-                    mlflow.lightgbm.log_model(stage1_model, f"stage1_{surface}")
+                    mlflow.lightgbm.log_model(
+                        stage1_model, artifact_path=f"stage1_{surface}"
+                    )
 
                 # MarketModel
-                mlflow.lightgbm.log_model(sub.market.model, f"market_{surface}")
+                mlflow.lightgbm.log_model(
+                    sub.market.model, artifact_path=f"market_{surface}"
+                )
 
                 # WinTwoStageModel
-                mlflow.lightgbm.log_model(sub.win.hit_model, f"win_hit_{surface}")
-                mlflow.lightgbm.log_model(sub.win.return_model, f"win_ret_{surface}")
+                mlflow.lightgbm.log_model(
+                    sub.win.hit_model, artifact_path=f"win_hit_{surface}"
+                )
+                mlflow.lightgbm.log_model(
+                    sub.win.return_model, artifact_path=f"win_ret_{surface}"
+                )
 
                 # EVCorrectionModel
                 mlflow.lightgbm.log_model(
-                    sub.ev_corrector.p_correction_model, f"ev_corrector_p_{surface}"
+                    sub.ev_corrector.p_correction_model,
+                    artifact_path=f"ev_corrector_p_{surface}",
                 )
                 mlflow.lightgbm.log_model(
-                    sub.ev_corrector.e_correction_model, f"ev_corrector_e_{surface}"
+                    sub.ev_corrector.e_correction_model,
+                    artifact_path=f"ev_corrector_e_{surface}",
                 )
 
                 # PlaceTwoStageModel
-                mlflow.lightgbm.log_model(sub.place.hit_model, f"place_hit_{surface}")
-                mlflow.lightgbm.log_model(sub.place.return_model, f"place_ret_{surface}")
+                mlflow.lightgbm.log_model(
+                    sub.place.hit_model, artifact_path=f"place_hit_{surface}"
+                )
+                mlflow.lightgbm.log_model(
+                    sub.place.return_model, artifact_path=f"place_ret_{surface}"
+                )
 
                 # PlaceAbilityModel (sklearn CalibratedClassifierCV → joblib)
                 calibrated = sub.place_ability._calibrated or sub.place_ability._model
@@ -470,15 +486,23 @@ class TrainingPipelineV5:
                             os.unlink(_tmp_path)
 
                 # WideTwoStageModel
-                mlflow.lightgbm.log_model(sub.wide.hit_model, f"wide_hit_{surface}")
-                mlflow.lightgbm.log_model(sub.wide.return_model, f"wide_ret_{surface}")
+                mlflow.lightgbm.log_model(
+                    sub.wide.hit_model, artifact_path=f"wide_hit_{surface}"
+                )
+                mlflow.lightgbm.log_model(
+                    sub.wide.return_model, artifact_path=f"wide_ret_{surface}"
+                )
 
             # RaceQualityScreener
-            mlflow.lightgbm.log_model(quality_screen.model, "race_quality")
+            mlflow.lightgbm.log_model(
+                quality_screen.model, artifact_path="race_quality"
+            )
             mlflow.log_param("quality_threshold", quality_screen.threshold)
 
             # RegimeDetector
-            mlflow.lightgbm.log_model(regime_det.model, "regime_detector")
+            mlflow.lightgbm.log_model(
+                regime_det.model, artifact_path="regime_detector"
+            )
 
             # RobustConfidenceEstimator キャリブレーション値 (JSON)
             first_sub = next(iter(models.values()))
@@ -498,3 +522,82 @@ class TrainingPipelineV5:
             mlflow.log_param("train_end", train_end)
             mlflow.log_param("n_surfaces", str(len(models)))
             mlflow.log_param("pipeline_version", "v5.5")
+
+            # ローカルファイルシステムにもモデルを保存 (MLflow Model Registry不使用時のフォールバック)
+            self._save_models_local(models, quality_screen, regime_det, train_start, train_end)
+
+    @staticmethod
+    def _save_models_local(
+        models: dict[str, SubmodelSet],
+        quality_screen: RaceQualityScreener,
+        regime_det: RegimeDetector,
+        train_start: str,
+        train_end: str,
+    ) -> Path:
+        """全モデルをローカルディレクトリに保存 (MLflow非依存)"""
+        from domain.models import TrainedModelsV5
+
+        models_dir = Path("data/models")
+        models_dir.mkdir(parents=True, exist_ok=True)
+
+        saved: dict[str, object] = {}
+        for surface, sub in models.items():
+            saved[f"stage1_{surface}"] = sub.stage1.models.get(surface)
+            saved[f"market_{surface}"] = sub.market.model
+            saved[f"win_hit_{surface}"] = sub.win.hit_model
+            saved[f"win_ret_{surface}"] = sub.win.return_model
+            saved[f"ev_corrector_p_{surface}"] = sub.ev_corrector.p_correction_model
+            saved[f"ev_corrector_e_{surface}"] = sub.ev_corrector.e_correction_model
+            saved[f"place_hit_{surface}"] = sub.place.hit_model
+            saved[f"place_ret_{surface}"] = sub.place.return_model
+            saved[f"wide_hit_{surface}"] = sub.wide.hit_model
+            saved[f"wide_ret_{surface}"] = sub.wide.return_model
+            # PlaceAbilityModel (sklearn) は joblib で保存
+            calibrated = sub.place_ability._calibrated or sub.place_ability._model
+            if calibrated is not None:
+                import joblib
+
+                joblib.dump(
+                    calibrated,
+                    models_dir / f"place_ability_{surface}.joblib",
+                )
+
+        saved["race_quality"] = quality_screen.model
+        saved["regime_detector"] = regime_det.model
+
+        # LightGBM モデルを model.lgb として保存
+        for name, model in saved.items():
+            if model is None:
+                continue
+            if name.startswith("place_ability"):
+                continue  # joblib で既に保存済み
+            model.save_model(str(models_dir / f"{name}.lgb"))
+
+        # RobustConfidenceEstimator パラメータ保存
+        for surface, sub in models.items():
+            conf = sub.confidence
+            if conf._calibrated:
+                conf_data = {
+                    "alpha": conf.alpha,
+                    "rolling_window": conf.rolling_window,
+                    "win_cp_quantile": conf._win_cp_quantile,
+                    "place_cp_quantile": conf._place_cp_quantile,
+                    "win_rolling_quantile": conf._win_rolling_quantile,
+                    "place_rolling_quantile": conf._place_rolling_quantile,
+                }
+                # 各surfaceごとに保存 (最後のsurfaceの値が使われる)
+                with open(models_dir / "confidence_params.json", "w", encoding="utf-8") as f:
+                    json.dump(conf_data, f, indent=2)
+
+        # メタ情報
+        meta = {
+            "train_start": train_start,
+            "train_end": train_end,
+            "surfaces": list(models.keys()),
+            "saved_at": pd.Timestamp.now().isoformat(),
+        }
+        with open(models_dir / "meta.json", "w", encoding="utf-8") as f:
+            json.dump(meta, f, indent=2, ensure_ascii=False)
+
+        logger.info("Models saved to %s", models_dir)
+        return models_dir

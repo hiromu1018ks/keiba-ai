@@ -150,7 +150,11 @@ class PlaceAbilityModel:
         elif self._model is not None:
             raw_p = self._model.predict_proba(X)[:, 1]
         else:
-            raise RuntimeError("Model not trained")
+            # 未学習時: p_ability_place を NaN で設定し、後段モデルがフォールバックする
+            logger.warning("PlaceAbilityModel not trained, setting p_ability_place to NaN")
+            df["p_ability_place_raw"] = np.nan
+            df["p_ability_place"] = np.nan
+            return df
 
         df["p_ability_place_raw"] = raw_p
 

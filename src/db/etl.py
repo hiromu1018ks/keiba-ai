@@ -301,9 +301,26 @@ def _merge_delta(existing: pd.DataFrame, delta: pd.DataFrame, pk: list[str]) -> 
 
     datakubun='0' → delete row (remove from existing)
     datakubun!='0' → upsert row (replace existing or insert new)
+    If datakubun column is absent, treat all rows as upserts.
     """
-    deletes = delta[delta["datakubun"] == "0"]
-    upserts = delta[delta["datakubun"] != "0"].drop(columns=["datakubun"], errors="ignore")
+    # Normalize PK columns to string for merge compatibility
+    # (existing Parquet may have Int64 PKs while delta has string PKs from EveryDB2)
+    for col in pk:
+        if col in existing.columns:
+            existing = existing.copy()
+            existing[col] = existing[col].astype(str)
+        if col in delta.columns:
+            delta = delta.copy()
+            delta[col] = delta[col].astype(str)
+
+    # Split into deletes and upserts based on datakubun
+    if "datakubun" in delta.columns:
+        deletes = delta[delta["datakubun"] == "0"]
+        upserts = delta[delta["datakubun"] != "0"].drop(columns=["datakubun"], errors="ignore")
+    else:
+        # No datakubun column (e.g., s_odds_tanpuku) — treat all as upserts
+        deletes = pd.DataFrame()
+        upserts = delta
 
     # Start with existing data
     result = existing.copy()
@@ -365,17 +382,16 @@ def run_delta_update(
             # Merge
             merged = _merge_delta(existing_df, delta_df, pk)
 
-            # Re-add race_date if needed
+            # Re-compute derived columns for raced tables
+            # (existing rows already have these, but new delta rows need them)
             is_raced = any(
                 c["parquet_key"] == key and c.get("type") == "raced"
                 for c in config
                 if c.get("type") != "delta"
             )
             if is_raced:
-                if "race_date" not in merged.columns:
-                    _compute_race_date(merged)
-                if "race_id" not in merged.columns:
-                    _compute_race_id(merged)
+                _compute_race_date(merged)
+                _compute_race_id(merged)
 
             # Write back
             merged = _apply_type_conversions(merged, key)

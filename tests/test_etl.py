@@ -156,7 +156,7 @@ class TestMergeDelta:
         delta = pd.DataFrame({"id": [2], "val": ["B"], "datakubun": ["1"]})
         result = _merge_delta(existing, delta, pk=["id"])
         assert len(result) == 2
-        assert result[result["id"] == 2]["val"].iloc[0] == "B"
+        assert result[result["id"] == "2"]["val"].iloc[0] == "B"
 
     def test_upsert_inserts_new_row(self):
         from db.etl import _merge_delta
@@ -173,7 +173,7 @@ class TestMergeDelta:
         delta = pd.DataFrame({"id": [2], "val": ["x"], "datakubun": ["0"]})
         result = _merge_delta(existing, delta, pk=["id"])
         assert len(result) == 2
-        assert 2 not in result["id"].values
+        assert "2" not in result["id"].values
 
     def test_composite_pk(self):
         from db.etl import _merge_delta

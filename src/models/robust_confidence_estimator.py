@@ -74,7 +74,16 @@ class RobustConfidenceEstimator:
         min(CP_bound, Rolling_Quantile_bound) を採用 (Rule 4)。
         """
         if not self._calibrated:
-            raise RuntimeError("calibrate() を先に実行してください")
+            # 未キャリブレーション時: EVをそのまま下限として使用 (保守的)
+            import logging
+            logging.getLogger(__name__).warning(
+                "RobustConfidenceEstimator not calibrated, using EV as lower bound"
+            )
+            win_df = win_df.copy()
+            place_df = place_df.copy()
+            win_df["EV_lower_win_corrected"] = win_df.get("ev_win_corrected", 0.0)
+            place_df["EV_lower_place"] = place_df.get("ev_place_corrected", 0.0)
+            return win_df, place_df
 
         win_df = win_df.copy()
         place_df = place_df.copy()

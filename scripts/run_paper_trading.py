@@ -1,9 +1,19 @@
-"""Paper Trading メインスクリプト
+"""Paper Trading メインスクリプト (Parquet-based)
 
 使い方:
+  # 準備: ETL deltaで最新データをParquetに取り込む
+  python scripts/run_etl.py --mode delta
+
+  # setup: 当日のレース一覧を確認
   python scripts/run_paper_trading.py --mode setup --date 2026-04-05
-  python scripts/run_paper_trading.py --mode watch --date 2026-04-05
+
+  # predict: 特徴量生成→推論→ベット保存→Slack通知
+  python scripts/run_paper_trading.py --mode predict --date 2026-04-05
+
+  # reconcile: レース結果と照合→ROI計算→レポート更新
   python scripts/run_paper_trading.py --mode reconcile --date 2026-04-05
+
+  # dry-run: 過去データでパイプライン動作確認
   python scripts/run_paper_trading.py --mode dry-run --date 2024-07-13
   python scripts/run_paper_trading.py --mode dry-run --start 2024-07-01 --end 2024-07-31
 """
@@ -42,7 +52,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--mode",
         required=True,
-        choices=["setup", "watch", "reconcile", "dry-run"],
+        choices=["setup", "predict", "reconcile", "dry-run"],
         help="実行モード",
     )
     parser.add_argument("--date", help="対象日 (YYYY-MM-DD)")
@@ -71,12 +81,9 @@ def load_config(args: argparse.Namespace) -> "PaperTradingConfig":
     return config
 
 
-def main() -> None:
-    args = parse_args()
-    config = load_config(args)
-
-    # --- モデルロード ---
-    from db.model_loader import ModelLoader
+def _load_models(config: "PaperTradingConfig") -> tuple["TrainedModelsV5", object]:
+    """MLflowから学習済みモデルをロード"""
+    from db.model_loader import ModelInfo, ModelLoader
 
     t0 = time.time()
     loader = ModelLoader(tracking_uri=config.mlflow_tracking_uri)
@@ -103,23 +110,24 @@ def main() -> None:
         ),
         encoding="utf-8",
     )
+    return models, model_info
 
-    # --- リポジトリ ---
-    from db.parquet_store import ParquetStore
 
-    store = ParquetStore()
+def _send_slack(config: "PaperTradingConfig", message: str) -> None:
+    """Slackに通知 (エラーを無視)"""
+    if not config.slack_webhook_url:
+        return
+    try:
+        from monitoring.notifier import SlackNotifier
 
-    if args.mode == "setup":
-        _run_setup(args, config, models, store)
+        SlackNotifier(webhook_url=config.slack_webhook_url).send(message)
+    except Exception as e:
+        logger.warning("Slack通知失敗: %s", e)
 
-    elif args.mode == "watch":
-        _run_watch(args, config, models, store)
 
-    elif args.mode == "reconcile":
-        _run_reconcile(args, config, store, models)
-
-    elif args.mode == "dry-run":
-        _run_dry_run(args, config, models, store)
+# ─────────────────────────────────────────────────
+# setup: 当日のレース一覧を確認
+# ─────────────────────────────────────────────────
 
 
 def _run_setup(
@@ -128,135 +136,337 @@ def _run_setup(
     models: "TrainedModelsV5",
     store: "ParquetStore",
 ) -> None:
-    from backtest.race_predictor import RacePredictor
-    from db.everydb2_queries import EveryDB2Queries
-    from paper_trading.predictor import PaperPredictor
+    from db.readers import load_entries, load_races
 
     target_date = date.fromisoformat(args.date)
-    race_predictor = RacePredictor(models)
-    predictor = PaperPredictor(
-        store=store,
-        race_predictor=race_predictor,
-        models=models,
-        output_dir=config.paper_trading_dir,
-    )
-    everydb2 = EveryDB2Queries(connection_string=config.everydb2_connection_string)
+    ymd = target_date.strftime("%Y%m%d")
 
-    t0 = time.time()
-    schedule = predictor.setup(target_date, everydb2)
-    logger.info("Setup complete: %d races (%.1fs)", len(schedule), time.time() - t0)
+    race_df = load_races(store, ymd, ymd)
+    entry_df = load_entries(store, ymd, ymd)
 
-    # schedule.json を保存
+    if race_df.empty:
+        logger.warning("No races found for %s", args.date)
+        return
+
+    # レーススケジュールを構築
+    schedule = []
+    for race_id in race_df["race_id"].unique():
+        race = race_df[race_df["race_id"] == race_id].iloc[0]
+        entries = entry_df[entry_df["race_id"] == race_id]
+        n_with_results = entries["kakuteijyuni"].notna().sum()
+        schedule.append(
+            {
+                "race_id": race_id,
+                "surface": race.get("surface", ""),
+                "distance": int(race.get("kyori", 0)),
+                "post_time": str(race.get("hassotime", "")),
+                "n_horses": len(entries),
+                "n_with_results": int(n_with_results),
+                "tenkocd": race.get("tenkocd", ""),
+                "track_condition_code": race.get("track_condition_code", ""),
+            }
+        )
+
+    # 保存
     schedule_path = config.paper_trading_dir / "schedule.json"
     schedule_path.write_text(
         json.dumps({"date": args.date, "races": schedule}, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
-    logger.info("Schedule saved: %s", schedule_path)
 
-    # Slack 通知
-    if config.slack_webhook_url:
-        from monitoring.notifier import SlackNotifier
+    logger.info("Setup: %d races found for %s", len(schedule), args.date)
+    for s in schedule:
+        logger.info(
+            "  %s %s %dm %s頭 (発走%s 結果%d件)",
+            s["race_id"],
+            s["surface"],
+            s["distance"],
+            s["n_horses"],
+            s["post_time"],
+            s["n_with_results"],
+        )
 
-        notifier = SlackNotifier(webhook_url=config.slack_webhook_url)
-        notifier.send(f"Setup complete: {len(schedule)} races scheduled for {args.date}")
+    _send_slack(config, f"Setup: {len(schedule)} races scheduled for {args.date}")
 
 
-def _run_watch(
+# ─────────────────────────────────────────────────
+# predict: 特徴量生成→推論→ベット保存→Slack通知
+# ─────────────────────────────────────────────────
+
+
+def _run_predict(
     args: argparse.Namespace,
     config: "PaperTradingConfig",
     models: "TrainedModelsV5",
     store: "ParquetStore",
 ) -> None:
     from backtest.race_predictor import RacePredictor
-    from db.everydb2_queries import EveryDB2Queries
-    from monitoring.notifier import CompositeNotifier, LoggingNotifier, SlackNotifier
-    from paper_trading.predictor import PaperPredictor
-    from paper_trading.watcher import RaceWatcher
+    from db.readers import load_entries, load_odds_snapshots, load_races
+    from features.bloodline_features import BloodlineFeatures
+    from features.feature_engine import FeatureEngine
+    from features.horse_history_features import HorseHistoryFeatures
+    from features.jockey_context_features import JockeyContextFeatures
+    from features.trainer_context_features import TrainerContextFeatures
+    from models.submodel_manager import SubModelManager
 
     target_date = date.fromisoformat(args.date)
+    ymd = target_date.strftime("%Y%m%d")
+
+    # Parquetからデータ読み込み
+    logger.info("Loading data for %s...", ymd)
+    race_df = load_races(store, ymd, ymd)
+    entry_df = load_entries(store, ymd, ymd)
+    odds_df = load_odds_snapshots(store, ymd, ymd)
+
+    if race_df.empty or entry_df.empty:
+        logger.error("No race/entry data for %s", args.date)
+        return
+
+    # 特徴量生成 (dry-runと同じパイプライン)
+    logger.info("Generating features...")
+    feat_engine = FeatureEngine()
+    submodel_mgr = SubModelManager()
+    feat_df = feat_engine.build_all(race_df, entry_df, odds_df)
+    feat_df = submodel_mgr.add_distance_band_features(feat_df)
+
+    race_ids = feat_df["race_id"].unique()
+    hist_all = HorseHistoryFeatures(store=store).compute(race_df, entry_df, race_ids)
+    jockey_all = JockeyContextFeatures(store).compute(entry_df)
+    trainer_all = TrainerContextFeatures(store).compute(entry_df)
+    blood_all = BloodlineFeatures(store=store).compute(entry_df)
+
+    # 血統特徴量を feat_df にマージ
+    feat_df = feat_df.merge(
+        blood_all[["race_id", "umaban"] + [c for c in blood_all.columns if c.startswith("blood_")]],
+        on=["race_id", "umaban"],
+        how="left",
+    )
+
+    # 推論
     race_predictor = RacePredictor(models)
-    predictor = PaperPredictor(
-        store=store,
-        race_predictor=race_predictor,
-        models=models,
-        output_dir=config.paper_trading_dir,
+    bankroll = config.initial_bankroll
+    all_bets: list[dict[str, object]] = []
+
+    for race_id in race_ids:
+        single_race = feat_df[feat_df["race_id"] == race_id].copy()
+        hist_race = hist_all[hist_all["race_id"] == race_id]
+        jockey_race = jockey_all[jockey_all["race_id"] == race_id]
+        trainer_race = trainer_all[trainer_all["race_id"] == race_id]
+
+        result_df = race_predictor.predict(single_race, hist_race, jockey_race, trainer_race)
+        if result_df.empty:
+            continue
+
+        if not race_predictor.should_bet(result_df):
+            continue
+
+        bets = race_predictor.select_bets(result_df, bankroll)
+        for bet in bets:
+            horse = result_df[result_df["umaban"] == bet.umaban]
+            horse_name = horse.iloc[0]["bamei"] if not horse.empty else ""
+            all_bets.append(
+                {
+                    "race_id": race_id,
+                    "bet_type": bet.bet_type.value,
+                    "umaban": bet.umaban,
+                    "horse_name": horse_name,
+                    "stake": bet.stake,
+                    "odds": bet.odds,
+                    "ev": bet.ev_lower_corrected,
+                    "result": 0.0,  # 未確定
+                    "surface": result_df.iloc[0].get("surface", ""),
+                    "distance": result_df.iloc[0].get("kyori", 0),
+                    "bankroll_after": bet.stake,  # reconcileで更新
+                    "race_date": ymd,
+                    "is_paper": True,
+                }
+            )
+            bankroll -= bet.stake
+
+    if not all_bets:
+        logger.info("No bets generated for %s", args.date)
+        _send_slack(config, f"Predict: 0 bets for {args.date}")
+        return
+
+    # 予測結果を保存
+    import pandas as pd
+
+    pred_path = config.paper_trading_dir / "predictions" / f"{ymd}.parquet"
+    pred_df = pd.DataFrame(all_bets)
+    pred_df.to_parquet(pred_path, index=False)
+    logger.info("Predictions saved: %d bets → %s", len(all_bets), pred_path)
+
+    # Slack通知
+    bet_lines = []
+    for b in all_bets:
+        bet_lines.append(
+            f"  {b['race_id']} 馬番{b['umaban']} {b['horse_name']} "
+            f"複勝{b['odds']:.1f} EV={b['ev']:.2f}"
+        )
+    slack_msg = (
+        f"Predict: {len(all_bets)} bets for {args.date}\n"
+        + "\n".join(bet_lines)
     )
-    everydb2 = EveryDB2Queries(connection_string=config.everydb2_connection_string)
+    _send_slack(config, slack_msg)
+    logger.info("Predict complete: %d bets", len(all_bets))
 
-    # 通知設定
-    notifiers: list["LoggingNotifier | SlackNotifier"] = [LoggingNotifier()]
-    if config.slack_webhook_url:
-        notifiers.append(SlackNotifier(webhook_url=config.slack_webhook_url))
-    notifier = CompositeNotifier(notifiers)
 
-    # スケジュール読み込み
-    schedule_path = config.paper_trading_dir / "schedule.json"
-    if not schedule_path.exists():
-        logger.error("schedule.json not found. Run --mode setup first.")
-        sys.exit(1)
-    schedule_data = json.loads(schedule_path.read_text(encoding="utf-8"))
-    schedule = schedule_data["races"]
-
-    watcher = RaceWatcher(
-        predictor=predictor,
-        everydb2=everydb2,
-        notifier=notifier,
-        predictions_dir=config.paper_trading_dir / "predictions",
-        retry_count=config.retry_count,
-        retry_interval_seconds=config.retry_interval_seconds,
-        watch_lead_minutes=config.watch_lead_minutes,
-    )
-
-    logger.info("Watch mode started for %s (%d races)", args.date, len(schedule))
-    bets = watcher.watch(target_date, schedule, bankroll=config.initial_bankroll)
-    logger.info("Watch complete: %d bets placed", len(bets))
+# ─────────────────────────────────────────────────
+# reconcile: レース結果と照合→ROI計算
+# ─────────────────────────────────────────────────
 
 
 def _run_reconcile(
     args: argparse.Namespace,
     config: "PaperTradingConfig",
-    store: "ParquetStore",
     models: "TrainedModelsV5 | None" = None,
+    store: "ParquetStore | None" = None,
 ) -> None:
-    from db.everydb2_queries import EveryDB2Queries
-    from paper_trading.reconciler import PaperReconciler
-    from paper_trading.report import PaperTradingReport
+    import pandas as pd
+
+    if store is None:
+        from db.parquet_store import ParquetStore
+
+        store = ParquetStore()
 
     target_date = date.fromisoformat(args.date)
-    everydb2 = EveryDB2Queries(connection_string=config.everydb2_connection_string)
+    ymd = target_date.strftime("%Y%m%d")
 
-    reconciler = PaperReconciler(
-        store=store,
-        bets_path=config.paper_trading_dir / "bets.parquet",
-        everydb2=everydb2,
-    )
+    # 予測を読み込み
+    pred_path = config.paper_trading_dir / "predictions" / f"{ymd}.parquet"
+    if not pred_path.exists():
+        logger.error("Predictions not found: %s", pred_path)
+        return
+    pred_df = pd.read_parquet(pred_path)
 
-    t0 = time.time()
-    result = reconciler.reconcile(target_date)
-    logger.info("Reconcile complete (%.1fs): %s", time.time() - t0, result)
+    # 未確定のベットのみ処理
+    unsettled = pred_df[pred_df["result"] == 0.0]
+    if unsettled.empty:
+        logger.info("All bets already settled for %s", args.date)
+        return
+
+    # レース結果をParquetから取得
+    from db.readers import load_entries, load_payouts
+
+    entry_df = load_entries(store, ymd, ymd)
+    payout_df = load_payouts(store, ymd, ymd)
+
+    if entry_df.empty:
+        logger.warning("No entry data for %s — races may not have been run yet", args.date)
+        return
+
+    n_settled = 0
+    n_wins = 0
+
+    for idx, row in unsettled.iterrows():
+        race_id = row["race_id"]
+        umaban = int(row["umaban"])
+
+        # 着順を取得
+        race_entries = entry_df[entry_df["race_id"] == race_id]
+        horse_entry = race_entries[race_entries["umaban"] == umaban]
+
+        if horse_entry.empty:
+            continue
+
+        finish_pos = horse_entry.iloc[0].get("kakuteijyuni")
+        if pd.isna(finish_pos) or finish_pos == 0:
+            continue  # レース未確定
+
+        # 複勝的中判定: 1着〜3着
+        if 1 <= finish_pos <= 3:
+            # 払戻をpayouts.parquetから取得
+            payout = 0.0
+            if not payout_df.empty:
+                race_payouts = payout_df[payout_df["race_id"] == race_id]
+                if not race_payouts.empty:
+                    po = race_payouts.iloc[0]
+                    for i in range(1, 6):
+                        maban_col = f"payfukusyoumaban{i}"
+                        pay_col = f"payfukusyopay{i}"
+                        if maban_col in po.index and pay_col in po.index:
+                            if po[maban_col] == umaban:
+                                payout = po[pay_col]
+                                break
+
+            if payout > 0:
+                n_wins += 1
+            else:
+                # fallback: 予測時オッズを使用
+                payout = row["stake"] * row["odds"]
+
+            pred_df.at[idx, "result"] = payout
+        else:
+            pred_df.at[idx, "result"] = 0.0
+
+        n_settled += 1
+
+    # 確定した予測を書き戻し
+    pred_df.to_parquet(pred_path, index=False)
+
+    # bets.parquet に追記
+    bets_path = config.paper_trading_dir / "bets.parquet"
+    if bets_path.exists():
+        existing = pd.read_parquet(bets_path)
+        combined = pd.concat([existing, pred_df], ignore_index=True)
+    else:
+        combined = pred_df
+    combined.to_parquet(bets_path, index=False)
+
+    # 累積統計を計算
+    total_stake = combined["stake"].sum()
+    total_return = combined["result"].sum()
+    cumulative_roi = total_return / total_stake if total_stake > 0 else 0.0
+    n_total_wins = (combined["result"] > 0).sum()
+
+    result = {
+        "date": ymd,
+        "n_bets": len(pred_df),
+        "n_settled": n_settled,
+        "n_new_wins": n_wins,
+        "total_stake": total_stake,
+        "total_return": total_return,
+        "cumulative_roi": cumulative_roi,
+        "bankroll": config.initial_bankroll + total_return - total_stake,
+        "n_total_bets": len(combined),
+        "n_total_wins": int(n_total_wins),
+    }
 
     # 日次サマリー保存
     summary_dir = config.paper_trading_dir / "daily_summary"
     summary_dir.mkdir(parents=True, exist_ok=True)
-    summary_path = summary_dir / f"{target_date.strftime('%Y%m%d')}.json"
+    summary_path = summary_dir / f"{ymd}.json"
     summary_path.write_text(json.dumps(result, indent=2, ensure_ascii=False), encoding="utf-8")
 
-    # HTML レポート更新
-    if config.paper_trading_dir.joinpath("bets.parquet").exists():
-        import pandas as pd
+    # HTMLレポート更新
+    try:
+        from paper_trading.report import PaperTradingReport
 
-        bets_df = pd.read_parquet(config.paper_trading_dir / "bets.parquet")
         report = PaperTradingReport(output_dir=config.paper_trading_dir)
-        report.generate(bets_df.to_dict("records"), result)
-        logger.info("Report updated")
+        report.generate(combined.to_dict("records"), result)
+    except Exception as e:
+        logger.warning("Report generation failed: %s", e)
 
-    # Slack 通知
-    if config.slack_webhook_url:
-        from monitoring.notifier import SlackNotifier
+    # Slack通知
+    slack_msg = (
+        f"Reconcile {ymd}: {n_settled} settled, {n_wins} wins\n"
+        f"  Daily ROI: {total_return / (n_settled * 100) if n_settled else 0:.1%}\n"
+        f"  Cumulative: {len(combined)} bets, ROI={cumulative_roi:.1%}"
+    )
+    _send_slack(config, slack_msg)
 
-        notifier = SlackNotifier(webhook_url=config.slack_webhook_url)
-        notifier.send_daily_result(result)
+    logger.info(
+        "Reconcile: %d settled, %d wins, cumulative ROI=%.1f%% (%d total bets)",
+        n_settled,
+        n_wins,
+        cumulative_roi * 100,
+        len(combined),
+    )
+
+
+# ─────────────────────────────────────────────────
+# dry-run: 過去データでパイプライン動作確認
+# ─────────────────────────────────────────────────
 
 
 def _run_dry_run(
@@ -265,9 +475,9 @@ def _run_dry_run(
     models: "TrainedModelsV5",
     store: "ParquetStore",
 ) -> None:
-    """過去データで本番パイプラインの動作確認"""
     from backtest.race_predictor import RacePredictor
     from db.readers import load_entries, load_odds_snapshots, load_races
+    from features.bloodline_features import BloodlineFeatures
     from features.feature_engine import FeatureEngine
     from features.horse_history_features import HorseHistoryFeatures
     from features.jockey_context_features import JockeyContextFeatures
@@ -313,6 +523,14 @@ def _run_dry_run(
     hist_all = HorseHistoryFeatures(store=store).compute(race_df, entry_df, race_ids)
     jockey_all = JockeyContextFeatures(store).compute(entry_df)
     trainer_all = TrainerContextFeatures(store).compute(entry_df)
+    blood_all = BloodlineFeatures(store=store).compute(entry_df)
+
+    # 血統特徴量を feat_df にマージ
+    feat_df = feat_df.merge(
+        blood_all[["race_id", "umaban"] + [c for c in blood_all.columns if c.startswith("blood_")]],
+        on=["race_id", "umaban"],
+        how="left",
+    )
 
     # 日次シミュレーション
     total_bets = 0
@@ -348,7 +566,7 @@ def _run_dry_run(
             for bet in bets:
                 horse = result_df[result_df["umaban"] == bet.umaban]
                 if not horse.empty:
-                    finish_pos = int(horse.iloc[0]["finish_pos"])
+                    finish_pos = int(horse.iloc[0]["kakuteijyuni"])
                     payout = 0.0
                     if bet.bet_type.value == "place" and 1 <= finish_pos <= 3:
                         payout = bet.stake * bet.odds
@@ -383,10 +601,40 @@ def _run_dry_run(
     roi = total_return / total_stake if total_stake > 0 else 0.0
     print(f"\nDry-run Results ({all_start} ~ {all_end}):")
     print(f"  Bets:    {total_bets}")
-    print(f"  Stake:   \u00a5{total_stake:,.0f}")
-    print(f"  Return:  \u00a5{total_return:,.0f}")
+    print(f"  Stake:   {total_stake:,.0f} yen")
+    print(f"  Return:  {total_return:,.0f} yen")
     print(f"  ROI:     {roi:.1%}")
-    print(f"  Bankroll:\u00a5{bankroll:,.0f}")
+    print(f"  Bankroll: {bankroll:,.0f} yen")
+
+
+# ─────────────────────────────────────────────────
+# main
+# ─────────────────────────────────────────────────
+
+
+def main() -> None:
+    args = parse_args()
+    config = load_config(args)
+
+    # --- モデルロード ---
+    models, model_info = _load_models(config)
+
+    # --- ParquetStore ---
+    from db.parquet_store import ParquetStore
+
+    store = ParquetStore()
+
+    if args.mode == "setup":
+        _run_setup(args, config, models, store)
+
+    elif args.mode == "predict":
+        _run_predict(args, config, models, store)
+
+    elif args.mode == "reconcile":
+        _run_reconcile(args, config, store=store)
+
+    elif args.mode == "dry-run":
+        _run_dry_run(args, config, models, store)
 
 
 if __name__ == "__main__":

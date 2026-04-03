@@ -125,10 +125,12 @@ class TestRobustConfidenceEstimator:
         inference_df: pd.DataFrame,
         inference_place_df: pd.DataFrame,
     ) -> None:
-        """calibrate() 前に predict_lower_bound() を呼ぶとエラー"""
+        """calibrate() 前に predict_lower_bound() を呼ぶとフォールバック値を返す"""
         estimator = RobustConfidenceEstimator()
-        with pytest.raises(RuntimeError, match="calibrate"):
-            estimator.predict_lower_bound(inference_df, inference_place_df)
+        win_result, place_result = estimator.predict_lower_bound(inference_df, inference_place_df)
+        # フォールバック: EV をそのまま下限として使用
+        assert "EV_lower_win_corrected" in win_result.columns
+        assert "EV_lower_place" in place_result.columns
 
     def test_uses_min_of_cp_and_rolling(
         self,

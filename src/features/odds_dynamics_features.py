@@ -55,6 +55,13 @@ def compute_odds_dynamics(
     # Int64 (nullable int) の pd.NA を np.nan に変換 — float(pd.NA) が失敗するため
     if "tanninki" in ts.columns and "ninki" not in ts.columns:
         ts["ninki"] = ts["tanninki"].astype(float)
+
+    # 大量時系列データのメモリ削減: 各(race_id, umaban)につき直近MAX_POINTSのみ保持
+    # 特徴量は t-60min → t-10min の変化率等を計算するため、直近60ポイント(≈60分)で十分
+    MAX_POINTS = 60
+    if len(ts) > 1_000_000:
+        ts = ts.groupby(["race_id", "umaban"], as_index=False).tail(MAX_POINTS)
+
     grouped = ts.groupby(["race_id", "umaban"])
 
     # --- 変化率: (early_odds - late_odds) / early_odds ---
@@ -117,11 +124,14 @@ def compute_odds_dynamics(
     else:
         pop_change = pd.Series(np.nan, index=df.index, name="popularity_change_30_10")
 
-    # groupby 結果を df にマージ (left join on race_id, umaban)
-    merge_cols = [drop_60_10, drop_30_10, velocity, volatility, pop_change]
-    for series in merge_cols:
-        merged = series.reset_index()
-        df = df.merge(merged, on=["race_id", "umaban"], how="left")
+    # groupby 結果を1つのDataFrameにまとめてから df にマージ (1回のmerge)
+    agg_df = pd.concat(
+        [s.reset_index() for s in [drop_60_10, drop_30_10, velocity, volatility, pop_change]],
+        axis=1,
+    )
+    # reset_index() で重複した race_id/umaban 列を削除
+    agg_df = agg_df.loc[:, ~agg_df.columns.duplicated()]
+    df = df.merge(agg_df, on=["race_id", "umaban"], how="left")
 
     return df
 

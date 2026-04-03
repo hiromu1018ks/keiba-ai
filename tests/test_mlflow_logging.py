@@ -15,6 +15,7 @@ class TestExtendedMLflowLogging:
             patch("pipelines.training_pipeline.joblib"),
             patch("pipelines.training_pipeline.os"),
             patch("pipelines.training_pipeline.tempfile") as mock_tempfile,
+            patch("pipelines.training_pipeline.TrainingPipelineV5._save_models_local"),
         ):
             mock_mlflow.start_run.return_value.__enter__ = MagicMock()
             mock_mlflow.start_run.return_value.__exit__ = MagicMock(return_value=False)
@@ -62,7 +63,10 @@ class TestExtendedMLflowLogging:
             )
 
             # market_turf が呼ばれる
-            log_model_calls = [c[0][1] for c in mock_mlflow.lightgbm.log_model.call_args_list]
+            log_model_calls = [
+                c.kwargs.get("artifact_path", c[0][1] if len(c[0]) > 1 else "")
+                for c in mock_mlflow.lightgbm.log_model.call_args_list
+            ]
             assert "market_turf" in log_model_calls
             assert "market_dirt" in log_model_calls
             # wide もログされる
@@ -81,6 +85,7 @@ class TestExtendedMLflowLogging:
             patch("pipelines.training_pipeline.joblib"),
             patch("pipelines.training_pipeline.os"),
             patch("pipelines.training_pipeline.tempfile") as mock_tempfile,
+            patch("pipelines.training_pipeline.TrainingPipelineV5._save_models_local"),
         ):
             mock_mlflow.start_run.return_value.__enter__ = MagicMock()
             mock_mlflow.start_run.return_value.__exit__ = MagicMock(return_value=False)
