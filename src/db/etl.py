@@ -393,8 +393,30 @@ def run_delta_update(
                 _compute_race_date(merged)
                 _compute_race_id(merged)
 
-            # Write back
-            merged = _apply_type_conversions(merged, key)
+            # Type conversions: delta行のみに適用 (既存行は既に変換済み)
+            # 全体に適用すると odds10 等の変換が2重適用される
+            upsert_mask = (
+                delta_df["datakubun"] != "0"
+                if "datakubun" in delta_df.columns
+                else pd.Series(True, index=delta_df.index)
+            )
+            delta_upserts = delta_df[upsert_mask].drop(columns=["datakubun"], errors="ignore")
+            delta_df_converted = _apply_type_conversions(delta_upserts, key)
+
+            # 変換済みdelta行をmergedの対応行に反映
+            if not delta_df_converted.empty:
+                # PK型をmergedに合わせる (mergedのPKはstring化済み)
+                for col in pk:
+                    if col in delta_df_converted.columns:
+                        delta_df_converted[col] = delta_df_converted[col].astype(str)
+                # merged から元のdelta行を削除して変換済みを追加
+                merge_keys = delta_df_converted[pk].drop_duplicates()
+                merge_check = merged.merge(
+                    merge_keys.assign(_is_delta=True), on=pk, how="left", indicator=False
+                )
+                merged = merged[merge_check["_is_delta"] != True].copy()
+                merged = pd.concat([merged, delta_df_converted], ignore_index=True)
+
             if is_raced:
                 merged = _compute_surface(merged)
                 merged = _compute_track_condition_code(merged)
