@@ -154,6 +154,24 @@ class TestOddsDynamicsFeatures:
         assert np.isnan(result.iloc[1]["odds_drop_rate_60_10"])
         assert np.isnan(result.iloc[2]["odds_drop_rate_60_10"])
 
+    def test_out_of_range_tanodds_produces_nan_features(self, base_df: pd.DataFrame):
+        """tanodds が範囲外 (1.0未満, 999.9超) の場合、特徴量が NaN になる。"""
+        odds_ts = pd.DataFrame({
+            "race_id": ["R1", "R1"], "umaban": [1, 1],
+            "happyotime": [1, 2], "tanodds": [0.5, 1500.0],
+        })
+        result = compute_odds_dynamics(base_df, odds_ts)
+        assert pd.isna(result["odds_drop_rate_60_10"].iloc[0])
+
+    def test_valid_range_tanodds_computes_normally(self, base_df: pd.DataFrame):
+        """tanodds が範囲内 (1.0-999.9) の場合、特徴量が正常に計算される。"""
+        odds_ts = pd.DataFrame({
+            "race_id": ["R1", "R1"], "umaban": [1, 1],
+            "happyotime": [1, 2], "tanodds": [5.0, 3.0],
+        })
+        result = compute_odds_dynamics(base_df, odds_ts)
+        assert not pd.isna(result["odds_drop_rate_60_10"].iloc[0])
+
     def test_preserves_existing_columns(self, base_df: pd.DataFrame, odds_ts_df: pd.DataFrame):
         """既存列を保持する"""
         result = compute_odds_dynamics(base_df, odds_ts_df)

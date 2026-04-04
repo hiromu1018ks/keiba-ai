@@ -51,6 +51,10 @@ def compute_odds_dynamics(
 
     ts = odds_ts.sort_values(["race_id", "umaban", "happyotime"]).copy()
 
+    # 合理的オッズ範囲外を NaN にする (1.0-999.9)
+    ts.loc[ts["tanodds"] < 1.0, "tanodds"] = np.nan
+    ts.loc[ts["tanodds"] > 999.9, "tanodds"] = np.nan
+
     # jodds_tanpuku の tanninki を ninki に正規化 (旧time_series互換)
     # Int64 (nullable int) の pd.NA を np.nan に変換 — float(pd.NA) が失敗するため
     if "tanninki" in ts.columns and "ninki" not in ts.columns:
