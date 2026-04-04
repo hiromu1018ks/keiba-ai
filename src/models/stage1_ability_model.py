@@ -68,8 +68,25 @@ class AbilityModel:
         self.models: dict[str, lgb.Booster] = {}
         self._submodel_mgr = SubModelManager()
 
-    def train(self, df: pd.DataFrame) -> None:
-        """芝/ダート別に LightGBM Ranker を学習"""
+    def train(self, df: pd.DataFrame, *, early_stopping: bool = False) -> None:
+        """芝/ダート別に LightGBM Ranker を学習。
+
+        Args:
+            df: 学習データ。
+            early_stopping: True の場合、80/20 で train/valid を分割し
+                            early_stopping(50) を適用する。OOF fold では使用しない。
+        """
+        num_threads = max(1, (os.cpu_count() or 4) // 2)
+        params: dict = {
+            "objective": "lambdarank",
+            "metric": "ndcg",
+            "learning_rate": 0.03,
+            "num_leaves": 31,
+            "feature_fraction": 0.7,
+            "num_threads": num_threads,
+            "verbose": -1,
+        }
+
         # DataFrame内に実際に存在するsurfaceのみ処理
         surfaces_in_data = set(df["surface"].unique()) & set(SubModelManager.VALID_KEYS)
         for key in surfaces_in_data:
@@ -94,20 +111,52 @@ class AbilityModel:
             # ラベル: 1着=3, 2着=2, 3着=1, 4着以降=0
             y = key_df["kakuteijyuni"].apply(lambda x: max(0, 4 - x) if x > 0 else 0)
             groups = key_df.groupby("race_id").size().values
+            n = len(features)
 
-            self.models[key] = lgb.train(
-                {
-                    "objective": "lambdarank",
-                    "metric": "ndcg",
-                    "learning_rate": 0.03,
-                    "num_leaves": 31,
-                    "feature_fraction": 0.7,
-                    "num_threads": max(1, (os.cpu_count() or 4) // 2),
-                    "verbose": -1,
-                },
-                lgb.Dataset(features, label=y, group=groups),
-                num_boost_round=500,
-            )
+            if early_stopping and n >= 10:
+                # レース単位で train/valid を分割する
+                # group 配列: [4, 4, 3] = レース1に4頭, レース2に4頭, レース3に3頭
+                n_groups = len(groups)
+                race_perm = np.random.RandomState(42).permutation(n_groups)
+                race_split = int(n_groups * 0.8)
+
+                # 行レベルのインデックスに変換
+                race_ids_per_row = np.repeat(np.arange(n_groups), groups)
+                train_race_ids = set(race_perm[:race_split].tolist())
+                train_mask = np.array([rid in train_race_ids for rid in race_ids_per_row])
+                valid_mask = ~train_mask
+
+                train_idx = np.where(train_mask)[0]
+                valid_idx = np.where(valid_mask)[0]
+
+                train_groups = groups[np.sort(race_perm[:race_split])]
+                valid_groups = groups[np.sort(race_perm[race_split:])]
+
+                train_data = lgb.Dataset(
+                    features.iloc[train_idx],
+                    label=y.iloc[train_idx],
+                    group=train_groups,
+                )
+                valid_data = lgb.Dataset(
+                    features.iloc[valid_idx],
+                    label=y.iloc[valid_idx],
+                    group=valid_groups,
+                    reference=train_data,
+                )
+
+                self.models[key] = lgb.train(
+                    params,
+                    train_data,
+                    num_boost_round=500,
+                    valid_sets=[valid_data],
+                    callbacks=[lgb.early_stopping(stopping_rounds=50, verbose=False)],
+                )
+            else:
+                self.models[key] = lgb.train(
+                    params,
+                    lgb.Dataset(features, label=y, group=groups),
+                    num_boost_round=500,
+                )
             logger.info(f"SubModel '{key}' 学習完了: {len(key_df)} samples")
 
     def add_ability_probs(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -137,7 +186,12 @@ class AbilityModel:
                 if col in features.columns:
                     features[col] = features[col].astype("category")
 
-            raw_scores = self.models[key].predict(features)
+            booster = self.models[key]
+            best_iter = booster.best_iteration
+            raw_scores = booster.predict(
+                features,
+                num_iteration=best_iter if best_iter > 0 else None,
+            )
 
             # レース内 softmax (log-sum-exp trick で数値安定化) -> p_ability_win
             df.loc[mask, "_raw_score"] = raw_scores
@@ -196,8 +250,8 @@ class AbilityModel:
 
             oof_preds.loc[test_mask] = test_df["p_ability_win"].values
 
-        # 最終モデルを全データで学習（推論用）
-        self.train(df)
+        # 最終モデルを全データで学習（推論用、early stopping あり）
+        self.train(df, early_stopping=True)
 
         # OOF 予測を設定
         df["p_ability_win"] = oof_preds
