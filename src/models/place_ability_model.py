@@ -68,8 +68,10 @@ class PlaceAbilityModel:
         self._model: lgb.LGBMClassifier | None = None
         self._calibrated: CalibratedClassifierCV | None = None
 
-    def train(self, df: pd.DataFrame) -> None:
+    def train(self, df: pd.DataFrame, *, n_jobs: int = 0) -> None:
         """学習 + Isotonic校正（時系列分割）"""
+        if n_jobs <= 0:
+            n_jobs = max(1, (os.cpu_count() or 4) // 2)
         assert "race_date" in df.columns, "race_date が必要"
         assert "kakuteijyuni" in df.columns, "kakuteijyuni が必要"
 
@@ -111,7 +113,7 @@ class PlaceAbilityModel:
             reg_lambda=1.0,
             learning_rate=0.03,
             n_estimators=500,
-            n_jobs=max(1, (os.cpu_count() or 4) // 2),
+            n_jobs=n_jobs,
             verbose=-1,
         )
         self._model.fit(X_train, y_train)

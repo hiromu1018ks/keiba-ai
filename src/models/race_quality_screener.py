@@ -85,8 +85,10 @@ class RaceQualityScreener:
                 df[col] = df[col].astype("category")
         return df
 
-    def train(self, df_race: pd.DataFrame) -> None:
+    def train(self, df_race: pd.DataFrame, *, num_threads: int = 0) -> None:
         """スクリーナーモデルを学習 (時系列80/20 split + early_stopping)"""
+        if num_threads <= 0:
+            num_threads = max(1, (os.cpu_count() or 4) // 2)
         features = self._prepare_features(df_race[self.FEATURE_COLS])
         y = self._build_target(df_race)
 
@@ -107,7 +109,7 @@ class RaceQualityScreener:
                 "metric": "mae",
                 "learning_rate": 0.05,
                 "num_leaves": 15,
-                "num_threads": max(1, (os.cpu_count() or 4) // 2),
+                "num_threads": num_threads,
                 "verbose": -1,
             },
             train_data,

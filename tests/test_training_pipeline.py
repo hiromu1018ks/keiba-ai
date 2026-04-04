@@ -39,7 +39,7 @@ class _FakePlaceAbilityModel:
     _calibrated = None
     _model = None
 
-    def train(self, df):  # noqa: ARG002
+    def train(self, df, **kwargs):  # noqa: ARG002
         pass
 
     def predict(self, df):

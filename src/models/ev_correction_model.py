@@ -71,8 +71,10 @@ class EVCorrectionModel:
                 features[col] = features[col].astype("category")
         return features
 
-    def train(self, df: pd.DataFrame) -> None:
+    def train(self, df: pd.DataFrame, *, num_threads: int = 0) -> None:
         """P補正モデルとE補正モデルをそれぞれ学習"""
+        if num_threads <= 0:
+            num_threads = max(1, (os.cpu_count() or 4) // 2)
         df = df.copy()
         assert "ev_win" in df.columns, (
             "ev_win が必要です。先に WinTwoStageModel.predict_ev() を実行してください"
@@ -112,7 +114,7 @@ class EVCorrectionModel:
                 "num_leaves": 15,
                 "is_unbalance": True,
                 "feature_fraction": 0.7,
-                "num_threads": max(1, (os.cpu_count() or 4) // 2),
+                "num_threads": num_threads,
                 "verbose": -1,
             },
             train_data_p,
@@ -157,7 +159,7 @@ class EVCorrectionModel:
                 "learning_rate": 0.03,
                 "num_leaves": 15,
                 "feature_fraction": 0.7,
-                "num_threads": max(1, (os.cpu_count() or 4) // 2),
+                "num_threads": num_threads,
                 "verbose": -1,
             },
             train_data_e,

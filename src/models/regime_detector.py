@@ -52,12 +52,14 @@ class RegimeDetector:
     def current_regime(self) -> RegimeState:
         return self._current_regime
 
-    def train(self, df_race: pd.DataFrame) -> None:
+    def train(self, df_race: pd.DataFrame, *, num_threads: int = 0) -> None:
         """
         レジーム分類器の学習 (軽量・3状態分類)。
         v5.5: 教師ラベルを市場指標ベースに変更 (Rule 19)。
         時系列ベース80/20 split + early_stopping(20) + num_threads。
         """
+        if num_threads <= 0:
+            num_threads = max(1, (os.cpu_count() or 4) // 2)
         features = df_race[self.FEATURE_COLS].copy()
         for col in features.columns:
             if pd.api.types.is_integer_dtype(features[col]):
@@ -100,7 +102,7 @@ class RegimeDetector:
                 "num_leaves": 7,
                 "min_data_in_leaf": 50,
                 "feature_fraction": 0.8,
-                "num_threads": max(1, (os.cpu_count() or 4) // 2),
+                "num_threads": num_threads,
                 "verbose": -1,
             },
             train_data,

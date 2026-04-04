@@ -37,8 +37,10 @@ class MarketModel:
     def __init__(self) -> None:
         self.model: lgb.Booster | None = None
 
-    def train(self, df: pd.DataFrame) -> None:
+    def train(self, df: pd.DataFrame, *, num_threads: int = 0) -> None:
         """p_market_win_adj を予測するLightGBMモデルを学習 (early stopping付き)"""
+        if num_threads <= 0:
+            num_threads = max(1, (os.cpu_count() or 4) // 2)
         features = df[self.FEATURE_COLS].copy()
         target = df["p_market_win_adj"]
 
@@ -69,7 +71,7 @@ class MarketModel:
                 "learning_rate": 0.03,
                 "num_leaves": 31,
                 "feature_fraction": 0.7,
-                "num_threads": max(1, (os.cpu_count() or 4) // 2),
+                "num_threads": num_threads,
                 "verbose": -1,
             },
             train_data,

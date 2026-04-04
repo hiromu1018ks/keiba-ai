@@ -68,15 +68,19 @@ class AbilityModel:
         self.models: dict[str, lgb.Booster] = {}
         self._submodel_mgr = SubModelManager()
 
-    def train(self, df: pd.DataFrame, *, early_stopping: bool = False) -> None:
+    def train(
+        self, df: pd.DataFrame, *, early_stopping: bool = False, num_threads: int = 0
+    ) -> None:
         """芝/ダート別に LightGBM Ranker を学習。
 
         Args:
             df: 学習データ。
             early_stopping: True の場合、80/20 で train/valid を分割し
                             early_stopping(50) を適用する。OOF fold では使用しない。
+            num_threads: LightGBM スレッド数。0 の場合は自動計算。
         """
-        num_threads = max(1, (os.cpu_count() or 4) // 2)
+        if num_threads <= 0:
+            num_threads = max(1, (os.cpu_count() or 4) // 2)
         params: dict = {
             "objective": "lambdarank",
             "metric": "ndcg",
@@ -206,7 +210,9 @@ class AbilityModel:
 
         return df
 
-    def train_oof(self, df: pd.DataFrame, n_folds: int = 3) -> pd.DataFrame:
+    def train_oof(
+        self, df: pd.DataFrame, n_folds: int = 3, *, num_threads: int = 0
+    ) -> pd.DataFrame:
         """K-fold expanding window で OOF p_ability_win を生成する。
 
         レース日を時系列順にソートし、expanding window で fold を分割する。
@@ -225,7 +231,7 @@ class AbilityModel:
 
         # データ不足時はフォールバック
         if n_dates < n_folds + 1:
-            self.train(df)
+            self.train(df, num_threads=num_threads)
             return self.add_ability_probs(df)
 
         # fold 境界: n_folds+1 個の等分割点
@@ -245,13 +251,13 @@ class AbilityModel:
                 continue
 
             fold_model = AbilityModel()
-            fold_model.train(train_df)
+            fold_model.train(train_df, num_threads=num_threads)
             test_df = fold_model.add_ability_probs(test_df)
 
             oof_preds.loc[test_mask] = test_df["p_ability_win"].values
 
         # 最終モデルを全データで学習（推論用、early stopping あり）
-        self.train(df, early_stopping=True)
+        self.train(df, early_stopping=True, num_threads=num_threads)
 
         # OOF 予測を設定
         df["p_ability_win"] = oof_preds

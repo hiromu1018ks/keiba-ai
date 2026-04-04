@@ -79,8 +79,10 @@ class WinTwoStageModel:
                 features[col] = features[col].astype("category")
         return features
 
-    def train_hit_model(self, df: pd.DataFrame) -> None:
+    def train_hit_model(self, df: pd.DataFrame, *, num_threads: int = 0) -> None:
         """P(win) の学習 (全出走馬・1着=1 / 他=0)"""
+        if num_threads <= 0:
+            num_threads = max(1, (os.cpu_count() or 4) // 2)
         features = self._prepare_features(df)
         y = (df["kakuteijyuni"] == 1).astype(int)
 
@@ -93,7 +95,7 @@ class WinTwoStageModel:
                 "num_leaves": self.cfg.hit_leaves,
                 "is_unbalance": True,
                 "feature_fraction": 0.7,
-                "num_threads": max(1, (os.cpu_count() or 4) // 2),
+                "num_threads": num_threads,
                 "verbose": -1,
             },
             train_data,
@@ -102,11 +104,13 @@ class WinTwoStageModel:
             callbacks=[lgb.early_stopping(stopping_rounds=50, verbose=False)],
         )
 
-    def train_return_model(self, df: pd.DataFrame) -> None:
+    def train_return_model(self, df: pd.DataFrame, *, num_threads: int = 0) -> None:
         """
         E(win_odds | win) の学習 (1着馬のみ)。
         ゼロ偏重を完全に排除 -- 学習データにゼロが含まれない。
         """
+        if num_threads <= 0:
+            num_threads = max(1, (os.cpu_count() or 4) // 2)
         hit_df = df[df["kakuteijyuni"] == 1].copy()
         if len(hit_df) < self.cfg.min_hit_samples:
             raise ValueError(
@@ -123,7 +127,7 @@ class WinTwoStageModel:
             "learning_rate": self.cfg.return_lr,
             "num_leaves": self.cfg.return_leaves,
             "feature_fraction": 0.7,
-            "num_threads": max(1, (os.cpu_count() or 4) // 2),
+            "num_threads": num_threads,
             "verbose": -1,
         }
         callbacks = [lgb.early_stopping(stopping_rounds=50, verbose=False)]
@@ -190,8 +194,10 @@ class PlaceTwoStageModel:
                 features[col] = features[col].astype("category")
         return features
 
-    def train_hit_model(self, df: pd.DataFrame) -> None:
+    def train_hit_model(self, df: pd.DataFrame, *, num_threads: int = 0) -> None:
         """P(place) の学習 (3着以内=1 / それ以外=0)"""
+        if num_threads <= 0:
+            num_threads = max(1, (os.cpu_count() or 4) // 2)
         features = self._prepare_features(df)
         y = (df["kakuteijyuni"] <= 3).astype(int)
 
@@ -204,7 +210,7 @@ class PlaceTwoStageModel:
                 "num_leaves": self.cfg.hit_leaves,
                 "is_unbalance": True,
                 "feature_fraction": 0.7,
-                "num_threads": max(1, (os.cpu_count() or 4) // 2),
+                "num_threads": num_threads,
                 "verbose": -1,
             },
             train_data,
@@ -213,8 +219,10 @@ class PlaceTwoStageModel:
             callbacks=[lgb.early_stopping(stopping_rounds=50, verbose=False)],
         )
 
-    def train_return_model(self, df: pd.DataFrame) -> None:
+    def train_return_model(self, df: pd.DataFrame, *, num_threads: int = 0) -> None:
         """E(place_odds | place) の学習 (3着以内のみ)"""
+        if num_threads <= 0:
+            num_threads = max(1, (os.cpu_count() or 4) // 2)
         hit_df = df[df["kakuteijyuni"] <= 3].copy()
 
         features = self._prepare_features(hit_df)
@@ -226,7 +234,7 @@ class PlaceTwoStageModel:
             "learning_rate": self.cfg.return_lr,
             "num_leaves": 25,  # 複勝はサンプル多めなので少し深く
             "feature_fraction": 0.7,
-            "num_threads": max(1, (os.cpu_count() or 4) // 2),
+            "num_threads": num_threads,
             "verbose": -1,
         }
         callbacks = [lgb.early_stopping(stopping_rounds=50, verbose=False)]

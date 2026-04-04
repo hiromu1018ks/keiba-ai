@@ -47,6 +47,12 @@ from models.wide_two_stage_model import WideTwoStageModel
 logger = logging.getLogger(__name__)
 
 
+def _get_num_threads(parallel_workers: int = 1) -> int:
+    """並列ワーカー数に応じて最適なスレッド数を返す。"""
+    cpu_count = os.cpu_count() or 4
+    return max(1, cpu_count // (parallel_workers + 1))
+
+
 class TrainingPipelineV5:
     """学習パイプライン (§11)
 
@@ -124,13 +130,15 @@ class TrainingPipelineV5:
         if len(surfaces_to_train) == 1:
             # Single surface — no parallelism needed
             surface, subset_df = surfaces_to_train[0]
-            sub = self._train_submodel(subset_df)
+            sub = self._train_submodel(subset_df, num_threads=_get_num_threads(1))
             models[surface] = sub
             logger.info(f"Trained {surface} submodel")
         elif len(surfaces_to_train) >= 2:
             with ThreadPoolExecutor(max_workers=2) as executor:
                 futures = {
-                    executor.submit(self._train_submodel, subset_df): surface
+                    executor.submit(
+                        self._train_submodel, subset_df, num_threads=_get_num_threads(2)
+                    ): surface
                     for surface, subset_df in surfaces_to_train
                 }
                 for future in as_completed(futures):
@@ -165,7 +173,7 @@ class TrainingPipelineV5:
         # 5. RaceQualityScreener
         with TimingContext("quality_screener"):
             quality_screen = RaceQualityScreener()
-            quality_screen.train(race_feat_df)
+            quality_screen.train(race_feat_df, num_threads=_get_num_threads(1))
             quality_screen.calibrate_threshold(race_feat_df, target_investment_rate=0.40)
         logger.info("Trained RaceQualityScreener")
 
@@ -173,7 +181,7 @@ class TrainingPipelineV5:
         with TimingContext("regime_detector"):
             regime_stats_df = self._build_regime_stats(race_feat_df, feat_df)
             regime_det = RegimeDetector()
-            regime_det.train(regime_stats_df)
+            regime_det.train(regime_stats_df, num_threads=_get_num_threads(1))
         logger.info("Trained RegimeDetector")
 
         # 7. MLflow 記録
@@ -186,8 +194,10 @@ class TrainingPipelineV5:
             train_period=(train_start, train_end),
         )
 
-    def _train_submodel(self, df: pd.DataFrame) -> SubmodelSet:
+    def _train_submodel(self, df: pd.DataFrame, *, num_threads: int = 0) -> SubmodelSet:
         """単一 surface のサブモデル群を学習"""
+        if num_threads <= 0:
+            num_threads = max(1, (os.cpu_count() or 4) // 2)
         surface = df["surface"].iloc[0] if "surface" in df.columns else "unknown"
 
         # NEW: 馬過去成績特徴量
@@ -217,7 +227,7 @@ class TrainingPipelineV5:
 
         with TimingContext(f"{surface}/market_model"):
             market = MarketModel()
-            market.train(df)
+            market.train(df, num_threads=num_threads)
             df = market.predict_and_calc_error(df)
 
         # nullable int (Int64) → float64 (market model が Int64 を追加するため)
@@ -228,7 +238,7 @@ class TrainingPipelineV5:
         # 2. Stage1: OOF predictions (リーク防止)
         with TimingContext(f"{surface}/ability_oof"):
             stage1 = AbilityModel()
-            df = stage1.train_oof(df, n_folds=3)
+            df = stage1.train_oof(df, n_folds=3, num_threads=num_threads)
         oof_mask = df["p_ability_win"].notna()
         df_oof = df[oof_mask].copy()
 
@@ -237,16 +247,16 @@ class TrainingPipelineV5:
 
         with TimingContext(f"{surface}/place_ability_train"):
             place_ability = PlaceAbilityModel()
-            place_ability.train(df_oof)
+            place_ability.train(df_oof, n_jobs=num_threads)
         with TimingContext(f"{surface}/place_ability_predict"):
             df_oof = place_ability.predict(df_oof)
 
         # 3. 単勝 2段階モデル
         win_2s = WinTwoStageModel()
         with TimingContext(f"{surface}/win_hit"):
-            win_2s.train_hit_model(df_oof)
+            win_2s.train_hit_model(df_oof, num_threads=num_threads)
         with TimingContext(f"{surface}/win_return"):
-            win_2s.train_return_model(df_oof)
+            win_2s.train_return_model(df_oof, num_threads=num_threads)
         with TimingContext(f"{surface}/win_predict"):
             df_oof = win_2s.predict_ev(df_oof)
 
@@ -267,15 +277,15 @@ class TrainingPipelineV5:
         # 4. EV補正モデル (P/E分解)
         with TimingContext(f"{surface}/ev_correction"):
             ev_corrector = EVCorrectionModel()
-            ev_corrector.train(df_oof)
+            ev_corrector.train(df_oof, num_threads=num_threads)
             df_oof = ev_corrector.correct_ev(df_oof)
 
         # 5. 複勝 2段階モデル
         place_2s = PlaceTwoStageModel()
         with TimingContext(f"{surface}/place_hit"):
-            place_2s.train_hit_model(df_oof)
+            place_2s.train_hit_model(df_oof, num_threads=num_threads)
         with TimingContext(f"{surface}/place_return"):
-            place_2s.train_return_model(df_oof)
+            place_2s.train_return_model(df_oof, num_threads=num_threads)
         with TimingContext(f"{surface}/place_predict"):
             df_oof = place_2s.predict_ev(df_oof)
 
@@ -285,9 +295,9 @@ class TrainingPipelineV5:
         wide_2s = WideTwoStageModel()
         if len(pair_df) > 0:
             with TimingContext(f"{surface}/wide_hit"):
-                wide_2s.train_hit_model(pair_df)
+                wide_2s.train_hit_model(pair_df, num_threads=num_threads)
             with TimingContext(f"{surface}/wide_return"):
-                wide_2s.train_return_model(pair_df)
+                wide_2s.train_return_model(pair_df, num_threads=num_threads)
 
         # 7. 信頼区間キャリブレーション
         with TimingContext(f"{surface}/confidence"):

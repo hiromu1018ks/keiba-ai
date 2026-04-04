@@ -62,13 +62,18 @@ class WideTwoStageModel:
         self,
         pair_df: pd.DataFrame,
         cfg: TwoStageConfig | None = None,
+        *,
+        num_threads: int = 0,
     ) -> None:
         """ワイド的中モデルの学習 (binary classification)
 
         Args:
             pair_df: WideJointPairBuilder.build() の出力
             cfg: 学習ハイパーパラメータ
+            num_threads: LightGBM スレッド数。0 の場合は自動計算。
         """
+        if num_threads <= 0:
+            num_threads = max(1, (os.cpu_count() or 4) // 2)
         cfg = cfg or TwoStageConfig(hit_leaves=15, hit_rounds=300)
 
         features = pair_df[self.SHARED_FEATURE_COLS].copy()
@@ -88,7 +93,7 @@ class WideTwoStageModel:
                 "metric": "auc",
                 "learning_rate": cfg.hit_lr,
                 "num_leaves": cfg.hit_leaves,
-                "num_threads": max(1, (os.cpu_count() or 4) // 2),
+                "num_threads": num_threads,
                 "verbose": -1,
                 "is_unbalance": True,
             },
@@ -102,13 +107,18 @@ class WideTwoStageModel:
         self,
         pair_df: pd.DataFrame,
         cfg: TwoStageConfig | None = None,
+        *,
+        num_threads: int = 0,
     ) -> None:
         """ワイド払戻モデルの学習 (L1 regression — 的中ペアのみ)
 
         Args:
             pair_df: WideJointPairBuilder.build() の出力
             cfg: 学習ハイパーパラメータ
+            num_threads: LightGBM スレッド数。0 の場合は自動計算。
         """
+        if num_threads <= 0:
+            num_threads = max(1, (os.cpu_count() or 4) // 2)
         cfg = cfg or TwoStageConfig(return_leaves=15, return_rounds=200)
 
         hit_df = pair_df[pair_df["joint_hit"] == 1].copy()
@@ -130,7 +140,7 @@ class WideTwoStageModel:
             "metric": "mae",
             "learning_rate": cfg.return_lr,
             "num_leaves": cfg.return_leaves,
-            "num_threads": max(1, (os.cpu_count() or 4) // 2),
+            "num_threads": num_threads,
             "verbose": -1,
         }
         callbacks = [lgb.early_stopping(stopping_rounds=50, verbose=False)]
