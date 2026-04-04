@@ -89,7 +89,7 @@ RTX 3060 12GB は利用可能だが、**LightGBM GPU学習は今回採用しな�
 | モデル | バリデーション戦略 | 理由 |
 |-------|-------------------|------|
 | MarketModel | ランダム20%抽出 | 十分なデータ量 |
-| AbilityModel (final) | OOF平均損失を監視 + 最終モデルはランダム20% | OOFの検証セットは別用途 |
+| AbilityModel (final) | ランダム20%抽出 (group情報も分割) | lambdarankはgroupサイズ必須。Dataset作成時にgroupも分割 |
 | AbilityModel (OOF fold) | **早期停止なし** (現状維持) | fold内データが少ない。OOFの一貫性を優先 |
 | PlaceAbilityModel | sklearn内部CVを流用 | sklearn APIが管理 |
 | Win/Place/Wide hit | ランダム20%抽出 | データ十分 |
@@ -142,9 +142,10 @@ RTX 3060 12GB は利用可能だが、**LightGBM GPU学習は今回採用しな�
    - `groupby('kettonum').cumcount(ascending=False)` で逆順ランク付与
    - `rank < 3` で直近3走をベクトルフィルタ
 
-3. **内側ループのベクトル化 — 距離bin z-score**:
-   - 距離bin毎の z-score を `groupby('distance_bin').transform(lambda x: (x - x.mean()) / x.std())` で一括計算
-   - 行320-337のネストされた iterrows を完全に排除
+3. **内側ループのベクトル化 — 距離bin z-score (階層フォールバック保持)**:
+   - 現在のコードは4レベルの階層フォールバック (FALLBACK_LEVELS) を持つ。サンプル不足時に粗い粒度にフォールバックする
+   - ベクトル化後もこの階層フォールバックを保持する: 最細粒度binで `groupby().transform()` を試行し、サンプル不足の場合は粗い粒度にフォールバック
+   - フォールバック判定もベクトル化: `groupby().transform('count')` でサンプル数を確認し、閾値未満なら次レベルへ
 
 4. **集約計算のベクトル化**:
    - 過去3走の着順平均、タイムz-score平均等を `groupby().agg()` で一括計算
