@@ -78,8 +78,9 @@ class TestRunPaperTradingCLI:
         mock_store_cls.return_value = mock_store
 
         with (
-            patch("db.readers.load_races") as mock_load_races,
-            patch("db.readers.load_entries") as mock_load_entries,
+            patch("db.readers.load_races_from_db") as mock_load_races,
+            patch("db.readers.load_entries_from_db") as mock_load_entries,
+            patch("db.everydb2_queries.EveryDB2Queries"),
         ):
             import pandas as pd
 

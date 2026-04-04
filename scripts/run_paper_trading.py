@@ -146,13 +146,15 @@ def _run_setup(
     models: "TrainedModelsV5",
     store: "ParquetStore",
 ) -> None:
-    from db.readers import load_entries, load_races
+    from db.everydb2_queries import EveryDB2Queries
+    from db.readers import load_entries_from_db, load_races_from_db
 
     target_date = date.fromisoformat(args.date)
     ymd = target_date.strftime("%Y%m%d")
 
-    race_df = load_races(store, ymd, ymd)
-    entry_df = load_entries(store, ymd, ymd)
+    db = EveryDB2Queries(config.everydb2_connection_string)
+    race_df = load_races_from_db(db, ymd)
+    entry_df = load_entries_from_db(db, ymd)
 
     if race_df.empty:
         logger.warning("No races found for %s", args.date)
@@ -211,7 +213,12 @@ def _run_predict(
     store: "ParquetStore",
 ) -> None:
     from backtest.race_predictor import RacePredictor
-    from db.readers import load_entries, load_odds_snapshots, load_odds_time_series_range, load_races
+    from db.readers import (
+        load_entries,
+        load_odds_snapshots,
+        load_odds_time_series_range,
+        load_races,
+    )
     from features.bloodline_features import BloodlineFeatures
     from features.feature_engine import FeatureEngine
     from features.horse_history_features import HorseHistoryFeatures
@@ -314,10 +321,7 @@ def _run_predict(
             f"  {b['race_id']} 馬番{b['umaban']} {b['horse_name']} "
             f"複勝{b['odds']:.1f} EV={b['ev']:.2f}"
         )
-    slack_msg = (
-        f"Predict: {len(all_bets)} bets for {args.date}\n"
-        + "\n".join(bet_lines)
-    )
+    slack_msg = f"Predict: {len(all_bets)} bets for {args.date}\n" + "\n".join(bet_lines)
     _send_slack(config, slack_msg)
     logger.info("Predict complete: %d bets", len(all_bets))
 
@@ -487,7 +491,12 @@ def _run_dry_run(
     store: "ParquetStore",
 ) -> None:
     from backtest.race_predictor import RacePredictor
-    from db.readers import load_entries, load_odds_snapshots, load_odds_time_series_range, load_races
+    from db.readers import (
+        load_entries,
+        load_odds_snapshots,
+        load_odds_time_series_range,
+        load_races,
+    )
     from features.bloodline_features import BloodlineFeatures
     from features.feature_engine import FeatureEngine
     from features.horse_history_features import HorseHistoryFeatures
