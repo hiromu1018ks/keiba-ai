@@ -201,7 +201,7 @@ def _run_predict(
     store: "ParquetStore",
 ) -> None:
     from backtest.race_predictor import RacePredictor
-    from db.readers import load_entries, load_odds_snapshots, load_races
+    from db.readers import load_entries, load_odds_snapshots, load_odds_time_series_range, load_races
     from features.bloodline_features import BloodlineFeatures
     from features.feature_engine import FeatureEngine
     from features.horse_history_features import HorseHistoryFeatures
@@ -217,6 +217,7 @@ def _run_predict(
     race_df = load_races(store, ymd, ymd)
     entry_df = load_entries(store, ymd, ymd)
     odds_df = load_odds_snapshots(store, ymd, ymd)
+    odds_ts_df = load_odds_time_series_range(store, ymd, ymd)
 
     if race_df.empty or entry_df.empty:
         logger.error("No race/entry data for %s", args.date)
@@ -226,7 +227,7 @@ def _run_predict(
     logger.info("Generating features...")
     feat_engine = FeatureEngine()
     submodel_mgr = SubModelManager()
-    feat_df = feat_engine.build_all(race_df, entry_df, odds_df)
+    feat_df = feat_engine.build_all(race_df, entry_df, odds_df, odds_ts_df=odds_ts_df)
     feat_df = submodel_mgr.add_distance_band_features(feat_df)
 
     race_ids = feat_df["race_id"].unique()
@@ -476,7 +477,7 @@ def _run_dry_run(
     store: "ParquetStore",
 ) -> None:
     from backtest.race_predictor import RacePredictor
-    from db.readers import load_entries, load_odds_snapshots, load_races
+    from db.readers import load_entries, load_odds_snapshots, load_odds_time_series_range, load_races
     from features.bloodline_features import BloodlineFeatures
     from features.feature_engine import FeatureEngine
     from features.horse_history_features import HorseHistoryFeatures
@@ -509,6 +510,7 @@ def _run_dry_run(
     race_df = load_races(store, all_start, all_end)
     entry_df = load_entries(store, all_start, all_end)
     odds_df = load_odds_snapshots(store, all_start, all_end)
+    odds_ts_df = load_odds_time_series_range(store, all_start, all_end)
 
     if race_df.empty:
         logger.error("No race data found")
@@ -516,7 +518,7 @@ def _run_dry_run(
 
     feat_engine = FeatureEngine()
     submodel_mgr = SubModelManager()
-    feat_df = feat_engine.build_all(race_df, entry_df, odds_df)
+    feat_df = feat_engine.build_all(race_df, entry_df, odds_df, odds_ts_df=odds_ts_df)
     feat_df = submodel_mgr.add_distance_band_features(feat_df)
 
     race_ids = feat_df["race_id"].unique()
