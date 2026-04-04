@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 
 import lightgbm as lgb
 import numpy as np
@@ -55,6 +56,7 @@ class RegimeDetector:
         """
         レジーム分類器の学習 (軽量・3状態分類)。
         v5.5: 教師ラベルを市場指標ベースに変更 (Rule 19)。
+        時系列ベース80/20 split + early_stopping(20) + num_threads。
         """
         features = df_race[self.FEATURE_COLS].copy()
         for col in features.columns:
@@ -78,6 +80,17 @@ class RegimeDetector:
             ),  # CONSERVATIVE
         )
 
+        # 時系列ベース 80/20 split (最後20%をvalidに)
+        n = len(features)
+        split = int(n * 0.8)
+        train_features = features.iloc[:split]
+        train_y = y[:split]
+        valid_features = features.iloc[split:]
+        valid_y = y[split:]
+
+        train_data = lgb.Dataset(train_features, label=train_y)
+        valid_data = lgb.Dataset(valid_features, label=valid_y, reference=train_data)
+
         self.model = lgb.train(
             {
                 "objective": "multiclass",
@@ -87,10 +100,13 @@ class RegimeDetector:
                 "num_leaves": 7,
                 "min_data_in_leaf": 50,
                 "feature_fraction": 0.8,
+                "num_threads": max(1, (os.cpu_count() or 4) // 2),
                 "verbose": -1,
             },
-            lgb.Dataset(features, label=y),
+            train_data,
             num_boost_round=100,
+            valid_sets=[valid_data],
+            callbacks=[lgb.early_stopping(stopping_rounds=20, verbose=False)],
         )
 
     def detect(self, recent_stats: pd.DataFrame) -> RegimeState:
@@ -102,7 +118,8 @@ class RegimeDetector:
             return RegimeState.CONSERVATIVE
 
         features = recent_stats[self.FEATURE_COLS].iloc[[-1]]
-        probs = self.model.predict(features)[0]
+        best_iter = self.model.best_iteration
+        probs = self.model.predict(features, num_iteration=best_iter)[0]
 
         raw_regime_idx = int(np.argmax(probs))
         regime_map: list[RegimeState] = [
