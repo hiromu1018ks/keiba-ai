@@ -183,6 +183,8 @@ class HorseHistoryFeatures:
 
         # 対象レースの馬・騎手リスト
         horses = entry_df[["race_id", "umaban", "kettonum", "kisyucode"]].copy()
+        # datakubun違いで同一(race_id, umaban)が複数行存在する場合は先頭を保持
+        horses = horses.drop_duplicates(subset=["race_id", "umaban"], keep="first")
         if "race_date" not in horses.columns:
             date_map = race_df.set_index("race_id")["race_date"]
             horses["race_date"] = horses["race_id"].map(date_map)
@@ -323,7 +325,11 @@ class HorseHistoryFeatures:
         # -------------------------------------------------------------------
         weight_col = "bataijyu" if "bataijyu" in entry_df.columns else "weight"
         if weight_col in entry_df.columns:
-            _weight_map = entry_df.set_index(["race_id", "umaban"])[weight_col]
+            _weight_map = (
+                entry_df.drop_duplicates(subset=["race_id", "umaban"])
+                .set_index(["race_id", "umaban"])[weight_col]
+                .sort_index()
+            )
         else:
             _weight_map = pd.Series(dtype=float)
 
@@ -593,6 +599,9 @@ class HorseHistoryFeatures:
             wkey = (row.race_id, row.umaban)
             if wkey in _weight_map.index:
                 wval = _weight_map.loc[wkey]
+                # .loc may return Series if duplicate keys exist — take first
+                if isinstance(wval, pd.Series):
+                    wval = wval.iloc[0]
                 weight_absolute: float = float(wval) if pd.notna(wval) else float("nan")
             else:
                 weight_absolute = float("nan")
