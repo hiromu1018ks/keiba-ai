@@ -213,11 +213,12 @@ def _run_predict(
     store: "ParquetStore",
 ) -> None:
     from backtest.race_predictor import RacePredictor
+    from db.everydb2_queries import EveryDB2Queries
     from db.readers import (
-        load_entries,
-        load_odds_snapshots,
-        load_odds_time_series_range,
-        load_races,
+        load_entries_from_db,
+        load_odds_snapshots_from_db,
+        load_odds_time_series_from_db,
+        load_races_from_db,
     )
     from features.bloodline_features import BloodlineFeatures
     from features.feature_engine import FeatureEngine
@@ -229,15 +230,16 @@ def _run_predict(
     target_date = date.fromisoformat(args.date)
     ymd = target_date.strftime("%Y%m%d")
 
-    # Parquetからデータ読み込み
+    # EveryDB2からデータ読み込み
     logger.info("Loading data for %s...", ymd)
-    race_df = load_races(store, ymd, ymd)
-    entry_df = load_entries(store, ymd, ymd)
-    odds_df = load_odds_snapshots(store, ymd, ymd)
-    odds_ts_df = load_odds_time_series_range(store, ymd, ymd)
+    db = EveryDB2Queries(config.everydb2_connection_string)
+    race_df = load_races_from_db(db, ymd)
+    entry_df = load_entries_from_db(db, ymd)
+    odds_df = load_odds_snapshots_from_db(db, ymd)
+    odds_ts_df = load_odds_time_series_from_db(db, ymd)
 
-    if race_df.empty or entry_df.empty:
-        logger.error("No race/entry data for %s", args.date)
+    if race_df.empty or entry_df.empty or odds_df.empty or odds_ts_df.empty:
+        logger.error("EveryDB2 からデータ取得失敗: %s", ymd)
         return
 
     # 特徴量生成 (dry-runと同じパイプライン)
