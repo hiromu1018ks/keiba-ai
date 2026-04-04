@@ -7,11 +7,14 @@ race_date の datetime 変換と数値列の型強制を行う。
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timedelta
 
 import pandas as pd
 
 from db.parquet_store import ParquetStore
+
+logger = logging.getLogger(__name__)
 
 # 旧ETL互換: Parquet内で文字列として保存されている可能性のある数値列
 # ETLの _TABLE_TYPE_RULES と同一のカラムセット
@@ -113,6 +116,11 @@ def load_odds_time_series_range(store: ParquetStore, start: str, end: str) -> pd
     # time_series (旧ETL, 高粒度) を優先、なければ jodds_tanpuku (新ETL) を使用
     subpath = "time_series" if store.exists("odds", "time_series") else "jodds_tanpuku"
     df = store.read("odds", subpath, filters=filters)
+    # time_series が要求範囲のデータを持たない場合、jodds_tanpuku にフォールバック
+    # jodds_tanpuku も year/month パーティションなので同一 filters が適用可能
+    if df.empty and subpath == "time_series" and store.exists("odds", "jodds_tanpuku"):
+        logger.debug("time_series empty for %s-%s, falling back to jodds_tanpuku", start, end)
+        df = store.read("odds", "jodds_tanpuku", filters=filters)
     df = _coerce_types(df)
     # 旧time_seriesの列名を生カラム名に正規化
     rename_ts = {"happyo_time": "happyotime", "tan_odds": "tanodds", "fuku_odds": "fukuoddslow"}
@@ -125,6 +133,9 @@ def load_odds_time_series_range(store: ParquetStore, start: str, end: str) -> pd
 def load_odds_time_series(store: ParquetStore, race_id: str) -> pd.DataFrame:
     subpath = "time_series" if store.exists("odds", "time_series") else "jodds_tanpuku"
     df = store.read("odds", subpath, filters=[("race_id", "==", race_id)])
+    if df.empty and subpath == "time_series" and store.exists("odds", "jodds_tanpuku"):
+        logger.debug("time_series empty for %s, falling back to jodds_tanpuku", race_id)
+        df = store.read("odds", "jodds_tanpuku", filters=[("race_id", "==", race_id)])
     df = _coerce_types(df)
     rename_ts = {"happyo_time": "happyotime", "tan_odds": "tanodds", "fuku_odds": "fukuoddslow"}
     existing = {k: v for k, v in rename_ts.items() if k in df.columns and v not in df.columns}
