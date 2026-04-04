@@ -158,3 +158,45 @@ class EveryDB2Queries:
         except Exception:
             logger.exception("Failed to get track condition for %s", race_id)
             return None
+
+    def get_races(self, date_str: str) -> pd.DataFrame:
+        """当日のレース情報を取得。s_race → n_race フォールバック。
+
+        戻り値は EveryDB2 生データ (全列 character varying)。型変換は呼び出し側で行う。
+        """
+        sql = "SELECT * FROM s_race WHERE year || monthday = %s"
+        try:
+            df = self._query(sql, (date_str,))
+            if not df.empty:
+                return df
+        except Exception:
+            logger.exception("Failed to query s_race for %s", date_str)
+
+        sql = "SELECT * FROM n_race WHERE year || monthday = %s"
+        try:
+            df = self._query(sql, (date_str,))
+            return df
+        except Exception:
+            logger.exception("Failed to query n_race for %s", date_str)
+            return pd.DataFrame()
+
+    def get_entries(self, date_str: str) -> pd.DataFrame:
+        """当日の出走馬を取得。s_uma_race → n_uma_race フォールバック。
+
+        戻り値は EveryDB2 生データ (全列 character varying)。型変換は呼び出し側で行う。
+        """
+        sql = "SELECT * FROM s_uma_race WHERE year || monthday = %s"
+        try:
+            df = self._query(sql, (date_str,))
+            if not df.empty:
+                return df
+        except Exception:
+            logger.exception("Failed to query s_uma_race for %s", date_str)
+
+        sql = "SELECT * FROM n_uma_race WHERE year || monthday = %s"
+        try:
+            df = self._query(sql, (date_str,))
+            return df
+        except Exception:
+            logger.exception("Failed to query n_uma_race for %s", date_str)
+            return pd.DataFrame()

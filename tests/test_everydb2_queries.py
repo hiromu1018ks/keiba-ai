@@ -300,3 +300,169 @@ class TestEveryDB2Queries:
         queries = EveryDB2Queries(connection_string="postgresql://localhost/everydb2")
         result = queries.get_track_condition("2026040510010101")
         assert result is None
+
+    # --- get_races / get_entries テスト ---
+
+    @patch("db.everydb2_queries.pd.read_sql_query")
+    @patch("db.everydb2_queries.psycopg2.connect")
+    def test_get_races_returns_raw_dataframe(
+        self, mock_connect: MagicMock, mock_read_sql: MagicMock
+    ) -> None:
+        from db.everydb2_queries import EveryDB2Queries
+
+        mock_conn = MagicMock()
+        mock_connect.return_value.__enter__ = MagicMock(return_value=mock_conn)
+        mock_connect.return_value.__exit__ = MagicMock(return_value=False)
+
+        mock_read_sql.return_value = pd.DataFrame(
+            {
+                "year": ["2026"], "monthday": ["0405"],
+                "jyocd": ["05"], "kaiji": ["01"], "nichiji": ["01"], "racenum": ["01"],
+                "trackcd": ["11"], "kyori": ["1200"], "tenkocd": ["2"],
+            }
+        )
+
+        queries = EveryDB2Queries(connection_string="postgresql://localhost/everydb2")
+        result = queries.get_races("20260405")
+
+        assert not result.empty
+        assert len(result) == 1
+        # 型変換は行わない — 全列 object のまま
+        assert result["trackcd"].dtype == object
+        assert result.iloc[0]["trackcd"] == "11"
+        # s_ テーブルが使われることを確認
+        sql_called = mock_read_sql.call_args[0][0]
+        assert "s_race" in sql_called
+
+    @patch("db.everydb2_queries.pd.read_sql_query")
+    @patch("db.everydb2_queries.psycopg2.connect")
+    def test_get_races_falls_back_to_n_table(
+        self, mock_connect: MagicMock, mock_read_sql: MagicMock
+    ) -> None:
+        from db.everydb2_queries import EveryDB2Queries
+
+        mock_conn = MagicMock()
+        mock_connect.return_value.__enter__ = MagicMock(return_value=mock_conn)
+        mock_connect.return_value.__exit__ = MagicMock(return_value=False)
+
+        mock_read_sql.side_effect = [
+            pd.DataFrame(),  # s_race 空
+            pd.DataFrame({"year": ["2026"], "trackcd": ["11"]}),
+        ]
+
+        queries = EveryDB2Queries(connection_string="postgresql://localhost/everydb2")
+        result = queries.get_races("20260405")
+
+        assert not result.empty
+        assert mock_read_sql.call_count == 2
+        second_sql = mock_read_sql.call_args_list[1][0][0]
+        assert "n_race" in second_sql
+
+    @patch("db.everydb2_queries.pd.read_sql_query")
+    @patch("db.everydb2_queries.psycopg2.connect")
+    def test_get_races_returns_empty_when_both_empty(
+        self, mock_connect: MagicMock, mock_read_sql: MagicMock
+    ) -> None:
+        from db.everydb2_queries import EveryDB2Queries
+
+        mock_conn = MagicMock()
+        mock_connect.return_value.__enter__ = MagicMock(return_value=mock_conn)
+        mock_connect.return_value.__exit__ = MagicMock(return_value=False)
+
+        mock_read_sql.return_value = pd.DataFrame()
+
+        queries = EveryDB2Queries(connection_string="postgresql://localhost/everydb2")
+        result = queries.get_races("20260405")
+
+        assert result.empty
+
+    @patch("db.everydb2_queries.pd.read_sql_query")
+    @patch("db.everydb2_queries.psycopg2.connect")
+    def test_get_entries_returns_raw_dataframe(
+        self, mock_connect: MagicMock, mock_read_sql: MagicMock
+    ) -> None:
+        from db.everydb2_queries import EveryDB2Queries
+
+        mock_conn = MagicMock()
+        mock_connect.return_value.__enter__ = MagicMock(return_value=mock_conn)
+        mock_connect.return_value.__exit__ = MagicMock(return_value=False)
+
+        mock_read_sql.return_value = pd.DataFrame(
+            {
+                "year": ["2026", "2026", "2026"],
+                "monthday": ["0405", "0405", "0405"],
+                "jyocd": ["05", "05", "05"],
+                "kaiji": ["01", "01", "01"],
+                "nichiji": ["01", "01", "01"],
+                "racenum": ["01", "01", "01"],
+                "umaban": ["1", "2", "3"],
+                "kettonum": ["0012345678", "0012345679", "0012345680"],
+            }
+        )
+
+        queries = EveryDB2Queries(connection_string="postgresql://localhost/everydb2")
+        result = queries.get_entries("20260405")
+
+        assert not result.empty
+        assert len(result) == 3
+        assert result["umaban"].dtype == object
+        sql_called = mock_read_sql.call_args[0][0]
+        assert "s_uma_race" in sql_called
+
+    @patch("db.everydb2_queries.pd.read_sql_query")
+    @patch("db.everydb2_queries.psycopg2.connect")
+    def test_get_entries_falls_back_to_n_table(
+        self, mock_connect: MagicMock, mock_read_sql: MagicMock
+    ) -> None:
+        from db.everydb2_queries import EveryDB2Queries
+
+        mock_conn = MagicMock()
+        mock_connect.return_value.__enter__ = MagicMock(return_value=mock_conn)
+        mock_connect.return_value.__exit__ = MagicMock(return_value=False)
+
+        mock_read_sql.side_effect = [
+            pd.DataFrame(),
+            pd.DataFrame({"year": ["2026"], "umaban": ["1"]}),
+        ]
+
+        queries = EveryDB2Queries(connection_string="postgresql://localhost/everydb2")
+        result = queries.get_entries("20260405")
+
+        assert not result.empty
+        assert mock_read_sql.call_count == 2
+        second_sql = mock_read_sql.call_args_list[1][0][0]
+        assert "n_uma_race" in second_sql
+
+    @patch("db.everydb2_queries.pd.read_sql_query")
+    @patch("db.everydb2_queries.psycopg2.connect")
+    def test_get_races_returns_empty_on_db_error(
+        self, mock_connect: MagicMock, mock_read_sql: MagicMock
+    ) -> None:
+        from db.everydb2_queries import EveryDB2Queries
+
+        mock_conn = MagicMock()
+        mock_connect.return_value.__enter__ = MagicMock(return_value=mock_conn)
+        mock_connect.return_value.__exit__ = MagicMock(return_value=False)
+
+        mock_read_sql.side_effect = Exception("Connection refused")
+
+        queries = EveryDB2Queries(connection_string="postgresql://localhost/everydb2")
+        result = queries.get_races("20260405")
+        assert result.empty
+
+    @patch("db.everydb2_queries.pd.read_sql_query")
+    @patch("db.everydb2_queries.psycopg2.connect")
+    def test_get_entries_returns_empty_on_db_error(
+        self, mock_connect: MagicMock, mock_read_sql: MagicMock
+    ) -> None:
+        from db.everydb2_queries import EveryDB2Queries
+
+        mock_conn = MagicMock()
+        mock_connect.return_value.__enter__ = MagicMock(return_value=mock_conn)
+        mock_connect.return_value.__exit__ = MagicMock(return_value=False)
+
+        mock_read_sql.side_effect = Exception("Connection refused")
+
+        queries = EveryDB2Queries(connection_string="postgresql://localhost/everydb2")
+        result = queries.get_entries("20260405")
+        assert result.empty
