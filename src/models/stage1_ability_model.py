@@ -112,11 +112,11 @@ class AbilityModel:
             y = key_df["kakuteijyuni"].apply(lambda x: max(0, 4 - x) if x > 0 else 0)
             groups = key_df.groupby("race_id").size().values
             n = len(features)
+            n_groups = len(groups)
 
-            if early_stopping and n >= 10:
+            if early_stopping and n_groups >= 2:
                 # レース単位で train/valid を分割する
                 # group 配列: [4, 4, 3] = レース1に4頭, レース2に4頭, レース3に3頭
-                n_groups = len(groups)
                 race_perm = np.random.RandomState(42).permutation(n_groups)
                 race_split = int(n_groups * 0.8)
 
