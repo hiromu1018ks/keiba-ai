@@ -472,3 +472,184 @@ class TestEveryDB2Queries:
         queries = EveryDB2Queries(connection_string="postgresql://localhost/everydb2")
         result = queries.get_entries("20260405")
         assert result.empty
+
+    # --- get_odds_snapshots / get_odds_time_series テスト ---
+
+    @patch("db.everydb2_queries.pd.read_sql_query")
+    @patch("db.everydb2_queries.psycopg2.connect")
+    def test_get_odds_snapshots_returns_raw_dataframe(
+        self, mock_connect: MagicMock, mock_read_sql: MagicMock
+    ) -> None:
+        from db.everydb2_queries import EveryDB2Queries
+
+        mock_conn = MagicMock()
+        mock_connect.return_value.__enter__ = MagicMock(return_value=mock_conn)
+        mock_connect.return_value.__exit__ = MagicMock(return_value=False)
+
+        mock_read_sql.return_value = pd.DataFrame(
+            {
+                "year": ["2026", "2026", "2026"],
+                "monthday": ["0405", "0405", "0405"],
+                "jyocd": ["05", "05", "05"],
+                "kaiji": ["01", "01", "01"],
+                "nichiji": ["01", "01", "01"],
+                "racenum": ["01", "01", "01"],
+                "umaban": ["1", "2", "3"],
+                "tanodds": ["32", "51", "124"],
+                "fukuoddslow": ["13", "21", "45"],
+            }
+        )
+
+        queries = EveryDB2Queries(connection_string="postgresql://localhost/everydb2")
+        result = queries.get_odds_snapshots("20260405")
+
+        assert not result.empty
+        assert len(result) == 3
+        assert result["umaban"].dtype == object
+        assert result.iloc[0]["tanodds"] == "32"
+        sql_called = mock_read_sql.call_args[0][0]
+        assert "s_odds_tanpuku" in sql_called
+
+    @patch("db.everydb2_queries.pd.read_sql_query")
+    @patch("db.everydb2_queries.psycopg2.connect")
+    def test_get_odds_snapshots_falls_back_to_n_table(
+        self, mock_connect: MagicMock, mock_read_sql: MagicMock
+    ) -> None:
+        from db.everydb2_queries import EveryDB2Queries
+
+        mock_conn = MagicMock()
+        mock_connect.return_value.__enter__ = MagicMock(return_value=mock_conn)
+        mock_connect.return_value.__exit__ = MagicMock(return_value=False)
+
+        mock_read_sql.side_effect = [
+            pd.DataFrame(),
+            pd.DataFrame(
+                {
+                    "year": ["2026"],
+                    "monthday": ["0405"],
+                    "jyocd": ["05"],
+                    "kaiji": ["01"],
+                    "nichiji": ["01"],
+                    "racenum": ["01"],
+                    "umaban": ["1"],
+                    "tanodds": ["50"],
+                    "fukuoddslow": ["20"],
+                }
+            ),
+        ]
+
+        queries = EveryDB2Queries(connection_string="postgresql://localhost/everydb2")
+        result = queries.get_odds_snapshots("20260405")
+
+        assert not result.empty
+        assert mock_read_sql.call_count == 2
+        second_sql = mock_read_sql.call_args_list[1][0][0]
+        assert "n_odds_tanpuku" in second_sql
+
+    @patch("db.everydb2_queries.pd.read_sql_query")
+    @patch("db.everydb2_queries.psycopg2.connect")
+    def test_get_odds_time_series_returns_raw_dataframe(
+        self, mock_connect: MagicMock, mock_read_sql: MagicMock
+    ) -> None:
+        from db.everydb2_queries import EveryDB2Queries
+
+        mock_conn = MagicMock()
+        mock_connect.return_value.__enter__ = MagicMock(return_value=mock_conn)
+        mock_connect.return_value.__exit__ = MagicMock(return_value=False)
+
+        mock_read_sql.return_value = pd.DataFrame(
+            {
+                "year": ["2026", "2026"],
+                "monthday": ["0405", "0405"],
+                "jyocd": ["05", "05"],
+                "kaiji": ["01", "01"],
+                "nichiji": ["01", "01"],
+                "racenum": ["01", "01"],
+                "umaban": ["1", "1"],
+                "happyotime": ["03101500", "03101530"],
+                "tanodds": ["35", "33"],
+                "fukuoddslow": ["14", "12"],
+                "tanninki": ["1", "1"],
+            }
+        )
+
+        queries = EveryDB2Queries(connection_string="postgresql://localhost/everydb2")
+        result = queries.get_odds_time_series("20260405")
+
+        assert not result.empty
+        assert len(result) == 2
+        assert result["happyotime"].dtype == object
+        sql_called = mock_read_sql.call_args[0][0]
+        assert "s_jodds_tanpuku" in sql_called
+
+    @patch("db.everydb2_queries.pd.read_sql_query")
+    @patch("db.everydb2_queries.psycopg2.connect")
+    def test_get_odds_time_series_falls_back_to_n_table(
+        self, mock_connect: MagicMock, mock_read_sql: MagicMock
+    ) -> None:
+        from db.everydb2_queries import EveryDB2Queries
+
+        mock_conn = MagicMock()
+        mock_connect.return_value.__enter__ = MagicMock(return_value=mock_conn)
+        mock_connect.return_value.__exit__ = MagicMock(return_value=False)
+
+        mock_read_sql.side_effect = [
+            pd.DataFrame(),
+            pd.DataFrame(
+                {
+                    "year": ["2026"],
+                    "monthday": ["0405"],
+                    "jyocd": ["05"],
+                    "kaiji": ["01"],
+                    "nichiji": ["01"],
+                    "racenum": ["01"],
+                    "umaban": ["1"],
+                    "happyotime": ["03101500"],
+                    "tanodds": ["35"],
+                    "fukuoddslow": ["14"],
+                    "tanninki": ["1"],
+                }
+            ),
+        ]
+
+        queries = EveryDB2Queries(connection_string="postgresql://localhost/everydb2")
+        result = queries.get_odds_time_series("20260405")
+
+        assert not result.empty
+        assert mock_read_sql.call_count == 2
+        second_sql = mock_read_sql.call_args_list[1][0][0]
+        assert "n_jodds_tanpuku" in second_sql
+
+    @patch("db.everydb2_queries.pd.read_sql_query")
+    @patch("db.everydb2_queries.psycopg2.connect")
+    def test_get_odds_snapshots_returns_empty_on_db_error(
+        self, mock_connect: MagicMock, mock_read_sql: MagicMock
+    ) -> None:
+        from db.everydb2_queries import EveryDB2Queries
+
+        mock_conn = MagicMock()
+        mock_connect.return_value.__enter__ = MagicMock(return_value=mock_conn)
+        mock_connect.return_value.__exit__ = MagicMock(return_value=False)
+
+        mock_read_sql.side_effect = Exception("Connection refused")
+
+        queries = EveryDB2Queries(connection_string="postgresql://localhost/everydb2")
+        result = queries.get_odds_snapshots("20260405")
+        assert result.empty
+
+    @patch("db.everydb2_queries.pd.read_sql_query")
+    @patch("db.everydb2_queries.psycopg2.connect")
+    def test_get_odds_time_series_returns_empty_on_db_error(
+        self, mock_connect: MagicMock, mock_read_sql: MagicMock
+    ) -> None:
+        from db.everydb2_queries import EveryDB2Queries
+
+        mock_conn = MagicMock()
+        mock_connect.return_value.__enter__ = MagicMock(return_value=mock_conn)
+        mock_connect.return_value.__exit__ = MagicMock(return_value=False)
+
+        mock_read_sql.side_effect = Exception("Connection refused")
+
+        queries = EveryDB2Queries(connection_string="postgresql://localhost/everydb2")
+        result = queries.get_odds_time_series("20260405")
+        assert result.empty
