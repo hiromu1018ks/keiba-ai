@@ -27,6 +27,7 @@ from db.readers import (
     load_wide_odds,
 )
 from domain.models import SubmodelSet, TrainedModelsV5
+from utils.timing import TimingContext
 
 if TYPE_CHECKING:
     from db.connection import DatabaseConnection
@@ -158,18 +159,21 @@ class TrainingPipelineV5:
             )
             for c in missing:
                 feat_df[c] = 0.0
-        race_feat_df = self._build_race_level_features(feat_df)
+        with TimingContext("race_level_features"):
+            race_feat_df = self._build_race_level_features(feat_df)
 
         # 5. RaceQualityScreener
-        quality_screen = RaceQualityScreener()
-        quality_screen.train(race_feat_df)
-        quality_screen.calibrate_threshold(race_feat_df, target_investment_rate=0.40)
+        with TimingContext("quality_screener"):
+            quality_screen = RaceQualityScreener()
+            quality_screen.train(race_feat_df)
+            quality_screen.calibrate_threshold(race_feat_df, target_investment_rate=0.40)
         logger.info("Trained RaceQualityScreener")
 
         # 6. RegimeDetector
-        regime_stats_df = self._build_regime_stats(race_feat_df, feat_df)
-        regime_det = RegimeDetector()
-        regime_det.train(regime_stats_df)
+        with TimingContext("regime_detector"):
+            regime_stats_df = self._build_regime_stats(race_feat_df, feat_df)
+            regime_det = RegimeDetector()
+            regime_det.train(regime_stats_df)
         logger.info("Trained RegimeDetector")
 
         # 7. MLflow 記録
@@ -184,18 +188,23 @@ class TrainingPipelineV5:
 
     def _train_submodel(self, df: pd.DataFrame) -> SubmodelSet:
         """単一 surface のサブモデル群を学習"""
+        surface = df["surface"].iloc[0] if "surface" in df.columns else "unknown"
+
         # NEW: 馬過去成績特徴量
         from features.horse_history_features import HorseHistoryFeatures
 
-        hist = HorseHistoryFeatures(store=self.store)
-        hist_df = hist.compute(self._race_df, self._entry_df, df["race_id"].unique())
-        df = df.merge(hist_df, on=["race_id", "umaban"], how="left")
-        df = HorseHistoryFeatures.add_race_transforms(df)
+        with TimingContext(f"{surface}/horse_history"):
+            hist = HorseHistoryFeatures(store=self.store)
+            hist_df = hist.compute(self._race_df, self._entry_df, df["race_id"].unique())
+            df = df.merge(hist_df, on=["race_id", "umaban"], how="left")
+        with TimingContext(f"{surface}/add_race_transforms"):
+            df = HorseHistoryFeatures.add_race_transforms(df)
 
         # Group E: 交互作用特徴量 (HorseHistoryFeatures 後に実行 — kyakusitu_cd が必要)
         from features.interaction_features import compute_interaction_features
 
-        df = compute_interaction_features(df)
+        with TimingContext(f"{surface}/interaction"):
+            df = compute_interaction_features(df)
 
         # 1. Market Model (正規化差分 log_error のみ出力)
         # object型の数値列 (pd.NA含む) → float64 (2回目のsurface処理でpd.NAが混入するため)
@@ -206,9 +215,10 @@ class TrainingPipelineV5:
                 except (ValueError, TypeError):
                     pass
 
-        market = MarketModel()
-        market.train(df)
-        df = market.predict_and_calc_error(df)
+        with TimingContext(f"{surface}/market_model"):
+            market = MarketModel()
+            market.train(df)
+            df = market.predict_and_calc_error(df)
 
         # nullable int (Int64) → float64 (market model が Int64 を追加するため)
         for col in df.columns:
@@ -216,64 +226,82 @@ class TrainingPipelineV5:
                 df[col] = df[col].astype(float)
 
         # 2. Stage1: OOF predictions (リーク防止)
-        stage1 = AbilityModel()
-        df = stage1.train_oof(df, n_folds=3)
+        with TimingContext(f"{surface}/ability_oof"):
+            stage1 = AbilityModel()
+            df = stage1.train_oof(df, n_folds=3)
         oof_mask = df["p_ability_win"].notna()
         df_oof = df[oof_mask].copy()
 
         # NEW: PlaceAbilityModel
         from models.place_ability_model import PlaceAbilityModel
 
-        place_ability = PlaceAbilityModel()
-        place_ability.train(df_oof)
-        df_oof = place_ability.predict(df_oof)
+        with TimingContext(f"{surface}/place_ability_train"):
+            place_ability = PlaceAbilityModel()
+            place_ability.train(df_oof)
+        with TimingContext(f"{surface}/place_ability_predict"):
+            df_oof = place_ability.predict(df_oof)
 
         # 3. 単勝 2段階モデル
         win_2s = WinTwoStageModel()
-        win_2s.train_hit_model(df_oof)
-        win_2s.train_return_model(df_oof)
-        df_oof = win_2s.predict_ev(df_oof)
+        with TimingContext(f"{surface}/win_hit"):
+            win_2s.train_hit_model(df_oof)
+        with TimingContext(f"{surface}/win_return"):
+            win_2s.train_return_model(df_oof)
+        with TimingContext(f"{surface}/win_predict"):
+            df_oof = win_2s.predict_ev(df_oof)
 
         # Group C/D: 騎手/調教師コンテキスト (Stage2)
         from features.jockey_context_features import JockeyContextFeatures
         from features.trainer_context_features import TrainerContextFeatures
 
-        jockey_ctx = JockeyContextFeatures(self.store)
-        jockey_df = jockey_ctx.compute(df_oof)
-        df_oof = pd.merge(df_oof, jockey_df, on=["race_id", "umaban"], how="left")
+        with TimingContext(f"{surface}/jockey_ctx"):
+            jockey_ctx = JockeyContextFeatures(self.store)
+            jockey_df = jockey_ctx.compute(df_oof)
+            df_oof = pd.merge(df_oof, jockey_df, on=["race_id", "umaban"], how="left")
 
-        trainer_ctx = TrainerContextFeatures(self.store)
-        trainer_df = trainer_ctx.compute(df_oof)
-        df_oof = pd.merge(df_oof, trainer_df, on=["race_id", "umaban"], how="left")
+        with TimingContext(f"{surface}/trainer_ctx"):
+            trainer_ctx = TrainerContextFeatures(self.store)
+            trainer_df = trainer_ctx.compute(df_oof)
+            df_oof = pd.merge(df_oof, trainer_df, on=["race_id", "umaban"], how="left")
 
         # 4. EV補正モデル (P/E分解)
-        ev_corrector = EVCorrectionModel()
-        ev_corrector.train(df_oof)
-        df_oof = ev_corrector.correct_ev(df_oof)
+        with TimingContext(f"{surface}/ev_correction"):
+            ev_corrector = EVCorrectionModel()
+            ev_corrector.train(df_oof)
+            df_oof = ev_corrector.correct_ev(df_oof)
 
         # 5. 複勝 2段階モデル
         place_2s = PlaceTwoStageModel()
-        place_2s.train_hit_model(df_oof)
-        place_2s.train_return_model(df_oof)
-        df_oof = place_2s.predict_ev(df_oof)
+        with TimingContext(f"{surface}/place_hit"):
+            place_2s.train_hit_model(df_oof)
+        with TimingContext(f"{surface}/place_return"):
+            place_2s.train_return_model(df_oof)
+        with TimingContext(f"{surface}/place_predict"):
+            df_oof = place_2s.predict_ev(df_oof)
 
         # 6. ワイド 2段階モデル
-        pair_df = WideJointPairBuilder().build(df_oof)
+        with TimingContext(f"{surface}/wide_pair_build"):
+            pair_df = WideJointPairBuilder().build(df_oof)
         wide_2s = WideTwoStageModel()
         if len(pair_df) > 0:
-            wide_2s.train_hit_model(pair_df)
-            wide_2s.train_return_model(pair_df)
+            with TimingContext(f"{surface}/wide_hit"):
+                wide_2s.train_hit_model(pair_df)
+            with TimingContext(f"{surface}/wide_return"):
+                wide_2s.train_return_model(pair_df)
 
         # 7. 信頼区間キャリブレーション
-        conf = RobustConfidenceEstimator()
-        win_calib_df = df_oof.copy()
-        win_calib_df["actual_ev_win"] = df_oof["odds"] * (df_oof["kakuteijyuni"] == 1).astype(int)
-        place_calib_df = df_oof.copy()
-        place_calib_df["actual_ev_place"] = df_oof["fukuoddslow"] * (
-            df_oof["kakuteijyuni"] <= 3
-        ).astype(int)
-        place_calib_df["ev_place_corrected"] = df_oof["ev_place"]
-        conf.calibrate(win_calib_df, place_calib_df)
+        with TimingContext(f"{surface}/confidence"):
+            conf = RobustConfidenceEstimator()
+            win_calib_df = df_oof.copy()
+            win_calib_df["actual_ev_win"] = df_oof["odds"] * (df_oof["kakuteijyuni"] == 1).astype(
+                int
+            )
+            place_calib_df = df_oof.copy()
+            place_calib_df["actual_ev_place"] = df_oof["fukuoddslow"] * (
+                df_oof["kakuteijyuni"] <= 3
+            ).astype(int)
+            place_calib_df["ev_place_corrected"] = df_oof["ev_place"]
+            conf.calibrate(win_calib_df, place_calib_df)
 
         return SubmodelSet(
             market=market,
@@ -437,22 +465,14 @@ class TrainingPipelineV5:
                 # Stage1 (AbilityModel per surface)
                 stage1_model = sub.stage1.models.get(surface)
                 if stage1_model is not None:
-                    mlflow.lightgbm.log_model(
-                        stage1_model, artifact_path=f"stage1_{surface}"
-                    )
+                    mlflow.lightgbm.log_model(stage1_model, artifact_path=f"stage1_{surface}")
 
                 # MarketModel
-                mlflow.lightgbm.log_model(
-                    sub.market.model, artifact_path=f"market_{surface}"
-                )
+                mlflow.lightgbm.log_model(sub.market.model, artifact_path=f"market_{surface}")
 
                 # WinTwoStageModel
-                mlflow.lightgbm.log_model(
-                    sub.win.hit_model, artifact_path=f"win_hit_{surface}"
-                )
-                mlflow.lightgbm.log_model(
-                    sub.win.return_model, artifact_path=f"win_ret_{surface}"
-                )
+                mlflow.lightgbm.log_model(sub.win.hit_model, artifact_path=f"win_hit_{surface}")
+                mlflow.lightgbm.log_model(sub.win.return_model, artifact_path=f"win_ret_{surface}")
 
                 # EVCorrectionModel
                 mlflow.lightgbm.log_model(
@@ -465,9 +485,7 @@ class TrainingPipelineV5:
                 )
 
                 # PlaceTwoStageModel
-                mlflow.lightgbm.log_model(
-                    sub.place.hit_model, artifact_path=f"place_hit_{surface}"
-                )
+                mlflow.lightgbm.log_model(sub.place.hit_model, artifact_path=f"place_hit_{surface}")
                 mlflow.lightgbm.log_model(
                     sub.place.return_model, artifact_path=f"place_ret_{surface}"
                 )
@@ -486,23 +504,17 @@ class TrainingPipelineV5:
                             os.unlink(_tmp_path)
 
                 # WideTwoStageModel
-                mlflow.lightgbm.log_model(
-                    sub.wide.hit_model, artifact_path=f"wide_hit_{surface}"
-                )
+                mlflow.lightgbm.log_model(sub.wide.hit_model, artifact_path=f"wide_hit_{surface}")
                 mlflow.lightgbm.log_model(
                     sub.wide.return_model, artifact_path=f"wide_ret_{surface}"
                 )
 
             # RaceQualityScreener
-            mlflow.lightgbm.log_model(
-                quality_screen.model, artifact_path="race_quality"
-            )
+            mlflow.lightgbm.log_model(quality_screen.model, artifact_path="race_quality")
             mlflow.log_param("quality_threshold", quality_screen.threshold)
 
             # RegimeDetector
-            mlflow.lightgbm.log_model(
-                regime_det.model, artifact_path="regime_detector"
-            )
+            mlflow.lightgbm.log_model(regime_det.model, artifact_path="regime_detector")
 
             # RobustConfidenceEstimator キャリブレーション値 (JSON)
             first_sub = next(iter(models.values()))

@@ -14,6 +14,7 @@ from __future__ import annotations
 import pandas as pd
 
 from domain.models import Entry, Race
+from utils.timing import TimingContext
 
 
 class FeatureEngine:
@@ -52,9 +53,19 @@ class FeatureEngine:
         #    (race_date, year 等の識別列は race_df から取得;
         #     harontimel3/4 は HorseHistoryFeatures が self._entry_df から直接参照)
         _race_entry_shared = [
-            "datakubun", "harontimel3", "harontimel4", "jyocd", "kaiji",
-            "makedate", "monthday", "nichiji", "race_date", "racenum",
-            "recordspec", "recordupkubun", "year",
+            "datakubun",
+            "harontimel3",
+            "harontimel4",
+            "jyocd",
+            "kaiji",
+            "makedate",
+            "monthday",
+            "nichiji",
+            "race_date",
+            "racenum",
+            "recordspec",
+            "recordupkubun",
+            "year",
         ]
         entry_subset = entry_df.drop(
             columns=[c for c in _race_entry_shared if c in entry_df.columns]
@@ -83,27 +94,32 @@ class FeatureEngine:
         # 5. サブモジュールの特徴量計算
         from features.intra_race_features import compute_intra_race_features
 
-        df = compute_intra_race_features(df)
+        with TimingContext("build_all/intra_race"):
+            df = compute_intra_race_features(df)
 
         from features.odds_dynamics_features import compute_odds_dynamics
 
-        df = compute_odds_dynamics(df, odds_ts_df)
+        with TimingContext("build_all/odds_dynamics"):
+            df = compute_odds_dynamics(df, odds_ts_df)
 
         from features.market_bias_features import compute_market_bias
 
-        df = compute_market_bias(df)
+        with TimingContext("build_all/market_bias"):
+            df = compute_market_bias(df)
 
         from features.race_difficulty_model import compute_difficulty_score
 
-        df = compute_difficulty_score(df)
+        with TimingContext("build_all/difficulty"):
+            df = compute_difficulty_score(df)
 
         # Group B: 血統特徴量
         if store is not None:
-            from features.bloodline_features import BloodlineFeatures
+            with TimingContext("build_all/bloodline"):
+                from features.bloodline_features import BloodlineFeatures
 
-            bloodline = BloodlineFeatures(store)
-            bloodline_df = bloodline.compute(df)
-            df = pd.merge(df, bloodline_df, on=["race_id", "umaban"], how="left")
+                bloodline = BloodlineFeatures(store)
+                bloodline_df = bloodline.compute(df)
+                df = pd.merge(df, bloodline_df, on=["race_id", "umaban"], how="left")
 
         # NOTE: Group E (interaction features) は HorseHistoryFeatures 後に呼ぶこと。
         # kyakusitu_cd が必要なため、build_all では実行しない。
@@ -217,7 +233,9 @@ class FeatureEngine:
             df["field_size"] = df["syussotosu"]
             if (df["field_size"] == 0).any():
                 actual = df.groupby("race_id").size()
-                df["field_size"] = df["race_id"].map(actual).fillna(df["field_size"]).astype("Int64")
+                df["field_size"] = (
+                    df["race_id"].map(actual).fillna(df["field_size"]).astype("Int64")
+                )
 
         # popularity_rank: ninki → popularity_rank コピー
         # 未発走では ninki=0 のため、tanninki (odds_tanpuku) をフォールバック
