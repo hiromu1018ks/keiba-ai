@@ -12,6 +12,26 @@ import pandas as pd
 from domain.models import TwoStageConfig
 
 
+def _train_valid_split(
+    features: pd.DataFrame,
+    label: pd.Series | np.ndarray,
+    valid_ratio: float = 0.2,
+    seed: int = 42,
+) -> tuple[lgb.Dataset, lgb.Dataset]:
+    """学習データを train/valid にランダム分割して (train_data, valid_data) を返す。"""
+    n = len(features)
+    perm = np.random.RandomState(seed).permutation(n)
+    split = int(n * (1 - valid_ratio))
+    train_idx, valid_idx = perm[:split], perm[split:]
+
+    label_series = label if isinstance(label, pd.Series) else pd.Series(label)
+    train_data = lgb.Dataset(features.iloc[train_idx], label=label_series.iloc[train_idx])
+    valid_data = lgb.Dataset(
+        features.iloc[valid_idx], label=label_series.iloc[valid_idx], reference=train_data
+    )
+    return train_data, valid_data
+
+
 class WideTwoStageModel:
     """
     ワイド2段階モデル with リスク調整スコア。
@@ -59,9 +79,9 @@ class WideTwoStageModel:
             if col in features.columns:
                 features[col] = features[col].astype("category")
 
-        label = pair_df["joint_hit"].values
+        label = pair_df["joint_hit"]
 
-        train_data = lgb.Dataset(features, label=label)
+        train_data, valid_data = _train_valid_split(features, label)
         self.hit_model = lgb.train(
             {
                 "objective": "binary",
@@ -74,6 +94,8 @@ class WideTwoStageModel:
             },
             train_data,
             num_boost_round=cfg.hit_rounds,
+            valid_sets=[valid_data],
+            callbacks=[lgb.early_stopping(stopping_rounds=50, verbose=False)],
         )
 
     def train_return_model(
@@ -101,21 +123,34 @@ class WideTwoStageModel:
             if col in features.columns:
                 features[col] = features[col].astype("category")
 
-        label = hit_df["wide_odds"].values
+        label = hit_df["wide_odds"]
 
-        train_data = lgb.Dataset(features, label=label)
-        self.return_model = lgb.train(
-            {
-                "objective": "regression_l1",
-                "metric": "mae",
-                "learning_rate": cfg.return_lr,
-                "num_leaves": cfg.return_leaves,
-                "num_threads": max(1, (os.cpu_count() or 4) // 2),
-                "verbose": -1,
-            },
-            train_data,
-            num_boost_round=cfg.return_rounds,
-        )
+        params = {
+            "objective": "regression_l1",
+            "metric": "mae",
+            "learning_rate": cfg.return_lr,
+            "num_leaves": cfg.return_leaves,
+            "num_threads": max(1, (os.cpu_count() or 4) // 2),
+            "verbose": -1,
+        }
+        callbacks = [lgb.early_stopping(stopping_rounds=50, verbose=False)]
+
+        if len(features) < 10:
+            # サンプル数が少なすぎる場合は early stopping なし
+            self.return_model = lgb.train(
+                params,
+                lgb.Dataset(features, label=label),
+                num_boost_round=cfg.return_rounds,
+            )
+        else:
+            train_data, valid_data = _train_valid_split(features, label)
+            self.return_model = lgb.train(
+                params,
+                train_data,
+                num_boost_round=cfg.return_rounds,
+                valid_sets=[valid_data],
+                callbacks=callbacks,
+            )
 
     def predict_score(self, pair_df: pd.DataFrame) -> pd.DataFrame:
         """
@@ -131,8 +166,14 @@ class WideTwoStageModel:
             if col in features.columns:
                 features[col] = features[col].astype("category")
 
-        pair_df["p_hit"] = self.hit_model.predict(features)
-        pair_df["e_return_given_hit"] = self.return_model.predict(features)
+        hit_iter = (
+            self.hit_model.best_iteration if self.hit_model.best_iteration > 0 else None
+        )
+        ret_iter = (
+            self.return_model.best_iteration if self.return_model.best_iteration > 0 else None
+        )
+        pair_df["p_hit"] = self.hit_model.predict(features, num_iteration=hit_iter)
+        pair_df["e_return_given_hit"] = self.return_model.predict(features, num_iteration=ret_iter)
 
         pair_df["ev_wide"] = pair_df["p_hit"] * pair_df["e_return_given_hit"]
         risk_denom = pair_df["e_return_given_hit"] * np.sqrt(np.clip(pair_df["p_hit"], 0.001, None))
