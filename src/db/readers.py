@@ -9,35 +9,128 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timedelta
+from typing import TYPE_CHECKING
 
 import pandas as pd
 
+from db.etl import _apply_type_conversions, _compute_race_date, _compute_race_id
 from db.parquet_store import ParquetStore
+
+if TYPE_CHECKING:
+    from db.everydb2_queries import EveryDB2Queries
 
 logger = logging.getLogger(__name__)
 
 # 旧ETL互換: Parquet内で文字列として保存されている可能性のある数値列
 # ETLの _TABLE_TYPE_RULES と同一のカラムセット
 _INT_COLS: set[str] = {
-    "trackcd", "kyori", "tenkocd", "syussotosu", "honsyokin",
-    "umaban", "kakuteijyuni", "ninki", "kyakusitukubun",
-    "jyuni1c", "jyuni4c", "zogenfugo", "tanninki",
+    "trackcd",
+    "kyori",
+    "tenkocd",
+    "syussotosu",
+    "honsyokin",
+    "umaban",
+    "kakuteijyuni",
+    "ninki",
+    "kyakusitukubun",
+    "jyuni1c",
+    "jyuni4c",
+    "zogenfugo",
+    "tanninki",
 }
 _FLOAT_COLS: set[str] = {
-    "time", "bataijyu", "zogensa", "harontimel3", "timediff",
+    "time",
+    "bataijyu",
+    "zogensa",
+    "harontimel3",
+    "timediff",
 }
 
 # _coerce_typesで数値変換しない文字列固有列
 _STRING_COLUMNS: set[str] = {
-    "race_id", "kettonum", "bamei", "kisyucode", "chokyosicode",
-    "banusicode", "recordspec", "datakubun", "makedate",
-    "hondai", "fukudai", "kakko", "hondaieng", "fukudaieng",
-    "kakkoeng", "ryakusyo10", "ryakusyo6", "ryakusyo3",
-    "jyokenname", "chokyosiryakusyo", "banusiname",
-    "kisyuryakusyo", "kisyuryakusyobefore",
+    "race_id",
+    "kettonum",
+    "bamei",
+    "kisyucode",
+    "chokyosicode",
+    "banusicode",
+    "recordspec",
+    "datakubun",
+    "makedate",
+    "hondai",
+    "fukudai",
+    "kakko",
+    "hondaieng",
+    "fukudaieng",
+    "kakkoeng",
+    "ryakusyo10",
+    "ryakusyo6",
+    "ryakusyo3",
+    "jyokenname",
+    "chokyosiryakusyo",
+    "banusiname",
+    "kisyuryakusyo",
+    "kisyuryakusyobefore",
     "kumi",  # ワイドオッズの馬番組み合わせ (e.g. "0102")
     "surface",  # ETL派生列: "turf"/"dirt"/"other" (文字列)
 }
+
+
+def load_races_from_db(db: EveryDB2Queries, ymd: str) -> pd.DataFrame:
+    """EveryDB2 からレース情報を読み込む。"""
+    raw = db.get_races(ymd)
+    if raw.empty:
+        return raw
+    df = _apply_type_conversions(raw, "races")
+    df = _compute_race_date(df)
+    df = _compute_race_id(df)
+    df = _coerce_types(df)
+    return _exclude_steeple(df)
+
+
+def load_entries_from_db(db: EveryDB2Queries, ymd: str) -> pd.DataFrame:
+    """EveryDB2 から出走馬を読み込む。"""
+    raw = db.get_entries(ymd)
+    if raw.empty:
+        return raw
+    df = _apply_type_conversions(raw, "entries")
+    df = _compute_race_date(df)
+    df = _compute_race_id(df)
+    df = _coerce_types(df)
+    return _exclude_steeple(df)
+
+
+def load_odds_snapshots_from_db(db: EveryDB2Queries, ymd: str) -> pd.DataFrame:
+    """EveryDB2 から単勝・複勝オッズスナップショットを読み込む。"""
+    raw = db.get_odds_snapshots(ymd)
+    if raw.empty:
+        return raw
+    df = _apply_type_conversions(raw, "odds_tanpuku")
+    df = _compute_race_date(df)
+    df = _compute_race_id(df)
+    return _coerce_types(df)
+
+
+def load_odds_time_series_from_db(db: EveryDB2Queries, ymd: str) -> pd.DataFrame:
+    """EveryDB2 から時系列オッズを読み込む。happyotime を _coerce_types から保護。"""
+    raw = db.get_odds_time_series(ymd)
+    if raw.empty:
+        return raw
+    df = _apply_type_conversions(raw, "jodds_tanpuku")
+    df = _compute_race_date(df)
+    df = _compute_race_id(df)
+
+    # happyotime 保護: _STRING_COLUMNS に一時追加してから _coerce_types を呼ぶ
+    # 注意: _STRING_COLUMNS はモジュールレベルの set であるためスレッドセーフでないが、
+    # 現状の実行パスはシングルスレッドなので問題なし
+    _protected_cols = {"happyotime"} - _STRING_COLUMNS
+    _STRING_COLUMNS.update(_protected_cols)
+    try:
+        df = _coerce_types(df)
+    finally:
+        _STRING_COLUMNS.difference_update(_protected_cols)
+
+    return df
 
 
 def _to_dt(yyyymmdd: str) -> datetime:
@@ -70,13 +163,15 @@ def _coerce_types(df: pd.DataFrame) -> pd.DataFrame:
             lambda x: "turf" if 10 <= x <= 22 else "dirt" if 23 <= x <= 29 else "other"
         )
 
-    if "track_condition_code" not in df.columns and "sibababacd" in df.columns and "trackcd" in df.columns:
+    if (
+        "track_condition_code" not in df.columns
+        and "sibababacd" in df.columns
+        and "trackcd" in df.columns
+    ):
         import numpy as np
 
         is_turf = df["trackcd"].between(10, 22)
-        df["track_condition_code"] = np.where(
-            is_turf, df["sibababacd"], df["dirtbabacd"]
-        )
+        df["track_condition_code"] = np.where(is_turf, df["sibababacd"], df["dirtbabacd"])
 
     return df
 
