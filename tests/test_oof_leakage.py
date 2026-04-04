@@ -101,7 +101,7 @@ class TestTrainOof:
         train_calls: list[pd.DataFrame] = []
         predict_calls: list[pd.DataFrame] = []
 
-        def mock_train(self: AbilityModel, train_df: pd.DataFrame) -> None:
+        def mock_train(self: AbilityModel, train_df: pd.DataFrame, **kwargs: object) -> None:
             train_calls.append(train_df)
 
         def mock_predict(self: AbilityModel, test_df: pd.DataFrame) -> pd.DataFrame:
@@ -131,7 +131,7 @@ class TestTrainOof:
         df = _make_oof_df(n_races=40, horses_per_race=8)
         train_calls: list[pd.DataFrame] = []
 
-        def mock_train(self: AbilityModel, train_df: pd.DataFrame) -> None:
+        def mock_train(self: AbilityModel, train_df: pd.DataFrame, **kwargs: object) -> None:
             train_calls.append(train_df)
 
         with (
@@ -184,7 +184,7 @@ class TestTrainOof:
         df = _make_oof_df(n_races=1, horses_per_race=8)
         train_calls: list[pd.DataFrame] = []
 
-        def mock_train(self: AbilityModel, train_df: pd.DataFrame) -> None:
+        def mock_train(self: AbilityModel, train_df: pd.DataFrame, **kwargs: object) -> None:
             train_calls.append(train_df)
 
         with (

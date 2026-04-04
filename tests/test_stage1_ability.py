@@ -83,8 +83,10 @@ def trained_ability_model(train_df: pd.DataFrame) -> AbilityModel:
     model = AbilityModel()
     mock_turf = MagicMock()
     mock_turf.predict.return_value = np.array([0.8, 0.5, 0.3, 0.1])
+    mock_turf.best_iteration = 100
     mock_dirt = MagicMock()
     mock_dirt.predict.return_value = np.array([0.7, 0.3, 0.5, 0.1])
+    mock_dirt.best_iteration = 100
     model.models = {"turf": mock_turf, "dirt": mock_dirt}
     return model
 
