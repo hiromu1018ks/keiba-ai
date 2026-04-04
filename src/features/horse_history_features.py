@@ -207,9 +207,13 @@ class HorseHistoryFeatures:
         if entries_filtered.empty:
             return pd.DataFrame(columns=["race_id", "umaban"] + self.BASE_COLS)
 
-        # Merge with races to get syussotosu (field_size), race_date, surface
-        race_cols = ["race_id", "syussotosu", "race_date", "trackcd", "kyori", "surface"]
+        # Merge with races to get syussotosu (field_size), race_date, surface, baba
+        race_cols_all = [
+            "race_id", "syussotosu", "race_date", "trackcd", "kyori", "surface",
+            "track_condition_code",
+        ]
         races_subset = races_hist[races_hist["race_id"].isin(entries_filtered["race_id"].unique())]
+        race_cols = [c for c in race_cols_all if c in races_subset.columns]
         entries_no_date = entries_filtered.drop(columns=["race_date"], errors="ignore")
         past_df = entries_no_date.merge(
             races_subset[race_cols].drop_duplicates("race_id"),
@@ -233,6 +237,11 @@ class HorseHistoryFeatures:
             past_df.loc[~is_turf & (dist > 1700), "distance_bin"] = "intermediate"
             past_df.loc[~is_turf & (dist <= 1700), "distance_bin"] = "mile"
             past_df.loc[~is_turf & (dist <= 1400), "distance_bin"] = "sprint"
+
+        # Add baba_cd column for z-score hierarchical fallback
+        if "baba_cd" not in past_df.columns and "track_condition_code" in past_df.columns:
+            past_df["baba_cd"] = past_df["track_condition_code"].fillna(-1).astype(int).astype(str)
+            past_df.loc[past_df["baba_cd"] == "-1", "baba_cd"] = ""
 
         past_df["valid_field"] = (past_df["syussotosu"].fillna(-1) >= 8).astype(int)
 
@@ -262,8 +271,8 @@ class HorseHistoryFeatures:
         # -------------------------------------------------------------------
         cols_horse = [
             "race_date", "valid_field", "kakuteijyuni", "syussotosu",
-            "harontimel3", "distance_bin", "timediff", "jyuni1c", "jyuni4c",
-            "kyakusitukubun",
+            "harontimel3", "distance_bin", "surface", "baba_cd",
+            "timediff", "jyuni1c", "jyuni4c", "kyakusitukubun",
         ]
         cols_jockey = ["race_date", "kakuteijyuni", "odds"]
         cols_jockey_all = ["race_date", "kakuteijyuni"]
@@ -315,6 +324,53 @@ class HorseHistoryFeatures:
         _has_jyuni1c = "jyuni1c" in _sample_arrs
         _has_jyuni4c = "jyuni4c" in _sample_arrs
         _has_kyakusitukubun = "kyakusitukubun" in _sample_arrs
+        _has_surface = "surface" in _sample_arrs
+        _has_baba_cd = "baba_cd" in _sample_arrs
+
+        # -------------------------------------------------------------------
+        # Pre-compute global stats for harontimel3 z-score hierarchical fallback
+        # Stats are computed from ALL past data (not just per-horse)
+        # -------------------------------------------------------------------
+        global_stats: dict[tuple, dict] = {}
+        if _has_harontimel3 and _has_distance_bin:
+            valid_past_all = past_df_sorted[
+                past_df_sorted["harontimel3"].notna() & past_df_sorted["distance_bin"].notna()
+            ]
+            if len(valid_past_all) > 0:
+                ht_all = valid_past_all["harontimel3"].values
+                # Fill baba_cd / surface defaults for groupby
+                if _has_surface:
+                    surf_all = valid_past_all["surface"].fillna("").values
+                else:
+                    surf_all = np.full(len(valid_past_all), "")
+                if _has_baba_cd:
+                    baba_all = valid_past_all["baba_cd"].fillna("").values
+                else:
+                    baba_all = np.full(len(valid_past_all), "")
+                db_all = valid_past_all["distance_bin"].values
+
+                for cols, min_n in FALLBACK_LEVELS:
+                    if cols:
+                        grp_df = pd.DataFrame({"ht": ht_all, "db": db_all, "surf": surf_all, "baba": baba_all})
+                        col_map = {"distance_bin": "db", "surface": "surf", "baba_cd": "baba"}
+                        group_cols = [col_map[c] for c in cols]
+                        grouped = grp_df.groupby(group_cols)["ht"].agg(["mean", "std", "count"])
+                        for key, row in grouped.iterrows():
+                            if not isinstance(key, tuple):
+                                key = (key,)
+                            if row["count"] >= min_n:
+                                global_stats[key] = {
+                                    "mean": row["mean"],
+                                    "std": row["std"] if pd.notna(row["std"]) else 0.0,
+                                    "n": int(row["count"]),
+                                }
+                # Global fallback (L4)
+                global_std = float(ht_all.std())
+                global_stats[("all",)] = {
+                    "mean": float(ht_all.mean()),
+                    "std": global_std if pd.notna(global_std) else 0.0,
+                    "n": len(ht_all),
+                }
 
         total = len(horses)
         results: list[dict] = []
@@ -371,23 +427,43 @@ class HorseHistoryFeatures:
             else:
                 harontimel3_avg = float("nan")
 
-            # harontimel3_zscore — vectorized (no inner iterrows)
-            if _has_harontimel3 and _has_distance_bin and n_past > 0:
+            # harontimel3_zscore — global hierarchical fallback z-score
+            if _has_harontimel3 and _has_distance_bin and n_past > 0 and global_stats:
                 ht_raw = horse_arrs["harontimel3"][valid_mask][start:idx].astype(float)
                 db_raw = horse_arrs["distance_bin"][valid_mask][start:idx]
+                surf_raw = horse_arrs.get("surface", np.array([], dtype=object))
+                if len(surf_raw) > 0:
+                    surf_raw = surf_raw[valid_mask][start:idx]
+                else:
+                    surf_raw = np.array([""] * len(ht_raw))
+                baba_raw = horse_arrs.get("baba_cd", np.array([], dtype=object))
+                if len(baba_raw) > 0:
+                    baba_raw = baba_raw[valid_mask][start:idx]
+                else:
+                    baba_raw = np.array([""] * len(ht_raw))
+
                 valid_ht_db = ~np.isnan(ht_raw) & pd.notna(db_raw)
                 if valid_ht_db.any():
                     ht_v = ht_raw[valid_ht_db]
                     db_v = db_raw[valid_ht_db]
-                    # Build local groupby stats via pandas for correctness
-                    grp = pd.DataFrame({"ht": ht_v, "db": db_v})
-                    grp_stats = grp.groupby("db")["ht"].agg(["mean", "std"])
-                    # Vectorized z-score lookup
-                    means = grp_stats.loc[db_v, "mean"].values
-                    stds = grp_stats.loc[db_v, "std"].values
-                    z_vals = np.where(stds > 0, (ht_v - means) / stds, np.nan)
-                    # tail(3).mean() — last 3 values
-                    harontimel3_zscore: float = float(pd.Series(z_vals).tail(3).mean())
+                    surf_v = surf_raw[valid_ht_db]
+                    baba_v = baba_raw[valid_ht_db]
+                    # Compute z-scores using global stats with hierarchical fallback
+                    zscores: list[float] = []
+                    for ht_val, db_val, surf_val, baba_val in zip(ht_v, db_v, surf_v, baba_v):
+                        mean, std = _get_group_stats(
+                            str(db_val), str(surf_val), str(baba_val), global_stats
+                        )
+                        if std > 0:
+                            zscores.append(float((ht_val - mean) / std))
+                        else:
+                            zscores.append(float("nan"))
+                    if zscores:
+                        z_arr = np.array(zscores)
+                        # tail(3).mean() — last 3 values
+                        harontimel3_zscore: float = float(pd.Series(z_arr).tail(3).mean())
+                    else:
+                        harontimel3_zscore = float("nan")
                 else:
                     harontimel3_zscore = float("nan")
             else:
