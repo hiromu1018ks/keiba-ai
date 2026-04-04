@@ -5,9 +5,29 @@ from __future__ import annotations
 import os
 
 import lightgbm as lgb
+import numpy as np
 import pandas as pd
 
 from domain.models import TwoStageConfig
+
+
+def _train_valid_split(
+    features: pd.DataFrame,
+    label: pd.Series,
+    valid_ratio: float = 0.2,
+    seed: int = 42,
+) -> tuple[lgb.Dataset, lgb.Dataset]:
+    """学習データを train/valid にランダム分割して (train_data, valid_data) を返す。"""
+    n = len(features)
+    perm = np.random.RandomState(seed).permutation(n)
+    split = int(n * (1 - valid_ratio))
+    train_idx, valid_idx = perm[:split], perm[split:]
+
+    train_data = lgb.Dataset(features.iloc[train_idx], label=label.iloc[train_idx])
+    valid_data = lgb.Dataset(
+        features.iloc[valid_idx], label=label.iloc[valid_idx], reference=train_data
+    )
+    return train_data, valid_data
 
 
 class WinTwoStageModel:
@@ -64,6 +84,7 @@ class WinTwoStageModel:
         features = self._prepare_features(df)
         y = (df["kakuteijyuni"] == 1).astype(int)
 
+        train_data, valid_data = _train_valid_split(features, y)
         self.hit_model = lgb.train(
             {
                 "objective": "binary",
@@ -75,8 +96,10 @@ class WinTwoStageModel:
                 "num_threads": max(1, (os.cpu_count() or 4) // 2),
                 "verbose": -1,
             },
-            lgb.Dataset(features, label=y),
+            train_data,
             num_boost_round=self.cfg.hit_rounds,
+            valid_sets=[valid_data],
+            callbacks=[lgb.early_stopping(stopping_rounds=50, verbose=False)],
         )
 
     def train_return_model(self, df: pd.DataFrame) -> None:
@@ -94,19 +117,33 @@ class WinTwoStageModel:
         features = self._prepare_features(hit_df)
         y = hit_df["odds"]
 
-        self.return_model = lgb.train(
-            {
-                "objective": "regression_l1",
-                "metric": self.cfg.return_metric,
-                "learning_rate": self.cfg.return_lr,
-                "num_leaves": self.cfg.return_leaves,
-                "feature_fraction": 0.7,
-                "num_threads": max(1, (os.cpu_count() or 4) // 2),
-                "verbose": -1,
-            },
-            lgb.Dataset(features, label=y),
-            num_boost_round=self.cfg.return_rounds,
-        )
+        params = {
+            "objective": "regression_l1",
+            "metric": self.cfg.return_metric,
+            "learning_rate": self.cfg.return_lr,
+            "num_leaves": self.cfg.return_leaves,
+            "feature_fraction": 0.7,
+            "num_threads": max(1, (os.cpu_count() or 4) // 2),
+            "verbose": -1,
+        }
+        callbacks = [lgb.early_stopping(stopping_rounds=50, verbose=False)]
+
+        if len(features) < 10:
+            # サンプル数が少なすぎる場合は early stopping なし
+            self.return_model = lgb.train(
+                params,
+                lgb.Dataset(features, label=y),
+                num_boost_round=self.cfg.return_rounds,
+            )
+        else:
+            train_data, valid_data = _train_valid_split(features, y)
+            self.return_model = lgb.train(
+                params,
+                train_data,
+                num_boost_round=self.cfg.return_rounds,
+                valid_sets=[valid_data],
+                callbacks=callbacks,
+            )
 
     def predict_ev(self, df: pd.DataFrame) -> pd.DataFrame:
         """
@@ -115,8 +152,12 @@ class WinTwoStageModel:
         df = df.copy()
         features = self._prepare_features(df)
 
-        df["p_win_pred"] = self.hit_model.predict(features)
-        df["e_return_win_pred"] = self.return_model.predict(features)
+        df["p_win_pred"] = self.hit_model.predict(
+            features, num_iteration=self.hit_model.best_iteration
+        )
+        df["e_return_win_pred"] = self.return_model.predict(
+            features, num_iteration=self.return_model.best_iteration
+        )
         df["ev_win"] = df["p_win_pred"] * df["e_return_win_pred"]
         return df
 
@@ -152,6 +193,7 @@ class PlaceTwoStageModel:
         features = self._prepare_features(df)
         y = (df["kakuteijyuni"] <= 3).astype(int)
 
+        train_data, valid_data = _train_valid_split(features, y)
         self.hit_model = lgb.train(
             {
                 "objective": "binary",
@@ -163,8 +205,10 @@ class PlaceTwoStageModel:
                 "num_threads": max(1, (os.cpu_count() or 4) // 2),
                 "verbose": -1,
             },
-            lgb.Dataset(features, label=y),
+            train_data,
             num_boost_round=self.cfg.hit_rounds,
+            valid_sets=[valid_data],
+            callbacks=[lgb.early_stopping(stopping_rounds=50, verbose=False)],
         )
 
     def train_return_model(self, df: pd.DataFrame) -> None:
@@ -174,26 +218,44 @@ class PlaceTwoStageModel:
         features = self._prepare_features(hit_df)
         y = hit_df["fukuoddslow"]
 
-        self.return_model = lgb.train(
-            {
-                "objective": "regression_l1",
-                "metric": "mae",
-                "learning_rate": self.cfg.return_lr,
-                "num_leaves": 25,  # 複勝はサンプル多めなので少し深く
-                "feature_fraction": 0.7,
-                "num_threads": max(1, (os.cpu_count() or 4) // 2),
-                "verbose": -1,
-            },
-            lgb.Dataset(features, label=y),
-            num_boost_round=self.cfg.return_rounds,
-        )
+        params = {
+            "objective": "regression_l1",
+            "metric": "mae",
+            "learning_rate": self.cfg.return_lr,
+            "num_leaves": 25,  # 複勝はサンプル多めなので少し深く
+            "feature_fraction": 0.7,
+            "num_threads": max(1, (os.cpu_count() or 4) // 2),
+            "verbose": -1,
+        }
+        callbacks = [lgb.early_stopping(stopping_rounds=50, verbose=False)]
+
+        if len(features) < 10:
+            # サンプル数が少なすぎる場合は early stopping なし
+            self.return_model = lgb.train(
+                params,
+                lgb.Dataset(features, label=y),
+                num_boost_round=self.cfg.return_rounds,
+            )
+        else:
+            train_data, valid_data = _train_valid_split(features, y)
+            self.return_model = lgb.train(
+                params,
+                train_data,
+                num_boost_round=self.cfg.return_rounds,
+                valid_sets=[valid_data],
+                callbacks=callbacks,
+            )
 
     def predict_ev(self, df: pd.DataFrame) -> pd.DataFrame:
         """EV_place = P(place) × E(place_odds | place)"""
         df = df.copy()
         features = self._prepare_features(df)
 
-        df["p_place_pred"] = self.hit_model.predict(features)
-        df["e_return_place_pred"] = self.return_model.predict(features)
+        df["p_place_pred"] = self.hit_model.predict(
+            features, num_iteration=self.hit_model.best_iteration
+        )
+        df["e_return_place_pred"] = self.return_model.predict(
+            features, num_iteration=self.return_model.best_iteration
+        )
         df["ev_place"] = df["p_place_pred"] * df["e_return_place_pred"]
         return df
