@@ -125,6 +125,16 @@ def _send_slack(config: "PaperTradingConfig", message: str) -> None:
         logger.warning("Slack通知失敗: %s", e)
 
 
+def _decode_bamei(name: object) -> str:
+    """Shift-JIS バイト列の bamei をデコードする。"""
+    if not isinstance(name, str):
+        return str(name)
+    try:
+        return name.encode("latin-1").decode("shift_jis")
+    except (UnicodeDecodeError, UnicodeEncodeError):
+        return name
+
+
 # ─────────────────────────────────────────────────
 # setup: 当日のレース一覧を確認
 # ─────────────────────────────────────────────────
@@ -264,7 +274,7 @@ def _run_predict(
         bets = race_predictor.select_bets(result_df, bankroll)
         for bet in bets:
             horse = result_df[result_df["umaban"] == bet.umaban]
-            horse_name = horse.iloc[0]["bamei"] if not horse.empty else ""
+            horse_name = _decode_bamei(horse.iloc[0]["bamei"]) if not horse.empty else ""
             all_bets.append(
                 {
                     "race_id": race_id,
