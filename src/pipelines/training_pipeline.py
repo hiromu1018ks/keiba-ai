@@ -92,6 +92,11 @@ class TrainingPipelineV5:
         logger.info(f"Loading data: {train_start} ~ {train_end}")
         race_df = load_races(self.store, start, end)
         entry_df = load_entries(self.store, start, end)
+        # datakubun違い ('0'確定 vs 'B'速報) で同一 (race_id, umaban) が
+        # 複数行存在する場合があるため、確定データ('0') を優先して重複除去
+        if "datakubun" in entry_df.columns:
+            entry_df = entry_df.sort_values("datakubun", na_position="last")
+        entry_df = entry_df.drop_duplicates(subset=["race_id", "umaban"], keep="first")
         odds_df = load_odds_snapshots(self.store, start, end)
 
         # NEW: _train_submodel 内で HorseHistoryFeatures が使用するため保存
