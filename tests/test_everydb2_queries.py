@@ -508,7 +508,7 @@ class TestEveryDB2Queries:
         assert result["umaban"].dtype == object
         assert result.iloc[0]["tanodds"] == "32"
         sql_called = mock_read_sql.call_args[0][0]
-        assert "s_odds_tanpuku" in sql_called
+        assert "s_jodds_tanpuku" in sql_called
 
     @patch("db.everydb2_queries.pd.read_sql_query")
     @patch("db.everydb2_queries.psycopg2.connect")
@@ -532,6 +532,7 @@ class TestEveryDB2Queries:
                     "nichiji": ["01"],
                     "racenum": ["01"],
                     "umaban": ["1"],
+                    "happyotime": ["03101500"],
                     "tanodds": ["50"],
                     "fukuoddslow": ["20"],
                 }
@@ -544,7 +545,7 @@ class TestEveryDB2Queries:
         assert not result.empty
         assert mock_read_sql.call_count == 2
         second_sql = mock_read_sql.call_args_list[1][0][0]
-        assert "n_odds_tanpuku" in second_sql
+        assert "n_jodds_tanpuku" in second_sql
 
     @patch("db.everydb2_queries.pd.read_sql_query")
     @patch("db.everydb2_queries.psycopg2.connect")

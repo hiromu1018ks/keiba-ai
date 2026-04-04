@@ -303,15 +303,22 @@ def _merge_delta(existing: pd.DataFrame, delta: pd.DataFrame, pk: list[str]) -> 
     datakubun!='0' → upsert row (replace existing or insert new)
     If datakubun column is absent, treat all rows as upserts.
     """
+    # Validate PK columns exist in both DataFrames
+    missing_in_existing = [c for c in pk if c not in existing.columns]
+    missing_in_delta = [c for c in pk if c not in delta.columns]
+    if missing_in_existing or missing_in_delta:
+        raise ValueError(
+            f"PK columns mismatch: missing in existing={missing_in_existing}, "
+            f"missing in delta={missing_in_delta}"
+        )
+
     # Normalize PK columns to string for merge compatibility
     # (existing Parquet may have Int64 PKs while delta has string PKs from EveryDB2)
     for col in pk:
-        if col in existing.columns:
-            existing = existing.copy()
-            existing[col] = existing[col].astype(str)
-        if col in delta.columns:
-            delta = delta.copy()
-            delta[col] = delta[col].astype(str)
+        existing = existing.copy()
+        existing[col] = existing[col].astype(str)
+        delta = delta.copy()
+        delta[col] = delta[col].astype(str)
 
     # Split into deletes and upserts based on datakubun
     if "datakubun" in delta.columns:
@@ -376,14 +383,18 @@ def run_delta_update(
                 counts[key] = -1
                 continue
 
+            # Type conversions: merge前にdelta行を変換
+            # EveryDB2は全列character varyingのため、raw deltaは全て文字列
+            # 既存Parquetは型変換済みなので、merge前に型を合わせる必要がある
+            delta_df = _apply_type_conversions(delta_df, key)
+
             # Read existing data
             existing_df = store.read(category, key)
 
-            # Merge
+            # Merge (deltaは既に型変換済み)
             merged = _merge_delta(existing_df, delta_df, pk)
 
             # Re-compute derived columns for raced tables
-            # (existing rows already have these, but new delta rows need them)
             is_raced = any(
                 c["parquet_key"] == key and c.get("type") == "raced"
                 for c in config
@@ -392,34 +403,9 @@ def run_delta_update(
             if is_raced:
                 _compute_race_date(merged)
                 _compute_race_id(merged)
-
-            # Type conversions: delta行のみに適用 (既存行は既に変換済み)
-            # 全体に適用すると odds10 等の変換が2重適用される
-            upsert_mask = (
-                delta_df["datakubun"] != "0"
-                if "datakubun" in delta_df.columns
-                else pd.Series(True, index=delta_df.index)
-            )
-            delta_upserts = delta_df[upsert_mask].drop(columns=["datakubun"], errors="ignore")
-            delta_df_converted = _apply_type_conversions(delta_upserts, key)
-
-            # 変換済みdelta行をmergedの対応行に反映
-            if not delta_df_converted.empty:
-                # PK型をmergedに合わせる (mergedのPKはstring化済み)
-                for col in pk:
-                    if col in delta_df_converted.columns:
-                        delta_df_converted[col] = delta_df_converted[col].astype(str)
-                # merged から元のdelta行を削除して変換済みを追加
-                merge_keys = delta_df_converted[pk].drop_duplicates()
-                merge_check = merged.merge(
-                    merge_keys.assign(_is_delta=True), on=pk, how="left", indicator=False
-                )
-                merged = merged[merge_check["_is_delta"] != True].copy()
-                merged = pd.concat([merged, delta_df_converted], ignore_index=True)
-
-            if is_raced:
                 merged = _compute_surface(merged)
                 merged = _compute_track_condition_code(merged)
+
             store.write(category, key, merged)
             counts[key] = len(delta_df)
 

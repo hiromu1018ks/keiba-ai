@@ -316,14 +316,43 @@ def _run_predict(
     pred_df.to_parquet(pred_path, index=False)
     logger.info("Predictions saved: %d bets → %s", len(all_bets), pred_path)
 
-    # Slack通知
-    bet_lines = []
+    # コンソール出力 (Windows cp932 対応)
+    import io
+
+    _venue_map = {
+        "01": "札幌", "02": "函館", "03": "福島", "04": "新潟",
+        "05": "東京", "06": "中山", "07": "中京", "08": "京都",
+        "09": "阪神", "10": "小倉",
+    }
+
+    def _fmt_race_id(rid: str) -> str:
+        jyocd = rid[8:10]
+        racenum = rid[14:16]
+        venue = _venue_map.get(jyocd, jyocd)
+        return f"{venue}{int(racenum):2d}R"
+
+    lines: list[str] = []
+    lines.append("")
+    lines.append("=" * 60)
+    lines.append(f"  Predict: {args.date}  -  {len(all_bets)} bets")
+    lines.append("=" * 60)
     for b in all_bets:
-        bet_lines.append(
-            f"  {b['race_id']} 馬番{b['umaban']} {b['horse_name']} "
-            f"複勝{b['odds']:.1f} EV={b['ev']:.2f}"
+        lines.append(
+            f"  {_fmt_race_id(b['race_id'])}  "
+            f"馬番{int(b['umaban']):2d}  {b['horse_name']:16s}  "
+            f"複勝{b['odds']:.1f}  EV={b['ev']:.2f}"
         )
-    slack_msg = f"Predict: {len(all_bets)} bets for {args.date}\n" + "\n".join(bet_lines)
+    lines.append("")
+    text = "\n".join(lines)
+    sys.stdout.buffer.write(text.encode("utf-8", errors="replace"))
+    sys.stdout.buffer.flush()
+
+    # Slack通知
+    slack_msg = f"Predict: {len(all_bets)} bets for {args.date}\n" + "\n".join(
+        f"  {_fmt_race_id(b['race_id'])} 馬番{b['umaban']} {b['horse_name']} "
+        f"複勝{b['odds']:.1f} EV={b['ev']:.2f}"
+        for b in all_bets
+    )
     _send_slack(config, slack_msg)
     logger.info("Predict complete: %d bets", len(all_bets))
 

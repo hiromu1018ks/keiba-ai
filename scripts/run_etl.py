@@ -62,6 +62,8 @@ def main() -> None:
         else:
             logger.error("ETL失敗: %s", e)
         sys.exit(1)
+    finally:
+        engine.dispose()
 
     elapsed = time.time() - t0
     logger.info("ETL完了 (%.0f秒)", elapsed)

@@ -68,6 +68,11 @@ class FeatureEngine:
         odds_cols = ["race_id", "umaban", "tanodds", "fukuoddslow", "tanninki"]
         df = pd.merge(df, odds_df[odds_cols], on=["race_id", "umaban"], how="left")
 
+        # entries.odds が 0 の場合（未発走レース）、tanodds をフォールバック
+        if "odds" in df.columns and "tanodds" in df.columns:
+            mask = (df["odds"] == 0) | df["odds"].isna()
+            df.loc[mask, "odds"] = df.loc[mask, "tanodds"]
+
         # 3. 障害レース除外
         if self._exclude_steeple:
             df = df[df["trackcd"] < 51]
@@ -166,6 +171,10 @@ class FeatureEngine:
         # 4. オッズ結合
         if odds_snapshot is not None:
             df = pd.merge(df, odds_snapshot, on=["race_id", "umaban"], how="left")
+            # entries.odds が 0 の場合、tanodds をフォールバック
+            if "odds" in df.columns and "tanodds" in df.columns:
+                mask = (df["odds"] == 0) | df["odds"].isna()
+                df.loc[mask, "odds"] = df.loc[mask, "tanodds"]
 
         # 5. 基本特徴量マッピング
         df = self._map_basic_features(df)
@@ -203,12 +212,20 @@ class FeatureEngine:
             df["grade_code"] = df["gradecd"]
 
         # field_size: syussotosu → field_size コピー
+        # 未発走レースでは syussotosu=0 のため、race_id ごとの行数で補完
         if "syussotosu" in df.columns and "field_size" not in df.columns:
             df["field_size"] = df["syussotosu"]
+            if (df["field_size"] == 0).any():
+                actual = df.groupby("race_id").size()
+                df["field_size"] = df["race_id"].map(actual).fillna(df["field_size"]).astype("Int64")
 
         # popularity_rank: ninki → popularity_rank コピー
+        # 未発走では ninki=0 のため、tanninki (odds_tanpuku) をフォールバック
         if "ninki" in df.columns and "popularity_rank" not in df.columns:
             df["popularity_rank"] = df["ninki"]
+            if "tanninki" in df.columns:
+                mask = (df["popularity_rank"] == 0) | df["popularity_rank"].isna()
+                df.loc[mask, "popularity_rank"] = df.loc[mask, "tanninki"]
 
         # running_style: kyakusitukubun → running_style (int変換)
         if "kyakusitukubun" in df.columns:

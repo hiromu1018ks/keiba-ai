@@ -48,6 +48,13 @@ notebooks/mlflow.db
 # Generated images
 *.png
 
+# Coverage
+.coverage
+
+# Temp scripts
+check_ts.py
+=14.0
+
 # Playwright
 .playwright-mcp/
 

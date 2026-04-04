@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Optional
 import yaml
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
+from sqlalchemy.pool import NullPool
 
 from db.etl import _compute_race_date, _compute_race_id  # noqa: F401
 from db.schema import ALL_CREATE_STATEMENTS
@@ -50,13 +51,16 @@ class DatabaseConnection:
         self._engine: Optional[Engine] = None
 
     def get_engine(self) -> Engine:
-        """SQLAlchemy エンジンを取得（キャッシュ）"""
+        """SQLAlchemy エンジンを取得（キャッシュ）
+
+        NullPoolを使用: EveryDB2が常時接続を占有しているため、
+        接続プールを持たず使うたびに接続→即解放する。
+        ETLは逐次処理なのでオーバーヘッドは無視できる。
+        """
         if self._engine is None:
             self._engine = create_engine(
                 self._connection_url,
-                pool_size=5,
-                max_overflow=10,
-                pool_pre_ping=True,
+                poolclass=NullPool,
             )
         return self._engine
 

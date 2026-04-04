@@ -114,34 +114,167 @@ PaperTradingReport（HTMLレポート生成: Jinja2）
 export PGPASSWORD=<your_password>
 export SLACK_WEBHOOK_URL=<your_slack_webhook_url>
 
-# Step 1: Setup — その日のレース情報と特徴量を事前計算
-python scripts/run_paper_trading.py --mode setup --date 2026-04-05
+# Setup — 当日のレース一覧を確認
+python scripts/run_paper_trading.py --mode setup --date 2026-04-04
 
-# Step 2: Watch — レース時刻に合わせて予測を実行（Slack通知付き）
-python scripts/run_paper_trading.py --mode watch --date 2026-04-05
+# Predict — 特徴量生成→推論→ベット保存（当日レースの予測を実行）
+python scripts/run_paper_trading.py --mode predict --date 2026-04-04
 
-# Step 3: Reconcile — レース結果を取得してベットの勝敗を確定
-python scripts/run_paper_trading.py --mode reconcile --date 2026-04-05
+# Reconcile — レース結果を取得してベットの勝敗を確定
+python scripts/run_paper_trading.py --mode reconcile --date 2026-04-04
 
-# (参考) Dry-run — 過去データで一連の流れをシミュレーション
+# Dry-run — 過去データで一連の流れをシミュレーション
 python scripts/run_paper_trading.py --mode dry-run --date 2024-07-13
 ```
+
+> **Windows PowerShell の場合:** `PGPASSWORD=xxx command` 構文は使えません。事前に `$env:PGPASSWORD = "xxx"` を実行してください。
 
 ### 各モードの説明
 
 | モード | やること | タイミング |
 |--------|---------|-----------|
-| `setup` | レース出走表を取得し、全馬の特徴量を事前計算して保存 | レース前（例: 前日または当日朝） |
-| `watch` | レース時刻まで待機し、馬体重・最新オッズを取得して予測・ベット判定 | レース当日 |
+| `setup` | EveryDB2から当日のレース一覧・出走馬を取得し、スケジュールを保存 | レース前 |
+| `predict` | EveryDB2から最新データを取得し、特徴量生成→AI推論→ベット判定→結果保存 | レース当日（発走直前推奨） |
 | `reconcile` | レース結果を取得し、未確定ベットの勝敗を計算してHTMLレポート生成 | レース終了後 |
-| `dry-run` | 過去データで setup→watch→reconcile の全工程を一括シミュレーション | いつでも |
+| `dry-run` | 過去データで predict と同じパイプラインを一括シミュレーション | いつでも |
 
-### 次のステップ（稼働前に必要な準備）
+### `predict` モードの詳細
 
-1. **EveryDB2のテーブル名確認** — `src/db/everydb2_queries.py` 内のSQLテーブル名を実際のEveryDB2インスタンスに合わせて修正
-2. **モデルの再学習** — `run_train.py` を実行してMLflowに全モデルを保存（ModelLoaderが読み込める形式）
-3. **ドライランで動作確認** — `--mode dry-run --date 2024-07-13` で過去データを使って一連の流れをテスト
-4. **cron等で自動化** — setup/watch/reconcile をそれぞれ適切な時刻に定期実行するようスケジュール設定
+`PGPASSWORD=aa8940aa python scripts/run_paper_trading.py --mode predict --date 2026-04-04`
+
+このコマンドは以下のパイプラインを一括実行する:
+
+```
+1. EveryDB2 (PostgreSQL) から当日データを直接取得
+   ├── s_race / n_race          → レース情報 (距離、コース、馬場状態 etc.)
+   ├── s_uma_race / n_uma_race  → 出走馬 (馬名、馬体重、騎手 etc.)
+   ├── s_jodds_tanpuku          → 最新オッズスナップショット (各馬の最新 tanodds, fukuoddslow)
+   └── s_jodds_tanpuku          → オッズ時系列 (前日からのオッズ変遷)
+
+2. readers.py パイプラインで型変換
+   ├── _apply_type_conversions() — ETLルールに従い数値変換 (odds10: tanodds, fukuoddslow を÷10)
+   ├── _compute_race_date()     — year + monthday → datetime
+   ├── _compute_race_id()       — year+monthday+jyocd+kaiji+nichiji+racenum → race_id
+   ├── _coerce_types()          — 文字列列以外を pd.to_numeric で数値化
+   └── _exclude_steeple()       — 障害レース (trackcd 51-59) を除外
+
+3. 特徴量生成 (FeatureEngine + 各特徴量モジュール)
+   ├── FeatureEngine.build_all()      — 基本特徴量 + オッズ特徴量 + 市場特徴量
+   ├── SubModelManager.add_distance_band_features() — 距離帯特徴量
+   ├── HorseHistoryFeatures.compute() — 過去走行データ (Parquet 5年分)
+   ├── JockeyContextFeatures.compute() — 騎手コンテキスト
+   ├── TrainerContextFeatures.compute() — 調教師コンテキスト
+   └── BloodlineFeatures.compute()    — 血統特徴量
+
+4. AI推論 (TwoStageReturnModel)
+   ├── Stage1 (能力モデル) — p_place_pred: 複勝的中確率
+   ├── Stage2 (返還モデル) — e_return_place_pred: 的中時払戻予測
+   └── EV = p_place_pred × e_return_place_pred
+
+5. ベット選択 (RacePredictor)
+   ├── should_bet() — EV >= 1.0 の馬のみベット対象
+   └── select_bets() — EV上位2頭を複勝100円でベット
+
+6. 結果保存
+   └── data/paper_trading/predictions/YYYYMMDD.parquet
+```
+
+**出力例 (2026-04-04 阪神9R アザレア賞):**
+
+| 馬番 | 馬名 | 複勝オッズ | EV |
+|------|------|-----------|-----|
+| 9 | タガノアルトゥーラ | 1.7倍 | 3.66 |
+| 5 | サントルドパリ | 4.3倍 | 3.80 |
+
+### EveryDB2 オッズ取得の設計 (2026-04-04 修正)
+
+**問題:** `s_odds_tanpuku` は初回発売時のスナップショットのまま更新されず、netkeibaの実際のオッズと乖離があった。
+
+| 馬番 | s_odds_tanpuku (古い) | netkeiba実際 |
+|------|---------------------|-------------|
+| 5 | 複勝2.1倍 | 複勝4.2-15.4 |
+| 9 | 複勝2.6倍 | 複勝1.6-5.1 |
+
+**修正:** `get_odds_snapshots()` を `s_odds_tanpuku` → `s_jodds_tanpuku` (時系列テーブル) に変更し、`DISTINCT ON` で各馬の最新エントリを取得するようにした。
+
+```sql
+SELECT DISTINCT ON (year, monthday, jyocd, kaiji, nichiji, racenum, umaban)
+    *
+FROM s_jodds_tanpuku
+WHERE year || monthday = %s
+ORDER BY year, monthday, jyocd, kaiji, nichiji, racenum, umaban, happyotime DESC
+```
+
+**修正後のオッズ:** netkeibaの複勝下限とほぼ一致。
+
+| 馬番 | 修正後 | netkeiba複勝下限 |
+|------|--------|---------------|
+| 5 | 複勝4.3倍 | 4.2 |
+| 9 | 複勝1.7倍 | 1.6 |
+
+**その他の修正:**
+- `_connect()` に `set_client_encoding("UTF8")` を追加し、Windows環境での日本語文字化けを解消
+
+### 理想的な運用ワークフロー
+
+#### 週次: モデル再学習 (日曜夜)
+
+競馬データは非定常（市場構造・馬の状態が時期によって変化）のため、定期的に再学習してモデルを鮮度に保つ。
+
+```bash
+# 1. ETL delta — 前週のレース結果をParquetに追加
+python scripts/run_etl.py --start <先週木曜> --end <今週日曜>
+
+# 2. 学習 — 直近日までのデータで再学習 (約17分)
+python scripts/run_train.py --start 2020-01-01 --end <今週日曜>
+```
+
+- **学習期間**: 2020-01-01 〜 直近の日曜日（5年+のデータ）
+- **頻度**: 週1回。日より頻度を上げるのは過学習リスクがあり非推奨
+- **理由**: 遅いオッズの市場構造・新種牡馬の産駒デビュー等の変化に追従するため
+
+#### 当日: 予測 (発走5分前)
+
+**発走5分前**に predict を実行するのが最適。遅いオッズ（プロの情報が反映された締め切り直前のオッズ）を捕捉するため。
+
+```
+例: 阪神9R 14:15発走 の場合
+
+  14:10  predict 実行 (データ取得5秒 + 特徴量生成20秒 ≈ 25秒で完了)
+  14:10  予測結果をコンソール/Slackに表示
+  14:15  レース発走
+  18:30  reconcile 実行 (結果照合)
+```
+
+**なぜ5分前か:**
+
+| タイミング | オッズ情報量 | リスク |
+|-----------|------------|------|
+| 30分前 | 低い（一般層の賭けのみ） | 精度低下 |
+| **5分前** | **高い（遅いオッズ反映済み）** | **最適** |
+| 1分前 | 最高（ほぼ確定） | パイプライン遅延リスク |
+
+- JRAは前レース発走時に当該レースの投票が締め切られるため、5分前にはオッズがほぼ安定している
+- オッズ動態特徴量 (`odds_drop_rate`, `odds_velocity`) は前日〜直前までの時系列が必要
+- パイプラインは約25秒で完了するため、5分の余裕で安全
+
+```bash
+# 当日の予測 (PowerShell)
+$env:PGPASSWORD = "xxx"
+python scripts/run_paper_trading.py --mode predict --date 2026-04-04
+
+# 当日の結果照合 (レース終了後)
+python scripts/run_paper_trading.py --mode reconcile --date 2026-04-04
+```
+
+#### 自動化イメージ (cron)
+
+```
+日曜 22:00  ETL delta + 学習 (週次)
+毎日 09:00  ETL delta (当日分の登録馬・馬体重を更新)
+毎日 発走5分前  predict (watch モードで自動化予定)
+毎日 19:00  reconcile (全レース確定後)
+```
 
 ### 追加ファイル一覧
 

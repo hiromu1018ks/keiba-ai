@@ -27,8 +27,10 @@ class EveryDB2Queries:
         self._timeout = timeout_seconds
 
     def _connect(self) -> Any:
-        """PostgreSQL に接続"""
-        return psycopg2.connect(self._connection_string, connect_timeout=self._timeout)
+        """PostgreSQL に接続 (UTF8クライアントエンコーディング)"""
+        conn = psycopg2.connect(self._connection_string, connect_timeout=self._timeout)
+        conn.set_client_encoding("UTF8")
+        return conn
 
     def _query(self, sql: str, params: tuple[Any, ...] | None = None) -> pd.DataFrame:
         """SQL を実行して DataFrame を返す"""
@@ -204,23 +206,38 @@ class EveryDB2Queries:
     def get_odds_snapshots(self, date_str: str) -> pd.DataFrame:
         """当日の単勝・複勝オッズスナップショットを取得。
 
-        s_odds_tanpuku → n_odds_tanpuku フォールバック。
+        s_odds_tanpuku は初回発売時のまま更新されない場合があるため、
+        s_jodds_tanpuku (時系列) から各馬の最新エントリを取得する。
+        s_jodds_tanpuku → n_jodds_tanpuku フォールバック。
         戻り値は EveryDB2 生データ (全列 character varying)。型変換は呼び出し側で行う。
         """
-        sql = "SELECT * FROM s_odds_tanpuku WHERE year || monthday = %s"
+        # 時系列テーブルから各馬の最新オッズを取得
+        sql = """
+            SELECT DISTINCT ON (year, monthday, jyocd, kaiji, nichiji, racenum, umaban)
+                *
+            FROM s_jodds_tanpuku
+            WHERE year || monthday = %s
+            ORDER BY year, monthday, jyocd, kaiji, nichiji, racenum, umaban, happyotime DESC
+        """
         try:
             df = self._query(sql, (date_str,))
             if not df.empty:
                 return df
         except Exception:
-            logger.exception("Failed to query s_odds_tanpuku for %s", date_str)
+            logger.exception("Failed to query s_jodds_tanpuku for %s", date_str)
 
-        sql = "SELECT * FROM n_odds_tanpuku WHERE year || monthday = %s"
+        sql = """
+            SELECT DISTINCT ON (year, monthday, jyocd, kaiji, nichiji, racenum, umaban)
+                *
+            FROM n_jodds_tanpuku
+            WHERE year || monthday = %s
+            ORDER BY year, monthday, jyocd, kaiji, nichiji, racenum, umaban, happyotime DESC
+        """
         try:
             df = self._query(sql, (date_str,))
             return df
         except Exception:
-            logger.exception("Failed to query n_odds_tanpuku for %s", date_str)
+            logger.exception("Failed to query n_jodds_tanpuku for %s", date_str)
             return pd.DataFrame()
 
     def get_odds_time_series(self, date_str: str) -> pd.DataFrame:
