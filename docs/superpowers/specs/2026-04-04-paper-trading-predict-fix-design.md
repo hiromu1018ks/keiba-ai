@@ -32,17 +32,29 @@ feat_df = feat_engine.build_all(race_df, entry_df, odds_df)
 
 ### 変更
 
-両関数で `load_odds_time_series_range()` を呼び出し、結果を `build_all()` に渡す:
+両関数で `load_odds_time_series_range()` を呼び出し、結果を `build_all()` に渡す。
+
+**`_run_predict()`** — `ymd` (line 213) を `all_start`/`all_end` として使用:
 
 ```python
 from db.readers import load_odds_time_series_range
 
-odds_ts_df = load_odds_time_series_range(store, all_start, all_end)
+# line 219 (odds_df 読み込みの直後) に追加
+odds_ts_df = load_odds_time_series_range(store, ymd, ymd)
+
+# line 229 の build_all 呼び出しを変更
 feat_df = feat_engine.build_all(race_df, entry_df, odds_df, odds_ts_df=odds_ts_df)
 ```
 
-`_run_predict` では `all_start`/`all_end` を `ymd` で定義する (当日分)。
-`_run_dry_run` では既に `all_start`/`all_end` が定義済み (line 505-506)。
+**`_run_dry_run()`** — 既に `all_start`/`all_end` が定義済み (line 505-506):
+
+```python
+# line 511 (odds_df 読み込みの直後) に追加
+odds_ts_df = load_odds_time_series_range(store, all_start, all_end)
+
+# line 519 の build_all 呼び出しを変更
+feat_df = feat_engine.build_all(race_df, entry_df, odds_df, odds_ts_df=odds_ts_df)
+```
 
 ## Fix 2: load_odds_time_series_range() の空結果フォールバック
 
@@ -73,11 +85,14 @@ df = store.read("odds", subpath, filters=filters)
 
 ### 変更
 
+`src/db/readers.py` に `import logging` と `logger = logging.getLogger(__name__)` を追加。
+
 ```python
 subpath = "time_series" if store.exists("odds", "time_series") else "jodds_tanpuku"
 df = store.read("odds", subpath, filters=filters)
 
 # time_series が要求範囲のデータを持たない場合、jodds_tanpuku にフォールバック
+# jodds_tanpuku も year/month パーティションなので、同一 filters がそのまま適用可能
 if df.empty and subpath == "time_series" and store.exists("odds", "jodds_tanpuku"):
     logger.debug("time_series empty for %s-%s, falling back to jodds_tanpuku", start, end)
     df = store.read("odds", "jodds_tanpuku", filters=filters)
@@ -110,7 +125,9 @@ if df.empty and subpath == "time_series" and store.exists("odds", "jodds_tanpuku
 
 ### 変更
 
-念のため `compute_odds_dynamics()` に合理的オッズ範囲のガードを追加:
+念のため `compute_odds_dynamics()` に合理的オッズ範囲のガードを追加。
+
+挿入位置: `ts = odds_ts.sort_values(...).copy()` (line 52) の直後、`tanninki` 正規化 (line 56) の前:
 
 ```python
 # 合理的オッズ範囲外を NaN にする (1.0-999.9)
@@ -159,7 +176,56 @@ bamei を使用する箇所で `_decode_bamei(horse_name)` を呼び出す。
 - **TrainingPipelineV5**: 影響なし (既に odds_ts_df を正しく渡している)
 - **BacktestEngine**: 影響なし (意図的に odds_ts_df=None でメモリ節約)
 - **PaperPredictor.setup()**: 影響なし (別クラス、修正対象外)
+- **FeatureEngine.build_features()**: 本修正対象外。`build_features()` は `compute_odds_dynamics()` を呼び出さない (line 182 はプレースホルダー)。`BettingOrchestrator` 経由のライブ予測で同問題が発生する場合は別途対応が必要。
 - **テスト**: readers.py の既存テストにフォールバックのテストを追加
+
+## テスト
+
+### readers.py フォールバックテスト
+
+```python
+def test_load_odds_time_series_range_falls_back_to_jodds_tanpuku(self):
+    """time_series が空の場合、jodds_tanpuku にフォールバックする。"""
+    store = MagicMock()
+    # time_series exists but returns empty; jodds_tanpuku has data
+    store.exists.side_effect = lambda cat, name: name in ("time_series", "jodds_tanpuku")
+    empty_df = pd.DataFrame()
+    fallback_df = pd.DataFrame({
+        "race_id": ["20260401010101"], "happyotime": ["03241000"],
+        "umaban": [1], "tanodds": [3.0],
+    })
+    store.read.side_effect = [empty_df, fallback_df]
+    result = load_odds_time_series_range(store, "20260401", "20260401")
+    assert store.read.call_count == 2
+    assert len(result) == 1
+
+def test_load_odds_time_series_no_fallback_when_data_exists(self):
+    """time_series にデータがある場合、フォールバックしない。"""
+    store = MagicMock()
+    store.exists.return_value = True
+    valid_df = pd.DataFrame({
+        "race_id": ["20240701010101"], "happyotime": ["03241000"],
+        "umaban": [1], "tanodds": [5.4],
+    })
+    store.read.return_value = valid_df
+    result = load_odds_time_series_range(store, "20240701", "20240701")
+    assert store.read.call_count == 1
+    assert len(result) == 1
+```
+
+### odds_dynamics_features.py 異常値ガードテスト
+
+```python
+def test_out_of_range_tanodds_produces_nan_features(self):
+    """tanodds が範囲外 (1.0未満, 999.9超) の場合、特徴量が NaN になる。"""
+    df = pd.DataFrame({"race_id": ["R1"], "umaban": [1]})
+    ts = pd.DataFrame({
+        "race_id": ["R1", "R1"], "umaban": [1, 1],
+        "happyotime": [1, 2], "tanodds": [0.5, 1500.0],  # 範囲外
+    })
+    result = compute_odds_dynamics(df, ts)
+    assert pd.isna(result["odds_drop_rate_60_10"].iloc[0])
+```
 
 ## 検証方法
 
