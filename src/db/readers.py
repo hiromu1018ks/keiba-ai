@@ -73,6 +73,7 @@ _STRING_COLUMNS: set[str] = {
     "kisyuryakusyobefore",
     "kumi",  # ワイドオッズの馬番組み合わせ (e.g. "0102")
     "surface",  # ETL派生列: "turf"/"dirt"/"other" (文字列)
+    "happyotime",  # 時系列オッズの発走時刻コード (e.g. "03101500")
 }
 
 
@@ -112,25 +113,14 @@ def load_odds_snapshots_from_db(db: EveryDB2Queries, ymd: str) -> pd.DataFrame:
 
 
 def load_odds_time_series_from_db(db: EveryDB2Queries, ymd: str) -> pd.DataFrame:
-    """EveryDB2 から時系列オッズを読み込む。happyotime を _coerce_types から保護。"""
+    """EveryDB2 から時系列オッズを読み込む。"""
     raw = db.get_odds_time_series(ymd)
     if raw.empty:
         return raw
     df = _apply_type_conversions(raw, "jodds_tanpuku")
     df = _compute_race_date(df)
     df = _compute_race_id(df)
-
-    # happyotime 保護: _STRING_COLUMNS に一時追加してから _coerce_types を呼ぶ
-    # 注意: _STRING_COLUMNS はモジュールレベルの set であるためスレッドセーフでないが、
-    # 現状の実行パスはシングルスレッドなので問題なし
-    _protected_cols = {"happyotime"} - _STRING_COLUMNS
-    _STRING_COLUMNS.update(_protected_cols)
-    try:
-        df = _coerce_types(df)
-    finally:
-        _STRING_COLUMNS.difference_update(_protected_cols)
-
-    return df
+    return _coerce_types(df)
 
 
 def _to_dt(yyyymmdd: str) -> datetime:
