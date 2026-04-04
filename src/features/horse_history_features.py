@@ -177,7 +177,7 @@ class HorseHistoryFeatures:
         entry_df: pd.DataFrame,
         target_race_ids: Optional[np.ndarray] = None,
     ) -> pd.DataFrame:
-        """過去成績特徴量を計算（pre-indexed lookup + searchsorted 高速版）"""
+        """過去成績特徴量を計算（itertuples + numpy array 高速版）"""
         if target_race_ids is not None:
             entry_df = entry_df[entry_df["race_id"].isin(target_race_ids)]
 
@@ -257,176 +257,239 @@ class HorseHistoryFeatures:
             for k, g in past_df_sorted[(past_df_sorted["kakuteijyuni"] > 0)].groupby("kisyucode")
         }
 
-        # Weight column name
+        # -------------------------------------------------------------------
+        # Pre-convert past DataFrames to dict-of-numpy-arrays for fast access
+        # -------------------------------------------------------------------
+        cols_horse = [
+            "race_date", "valid_field", "kakuteijyuni", "syussotosu",
+            "harontimel3", "distance_bin", "timediff", "jyuni1c", "jyuni4c",
+            "kyakusitukubun",
+        ]
+        cols_jockey = ["race_date", "kakuteijyuni", "odds"]
+        cols_jockey_all = ["race_date", "kakuteijyuni"]
+
+        past_by_ketto_arr: dict[str, dict[str, np.ndarray]] = {}
+        for k, df in past_by_ketto.items():
+            arrs: dict[str, np.ndarray] = {}
+            for col in cols_horse:
+                if col in df.columns:
+                    arrs[col] = df[col].values
+            arrs["_valid_mask"] = (
+                (arrs.get("valid_field", np.array([], dtype=bool)) == 1)
+                & (arrs.get("kakuteijyuni", np.array([], dtype=float)) > 0)
+            )
+            past_by_ketto_arr[k] = arrs
+
+        past_by_kisyu_arr: dict[str, dict[str, np.ndarray]] = {}
+        for k, df in past_by_kisyu.items():
+            arrs_j: dict[str, np.ndarray] = {}
+            for col in cols_jockey:
+                if col in df.columns:
+                    arrs_j[col] = df[col].values
+            past_by_kisyu_arr[k] = arrs_j
+
+        past_by_kisyu_all_arr: dict[str, dict[str, np.ndarray]] = {}
+        for k, df in past_by_kisyu_all.items():
+            arrs_ja: dict[str, np.ndarray] = {}
+            for col in cols_jockey_all:
+                if col in df.columns:
+                    arrs_ja[col] = df[col].values
+            past_by_kisyu_all_arr[k] = arrs_ja
+
+        # -------------------------------------------------------------------
+        # Pre-compute weight lookup for vectorized access
+        # -------------------------------------------------------------------
         weight_col = "bataijyu" if "bataijyu" in entry_df.columns else "weight"
+        if weight_col in entry_df.columns:
+            _weight_map = entry_df.set_index(["race_id", "umaban"])[weight_col]
+        else:
+            _weight_map = pd.Series(dtype=float)
+
+        # -------------------------------------------------------------------
+        # Pre-compute column availability flags (same for all horses)
+        # -------------------------------------------------------------------
+        _sample_arrs = next(iter(past_by_ketto_arr.values()), {})
+        _has_harontimel3 = "harontimel3" in _sample_arrs
+        _has_distance_bin = "distance_bin" in _sample_arrs
+        _has_timediff = "timediff" in _sample_arrs
+        _has_jyuni1c = "jyuni1c" in _sample_arrs
+        _has_jyuni4c = "jyuni4c" in _sample_arrs
+        _has_kyakusitukubun = "kyakusitukubun" in _sample_arrs
 
         total = len(horses)
         results: list[dict] = []
-        empty_past = pd.DataFrame()
 
-        for i, (_, row) in enumerate(horses.iterrows()):
+        for i, row in enumerate(horses.itertuples(index=False)):
             if i % 200 == 0:
                 print(
                     f"  HorseHistoryFeatures: {i}/{total} ({i / max(total, 1) * 100:.0f}%)",
                     flush=True,
                 )
-            race_date = row["race_date"]
-            ketto = row["kettonum"]
-            kisyu = row["kisyucode"]
+            race_date = row.race_date
+            ketto = row.kettonum
+            kisyu = row.kisyucode
 
             # --- Horse features: O(1) lookup + O(log m) searchsorted ---
-            horse_past_all = past_by_ketto.get(ketto, empty_past)
-            if len(horse_past_all) > 0:
-                valid_past = horse_past_all[
-                    (horse_past_all["valid_field"] == 1) & (horse_past_all["kakuteijyuni"] > 0)
-                ]
-                # searchsorted for date cutoff (ensure datetime64 types)
-                if len(valid_past) > 0:
-                    dates_np = valid_past["race_date"].values.astype("datetime64[ns]")
+            horse_arrs = past_by_ketto_arr.get(ketto)
+            if horse_arrs is not None and len(horse_arrs.get("race_date", [])) > 0:
+                valid_mask = horse_arrs["_valid_mask"]
+                if valid_mask.any():
+                    dates_all = horse_arrs["race_date"].astype("datetime64[ns]")
                     target_date_np = np.datetime64(race_date, "ns")
-                    idx = dates_np.searchsorted(target_date_np, side="left")
-                    horse_past = valid_past.iloc[max(0, idx - 3) : idx]
+                    # searchsorted on valid dates only
+                    valid_dates = dates_all[valid_mask]
+                    idx = valid_dates.searchsorted(target_date_np, side="left")
+                    start = max(0, idx - 3)
+                    # Gather last-3 valid past race arrays
+                    hp_kakuteijyuni = horse_arrs["kakuteijyuni"][valid_mask][start:idx]
+                    hp_syussotosu = horse_arrs["syussotosu"][valid_mask][start:idx]
+                    n_past = len(hp_kakuteijyuni)
                 else:
-                    horse_past = valid_past
+                    n_past = 0
             else:
-                horse_past = empty_past
+                n_past = 0
 
             # norm_finish_logit_avg
-            if len(horse_past) > 0:
+            if n_past > 0:
                 logits = _norm_finish_logit_vec(
-                    horse_past["kakuteijyuni"].values.astype(float),
-                    horse_past["syussotosu"].values.astype(float),
+                    hp_kakuteijyuni.astype(float),
+                    hp_syussotosu.astype(float),
                 )
                 norm_finish_logit_avg: float = float(np.nanmean(logits))
             else:
                 norm_finish_logit_avg = float("nan")
 
             # harontimel3_avg
-            if "harontimel3" in horse_past.columns and len(horse_past) > 0:
-                ht_vals = horse_past["harontimel3"].dropna()
-                harontimel3_avg: float = (
-                    float(ht_vals.tail(3).mean()) if len(ht_vals) > 0 else float("nan")
-                )
+            if _has_harontimel3 and n_past > 0:
+                ht_raw = horse_arrs["harontimel3"][valid_mask][start:idx].astype(float)
+                ht_valid = ht_raw[~np.isnan(ht_raw)]
+                if len(ht_valid) > 0:
+                    # tail(3) → last 3 non-NaN values
+                    harontimel3_avg: float = float(ht_valid[-3:].mean())
+                else:
+                    harontimel3_avg = float("nan")
             else:
                 harontimel3_avg = float("nan")
 
-            # harontimel3_zscore
-            if (
-                "harontimel3" in horse_past.columns
-                and "distance_bin" in horse_past.columns
-                and len(horse_past) > 0
-            ):
-                ht = horse_past["harontimel3"]
-                db = horse_past["distance_bin"]
-                valid = ht.notna() & db.notna()
-                if valid.sum() > 0:
-                    grp_stats = (
-                        horse_past.loc[valid]
-                        .groupby("distance_bin")["harontimel3"]
-                        .agg(["mean", "std"])
-                    )
-                    zscores: list[float] = []
-                    for _, r in horse_past.loc[valid].iterrows():
-                        bin_key = r["distance_bin"]
-                        if bin_key in grp_stats.index and grp_stats.loc[bin_key, "std"] > 0:
-                            z = (r["harontimel3"] - grp_stats.loc[bin_key, "mean"]) / grp_stats.loc[
-                                bin_key, "std"
-                            ]
-                            zscores.append(z)
-                        else:
-                            zscores.append(float("nan"))
-                    harontimel3_zscore: float = (
-                        float(pd.Series(zscores).tail(3).mean()) if zscores else float("nan")
-                    )
+            # harontimel3_zscore — vectorized (no inner iterrows)
+            if _has_harontimel3 and _has_distance_bin and n_past > 0:
+                ht_raw = horse_arrs["harontimel3"][valid_mask][start:idx].astype(float)
+                db_raw = horse_arrs["distance_bin"][valid_mask][start:idx]
+                valid_ht_db = ~np.isnan(ht_raw) & pd.notna(db_raw)
+                if valid_ht_db.any():
+                    ht_v = ht_raw[valid_ht_db]
+                    db_v = db_raw[valid_ht_db]
+                    # Build local groupby stats via pandas for correctness
+                    grp = pd.DataFrame({"ht": ht_v, "db": db_v})
+                    grp_stats = grp.groupby("db")["ht"].agg(["mean", "std"])
+                    # Vectorized z-score lookup
+                    means = grp_stats.loc[db_v, "mean"].values
+                    stds = grp_stats.loc[db_v, "std"].values
+                    z_vals = np.where(stds > 0, (ht_v - means) / stds, np.nan)
+                    # tail(3).mean() — last 3 values
+                    harontimel3_zscore: float = float(pd.Series(z_vals).tail(3).mean())
                 else:
                     harontimel3_zscore = float("nan")
             else:
                 harontimel3_zscore = float("nan")
 
             # timediff_avg
-            if "timediff" in horse_past.columns and len(horse_past) > 0:
-                td_vals = horse_past["timediff"].dropna()
-                timediff_avg: float = (
-                    float(td_vals.tail(3).mean()) if len(td_vals) > 0 else float("nan")
-                )
+            if _has_timediff and n_past > 0:
+                td_raw = horse_arrs["timediff"][valid_mask][start:idx].astype(float)
+                td_valid = td_raw[~np.isnan(td_raw)]
+                if len(td_valid) > 0:
+                    timediff_avg: float = float(td_valid[-3:].mean())
+                else:
+                    timediff_avg = float("nan")
             else:
                 timediff_avg = float("nan")
 
             # jyuni1c_avg
-            if "jyuni1c" in horse_past.columns and len(horse_past) > 0:
-                c1_vals = horse_past["jyuni1c"].dropna()
-                jyuni1c_avg: float = (
-                    float(c1_vals.tail(3).mean()) if len(c1_vals) > 0 else float("nan")
-                )
+            if _has_jyuni1c and n_past > 0:
+                c1_raw = horse_arrs["jyuni1c"][valid_mask][start:idx].astype(float)
+                c1_valid = c1_raw[~np.isnan(c1_raw)]
+                if len(c1_valid) > 0:
+                    jyuni1c_avg: float = float(c1_valid[-3:].mean())
+                else:
+                    jyuni1c_avg = float("nan")
             else:
                 jyuni1c_avg = float("nan")
 
             # jyuni4c_avg
-            if "jyuni4c" in horse_past.columns and len(horse_past) > 0:
-                c4_vals = horse_past["jyuni4c"].dropna()
-                jyuni4c_avg: float = (
-                    float(c4_vals.tail(3).mean()) if len(c4_vals) > 0 else float("nan")
-                )
+            if _has_jyuni4c and n_past > 0:
+                c4_raw = horse_arrs["jyuni4c"][valid_mask][start:idx].astype(float)
+                c4_valid = c4_raw[~np.isnan(c4_raw)]
+                if len(c4_valid) > 0:
+                    jyuni4c_avg: float = float(c4_valid[-3:].mean())
+                else:
+                    jyuni4c_avg = float("nan")
             else:
                 jyuni4c_avg = float("nan")
 
             # closing_index_avg
-            if (
-                all(c in horse_past.columns for c in ["jyuni4c", "kakuteijyuni", "syussotosu"])
-                and len(horse_past) > 0
-            ):
-                valid_ci = horse_past.dropna(subset=["jyuni4c", "kakuteijyuni", "syussotosu"])
-                valid_ci = valid_ci[valid_ci["syussotosu"] > 1]
-                if len(valid_ci) > 0:
-                    norm_4c = (valid_ci["jyuni4c"] - 1) / (valid_ci["syussotosu"] - 1)
-                    norm_finish = (valid_ci["kakuteijyuni"] - 1) / (valid_ci["syussotosu"] - 1)
+            if _has_jyuni4c and n_past > 0:
+                c4_raw = horse_arrs["jyuni4c"][valid_mask][start:idx].astype(float)
+                kj_raw = horse_arrs["kakuteijyuni"][valid_mask][start:idx].astype(float)
+                sy_raw = horse_arrs["syussotosu"][valid_mask][start:idx].astype(float)
+                valid_ci = ~np.isnan(c4_raw) & ~np.isnan(kj_raw) & ~np.isnan(sy_raw) & (sy_raw > 1)
+                if valid_ci.any():
+                    norm_4c = (c4_raw[valid_ci] - 1) / (sy_raw[valid_ci] - 1)
+                    norm_finish = (kj_raw[valid_ci] - 1) / (sy_raw[valid_ci] - 1)
                     closing_indices = norm_4c - norm_finish
-                    closing_index_avg: float = float(closing_indices.tail(3).mean())
+                    closing_index_avg: float = float(closing_indices[-3:].mean())
                 else:
                     closing_index_avg = float("nan")
             else:
                 closing_index_avg = float("nan")
 
             # kyakusitukubun_cd
-            if "kyakusitukubun" in horse_past.columns and len(horse_past) > 0:
-                kt_vals = horse_past["kyakusitukubun"].dropna()
-                kyakusitukubun_cd: float | int = (
-                    int(kt_vals.iloc[-1]) if len(kt_vals) > 0 else float("nan")
-                )
+            if _has_kyakusitukubun and n_past > 0:
+                kt_raw = horse_arrs["kyakusitukubun"][valid_mask][start:idx]
+                kt_valid = kt_raw[~pd.isna(kt_raw)]
+                if len(kt_valid) > 0:
+                    kyakusitukubun_cd: float | int = int(kt_valid[-1])
+                else:
+                    kyakusitukubun_cd = float("nan")
             else:
                 kyakusitukubun_cd = float("nan")
 
             # --- Jockey features: O(1) lookup + O(log m) searchsorted ---
-            jockey_past_all = past_by_kisyu.get(kisyu, empty_past)
-            if len(jockey_past_all) > 0:
-                dates_np = jockey_past_all["race_date"].values.astype("datetime64[ns]")
+            jockey_arrs = past_by_kisyu_arr.get(kisyu)
+            if jockey_arrs is not None and len(jockey_arrs.get("race_date", [])) > 0:
+                j_dates = jockey_arrs["race_date"].astype("datetime64[ns]")
                 target_date_np = np.datetime64(race_date, "ns")
-                idx = dates_np.searchsorted(target_date_np, side="left")
-                jockey_past = jockey_past_all.iloc[max(0, idx - 100) : idx]
+                idx_j = j_dates.searchsorted(target_date_np, side="left")
+                j_start = max(0, idx_j - 100)
+                j_kakuteijyuni = jockey_arrs["kakuteijyuni"][j_start:idx_j]
+                j_odds = jockey_arrs["odds"][j_start:idx_j]
+                n_jockey = len(j_kakuteijyuni)
             else:
-                jockey_past = empty_past
+                n_jockey = 0
 
-            if len(jockey_past) >= 30:
-                expected = (PAYOUT_RATE / jockey_past["odds"].clip(lower=1.1)).sum()
-                actual = int((jockey_past["kakuteijyuni"] == 1).sum())
+            if n_jockey >= 30:
+                expected = float((PAYOUT_RATE / np.clip(j_odds, 1.1, None)).sum())
+                actual = int((j_kakuteijyuni == 1).sum())
                 jockey_surprise: float = _compute_jockey_surprise(
-                    actual, len(jockey_past), expected
+                    actual, n_jockey, expected
                 )
             else:
                 jockey_surprise = float("nan")
 
             # jockey_cond_wr — uses past_by_kisyu_all (kakuteijyuni > 0 only, no odds filter)
-            jockey_all_past = past_by_kisyu_all.get(kisyu, empty_past)
-            if len(jockey_all_past) > 0:
-                dates_np = jockey_all_past["race_date"].values.astype("datetime64[ns]")
+            jockey_all_arrs = past_by_kisyu_all_arr.get(kisyu)
+            if jockey_all_arrs is not None and len(jockey_all_arrs.get("race_date", [])) > 0:
+                ja_dates = jockey_all_arrs["race_date"].astype("datetime64[ns]")
                 target_date_np = np.datetime64(race_date, "ns")
-                idx = dates_np.searchsorted(target_date_np, side="left")
-                jockey_all = jockey_all_past.iloc[:idx]
-                total_rides = len(jockey_all)
+                idx_ja = ja_dates.searchsorted(target_date_np, side="left")
+                ja_kakuteijyuni = jockey_all_arrs["kakuteijyuni"][:idx_ja]
+                total_rides = len(ja_kakuteijyuni)
             else:
-                jockey_all = empty_past
                 total_rides = 0
-            total_wins = int((jockey_all["kakuteijyuni"] == 1).sum()) if total_rides > 0 else 0
+
+            if total_rides > 0:
+                total_wins = int((ja_kakuteijyuni == 1).sum())
+            else:
+                total_wins = 0
 
             k_smooth = 25
             if total_rides >= 10:
@@ -437,21 +500,18 @@ class HorseHistoryFeatures:
             else:
                 jockey_cond_wr = float("nan")
 
-            # weight_absolute
-            weight_val = entry_df.loc[
-                (entry_df["race_id"] == row["race_id"]) & (entry_df["umaban"] == row["umaban"]),
-                weight_col,
-            ].values
-            weight_absolute: float = (
-                float(weight_val[0])
-                if len(weight_val) > 0 and pd.notna(weight_val[0])
-                else float("nan")
-            )
+            # weight_absolute — vectorized lookup
+            wkey = (row.race_id, row.umaban)
+            if wkey in _weight_map.index:
+                wval = _weight_map.loc[wkey]
+                weight_absolute: float = float(wval) if pd.notna(wval) else float("nan")
+            else:
+                weight_absolute = float("nan")
 
             results.append(
                 {
-                    "race_id": row["race_id"],
-                    "umaban": row["umaban"],
+                    "race_id": row.race_id,
+                    "umaban": row.umaban,
                     "norm_finish_logit_avg": norm_finish_logit_avg,
                     "harontimel3_avg": harontimel3_avg,
                     "harontimel3_zscore": harontimel3_zscore,
