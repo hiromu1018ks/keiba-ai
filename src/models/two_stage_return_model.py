@@ -152,11 +152,13 @@ class WinTwoStageModel:
         df = df.copy()
         features = self._prepare_features(df)
 
+        hit_iter = self.hit_model.best_iteration if self.hit_model.best_iteration > 0 else None
+        ret_iter = self.return_model.best_iteration if self.return_model.best_iteration > 0 else None
         df["p_win_pred"] = self.hit_model.predict(
-            features, num_iteration=self.hit_model.best_iteration
+            features, num_iteration=hit_iter
         )
         df["e_return_win_pred"] = self.return_model.predict(
-            features, num_iteration=self.return_model.best_iteration
+            features, num_iteration=ret_iter
         )
         df["ev_win"] = df["p_win_pred"] * df["e_return_win_pred"]
         return df
@@ -251,11 +253,13 @@ class PlaceTwoStageModel:
         df = df.copy()
         features = self._prepare_features(df)
 
+        hit_iter = self.hit_model.best_iteration if self.hit_model.best_iteration > 0 else None
+        ret_iter = self.return_model.best_iteration if self.return_model.best_iteration > 0 else None
         df["p_place_pred"] = self.hit_model.predict(
-            features, num_iteration=self.hit_model.best_iteration
+            features, num_iteration=hit_iter
         )
         df["e_return_place_pred"] = self.return_model.predict(
-            features, num_iteration=self.return_model.best_iteration
+            features, num_iteration=ret_iter
         )
         df["ev_place"] = df["p_place_pred"] * df["e_return_place_pred"]
         return df
