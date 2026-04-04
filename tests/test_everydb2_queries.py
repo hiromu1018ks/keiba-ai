@@ -316,9 +316,15 @@ class TestEveryDB2Queries:
 
         mock_read_sql.return_value = pd.DataFrame(
             {
-                "year": ["2026"], "monthday": ["0405"],
-                "jyocd": ["05"], "kaiji": ["01"], "nichiji": ["01"], "racenum": ["01"],
-                "trackcd": ["11"], "kyori": ["1200"], "tenkocd": ["2"],
+                "year": ["2026"],
+                "monthday": ["0405"],
+                "jyocd": ["05"],
+                "kaiji": ["01"],
+                "nichiji": ["01"],
+                "racenum": ["01"],
+                "trackcd": ["11"],
+                "kyori": ["1200"],
+                "tenkocd": ["2"],
             }
         )
 
