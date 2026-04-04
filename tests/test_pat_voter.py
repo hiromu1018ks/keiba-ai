@@ -10,8 +10,11 @@ from domain.types import BetType
 
 def _make_bet(umaban: int = 1, stake: float = 500.0) -> Bet:
     return Bet(
-        race_id="2024032501010101", umaban=umaban,
-        bet_type=BetType.PLACE, odds=3.0, ev_lower_corrected=1.20,
+        race_id="2024032501010101",
+        umaban=umaban,
+        bet_type=BetType.PLACE,
+        odds=3.0,
+        ev_lower_corrected=1.20,
         stake=stake,
     )
 
@@ -26,6 +29,7 @@ class TestPatVoter:
         ]
 
         from automation.pat_voter import PatVoter
+
         voter = PatVoter(api=mock_api)
         bets = [_make_bet(1), _make_bet(3)]
         results = voter.submit_bets(bets)
@@ -43,6 +47,7 @@ class TestPatVoter:
         ]
 
         from automation.pat_voter import PatVoter
+
         voter = PatVoter(api=mock_api)
         bets = [_make_bet(1), _make_bet(3)]
         results = voter.submit_bets(bets)
@@ -56,6 +61,7 @@ class TestPatVoter:
         mock_api = MagicMock()
 
         from automation.pat_voter import PatVoter
+
         voter = PatVoter(api=mock_api)
         results = voter.submit_bets([])
 
@@ -68,6 +74,7 @@ class TestPatVoter:
         mock_api.cancel.return_value = True
 
         from automation.pat_voter import PatVoter
+
         voter = PatVoter(api=mock_api)
         result = voter.cancel_bets(["B001"])
 
@@ -83,6 +90,7 @@ class TestPatVoter:
         mock_guard.check.return_value = SafetyCheckResult(can_bet=True)
 
         from automation.pat_voter import PatVoter
+
         voter = PatVoter(api=mock_api, safety_guard=mock_guard)
         bets = [_make_bet()]
         results = voter.submit_bets(bets, bankroll=100000)
@@ -96,10 +104,12 @@ class TestPatVoter:
 
         mock_guard = MagicMock()
         mock_guard.check.return_value = SafetyCheckResult(
-            can_bet=False, reason="Daily loss exceeded",
+            can_bet=False,
+            reason="Daily loss exceeded",
         )
 
         from automation.pat_voter import PatVoter
+
         voter = PatVoter(api=mock_api, safety_guard=mock_guard)
         bets = [_make_bet()]
         results = voter.submit_bets(bets, bankroll=100000)
@@ -113,6 +123,7 @@ class TestPatVoter:
         mock_api.submit.return_value = [{"success": True, "bet_id": "B001"}]
 
         from automation.pat_voter import PatVoter
+
         voter = PatVoter(api=mock_api)
         bets = [_make_bet()]
         results = voter.submit_bets(bets, bankroll=0)

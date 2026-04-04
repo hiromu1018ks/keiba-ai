@@ -13,12 +13,12 @@ from models.ev_correction_model import EVCorrectionModel
 
 @pytest.fixture
 def pre_ev_df() -> pd.DataFrame:
-    """WinTwoStageModel.predict_ev() 出力後のテストデータ"""
+    """WinTwoStageModel.predict_ev() 出力後のテストデータ — 生カラム名"""
     return pd.DataFrame(
         {
             "race_id": ["R1"] * 8,
-            "finish_pos": [1, 2, 3, 4, 5, 6, 7, 8],
-            "win_odds_actual": [4.0, 6.0, 9.0, 16.0, 28.0, 45.0, 90.0, 160.0],
+            "kakuteijyuni": [1, 2, 3, 4, 5, 6, 7, 8],
+            "odds": [4.0, 6.0, 9.0, 16.0, 28.0, 45.0, 90.0, 160.0],
             "p_win_pred": [0.28, 0.22, 0.18, 0.12, 0.08, 0.06, 0.04, 0.02],
             "e_return_win_pred": [4.0, 6.0, 9.0, 16.0, 28.0, 45.0, 90.0, 160.0],
             "ev_win": [1.12, 1.32, 1.62, 1.92, 2.24, 2.70, 3.60, 3.20],
@@ -133,7 +133,7 @@ class TestEVCorrectionModel:
 
 @pytest.fixture
 def large_ev_df() -> pd.DataFrame:
-    """EV補正の統計テスト用 大規模データ (200行, winner 60+頭, 中穴ゾーン 120+行)"""
+    """EV補正の統計テスト用 大規模データ (200行, winner 60+頭, 中穴ゾーン 120+行) — 生カラム名"""
     np.random.seed(123)
     n_races = 200
     rows: list[dict] = []
@@ -143,32 +143,34 @@ def large_ev_df() -> pd.DataFrame:
         for j in range(n_horses):
             finish = j + 1
             odds = max(1.1, np.random.lognormal(2.0, 0.7))
-            rows.append({
-                "race_id": f"LR{i:04d}",
-                "finish_pos": finish,
-                "win_odds_actual": odds,
-                "p_win_pred": float(p_preds[j]),
-                "e_return_win_pred": odds,
-                "ev_win": float(p_preds[j]) * odds,
-                "signed_log_error_win": np.random.normal(0, 0.3),
-                "abs_log_error_win": abs(np.random.normal(0, 0.3)),
-                "market_entropy": float(np.random.uniform(2.0, 3.5)),
-                "popularity_rank": j + 1,
-                "surface": np.random.choice(["turf", "dirt"]),
-                "distance_bin": np.random.choice(["sprint", "mile", "intermediate", "long"]),
-                "track_condition_code": 1,
-                "field_size": n_horses,
-                # 騎手コンテキスト (Group C)
-                "jockey_wr_overall": float(np.random.uniform(0.05, 0.20)),
-                "jockey_wr_distance": float(np.random.uniform(0.03, 0.18)),
-                "jockey_wr_venue": float(np.random.uniform(0.04, 0.19)),
-                "jockey_prize_log": float(np.random.uniform(8.0, 12.0)),
-                # 調教師コンテキスト (Group D)
-                "trainer_wr_overall": float(np.random.uniform(0.05, 0.20)),
-                "trainer_wr_distance": float(np.random.uniform(0.03, 0.18)),
-                "trainer_wr_venue": float(np.random.uniform(0.04, 0.19)),
-                "trainer_prize_log": float(np.random.uniform(7.0, 11.5)),
-            })
+            rows.append(
+                {
+                    "race_id": f"LR{i:04d}",
+                    "kakuteijyuni": finish,
+                    "odds": odds,
+                    "p_win_pred": float(p_preds[j]),
+                    "e_return_win_pred": odds,
+                    "ev_win": float(p_preds[j]) * odds,
+                    "signed_log_error_win": np.random.normal(0, 0.3),
+                    "abs_log_error_win": abs(np.random.normal(0, 0.3)),
+                    "market_entropy": float(np.random.uniform(2.0, 3.5)),
+                    "popularity_rank": j + 1,
+                    "surface": np.random.choice(["turf", "dirt"]),
+                    "distance_bin": np.random.choice(["sprint", "mile", "intermediate", "long"]),
+                    "track_condition_code": 1,
+                    "field_size": n_horses,
+                    # 騎手コンテキスト (Group C)
+                    "jockey_wr_overall": float(np.random.uniform(0.05, 0.20)),
+                    "jockey_wr_distance": float(np.random.uniform(0.03, 0.18)),
+                    "jockey_wr_venue": float(np.random.uniform(0.04, 0.19)),
+                    "jockey_prize_log": float(np.random.uniform(8.0, 12.0)),
+                    # 調教師コンテキスト (Group D)
+                    "trainer_wr_overall": float(np.random.uniform(0.05, 0.20)),
+                    "trainer_wr_distance": float(np.random.uniform(0.03, 0.18)),
+                    "trainer_wr_venue": float(np.random.uniform(0.04, 0.19)),
+                    "trainer_prize_log": float(np.random.uniform(7.0, 11.5)),
+                }
+            )
     return pd.DataFrame(rows)
 
 
@@ -178,7 +180,7 @@ def trained_ev_model_large(large_ev_df: pd.DataFrame) -> EVCorrectionModel:
     np.random.seed(456)
     model = EVCorrectionModel()
     n = len(large_ev_df)
-    is_winner = large_ev_df["finish_pos"].values == 1
+    is_winner = large_ev_df["kakuteijyuni"].values == 1
     is_mid_range = large_ev_df["p_win_pred"].between(0.05, 0.15).values
 
     # P補正: winner を引き上げ、mid_range の非winner を押し下げ
@@ -210,7 +212,7 @@ class TestEVCorrectionLargeData:
     ) -> None:
         """EV補正モデルがEVのMAEを改善することを確認 (§13.1)"""
         result = trained_ev_model_large.correct_ev(large_ev_df)
-        actual_ev = result["win_odds_actual"] * (result["finish_pos"] == 1).astype(int)
+        actual_ev = result["odds"] * (result["kakuteijyuni"] == 1).astype(int)
         mae_raw = float(np.mean(np.abs(result["ev_win"] - actual_ev)))
         mae_corrected = float(np.mean(np.abs(result["ev_win_corrected"] - actual_ev)))
         assert mae_corrected < mae_raw, (
@@ -227,15 +229,13 @@ class TestEVCorrectionLargeData:
         mid_range = result[result["p_win_pred"].between(0.05, 0.15)].copy()
         if len(mid_range) < 100:
             pytest.skip("中穴ゾーンのサンプル不足")
-        actual_ev = mid_range["win_odds_actual"] * (mid_range["finish_pos"] == 1).astype(int)
+        actual_ev = mid_range["odds"] * (mid_range["kakuteijyuni"] == 1).astype(int)
         mae_raw = float(np.mean(np.abs(mid_range["ev_win"] - actual_ev)))
         mae_corrected = float(np.mean(np.abs(mid_range["ev_win_corrected"] - actual_ev)))
         if mae_raw == 0:
             pytest.skip("MAE_raw がゼロのため改善率を計算できない")
         improvement = (mae_raw - mae_corrected) / mae_raw
-        assert improvement > 0.10, (
-            f"中穴ゾーンの補正改善率が低い: {improvement:.1%}"
-        )
+        assert improvement > 0.10, f"中穴ゾーンの補正改善率が低い: {improvement:.1%}"
 
     def test_ev_correction_winner_weight(
         self,
@@ -244,7 +244,7 @@ class TestEVCorrectionLargeData:
     ) -> None:
         """1着馬のP_corrected中央値>=P_pred中央値 (§13.1)"""
         result = trained_ev_model_large.correct_ev(large_ev_df)
-        winners = result[result["finish_pos"] == 1]
+        winners = result[result["kakuteijyuni"] == 1]
         if len(winners) < 50:
             pytest.skip("1着馬サンプル不足")
         assert winners["p_win_corrected"].median() >= winners["p_win_pred"].median(), (

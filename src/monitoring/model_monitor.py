@@ -81,36 +81,30 @@ class ModelMonitor:
         n = len(recent_results)
         if n == 0:
             return PerformanceReport(
-                n_races=0, hit_rate=0.0, rolling_roi=0.0,
-                ev_mean_error=0.0, regime="unknown",
+                n_races=0,
+                hit_rate=0.0,
+                rolling_roi=0.0,
+                ev_mean_error=0.0,
+                regime="unknown",
                 needs_attention=True,
             )
 
         hit_rate = float(recent_results["hit"].mean())
-        ev_error = float(
-            (recent_results["ev_actual"] - recent_results["ev_predicted"]).mean()
-        )
+        ev_error = float((recent_results["ev_actual"] - recent_results["ev_predicted"]).mean())
         # Rolling ROI = sum(actual - 1) / n （単勝EVベースの近似）
-        rolling_roi = float(
-            (recent_results["ev_actual"].sum() - n) / max(n, 1)
-        )
+        rolling_roi = float((recent_results["ev_actual"].sum() - n) / max(n, 1))
 
         # レジーム状態
-        regime_val = getattr(
-            self.regime_detector.current_regime, "value", "unknown"
-        )
+        regime_val = getattr(self.regime_detector.current_regime, "value", "unknown")
 
         # 注意喚起フラグ
         needs_attention = (
-            n < self.min_races
-            or hit_rate < self.hit_rate_warning
-            or regime_val == "collapsed"
+            n < self.min_races or hit_rate < self.hit_rate_warning or regime_val == "collapsed"
         )
 
         # 再学習トリガー
-        should_retrain = (
-            self.regime_detector.should_retrain()
-            or (n >= self.min_races and hit_rate < self.hit_rate_warning * 0.5)
+        should_retrain = self.regime_detector.should_retrain() or (
+            n >= self.min_races and hit_rate < self.hit_rate_warning * 0.5
         )
 
         return PerformanceReport(

@@ -6,20 +6,18 @@ from unittest.mock import MagicMock
 
 import numpy as np
 import pandas as pd
-import pytest
 
 from features.jockey_context_features import FEATURE_COLS, JockeyContextFeatures
-
 
 # ---------------------------------------------------------------------------
 # Helper
 # ---------------------------------------------------------------------------
 
 
-def _make_repo(jockey_stats_df: pd.DataFrame) -> MagicMock:
-    repo = MagicMock()
-    repo.load_jockey_stats.return_value = jockey_stats_df
-    return repo
+def _make_store(jockey_stats_df: pd.DataFrame) -> MagicMock:
+    store = MagicMock()
+    store.read.return_value = jockey_stats_df
+    return store
 
 
 def _make_jockey_stats_row(
@@ -77,7 +75,7 @@ def _make_entry(
         {
             "race_id": ["r1"] * n,
             "umaban": list(range(1, n + 1)),
-            "kisyu_code": kisyu_codes,
+            "kisyucode": kisyu_codes,
             "race_date": [race_date] * n,
         }
     )
@@ -118,8 +116,8 @@ class TestJockeyWrOverall:
     def test_wr_overall(self):
         """wins=50, total=400 -> (50+1)/(400+11) = 51/411"""
         stats = pd.DataFrame([_make_jockey_stats_row(wins=50, total_starts=400)])
-        repo = _make_repo(stats)
-        feat = JockeyContextFeatures(repo)
+        store = _make_store(stats)
+        feat = JockeyContextFeatures(store)
         entry = _make_entry()
         result = feat.compute(entry)
         expected = (50 + 1) / (400 + 11)
@@ -127,12 +125,14 @@ class TestJockeyWrOverall:
 
     def test_latest_year_used(self):
         """最新年のみ使用: 2022と2023の両方がある場合2023を使用"""
-        stats = pd.DataFrame([
-            _make_jockey_stats_row(setyear=2022, wins=10, total_starts=100),
-            _make_jockey_stats_row(setyear=2023, wins=50, total_starts=400),
-        ])
-        repo = _make_repo(stats)
-        feat = JockeyContextFeatures(repo)
+        stats = pd.DataFrame(
+            [
+                _make_jockey_stats_row(setyear=2022, wins=10, total_starts=100),
+                _make_jockey_stats_row(setyear=2023, wins=50, total_starts=400),
+            ]
+        )
+        store = _make_store(stats)
+        feat = JockeyContextFeatures(store)
         entry = _make_entry(race_date="2024-06-01")
         result = feat.compute(entry)
         expected = (50 + 1) / (400 + 11)
@@ -150,8 +150,8 @@ class TestJockeyPrizeLog:
     def test_prize_log(self):
         """honsyokinheichi=100000 -> log1p(100000)"""
         stats = pd.DataFrame([_make_jockey_stats_row(honsyokinheichi=100000.0)])
-        repo = _make_repo(stats)
-        feat = JockeyContextFeatures(repo)
+        store = _make_store(stats)
+        feat = JockeyContextFeatures(store)
         entry = _make_entry()
         result = feat.compute(entry)
         expected = float(np.log1p(100000.0))
@@ -160,8 +160,8 @@ class TestJockeyPrizeLog:
     def test_prize_log_zero(self):
         """honsyokinheichi=0 -> log1p(0) = 0.0"""
         stats = pd.DataFrame([_make_jockey_stats_row(honsyokinheichi=0.0)])
-        repo = _make_repo(stats)
-        feat = JockeyContextFeatures(repo)
+        store = _make_store(stats)
+        feat = JockeyContextFeatures(store)
         entry = _make_entry()
         result = feat.compute(entry)
         expected = float(np.log1p(0.0))
@@ -178,12 +178,14 @@ class TestYearBoundary:
 
     def test_2024_race_uses_2023_stats(self):
         """race_year=2024 → setyear=2023使用、setyear=2024は除外"""
-        stats = pd.DataFrame([
-            _make_jockey_stats_row(setyear=2023, wins=30, total_starts=200),
-            _make_jockey_stats_row(setyear=2024, wins=60, total_starts=400),
-        ])
-        repo = _make_repo(stats)
-        feat = JockeyContextFeatures(repo)
+        stats = pd.DataFrame(
+            [
+                _make_jockey_stats_row(setyear=2023, wins=30, total_starts=200),
+                _make_jockey_stats_row(setyear=2024, wins=60, total_starts=400),
+            ]
+        )
+        store = _make_store(stats)
+        feat = JockeyContextFeatures(store)
         entry = _make_entry(race_date="2024-06-01")
         result = feat.compute(entry)
         expected = (30 + 1) / (200 + 11)
@@ -191,12 +193,14 @@ class TestYearBoundary:
 
     def test_2023_race_uses_2022_stats(self):
         """race_year=2023 → setyear=2022使用"""
-        stats = pd.DataFrame([
-            _make_jockey_stats_row(setyear=2022, wins=20, total_starts=150),
-            _make_jockey_stats_row(setyear=2023, wins=40, total_starts=300),
-        ])
-        repo = _make_repo(stats)
-        feat = JockeyContextFeatures(repo)
+        stats = pd.DataFrame(
+            [
+                _make_jockey_stats_row(setyear=2022, wins=20, total_starts=150),
+                _make_jockey_stats_row(setyear=2023, wins=40, total_starts=300),
+            ]
+        )
+        store = _make_store(stats)
+        feat = JockeyContextFeatures(store)
         entry = _make_entry(race_date="2023-06-01")
         result = feat.compute(entry)
         expected = (20 + 1) / (150 + 11)
@@ -213,8 +217,8 @@ class TestNoStats:
 
     def test_empty_stats(self):
         stats = pd.DataFrame()
-        repo = _make_repo(stats)
-        feat = JockeyContextFeatures(repo)
+        store = _make_store(stats)
+        feat = JockeyContextFeatures(store)
         entry = _make_entry()
         result = feat.compute(entry)
         for col in FEATURE_COLS:
@@ -222,12 +226,12 @@ class TestNoStats:
 
 
 class TestMissingJockey:
-    """kisyu_code not in stats → NaN"""
+    """kisyucode not in stats → NaN"""
 
     def test_missing_jockey(self):
         stats = pd.DataFrame([_make_jockey_stats_row(kisyucode="JK999")])
-        repo = _make_repo(stats)
-        feat = JockeyContextFeatures(repo)
+        store = _make_store(stats)
+        feat = JockeyContextFeatures(store)
         entry = _make_entry(kisyu_codes=["JK001"])
         result = feat.compute(entry)
         for col in FEATURE_COLS:
@@ -245,8 +249,8 @@ class TestDistanceAndVenue:
     def test_wr_distance(self):
         """ky1_wins=20, ky1_total=150 -> (20+1)/(150+11) = 21/161"""
         stats = pd.DataFrame([_make_jockey_stats_row(ky1_wins=20, ky1_total=150)])
-        repo = _make_repo(stats)
-        feat = JockeyContextFeatures(repo)
+        store = _make_store(stats)
+        feat = JockeyContextFeatures(store)
         entry = _make_entry()
         result = feat.compute(entry)
         expected = (20 + 1) / (150 + 11)
@@ -255,8 +259,8 @@ class TestDistanceAndVenue:
     def test_wr_venue(self):
         """j5_wins=10, j5_total=80 -> (10+1)/(80+11) = 11/91"""
         stats = pd.DataFrame([_make_jockey_stats_row(j5_wins=10, j5_total=80)])
-        repo = _make_repo(stats)
-        feat = JockeyContextFeatures(repo)
+        store = _make_store(stats)
+        feat = JockeyContextFeatures(store)
         entry = _make_entry()
         result = feat.compute(entry)
         expected = (10 + 1) / (80 + 11)
@@ -274,8 +278,8 @@ class TestResultStructure:
     def test_columns(self):
         """結果に race_id, umaban + FEATURE_COLS が含まれる"""
         stats = pd.DataFrame([_make_jockey_stats_row()])
-        repo = _make_repo(stats)
-        feat = JockeyContextFeatures(repo)
+        store = _make_store(stats)
+        feat = JockeyContextFeatures(store)
         entry = _make_entry()
         result = feat.compute(entry)
         expected_cols = ["race_id", "umaban"] + FEATURE_COLS
@@ -283,12 +287,14 @@ class TestResultStructure:
 
     def test_multiple_jockeys(self):
         """複数騎手のエントリーでそれぞれ正しい値が返る"""
-        stats = pd.DataFrame([
-            _make_jockey_stats_row(kisyucode="JK001", wins=50, total_starts=400),
-            _make_jockey_stats_row(kisyucode="JK002", wins=10, total_starts=100),
-        ])
-        repo = _make_repo(stats)
-        feat = JockeyContextFeatures(repo)
+        stats = pd.DataFrame(
+            [
+                _make_jockey_stats_row(kisyucode="JK001", wins=50, total_starts=400),
+                _make_jockey_stats_row(kisyucode="JK002", wins=10, total_starts=100),
+            ]
+        )
+        store = _make_store(stats)
+        feat = JockeyContextFeatures(store)
         entry = _make_entry(n=2, kisyu_codes=["JK001", "JK002"])
         result = feat.compute(entry)
         assert len(result) == 2

@@ -12,20 +12,20 @@ def compute_intra_race_features(df: pd.DataFrame) -> pd.DataFrame:
     """レース内相対特徴量を計算
 
     Args:
-        df: race_id, umaban, win_odds, ba_taijyu を含むDataFrame
+        df: race_id, umaban, odds, bataijyu を含むDataFrame
 
     Returns:
         weight_diff_from_mean, odds_rank 列が追加されたDataFrame
     """
     df = df.copy()
 
-    if "ba_taijyu" in df.columns:
-        weight_mean = df.groupby("race_id")["ba_taijyu"].transform("mean")
-        df["weight_diff_from_mean"] = df["ba_taijyu"] - weight_mean
+    if "bataijyu" in df.columns:
+        weight_mean = df.groupby("race_id")["bataijyu"].transform("mean")
+        df["weight_diff_from_mean"] = df["bataijyu"] - weight_mean
 
-    if "win_odds" in df.columns:
-        df["odds_rank"] = df.groupby("race_id")["win_odds"].rank(
-            method="min", ascending=True
-        ).astype("Int64")
+    if "odds" in df.columns:
+        df["odds_rank"] = (
+            df.groupby("race_id")["odds"].rank(method="min", ascending=True).astype("Int64")
+        )
 
     return df

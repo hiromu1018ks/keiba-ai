@@ -156,7 +156,7 @@ class TestMergeDelta:
         delta = pd.DataFrame({"id": [2], "val": ["B"], "datakubun": ["1"]})
         result = _merge_delta(existing, delta, pk=["id"])
         assert len(result) == 2
-        assert result[result["id"] == 2]["val"].iloc[0] == "B"
+        assert result[result["id"] == "2"]["val"].iloc[0] == "B"
 
     def test_upsert_inserts_new_row(self):
         from db.etl import _merge_delta
@@ -173,7 +173,7 @@ class TestMergeDelta:
         delta = pd.DataFrame({"id": [2], "val": ["x"], "datakubun": ["0"]})
         result = _merge_delta(existing, delta, pk=["id"])
         assert len(result) == 2
-        assert 2 not in result["id"].values
+        assert "2" not in result["id"].values
 
     def test_composite_pk(self):
         from db.etl import _merge_delta
@@ -195,7 +195,10 @@ class TestMergeDelta:
         )
         result = _merge_delta(existing, delta, pk=["year", "monthday"])
         assert len(result) == 2
-        assert result[(result["year"] == "2024") & (result["monthday"] == "0101")]["val"].iloc[0] == "A"
+        assert (
+            result[(result["year"] == "2024") & (result["monthday"] == "0101")]["val"].iloc[0]
+            == "A"
+        )
 
     def test_empty_delta_returns_existing(self):
         from db.etl import _merge_delta
@@ -318,7 +321,7 @@ class TestRunFullLoad:
             },
         ]
 
-        result = run_full_load(mock_store, mock_engine, config, "20240101", "20241231")
+        run_full_load(mock_store, mock_engine, config, "20240101", "20241231")
 
         written_df = mock_store.write.call_args[0][2]
         assert "race_date" in written_df.columns

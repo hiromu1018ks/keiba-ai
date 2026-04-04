@@ -1,26 +1,25 @@
 """test_history_features_v2.py — HorseHistoryFeatures 新規特徴量 (7個) のテスト
 
 Task 4: Group A — HorseHistoryFeatures拡張
-  1. haron_time_l3_avg — 直近3走のハロンタイム平均
-  2. haron_time_l3_zscore — 距離ビンz-score平均
-  3. time_diff_avg — 直近3走のタイム差平均
-  4. corner_1c_avg — 直近3走の1コーナー位置平均
-  5. corner_4c_avg — 直近3走の4コーナー位置平均
+  1. harontimel3_avg — 直近3走のハロンタイム平均
+  2. harontimel3_zscore — 距離ビンz-score平均
+  3. timediff_avg — 直近3走のタイム差平均
+  4. jyuni1c_avg — 直近3走の1コーナー位置平均
+  5. jyuni4c_avg — 直近3走の4コーナー位置平均
   6. closing_index_avg — (4C正規化 - 着順正規化) の直近3走平均
-  7. kyakusitu_cd — 直近走の脚質コード
-  + リーク防止テスト (target_date以降のレース除外)
-  + 新馬テスト (過去成績なし → NaN)
+  7. kyakusitukubun_cd — 直近走の脚質コード
++ リーク防止テスト (target_date以降のレース除外)
++ 新馬テスト (過去成績なし → NaN)
 """
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pandas as pd
-import pytest
 
-from db.repository import DataRepository
+from db.parquet_store import ParquetStore
 
 
 def _make_history(
@@ -44,8 +43,8 @@ def _make_target(
         {
             "race_id": [race_id],
             "umaban": [umaban],
-            "ketto_num": [ketto_num],
-            "kisyu_code": [kisyu_code],
+            "kettonum": [ketto_num],
+            "kisyucode": [kisyu_code],
             "weight": [480.0],
         }
     )
@@ -57,15 +56,15 @@ def _build_entries_hist(rows: list[dict]) -> pd.DataFrame:
     defaults = {
         "race_id": "p1",
         "umaban": 1,
-        "ketto_num": "H001",
-        "kisyu_code": "J001",
-        "finish_pos": 1,
-        "win_odds": 5.0,
-        "haron_time_l3": float("nan"),
-        "time_diff": float("nan"),
-        "corner_1c": float("nan"),
-        "corner_4c": float("nan"),
-        "kyakusitu": float("nan"),
+        "kettonum": "H001",
+        "kisyucode": "J001",
+        "kakuteijyuni": 1,
+        "odds": 5.0,
+        "harontimel3": float("nan"),
+        "timediff": float("nan"),
+        "jyuni1c": float("nan"),
+        "jyuni4c": float("nan"),
+        "kyakusitukubun": float("nan"),
     }
     for row in rows:
         for k, v in defaults.items():
@@ -77,10 +76,11 @@ def _build_races_hist(rows: list[dict]) -> pd.DataFrame:
     """races_hist DataFrameを構築する。必須カラムを補完。"""
     defaults = {
         "race_id": "p1",
-        "field_size": 16,
+        "syussotosu": 16,
         "race_date": pd.Timestamp("2024-05-01"),
-        "track_cd": 11,
-        "distance": 1600,
+        "trackcd": 11,
+        "kyori": 1600,
+        "surface": "turf",
     }
     for row in rows:
         for k, v in defaults.items():
@@ -95,142 +95,251 @@ def _compute_features(
     entry_df: pd.DataFrame,
     target_race_ids: list[str] | None = None,
 ) -> pd.DataFrame:
-    """HorseHistoryFeatures.compute()をモックrepoで実行する。"""
+    """HorseHistoryFeatures.compute()をモックstoreで実行する。"""
     from features.horse_history_features import HorseHistoryFeatures
 
-    mock_repo = MagicMock(spec=DataRepository)
-    mock_repo.load_history_entries.return_value = entries_hist
-    mock_repo.load_history_races.return_value = races_hist
-
-    hhf = HorseHistoryFeatures(repo=mock_repo)
-    ids = np.array(target_race_ids) if target_race_ids else None
-    return hhf.compute(race_df, entry_df, ids)
+    mock_store = MagicMock(spec=ParquetStore)
+    with patch("db.readers.load_history_entries", return_value=entries_hist):
+        with patch("db.readers.load_history_races", return_value=races_hist):
+            hhf = HorseHistoryFeatures(store=mock_store)
+            ids = np.array(target_race_ids) if target_race_ids else None
+            return hhf.compute(race_df, entry_df, ids)
 
 
 # ============================================================
-# Test 1: haron_time_l3_avg
+# Test 1: harontimel3_avg
 # ============================================================
 
 
 class TestHaronTimeL3Avg:
-    """haron_time_l3_avg — 直近3走のハロンタイム平均"""
+    """harontimel3_avg — 直近3走のハロンタイム平均"""
 
     def test_last3_average(self) -> None:
         """直近3走のハロンタイム平均を計算"""
-        entries_hist = _build_entries_hist([
-            {"race_id": "p1", "haron_time_l3": 34.0, "finish_pos": 3, "win_odds": 5.0},
-            {"race_id": "p2", "haron_time_l3": 35.0, "finish_pos": 2, "win_odds": 4.0},
-            {"race_id": "p3", "haron_time_l3": 36.0, "finish_pos": 1, "win_odds": 3.0},
-        ])
-        races_hist = _build_races_hist([
-            {"race_id": "p1", "race_date": pd.Timestamp("2024-03-01"), "field_size": 16, "track_cd": 11, "distance": 1600},
-            {"race_id": "p2", "race_date": pd.Timestamp("2024-04-01"), "field_size": 16, "track_cd": 11, "distance": 1600},
-            {"race_id": "p3", "race_date": pd.Timestamp("2024-05-01"), "field_size": 16, "track_cd": 11, "distance": 1600},
-        ])
+        entries_hist = _build_entries_hist(
+            [
+                {"race_id": "p1", "harontimel3": 34.0, "kakuteijyuni": 3, "odds": 5.0},
+                {"race_id": "p2", "harontimel3": 35.0, "kakuteijyuni": 2, "odds": 4.0},
+                {"race_id": "p3", "harontimel3": 36.0, "kakuteijyuni": 1, "odds": 3.0},
+            ]
+        )
+        races_hist = _build_races_hist(
+            [
+                {
+                    "race_id": "p1",
+                    "race_date": pd.Timestamp("2024-03-01"),
+                    "syussotosu": 16,
+                    "trackcd": 11,
+                    "kyori": 1600,
+                },
+                {
+                    "race_id": "p2",
+                    "race_date": pd.Timestamp("2024-04-01"),
+                    "syussotosu": 16,
+                    "trackcd": 11,
+                    "kyori": 1600,
+                },
+                {
+                    "race_id": "p3",
+                    "race_date": pd.Timestamp("2024-05-01"),
+                    "syussotosu": 16,
+                    "trackcd": 11,
+                    "kyori": 1600,
+                },
+            ]
+        )
         race_df, entry_df = _make_target()
         result = _compute_features(entries_hist, races_hist, race_df, entry_df, ["r_target"])
 
-        val = result["haron_time_l3_avg"].iloc[0]
+        val = result["harontimel3_avg"].iloc[0]
         assert not np.isnan(val)
         assert abs(val - 35.0) < 1e-6  # (34+35+36)/3 = 35.0
 
     def test_nan_values_excluded(self) -> None:
         """NaN値は平均から除外される"""
-        entries_hist = _build_entries_hist([
-            {"race_id": "p1", "haron_time_l3": 34.0, "finish_pos": 3, "win_odds": 5.0},
-            {"race_id": "p2", "haron_time_l3": float("nan"), "finish_pos": 2, "win_odds": 4.0},
-            {"race_id": "p3", "haron_time_l3": 36.0, "finish_pos": 1, "win_odds": 3.0},
-        ])
-        races_hist = _build_races_hist([
-            {"race_id": "p1", "race_date": pd.Timestamp("2024-03-01"), "field_size": 16, "track_cd": 11, "distance": 1600},
-            {"race_id": "p2", "race_date": pd.Timestamp("2024-04-01"), "field_size": 16, "track_cd": 11, "distance": 1600},
-            {"race_id": "p3", "race_date": pd.Timestamp("2024-05-01"), "field_size": 16, "track_cd": 11, "distance": 1600},
-        ])
+        entries_hist = _build_entries_hist(
+            [
+                {"race_id": "p1", "harontimel3": 34.0, "kakuteijyuni": 3, "odds": 5.0},
+                {"race_id": "p2", "harontimel3": float("nan"), "kakuteijyuni": 2, "odds": 4.0},
+                {"race_id": "p3", "harontimel3": 36.0, "kakuteijyuni": 1, "odds": 3.0},
+            ]
+        )
+        races_hist = _build_races_hist(
+            [
+                {
+                    "race_id": "p1",
+                    "race_date": pd.Timestamp("2024-03-01"),
+                    "syussotosu": 16,
+                    "trackcd": 11,
+                    "kyori": 1600,
+                },
+                {
+                    "race_id": "p2",
+                    "race_date": pd.Timestamp("2024-04-01"),
+                    "syussotosu": 16,
+                    "trackcd": 11,
+                    "kyori": 1600,
+                },
+                {
+                    "race_id": "p3",
+                    "race_date": pd.Timestamp("2024-05-01"),
+                    "syussotosu": 16,
+                    "trackcd": 11,
+                    "kyori": 1600,
+                },
+            ]
+        )
         race_df, entry_df = _make_target()
         result = _compute_features(entries_hist, races_hist, race_df, entry_df, ["r_target"])
 
-        val = result["haron_time_l3_avg"].iloc[0]
+        val = result["harontimel3_avg"].iloc[0]
         assert not np.isnan(val)
         assert abs(val - 35.0) < 1e-6  # (34+36)/2 = 35.0
 
 
 # ============================================================
-# Test 2: time_diff_avg
+# Test 2: timediff_avg
 # ============================================================
 
 
 class TestTimeDiffAvg:
-    """time_diff_avg — 直近3走のタイム差平均"""
+    """timediff_avg — 直近3走のタイム差平均"""
 
     def test_last3_average(self) -> None:
-        entries_hist = _build_entries_hist([
-            {"race_id": "p1", "time_diff": 0.5, "finish_pos": 3, "win_odds": 5.0},
-            {"race_id": "p2", "time_diff": 0.3, "finish_pos": 2, "win_odds": 4.0},
-            {"race_id": "p3", "time_diff": 0.1, "finish_pos": 1, "win_odds": 3.0},
-        ])
-        races_hist = _build_races_hist([
-            {"race_id": "p1", "race_date": pd.Timestamp("2024-03-01"), "field_size": 16, "track_cd": 11, "distance": 1600},
-            {"race_id": "p2", "race_date": pd.Timestamp("2024-04-01"), "field_size": 16, "track_cd": 11, "distance": 1600},
-            {"race_id": "p3", "race_date": pd.Timestamp("2024-05-01"), "field_size": 16, "track_cd": 11, "distance": 1600},
-        ])
+        entries_hist = _build_entries_hist(
+            [
+                {"race_id": "p1", "timediff": 0.5, "kakuteijyuni": 3, "odds": 5.0},
+                {"race_id": "p2", "timediff": 0.3, "kakuteijyuni": 2, "odds": 4.0},
+                {"race_id": "p3", "timediff": 0.1, "kakuteijyuni": 1, "odds": 3.0},
+            ]
+        )
+        races_hist = _build_races_hist(
+            [
+                {
+                    "race_id": "p1",
+                    "race_date": pd.Timestamp("2024-03-01"),
+                    "syussotosu": 16,
+                    "trackcd": 11,
+                    "kyori": 1600,
+                },
+                {
+                    "race_id": "p2",
+                    "race_date": pd.Timestamp("2024-04-01"),
+                    "syussotosu": 16,
+                    "trackcd": 11,
+                    "kyori": 1600,
+                },
+                {
+                    "race_id": "p3",
+                    "race_date": pd.Timestamp("2024-05-01"),
+                    "syussotosu": 16,
+                    "trackcd": 11,
+                    "kyori": 1600,
+                },
+            ]
+        )
         race_df, entry_df = _make_target()
         result = _compute_features(entries_hist, races_hist, race_df, entry_df, ["r_target"])
 
-        val = result["time_diff_avg"].iloc[0]
+        val = result["timediff_avg"].iloc[0]
         assert not np.isnan(val)
         assert abs(val - 0.3) < 1e-6  # (0.5+0.3+0.1)/3
 
 
 # ============================================================
-# Test 3: corner_1c_avg
+# Test 3: jyuni1c_avg
 # ============================================================
 
 
 class TestCorner1cAvg:
-    """corner_1c_avg — 直近3走の1コーナー通過位置平均"""
+    """jyuni1c_avg — 直近3走の1コーナー通過位置平均"""
 
     def test_last3_average(self) -> None:
-        entries_hist = _build_entries_hist([
-            {"race_id": "p1", "corner_1c": 5, "finish_pos": 3, "win_odds": 5.0},
-            {"race_id": "p2", "corner_1c": 3, "finish_pos": 2, "win_odds": 4.0},
-            {"race_id": "p3", "corner_1c": 1, "finish_pos": 1, "win_odds": 3.0},
-        ])
-        races_hist = _build_races_hist([
-            {"race_id": "p1", "race_date": pd.Timestamp("2024-03-01"), "field_size": 16, "track_cd": 11, "distance": 1600},
-            {"race_id": "p2", "race_date": pd.Timestamp("2024-04-01"), "field_size": 16, "track_cd": 11, "distance": 1600},
-            {"race_id": "p3", "race_date": pd.Timestamp("2024-05-01"), "field_size": 16, "track_cd": 11, "distance": 1600},
-        ])
+        entries_hist = _build_entries_hist(
+            [
+                {"race_id": "p1", "jyuni1c": 5, "kakuteijyuni": 3, "odds": 5.0},
+                {"race_id": "p2", "jyuni1c": 3, "kakuteijyuni": 2, "odds": 4.0},
+                {"race_id": "p3", "jyuni1c": 1, "kakuteijyuni": 1, "odds": 3.0},
+            ]
+        )
+        races_hist = _build_races_hist(
+            [
+                {
+                    "race_id": "p1",
+                    "race_date": pd.Timestamp("2024-03-01"),
+                    "syussotosu": 16,
+                    "trackcd": 11,
+                    "kyori": 1600,
+                },
+                {
+                    "race_id": "p2",
+                    "race_date": pd.Timestamp("2024-04-01"),
+                    "syussotosu": 16,
+                    "trackcd": 11,
+                    "kyori": 1600,
+                },
+                {
+                    "race_id": "p3",
+                    "race_date": pd.Timestamp("2024-05-01"),
+                    "syussotosu": 16,
+                    "trackcd": 11,
+                    "kyori": 1600,
+                },
+            ]
+        )
         race_df, entry_df = _make_target()
         result = _compute_features(entries_hist, races_hist, race_df, entry_df, ["r_target"])
 
-        val = result["corner_1c_avg"].iloc[0]
+        val = result["jyuni1c_avg"].iloc[0]
         assert not np.isnan(val)
         assert abs(val - 3.0) < 1e-6  # (5+3+1)/3
 
 
 # ============================================================
-# Test 4: corner_4c_avg
+# Test 4: jyuni4c_avg
 # ============================================================
 
 
 class TestCorner4cAvg:
-    """corner_4c_avg — 直近3走の4コーナー通過位置平均"""
+    """jyuni4c_avg — 直近3走の4コーナー通過位置平均"""
 
     def test_last3_average(self) -> None:
-        entries_hist = _build_entries_hist([
-            {"race_id": "p1", "corner_4c": 8, "finish_pos": 3, "win_odds": 5.0},
-            {"race_id": "p2", "corner_4c": 4, "finish_pos": 2, "win_odds": 4.0},
-            {"race_id": "p3", "corner_4c": 2, "finish_pos": 1, "win_odds": 3.0},
-        ])
-        races_hist = _build_races_hist([
-            {"race_id": "p1", "race_date": pd.Timestamp("2024-03-01"), "field_size": 16, "track_cd": 11, "distance": 1600},
-            {"race_id": "p2", "race_date": pd.Timestamp("2024-04-01"), "field_size": 16, "track_cd": 11, "distance": 1600},
-            {"race_id": "p3", "race_date": pd.Timestamp("2024-05-01"), "field_size": 16, "track_cd": 11, "distance": 1600},
-        ])
+        entries_hist = _build_entries_hist(
+            [
+                {"race_id": "p1", "jyuni4c": 8, "kakuteijyuni": 3, "odds": 5.0},
+                {"race_id": "p2", "jyuni4c": 4, "kakuteijyuni": 2, "odds": 4.0},
+                {"race_id": "p3", "jyuni4c": 2, "kakuteijyuni": 1, "odds": 3.0},
+            ]
+        )
+        races_hist = _build_races_hist(
+            [
+                {
+                    "race_id": "p1",
+                    "race_date": pd.Timestamp("2024-03-01"),
+                    "syussotosu": 16,
+                    "trackcd": 11,
+                    "kyori": 1600,
+                },
+                {
+                    "race_id": "p2",
+                    "race_date": pd.Timestamp("2024-04-01"),
+                    "syussotosu": 16,
+                    "trackcd": 11,
+                    "kyori": 1600,
+                },
+                {
+                    "race_id": "p3",
+                    "race_date": pd.Timestamp("2024-05-01"),
+                    "syussotosu": 16,
+                    "trackcd": 11,
+                    "kyori": 1600,
+                },
+            ]
+        )
         race_df, entry_df = _make_target()
         result = _compute_features(entries_hist, races_hist, race_df, entry_df, ["r_target"])
 
-        val = result["corner_4c_avg"].iloc[0]
+        val = result["jyuni4c_avg"].iloc[0]
         assert not np.isnan(val)
         assert abs(val - 4.666667) < 1e-3  # (8+4+2)/3
 
@@ -249,15 +358,28 @@ class TestClosingIndexAvg:
 
     def test_closing_from_behind(self) -> None:
         """後方から追い込み (4C=10→着順=2, 16頭) → 正の値"""
-        entries_hist = _build_entries_hist([
-            {
-                "race_id": "p1", "corner_4c": 10, "finish_pos": 2,
-                "win_odds": 5.0, "kyakusitu": 4,
-            },
-        ])
-        races_hist = _build_races_hist([
-            {"race_id": "p1", "race_date": pd.Timestamp("2024-05-01"), "field_size": 16, "track_cd": 11, "distance": 1600},
-        ])
+        entries_hist = _build_entries_hist(
+            [
+                {
+                    "race_id": "p1",
+                    "jyuni4c": 10,
+                    "kakuteijyuni": 2,
+                    "odds": 5.0,
+                    "kyakusitukubun": 4,
+                },
+            ]
+        )
+        races_hist = _build_races_hist(
+            [
+                {
+                    "race_id": "p1",
+                    "race_date": pd.Timestamp("2024-05-01"),
+                    "syussotosu": 16,
+                    "trackcd": 11,
+                    "kyori": 1600,
+                },
+            ]
+        )
         race_df, entry_df = _make_target()
         result = _compute_features(entries_hist, races_hist, race_df, entry_df, ["r_target"])
 
@@ -270,15 +392,28 @@ class TestClosingIndexAvg:
 
     def test_early_speed_fading(self) -> None:
         """逃げて失速 (4C=1→着順=10, 16頭) → 負の値"""
-        entries_hist = _build_entries_hist([
-            {
-                "race_id": "p1", "corner_4c": 1, "finish_pos": 10,
-                "win_odds": 5.0, "kyakusitu": 1,
-            },
-        ])
-        races_hist = _build_races_hist([
-            {"race_id": "p1", "race_date": pd.Timestamp("2024-05-01"), "field_size": 16, "track_cd": 11, "distance": 1600},
-        ])
+        entries_hist = _build_entries_hist(
+            [
+                {
+                    "race_id": "p1",
+                    "jyuni4c": 1,
+                    "kakuteijyuni": 10,
+                    "odds": 5.0,
+                    "kyakusitukubun": 1,
+                },
+            ]
+        )
+        races_hist = _build_races_hist(
+            [
+                {
+                    "race_id": "p1",
+                    "race_date": pd.Timestamp("2024-05-01"),
+                    "syussotosu": 16,
+                    "trackcd": 11,
+                    "kyori": 1600,
+                },
+            ]
+        )
         race_df, entry_df = _make_target()
         result = _compute_features(entries_hist, races_hist, race_df, entry_df, ["r_target"])
 
@@ -291,31 +426,53 @@ class TestClosingIndexAvg:
 
 
 # ============================================================
-# Test 6: kyakusitu_cd
+# Test 6: kyakusitukubun_cd
 # ============================================================
 
 
 class TestKyakusituCd:
-    """kyakusitu_cd — 直近走の脚質コード"""
+    """kyakusitukubun_cd — 直近走の脚質コード"""
 
     def test_latest_value(self) -> None:
-        """直近走のkyakusitu値を取得"""
-        entries_hist = _build_entries_hist([
-            {"race_id": "p1", "kyakusitu": 1, "finish_pos": 3, "win_odds": 5.0},
-            {"race_id": "p2", "kyakusitu": 3, "finish_pos": 2, "win_odds": 4.0},
-            {"race_id": "p3", "kyakusitu": 4, "finish_pos": 1, "win_odds": 3.0},
-        ])
-        races_hist = _build_races_hist([
-            {"race_id": "p1", "race_date": pd.Timestamp("2024-03-01"), "field_size": 16, "track_cd": 11, "distance": 1600},
-            {"race_id": "p2", "race_date": pd.Timestamp("2024-04-01"), "field_size": 16, "track_cd": 11, "distance": 1600},
-            {"race_id": "p3", "race_date": pd.Timestamp("2024-05-01"), "field_size": 16, "track_cd": 11, "distance": 1600},
-        ])
+        """直近走のkyakusitukubun値を取得"""
+        entries_hist = _build_entries_hist(
+            [
+                {"race_id": "p1", "kyakusitukubun": 1, "kakuteijyuni": 3, "odds": 5.0},
+                {"race_id": "p2", "kyakusitukubun": 3, "kakuteijyuni": 2, "odds": 4.0},
+                {"race_id": "p3", "kyakusitukubun": 4, "kakuteijyuni": 1, "odds": 3.0},
+            ]
+        )
+        races_hist = _build_races_hist(
+            [
+                {
+                    "race_id": "p1",
+                    "race_date": pd.Timestamp("2024-03-01"),
+                    "syussotosu": 16,
+                    "trackcd": 11,
+                    "kyori": 1600,
+                },
+                {
+                    "race_id": "p2",
+                    "race_date": pd.Timestamp("2024-04-01"),
+                    "syussotosu": 16,
+                    "trackcd": 11,
+                    "kyori": 1600,
+                },
+                {
+                    "race_id": "p3",
+                    "race_date": pd.Timestamp("2024-05-01"),
+                    "syussotosu": 16,
+                    "trackcd": 11,
+                    "kyori": 1600,
+                },
+            ]
+        )
         race_df, entry_df = _make_target()
         result = _compute_features(entries_hist, races_hist, race_df, entry_df, ["r_target"])
 
-        val = result["kyakusitu_cd"].iloc[0]
+        val = result["kyakusitukubun_cd"].iloc[0]
         assert not np.isnan(val)
-        assert val == 4  # 直近(p3)のkyakusitu値
+        assert val == 4  # 直近(p3)のkyakusitukubun値
 
 
 # ============================================================
@@ -328,35 +485,67 @@ class TestLeakPrevention:
 
     def test_future_haron_time_excluded(self) -> None:
         """target_dateより後のハロンタイムが平均に含まれない"""
-        entries_hist = _build_entries_hist([
-            {"race_id": "p1", "haron_time_l3": 34.0, "finish_pos": 3, "win_odds": 5.0},
-            {"race_id": "p2", "haron_time_l3": 99.0, "finish_pos": 2, "win_odds": 4.0},  # 未来
-        ])
-        races_hist = _build_races_hist([
-            {"race_id": "p1", "race_date": pd.Timestamp("2024-05-01"), "field_size": 16, "track_cd": 11, "distance": 1600},
-            {"race_id": "p2", "race_date": pd.Timestamp("2024-07-01"), "field_size": 16, "track_cd": 11, "distance": 1600},  # 未来
-        ])
+        entries_hist = _build_entries_hist(
+            [
+                {"race_id": "p1", "harontimel3": 34.0, "kakuteijyuni": 3, "odds": 5.0},
+                {"race_id": "p2", "harontimel3": 99.0, "kakuteijyuni": 2, "odds": 4.0},  # 未来
+            ]
+        )
+        races_hist = _build_races_hist(
+            [
+                {
+                    "race_id": "p1",
+                    "race_date": pd.Timestamp("2024-05-01"),
+                    "syussotosu": 16,
+                    "trackcd": 11,
+                    "kyori": 1600,
+                },
+                {
+                    "race_id": "p2",
+                    "race_date": pd.Timestamp("2024-07-01"),
+                    "syussotosu": 16,
+                    "trackcd": 11,
+                    "kyori": 1600,
+                },  # 未来
+            ]
+        )
         race_df, entry_df = _make_target()  # target_date = 2024-06-01
         result = _compute_features(entries_hist, races_hist, race_df, entry_df, ["r_target"])
 
-        val = result["haron_time_l3_avg"].iloc[0]
+        val = result["harontimel3_avg"].iloc[0]
         assert not np.isnan(val)
         assert abs(val - 34.0) < 1e-6  # p2(7月)は除外 → p1のみ
 
     def test_same_day_excluded(self) -> None:
         """target_dateと同日のレースも除外される"""
-        entries_hist = _build_entries_hist([
-            {"race_id": "p1", "haron_time_l3": 34.0, "finish_pos": 3, "win_odds": 5.0},
-            {"race_id": "p2", "haron_time_l3": 99.0, "finish_pos": 2, "win_odds": 4.0},  # 同日
-        ])
-        races_hist = _build_races_hist([
-            {"race_id": "p1", "race_date": pd.Timestamp("2024-05-01"), "field_size": 16, "track_cd": 11, "distance": 1600},
-            {"race_id": "p2", "race_date": pd.Timestamp("2024-06-01"), "field_size": 16, "track_cd": 11, "distance": 1600},  # 同日
-        ])
+        entries_hist = _build_entries_hist(
+            [
+                {"race_id": "p1", "harontimel3": 34.0, "kakuteijyuni": 3, "odds": 5.0},
+                {"race_id": "p2", "harontimel3": 99.0, "kakuteijyuni": 2, "odds": 4.0},  # 同日
+            ]
+        )
+        races_hist = _build_races_hist(
+            [
+                {
+                    "race_id": "p1",
+                    "race_date": pd.Timestamp("2024-05-01"),
+                    "syussotosu": 16,
+                    "trackcd": 11,
+                    "kyori": 1600,
+                },
+                {
+                    "race_id": "p2",
+                    "race_date": pd.Timestamp("2024-06-01"),
+                    "syussotosu": 16,
+                    "trackcd": 11,
+                    "kyori": 1600,
+                },  # 同日
+            ]
+        )
         race_df, entry_df = _make_target()  # target_date = 2024-06-01
         result = _compute_features(entries_hist, races_hist, race_df, entry_df, ["r_target"])
 
-        val = result["haron_time_l3_avg"].iloc[0]
+        val = result["harontimel3_avg"].iloc[0]
         assert not np.isnan(val)
         assert abs(val - 34.0) < 1e-6  # p2(同日)は除外
 
@@ -378,24 +567,40 @@ class TestNewHorse:
         """
         # The horse has no direct history, but the jockey has other entries
         # This ensures the horse is in the loop (jockey matches)
-        entries_hist = _build_entries_hist([
-            {"race_id": "p1", "ketto_num": "OTHER_HORSE", "kisyu_code": "NEW_JOCKEY",
-             "finish_pos": 1, "win_odds": 5.0, "haron_time_l3": 34.0},
-        ])
-        races_hist = _build_races_hist([
-            {"race_id": "p1", "race_date": pd.Timestamp("2024-05-01"), "field_size": 16, "track_cd": 11, "distance": 1600},
-        ])
+        entries_hist = _build_entries_hist(
+            [
+                {
+                    "race_id": "p1",
+                    "kettonum": "OTHER_HORSE",
+                    "kisyucode": "NEW_JOCKEY",
+                    "kakuteijyuni": 1,
+                    "odds": 5.0,
+                    "harontimel3": 34.0,
+                },
+            ]
+        )
+        races_hist = _build_races_hist(
+            [
+                {
+                    "race_id": "p1",
+                    "race_date": pd.Timestamp("2024-05-01"),
+                    "syussotosu": 16,
+                    "trackcd": 11,
+                    "kyori": 1600,
+                },
+            ]
+        )
         race_df, entry_df = _make_target(ketto_num="NEW_HORSE", kisyu_code="NEW_JOCKEY")
         result = _compute_features(entries_hist, races_hist, race_df, entry_df, ["r_target"])
 
         new_cols = [
-            "haron_time_l3_avg",
-            "haron_time_l3_zscore",
-            "time_diff_avg",
-            "corner_1c_avg",
-            "corner_4c_avg",
+            "harontimel3_avg",
+            "harontimel3_zscore",
+            "timediff_avg",
+            "jyuni1c_avg",
+            "jyuni4c_avg",
             "closing_index_avg",
-            "kyakusitu_cd",
+            "kyakusitukubun_cd",
         ]
         for col in new_cols:
             assert col in result.columns, f"{col} not in result columns"
@@ -403,29 +608,51 @@ class TestNewHorse:
 
 
 # ============================================================
-# Test: haron_time_l3_zscore
+# Test: harontimel3_zscore
 # ============================================================
 
 
 class TestHaronTimeL3Zscore:
-    """haron_time_l3_zscore — 距離ビンz-score平均"""
+    """harontimel3_zscore — 距離ビンz-score平均"""
 
     def test_zscore_calculation(self) -> None:
         """距離ビン内でz-scoreを計算"""
-        entries_hist = _build_entries_hist([
-            {"race_id": "p1", "haron_time_l3": 34.0, "finish_pos": 3, "win_odds": 5.0},
-            {"race_id": "p2", "haron_time_l3": 36.0, "finish_pos": 2, "win_odds": 4.0},
-            {"race_id": "p3", "haron_time_l3": 35.0, "finish_pos": 1, "win_odds": 3.0},
-        ])
-        races_hist = _build_races_hist([
-            {"race_id": "p1", "race_date": pd.Timestamp("2024-03-01"), "field_size": 16, "track_cd": 11, "distance": 1600},
-            {"race_id": "p2", "race_date": pd.Timestamp("2024-04-01"), "field_size": 16, "track_cd": 11, "distance": 1600},
-            {"race_id": "p3", "race_date": pd.Timestamp("2024-05-01"), "field_size": 16, "track_cd": 11, "distance": 1600},
-        ])
+        entries_hist = _build_entries_hist(
+            [
+                {"race_id": "p1", "harontimel3": 34.0, "kakuteijyuni": 3, "odds": 5.0},
+                {"race_id": "p2", "harontimel3": 36.0, "kakuteijyuni": 2, "odds": 4.0},
+                {"race_id": "p3", "harontimel3": 35.0, "kakuteijyuni": 1, "odds": 3.0},
+            ]
+        )
+        races_hist = _build_races_hist(
+            [
+                {
+                    "race_id": "p1",
+                    "race_date": pd.Timestamp("2024-03-01"),
+                    "syussotosu": 16,
+                    "trackcd": 11,
+                    "kyori": 1600,
+                },
+                {
+                    "race_id": "p2",
+                    "race_date": pd.Timestamp("2024-04-01"),
+                    "syussotosu": 16,
+                    "trackcd": 11,
+                    "kyori": 1600,
+                },
+                {
+                    "race_id": "p3",
+                    "race_date": pd.Timestamp("2024-05-01"),
+                    "syussotosu": 16,
+                    "trackcd": 11,
+                    "kyori": 1600,
+                },
+            ]
+        )
         race_df, entry_df = _make_target()
         result = _compute_features(entries_hist, races_hist, race_df, entry_df, ["r_target"])
 
-        val = result["haron_time_l3_zscore"].iloc[0]
+        val = result["harontimel3_zscore"].iloc[0]
         assert not np.isnan(val)
         # 3走全て同じ距離ビン → mean=35.0, std=1.0
         # z-scores: (34-35)/1=-1, (36-35)/1=1, (35-35)/1=0
@@ -434,16 +661,26 @@ class TestHaronTimeL3Zscore:
 
     def test_single_run_zscore_is_zero(self) -> None:
         """1走のみの場合、std=NaN → zscoreもNaN"""
-        entries_hist = _build_entries_hist([
-            {"race_id": "p1", "haron_time_l3": 35.0, "finish_pos": 3, "win_odds": 5.0},
-        ])
-        races_hist = _build_races_hist([
-            {"race_id": "p1", "race_date": pd.Timestamp("2024-05-01"), "field_size": 16, "track_cd": 11, "distance": 1600},
-        ])
+        entries_hist = _build_entries_hist(
+            [
+                {"race_id": "p1", "harontimel3": 35.0, "kakuteijyuni": 3, "odds": 5.0},
+            ]
+        )
+        races_hist = _build_races_hist(
+            [
+                {
+                    "race_id": "p1",
+                    "race_date": pd.Timestamp("2024-05-01"),
+                    "syussotosu": 16,
+                    "trackcd": 11,
+                    "kyori": 1600,
+                },
+            ]
+        )
         race_df, entry_df = _make_target()
         result = _compute_features(entries_hist, races_hist, race_df, entry_df, ["r_target"])
 
-        val = result["haron_time_l3_zscore"].iloc[0]
+        val = result["harontimel3_zscore"].iloc[0]
         # 1走のみのビンでは std=0 or NaN → zscoreはNaN
         assert np.isnan(val)
 
@@ -460,13 +697,13 @@ class TestBaseCols:
         from features.horse_history_features import HorseHistoryFeatures
 
         expected = [
-            "haron_time_l3_avg",
-            "haron_time_l3_zscore",
-            "time_diff_avg",
-            "corner_1c_avg",
-            "corner_4c_avg",
+            "harontimel3_avg",
+            "harontimel3_zscore",
+            "timediff_avg",
+            "jyuni1c_avg",
+            "jyuni4c_avg",
             "closing_index_avg",
-            "kyakusitu_cd",
+            "kyakusitukubun_cd",
         ]
         for col in expected:
             assert col in HorseHistoryFeatures.BASE_COLS, f"{col} missing from BASE_COLS"

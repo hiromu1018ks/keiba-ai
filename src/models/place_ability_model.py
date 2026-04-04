@@ -25,18 +25,22 @@ class PlaceAbilityModel:
 
     FEATURE_COLS: list[str] = [
         # レース条件 (7)
-        "surface", "distance_bin", "track_condition_code",
-        "grade_code", "field_size",
-        "weight_diff_from_mean", "difficulty_score",
+        "surface",
+        "distance_bin",
+        "track_condition_code",
+        "grade_code",
+        "field_size",
+        "weight_diff_from_mean",
+        "difficulty_score",
         # 過去成績 (8)
         "norm_finish_logit_avg",
-        "haron_time_l3_avg",
-        "haron_time_l3_zscore",
-        "time_diff_avg",
-        "corner_1c_avg",
-        "corner_4c_avg",
+        "harontimel3_avg",
+        "harontimel3_zscore",
+        "timediff_avg",
+        "jyuni1c_avg",
+        "jyuni4c_avg",
         "closing_index_avg",
-        "kyakusitu_cd",
+        "kyakusitukubun_cd",
         # 血統 (6)
         "blood_surface_wr",
         "blood_distance_wr",
@@ -50,9 +54,9 @@ class PlaceAbilityModel:
         "weight_x_distance",
         # レース内正規化 (5) — race_rank
         "norm_finish_logit_avg_race_rank",
-        "haron_time_l3_avg_race_rank",
-        "time_diff_avg_race_rank",
-        "corner_1c_avg_race_rank",
+        "harontimel3_avg_race_rank",
+        "timediff_avg_race_rank",
+        "jyuni1c_avg_race_rank",
         "closing_index_avg_race_rank",
         # 馬体 (1)
         "weight_absolute",
@@ -67,13 +71,20 @@ class PlaceAbilityModel:
     def train(self, df: pd.DataFrame) -> None:
         """学習 + Isotonic校正（時系列分割）"""
         assert "race_date" in df.columns, "race_date が必要"
-        assert "finish_pos" in df.columns, "finish_pos が必要"
+        assert "kakuteijyuni" in df.columns, "kakuteijyuni が必要"
 
         df = df.copy()
-        y = (df["finish_pos"] <= 3).astype(int)
+        y = (df["kakuteijyuni"] <= 3).astype(int)
         X = df[self.FEATURE_COLS].copy()  # noqa: N806
-        for col in ["surface", "distance_bin", "grade_code", "kyakusitu_cd",
-                    "blood_keito_cd", "kyakusitu_x_distance", "kyakusitu_x_surface"]:
+        for col in [
+            "surface",
+            "distance_bin",
+            "grade_code",
+            "kyakusitukubun_cd",
+            "blood_keito_cd",
+            "kyakusitu_x_distance",
+            "kyakusitu_x_surface",
+        ]:
             if col in X.columns:
                 X[col] = X[col].astype("category")
 
@@ -122,8 +133,15 @@ class PlaceAbilityModel:
         """p_ability_place を設定して df を返す"""
         df = df.copy()
         X = df[self.FEATURE_COLS].copy()  # noqa: N806
-        for col in ["surface", "distance_bin", "grade_code", "kyakusitu_cd",
-                    "blood_keito_cd", "kyakusitu_x_distance", "kyakusitu_x_surface"]:
+        for col in [
+            "surface",
+            "distance_bin",
+            "grade_code",
+            "kyakusitukubun_cd",
+            "blood_keito_cd",
+            "kyakusitu_x_distance",
+            "kyakusitu_x_surface",
+        ]:
             if col in X.columns:
                 X[col] = X[col].astype("category")
 
@@ -132,7 +150,11 @@ class PlaceAbilityModel:
         elif self._model is not None:
             raw_p = self._model.predict_proba(X)[:, 1]
         else:
-            raise RuntimeError("Model not trained")
+            # 未学習時: p_ability_place を NaN で設定し、後段モデルがフォールバックする
+            logger.warning("PlaceAbilityModel not trained, setting p_ability_place to NaN")
+            df["p_ability_place_raw"] = np.nan
+            df["p_ability_place"] = np.nan
+            return df
 
         df["p_ability_place_raw"] = raw_p
 

@@ -23,12 +23,14 @@ class TestModelMonitor:
         monitor = self._make_monitor()
         # モックの recent_results: 100 レースのダミーデータ
         rng = np.random.RandomState(42)
-        results = pd.DataFrame({
-            "race_id": [f"R{i}" for i in range(100)],
-            "ev_predicted": rng.uniform(0.8, 1.5, 100),
-            "ev_actual": rng.uniform(0.0, 3.0, 100),
-            "hit": rng.choice([0, 1], 100, p=[0.7, 0.3]),
-        })
+        results = pd.DataFrame(
+            {
+                "race_id": [f"R{i}" for i in range(100)],
+                "ev_predicted": rng.uniform(0.8, 1.5, 100),
+                "ev_actual": rng.uniform(0.0, 3.0, 100),
+                "hit": rng.choice([0, 1], 100, p=[0.7, 0.3]),
+            }
+        )
 
         report = monitor.check_performance(results)
 
@@ -52,14 +54,18 @@ class TestModelMonitor:
         import numpy as np
 
         monitor = self._make_monitor()
-        reference = pd.DataFrame({
-            "feature_a": np.random.normal(0, 1, 1000),
-            "feature_b": np.random.normal(5, 2, 1000),
-        })
-        current = pd.DataFrame({
-            "feature_a": np.random.normal(0.5, 1, 500),  # シフトあり
-            "feature_b": np.random.normal(5, 2, 500),
-        })
+        reference = pd.DataFrame(
+            {
+                "feature_a": np.random.normal(0, 1, 1000),
+                "feature_b": np.random.normal(5, 2, 1000),
+            }
+        )
+        current = pd.DataFrame(
+            {
+                "feature_a": np.random.normal(0.5, 1, 500),  # シフトあり
+                "feature_b": np.random.normal(5, 2, 500),
+            }
+        )
 
         drift = monitor.detect_drift(current, reference)
 
@@ -69,12 +75,14 @@ class TestModelMonitor:
     def test_check_performance_low_hit_rate(self) -> None:
         """的中率が著しく低い場合は needs_attention=True"""
         monitor = self._make_monitor()
-        results = pd.DataFrame({
-            "race_id": [f"R{i}" for i in range(100)],
-            "ev_predicted": [1.0] * 100,
-            "ev_actual": [0.0] * 100,
-            "hit": [0] * 100,  # 全部外れ
-        })
+        results = pd.DataFrame(
+            {
+                "race_id": [f"R{i}" for i in range(100)],
+                "ev_predicted": [1.0] * 100,
+                "ev_actual": [0.0] * 100,
+                "hit": [0] * 100,  # 全部外れ
+            }
+        )
 
         report = monitor.check_performance(results)
 
@@ -87,14 +95,17 @@ class TestModelMonitor:
         mock_regime.should_retrain.return_value = True
 
         from monitoring.model_monitor import ModelMonitor
+
         monitor = ModelMonitor(regime_detector=mock_regime)
 
-        results = pd.DataFrame({
-            "race_id": ["R1"],
-            "ev_predicted": [1.0],
-            "ev_actual": [0.0],
-            "hit": [0],
-        })
+        results = pd.DataFrame(
+            {
+                "race_id": ["R1"],
+                "ev_predicted": [1.0],
+                "ev_actual": [0.0],
+                "hit": [0],
+            }
+        )
         report = monitor.check_performance(results)
 
         assert report.should_retrain is True

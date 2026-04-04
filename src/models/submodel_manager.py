@@ -41,22 +41,20 @@ class SubModelManager:
         """
         df = df.copy()
         # 芝距離帯
-        df["is_turf_sprint"] = ((df["surface"] == "turf") & (df["distance"] <= 1400)).astype(int)
-        df["is_turf_mile"] = (
-            (df["surface"] == "turf") & (df["distance"].between(1401, 1700))
-        ).astype(int)
-        df["is_turf_intermediate"] = (
-            (df["surface"] == "turf") & (df["distance"].between(1701, 2100))
-        ).astype(int)
-        df["is_turf_long"] = ((df["surface"] == "turf") & (df["distance"] >= 2101)).astype(int)
-        # ダート距離帯
-        df["is_dirt_sprint"] = ((df["surface"] == "dirt") & (df["distance"] <= 1400)).astype(int)
-        df["is_dirt_mile"] = (
-            (df["surface"] == "dirt") & (df["distance"].between(1401, 1700))
-        ).astype(int)
-        df["is_dirt_intermediate"] = ((df["surface"] == "dirt") & (df["distance"] >= 1701)).astype(
+        df["is_turf_sprint"] = ((df["surface"] == "turf") & (df["kyori"] <= 1400)).astype(int)
+        df["is_turf_mile"] = ((df["surface"] == "turf") & (df["kyori"].between(1401, 1700))).astype(
             int
         )
+        df["is_turf_intermediate"] = (
+            (df["surface"] == "turf") & (df["kyori"].between(1701, 2100))
+        ).astype(int)
+        df["is_turf_long"] = ((df["surface"] == "turf") & (df["kyori"] >= 2101)).astype(int)
+        # ダート距離帯
+        df["is_dirt_sprint"] = ((df["surface"] == "dirt") & (df["kyori"] <= 1400)).astype(int)
+        df["is_dirt_mile"] = ((df["surface"] == "dirt") & (df["kyori"].between(1401, 1700))).astype(
+            int
+        )
+        df["is_dirt_intermediate"] = ((df["surface"] == "dirt") & (df["kyori"] >= 1701)).astype(int)
         # 馬場状態 (track_condition_code: 1=良, 2=稍重, 3=重, 4=不良)
         df["is_good_track"] = df["track_condition_code"].isin([1, 2]).astype(int)
         df["is_soft_track"] = df["track_condition_code"].isin([3, 4]).astype(int)

@@ -33,7 +33,9 @@ class RetrainDecision:
 class ModelMonitorProtocol(Protocol):
     def check_performance(self, results: pd.DataFrame) -> PerformanceReport: ...
     def detect_drift(
-        self, current: pd.DataFrame, reference: pd.DataFrame,
+        self,
+        current: pd.DataFrame,
+        reference: pd.DataFrame,
     ) -> DriftReport: ...
 
 
@@ -104,8 +106,7 @@ class AutoRetrainTrigger:
             drift = self._monitor.detect_drift(current_features, reference_features)
             if drift.needs_retrain:
                 self._fire_retrain(
-                    f"Feature drift: PSI max={drift.psi_max:.3f}, "
-                    f"features={drift.drifted_features}"
+                    f"Feature drift: PSI max={drift.psi_max:.3f}, features={drift.drifted_features}"
                 )
                 return RetrainDecision(triggered=True, reason="Feature drift detected")
 

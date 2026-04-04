@@ -23,11 +23,18 @@ logger = logging.getLogger(__name__)
 @runtime_checkable
 class OrchestratorProtocol(Protocol):
     def process_race(
-        self, race: Race, feats: dict, bankroll: float, dd_ctrl: object,
+        self,
+        race: Race,
+        feats: dict,
+        bankroll: float,
+        dd_ctrl: object,
     ) -> list[Bet]: ...
     def finalize_bets(
-        self, race: Race, pending_bets: list[Bet],
-        odds_t3_snapshot: dict[int, float], odds_t10_snapshot: dict[int, float],
+        self,
+        race: Race,
+        pending_bets: list[Bet],
+        odds_t3_snapshot: dict[int, float],
+        odds_t10_snapshot: dict[int, float],
     ) -> list[Bet]: ...
 
 
@@ -50,7 +57,10 @@ class SafetyGuardProtocol(Protocol):
 @runtime_checkable
 class LateMoneyFilterProtocol(Protocol):
     def log_last_2min(
-        self, horse_no: int, odds_t3: float, odds_t2: float,
+        self,
+        horse_no: int,
+        odds_t3: float,
+        odds_t2: float,
     ) -> None: ...
 
 
@@ -210,8 +220,7 @@ class RaceScheduler:
 
         if report.needs_attention and notifier is not None:
             notifier.send(
-                f"Model needs attention: hit_rate={report.hit_rate:.2%}, "
-                f"regime={report.regime}",
+                f"Model needs attention: hit_rate={report.hit_rate:.2%}, regime={report.regime}",
                 level="warning",
             )
 

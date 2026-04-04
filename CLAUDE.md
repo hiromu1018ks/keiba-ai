@@ -138,17 +138,16 @@ python scripts/run_backtest.py \
 
 | スクリプト | 役割 | 入力 | 出力 | 所要時間 |
 |-----------|------|------|------|---------|
-| `scripts/run_etl.py` | PostgreSQL→Parquet抽出 | EveryDB2外部テーブル | `data/raw/*.parquet`, `data/odds/*.parquet` | ~5分 |
-| `scripts/run_train.py` | MLモデル学習 | Parquetファイル群 | MLflowモデル, 特徴量キャッシュ | ~68分 |
-| `scripts/run_backtest.py` | 学習+バックテスト | Parquet + 学習済みモデル | `backtest_result.json` | ~80分 |
+| `scripts/run_etl.py` | PostgreSQL→Parquet抽出 | EveryDB2外部テーブル | `data/raw/*.parquet`, `data/odds/*.parquet` | ~10分 |
+| `scripts/run_train.py` | MLモデル学習 | Parquetファイル群 | MLflowモデル, 特徴量キャッシュ | ~44分 |
+| `scripts/run_backtest.py` | 学習+バックテスト | Parquet + 学習済みモデル | `backtest_result.json` | ~57分 |
 
 ### 直近のバックテスト結果 (2024年テスト)
 
-- ROI: 66.3% (改善前63.8%から+2.5%向上)
-- ベット数: 2,967 / 投資額: 296,700円 / 払戻額: 196,780円
+- 回収率: 89.0% (赤字 — 100円あたり89円回収)
+- ベット数: 9,074 / 投資額: 907,400円 / 払戻額: 807,400円
 - 学習: 2020-2023 / テスト: 2024
-
-### 既知の制約
+- Parquetデータ範囲: 2015-2025
 
 - PostgreSQL GENERATED列（`distance_band`, `surface` via `track_cd`）はParquet ETLに含まれない → `FeatureEngine._map_basic_features()` でPython再計算
 - Phase 1プレースホルダー: `haron_time_zscore_avg` は常にNaN → LightGBMはNaN処理可能だが `PlaceAbilityModel.train()` の `dropna()` で除外済み

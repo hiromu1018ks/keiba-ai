@@ -129,9 +129,7 @@ class TestRaceQualityScreener:
         # edge (Stage2 の出力、品質スコアと構造的に独立)
         edge_max = np.random.normal(1.10, 0.15, n)
         corr = np.corrcoef(quality_scores, edge_max)[0, 1]
-        assert abs(corr) < 0.30, (
-            f"品質スコアと edge の相関が高すぎます: {corr:.3f}"
-        )
+        assert abs(corr) < 0.30, f"品質スコアと edge の相関が高すぎます: {corr:.3f}"
 
     def test_no_temporal_leak(self) -> None:
         """hist特徴量に未来情報リークがないこと (§13.1)

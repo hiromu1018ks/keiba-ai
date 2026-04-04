@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock
-
-from db.repository import DataRepository
-from domain.models import Race
+from unittest.mock import MagicMock, patch
 
 
-def _make_race() -> Race:
+def _make_race() -> object:
+    from domain.models import Race
+
     return Race(
         year=2024,
         month_day="0325",
@@ -53,18 +52,18 @@ class TestOddsCollector:
 
         assert snapshot == {1: 3.2, 3: 7.8}
 
-    def test_store_snapshot_saves_to_db(self) -> None:
+    @patch("ingestion.odds_collector.save_predictions")
+    def test_store_snapshot_saves_to_db(self, mock_save: MagicMock) -> None:
         """スナップショットを DB に保存"""
         mock_fetcher = MagicMock()
-        mock_repo = MagicMock(spec=DataRepository)
-        mock_fetcher.fetch_odds_snapshot.return_value = {1: 3.5}
+        mock_store = MagicMock()
 
         from ingestion.odds_collector import OddsCollector
 
-        collector = OddsCollector(fetcher=mock_fetcher, repo=mock_repo)
+        collector = OddsCollector(fetcher=mock_fetcher, store=mock_store)
         collector.store_snapshot("2024032501010101", "t3", {1: 3.5})
 
-        mock_repo.save_predictions.assert_called_once()
+        mock_save.assert_called_once()
 
     def test_get_odds_change_computes_rate(self) -> None:
         """t-10min → t-3min の変化率を計算"""
@@ -85,11 +84,11 @@ class TestOddsCollector:
         assert collector.get_odds_change_rate(5.0, 0.0) is None
 
     def test_store_snapshot_without_db_does_nothing(self) -> None:
-        """repo なしでは store_snapshot は何もしない"""
+        """store なしでは store_snapshot は何もしない"""
         mock_fetcher = MagicMock()
 
         from ingestion.odds_collector import OddsCollector
 
-        collector = OddsCollector(fetcher=mock_fetcher, repo=None)
+        collector = OddsCollector(fetcher=mock_fetcher, store=None)
         # エラーなく実行できることを確認
         collector.store_snapshot("2024032501010101", "t3", {1: 3.5})

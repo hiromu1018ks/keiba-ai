@@ -10,32 +10,38 @@ from features.market_bias_features import compute_flb_slope, compute_market_bias
 
 @pytest.fixture
 def simple_odds_df() -> pd.DataFrame:
-    """単純なオッズDataFrame（全馬均等オッズ）"""
-    return pd.DataFrame({
-        "race_id": ["R1"] * 4,
-        "umaban": [1, 2, 3, 4],
-        "tan_odds": [4.0, 4.0, 4.0, 4.0],
-    })
+    """単純なオッズDataFrame（全馬均等オッズ）— 生カラム名"""
+    return pd.DataFrame(
+        {
+            "race_id": ["R1"] * 4,
+            "umaban": [1, 2, 3, 4],
+            "tanodds": [4.0, 4.0, 4.0, 4.0],
+        }
+    )
 
 
 @pytest.fixture
 def skewed_odds_df() -> pd.DataFrame:
-    """歪んだオッズDataFrame（人気馬+穴馬）"""
-    return pd.DataFrame({
-        "race_id": ["R1"] * 3,
-        "umaban": [1, 2, 3],
-        "tan_odds": [2.0, 5.0, 10.0],
-    })
+    """歪んだオッズDataFrame（人気馬+穴馬）— 生カラム名"""
+    return pd.DataFrame(
+        {
+            "race_id": ["R1"] * 3,
+            "umaban": [1, 2, 3],
+            "tanodds": [2.0, 5.0, 10.0],
+        }
+    )
 
 
 @pytest.fixture
 def multi_race_df() -> pd.DataFrame:
-    """複数レース"""
-    return pd.DataFrame({
-        "race_id": ["R1", "R1", "R2", "R2"],
-        "umaban": [1, 2, 1, 2],
-        "tan_odds": [2.0, 2.0, 3.0, 3.0],
-    })
+    """複数レース — 生カラム名"""
+    return pd.DataFrame(
+        {
+            "race_id": ["R1", "R1", "R2", "R2"],
+            "umaban": [1, 2, 1, 2],
+            "tanodds": [2.0, 2.0, 3.0, 3.0],
+        }
+    )
 
 
 class TestMarketBiasFeatures:
@@ -95,7 +101,7 @@ class TestMarketBiasFeatures:
         result = compute_market_bias(skewed_odds_df)
         assert "race_id" in result.columns
         assert "umaban" in result.columns
-        assert "tan_odds" in result.columns
+        assert "tanodds" in result.columns
 
 
 class TestComputeFlbSlope:
@@ -105,8 +111,8 @@ class TestComputeFlbSlope:
             {
                 "race_id": ["R1"] * 5,
                 "umaban": [1, 2, 3, 4, 5],
-                "tan_odds": [2.0, 3.0, 5.0, 10.0, 20.0],
-                "finish_pos": [1, 2, 3, 4, 5],
+                "tanodds": [2.0, 3.0, 5.0, 10.0, 20.0],
+                "kakuteijyuni": [1, 2, 3, 4, 5],
             }
         )
         result = compute_flb_slope(df)
@@ -119,8 +125,8 @@ class TestComputeFlbSlope:
             {
                 "race_id": ["R1"] * 6,
                 "umaban": [1, 2, 3, 4, 5, 6],
-                "tan_odds": [2.0, 3.0, 4.0, 6.0, 10.0, 20.0],
-                "finish_pos": [1, 2, 3, 4, 5, 6],
+                "tanodds": [2.0, 3.0, 4.0, 6.0, 10.0, 20.0],
+                "kakuteijyuni": [1, 2, 3, 4, 5, 6],
             }
         )
         result = compute_flb_slope(df)
@@ -139,8 +145,8 @@ class TestComputeFlbSlope:
             {
                 "race_id": ["R1"] * 4 + ["R2"] * 4,
                 "umaban": [1, 2, 3, 4] * 2,
-                "tan_odds": [2.0, 4.0, 6.0, 10.0, 3.0, 3.0, 3.0, 3.0],
-                "finish_pos": [1, 2, 3, 4, 1, 2, 3, 4],
+                "tanodds": [2.0, 4.0, 6.0, 10.0, 3.0, 3.0, 3.0, 3.0],
+                "kakuteijyuni": [1, 2, 3, 4, 1, 2, 3, 4],
             }
         )
         result = compute_flb_slope(df)

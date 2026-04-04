@@ -9,35 +9,29 @@ from features.feature_engine import FeatureEngine
 
 @pytest.fixture
 def sample_race_df() -> pd.DataFrame:
-    """1レース分の race データ（18頭立て）"""
+    """1レース分の race データ（18頭立て）— 生カラム名"""
     return pd.DataFrame(
         {
-            "year": [2024] * 18,
-            "month_day": ["0324"] * 18,
-            "jyo_cd": ["05"] * 18,
-            "kaiji": ["03"] * 18,
-            "nichiji": ["02"] * 18,
-            "race_num": ["08"] * 18,
-            "track_cd": [11] * 18,
-            "distance": [1600] * 18,
-            "tenko_cd": [1] * 18,
-            "baba_cd": [1] * 18,
-            "syubetu_cd": ["13"] * 18,
-            "jyoken_cd": ["999"] * 18,
-            "grade_cd": ["_"] * 18,
-            "field_size": [18] * 18,
             "race_id": ["2024032405030208"] * 18,
+            "race_date": [pd.Timestamp("2024-03-24")] * 18,
+            "trackcd": [11] * 18,
+            "kyori": [1600] * 18,
+            "tenkocd": [1] * 18,
+            "track_condition_code": [1] * 18,
+            "syubetucd": ["13"] * 18,
+            "jyokencd1": ["999"] * 18,
+            "gradecd": ["_"] * 18,
+            "syussotosu": [18] * 18,
             "surface": ["turf"] * 18,
-            "distance_band": ["mile"] * 18,
         }
     )
 
 
 @pytest.fixture
 def sample_entry_df() -> pd.DataFrame:
-    """18頭の出走馬データ"""
+    """18頭の出走馬データ — 生カラム名"""
     umaban = list(range(1, 19))
-    win_odds = [
+    odds = [
         1.5,
         2.3,
         3.1,
@@ -61,11 +55,11 @@ def sample_entry_df() -> pd.DataFrame:
         {
             "race_id": ["2024032405030208"] * 18,
             "umaban": umaban,
-            "ketto_num": [f"000{i:07d}" for i in range(1, 19)],
-            "finish_pos": [1, 2, 3, 4, 5, 0, 7, 8, 0, 10, 11, 12, 13, 14, 15, 16, 0, 18],
-            "win_odds": win_odds,
+            "kettonum": [f"000{i:07d}" for i in range(1, 19)],
+            "kakuteijyuni": [1, 2, 3, 4, 5, 0, 7, 8, 0, 10, 11, 12, 13, 14, 15, 16, 0, 18],
+            "odds": odds,
             "ninki": list(range(1, 19)),
-            "ba_taijyu": [
+            "bataijyu": [
                 480,
                 472,
                 488,
@@ -87,17 +81,17 @@ def sample_entry_df() -> pd.DataFrame:
             ],
             "zogen_fugo": [2, 1, 3, 2, 1, 3, 2, 1, 3, 2, 1, 3, 2, 1, 3, 2, 1, 3],
             "zogen_sa": [-4, 2, 0, -6, 4, 0, -2, 6, 0, -8, 2, 0, -4, 8, 0, -2, 4, 0],
-            "kisyu_code": [f"010{i:02d}" for i in range(1, 19)],
-            "chokyosi_code": [f"010{i:02d}" for i in range(1, 19)],
+            "kisyucode": [f"010{i:02d}" for i in range(1, 19)],
+            "chokyosicode": [f"010{i:02d}" for i in range(1, 19)],
         }
     )
 
 
 @pytest.fixture
 def sample_odds_df() -> pd.DataFrame:
-    """18頭のオッズスナップショット"""
+    """18頭のオッズスナップショット — 生カラム名"""
     umaban = list(range(1, 19))
-    tan_odds = [
+    tanodds = [
         1.5,
         2.3,
         3.1,
@@ -121,8 +115,9 @@ def sample_odds_df() -> pd.DataFrame:
         {
             "race_id": ["2024032405030208"] * 18,
             "umaban": umaban,
-            "tan_odds": tan_odds,
-            "fuku_odds": [
+            "tanodds": tanodds,
+            "tanninki": list(range(1, 19)),
+            "fukuoddslow": [
                 1.1,
                 1.2,
                 1.3,
@@ -170,36 +165,47 @@ class TestFeatureEngineBuildAll:
         for col in expected_cols:
             assert col in result.columns, f"列 '{col}' が不足"
 
-    def test_distance_band_renamed_to_distance_bin(
+    def test_distance_bin_computed_from_kyori(
         self, sample_race_df, sample_entry_df, sample_odds_df
     ):
-        """DBの distance_band を FEATURE_COLS 名の distance_bin にリネーム"""
+        """kyori + surface から distance_bin が計算される"""
         engine = FeatureEngine()
         result = engine.build_all(sample_race_df, sample_entry_df, sample_odds_df)
         assert "distance_bin" in result.columns
-        # 全行が "mile" であることを確認
+        # 全行が "mile" であることを確認 (kyori=1600, surface=turf)
         assert (result["distance_bin"] == "mile").all()
 
-    def test_track_condition_code_renamed_from_baba_cd(
-        self, sample_race_df, sample_entry_df, sample_odds_df
-    ):
-        """baba_cd を track_condition_code にリネーム"""
+    def test_track_condition_code_from_raw(self, sample_race_df, sample_entry_df, sample_odds_df):
+        """track_condition_code が生データから引き継がれる"""
         engine = FeatureEngine()
         result = engine.build_all(sample_race_df, sample_entry_df, sample_odds_df)
         assert "track_condition_code" in result.columns
         assert (result["track_condition_code"] == 1).all()
 
-    def test_surface_key_column_exists(self, sample_race_df, sample_entry_df, sample_odds_df):
-        """downstream SubModelManager フィルタ用の surface_key 列が存在"""
+    def test_grade_code_from_gradecd(self, sample_race_df, sample_entry_df, sample_odds_df):
+        """gradecd から grade_code にコピーされる"""
         engine = FeatureEngine()
         result = engine.build_all(sample_race_df, sample_entry_df, sample_odds_df)
-        assert "surface_key" in result.columns
-        assert (result["surface_key"] == "turf").all()
+        assert "grade_code" in result.columns
+        assert (result["grade_code"] == "_").all()
+
+    def test_field_size_from_syussotosu(self, sample_race_df, sample_entry_df, sample_odds_df):
+        """syussotosu から field_size にコピーされる"""
+        engine = FeatureEngine()
+        result = engine.build_all(sample_race_df, sample_entry_df, sample_odds_df)
+        assert "field_size" in result.columns
+        assert (result["field_size"] == 18).all()
+
+    def test_popularity_rank_from_ninki(self, sample_race_df, sample_entry_df, sample_odds_df):
+        """ninki から popularity_rank にコピーされる"""
+        engine = FeatureEngine()
+        result = engine.build_all(sample_race_df, sample_entry_df, sample_odds_df)
+        assert "popularity_rank" in result.columns
 
     def test_exclude_steeple(self, sample_race_df, sample_entry_df, sample_odds_df):
-        """障害レース(track_cd >= 51)を除外"""
+        """障害レース(trackcd >= 51)を除外"""
         steeple_race = sample_race_df.copy()
-        steeple_race["track_cd"] = 51
+        steeple_race["trackcd"] = 51
         steeple_race["surface"] = "exclude"
         steeple_race["race_id"] = "1999010101010101"
         steeple_entry = sample_entry_df.copy()
@@ -218,7 +224,7 @@ class TestFeatureEngineBuildAll:
     def test_no_exclude_steeple(self, sample_race_df, sample_entry_df, sample_odds_df):
         """exclude_steeple=False では障害レースも含む"""
         steeple_race = sample_race_df.copy()
-        steeple_race["track_cd"] = 51
+        steeple_race["trackcd"] = 51
         steeple_race["surface"] = "exclude"
         steeple_race["race_id"] = "1999010101010101"
         steeple_entry = sample_entry_df.copy()
@@ -290,10 +296,10 @@ class TestFeatureEngineBuildFeatures:
         """推論結果に基本特徴量列が含まれる"""
         engine = FeatureEngine()
         result = engine.build_features(sample_race, sample_entries)
-        assert "surface" in result.columns
-        assert "distance_bin" in result.columns
         assert "track_condition_code" in result.columns
-        assert "surface_key" in result.columns
+        assert "grade_code" in result.columns
+        assert "field_size" in result.columns
+        assert "popularity_rank" in result.columns
 
     def test_build_features_with_odds_snapshot(self, sample_race, sample_entries):
         """オッズスナップショットを結合できる"""
@@ -301,11 +307,11 @@ class TestFeatureEngineBuildFeatures:
             {
                 "race_id": ["2024032405030208"] * 3,
                 "umaban": [1, 2, 3],
-                "tan_odds": [2.0, 3.0, 4.0],
-                "fuku_odds": [1.1, 1.3, 1.5],
+                "tanodds": [2.0, 3.0, 4.0],
+                "fukuoddslow": [1.1, 1.3, 1.5],
             }
         )
         engine = FeatureEngine()
         result = engine.build_features(sample_race, sample_entries, odds_snapshot=odds_df)
-        assert "tan_odds" in result.columns
-        assert result["tan_odds"].tolist() == [2.0, 3.0, 4.0]
+        assert "tanodds" in result.columns
+        assert result["tanodds"].tolist() == [2.0, 3.0, 4.0]

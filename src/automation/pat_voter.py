@@ -54,9 +54,7 @@ class PatVoter:
         self.api = api
         self.safety_guard = safety_guard
 
-    def submit_bets(
-        self, bets: list[Bet], bankroll: float = 0
-    ) -> list[BetSubmissionResult]:
+    def submit_bets(self, bets: list[Bet], bankroll: float = 0) -> list[BetSubmissionResult]:
         """ベットを JRA-IPAT に投票
 
         SafetyGuard が設定されている場合、チェック後に投票する。
@@ -83,11 +81,13 @@ class PatVoter:
 
         results: list[BetSubmissionResult] = []
         for raw in raw_results:
-            results.append(BetSubmissionResult(
-                success=raw.get("success", False),
-                bet_id=raw.get("bet_id", ""),
-                error=raw.get("error", ""),
-            ))
+            results.append(
+                BetSubmissionResult(
+                    success=raw.get("success", False),
+                    bet_id=raw.get("bet_id", ""),
+                    error=raw.get("error", ""),
+                )
+            )
 
         n_success = sum(1 for r in results if r.success)
         logger.info(f"Submitted {n_success}/{len(results)} bets")

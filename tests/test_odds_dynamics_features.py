@@ -25,30 +25,30 @@ def odds_ts_df() -> pd.DataFrame:
         data.append(
             {
                 "race_id": "R1",
-                "happyo_time": time,
+                "happyotime": time,
                 "umaban": 1,
-                "tan_odds": 3.0 + t_idx * 0.5,
-                "fuku_odds": 1.5,
+                "tanodds": 3.0 + t_idx * 0.5,
+                "fukuoddslow": 1.5,
                 "ninki": 1 + t_idx,
             }
         )
         data.append(
             {
                 "race_id": "R1",
-                "happyo_time": time,
+                "happyotime": time,
                 "umaban": 2,
-                "tan_odds": 10.0 - t_idx * 1.0,
-                "fuku_odds": 3.0,
+                "tanodds": 10.0 - t_idx * 1.0,
+                "fukuoddslow": 3.0,
                 "ninki": 6 - t_idx,
             }
         )
         data.append(
             {
                 "race_id": "R1",
-                "happyo_time": time,
+                "happyotime": time,
                 "umaban": 3,
-                "tan_odds": 5.0,
-                "fuku_odds": 2.0,
+                "tanodds": 5.0,
+                "fukuoddslow": 2.0,
                 "ninki": 3,
             }
         )
@@ -135,7 +135,7 @@ class TestOddsDynamicsFeatures:
         odds_ts = pd.DataFrame(
             {
                 "race_id": ["R1", "R1", "R1", "R1", "R1", "R1"],
-                "happyo_time": [
+                "happyotime": [
                     "03241000",
                     "03241010",
                     "03241020",
@@ -144,8 +144,8 @@ class TestOddsDynamicsFeatures:
                     "03241050",
                 ],
                 "umaban": [1, 1, 1, 1, 1, 1],
-                "tan_odds": [3.0, 3.5, 4.0, 4.5, 5.0, 5.5],
-                "fuku_odds": [1.5, 1.5, 1.5, 1.5, 1.5, 1.5],
+                "tanodds": [3.0, 3.5, 4.0, 4.5, 5.0, 5.5],
+                "fukuoddslow": [1.5, 1.5, 1.5, 1.5, 1.5, 1.5],
                 "ninki": [1, 2, 3, 4, 5, 6],
             }
         )
@@ -153,6 +153,24 @@ class TestOddsDynamicsFeatures:
         assert not np.isnan(result.iloc[0]["odds_drop_rate_60_10"])
         assert np.isnan(result.iloc[1]["odds_drop_rate_60_10"])
         assert np.isnan(result.iloc[2]["odds_drop_rate_60_10"])
+
+    def test_out_of_range_tanodds_produces_nan_features(self, base_df: pd.DataFrame):
+        """tanodds が範囲外 (1.0未満, 999.9超) の場合、特徴量が NaN になる。"""
+        odds_ts = pd.DataFrame({
+            "race_id": ["R1", "R1"], "umaban": [1, 1],
+            "happyotime": [1, 2], "tanodds": [0.5, 1500.0],
+        })
+        result = compute_odds_dynamics(base_df, odds_ts)
+        assert pd.isna(result["odds_drop_rate_60_10"].iloc[0])
+
+    def test_valid_range_tanodds_computes_normally(self, base_df: pd.DataFrame):
+        """tanodds が範囲内 (1.0-999.9) の場合、特徴量が正常に計算される。"""
+        odds_ts = pd.DataFrame({
+            "race_id": ["R1", "R1"], "umaban": [1, 1],
+            "happyotime": [1, 2], "tanodds": [5.0, 3.0],
+        })
+        result = compute_odds_dynamics(base_df, odds_ts)
+        assert not pd.isna(result["odds_drop_rate_60_10"].iloc[0])
 
     def test_preserves_existing_columns(self, base_df: pd.DataFrame, odds_ts_df: pd.DataFrame):
         """既存列を保持する"""
@@ -205,8 +223,8 @@ class TestComputeRoiEma:
                     {
                         "race_id": f"R{r:04d}",
                         "umaban": h + 1,
-                        "finish_pos": 1 if h == 0 else np.random.randint(2, 11),
-                        "tan_odds": np.random.uniform(1.5, 100.0),
+                        "kakuteijyuni": 1 if h == 0 else np.random.randint(2, 11),
+                        "tanodds": np.random.uniform(1.5, 100.0),
                         "popularity_rank": h + 1,
                     }
                 )
@@ -236,8 +254,8 @@ class TestComputeRoiEma:
                     {
                         "race_id": f"R{r:04d}",
                         "umaban": h + 1,
-                        "finish_pos": 1 if h == 0 else np.random.randint(2, 11),
-                        "tan_odds": 3.0,
+                        "kakuteijyuni": 1 if h == 0 else np.random.randint(2, 11),
+                        "tanodds": 3.0,
                         "popularity_rank": h + 1,
                     }
                 )

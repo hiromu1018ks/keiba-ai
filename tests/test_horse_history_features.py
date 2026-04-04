@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from db.repository import DataRepository
+from db.parquet_store import ParquetStore
 
 
 class TestNormFinishLogitAvg:
@@ -122,7 +122,7 @@ class TestRaceTransforms:
                 "umaban": [1, 2, 3, 4],
                 "norm_finish_logit_avg": [2.0, 1.0, 0.0, -1.0],
                 "jockey_surprise": [0.1, 0.05, -0.02, -0.08],
-                "haron_time_l3_avg": [34.0, 35.0, 36.0, 37.0],
+                "harontimel3_avg": [34.0, 35.0, 36.0, 37.0],
                 "jockey_cond_wr": [0.15, 0.10, 0.05, 0.02],
             }
         )
@@ -134,7 +134,7 @@ class TestRaceTransforms:
         df = self._make_race_df()
         result = HorseHistoryFeatures.add_race_transforms(df)
         assert "norm_finish_logit_avg_race_rank" in result.columns
-        assert "haron_time_l3_avg_race_rank" in result.columns
+        assert "harontimel3_avg_race_rank" in result.columns
 
     def test_no_z_or_pct_columns(self):
         """_race_z と _race_pct 列は生成されない"""
@@ -170,13 +170,13 @@ class TestRaceTransforms:
         assert ranks[0] > ranks[3]  # 2.0 should rank higher than -1.0
 
     def test_category_cols_excluded(self):
-        """kyakusitu_cd (カテゴリ列) は race_rank を生成しない"""
+        """kyakusitukubun_cd (カテゴリ列) は race_rank を生成しない"""
         from features.horse_history_features import HorseHistoryFeatures
 
         df = self._make_race_df()
-        df["kyakusitu_cd"] = [1, 2, 3, 4]
+        df["kyakusitukubun_cd"] = [1, 2, 3, 4]
         result = HorseHistoryFeatures.add_race_transforms(df)
-        assert "kyakusitu_cd_race_rank" not in result.columns
+        assert "kyakusitukubun_cd_race_rank" not in result.columns
 
     def test_jockey_cols_excluded(self):
         """jockey_surprise, jockey_cond_wr は race_rank を生成しない"""
@@ -217,32 +217,50 @@ class TestLeakPrevention:
         from features.horse_history_features import HorseHistoryFeatures
 
         target_date = pd.Timestamp("2024-06-01")
-        mock_repo = MagicMock(spec=DataRepository)
-        mock_repo.load_history_entries.return_value = pd.DataFrame(
+        mock_store = MagicMock(spec=ParquetStore)
+
+        # Mock load_history_entries via readers
+        entries_data = pd.DataFrame(
             {
                 "race_id": ["p1", "p2"],
-                "ketto_num": ["H001", "H001"],
-                "kisyu_code": ["J001", "J001"],
+                "kettonum": ["H001", "H001"],
+                "kisyucode": ["J001", "J001"],
                 "umaban": [1, 1],
-                "finish_pos": [1, 3],
-                "win_odds": [5.0, 8.0],
-                "haron_time_l3": [34.5, 35.2],
-            }
-        )
-        mock_repo.load_history_races.return_value = pd.DataFrame(
-            {
-                "race_id": ["p1", "p2"],
-                "field_size": [16, 16],
+                "kakuteijyuni": [1, 3],
+                "odds": [5.0, 8.0],
+                "harontimel3": [34.5, 35.2],
                 "race_date": [
                     pd.Timestamp("2024-05-01"),
                     pd.Timestamp("2024-07-01"),
                 ],
-                "track_cd": [11, 11],
-                "distance": [1600, 1600],
+            }
+        )
+        races_data = pd.DataFrame(
+            {
+                "race_id": ["p1", "p2"],
+                "syussotosu": [16, 16],
+                "race_date": [
+                    pd.Timestamp("2024-05-01"),
+                    pd.Timestamp("2024-07-01"),
+                ],
+                "trackcd": [11, 11],
+                "kyori": [1600, 1600],
+                "surface": ["turf", "turf"],
             }
         )
 
-        hist = HorseHistoryFeatures(repo=mock_repo)
+        # Setup mock to return appropriate data for load_history_entries/load_history_races
+
+        def mock_read(category, name, **kwargs):
+            if name == "entries":
+                return entries_data
+            elif name == "races":
+                return races_data
+            return pd.DataFrame()
+
+        mock_store.read = MagicMock(side_effect=mock_read)
+
+        hist = HorseHistoryFeatures(store=mock_store)
         race_df = pd.DataFrame(
             {
                 "race_id": ["r1"],
@@ -253,107 +271,131 @@ class TestLeakPrevention:
             {
                 "race_id": ["r1"],
                 "umaban": [1],
-                "ketto_num": ["H001"],
-                "kisyu_code": ["J001"],
-                "weight": [480.0],
+                "kettonum": ["H001"],
+                "kisyucode": ["J001"],
+                "bataijyu": [480.0],
             }
         )
         result = hist.compute(race_df, entry_df, np.array(["r1"]))
 
         # Should only use p1 (before target), not p2 (after)
-        # With only 1 valid past race, norm_finish_logit_avg should be based on finish_pos=1 only
         if not result.empty and not result["norm_finish_logit_avg"].isna().all():
-            # Verify the result uses only past data (finish_pos=1 from May)
             logit_val = result["norm_finish_logit_avg"].iloc[0]
             assert not np.isnan(logit_val)
-            # 1st of 16 should give a positive logit
             assert logit_val > 0
 
 
-class TestHorseHistoryFeaturesWithRepo:
-    """DataRepository経由のHorseHistoryFeaturesテスト"""
+class TestHorseHistoryFeaturesWithStore:
+    """ParquetStore経由のHorseHistoryFeaturesテスト"""
 
     @pytest.fixture
-    def mock_repo(self) -> MagicMock:
-        return MagicMock(spec=DataRepository)
+    def mock_store(self) -> MagicMock:
+        return MagicMock(spec=ParquetStore)
 
-    def test_constructor_accepts_repo(self, mock_repo: MagicMock) -> None:
+    def test_constructor_accepts_store(self, mock_store: MagicMock) -> None:
         from features.horse_history_features import HorseHistoryFeatures
 
-        hhf = HorseHistoryFeatures(repo=mock_repo)
-        assert hhf.repo is mock_repo
+        hhf = HorseHistoryFeatures(store=mock_store)
+        assert hhf.store is mock_store
 
-    def test_compute_calls_load_history_entries(self, mock_repo: MagicMock) -> None:
+    def test_compute_calls_load_history_entries(self, mock_store: MagicMock) -> None:
         from features.horse_history_features import HorseHistoryFeatures
 
-        mock_repo.load_history_entries.return_value = pd.DataFrame(
+        entries_data = pd.DataFrame(
             {
                 "race_id": ["r1"],
-                "ketto_num": ["1234"],
-                "kisyu_code": ["5678"],
-                "finish_pos": [1],
-                "win_odds": [2.0],
-                "haron_time_l3": [34.5],
+                "kettonum": ["1234"],
+                "kisyucode": ["5678"],
+                "kakuteijyuni": [1],
+                "odds": [2.0],
+                "harontimel3": [34.5],
                 "umaban": [1],
+                "race_date": [pd.Timestamp("2020-01-01")],
             }
         )
-        mock_repo.load_history_races.return_value = pd.DataFrame(
+        races_data = pd.DataFrame(
             {
                 "race_id": ["r1"],
                 "race_date": [pd.Timestamp("2020-01-01")],
-                "field_size": [16],
-                "track_cd": [11],
-                "distance": [1600],
+                "syussotosu": [16],
+                "trackcd": [11],
+                "kyori": [1600],
+                "surface": ["turf"],
             }
         )
-        hhf = HorseHistoryFeatures(repo=mock_repo)
+
+        def mock_read(category, name, **kwargs):
+            if name == "entries":
+                return entries_data
+            elif name == "races":
+                return races_data
+            return pd.DataFrame()
+
+        mock_store.read = MagicMock(side_effect=mock_read)
+
+        hhf = HorseHistoryFeatures(store=mock_store)
         race_df = pd.DataFrame({"race_id": ["r2"], "race_date": [pd.Timestamp("2020-06-01")]})
         entry_df = pd.DataFrame(
             {
                 "race_id": ["r2"],
                 "umaban": [1],
-                "ketto_num": ["1234"],
-                "kisyu_code": ["5678"],
-                "weight": [480.0],
+                "kettonum": ["1234"],
+                "kisyucode": ["5678"],
+                "bataijyu": [480.0],
             }
         )
         hhf.compute(race_df, entry_df)
-        mock_repo.load_history_entries.assert_called_once()
+        # Verify store.read was called (for entries and races)
+        assert mock_store.read.called
 
-    def test_caching_prevents_repeated_loads(self, mock_repo: MagicMock) -> None:
+    def test_caching_prevents_repeated_loads(self, mock_store: MagicMock) -> None:
         from features.horse_history_features import HorseHistoryFeatures
 
-        mock_repo.load_history_entries.return_value = pd.DataFrame(
+        entries_data = pd.DataFrame(
             {
                 "race_id": ["r1"],
-                "ketto_num": ["1234"],
-                "kisyu_code": ["5678"],
-                "finish_pos": [1],
-                "win_odds": [2.0],
-                "haron_time_l3": [34.5],
+                "kettonum": ["1234"],
+                "kisyucode": ["5678"],
+                "kakuteijyuni": [1],
+                "odds": [2.0],
+                "harontimel3": [34.5],
                 "umaban": [1],
+                "race_date": [pd.Timestamp("2020-01-01")],
             }
         )
-        mock_repo.load_history_races.return_value = pd.DataFrame(
+        races_data = pd.DataFrame(
             {
                 "race_id": ["r1"],
                 "race_date": [pd.Timestamp("2020-01-01")],
-                "field_size": [16],
-                "track_cd": [11],
-                "distance": [1600],
+                "syussotosu": [16],
+                "trackcd": [11],
+                "kyori": [1600],
+                "surface": ["turf"],
             }
         )
-        hhf = HorseHistoryFeatures(repo=mock_repo)
+
+        def mock_read(category, name, **kwargs):
+            if name == "entries":
+                return entries_data
+            elif name == "races":
+                return races_data
+            return pd.DataFrame()
+
+        mock_store.read = MagicMock(side_effect=mock_read)
+
+        hhf = HorseHistoryFeatures(store=mock_store)
         race_df = pd.DataFrame({"race_id": ["r2"], "race_date": [pd.Timestamp("2020-06-01")]})
         entry_df = pd.DataFrame(
             {
                 "race_id": ["r2"],
                 "umaban": [1],
-                "ketto_num": ["1234"],
-                "kisyu_code": ["5678"],
-                "weight": [480.0],
+                "kettonum": ["1234"],
+                "kisyucode": ["5678"],
+                "bataijyu": [480.0],
             }
         )
         hhf.compute(race_df, entry_df)
         hhf.compute(race_df, entry_df)
-        assert mock_repo.load_history_entries.call_count == 1
+        # Caching means entries is loaded once, races is loaded once
+        # Total 2 calls (one for entries, one for races), not 4
+        assert mock_store.read.call_count <= 2

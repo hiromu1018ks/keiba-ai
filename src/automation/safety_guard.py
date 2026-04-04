@@ -62,8 +62,7 @@ class SafetyGuard:
             return SafetyCheckResult(
                 can_bet=False,
                 reason=(
-                    f"Daily loss {abs(self._daily_pnl):.0f} "
-                    f">= max {self.config.max_daily_loss:.0f}"
+                    f"Daily loss {abs(self._daily_pnl):.0f} >= max {self.config.max_daily_loss:.0f}"
                 ),
             )
 
@@ -109,9 +108,7 @@ class SafetyGuard:
             self._consecutive_losses += 1
         else:
             if self._consecutive_losses > 0:
-                logger.info(
-                    f"Consecutive loss streak broken at {self._consecutive_losses}"
-                )
+                logger.info(f"Consecutive loss streak broken at {self._consecutive_losses}")
             self._consecutive_losses = 0
 
     def activate_emergency_stop(self, reason: str) -> None:

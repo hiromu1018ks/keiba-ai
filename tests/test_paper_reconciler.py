@@ -17,7 +17,7 @@ class TestPaperReconciler:
             {
                 "race_id": ["2026040510010101"],
                 "umaban": [3],
-                "finish_pos": [2],
+                "kakuteijyuni": [2],
                 "place_pay": [240.0],
                 "place_odds": [2.4],
                 "horse_name": ["テスト馬"],
@@ -25,7 +25,7 @@ class TestPaperReconciler:
         )
 
         reconciler = PaperReconciler(
-            repo=mock_repo,
+            store=mock_repo,
             bets_path=tmp_path / "bets.parquet",
             everydb2=mock_everydb2,
         )
@@ -66,7 +66,7 @@ class TestPaperReconciler:
         mock_everydb2.get_race_results.return_value = pd.DataFrame()
 
         reconciler = PaperReconciler(
-            repo=MagicMock(),
+            store=MagicMock(),
             bets_path=tmp_path / "bets.parquet",
             everydb2=mock_everydb2,
         )

@@ -6,10 +6,12 @@ MLflow に実験を記録。
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import tempfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import joblib
@@ -17,7 +19,13 @@ import mlflow
 import pandas as pd
 
 from db.parquet_store import ParquetStore
-from db.repository import DataRepository
+from db.readers import (
+    load_entries,
+    load_odds_snapshots,
+    load_odds_time_series_range,
+    load_races,
+    load_wide_odds,
+)
 from domain.models import SubmodelSet, TrainedModelsV5
 
 if TYPE_CHECKING:
@@ -46,11 +54,11 @@ class TrainingPipelineV5:
 
     def __init__(
         self,
-        repo: DataRepository | None = None,
+        store: ParquetStore | None = None,
         db: DatabaseConnection | None = None,
         settings_path: str | None = None,
     ) -> None:
-        self.repo = repo or DataRepository(ParquetStore())
+        self.store = store or ParquetStore()
         self.db = db  # kept for etl_to_parquet if needed, can be None
         self.feature_engine = FeatureEngine()
         self.submodel_mgr = SubModelManager()
@@ -75,29 +83,27 @@ class TrainingPipelineV5:
 
         # 1. データロード
         logger.info(f"Loading data: {train_start} ~ {train_end}")
-        race_df = self.repo.load_races(start, end)
-        entry_df = self.repo.load_entries(start, end)
-        odds_df = self.repo.load_odds_snapshots(start, end)
+        race_df = load_races(self.store, start, end)
+        entry_df = load_entries(self.store, start, end)
+        odds_df = load_odds_snapshots(self.store, start, end)
 
         # NEW: _train_submodel 内で HorseHistoryFeatures が使用するため保存
         self._race_df = race_df
         self._entry_df = entry_df
-        # odds_ts_df は Stage1 FEATURE_COLS で未使用 (2.5 GiB のメモリ消費を回避)
-        odds_ts_df = None
+        # オッズ時系列データ — Stage2 (WinTwoStageModel) のオッズ動的特徴量に必須
+        odds_ts_df = load_odds_time_series_range(self.store, start, end)
 
         # 2. 特徴量生成
         logger.info("Building features")
         feat_df = self.feature_engine.build_all(
-            race_df, entry_df, odds_df, odds_ts_df=odds_ts_df, repo=self.repo
+            race_df, entry_df, odds_df, odds_ts_df=odds_ts_df, store=self.store
         )
         feat_df = self.submodel_mgr.add_distance_band_features(feat_df)
 
         # 2b. ワイドオッズを pivot して特徴量に merge
-        wide_odds_df = self.repo.load_wide_odds(start, end)
+        wide_odds_df = load_wide_odds(self.store, start, end)
         if wide_odds_df is not None and not wide_odds_df.empty:
-            wide_pivot = wide_odds_df.pivot_table(
-                index="race_id", columns="kumi", values="odds_low"
-            )
+            wide_pivot = wide_odds_df.pivot_table(index="race_id", columns="kumi", values="oddslow")
             wide_pivot.columns = [
                 f"wide_odds_{kumi.replace('-', '_')}" for kumi in wide_pivot.columns
             ]
@@ -181,7 +187,7 @@ class TrainingPipelineV5:
         # NEW: 馬過去成績特徴量
         from features.horse_history_features import HorseHistoryFeatures
 
-        hist = HorseHistoryFeatures(repo=self.repo)
+        hist = HorseHistoryFeatures(store=self.store)
         hist_df = hist.compute(self._race_df, self._entry_df, df["race_id"].unique())
         df = df.merge(hist_df, on=["race_id", "umaban"], how="left")
         df = HorseHistoryFeatures.add_race_transforms(df)
@@ -232,11 +238,11 @@ class TrainingPipelineV5:
         from features.jockey_context_features import JockeyContextFeatures
         from features.trainer_context_features import TrainerContextFeatures
 
-        jockey_ctx = JockeyContextFeatures(self.repo)
+        jockey_ctx = JockeyContextFeatures(self.store)
         jockey_df = jockey_ctx.compute(df_oof)
         df_oof = pd.merge(df_oof, jockey_df, on=["race_id", "umaban"], how="left")
 
-        trainer_ctx = TrainerContextFeatures(self.repo)
+        trainer_ctx = TrainerContextFeatures(self.store)
         trainer_df = trainer_ctx.compute(df_oof)
         df_oof = pd.merge(df_oof, trainer_df, on=["race_id", "umaban"], how="left")
 
@@ -261,12 +267,10 @@ class TrainingPipelineV5:
         # 7. 信頼区間キャリブレーション
         conf = RobustConfidenceEstimator()
         win_calib_df = df_oof.copy()
-        win_calib_df["actual_ev_win"] = df_oof["win_odds_actual"] * (
-            df_oof["finish_pos"] == 1
-        ).astype(int)
+        win_calib_df["actual_ev_win"] = df_oof["odds"] * (df_oof["kakuteijyuni"] == 1).astype(int)
         place_calib_df = df_oof.copy()
-        place_calib_df["actual_ev_place"] = df_oof["place_odds_actual"] * (
-            df_oof["finish_pos"] <= 3
+        place_calib_df["actual_ev_place"] = df_oof["fukuoddslow"] * (
+            df_oof["kakuteijyuni"] <= 3
         ).astype(int)
         place_calib_df["ev_place_corrected"] = df_oof["ev_place"]
         conf.calibrate(win_calib_df, place_calib_df)
@@ -312,7 +316,7 @@ class TrainingPipelineV5:
                 overround_mean=("overround", "first"),
                 # 人気順位統計
                 favorite_win_rate=(
-                    "finish_pos",
+                    "kakuteijyuni",
                     lambda x: (x == 1).mean() if len(x) > 0 else 0.0,
                 ),
             )
@@ -384,7 +388,7 @@ class TrainingPipelineV5:
         # FLB slope: 馬レベル feat_df から計算 → レース単位に集約
         from features.market_bias_features import compute_flb_slope
 
-        if all(c in feat_df.columns for c in ["race_id", "tan_odds", "finish_pos"]):
+        if all(c in feat_df.columns for c in ["race_id", "tanodds", "kakuteijyuni"]):
             flb_series = compute_flb_slope(feat_df)
             feat_copy = feat_df.copy()
             feat_copy["flb_slope"] = flb_series.values
@@ -433,26 +437,40 @@ class TrainingPipelineV5:
                 # Stage1 (AbilityModel per surface)
                 stage1_model = sub.stage1.models.get(surface)
                 if stage1_model is not None:
-                    mlflow.lightgbm.log_model(stage1_model, f"stage1_{surface}")
+                    mlflow.lightgbm.log_model(
+                        stage1_model, artifact_path=f"stage1_{surface}"
+                    )
 
                 # MarketModel
-                mlflow.lightgbm.log_model(sub.market.model, f"market_{surface}")
+                mlflow.lightgbm.log_model(
+                    sub.market.model, artifact_path=f"market_{surface}"
+                )
 
                 # WinTwoStageModel
-                mlflow.lightgbm.log_model(sub.win.hit_model, f"win_hit_{surface}")
-                mlflow.lightgbm.log_model(sub.win.return_model, f"win_ret_{surface}")
+                mlflow.lightgbm.log_model(
+                    sub.win.hit_model, artifact_path=f"win_hit_{surface}"
+                )
+                mlflow.lightgbm.log_model(
+                    sub.win.return_model, artifact_path=f"win_ret_{surface}"
+                )
 
                 # EVCorrectionModel
                 mlflow.lightgbm.log_model(
-                    sub.ev_corrector.p_correction_model, f"ev_corrector_p_{surface}"
+                    sub.ev_corrector.p_correction_model,
+                    artifact_path=f"ev_corrector_p_{surface}",
                 )
                 mlflow.lightgbm.log_model(
-                    sub.ev_corrector.e_correction_model, f"ev_corrector_e_{surface}"
+                    sub.ev_corrector.e_correction_model,
+                    artifact_path=f"ev_corrector_e_{surface}",
                 )
 
                 # PlaceTwoStageModel
-                mlflow.lightgbm.log_model(sub.place.hit_model, f"place_hit_{surface}")
-                mlflow.lightgbm.log_model(sub.place.return_model, f"place_ret_{surface}")
+                mlflow.lightgbm.log_model(
+                    sub.place.hit_model, artifact_path=f"place_hit_{surface}"
+                )
+                mlflow.lightgbm.log_model(
+                    sub.place.return_model, artifact_path=f"place_ret_{surface}"
+                )
 
                 # PlaceAbilityModel (sklearn CalibratedClassifierCV → joblib)
                 calibrated = sub.place_ability._calibrated or sub.place_ability._model
@@ -468,15 +486,23 @@ class TrainingPipelineV5:
                             os.unlink(_tmp_path)
 
                 # WideTwoStageModel
-                mlflow.lightgbm.log_model(sub.wide.hit_model, f"wide_hit_{surface}")
-                mlflow.lightgbm.log_model(sub.wide.return_model, f"wide_ret_{surface}")
+                mlflow.lightgbm.log_model(
+                    sub.wide.hit_model, artifact_path=f"wide_hit_{surface}"
+                )
+                mlflow.lightgbm.log_model(
+                    sub.wide.return_model, artifact_path=f"wide_ret_{surface}"
+                )
 
             # RaceQualityScreener
-            mlflow.lightgbm.log_model(quality_screen.model, "race_quality")
+            mlflow.lightgbm.log_model(
+                quality_screen.model, artifact_path="race_quality"
+            )
             mlflow.log_param("quality_threshold", quality_screen.threshold)
 
             # RegimeDetector
-            mlflow.lightgbm.log_model(regime_det.model, "regime_detector")
+            mlflow.lightgbm.log_model(
+                regime_det.model, artifact_path="regime_detector"
+            )
 
             # RobustConfidenceEstimator キャリブレーション値 (JSON)
             first_sub = next(iter(models.values()))
@@ -496,3 +522,82 @@ class TrainingPipelineV5:
             mlflow.log_param("train_end", train_end)
             mlflow.log_param("n_surfaces", str(len(models)))
             mlflow.log_param("pipeline_version", "v5.5")
+
+            # ローカルファイルシステムにもモデルを保存 (MLflow Model Registry不使用時のフォールバック)
+            self._save_models_local(models, quality_screen, regime_det, train_start, train_end)
+
+    @staticmethod
+    def _save_models_local(
+        models: dict[str, SubmodelSet],
+        quality_screen: RaceQualityScreener,
+        regime_det: RegimeDetector,
+        train_start: str,
+        train_end: str,
+    ) -> Path:
+        """全モデルをローカルディレクトリに保存 (MLflow非依存)"""
+        from domain.models import TrainedModelsV5
+
+        models_dir = Path("data/models")
+        models_dir.mkdir(parents=True, exist_ok=True)
+
+        saved: dict[str, object] = {}
+        for surface, sub in models.items():
+            saved[f"stage1_{surface}"] = sub.stage1.models.get(surface)
+            saved[f"market_{surface}"] = sub.market.model
+            saved[f"win_hit_{surface}"] = sub.win.hit_model
+            saved[f"win_ret_{surface}"] = sub.win.return_model
+            saved[f"ev_corrector_p_{surface}"] = sub.ev_corrector.p_correction_model
+            saved[f"ev_corrector_e_{surface}"] = sub.ev_corrector.e_correction_model
+            saved[f"place_hit_{surface}"] = sub.place.hit_model
+            saved[f"place_ret_{surface}"] = sub.place.return_model
+            saved[f"wide_hit_{surface}"] = sub.wide.hit_model
+            saved[f"wide_ret_{surface}"] = sub.wide.return_model
+            # PlaceAbilityModel (sklearn) は joblib で保存
+            calibrated = sub.place_ability._calibrated or sub.place_ability._model
+            if calibrated is not None:
+                import joblib
+
+                joblib.dump(
+                    calibrated,
+                    models_dir / f"place_ability_{surface}.joblib",
+                )
+
+        saved["race_quality"] = quality_screen.model
+        saved["regime_detector"] = regime_det.model
+
+        # LightGBM モデルを model.lgb として保存
+        for name, model in saved.items():
+            if model is None:
+                continue
+            if name.startswith("place_ability"):
+                continue  # joblib で既に保存済み
+            model.save_model(str(models_dir / f"{name}.lgb"))
+
+        # RobustConfidenceEstimator パラメータ保存
+        for surface, sub in models.items():
+            conf = sub.confidence
+            if conf._calibrated:
+                conf_data = {
+                    "alpha": conf.alpha,
+                    "rolling_window": conf.rolling_window,
+                    "win_cp_quantile": conf._win_cp_quantile,
+                    "place_cp_quantile": conf._place_cp_quantile,
+                    "win_rolling_quantile": conf._win_rolling_quantile,
+                    "place_rolling_quantile": conf._place_rolling_quantile,
+                }
+                # 各surfaceごとに保存 (最後のsurfaceの値が使われる)
+                with open(models_dir / "confidence_params.json", "w", encoding="utf-8") as f:
+                    json.dump(conf_data, f, indent=2)
+
+        # メタ情報
+        meta = {
+            "train_start": train_start,
+            "train_end": train_end,
+            "surfaces": list(models.keys()),
+            "saved_at": pd.Timestamp.now().isoformat(),
+        }
+        with open(models_dir / "meta.json", "w", encoding="utf-8") as f:
+            json.dump(meta, f, indent=2, ensure_ascii=False)
+
+        logger.info("Models saved to %s", models_dir)
+        return models_dir

@@ -80,6 +80,108 @@ def _compute_race_id(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+_TABLE_TYPE_RULES: dict[str, dict[str, list[str]]] = {
+    "races": {
+        "int": ["trackcd", "kyori", "tenkocd", "syussotosu", "honsyokin"],
+    },
+    "entries": {
+        "int": [
+            "umaban",
+            "kakuteijyuni",
+            "ninki",
+            "kyakusitukubun",
+            "jyuni1c",
+            "jyuni4c",
+            "zogenfugo",
+        ],
+        "float": ["time", "bataijyu", "zogensa", "harontimel3", "timediff"],
+        "odds10": ["odds"],
+    },
+    "odds_tanpuku": {
+        "int": ["umaban"],
+        "odds10": ["tanodds", "fukuoddslow"],
+    },
+    "odds_wide": {
+        "odds100": ["oddslow", "oddshigh"],
+    },
+    "jodds_tanpuku": {
+        "int": ["umaban", "tanninki"],
+        "odds10": ["tanodds", "fukuoddslow"],
+    },
+    "payouts": {
+        "int": ["paytansyoumaban1"] + [f"payfukusyoumaban{i}" for i in range(1, 6)],
+        "float": ["paytansyopay1"] + [f"payfukusyopay{i}" for i in range(1, 6)],
+    },
+}
+
+
+def _apply_type_conversions(df: pd.DataFrame, table_key: str) -> pd.DataFrame:
+    """Apply type conversions based on table key rules."""
+    rules = _TABLE_TYPE_RULES.get(table_key)
+    if rules is None:
+        return df
+
+    def _to_int(val: object) -> int | None:
+        if val is None or val == "":
+            return None
+        try:
+            return int(val)
+        except (ValueError, TypeError):
+            return None
+
+    def _to_float(val: object) -> float | None:
+        if val is None or val == "":
+            return None
+        try:
+            return float(val)
+        except (ValueError, TypeError):
+            return None
+
+    def _to_odds(val: object, divisor: int) -> float | None:
+        f = _to_float(val)
+        return f / divisor if f is not None else None
+
+    for col in rules.get("int", []):
+        if col in df.columns:
+            df[col] = df[col].apply(_to_int).astype("Int64")
+
+    for col in rules.get("float", []):
+        if col in df.columns:
+            df[col] = df[col].apply(_to_float)
+
+    for col in rules.get("odds10", []):
+        if col in df.columns:
+            df[col] = df[col].apply(lambda v: _to_odds(v, 10))
+
+    for col in rules.get("odds100", []):
+        if col in df.columns:
+            df[col] = df[col].apply(lambda v: _to_odds(v, 100))
+
+    return df
+
+
+def _compute_surface(df: pd.DataFrame) -> pd.DataFrame:
+    """trackcd -> surface (turf/dirt/other)."""
+    if "trackcd" in df.columns:
+        df["surface"] = df["trackcd"].apply(
+            lambda x: "turf" if 10 <= x <= 22 else "dirt" if 23 <= x <= 29 else "other"
+        )
+    return df
+
+
+def _compute_track_condition_code(df: pd.DataFrame) -> pd.DataFrame:
+    """sibababacd/dirtbabacd + trackcd -> track_condition_code.
+
+    Turf(trackcd 10-22) uses sibababacd, dirt(23-29) uses dirtbabacd.
+    """
+    if "sibababacd" in df.columns and "dirtbabacd" in df.columns and "trackcd" in df.columns:
+        import numpy as np
+
+        is_turf = df["trackcd"].between(10, 22)
+        df["track_condition_code"] = np.where(is_turf, df["sibababacd"], df["dirtbabacd"])
+    return df
+
+
 def _load_state() -> dict:
     """Load ETL state from JSON file."""
     if _STATE_PATH.exists():
@@ -122,32 +224,42 @@ def run_full_load(
 
         try:
             if partition_cols and table_type == "raced":
-                # Year-by-year chunked loading for large partitioned tables
+                # Year-by-year streaming write for large partitioned tables
+                import pyarrow as pa
+                import pyarrow.parquet as pq
+
                 start_year = int(start) // 10000
                 end_year = int(end) // 10000
-                frames = []
+                partition_path = store.data_dir / category / key
+                # Clear existing partitioned data to avoid stale year partitions
+                if partition_path.is_dir():
+                    shutil.rmtree(partition_path)
+                partition_path.mkdir(parents=True, exist_ok=True)
+
+                total_rows = 0
                 for year in range(start_year, end_year + 1):
-                    year_start = f"{year}0101"
-                    year_end = f"{year}1231"
-                    df = _read_db_table(engine, cfg, start=year_start, end=year_end)
+                    sql = text(f"SELECT * FROM {cfg['db_table']} WHERE year = :year")
+                    df = pd.read_sql(sql, engine, params={"year": str(year)})
                     if not df.empty:
                         _compute_race_date(df)
                         _compute_race_id(df)
-                        frames.append(df)
-                if frames:
-                    combined = pd.concat(frames, ignore_index=True)
-                    # Add partition columns from race_date
-                    if "race_date" in combined.columns:
-                        combined["year"] = combined["race_date"].dt.year
-                        combined["month"] = combined["race_date"].dt.month
-                    # Clear existing partitioned data to avoid stale year partitions
-                    partition_path = store.data_dir / category / key
-                    if partition_path.is_dir():
-                        shutil.rmtree(partition_path)
-                    store.write(category, key, combined, partition_cols=partition_cols)
-                    counts[key] = len(combined)
-                else:
-                    counts[key] = 0
+                        df = _apply_type_conversions(df, key)
+                        if table_type == "raced":
+                            df = _compute_surface(df)
+                            df = _compute_track_condition_code(df)
+                        # Add partition columns from race_date
+                        if "race_date" in df.columns:
+                            df["year"] = df["race_date"].dt.year
+                            df["month"] = df["race_date"].dt.month
+                        table = pa.Table.from_pandas(df)
+                        pq.write_to_dataset(
+                            table, root_path=str(partition_path), partition_cols=partition_cols
+                        )
+                        n = len(df)
+                        total_rows += n
+                        logger.info("  %s year=%d: %d rows", key, year, n)
+                        del df, table
+                counts[key] = total_rows
             else:
                 df = _read_db_table(
                     engine,
@@ -159,6 +271,10 @@ def run_full_load(
                     if table_type == "raced":
                         _compute_race_date(df)
                         _compute_race_id(df)
+                    df = _apply_type_conversions(df, key)
+                    if table_type == "raced":
+                        df = _compute_surface(df)
+                        df = _compute_track_condition_code(df)
                     store.write(category, key, df)
                     counts[key] = len(df)
                 else:
@@ -185,9 +301,26 @@ def _merge_delta(existing: pd.DataFrame, delta: pd.DataFrame, pk: list[str]) -> 
 
     datakubun='0' → delete row (remove from existing)
     datakubun!='0' → upsert row (replace existing or insert new)
+    If datakubun column is absent, treat all rows as upserts.
     """
-    deletes = delta[delta["datakubun"] == "0"]
-    upserts = delta[delta["datakubun"] != "0"].drop(columns=["datakubun"], errors="ignore")
+    # Normalize PK columns to string for merge compatibility
+    # (existing Parquet may have Int64 PKs while delta has string PKs from EveryDB2)
+    for col in pk:
+        if col in existing.columns:
+            existing = existing.copy()
+            existing[col] = existing[col].astype(str)
+        if col in delta.columns:
+            delta = delta.copy()
+            delta[col] = delta[col].astype(str)
+
+    # Split into deletes and upserts based on datakubun
+    if "datakubun" in delta.columns:
+        deletes = delta[delta["datakubun"] == "0"]
+        upserts = delta[delta["datakubun"] != "0"].drop(columns=["datakubun"], errors="ignore")
+    else:
+        # No datakubun column (e.g., s_odds_tanpuku) — treat all as upserts
+        deletes = pd.DataFrame()
+        upserts = delta
 
     # Start with existing data
     result = existing.copy()
@@ -249,19 +382,44 @@ def run_delta_update(
             # Merge
             merged = _merge_delta(existing_df, delta_df, pk)
 
-            # Re-add race_date if needed
+            # Re-compute derived columns for raced tables
+            # (existing rows already have these, but new delta rows need them)
             is_raced = any(
                 c["parquet_key"] == key and c.get("type") == "raced"
                 for c in config
                 if c.get("type") != "delta"
             )
             if is_raced:
-                if "race_date" not in merged.columns:
-                    _compute_race_date(merged)
-                if "race_id" not in merged.columns:
-                    _compute_race_id(merged)
+                _compute_race_date(merged)
+                _compute_race_id(merged)
 
-            # Write back
+            # Type conversions: delta行のみに適用 (既存行は既に変換済み)
+            # 全体に適用すると odds10 等の変換が2重適用される
+            upsert_mask = (
+                delta_df["datakubun"] != "0"
+                if "datakubun" in delta_df.columns
+                else pd.Series(True, index=delta_df.index)
+            )
+            delta_upserts = delta_df[upsert_mask].drop(columns=["datakubun"], errors="ignore")
+            delta_df_converted = _apply_type_conversions(delta_upserts, key)
+
+            # 変換済みdelta行をmergedの対応行に反映
+            if not delta_df_converted.empty:
+                # PK型をmergedに合わせる (mergedのPKはstring化済み)
+                for col in pk:
+                    if col in delta_df_converted.columns:
+                        delta_df_converted[col] = delta_df_converted[col].astype(str)
+                # merged から元のdelta行を削除して変換済みを追加
+                merge_keys = delta_df_converted[pk].drop_duplicates()
+                merge_check = merged.merge(
+                    merge_keys.assign(_is_delta=True), on=pk, how="left", indicator=False
+                )
+                merged = merged[merge_check["_is_delta"] != True].copy()
+                merged = pd.concat([merged, delta_df_converted], ignore_index=True)
+
+            if is_raced:
+                merged = _compute_surface(merged)
+                merged = _compute_track_condition_code(merged)
             store.write(category, key, merged)
             counts[key] = len(delta_df)
 

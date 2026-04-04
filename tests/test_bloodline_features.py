@@ -6,20 +6,18 @@ from unittest.mock import MagicMock
 
 import numpy as np
 import pandas as pd
-import pytest
 
-from features.bloodline_features import ALPHA_PRIOR, BETA_PRIOR, BloodlineFeatures, TOTAL_OFFSET
-
+from features.bloodline_features import ALPHA_PRIOR, TOTAL_OFFSET, BloodlineFeatures
 
 # ---------------------------------------------------------------------------
-# Helper: build a mock DataRepository with a horses DataFrame
+# Helper: build a mock ParquetStore with a horses DataFrame
 # ---------------------------------------------------------------------------
 
 
-def _make_repo(horses_df: pd.DataFrame) -> MagicMock:
-    repo = MagicMock()
-    repo.load_horses.return_value = horses_df
-    return repo
+def _make_store(horses_df: pd.DataFrame) -> MagicMock:
+    store = MagicMock()
+    store.read.return_value = horses_df
+    return store
 
 
 def _make_entry(n: int = 1, ketto_nums: list[str] | None = None) -> pd.DataFrame:
@@ -29,7 +27,7 @@ def _make_entry(n: int = 1, ketto_nums: list[str] | None = None) -> pd.DataFrame
         {
             "race_id": ["r1"] * n,
             "umaban": list(range(1, n + 1)),
-            "ketto_num": ketto_nums,
+            "kettonum": ketto_nums,
         }
     )
 
@@ -122,8 +120,8 @@ class TestBloodSurfaceWr:
     def test_blood_surface_wr(self):
         """ba1chakukaisu1=5, total=50 -> (5+1)/(50+11)"""
         horses = pd.DataFrame([_make_horses_row(ba1chakukaisu1=5, ba1_total=50)])
-        repo = _make_repo(horses)
-        feat = BloodlineFeatures(repo)
+        store = _make_store(horses)
+        feat = BloodlineFeatures(store)
         entry = _make_entry()
         result = feat.compute(entry)
         expected = (5 + ALPHA_PRIOR) / (50 + TOTAL_OFFSET)
@@ -132,8 +130,8 @@ class TestBloodSurfaceWr:
     def test_blood_surface_wr_no_turf_starts(self):
         """ba1 全部 0 -> total=0 -> NaN"""
         horses = pd.DataFrame([_make_horses_row(ba1chakukaisu1=0, ba1_total=0)])
-        repo = _make_repo(horses)
-        feat = BloodlineFeatures(repo)
+        store = _make_store(horses)
+        feat = BloodlineFeatures(store)
         entry = _make_entry()
         result = feat.compute(entry)
         assert np.isnan(result["blood_surface_wr"].iloc[0])
@@ -150,8 +148,8 @@ class TestBloodTotalWr:
     def test_blood_total_wr(self):
         """chuo: wins=10, total=80 -> (10+1)/(80+11)"""
         horses = pd.DataFrame([_make_horses_row(chuochakukaisu1=10, chuo_total=80)])
-        repo = _make_repo(horses)
-        feat = BloodlineFeatures(repo)
+        store = _make_store(horses)
+        feat = BloodlineFeatures(store)
         entry = _make_entry()
         result = feat.compute(entry)
         expected = (10 + ALPHA_PRIOR) / (80 + TOTAL_OFFSET)
@@ -169,8 +167,8 @@ class TestBloodPrizeLog:
     def test_blood_prize_log(self):
         """ruikeihonsyoheiti=50000 -> log1p(50000)"""
         horses = pd.DataFrame([_make_horses_row(ruikeihonsyoheiti=50000.0)])
-        repo = _make_repo(horses)
-        feat = BloodlineFeatures(repo)
+        store = _make_store(horses)
+        feat = BloodlineFeatures(store)
         entry = _make_entry()
         result = feat.compute(entry)
         expected = float(np.log1p(50000.0))
@@ -179,8 +177,8 @@ class TestBloodPrizeLog:
     def test_blood_prize_log_zero(self):
         """prize=0 -> NaN"""
         horses = pd.DataFrame([_make_horses_row(ruikeihonsyoheiti=0.0)])
-        repo = _make_repo(horses)
-        feat = BloodlineFeatures(repo)
+        store = _make_store(horses)
+        feat = BloodlineFeatures(store)
         entry = _make_entry()
         result = feat.compute(entry)
         assert np.isnan(result["blood_prize_log"].iloc[0])
@@ -188,8 +186,8 @@ class TestBloodPrizeLog:
     def test_blood_prize_log_nan(self):
         """prize=NaN -> NaN"""
         horses = pd.DataFrame([_make_horses_row(ruikeihonsyoheiti=float("nan"))])
-        repo = _make_repo(horses)
-        feat = BloodlineFeatures(repo)
+        store = _make_store(horses)
+        feat = BloodlineFeatures(store)
         entry = _make_entry()
         result = feat.compute(entry)
         assert np.isnan(result["blood_prize_log"].iloc[0])
@@ -206,8 +204,8 @@ class TestBloodDistanceWr:
     def test_blood_distance_wr(self):
         """kyori1: wins=3, total=30 -> (3+1)/(30+11) = 4/41"""
         horses = pd.DataFrame([_make_horses_row(kyori1chakukaisu1=3, kyori1_total=30)])
-        repo = _make_repo(horses)
-        feat = BloodlineFeatures(repo)
+        store = _make_store(horses)
+        feat = BloodlineFeatures(store)
         entry = _make_entry()
         result = feat.compute(entry)
         expected = (3 + ALPHA_PRIOR) / (30 + TOTAL_OFFSET)
@@ -223,10 +221,10 @@ class TestEdgeCases:
     """欠損・空データのエッジケース"""
 
     def test_missing_horse(self):
-        """ketto_num not in horses_df -> all feature columns NaN"""
+        """kettonum not in horses_df -> all feature columns NaN"""
         horses = pd.DataFrame([_make_horses_row(kettonum="K999")])
-        repo = _make_repo(horses)
-        feat = BloodlineFeatures(repo)
+        store = _make_store(horses)
+        feat = BloodlineFeatures(store)
         entry = _make_entry(ketto_nums=["K001"])  # K001 not in horses
         result = feat.compute(entry)
         from features.bloodline_features import FEATURE_COLS
@@ -240,9 +238,9 @@ class TestEdgeCases:
     def test_empty_entry(self):
         """空の entry_df -> 空の結果 (race_id, umaban + NaN columns)"""
         horses = pd.DataFrame([_make_horses_row()])
-        repo = _make_repo(horses)
-        feat = BloodlineFeatures(repo)
-        entry = pd.DataFrame(columns=["race_id", "umaban", "ketto_num"])
+        store = _make_store(horses)
+        feat = BloodlineFeatures(store)
+        entry = pd.DataFrame(columns=["race_id", "umaban", "kettonum"])
         result = feat.compute(entry)
         # Should have correct columns but be empty
         assert "race_id" in result.columns
@@ -251,12 +249,14 @@ class TestEdgeCases:
 
     def test_multiple_horses(self):
         """複数頭のエントリーでそれぞれ正しい値が返る"""
-        horses = pd.DataFrame([
-            _make_horses_row(kettonum="K001", ba1chakukaisu1=5, ba1_total=50),
-            _make_horses_row(kettonum="K002", ba1chakukaisu1=10, ba1_total=100),
-        ])
-        repo = _make_repo(horses)
-        feat = BloodlineFeatures(repo)
+        horses = pd.DataFrame(
+            [
+                _make_horses_row(kettonum="K001", ba1chakukaisu1=5, ba1_total=50),
+                _make_horses_row(kettonum="K002", ba1chakukaisu1=10, ba1_total=100),
+            ]
+        )
+        store = _make_store(horses)
+        feat = BloodlineFeatures(store)
         entry = _make_entry(n=2, ketto_nums=["K001", "K002"])
         result = feat.compute(entry)
         assert len(result) == 2
@@ -268,8 +268,8 @@ class TestEdgeCases:
     def test_phase2_columns_are_nan(self):
         """Phase 2 プレースホルダー (blood_condition_wr, blood_keito_cd) は NaN"""
         horses = pd.DataFrame([_make_horses_row()])
-        repo = _make_repo(horses)
-        feat = BloodlineFeatures(repo)
+        store = _make_store(horses)
+        feat = BloodlineFeatures(store)
         entry = _make_entry()
         result = feat.compute(entry)
         assert np.isnan(result["blood_condition_wr"].iloc[0])
@@ -278,8 +278,8 @@ class TestEdgeCases:
     def test_empty_horses_df(self):
         """horses_df が空 -> 全列 NaN"""
         horses = pd.DataFrame()
-        repo = _make_repo(horses)
-        feat = BloodlineFeatures(repo)
+        store = _make_store(horses)
+        feat = BloodlineFeatures(store)
         entry = _make_entry()
         result = feat.compute(entry)
         from features.bloodline_features import FEATURE_COLS
@@ -290,8 +290,8 @@ class TestEdgeCases:
     def test_result_columns(self):
         """結果に race_id, umaban + FEATURE_COLS が含まれる"""
         horses = pd.DataFrame([_make_horses_row()])
-        repo = _make_repo(horses)
-        feat = BloodlineFeatures(repo)
+        store = _make_store(horses)
+        feat = BloodlineFeatures(store)
         entry = _make_entry()
         result = feat.compute(entry)
         expected_cols = ["race_id", "umaban"] + [

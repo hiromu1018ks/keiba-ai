@@ -44,7 +44,7 @@ class RacePredictor:
             return race_df
 
         # 1. サブモデル選択
-        surface_key = race_df["surface_key"].iloc[0]
+        surface_key = race_df["surface"].iloc[0]
         if surface_key not in self.models.submodels:
             logger.debug("Unknown surface: %s, skipping", surface_key)
             return pd.DataFrame()
@@ -53,7 +53,7 @@ class RacePredictor:
         df = race_df.copy()
 
         # 2. HorseHistoryFeatures マージ + race_transforms
-        if hist_features is not None and not hist_features.empty:
+        if hist_features is not None:
             df = df.merge(hist_features, on=["race_id", "umaban"], how="left")
         df = HorseHistoryFeatures.add_race_transforms(df)
 
@@ -64,17 +64,18 @@ class RacePredictor:
         try:
             df = submodel.market.predict_and_calc_error(df)
         except Exception as e:
-            logger.debug("Market prediction failed: %s", e)
+            import traceback
+            logger.error("Market prediction failed: %s\n%s", e, traceback.format_exc())
             return pd.DataFrame()
         df = submodel.stage1.add_ability_probs(df)
         df = submodel.place_ability.predict(df)
         df = submodel.win.predict_ev(df)
 
         # 5. 騎手/調教師コンテキスト マージ
-        if jockey_features is not None and not jockey_features.empty:
+        if jockey_features is not None:
             jockey_race = jockey_features[jockey_features["race_id"] == race_df["race_id"].iloc[0]]
             df = df.merge(jockey_race, on=["race_id", "umaban"], how="left")
-        if trainer_features is not None and not trainer_features.empty:
+        if trainer_features is not None:
             trainer_race = trainer_features[
                 trainer_features["race_id"] == race_df["race_id"].iloc[0]
             ]
@@ -116,7 +117,7 @@ class RacePredictor:
         ev_threshold = regime_params.get("ev_threshold", 1.20)
         max_bets = regime_params.get("max_bets_per_race", 3)
 
-        if "ev_place" not in race_df.columns or "place_odds_actual" not in race_df.columns:
+        if "ev_place" not in race_df.columns or "fukuoddslow" not in race_df.columns:
             return bets
 
         candidates = race_df[race_df["ev_place"].fillna(0) >= ev_threshold].copy()
@@ -130,7 +131,7 @@ class RacePredictor:
                         race_id=row["race_id"],
                         umaban=int(row["umaban"]),
                         bet_type=BetType.PLACE,
-                        odds=float(row["place_odds_actual"]),
+                        odds=float(row["fukuoddslow"]),
                         ev_lower_corrected=float(row.get("ev_place", 0)),
                         stake=stake,
                     )
