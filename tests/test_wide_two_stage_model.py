@@ -156,9 +156,7 @@ class TestEarlyStopping:
         mock_lgb.early_stopping.assert_called_once_with(stopping_rounds=50, verbose=False)
 
     @patch("models.wide_two_stage_model.lgb")
-    def test_train_return_model_uses_early_stopping(
-        self, mock_lgb: MagicMock
-    ) -> None:
+    def test_train_return_model_uses_early_stopping(self, mock_lgb: MagicMock) -> None:
         """train_return_model がサンプル十分時に valid_sets と callbacks を渡すこと"""
         mock_booster = MagicMock()
         mock_booster.best_iteration = 50
@@ -192,9 +190,7 @@ class TestEarlyStopping:
         mock_lgb.early_stopping.assert_called_once_with(stopping_rounds=50, verbose=False)
 
     @patch("models.wide_two_stage_model.lgb")
-    def test_train_return_model_early_stopping_guard(
-        self, mock_lgb: MagicMock
-    ) -> None:
+    def test_train_return_model_early_stopping_guard(self, mock_lgb: MagicMock) -> None:
         """return_model: サンプル < 10 は early stopping なし"""
         mock_booster = MagicMock()
         mock_booster.best_iteration = 50

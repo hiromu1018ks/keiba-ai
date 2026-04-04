@@ -176,9 +176,7 @@ class WideTwoStageModel:
             if col in features.columns:
                 features[col] = features[col].astype("category")
 
-        hit_iter = (
-            self.hit_model.best_iteration if self.hit_model.best_iteration > 0 else None
-        )
+        hit_iter = self.hit_model.best_iteration if self.hit_model.best_iteration > 0 else None
         ret_iter = (
             self.return_model.best_iteration if self.return_model.best_iteration > 0 else None
         )

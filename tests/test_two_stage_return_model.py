@@ -56,12 +56,8 @@ def _make_mock_booster(pred_values: list[float]) -> MagicMock:
 def trained_win_model(feature_df: pd.DataFrame) -> WinTwoStageModel:
     """学習済みWinTwoStageModel (mock)"""
     model = WinTwoStageModel()
-    model.hit_model = _make_mock_booster(
-        [0.28, 0.22, 0.18, 0.12, 0.08, 0.06, 0.04, 0.02]
-    )
-    model.return_model = _make_mock_booster(
-        [4.0, 6.0, 9.0, 16.0, 28.0, 45.0, 90.0, 160.0]
-    )
+    model.hit_model = _make_mock_booster([0.28, 0.22, 0.18, 0.12, 0.08, 0.06, 0.04, 0.02])
+    model.return_model = _make_mock_booster([4.0, 6.0, 9.0, 16.0, 28.0, 45.0, 90.0, 160.0])
     return model
 
 
@@ -125,9 +121,7 @@ class TestWinTwoStageModel:
         mock_lgb.early_stopping.assert_called_once_with(stopping_rounds=50, verbose=False)
 
     @patch("models.two_stage_return_model.lgb")
-    def test_train_return_model_early_stopping_guard(
-        self, mock_lgb: MagicMock
-    ) -> None:
+    def test_train_return_model_early_stopping_guard(self, mock_lgb: MagicMock) -> None:
         """return_model: サンプル < 10 は early stopping なし"""
         mock_booster = MagicMock()
         mock_booster.best_iteration = 50
@@ -184,12 +178,8 @@ class TestPlaceTwoStageModel:
     @pytest.fixture
     def trained_place_model(self, feature_df: pd.DataFrame) -> PlaceTwoStageModel:
         model = PlaceTwoStageModel()
-        model.hit_model = _make_mock_booster(
-            [0.40, 0.35, 0.30, 0.15, 0.10, 0.05, 0.03, 0.01]
-        )
-        model.return_model = _make_mock_booster(
-            [1.4, 1.7, 2.2, 3.8, 5.5, 9.0, 16.0, 32.0]
-        )
+        model.hit_model = _make_mock_booster([0.40, 0.35, 0.30, 0.15, 0.10, 0.05, 0.03, 0.01])
+        model.return_model = _make_mock_booster([1.4, 1.7, 2.2, 3.8, 5.5, 9.0, 16.0, 32.0])
         return model
 
     def test_ev_equals_p_times_e(

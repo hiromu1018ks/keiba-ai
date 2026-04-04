@@ -209,7 +209,12 @@ class HorseHistoryFeatures:
 
         # Merge with races to get syussotosu (field_size), race_date, surface, baba
         race_cols_all = [
-            "race_id", "syussotosu", "race_date", "trackcd", "kyori", "surface",
+            "race_id",
+            "syussotosu",
+            "race_date",
+            "trackcd",
+            "kyori",
+            "surface",
             "track_condition_code",
         ]
         races_subset = races_hist[races_hist["race_id"].isin(entries_filtered["race_id"].unique())]
@@ -270,9 +275,18 @@ class HorseHistoryFeatures:
         # Pre-convert past DataFrames to dict-of-numpy-arrays for fast access
         # -------------------------------------------------------------------
         cols_horse = [
-            "race_date", "valid_field", "kakuteijyuni", "syussotosu",
-            "harontimel3", "distance_bin", "surface", "baba_cd",
-            "timediff", "jyuni1c", "jyuni4c", "kyakusitukubun",
+            "race_date",
+            "valid_field",
+            "kakuteijyuni",
+            "syussotosu",
+            "harontimel3",
+            "distance_bin",
+            "surface",
+            "baba_cd",
+            "timediff",
+            "jyuni1c",
+            "jyuni4c",
+            "kyakusitukubun",
         ]
         cols_jockey = ["race_date", "kakuteijyuni", "odds"]
         cols_jockey_all = ["race_date", "kakuteijyuni"]
@@ -283,9 +297,8 @@ class HorseHistoryFeatures:
             for col in cols_horse:
                 if col in df.columns:
                     arrs[col] = df[col].values
-            arrs["_valid_mask"] = (
-                (arrs.get("valid_field", np.array([], dtype=bool)) == 1)
-                & (arrs.get("kakuteijyuni", np.array([], dtype=float)) > 0)
+            arrs["_valid_mask"] = (arrs.get("valid_field", np.array([], dtype=bool)) == 1) & (
+                arrs.get("kakuteijyuni", np.array([], dtype=float)) > 0
             )
             past_by_ketto_arr[k] = arrs
 
@@ -351,7 +364,9 @@ class HorseHistoryFeatures:
 
                 for cols, min_n in FALLBACK_LEVELS:
                     if cols:
-                        grp_df = pd.DataFrame({"ht": ht_all, "db": db_all, "surf": surf_all, "baba": baba_all})
+                        grp_df = pd.DataFrame(
+                            {"ht": ht_all, "db": db_all, "surf": surf_all, "baba": baba_all}
+                        )
                         col_map = {"distance_bin": "db", "surface": "surf", "baba_cd": "baba"}
                         group_cols = [col_map[c] for c in cols]
                         grouped = grp_df.groupby(group_cols)["ht"].agg(["mean", "std", "count"])
@@ -545,9 +560,7 @@ class HorseHistoryFeatures:
             if n_jockey >= 30:
                 expected = float((PAYOUT_RATE / np.clip(j_odds, 1.1, None)).sum())
                 actual = int((j_kakuteijyuni == 1).sum())
-                jockey_surprise: float = _compute_jockey_surprise(
-                    actual, n_jockey, expected
-                )
+                jockey_surprise: float = _compute_jockey_surprise(actual, n_jockey, expected)
             else:
                 jockey_surprise = float("nan")
 
