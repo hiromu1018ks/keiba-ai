@@ -159,21 +159,19 @@ git commit -m "feat: 軽量タイミング計測ユーティリティ (Phase 0)"
 from utils.timing import TimingContext
 
 # 各モジュール呼び出しを TimingContext でラップ:
-# 例 (行84-86):
 with TimingContext("build_all/intra_race"):
-    compute_intra_race_features(df)
-# (行88-90):
+    compute_intra_race_features(df)       # 行84-86
 with TimingContext("build_all/odds_dynamics"):
-    compute_odds_dynamics(df, odds_ts_df)
-# (行92-94):
+    compute_odds_dynamics(df, odds_ts_df) # 行88-90
 with TimingContext("build_all/market_bias"):
-    compute_market_bias(df)
-# (行96-98):
+    compute_market_bias(df)               # 行92-94
 with TimingContext("build_all/difficulty"):
-    compute_difficulty_score(df)
-# (行101-106):
-with TimingContext("build_all/bloodline"):
-    BloodlineFeatures(store).compute(df)
+    compute_difficulty_score(df)          # 行96-98
+# BloodlineFeatures は store is not None ガード内にあるため、
+# ガードの内側で TimingContext をラップする:
+if store is not None:
+    with TimingContext("build_all/bloodline"):
+        BloodlineFeatures(store).compute(df)  # 行101-106
 ```
 
 - [ ] **Step 2: training_pipeline.py に TimingContext を追加**
@@ -184,16 +182,49 @@ with TimingContext("build_all/bloodline"):
 # src/pipelines/training_pipeline.py — _train_submodel() 内
 from utils.timing import TimingContext
 
-# 各ステップをラップ (合計15ポイント):
-with TimingContext(f"{surface}/horse_history"):
+# 各ステップをラップ (合計21ポイント):
+with TimingContext(f"{surface}/horse_history"):          # 行191
     hist.compute(df, surface)
-with TimingContext(f"{surface}/interaction"):
+with TimingContext(f"{surface}/add_race_transforms"):    # 行193
+    HorseHistoryFeatures.add_race_transforms(df)
+with TimingContext(f"{surface}/interaction"):             # 行198
     compute_interaction_features(df)
-with TimingContext(f"{surface}/market_model"):
+with TimingContext(f"{surface}/market_model"):            # 行209-211
     mm.train(df); mm.predict_and_calc_error(df)
-with TimingContext(f"{surface}/ability_oof"):
+with TimingContext(f"{surface}/ability_oof"):             # 行219-220
     ability.train_oof(df, n_folds=3)
-# ... 以下同様に全ステップ
+with TimingContext(f"{surface}/place_ability_train"):     # 行227-228
+    pam.train(df)
+with TimingContext(f"{surface}/place_ability_predict"):   # 行229
+    pam.predict(df)
+with TimingContext(f"{surface}/win_hit"):                 # 行232
+    wm.train_hit_model(df)
+with TimingContext(f"{surface}/win_return"):              # 行233
+    wm.train_return_model(df)
+with TimingContext(f"{surface}/win_predict"):             # 行234-235
+    wm.predict_ev(df)
+with TimingContext(f"{surface}/jockey_ctx"):              # 行241-243
+    JockeyContextFeatures.compute(df)
+with TimingContext(f"{surface}/trainer_ctx"):             # 行245-247
+    TrainerContextFeatures.compute(df)
+with TimingContext(f"{surface}/ev_correction"):           # 行250-252
+    evm.train(df); evm.correct_ev(df)
+with TimingContext(f"{surface}/place_hit"):               # 行255
+    plm.train_hit_model(df)
+with TimingContext(f"{surface}/place_return"):            # 行256
+    plm.train_return_model(df)
+with TimingContext(f"{surface}/place_predict"):           # 行257-258
+    plm.predict_ev(df)
+with TimingContext(f"{surface}/wide_pair_build"):         # 行261
+    wpb.build(df)
+with TimingContext(f"{surface}/wide_hit"):                # 行264
+    wdm.train_hit_model(df)
+with TimingContext(f"{surface}/wide_return"):             # 行265
+    wdm.train_return_model(df)
+with TimingContext(f"{surface}/wide_predict"):            # 行266
+    wdm.predict_score(df)
+with TimingContext(f"{surface}/confidence"):              # 行268-276
+    rce.calibrate(df)
 ```
 
 `run()` 内にも追加 (5ポイント):
@@ -216,7 +247,7 @@ Expected: PASS (mockがインポートを許容するため)
 
 ```bash
 git add src/features/feature_engine.py src/pipelines/training_pipeline.py
-git commit -m "feat: Phase 0 — 全ステップにタイミング計測を追加 (25ポイント)"
+git commit -m "feat: Phase 0 — 全ステップにタイミング計測を追加 (26ポイント)"
 ```
 
 ---
@@ -369,7 +400,15 @@ raw_scores = self.models[key].predict(features,
                                        num_iteration=self.models[key].best_iteration)
 ```
 
-- [ ] **Step 3: テストを更新**
+- [ ] **Step 3: AbilityModel.train_oof() に num_threads パラメータを追加**
+
+`train_oof()` は内部で `AbilityModel()` の新しいインスタンスを作成して `train()` を呼び出す。
+このインスタンスにも `num_threads` が伝播するよう、`train_oof()` にも `num_threads` パラメータを追加し、
+内部の `AbilityModel()` コンストラクタに渡す。
+
+**注意**: OOF fold モデルには早期停止を適用しない。`num_threads` のみ調整。
+
+- [ ] **Step 4: テストを更新**
 
 モックの `lgb.train` が `valid_sets`, `callbacks`, `group` を受け取るようにする。
 モックの booster に `best_iteration` 属性を設定。
@@ -377,7 +416,7 @@ raw_scores = self.models[key].predict(features,
 Run: `python -m pytest tests/test_stage1_ability.py -v`
 Expected: PASS
 
-- [ ] **Step 4: コミット**
+- [ ] **Step 5: コミット**
 
 ```bash
 git add src/models/stage1_ability_model.py tests/test_stage1_ability.py
@@ -578,11 +617,16 @@ self.model = lgb.train(
 )
 ```
 
-- [ ] **Step 2: RaceQualityScreener.should_bet() に num_iteration を追加**
+- [ ] **Step 2: RaceQualityScreener の全predictに num_iteration を追加**
 
 ```python
-# 行109:
+# should_bet() (行109):
 quality_score = self.model.predict(features, num_iteration=self.model.best_iteration)[0]
+
+# calibrate_threshold() (行122付近) — 見落とし注意:
+# このメソッドも self.model.predict(features) を呼び出すため、
+# 同様に num_iteration=self.model.best_iteration を追加する必要がある
+probs = self.model.predict(features, num_iteration=self.model.best_iteration)
 ```
 
 - [ ] **Step 3: RegimeDetector も同様に変更**
@@ -613,7 +657,18 @@ git commit -m "feat: RaceQualityScreener/RegimeDetector に早期停止 + num_th
 
 **Files:**
 - Modify: `src/pipelines/training_pipeline.py` (行130)
-- Modify: 各モデルファイルの `num_threads` 設定
+- Modify: `src/models/stage1_ability_model.py` — `train()`, `train_oof()` のnum_threads
+- Modify: `src/models/market_model.py` — `train()` のnum_threads
+- Modify: `src/models/two_stage_return_model.py` — Win/Place `train_*()` のnum_threads
+- Modify: `src/models/ev_correction_model.py` — `train()` のnum_threads
+- Modify: `src/models/wide_two_stage_model.py` — `train_*()` のnum_threads
+- Modify: `src/models/race_quality_screener.py` — `train()` のnum_threads (Task 8で追加済み)
+- Modify: `src/models/regime_detector.py` — `train()` のnum_threads (Task 8で追加済み)
+- Modify: `src/models/place_ability_model.py` — **`n_jobs`** (sklearn API、注意)
+- Modify: 各 `tests/test_*.py` — モックシグネチャ更新
+
+**注意**: このタスクは9ファイルにまたがるインターフェース変更。各モデルの `train()` メソッドシグネチャに
+`num_threads` パラメータを追加し、全テストのモック期待値を更新する必要がある。
 
 - [ ] **Step 1: _get_num_threads() ヘルパーを追加**
 
@@ -641,7 +696,19 @@ with ThreadPoolExecutor(max_workers=2) as executor:
 
 各モデルの `train()` メソッドが `num_threads` パラメータを受け取るように変更。
 
-- [ ] **Step 4: 各モデルファイルのハードコード `num_threads` を引数化**
+- [ ] **Step 4: lgb.train (native API) モデルの num_threads を引数化**
+
+以下の7ファイルの `train()` メソッドに `num_threads` パラメータを追加:
+
+| ファイル | メソッド | 現在の値 | 変更 |
+|---------|---------|---------|------|
+| `stage1_ability_model.py` | `train()`, `train_oof()` | `max(1, (os.cpu_count() or 4) // 2)` | 引数化 |
+| `market_model.py` | `train()` | 同上 | 引数化 |
+| `two_stage_return_model.py` | Win/Place `train_hit/return()` | 同上 | 引数化 |
+| `ev_correction_model.py` | `train()` | 同上 | 引数化 |
+| `wide_two_stage_model.py` | `train_hit/return()` | 同上 | 引数化 |
+| `race_quality_screener.py` | `train()` | なし (Task 8で追加) | 引数化 |
+| `regime_detector.py` | `train()` | なし (Task 8で追加) | 引数化 |
 
 ```python
 # 変更前:
@@ -650,14 +717,38 @@ with ThreadPoolExecutor(max_workers=2) as executor:
 "num_threads": num_threads,
 ```
 
-対象: `stage1_ability_model.py`, `market_model.py`, `two_stage_return_model.py`, `ev_correction_model.py`, `wide_two_stage_model.py`, `race_quality_screener.py`, `regime_detector.py`, `place_ability_model.py`
+- [ ] **Step 5: PlaceAbilityModel の n_jobs を引数化 (sklearn API)**
 
-- [ ] **Step 5: テストを更新**
+`PlaceAbilityModel` は **`lgb.LGBMClassifier`** (sklearn API) を使用するため、
+`num_threads` ではなく **`n_jobs`** パラメータを使用する点に注意:
+
+```python
+# src/models/place_ability_model.py — train() (行104-117)
+# 変更前:
+n_jobs=max(1, (os.cpu_count() or 4) // 2),
+# 変更後:
+n_jobs=num_threads,  # _train_submodel() から受け取った値
+```
+
+- [ ] **Step 6: テストを更新 (全モックシグネチャ更新)**
+
+各モデルのテストファイルで、`train()` メソッドのモックが `num_threads` 引数を
+受け取るようにする。これには以下のテストファイルの更新が必要:
+
+- `tests/test_stage1_ability.py` (train + train_oof)
+- `tests/test_market_model.py`
+- `tests/test_two_stage_return_model.py`
+- `tests/test_ev_correction.py`
+- `tests/test_wide_two_stage_model.py`
+- `tests/test_race_quality_screener.py`
+- `tests/test_regime_detector.py`
+- `tests/test_place_ability_model.py` (n_jobs)
+- `tests/test_training_pipeline.py` (_train_submodel)
 
 Run: `python -m pytest tests/ -v`
 Expected: PASS
 
-- [ ] **Step 6: コミット**
+- [ ] **Step 7: コミット**
 
 ```bash
 git add -A
