@@ -492,12 +492,15 @@ def _run_dry_run(
     models: "TrainedModelsV5",
     store: "ParquetStore",
 ) -> None:
+    import pandas as pd
+
     from backtest.race_predictor import RacePredictor
+    from db.everydb2_queries import EveryDB2Queries
     from db.readers import (
-        load_entries,
-        load_odds_snapshots,
-        load_odds_time_series_range,
-        load_races,
+        load_entries_from_db,
+        load_odds_snapshots_from_db,
+        load_odds_time_series_from_db,
+        load_races_from_db,
     )
     from features.bloodline_features import BloodlineFeatures
     from features.feature_engine import FeatureEngine
@@ -528,14 +531,23 @@ def _run_dry_run(
     all_end = dates[-1].strftime("%Y%m%d")
 
     logger.info("Loading data: %s ~ %s", all_start, all_end)
-    race_df = load_races(store, all_start, all_end)
-    entry_df = load_entries(store, all_start, all_end)
-    odds_df = load_odds_snapshots(store, all_start, all_end)
-    odds_ts_df = load_odds_time_series_range(store, all_start, all_end)
+    db = EveryDB2Queries(config.everydb2_connection_string)
+    race_frames, entry_frames, odds_frames, odds_ts_frames = [], [], [], []
+    for d in dates:
+        ymd_d = d.strftime("%Y%m%d")
+        race_frames.append(load_races_from_db(db, ymd_d))
+        entry_frames.append(load_entries_from_db(db, ymd_d))
+        odds_frames.append(load_odds_snapshots_from_db(db, ymd_d))
+        odds_ts_frames.append(load_odds_time_series_from_db(db, ymd_d))
 
-    if race_df.empty:
-        logger.error("No race data found")
-        sys.exit(1)
+    race_df = pd.concat(race_frames, ignore_index=True) if race_frames else pd.DataFrame()
+    entry_df = pd.concat(entry_frames, ignore_index=True) if entry_frames else pd.DataFrame()
+    odds_df = pd.concat(odds_frames, ignore_index=True) if odds_frames else pd.DataFrame()
+    odds_ts_df = pd.concat(odds_ts_frames, ignore_index=True) if odds_ts_frames else pd.DataFrame()
+
+    if race_df.empty or entry_df.empty or odds_df.empty or odds_ts_df.empty:
+        logger.error("EveryDB2 からデータ取得失敗: %s ~ %s", all_start, all_end)
+        return
 
     feat_engine = FeatureEngine()
     submodel_mgr = SubModelManager()
