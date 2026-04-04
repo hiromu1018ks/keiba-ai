@@ -76,52 +76,55 @@ def compute_odds_dynamics(
     drop_60_10 = (first_odds - last_odds) / first_odds.replace(0, np.nan)
     drop_60_10.name = "odds_drop_rate_60_10"
 
-    # 30→10: 中間(=t-30) → 末尾(=t-10)
-    def _get_mid_odds(group: pd.DataFrame) -> float:
-        n = len(group)
-        if n < 3:
-            return np.nan
-        mid_idx = n // 2
-        return float(group["tanodds"].iloc[mid_idx])
+    # --- 中間位置特定の準備 (cumcount + group size) ---
+    ts["_pos"] = ts.groupby(["race_id", "umaban"]).cumcount()
+    ts["_size"] = ts.groupby(["race_id", "umaban"])["_pos"].transform("max") + 1
+    ts["_mid_idx"] = ts["_size"] // 2
+    mid_mask = ts["_pos"] == ts["_mid_idx"]
 
-    mid_odds = grouped.apply(_get_mid_odds, include_groups=False)
+    # 30→10: 中間(=t-30) → 末尾(=t-10)
+    # グループサイズ >= 3 の中間行のみ抽出
+    mid_ts = ts[mid_mask & (ts["_size"] >= 3)]
+    mid_odds = mid_ts.set_index(["race_id", "umaban"])["tanodds"]
     mid_odds.name = "_mid_odds"
     drop_30_10 = (mid_odds - last_odds) / mid_odds.replace(0, np.nan)
     drop_30_10.name = "odds_drop_rate_30_10"
 
-    # --- 速度: 線形回帰の傾き ---
-    def _calc_velocity(group: pd.DataFrame) -> float:
-        if len(group) < 2:
-            return np.nan
-        x = np.arange(len(group), dtype=float)
-        y = group["tanodds"].values.astype(float)
-        slope = np.polyfit(x, y, 1)[0]
-        return float(slope)
+    # --- 速度: 線形回帰の傾き (ベクトル化) ---
+    # slope = (n*sum_xy - sum_x*sum_y) / (n*sum_x2 - sum_x^2)
+    ts["_xy"] = ts["_pos"] * ts["tanodds"]
+    ts["_x2"] = ts["_pos"] ** 2
+    vel_stats = ts.groupby(["race_id", "umaban"]).agg(
+        n=("tanodds", "count"),
+        sum_x=("_pos", "sum"),
+        sum_y=("tanodds", "sum"),
+        sum_xy=("_xy", "sum"),
+        sum_x2=("_x2", "sum"),
+    )
+    n = vel_stats["n"]
+    denom = n * vel_stats["sum_x2"] - vel_stats["sum_x"] ** 2
+    velocity = pd.Series(
+        np.where(
+            n >= 2,
+            (n * vel_stats["sum_xy"] - vel_stats["sum_x"] * vel_stats["sum_y"])
+            / denom.replace(0, np.nan),
+            np.nan,
+        ),
+        index=vel_stats.index,
+        name="odds_velocity",
+    )
 
-    velocity = grouped.apply(_calc_velocity, include_groups=False)
-    velocity.name = "odds_velocity"
-
-    # --- ボラティリティ: 連続変化量の標準偏差 ---
-    def _calc_volatility(group: pd.DataFrame) -> float:
-        if len(group) < 2:
-            return np.nan
-        changes = group["tanodds"].diff().dropna()
-        return float(changes.std()) if len(changes) > 0 else np.nan
-
-    volatility = grouped.apply(_calc_volatility, include_groups=False)
+    # --- ボラティリティ: 連続変化量の標準偏差 (ベクトル化) ---
+    ts["_odds_diff"] = ts.groupby(["race_id", "umaban"])["tanodds"].diff()
+    volatility = ts.groupby(["race_id", "umaban"])["_odds_diff"].std()
+    # グループサイズ < 2 の場合は NaN (diff が 0 個 → std は NaN)
+    sizes = grouped.size()
+    volatility[sizes < 2] = np.nan
     volatility.name = "odds_volatility"
 
-    # --- 人気変化: t-30 → t-10 ---
+    # --- 人気変化: t-30 → t-10 (ベクトル化) ---
     if "ninki" in ts.columns:
-
-        def _get_mid_ninki(group: pd.DataFrame) -> float:
-            n = len(group)
-            if n < 3:
-                return np.nan
-            mid_idx = n // 2
-            return float(group["ninki"].iloc[mid_idx])
-
-        mid_ninki = grouped.apply(_get_mid_ninki, include_groups=False)
+        mid_ninki = mid_ts.set_index(["race_id", "umaban"])["ninki"]
         mid_ninki.name = "_mid_ninki"
         pop_change = mid_ninki - grouped["ninki"].last()
         pop_change.name = "popularity_change_30_10"
