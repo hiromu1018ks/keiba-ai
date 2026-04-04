@@ -50,6 +50,7 @@ def trained_ev_model(pre_ev_df: pd.DataFrame) -> EVCorrectionModel:
     model = EVCorrectionModel()
     # P補正: 小さい補正値 (correction_logit)
     mock_p = MagicMock()
+    mock_p.best_iteration = 100  # 早期停止後の best_iteration
     mock_p.predict.return_value = np.array(
         [
             0.01,
@@ -64,6 +65,7 @@ def trained_ev_model(pre_ev_df: pd.DataFrame) -> EVCorrectionModel:
     )
     # E補正: log residual
     mock_e = MagicMock()
+    mock_e.best_iteration = 80  # 早期停止後の best_iteration
     mock_e.predict.return_value = np.array(
         [
             0.0,
@@ -130,6 +132,38 @@ class TestEVCorrectionModel:
     def test_e_clip_floor(self) -> None:
         assert EVCorrectionModel.E_CLIP_FLOOR == 1.0
 
+    def test_correct_ev_uses_best_iteration(
+        self,
+        trained_ev_model: EVCorrectionModel,
+        pre_ev_df: pd.DataFrame,
+    ) -> None:
+        """correct_ev が best_iteration を使って predict を呼び出す"""
+        trained_ev_model.correct_ev(pre_ev_df)
+        # P補正モデルの predict が num_iteration で呼ばれることを確認
+        trained_ev_model.p_correction_model.predict.assert_called_once()
+        call_kwargs_p = trained_ev_model.p_correction_model.predict.call_args
+        assert call_kwargs_p.kwargs.get("num_iteration") == 100
+        # E補正モデルの predict も同様
+        trained_ev_model.e_correction_model.predict.assert_called_once()
+        call_kwargs_e = trained_ev_model.e_correction_model.predict.call_args
+        assert call_kwargs_e.kwargs.get("num_iteration") == 80
+
+    def test_correct_ev_best_iteration_zero_uses_none(self, pre_ev_df: pd.DataFrame) -> None:
+        """best_iteration が 0 の場合は num_iteration=None になる"""
+        model = EVCorrectionModel()
+        mock_p = MagicMock()
+        mock_p.best_iteration = 0
+        mock_p.predict.return_value = np.zeros(len(pre_ev_df))
+        mock_e = MagicMock()
+        mock_e.best_iteration = 0
+        mock_e.predict.return_value = np.zeros(len(pre_ev_df))
+        model.p_correction_model = mock_p
+        model.e_correction_model = mock_e
+
+        model.correct_ev(pre_ev_df)
+        assert mock_p.predict.call_args.kwargs.get("num_iteration") is None
+        assert mock_e.predict.call_args.kwargs.get("num_iteration") is None
+
 
 @pytest.fixture
 def large_ev_df() -> pd.DataFrame:
@@ -194,8 +228,10 @@ def trained_ev_model_large(large_ev_df: pd.DataFrame) -> EVCorrectionModel:
         ),
     )
     mock_p = MagicMock()
+    mock_p.best_iteration = 120
     mock_p.predict.return_value = p_corrections
     mock_e = MagicMock()
+    mock_e.best_iteration = 90
     mock_e.predict.return_value = np.random.normal(0, 0.02, n)
     model.p_correction_model = mock_p
     model.e_correction_model = mock_e

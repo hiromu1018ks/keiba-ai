@@ -86,6 +86,24 @@ class EVCorrectionModel:
         p_pred_clipped = np.clip(df["p_win_pred"], 1e-4, 1 - 1e-4)
         init_score = np.log(p_pred_clipped / (1 - p_pred_clipped))
 
+        # P correction: train/valid split (80/20) with init_score
+        n_p = len(features)
+        perm_p = np.random.RandomState(42).permutation(n_p)
+        split_p = int(n_p * 0.8)
+        train_idx_p, valid_idx_p = perm_p[:split_p], perm_p[split_p:]
+
+        train_data_p = lgb.Dataset(
+            features.iloc[train_idx_p],
+            label=y_p.iloc[train_idx_p],
+            init_score=init_score[train_idx_p],
+        )
+        valid_data_p = lgb.Dataset(
+            features.iloc[valid_idx_p],
+            label=y_p.iloc[valid_idx_p],
+            init_score=init_score[valid_idx_p],
+            reference=train_data_p,
+        )
+
         self.p_correction_model = lgb.train(
             {
                 "objective": "binary",
@@ -97,8 +115,10 @@ class EVCorrectionModel:
                 "num_threads": max(1, (os.cpu_count() or 4) // 2),
                 "verbose": -1,
             },
-            lgb.Dataset(features, label=y_p, init_score=init_score),
+            train_data_p,
             num_boost_round=300,
+            valid_sets=[valid_data_p],
+            callbacks=[lgb.early_stopping(50, verbose=False)],
         )
 
         # ── Model E: E補正 (1着馬のみ・1/√p 重み付き回帰) ──
@@ -110,6 +130,25 @@ class EVCorrectionModel:
         winners["_e_sample_weight"] = 1.0 / np.sqrt(np.clip(winners["p_win_pred"], 0.01, None))
 
         features_e = self._prepare_features(winners)
+        e_weight = winners["_e_sample_weight"].values
+
+        # E correction: train/valid split (80/20) with weight
+        n_e = len(features_e)
+        perm_e = np.random.RandomState(42).permutation(n_e)
+        split_e = int(n_e * 0.8)
+        train_idx_e, valid_idx_e = perm_e[:split_e], perm_e[split_e:]
+
+        train_data_e = lgb.Dataset(
+            features_e.iloc[train_idx_e],
+            label=winners["log_e_correction"].iloc[train_idx_e],
+            weight=e_weight[train_idx_e],
+        )
+        valid_data_e = lgb.Dataset(
+            features_e.iloc[valid_idx_e],
+            label=winners["log_e_correction"].iloc[valid_idx_e],
+            weight=e_weight[valid_idx_e],
+            reference=train_data_e,
+        )
 
         self.e_correction_model = lgb.train(
             {
@@ -121,12 +160,10 @@ class EVCorrectionModel:
                 "num_threads": max(1, (os.cpu_count() or 4) // 2),
                 "verbose": -1,
             },
-            lgb.Dataset(
-                features_e,
-                label=winners["log_e_correction"],
-                weight=winners["_e_sample_weight"].values,
-            ),
+            train_data_e,
             num_boost_round=300,
+            valid_sets=[valid_data_e],
+            callbacks=[lgb.early_stopping(50, verbose=False)],
         )
 
     def correct_ev(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -143,11 +180,23 @@ class EVCorrectionModel:
         # P補正の適用 (binary出力 → sigmoid で [0,1] に制約)
         p_pred_clipped = np.clip(df["p_win_pred"], 1e-4, 1 - 1e-4)
         init_score = np.log(p_pred_clipped / (1 - p_pred_clipped))
-        p_correction_logit = self.p_correction_model.predict(features) + init_score
+        p_best = (
+            self.p_correction_model.best_iteration
+            if self.p_correction_model.best_iteration > 0
+            else None
+        )
+        p_correction_logit = (
+            self.p_correction_model.predict(features, num_iteration=p_best) + init_score
+        )
         df["p_win_corrected"] = 1.0 / (1.0 + np.exp(-p_correction_logit))
 
         # E補正の適用
-        log_e_corr = self.e_correction_model.predict(features)
+        e_best = (
+            self.e_correction_model.best_iteration
+            if self.e_correction_model.best_iteration > 0
+            else None
+        )
+        log_e_corr = self.e_correction_model.predict(features, num_iteration=e_best)
         df["e_return_win_corrected"] = df["e_return_win_pred"] * np.exp(log_e_corr)
 
         # 最終補正EV
