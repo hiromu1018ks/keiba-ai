@@ -115,7 +115,6 @@ class AbilityModel:
             # ラベル: 1着=3, 2着=2, 3着=1, 4着以降=0
             y = key_df["kakuteijyuni"].apply(lambda x: max(0, 4 - x) if x > 0 else 0)
             groups = key_df.groupby("race_id").size().values
-            n = len(features)
             n_groups = len(groups)
 
             if early_stopping and n_groups >= 2:

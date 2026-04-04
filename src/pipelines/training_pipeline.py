@@ -550,7 +550,7 @@ class TrainingPipelineV5:
             mlflow.log_param("n_surfaces", str(len(models)))
             mlflow.log_param("pipeline_version", "v5.5")
 
-            # ローカルファイルシステムにもモデルを保存 (MLflow Model Registry不使用時のフォールバック)
+            # ローカルにもモデル保存 (MLflow Model Registry不使用時のフォールバック)
             self._save_models_local(models, quality_screen, regime_det, train_start, train_end)
 
     @staticmethod
@@ -562,8 +562,6 @@ class TrainingPipelineV5:
         train_end: str,
     ) -> Path:
         """全モデルをローカルディレクトリに保存 (MLflow非依存)"""
-        from domain.models import TrainedModelsV5
-
         models_dir = Path("data/models")
         models_dir.mkdir(parents=True, exist_ok=True)
 

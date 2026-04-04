@@ -62,9 +62,9 @@ def compute_odds_dynamics(
 
     # 大量時系列データのメモリ削減: 各(race_id, umaban)につき直近MAX_POINTSのみ保持
     # 特徴量は t-60min → t-10min の変化率等を計算するため、直近60ポイント(≈60分)で十分
-    MAX_POINTS = 60
+    max_points = 60
     if len(ts) > 1_000_000:
-        ts = ts.groupby(["race_id", "umaban"], as_index=False).tail(MAX_POINTS)
+        ts = ts.groupby(["race_id", "umaban"], as_index=False).tail(max_points)
 
     grouped = ts.groupby(["race_id", "umaban"])
 
