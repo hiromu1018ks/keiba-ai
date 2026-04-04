@@ -202,8 +202,9 @@ class EveryDB2Queries:
             return pd.DataFrame()
 
     def get_odds_snapshots(self, date_str: str) -> pd.DataFrame:
-        """当日の単勝・複勝オッズスナップショットを取得。s_odds_tanpuku → n_odds_tanpuku フォールバック。
+        """当日の単勝・複勝オッズスナップショットを取得。
 
+        s_odds_tanpuku → n_odds_tanpuku フォールバック。
         戻り値は EveryDB2 生データ (全列 character varying)。型変換は呼び出し側で行う。
         """
         sql = "SELECT * FROM s_odds_tanpuku WHERE year || monthday = %s"
@@ -223,8 +224,9 @@ class EveryDB2Queries:
             return pd.DataFrame()
 
     def get_odds_time_series(self, date_str: str) -> pd.DataFrame:
-        """当日の時系列オッズを取得。s_jodds_tanpuku → n_jodds_tanpuku フォールバック。
+        """当日の時系列オッズを取得。
 
+        s_jodds_tanpuku → n_jodds_tanpuku フォールバック。
         戻り値は EveryDB2 生データ (全列 character varying)。型変換は呼び出し側で行う。
         """
         sql = "SELECT * FROM s_jodds_tanpuku WHERE year || monthday = %s"
