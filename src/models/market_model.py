@@ -38,7 +38,7 @@ class MarketModel:
         self.model: lgb.Booster | None = None
 
     def train(self, df: pd.DataFrame) -> None:
-        """p_market_win_adj を予測するLightGBMモデルを学習"""
+        """p_market_win_adj を予測するLightGBMモデルを学習 (early stopping付き)"""
         features = df[self.FEATURE_COLS].copy()
         target = df["p_market_win_adj"]
 
@@ -51,6 +51,17 @@ class MarketModel:
             if col in features.columns:
                 features[col] = features[col].astype("category")
 
+        # 80/20 train/valid split (再現性のため固定seed)
+        n = len(features)
+        perm = np.random.RandomState(42).permutation(n)
+        split = int(n * 0.8)
+        train_idx, valid_idx = perm[:split], perm[split:]
+
+        train_data = lgb.Dataset(features.iloc[train_idx], label=target.iloc[train_idx])
+        valid_data = lgb.Dataset(
+            features.iloc[valid_idx], label=target.iloc[valid_idx], reference=train_data
+        )
+
         self.model = lgb.train(
             {
                 "objective": "regression_l1",
@@ -61,8 +72,10 @@ class MarketModel:
                 "num_threads": max(1, (os.cpu_count() or 4) // 2),
                 "verbose": -1,
             },
-            lgb.Dataset(features, label=target),
+            train_data,
             num_boost_round=300,
+            valid_sets=[valid_data],
+            callbacks=[lgb.early_stopping(stopping_rounds=50, verbose=False)],
         )
 
     def predict_and_calc_error(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -79,7 +92,9 @@ class MarketModel:
             if col in features.columns:
                 features[col] = features[col].astype("category")
 
-        df["_p_market_pred_win"] = self.model.predict(features)
+        df["_p_market_pred_win"] = self.model.predict(
+            features, num_iteration=self.model.best_iteration
+        )
 
         # v5.3: 両側クリップ (Rule 13)
         p_pred_clipped = np.clip(
