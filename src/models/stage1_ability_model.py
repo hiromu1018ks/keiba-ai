@@ -152,7 +152,7 @@ class AbilityModel:
                     train_data,
                     num_boost_round=500,
                     valid_sets=[valid_data],
-                    callbacks=[lgb.early_stopping(stopping_rounds=50, verbose=False)],
+                    callbacks=[lgb.early_stopping(stopping_rounds=100, verbose=False)],
                 )
             else:
                 self.models[key] = lgb.train(

@@ -100,7 +100,7 @@ class WideTwoStageModel:
             train_data,
             num_boost_round=cfg.hit_rounds,
             valid_sets=[valid_data],
-            callbacks=[lgb.early_stopping(stopping_rounds=50, verbose=False)],
+            callbacks=[lgb.early_stopping(stopping_rounds=100, verbose=False)],
         )
 
     def train_return_model(
@@ -143,7 +143,7 @@ class WideTwoStageModel:
             "num_threads": num_threads,
             "verbose": -1,
         }
-        callbacks = [lgb.early_stopping(stopping_rounds=50, verbose=False)]
+        callbacks = [lgb.early_stopping(stopping_rounds=100, verbose=False)]
 
         if len(features) < 10:
             # サンプル数が少なすぎる場合は early stopping なし
@@ -192,7 +192,7 @@ class WideTwoStageModel:
     def select_bets(
         self,
         pair_df: pd.DataFrame,
-        ev_threshold: float = 1.20,
+        ev_threshold: float = 1.10,
         score_threshold: float = 0.015,
         max_bets: int = 3,
     ) -> list[dict[str, Any]]:

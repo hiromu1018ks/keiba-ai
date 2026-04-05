@@ -77,7 +77,7 @@ class MarketModel:
             train_data,
             num_boost_round=300,
             valid_sets=[valid_data],
-            callbacks=[lgb.early_stopping(stopping_rounds=50, verbose=False)],
+            callbacks=[lgb.early_stopping(stopping_rounds=100, verbose=False)],
         )
 
     def predict_and_calc_error(self, df: pd.DataFrame) -> pd.DataFrame:

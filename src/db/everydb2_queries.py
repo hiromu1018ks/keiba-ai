@@ -240,6 +240,51 @@ class EveryDB2Queries:
             logger.exception("Failed to query n_jodds_tanpuku for %s", date_str)
             return pd.DataFrame()
 
+    def get_payouts(self, date_str: str) -> pd.DataFrame:
+        """払戻データを取得。s_harai → n_harai フォールバック。
+
+        複勝払戻の馬番・払戻金を含む。払戻金は「100円あたりの円」(整数 varchar 9桁)。
+        戻り値は EveryDB2 生データ (全列 character varying)。
+        """
+        pk = "year, monthday, jyocd, kaiji, nichiji, racenum"
+        sql = f"""
+            SELECT
+                CAST(year || monthday || jyocd || kaiji || nichiji || racenum AS varchar) AS race_id,
+                payfukusyoumaban1, payfukusyopay1,
+                payfukusyoumaban2, payfukusyopay2,
+                payfukusyoumaban3, payfukusyopay3,
+                payfukusyoumaban4, payfukusyopay4,
+                payfukusyoumaban5, payfukusyopay5
+            FROM s_harai
+            WHERE year || monthday = %s
+              AND datakubun IN ('1', '2')
+        """
+        try:
+            df = self._query(sql, (date_str,))
+            if not df.empty:
+                return df
+        except Exception:
+            logger.exception("Failed to query s_harai for %s", date_str)
+
+        sql = f"""
+            SELECT
+                CAST(year || monthday || jyocd || kaiji || nichiji || racenum AS varchar) AS race_id,
+                payfukusyoumaban1, payfukusyopay1,
+                payfukusyoumaban2, payfukusyopay2,
+                payfukusyoumaban3, payfukusyopay3,
+                payfukusyoumaban4, payfukusyopay4,
+                payfukusyoumaban5, payfukusyopay5
+            FROM n_harai
+            WHERE year || monthday = %s
+              AND datakubun IN ('1', '2')
+        """
+        try:
+            df = self._query(sql, (date_str,))
+            return df
+        except Exception:
+            logger.exception("Failed to query n_harai for %s", date_str)
+            return pd.DataFrame()
+
     def get_odds_time_series(self, date_str: str) -> pd.DataFrame:
         """当日の時系列オッズを取得。
 

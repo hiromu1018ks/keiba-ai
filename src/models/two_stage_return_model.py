@@ -101,7 +101,7 @@ class WinTwoStageModel:
             train_data,
             num_boost_round=self.cfg.hit_rounds,
             valid_sets=[valid_data],
-            callbacks=[lgb.early_stopping(stopping_rounds=50, verbose=False)],
+            callbacks=[lgb.early_stopping(stopping_rounds=100, verbose=False)],
         )
 
     def train_return_model(self, df: pd.DataFrame, *, num_threads: int = 0) -> None:
@@ -130,7 +130,7 @@ class WinTwoStageModel:
             "num_threads": num_threads,
             "verbose": -1,
         }
-        callbacks = [lgb.early_stopping(stopping_rounds=50, verbose=False)]
+        callbacks = [lgb.early_stopping(stopping_rounds=100, verbose=False)]
 
         if len(features) < 10:
             # サンプル数が少なすぎる場合は early stopping なし
@@ -214,7 +214,7 @@ class PlaceTwoStageModel:
             train_data,
             num_boost_round=self.cfg.hit_rounds,
             valid_sets=[valid_data],
-            callbacks=[lgb.early_stopping(stopping_rounds=50, verbose=False)],
+            callbacks=[lgb.early_stopping(stopping_rounds=100, verbose=False)],
         )
 
     def train_return_model(self, df: pd.DataFrame, *, num_threads: int = 0) -> None:
@@ -235,7 +235,7 @@ class PlaceTwoStageModel:
             "num_threads": num_threads,
             "verbose": -1,
         }
-        callbacks = [lgb.early_stopping(stopping_rounds=50, verbose=False)]
+        callbacks = [lgb.early_stopping(stopping_rounds=100, verbose=False)]
 
         if len(features) < 10:
             # サンプル数が少なすぎる場合は early stopping なし

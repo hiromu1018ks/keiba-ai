@@ -153,7 +153,7 @@ class TestEarlyStopping:
         call_args = mock_lgb.train.call_args
         assert "valid_sets" in call_args[1]
         assert "callbacks" in call_args[1]
-        mock_lgb.early_stopping.assert_called_once_with(stopping_rounds=50, verbose=False)
+        mock_lgb.early_stopping.assert_called_once_with(stopping_rounds=100, verbose=False)
 
     @patch("models.wide_two_stage_model.lgb")
     def test_train_return_model_uses_early_stopping(self, mock_lgb: MagicMock) -> None:
@@ -187,7 +187,7 @@ class TestEarlyStopping:
         call_args = mock_lgb.train.call_args
         assert "valid_sets" in call_args[1]
         assert "callbacks" in call_args[1]
-        mock_lgb.early_stopping.assert_called_once_with(stopping_rounds=50, verbose=False)
+        mock_lgb.early_stopping.assert_called_once_with(stopping_rounds=100, verbose=False)
 
     @patch("models.wide_two_stage_model.lgb")
     def test_train_return_model_early_stopping_guard(self, mock_lgb: MagicMock) -> None:

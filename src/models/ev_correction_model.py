@@ -120,7 +120,7 @@ class EVCorrectionModel:
             train_data_p,
             num_boost_round=300,
             valid_sets=[valid_data_p],
-            callbacks=[lgb.early_stopping(50, verbose=False)],
+            callbacks=[lgb.early_stopping(100, verbose=False)],
         )
 
         # ── Model E: E補正 (1着馬のみ・1/√p 重み付き回帰) ──
@@ -165,7 +165,7 @@ class EVCorrectionModel:
             train_data_e,
             num_boost_round=300,
             valid_sets=[valid_data_e],
-            callbacks=[lgb.early_stopping(50, verbose=False)],
+            callbacks=[lgb.early_stopping(100, verbose=False)],
         )
 
     def correct_ev(self, df: pd.DataFrame) -> pd.DataFrame:

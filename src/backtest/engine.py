@@ -279,7 +279,7 @@ class BacktestEngine:
         互換性のため残している (テスト等で参照される可能性がある)。
         """
         bets: list[Bet] = []
-        ev_threshold = regime_params.get("ev_threshold", 1.20)
+        ev_threshold = regime_params.get("ev_threshold", 1.10)
         max_bets = regime_params.get("max_bets_per_race", 3)
 
         # 複勝ベット

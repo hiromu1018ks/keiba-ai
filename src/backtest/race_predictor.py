@@ -114,7 +114,7 @@ class RacePredictor:
         regime_params = self.models.regime_detector.get_strategy_params(regime)
 
         bets: list[Bet] = []
-        ev_threshold = regime_params.get("ev_threshold", 1.20)
+        ev_threshold = regime_params.get("ev_threshold", 1.10)
         max_bets = regime_params.get("max_bets_per_race", 3)
 
         if "ev_place" not in race_df.columns or "fukuoddslow" not in race_df.columns:

@@ -370,10 +370,7 @@ def _run_reconcile(
 ) -> None:
     import pandas as pd
 
-    if store is None:
-        from db.parquet_store import ParquetStore
-
-        store = ParquetStore()
+    from db.everydb2_queries import EveryDB2Queries
 
     target_date = date.fromisoformat(args.date)
     ymd = target_date.strftime("%Y%m%d")
@@ -391,15 +388,35 @@ def _run_reconcile(
         logger.info("All bets already settled for %s", args.date)
         return
 
-    # レース結果をParquetから取得
-    from db.readers import load_entries, load_payouts
+    # EveryDB2 払戻テーブルから複勝結果を取得
+    db = EveryDB2Queries(config.everydb2_connection_string)
+    payout_df = db.get_payouts(ymd)
 
-    entry_df = load_entries(store, ymd, ymd)
-    payout_df = load_payouts(store, ymd, ymd)
-
-    if entry_df.empty:
-        logger.warning("No entry data for %s — races may not have been run yet", args.date)
+    if payout_df.empty:
+        logger.warning("No payout data for %s -- races may not have finished yet", args.date)
         return
+
+    # race_id → 払戻情報 のルックアップ辞書を構築
+    payout_map: dict[str, dict[int, float]] = {}
+    for _, row in payout_df.iterrows():
+        rid = row["race_id"]
+        winners: dict[int, float] = {}
+        for i in range(1, 6):
+            umaban_str = row.get(f"payfukusyoumaban{i}")
+            pay_str = row.get(f"payfukusyopay{i}")
+            if pd.isna(umaban_str) or pd.isna(pay_str):
+                continue
+            umaban_str = str(umaban_str).strip()
+            pay_str = str(pay_str).strip()
+            if not umaban_str or umaban_str == "00" or not pay_str or pay_str == "0":
+                continue
+            umaban_int = int(umaban_str)
+            # 払戻金は「100円あたりの円」→ オッズ倍率 = pay / 100
+            pay_yen = int(pay_str)
+            winners[umaban_int] = pay_yen / 100.0
+        payout_map[rid] = winners
+
+    logger.info("Payout data: %d races loaded", len(payout_map))
 
     n_settled = 0
     n_wins = 0
@@ -408,44 +425,22 @@ def _run_reconcile(
         race_id = row["race_id"]
         umaban = int(row["umaban"])
 
-        # 着順を取得
-        race_entries = entry_df[entry_df["race_id"] == race_id]
-        horse_entry = race_entries[race_entries["umaban"] == umaban]
+        winners = payout_map.get(race_id)
+        if winners is None:
+            continue  # 払戻データなし = レース未確定
 
-        if horse_entry.empty:
-            continue
-
-        finish_pos = horse_entry.iloc[0].get("kakuteijyuni")
-        if pd.isna(finish_pos) or finish_pos == 0:
-            continue  # レース未確定
-
-        # 複勝的中判定: 1着〜3着
-        if 1 <= finish_pos <= 3:
-            # 払戻をpayouts.parquetから取得
-            payout = 0.0
-            if not payout_df.empty:
-                race_payouts = payout_df[payout_df["race_id"] == race_id]
-                if not race_payouts.empty:
-                    po = race_payouts.iloc[0]
-                    for i in range(1, 6):
-                        maban_col = f"payfukusyoumaban{i}"
-                        pay_col = f"payfukusyopay{i}"
-                        if maban_col in po.index and pay_col in po.index:
-                            if po[maban_col] == umaban:
-                                payout = po[pay_col]
-                                break
-
-            if payout > 0:
-                n_wins += 1
-            else:
-                # fallback: 予測時オッズを使用
-                payout = row["stake"] * row["odds"]
-
+        n_settled += 1
+        if umaban in winners:
+            actual_odds = winners[umaban]
+            payout = row["stake"] * actual_odds
             pred_df.at[idx, "result"] = payout
+            n_wins += 1
         else:
             pred_df.at[idx, "result"] = 0.0
 
-        n_settled += 1
+    if n_settled == 0:
+        logger.info("No races settled yet for %s", args.date)
+        return
 
     # 確定した予測を書き戻し
     pred_df.to_parquet(pred_path, index=False)
@@ -464,6 +459,11 @@ def _run_reconcile(
     total_return = combined["result"].sum()
     cumulative_roi = total_return / total_stake if total_stake > 0 else 0.0
     n_total_wins = (combined["result"] > 0).sum()
+
+    # 日次統計
+    day_settled = pred_df[pred_df["result"] != 0.0]
+    day_total_stake = pred_df["stake"].sum()
+    day_total_return = pred_df["result"].sum()
 
     result = {
         "date": ymd,
@@ -493,18 +493,65 @@ def _run_reconcile(
     except Exception as e:
         logger.warning("Report generation failed: %s", e)
 
+    # コンソール出力
+    lines: list[str] = []
+    lines.append("")
+    lines.append("=" * 60)
+    lines.append(f"  Reconcile: {args.date}  -  {n_settled} settled, {n_wins} wins")
+    lines.append("=" * 60)
+
+    _venue_map = {
+        "01": "札幌", "02": "函館", "03": "福島", "04": "新潟",
+        "05": "東京", "06": "中山", "07": "中京", "08": "京都",
+        "09": "阪神", "10": "小倉",
+    }
+
+    def _fmt_race_id(rid: str) -> str:
+        jyocd = rid[8:10]
+        racenum = rid[14:16]
+        venue = _venue_map.get(jyocd, jyocd)
+        return f"{venue}{int(racenum):2d}R"
+
+    for _, row in pred_df.iterrows():
+        res_mark = "---"
+        actual_pay = 0.0
+        winners = payout_map.get(row["race_id"], {})
+        if int(row["umaban"]) in winners:
+            res_mark = "WIN"
+            actual_pay = row["result"]
+        elif row["race_id"] in payout_map:
+            res_mark = "LOSE"
+
+        lines.append(
+            f"  {_fmt_race_id(row['race_id'])}  "
+            f"馬番{int(row['umaban']):2d}  "
+            f"予測Odds={row['odds']:.1f}  "
+            f"{res_mark:4s}  "
+            f"払戻{actual_pay:,.0f}円"
+        )
+
+    lines.append("")
+    lines.append(f"  Day:  Stake={day_total_stake:,.0f}  Return={day_total_return:,.0f}  "
+                 f"ROI={day_total_return / day_total_stake if day_total_stake else 0:.1%}")
+    lines.append(f"  Cum:  {len(combined)} bets  ROI={cumulative_roi:.1%}")
+    lines.append("")
+    text = "\n".join(lines)
+    sys.stdout.buffer.write(text.encode("utf-8", errors="replace"))
+    sys.stdout.buffer.flush()
+
     # Slack通知
     slack_msg = (
         f"Reconcile {ymd}: {n_settled} settled, {n_wins} wins\n"
-        f"  Daily ROI: {total_return / (n_settled * 100) if n_settled else 0:.1%}\n"
+        f"  Day ROI: {day_total_return / day_total_stake if day_total_stake else 0:.1%}\n"
         f"  Cumulative: {len(combined)} bets, ROI={cumulative_roi:.1%}"
     )
     _send_slack(config, slack_msg)
 
     logger.info(
-        "Reconcile: %d settled, %d wins, cumulative ROI=%.1f%% (%d total bets)",
+        "Reconcile: %d settled, %d wins, day ROI=%.1f%%, cumulative ROI=%.1f%% (%d total bets)",
         n_settled,
         n_wins,
+        day_total_return / day_total_stake * 100 if day_total_stake else 0,
         cumulative_roi * 100,
         len(combined),
     )
