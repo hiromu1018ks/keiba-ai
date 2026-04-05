@@ -103,9 +103,43 @@ for _, r in _valid.iterrows():
 Run: `python -m pytest tests/test_backtest_engine.py -v`
 Expected: 全テスト PASS（テストは `bet["surface"]`, `bet["kyori"]` などのキーを `in` でチェックしているため、新しいキーの追加は影響しないはず）
 
-- [ ] **Step 3: テストに拡張フィールドの検証を追加**
+- [ ] **Step 3: テストの feat_df モックに新列を追加**
 
-`tests/test_backtest_engine.py` の `test_engine_populates_enriched_fields` にアサーションを追加:
+`tests/test_backtest_engine.py` の `test_engine_populates_enriched_fields` 内の `feat_df` DataFrame に以下の列を追加:
+
+```python
+feat_df = pd.DataFrame(
+    {
+        "race_id": ["20240101010101"],
+        "umaban": [1],
+        "surface": ["turf"],
+        "kyori": [1200],
+        "distance_bin": ["sprint"],
+        "popularity_rank": [3],
+        "ninki": [3],
+        "ev_place": [1.5],
+        "fukuoddslow": [2.4],
+        "kakuteijyuni": [2],
+        "kettonum": [1234],
+        "odds": [5.0],
+        "bataijyu": [480],
+        # --- 拡張フィールド用の追加列 ---
+        "jyocd": [6],                   # 中山
+        "racenum": [11],                # 11R
+        "grade_code": ["E"],            # 特別
+        "hondai": ["テスト特別"],        # レース名
+        "bamei": ["テスト馬"],           # 馬名
+        "kisyuryakusyo": ["テスト騎手"], # 騎手名
+        "track_condition_code": [1],    # 良
+        "p_place_pred": [0.65],         # 複勝確率予測
+        "e_return_place_pred": [1.80],  # 期待払戻予測
+    }
+)
+```
+
+- [ ] **Step 4: テストに拡張フィールドの検証を追加**
+
+`test_engine_populates_enriched_fields` の最後にアサーションを追加:
 
 ```python
 # --- 拡張フィールドの検証 ---
@@ -113,23 +147,27 @@ assert "race_date" in bet
 assert bet["race_date"] == "2024-01-01"
 assert "jyocd" in bet
 assert "racenum" in bet
+assert bet["racenum"] == 11
 assert "grade_code" in bet
 assert "bamei" in bet
+assert bet["bamei"] == "テスト馬"
 assert "kisyu" in bet
+assert bet["kisyu"] == "テスト騎手"
 assert "kakuteijyuni" in bet
+assert bet["kakuteijyuni"] == 2
 assert "track_condition_code" in bet
 assert "top3_finishers" in bet
 assert isinstance(bet["top3_finishers"], list)
+assert len(bet["top3_finishers"]) >= 1  # feat_df に1頭のみ
+assert bet["top3_finishers"][0]["umaban"] == 1
 ```
 
-注意: テストの `feat_df` モックに `jyocd`, `racenum`, `grade_code`, `hondai`, `bamei`, `kisyuryakusyo` 列を追加する必要がある。現在のモックにはこれらがないため、フォールバック値（空文字/0）が返されることを確認する。
-
-- [ ] **Step 4: テストを実行**
+- [ ] **Step 5: テストを実行**
 
 Run: `python -m pytest tests/test_backtest_engine.py -v`
 Expected: 全テスト PASS
 
-- [ ] **Step 5: コミット**
+- [ ] **Step 6: コミット**
 
 ```bash
 git add src/backtest/engine.py tests/test_backtest_engine.py
@@ -313,6 +351,7 @@ class MultiYearReportGenerator:
                     "total_bets": result.total_bets,
                     "total_stake": result.total_stake,
                     "total_return": result.total_return,
+                    "total_wins": result.winning_bets,
                     "train_period": f"{meta.get('train_start', '')} ~ {meta.get('train_end', '')}",
                     "test_period": f"{meta.get('test_start', '')} ~ {meta.get('test_end', '')}",
                     "train_seconds": int(float(meta.get("train_seconds", "0"))),
@@ -337,8 +376,6 @@ class MultiYearReportGenerator:
             "best_year": max(results, key=lambda y: results[y].total_roi) if results else 0,
             "worst_year": min(results, key=lambda y: results[y].total_roi) if results else 0,
         }
-
-        # best/worst の ROI を追加
         if results:
             overall["best_roi"] = results[overall["best_year"]].total_roi
             overall["worst_roi"] = results[overall["worst_year"]].total_roi
@@ -381,22 +418,368 @@ git commit -m "feat: MultiYearReportGenerator クラス追加 (委譲パター�
 
 `src/backtest/templates/multi_year_report.html` を作成。既存 `report.html` をベースに、タブ切り替え構造を追加。
 
-構成:
-1. CSS: 既存 `report.html` のスタイル + タブ切り替え用スタイル
-2. タブバー: `全体サマリー` / `{year}年` (各年) / `ベット明細`
-3. タブコンテンツ:
-   - `tab-overview`: 年度比較KPI + 年度比較表 + Chart.js棒グラフ
-   - `tab-year-{year}`: 既存レポートと同じ KPI + 資金推移 + 月次 + 条件分析
-   - `tab-bets`: 全年度統合 DataTables + 年度フィルタードロップダウン
-4. JavaScript: タブ切替 + Chart.js + DataTables + 競馬場/グレード/馬場状態コード変換
+以下はテンプレートの骨格コード（完全版）。実装者はこれをそのままファイルに書き込む:
 
-テンプレートのキーポイント:
-- Jinja2 `{% for year in years %}` で年度別タブを動的生成
-- `year_data[year].bet_details` の各エントリに `top3_finishers` が含まれる
-- 競馬場コード変換: `KEIBAJO_MAP['06'] → '中山'`
-- グレード変換: `GRADE_MAP['C'] → 'G3'`
-- 馬場状態変換: `TRACK_CONDITION_MAP[1] → '良'`
-- ベット明細の展開可能行に `top3_finishers` を表示
+```html
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>マルチ年度バックテストレポート</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="stylesheet" href="https://cdn.datatables.net/1.13.7/css/jquery.dataTables.min.css">
+    <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+    <script src="https://cdn.datatables.net/1.13.7/js/jquery.dataTables.min.js"></script>
+    <style>
+        :root { --primary: #2563eb; --success: #16a34a; --danger: #dc2626;
+                --bg: #f8fafc; --card-bg: #ffffff; --text: #1e293b;
+                --text-muted: #64748b; --border: #e2e8f0; }
+        * { box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+               background: var(--bg); color: var(--text); margin: 0; padding: 20px; }
+        .container { max-width: 1200px; margin: 0 auto; }
+        h1 { text-align: center; margin-bottom: 5px; }
+        .subtitle { text-align: center; color: var(--text-muted); margin-bottom: 30px; }
+        /* --- タブ --- */
+        .tab-bar { display: flex; gap: 2px; border-bottom: 2px solid var(--border); margin-bottom: 20px; }
+        .tab-btn { padding: 10px 20px; border: none; background: #e2e8f0; color: var(--text-muted);
+                   cursor: pointer; font-size: 14px; font-weight: 600; border-radius: 6px 6px 0 0; }
+        .tab-btn.active { background: var(--primary); color: white; }
+        .tab-btn:hover:not(.active) { background: #cbd5e1; }
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+        /* --- セクション/カード --- */
+        .section { background: var(--card-bg); border-radius: 8px; padding: 20px;
+                   margin-bottom: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+        .section h2 { margin-top: 0; border-bottom: 2px solid var(--primary); padding-bottom: 10px; }
+        .section h3 { font-size: 1.1em; margin-top: 20px; margin-bottom: 10px; }
+        .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 15px; }
+        .kpi-card { background: var(--bg); border-radius: 8px; padding: 15px; text-align: center; }
+        .kpi-label { font-size: 12px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px; }
+        .kpi-value { font-size: 28px; font-weight: 700; margin-top: 5px; }
+        .kpi-value.positive { color: var(--success); }
+        .kpi-value.negative { color: var(--danger); }
+        .chart-container { position: relative; height: 300px; }
+        .charts-row { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+        .heatmap-positive { background-color: #dcfce7; }
+        .heatmap-negative { background-color: #fee2e2; }
+        .win-row { background-color: #f0fdf4 !important; }
+        .footer { text-align: center; color: var(--text-muted); font-size: 12px; margin-top: 30px; }
+        .no-data { color: var(--text-muted); font-style: italic; }
+        table { border-collapse: collapse; }
+        th, td { padding: 8px 12px; text-align: center; border-bottom: 1px solid var(--border); }
+        th { background: #f1f5f9; font-weight: 600; }
+        @media (max-width: 768px) { .charts-row { grid-template-columns: 1fr; } }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>マルチ年度バックテストレポート</h1>
+    <p class="subtitle">テスト年度: {{ years | join(' / ') }}</p>
+    <p style="text-align:center;color:#94a3b8;font-size:12px;">生成日時: {{ generated_at }}</p>
+
+    <!-- タブバー -->
+    <div class="tab-bar">
+        <button class="tab-btn active" onclick="switchTab('overview')">全体サマリー</button>
+        {% for year in years %}
+        <button class="tab-btn" onclick="switchTab('year-{{ year }}')">{{ year }}年</button>
+        {% endfor %}
+        <button class="tab-btn" onclick="switchTab('bets')">ベット明細</button>
+    </div>
+
+    <!-- ===== タブ: 全体サマリー ===== -->
+    <div id="tab-overview" class="tab-content active">
+        <div class="section">
+            <h2>年度比較</h2>
+            <div class="kpi-grid">
+                {% for year in years %}
+                <div class="kpi-card">
+                    <div class="kpi-label">{{ year }}年 ROI</div>
+                    <div class="kpi-value {{ 'positive' if year_data[year].summary.roi >= 1 else 'negative' }}">
+                        {{ "%.1f%%" | format(year_data[year].summary.roi * 100) }}
+                    </div>
+                </div>
+                {% endfor %}
+                <div class="kpi-card">
+                    <div class="kpi-label">合計 ROI</div>
+                    <div class="kpi-value {{ 'positive' if overall.roi >= 1 else 'negative' }}">
+                        {{ "%.1f%%" | format(overall.roi * 100) }}
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="section">
+            <h2>年度比較表</h2>
+            <table style="width:100%;">
+                <thead>
+                    <tr>
+                        <th>年度</th><th>学習期間</th><th>ベット数</th><th>投資額</th>
+                        <th>払戻額</th><th>利益</th><th>ROI</th><th>最大DD</th>
+                    </tr>
+                </thead>
+                <tbody>
+                {% for year in years %}
+                    {% set s = year_data[year].summary %}
+                    <tr class="{{ 'heatmap-positive' if s.roi >= 1 else 'heatmap-negative' }}">
+                        <td>{{ year }}</td>
+                        <td style="font-size:12px;">{{ s.train_period }}</td>
+                        <td>{{ s.total_bets }}</td>
+                        <td>&yen;{{ s.total_stake | format_number }}</td>
+                        <td>&yen;{{ s.total_return | format_number }}</td>
+                        <td style="color:{{ '#16a34a' if s.profit >= 0 else '#dc2626' }}">
+                            &yen;{{ s.profit | format_number }}
+                        </td>
+                        <td>{{ "%.1f%%" | format(s.roi * 100) }}</td>
+                        <td>{{ "%.1f%%" | format(s.max_dd * 100) }}</td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        <div class="section">
+            <h2>年度別チャート</h2>
+            <div class="charts-row">
+                <div class="chart-container"><canvas id="yearly-roi-chart"></canvas></div>
+                <div class="chart-container"><canvas id="yearly-bankroll-chart"></canvas></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===== タブ: 年度別 (各年) ===== -->
+    {% for year in years %}
+    <div id="tab-year-{{ year }}" class="tab-content">
+        {% set yd = year_data[year] %}
+        <div class="section">
+            <h2>{{ year }}年 サマリー</h2>
+            <div class="kpi-grid">
+                <div class="kpi-card">
+                    <div class="kpi-label">ROI</div>
+                    <div class="kpi-value {{ 'positive' if yd.summary.roi >= 1 else 'negative' }}">
+                        {{ "%.1f%%" | format(yd.summary.roi * 100) }}
+                    </div>
+                </div>
+                <div class="kpi-card">
+                    <div class="kpi-label">的中率</div>
+                    <div class="kpi-value">{{ "%.1f%%" | format(yd.summary.win_rate * 100) }}</div>
+                </div>
+                <div class="kpi-card">
+                    <div class="kpi-label">利益</div>
+                    <div class="kpi-value {{ 'positive' if yd.summary.profit >= 0 else 'negative' }}">
+                        &yen;{{ yd.summary.profit | format_number }}
+                    </div>
+                </div>
+                <div class="kpi-card">
+                    <div class="kpi-label">最大DD</div>
+                    <div class="kpi-value negative">{{ "%.1f%%" | format(yd.summary.max_dd * 100) }}</div>
+                </div>
+                <div class="kpi-card">
+                    <div class="kpi-label">最終資金</div>
+                    <div class="kpi-value">&yen;{{ yd.summary.final_bankroll | format_number }}</div>
+                </div>
+            </div>
+        </div>
+        <div class="section">
+            <h2>資金推移</h2>
+            {% if yd.bankroll_series %}
+            <div class="chart-container"><canvas id="bankroll-chart-{{ year }}"></canvas></div>
+            {% else %}
+            <p class="no-data">データなし</p>
+            {% endif %}
+        </div>
+        <div class="section">
+            <h2>月次ダッシュボード</h2>
+            {% if yd.monthly_stats %}
+            <table style="width:100%;margin-top:10px;">
+                <thead>
+                    <tr><th>月</th><th>ベット数</th><th>的中</th><th>投資額</th><th>払戻額</th><th>ROI</th></tr>
+                </thead>
+                <tbody>
+                {% for m in yd.monthly_stats %}
+                    <tr class="{{ 'heatmap-positive' if m.roi >= 1 else 'heatmap-negative' }}">
+                        <td>{{ m.month }}</td><td>{{ m.bets }}</td><td>{{ m.wins }}</td>
+                        <td>&yen;{{ m.stake | format_number }}</td>
+                        <td>&yen;{{ m.total_return | format_number }}</td>
+                        <td>{{ "%.1f%%" | format(m.roi * 100) }}</td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <p class="no-data">データなし</p>
+            {% endif %}
+        </div>
+        <div class="section">
+            <h2>条件分析</h2>
+            {% if yd.condition_stats.surface_distance %}
+            <table style="width:100%;">
+                <thead>
+                    <tr><th>路面</th><th>距離帯</th><th>ベット数</th><th>的中率</th><th>ROI</th></tr>
+                </thead>
+                <tbody>
+                {% for row in yd.condition_stats.surface_distance %}
+                    <tr class="{{ 'heatmap-positive' if row.roi >= 1 else 'heatmap-negative' }}">
+                        <td>{{ "芝" if row.surface == "turf" else "ダート" }}</td>
+                        <td>{{ row.distance_band }}</td><td>{{ row.bets }}</td>
+                        <td>{{ "%.1f%%" | format(row.win_rate * 100) }}</td>
+                        <td>{{ "%.1f%%" | format(row.roi * 100) }}</td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <p class="no-data">データなし</p>
+            {% endif %}
+        </div>
+    </div>
+    {% endfor %}
+
+    <!-- ===== タブ: ベット明細 ===== -->
+    <div id="tab-bets" class="tab-content">
+        <div class="section">
+            <h2>ベット明細 (全年度)</h2>
+            <label style="margin-bottom:10px;display:block;">年度フィルタ:
+                <select id="year-filter">
+                    <option value="all">全年度</option>
+                    {% for year in years %}
+                    <option value="{{ year }}">{{ year }}年</option>
+                    {% endfor %}
+                </select>
+            </label>
+            <table id="all-bets-table" style="width:100%;">
+                <thead>
+                    <tr>
+                        <th>年度</th><th>日付</th><th>競馬場</th><th>R</th><th>レース名</th>
+                        <th>馬名</th><th>騎手</th><th>人気</th><th>EV</th><th>オッズ</th>
+                        <th>ベット額</th><th>着順</th><th>払戻</th><th>利益</th><th>結果</th>
+                    </tr>
+                </thead>
+                <tbody>
+                {% for year in years %}
+                    {% for bet in year_data[year].bet_details %}
+                    <tr data-year="{{ year }}" class="{{ 'win-row' if bet.is_win }}">
+                        <td>{{ year }}</td>
+                        <td>{{ bet.race_date }}</td>
+                        <td data-jyocd="{{ bet.jyocd }}"></td>
+                        <td>{{ bet.racenum }}</td>
+                        <td data-grade="{{ bet.grade_code }}">{{ bet.race_name }}</td>
+                        <td>{{ bet.bamei }}</td>
+                        <td>{{ bet.kisyu }}</td>
+                        <td>{{ bet.popularity }}</td>
+                        <td>{{ "%.2f" | format(bet.ev) }}</td>
+                        <td>{{ "%.1f" | format(bet.odds) }}</td>
+                        <td>&yen;{{ bet.stake | format_number }}</td>
+                        <td>{{ bet.kakuteijyuni }}</td>
+                        <td>&yen;{{ bet.result | format_number }}</td>
+                        <td style="color:{{ '#16a34a' if bet.profit > 0 else '#dc2626' }}">
+                            &yen;{{ bet.profit | format_number }}
+                        </td>
+                        <td>{{ "的中" if bet.is_win else "外れ" }}</td>
+                    </tr>
+                    {% endfor %}
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="footer">
+        <p>Generated by keiba-ai multi-year backtest report generator</p>
+    </div>
+</div>
+
+<script>
+// --- タブ切り替え ---
+function switchTab(tabId) {
+    document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+    document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
+    document.getElementById('tab-' + tabId).classList.add('active');
+    event.target.classList.add('active');
+}
+
+// --- コード変換マップ ---
+const KEIBAJO_MAP = {
+    '01':'札幌','02':'函館','03':'福島','04':'新潟','05':'東京',
+    '06':'中山','07':'中京','08':'京都','09':'阪神','10':'小倉'
+};
+const GRADE_MAP = {
+    'A':'G1','B':'G2','C':'G3','D':'重賞','E':'特別',
+    'F':'J·G1','G':'J·G2','H':'J·G3','_':'一般'
+};
+const TRACK_CONDITION_MAP = {1:'良',2:'稍重',3:'重',4:'不良'};
+
+// 競馬場セルを変換
+document.querySelectorAll('td[data-jyocd]').forEach(td => {
+    const code = String(td.dataset.jyocd).padStart(2, '0');
+    td.textContent = KEIBAJO_MAP[code] || code;
+});
+// グレードセルにツールチップ
+document.querySelectorAll('td[data-grade]').forEach(td => {
+    const g = td.dataset.grade;
+    td.title = GRADE_MAP[g] || '';
+});
+
+// --- 年度別ROIチャート ---
+{% if years %}
+(function() {
+    const years = {{ years | tojson }};
+    const roiData = years.map(y => ({{ year_data | tojson }})[y].summary.roi * 100 - 100);
+    new Chart(document.getElementById('yearly-roi-chart').getContext('2d'), {
+        type: 'bar',
+        data: {
+            labels: years.map(y => y + '年'),
+            datasets: [{
+                label: 'ROI (%)',
+                data: roiData,
+                backgroundColor: roiData.map(v => v >= 0 ? '#16a34a' : '#dc2626'),
+            }]
+        },
+        options: { responsive: true, maintainAspectRatio: false,
+            scales: { y: { title: { display: true, text: 'ROI (超過%)' } } } },
+    });
+})();
+{% endif %}
+
+// --- 各年度の資金推移チャート ---
+{% for year in years %}
+{% if year_data[year].bankroll_series %}
+(function() {
+    const data = {{ year_data[year].bankroll_series | tojson }};
+    new Chart(document.getElementById('bankroll-chart-{{ year }}').getContext('2d'), {
+        type: 'line',
+        data: {
+            labels: data.map(d => d.date),
+            datasets: [{
+                label: '資金 (¥)',
+                data: data.map(d => d.bankroll),
+                borderColor: '#2563eb', backgroundColor: 'rgba(37,99,235,0.1)',
+                fill: true, tension: 0.1, pointRadius: 0,
+            }]
+        },
+        options: { responsive: true, maintainAspectRatio: false },
+    });
+})();
+{% endif %}
+{% endfor %}
+
+// --- DataTables (ベット明細) ---
+$(document).ready(function() {
+    $('#all-bets-table').DataTable({
+        pageLength: 25, order: [[1, 'desc']],
+        language: { url: '//cdn.datatables.net/plug-ins/1.13.7/i18n/ja.json' }
+    });
+    // 年度フィルタ
+    $('#year-filter').on('change', function() {
+        const val = $(this).val();
+        const table = $('#all-bets-table').DataTable();
+        if (val === 'all') { table.column(0).search('').draw(); }
+        else { table.column(0).search(val).draw(); }
+    });
+});
+</script>
+</body>
+</html>
+```
 
 - [ ] **Step 2: テストを実行してHTML生成確認**
 
@@ -427,6 +810,8 @@ git commit -m "feat: マルチ年度バックテストHTMLテンプレート追�
   python scripts/run_multi_year_backtest.py --years 2023 2024 2025
 """
 
+from __future__ import annotations
+
 import argparse
 import json
 import logging
@@ -435,6 +820,7 @@ import sys
 import time
 import warnings
 from pathlib import Path
+from typing import Any
 
 warnings.filterwarnings("ignore")
 
