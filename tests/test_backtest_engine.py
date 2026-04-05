@@ -255,6 +255,16 @@ class TestBetHistoryEnrichment:
                 "kettonum": [1234],
                 "odds": [5.0],
                 "bataijyu": [480],
+                # --- 拡張フィールド用の追加列 ---
+                "jyocd": [6],                   # 中山
+                "racenum": [11],                # 11R
+                "grade_code": ["E"],            # 特別
+                "hondai": ["テスト特別"],        # レース名
+                "bamei": ["テスト馬"],           # 馬名
+                "kisyuryakusyo": ["テスト騎手"], # 騎手名
+                "track_condition_code": [1],    # 良
+                "p_place_pred": [0.65],         # 複勝確率予測
+                "e_return_place_pred": [1.80],  # 期待払戻予測
             }
         )
 
@@ -319,3 +329,22 @@ class TestBetHistoryEnrichment:
         assert "bankroll_after" in bet
         assert isinstance(bet["bankroll_after"], float)
         assert bet["bankroll_after"] == 100140.0
+
+        # --- 拡張フィールドの検証 ---
+        assert "race_date" in bet
+        assert bet["race_date"] == "2024-01-01"
+        assert "jyocd" in bet
+        assert "racenum" in bet
+        assert bet["racenum"] == 11
+        assert "grade_code" in bet
+        assert "bamei" in bet
+        assert bet["bamei"] == "テスト馬"
+        assert "kisyu" in bet
+        assert bet["kisyu"] == "テスト騎手"
+        assert "kakuteijyuni" in bet
+        assert bet["kakuteijyuni"] == 2
+        assert "track_condition_code" in bet
+        assert "top3_finishers" in bet
+        assert isinstance(bet["top3_finishers"], list)
+        assert len(bet["top3_finishers"]) >= 1  # feat_df に1頭のみ
+        assert bet["top3_finishers"][0]["umaban"] == 1

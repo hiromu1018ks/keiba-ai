@@ -145,6 +145,50 @@ class BacktestEngine:
             if race_df_single.empty:
                 continue
 
+            # --- レースメタデータ抽出 (bet_history拡張用) ---
+            race_row = race_df_single.iloc[0]
+            race_date_str = (
+                f"{race_id[:4]}-{race_id[4:6]}-{race_id[6:8]}"
+                if len(race_id) >= 8 else ""
+            )
+            _jyocd = (
+                str(race_row.get("jyocd", "")).zfill(2)
+                if pd.notna(race_row.get("jyocd")) else ""
+            )
+            _racenum = (
+                int(race_row.get("racenum", 0))
+                if pd.notna(race_row.get("racenum")) else 0
+            )
+            _grade_code = (
+                str(race_row.get("grade_code", "_"))
+                if pd.notna(race_row.get("grade_code")) else "_"
+            )
+            _race_name = (
+                str(race_row.get("hondai", ""))
+                if pd.notna(race_row.get("hondai")) else ""
+            )
+            _track_condition = (
+                int(race_row.get("track_condition_code", 0))
+                if pd.notna(race_row.get("track_condition_code")) else 0
+            )
+
+            # top3_finishers: kakuteijyuni でソートした上位3頭
+            _valid = race_df_single[
+                race_df_single["kakuteijyuni"].notna()
+                & (race_df_single["kakuteijyuni"] > 0)
+            ].nsmallest(3, "kakuteijyuni")
+            _top3: list[dict[str, Any]] = []
+            for _, r in _valid.iterrows():
+                _top3.append({
+                    "umaban": int(r["umaban"]),
+                    "bamei": str(r.get("bamei", "")) if pd.notna(r.get("bamei")) else "",
+                    "kisyuryakusyo": (
+                        str(r.get("kisyuryakusyo", ""))
+                        if pd.notna(r.get("kisyuryakusyo")) else ""
+                    ),
+                    "kakuteijyuni": int(r["kakuteijyuni"]),
+                })
+
             # 事前計算済み特徴量をマージ
             hist_df_race = hist_df_all[hist_df_all["race_id"] == race_id]
             jockey_df_race = jockey_df_all[jockey_df_all["race_id"] == race_id]
@@ -249,6 +293,39 @@ class BacktestEngine:
                         "ev": float(bet.ev_lower_corrected),
                         "popularity": int(pop_val) if pd.notna(pop_val) else 0,
                         "bankroll_after": round(bankroll, 2),
+                        # --- 拡張フィールド ---
+                        "race_date": race_date_str,
+                        "jyocd": _jyocd,
+                        "racenum": _racenum,
+                        "grade_code": _grade_code,
+                        "race_name": _race_name,
+                        "bamei": (
+                            str(horse_rows.iloc[0].get("bamei", ""))
+                            if not horse_rows.empty and pd.notna(horse_rows.iloc[0].get("bamei"))
+                            else ""
+                        ),
+                        "kisyu": (
+                            str(horse_rows.iloc[0].get("kisyuryakusyo", ""))
+                            if not horse_rows.empty
+                            and pd.notna(horse_rows.iloc[0].get("kisyuryakusyo"))
+                            else ""
+                        ),
+                        "kakuteijyuni": (
+                            int(horse_rows.iloc[0]["kakuteijyuni"])
+                            if not horse_rows.empty
+                            and pd.notna(horse_rows.iloc[0].get("kakuteijyuni"))
+                            else 0
+                        ),
+                        "track_condition_code": _track_condition,
+                        "p_place_pred": (
+                            float(horse_rows.iloc[0].get("p_place_pred", 0))
+                            if not horse_rows.empty else 0.0
+                        ),
+                        "e_return_place_pred": (
+                            float(horse_rows.iloc[0].get("e_return_place_pred", 0))
+                            if not horse_rows.empty else 0.0
+                        ),
+                        "top3_finishers": _top3,
                     }
                 )
 
