@@ -63,3 +63,6 @@ check_ts.py
 
 # Worktrees
 .worktrees/
+
+# Superpowers brainstorm
+.superpowers/
