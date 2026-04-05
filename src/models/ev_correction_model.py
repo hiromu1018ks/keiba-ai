@@ -88,11 +88,11 @@ class EVCorrectionModel:
         p_pred_clipped = np.clip(df["p_win_pred"], 1e-4, 1 - 1e-4)
         init_score = np.log(p_pred_clipped / (1 - p_pred_clipped))
 
-        # P correction: train/valid split (80/20) with init_score
+        # P correction: train/valid split (80/20) with init_score (時系列分割)
         n_p = len(features)
-        perm_p = np.random.RandomState(42).permutation(n_p)
         split_p = int(n_p * 0.8)
-        train_idx_p, valid_idx_p = perm_p[:split_p], perm_p[split_p:]
+        train_idx_p = np.arange(split_p)
+        valid_idx_p = np.arange(split_p, n_p)
 
         train_data_p = lgb.Dataset(
             features.iloc[train_idx_p],
@@ -134,11 +134,11 @@ class EVCorrectionModel:
         features_e = self._prepare_features(winners)
         e_weight = winners["_e_sample_weight"].values
 
-        # E correction: train/valid split (80/20) with weight
+        # E correction: train/valid split (80/20) with weight (時系列分割)
         n_e = len(features_e)
-        perm_e = np.random.RandomState(42).permutation(n_e)
         split_e = int(n_e * 0.8)
-        train_idx_e, valid_idx_e = perm_e[:split_e], perm_e[split_e:]
+        train_idx_e = np.arange(split_e)
+        valid_idx_e = np.arange(split_e, n_e)
 
         train_data_e = lgb.Dataset(
             features_e.iloc[train_idx_e],

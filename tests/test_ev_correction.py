@@ -132,6 +132,16 @@ class TestEVCorrectionModel:
     def test_e_clip_floor(self) -> None:
         assert EVCorrectionModel.E_CLIP_FLOOR == 1.0
 
+    def test_ev_correction_no_random_split(self) -> None:
+        """EVCorrectionModel.train() がランダム分割を使わないことを確認"""
+        import inspect
+
+        from models.ev_correction_model import EVCorrectionModel
+
+        source = inspect.getsource(EVCorrectionModel.train)
+        assert "permutation" not in source, "Still using random permutation in train()!"
+        assert "RandomState" not in source, "Still using RandomState in train()!"
+
     def test_correct_ev_uses_best_iteration(
         self,
         trained_ev_model: EVCorrectionModel,
