@@ -180,8 +180,7 @@ def main() -> None:
     all_bets: list[dict[str, Any]] = []
     for year, result in all_results.items():
         for bet in result.bet_history:
-            bet["_test_year"] = year
-            all_bets.append(bet)
+            all_bets.append({**bet, "_test_year": year})
     bets_path = output_dir / "multi_year_bet_history.json"
     bets_path.write_text(json.dumps(all_bets, indent=2, ensure_ascii=False), encoding="utf-8")
     print(f"  bet_history保存: {bets_path}")
