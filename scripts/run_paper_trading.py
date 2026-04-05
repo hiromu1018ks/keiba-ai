@@ -52,12 +52,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--mode",
         required=True,
-        choices=["setup", "predict", "reconcile", "dry-run"],
+        choices=["setup", "predict", "reconcile", "dry-run", "diagnose"],
         help="実行モード",
     )
     parser.add_argument("--date", help="対象日 (YYYY-MM-DD)")
-    parser.add_argument("--start", help="期間開始 (YYYYMMDD, dry-run用)")
-    parser.add_argument("--end", help="期間終了 (YYYYMMDD, dry-run用)")
+    parser.add_argument("--start", help="期間開始 (YYYY-MM-DD, diagnose/dry-run用)")
+    parser.add_argument("--end", help="期間終了 (YYYY-MM-DD, diagnose/dry-run用)")
     parser.add_argument("--run-id", help="MLflow run ID (省略時は最新)")
     return parser.parse_args()
 
@@ -381,9 +381,16 @@ def _run_predict(
     import io
 
     _venue_map = {
-        "01": "札幌", "02": "函館", "03": "福島", "04": "新潟",
-        "05": "東京", "06": "中山", "07": "中京", "08": "京都",
-        "09": "阪神", "10": "小倉",
+        "01": "札幌",
+        "02": "函館",
+        "03": "福島",
+        "04": "新潟",
+        "05": "東京",
+        "06": "中山",
+        "07": "中京",
+        "08": "京都",
+        "09": "阪神",
+        "10": "小倉",
     }
 
     def _fmt_race_id(rid: str) -> str:
@@ -416,6 +423,128 @@ def _run_predict(
     )
     _send_slack(config, slack_msg)
     logger.info("Predict complete: %d bets", len(all_bets))
+
+
+# ─────────────────────────────────────────────────
+# diagnose: Parquet データで診断推論 (EveryDB2 バイパス)
+# ─────────────────────────────────────────────────
+
+
+def _run_diagnose(
+    args: argparse.Namespace,
+    config: "PaperTradingConfig",
+    models: "TrainedModelsV5",
+    store: "ParquetStore",
+) -> None:
+    """Parquet データを使って診断推論を実行 (EveryDB2 バイパス)"""
+    from backtest.diagnostic_logger import DiagnosticLogger
+    from backtest.race_predictor import RacePredictor
+    from db.readers import load_entries, load_odds_snapshots, load_races
+    from features.feature_engine import FeatureEngine
+    from features.horse_history_features import HorseHistoryFeatures
+    from features.jockey_context_features import JockeyContextFeatures
+    from features.trainer_context_features import TrainerContextFeatures
+    from models.submodel_manager import SubModelManager
+
+    start_ymd = args.start.replace("-", "")
+    end_ymd = args.end.replace("-", "")
+
+    # ParquetStore からデータロード (EveryDB2 バイパス)
+    logger.info("Loading data from Parquet: %s ~ %s", args.start, args.end)
+    race_df = load_races(store, start_ymd, end_ymd)
+    entry_df = load_entries(store, start_ymd, end_ymd)
+    odds_df = load_odds_snapshots(store, start_ymd, end_ymd)
+
+    if race_df.empty:
+        logger.error("No Parquet data for %s ~ %s", args.start, args.end)
+        return
+
+    # 特徴量生成 (_run_predict と同じパイプライン)
+    feat_engine = FeatureEngine()
+    submodel_mgr = SubModelManager()
+    feat_df = feat_engine.build_all(race_df, entry_df, odds_df, odds_ts_df=None, store=store)
+    feat_df = submodel_mgr.add_distance_band_features(feat_df)
+
+    race_ids = feat_df["race_id"].unique()
+    hist_all = HorseHistoryFeatures(store=store).compute(race_df, entry_df, race_ids)
+    jockey_all = JockeyContextFeatures(store).compute(entry_df)
+    trainer_all = TrainerContextFeatures(store).compute(entry_df)
+
+    # 推論 + 診断ログ
+    race_predictor = RacePredictor(models)
+    diag_logger = DiagnosticLogger()
+
+    for race_id in race_ids:
+        single_race = feat_df[feat_df["race_id"] == race_id].copy()
+        hist_race = hist_all[hist_all["race_id"] == race_id]
+        jockey_race = jockey_all[jockey_all["race_id"] == race_id]
+        trainer_race = trainer_all[trainer_all["race_id"] == race_id]
+
+        result_df = race_predictor.predict(single_race, hist_race, jockey_race, trainer_race)
+        if result_df.empty:
+            continue
+
+        regime = models.regime_detector.current_regime
+        regime_params = models.regime_detector.get_strategy_params(regime)
+        ev_threshold = regime_params.get("ev_threshold", 1.10)
+        if "ev_place" in result_df.columns:
+            n_candidates = int((result_df["ev_place"].fillna(0) >= ev_threshold).sum())
+        else:
+            n_candidates = 0
+
+        if not race_predictor.should_bet(result_df):
+            diag_logger.log_race(
+                race_id=race_id,
+                regime=str(regime),
+                ev_threshold=ev_threshold,
+                quality_passed=False,
+                quality_score=0.0,
+                n_candidates=n_candidates,
+                n_bets=0,
+            )
+            if "ev_place" in result_df.columns:
+                for _, hr in result_df.iterrows():
+                    diag_logger.log_horse(
+                        race_id=race_id,
+                        umaban=int(hr["umaban"]),
+                        p_place_pred=float(hr.get("p_place_pred", 0)),
+                        e_return_place_pred=float(hr.get("e_return_place_pred", 0)),
+                        ev_place=float(hr.get("ev_place", 0)),
+                        fukuoddslow=float(hr.get("fukuoddslow", 0)),
+                        is_bet=False,
+                    )
+            continue
+
+        bets = race_predictor.select_bets(result_df, bankroll=0)
+        diag_logger.log_race(
+            race_id=race_id,
+            regime=str(regime),
+            ev_threshold=ev_threshold,
+            quality_passed=True,
+            quality_score=0.0,
+            n_candidates=n_candidates,
+            n_bets=len(bets),
+        )
+        if "ev_place" in result_df.columns:
+            bet_umabans = {b.umaban for b in bets}
+            for _, hr in result_df.iterrows():
+                diag_logger.log_horse(
+                    race_id=race_id,
+                    umaban=int(hr["umaban"]),
+                    p_place_pred=float(hr.get("p_place_pred", 0)),
+                    e_return_place_pred=float(hr.get("e_return_place_pred", 0)),
+                    ev_place=float(hr.get("ev_place", 0)),
+                    fukuoddslow=float(hr.get("fukuoddslow", 0)),
+                    is_bet=int(hr["umaban"]) in bet_umabans,
+                )
+
+    prefix = f"diag_parquet_{start_ymd}_{end_ymd}"
+    diag_logger.save(config.paper_trading_dir, prefix=prefix)
+    logger.info(
+        "Diagnose complete: %d races, %d horses logged",
+        len(diag_logger.race_records),
+        len(diag_logger.horse_records),
+    )
 
 
 # ─────────────────────────────────────────────────
@@ -562,9 +691,16 @@ def _run_reconcile(
     lines.append("=" * 60)
 
     _venue_map = {
-        "01": "札幌", "02": "函館", "03": "福島", "04": "新潟",
-        "05": "東京", "06": "中山", "07": "中京", "08": "京都",
-        "09": "阪神", "10": "小倉",
+        "01": "札幌",
+        "02": "函館",
+        "03": "福島",
+        "04": "新潟",
+        "05": "東京",
+        "06": "中山",
+        "07": "中京",
+        "08": "京都",
+        "09": "阪神",
+        "10": "小倉",
     }
 
     def _fmt_race_id(rid: str) -> str:
@@ -592,8 +728,10 @@ def _run_reconcile(
         )
 
     lines.append("")
-    lines.append(f"  Day:  Stake={day_total_stake:,.0f}  Return={day_total_return:,.0f}  "
-                 f"ROI={day_total_return / day_total_stake if day_total_stake else 0:.1%}")
+    lines.append(
+        f"  Day:  Stake={day_total_stake:,.0f}  Return={day_total_return:,.0f}  "
+        f"ROI={day_total_return / day_total_stake if day_total_stake else 0:.1%}"
+    )
     lines.append(f"  Cum:  {len(combined)} bets  ROI={cumulative_roi:.1%}")
     lines.append("")
     text = "\n".join(lines)
@@ -807,6 +945,9 @@ def main() -> None:
 
     elif args.mode == "dry-run":
         _run_dry_run(args, config, models, store)
+
+    elif args.mode == "diagnose":
+        _run_diagnose(args, config, models, store)
 
 
 if __name__ == "__main__":
