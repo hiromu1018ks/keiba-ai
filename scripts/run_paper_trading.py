@@ -212,6 +212,7 @@ def _run_predict(
     models: "TrainedModelsV5",
     store: "ParquetStore",
 ) -> None:
+    from backtest.diagnostic_logger import DiagnosticLogger
     from backtest.race_predictor import RacePredictor
     from db.everydb2_queries import EveryDB2Queries
     from db.readers import (
@@ -265,6 +266,7 @@ def _run_predict(
     # 推論
     race_predictor = RacePredictor(models)
     bankroll = config.initial_bankroll
+    diag_logger = DiagnosticLogger()
     all_bets: list[dict[str, object]] = []
 
     for race_id in race_ids:
@@ -277,10 +279,63 @@ def _run_predict(
         if result_df.empty:
             continue
 
+        # Regime info for diagnostics
+        regime = models.regime_detector.current_regime
+        regime_params = models.regime_detector.get_strategy_params(regime)
+        ev_threshold = regime_params.get("ev_threshold", 1.10)
+        n_candidates = int((result_df["ev_place"].fillna(0) >= ev_threshold).sum()) if "ev_place" in result_df.columns else 0
+
         if not race_predictor.should_bet(result_df):
+            # Log race diagnostic: quality check failed
+            diag_logger.log_race(
+                race_id=race_id,
+                regime=regime,
+                ev_threshold=ev_threshold,
+                quality_passed=False,
+                quality_score=0.0,
+                n_candidates=n_candidates,
+                n_bets=0,
+            )
+            # Log horse diagnostics: none selected
+            if "ev_place" in result_df.columns:
+                for _, hr in result_df.iterrows():
+                    diag_logger.log_horse(
+                        race_id=race_id,
+                        umaban=int(hr["umaban"]),
+                        p_place_pred=float(hr.get("p_place_pred", 0)),
+                        e_return_place_pred=float(hr.get("e_return_place_pred", 0)),
+                        ev_place=float(hr.get("ev_place", 0)),
+                        fukuoddslow=float(hr.get("fukuoddslow", 0)),
+                        is_bet=False,
+                    )
             continue
 
         bets = race_predictor.select_bets(result_df, bankroll)
+
+        # Log race diagnostic: quality check passed
+        diag_logger.log_race(
+            race_id=race_id,
+            regime=regime,
+            ev_threshold=ev_threshold,
+            quality_passed=True,
+            quality_score=0.0,
+            n_candidates=n_candidates,
+            n_bets=len(bets),
+        )
+        # Log horse diagnostics with bet selection info
+        if "ev_place" in result_df.columns:
+            bet_umabans = {b.umaban for b in bets}
+            for _, hr in result_df.iterrows():
+                diag_logger.log_horse(
+                    race_id=race_id,
+                    umaban=int(hr["umaban"]),
+                    p_place_pred=float(hr.get("p_place_pred", 0)),
+                    e_return_place_pred=float(hr.get("e_return_place_pred", 0)),
+                    ev_place=float(hr.get("ev_place", 0)),
+                    fukuoddslow=float(hr.get("fukuoddslow", 0)),
+                    is_bet=int(hr["umaban"]) in bet_umabans,
+                )
+
         for bet in bets:
             horse = result_df[result_df["umaban"] == bet.umaban]
             horse_name = _decode_bamei(horse.iloc[0]["bamei"]) if not horse.empty else ""
@@ -302,6 +357,9 @@ def _run_predict(
                 }
             )
             bankroll -= bet.stake
+
+    # Save diagnostics
+    diag_logger.save(config.paper_trading_dir, prefix=f"diag_{ymd}")
 
     if not all_bets:
         logger.info("No bets generated for %s", args.date)
