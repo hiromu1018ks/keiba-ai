@@ -7,10 +7,12 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import pandas as pd
 
+from backtest.diagnostic_logger import DiagnosticLogger
 from backtest.race_predictor import RacePredictor
 from db.parquet_store import ParquetStore
 from db.readers import load_entries, load_odds_snapshots, load_races
@@ -131,6 +133,7 @@ class BacktestEngine:
         trainer_df_all = trainer_ctx.compute(entry_df)
 
         # 4. レースごとにシミュレーション (推論は RacePredictor に委譲)
+        diag_logger = DiagnosticLogger()
         bankroll = self.initial_bankroll
         peak_bankroll = bankroll
         max_dd = 0.0
@@ -158,12 +161,64 @@ class BacktestEngine:
                 continue
 
             # Quality screening
+            regime = self.models.regime_detector.current_regime
+            regime_params = self.models.regime_detector.get_strategy_params(regime)
+            ev_threshold = regime_params.get("ev_threshold", 1.10)
+            n_candidates = (
+                int((result_df["ev_place"].fillna(0) >= ev_threshold).sum())
+                if "ev_place" in result_df.columns
+                else 0
+            )
+
             if not self._race_predictor.should_bet(result_df):
+                diag_logger.log_race(
+                    race_id=race_id,
+                    regime=str(regime),
+                    ev_threshold=ev_threshold,
+                    quality_passed=False,
+                    quality_score=0.0,
+                    n_candidates=n_candidates,
+                    n_bets=0,
+                )
+                if "ev_place" in result_df.columns:
+                    for _, hr in result_df.iterrows():
+                        diag_logger.log_horse(
+                            race_id=race_id,
+                            umaban=int(hr["umaban"]),
+                            p_place_pred=float(hr.get("p_place_pred", 0)),
+                            e_return_place_pred=float(hr.get("e_return_place_pred", 0)),
+                            ev_place=float(hr.get("ev_place", 0)),
+                            fukuoddslow=float(hr.get("fukuoddslow", 0)),
+                            is_bet=False,
+                        )
                 continue
 
             # Bet generation
             surface_key = result_df["surface"].iloc[0]
             bets = self._race_predictor.select_bets(result_df, bankroll)
+
+            # Log diagnostics for quality-passed race
+            diag_logger.log_race(
+                race_id=race_id,
+                regime=str(regime),
+                ev_threshold=ev_threshold,
+                quality_passed=True,
+                quality_score=0.0,
+                n_candidates=n_candidates,
+                n_bets=len(bets),
+            )
+            if "ev_place" in result_df.columns:
+                bet_umabans = {b.umaban for b in bets}
+                for _, hr in result_df.iterrows():
+                    diag_logger.log_horse(
+                        race_id=race_id,
+                        umaban=int(hr["umaban"]),
+                        p_place_pred=float(hr.get("p_place_pred", 0)),
+                        e_return_place_pred=float(hr.get("e_return_place_pred", 0)),
+                        ev_place=float(hr.get("ev_place", 0)),
+                        fukuoddslow=float(hr.get("fukuoddslow", 0)),
+                        is_bet=int(hr["umaban"]) in bet_umabans,
+                    )
 
             # Settlement (BacktestEngine 固有)
             for bet in bets:
@@ -201,7 +256,10 @@ class BacktestEngine:
                 dd = (peak_bankroll - bankroll) / peak_bankroll if peak_bankroll > 0 else 0
                 max_dd = max(max_dd, dd)
 
-        # 5. ROI 計算
+        # 5. 診断ログ保存
+        diag_logger.save(Path("data/backtest"), prefix="bt")
+
+        # 6. ROI 計算
         total_stake = sum(b["stake"] for b in bet_history)
         total_return = sum(b["result"] for b in bet_history if b["result"] > 0)
         total_bets = len(bet_history)
