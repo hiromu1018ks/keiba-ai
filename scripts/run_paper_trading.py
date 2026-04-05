@@ -283,13 +283,16 @@ def _run_predict(
         regime = models.regime_detector.current_regime
         regime_params = models.regime_detector.get_strategy_params(regime)
         ev_threshold = regime_params.get("ev_threshold", 1.10)
-        n_candidates = int((result_df["ev_place"].fillna(0) >= ev_threshold).sum()) if "ev_place" in result_df.columns else 0
+        if "ev_place" in result_df.columns:
+            n_candidates = int((result_df["ev_place"].fillna(0) >= ev_threshold).sum())
+        else:
+            n_candidates = 0
 
         if not race_predictor.should_bet(result_df):
             # Log race diagnostic: quality check failed
             diag_logger.log_race(
                 race_id=race_id,
-                regime=regime,
+                regime=str(regime),
                 ev_threshold=ev_threshold,
                 quality_passed=False,
                 quality_score=0.0,
@@ -315,7 +318,7 @@ def _run_predict(
         # Log race diagnostic: quality check passed
         diag_logger.log_race(
             race_id=race_id,
-            regime=regime,
+            regime=str(regime),
             ev_threshold=ev_threshold,
             quality_passed=True,
             quality_score=0.0,
