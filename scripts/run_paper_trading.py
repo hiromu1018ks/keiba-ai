@@ -16,6 +16,9 @@
   # dry-run: 過去データでパイプライン動作確認
   python scripts/run_paper_trading.py --mode dry-run --date 2024-07-13
   python scripts/run_paper_trading.py --mode dry-run --start 2024-07-01 --end 2024-07-31
+
+  # diagnose: Parquetデータで診断推論 (EveryDB2 バイパス)
+  python scripts/run_paper_trading.py --mode diagnose --start 2024-07-01 --end 2024-07-31
 """
 
 from __future__ import annotations
@@ -455,7 +458,7 @@ def _run_diagnose(
     entry_df = load_entries(store, start_ymd, end_ymd)
     odds_df = load_odds_snapshots(store, start_ymd, end_ymd)
 
-    if race_df.empty:
+    if race_df.empty or entry_df.empty or odds_df.empty:
         logger.error("No Parquet data for %s ~ %s", args.start, args.end)
         return
 

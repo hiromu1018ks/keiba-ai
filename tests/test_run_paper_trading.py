@@ -172,3 +172,34 @@ class TestRunPaperTradingCLI:
             mock_load_races.assert_called_once()
             mock_load_entries.assert_called_once()  # called before empty check
             mock_load_odds.assert_called_once()
+
+
+def test_diagnose_mode_no_everydb2_import():
+    """_run_diagnose 関数が EveryDB2 リーダーをインポートしないことを確認"""
+    import inspect
+
+    # scripts ディレクトリをモジュールとしてロード
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "run_paper_trading",
+        Path(__file__).resolve().parent.parent / "scripts" / "run_paper_trading.py",
+    )
+    mod = importlib.util.module_from_spec(spec)
+    # 実行時インポートをスキップ (DB接続不要)
+    with patch.dict("sys.modules", {
+        "db.parquet_store": MagicMock(),
+        "db.model_loader": MagicMock(),
+        "paper_trading.config": MagicMock(),
+        "backtest.race_predictor": MagicMock(),
+        "features.feature_engine": MagicMock(),
+        "models.submodel_manager": MagicMock(),
+    }):
+        spec.loader.exec_module(mod)  # type: ignore[attr-defined]
+
+    source = inspect.getsource(mod._run_diagnose)
+    assert "EveryDB2Queries" not in source, "_run_diagnose should not use EveryDB2!"
+    assert "load_races_from_db" not in source, "_run_diagnose should not use EveryDB2 readers!"
+    assert "load_entries_from_db" not in source, "_run_diagnose should not use EveryDB2 readers!"
+    assert "load_races" in source  # Parquet版の load_races
+    assert "load_entries" in source  # Parquet版の load_entries
