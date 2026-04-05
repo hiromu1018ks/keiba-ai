@@ -42,17 +42,33 @@
 | フィールド | 型 | 説明 | 取得元 |
 |---|---|---|---|
 | `race_date` | str | 開催日 (YYYY-MM-DD) | race_id から派生 |
-| `keibajyocd` | str | 競馬場コード (01-10) | feat_df |
-| `race_num` | int | レース番号 | feat_df |
-| `gradecode` | str | グレードコード (A/B/C/D/E/_) | feat_df |
-| `race_name` | str | レース名 (hondai列) | feat_df |
-| `bamei` | str | 馬名 | feat_df |
-| `kisyu` | str | 騎手名 (kisyuryakusyo列) | feat_df |
-| `kakuteijyuni` | int | 確定着順 | feat_df |
-| `track_condition_code` | int | 馬場状態コード (1=良,2=稍重,3=重,4=不良) | feat_df |
-| `p_place_pred` | float | 複勝確率予測 | result_df |
-| `e_return_place_pred` | float | 期待払戻予測 | result_df |
-| `top3_finishers` | list[dict] | 上位3着の馬番・馬名・騎手 | feat_df から集計 |
+| `jyocd` | str | 競馬場コード (01-10) | feat_df の `jyocd` 列 |
+| `racenum` | int | レース番号 | feat_df の `racenum` 列 |
+| `grade_code` | str | グレードコード (A/B/C/D/E/_) | feat_df の `grade_code` 列 (FeatureEngine派生) |
+| `race_name` | str | レース名 | feat_df の `hondai` 列 |
+| `bamei` | str | 馬名 | feat_df の `bamei` 列 |
+| `kisyu` | str | 騎手名 | feat_df の `kisyuryakusyo` 列 |
+| `kakuteijyuni` | int | 確定着順 | feat_df の `kakuteijyuni` 列 |
+| `track_condition_code` | int | 馬場状態コード (1=良,2=稍重,3=重,4=不良) | feat_df の `sibababacd`/`dirtbabacd` から計算済み列 |
+| `p_place_pred` | float | 複勝確率予測 | result_df (RacePredictor.predict() の出力) |
+| `e_return_place_pred` | float | 期待払戻予測 | result_df (RacePredictor.predict() の出力) |
+| `top3_finishers` | list[dict] | 上位3着 (下記スキーマ参照) | feat_df を kakuteijyuni でソートして抽出 |
+
+### `top3_finishers` スキーマ
+
+```python
+# 各要素の dict 構造:
+{
+    "umaban": int,          # 馬番
+    "bamei": str,           # 馬名
+    "kisyuryakusyo": str,   # 騎手名（略称）
+    "kakuteijyuni": int,    # 確定着順
+}
+```
+
+- `feat_df` を `kakuteijyuni` で昇順ソートし、上位3件を抽出
+- 出走取消・除外・失格（`kakuteijyuni` が 0 または NaN）の馬は除外
+- 3頭に満たない場合は取得できた分のみ格納（空リストもあり得る）
 
 ## スクリプト処理フロー
 
@@ -141,10 +157,11 @@ const TRACK_CONDITION_MAP = {
 
 `src/backtest/engine.py` の `run()` メソッド内:
 
-1. レースループの開始前に、レース情報（競場コード、レース番号等）を `feat_df` から取得
+1. レースループの開始前に、レース情報（競馬場コード、レース番号等）を `feat_df` から取得
 2. `bet_history.append()` 内で追加フィールドを設定
 3. `top3_finishers` はレース単位で1回計算し、同じレースの全ベットに付与
 4. 追加フィールドの取得に失敗した場合はフォールバック値（空文字/0）を使用
+5. 各フィールドの取得は `dict.get()` で安全にアクセス（列が存在しない場合の KeyError を防止）
 
 ## MultiYearReportGenerator
 
@@ -154,15 +171,34 @@ const TRACK_CONDITION_MAP = {
 class MultiYearReportGenerator:
     def __init__(self, output_dir: Path) -> None:
         self.output_dir = output_dir
+        self._single_year_gen = BacktestReportGenerator(output_dir)  # 委譲
 
     def generate(
         self,
         results: dict[int, BacktestResult],  # {year: result}
+        metadata: dict[int, dict[str, str]],  # {year: {"train_start", "train_end", ...}}
     ) -> Path:
         """マルチ年度HTMLレポートを生成"""
 ```
 
-既存の `BacktestReportGenerator` のヘルパーメソッド（`_compute_monthly_stats`, `_compute_condition_stats` 等）は継承または移譲で再利用。
+**委譲パターン（delegation）を採用。** 理由:
+- `BacktestReportGenerator.generate()` と `MultiYearReportGenerator.generate()` はシグネチャが異なるため、継承は不適切
+- ヘルパーメソッド（`_compute_monthly_stats`, `_compute_condition_stats`, `_compute_bankroll_series`）は `BacktestReportGenerator` インスタンス経由で再利用
+- mypy の `disallow_untyped_defs` でも委譲の方がクリーン
+
+### 年度メタデータの受け渡し
+
+`MultiYearReportGenerator.generate()` には `BacktestResult` だけでなく、学習期間等のメタデータも渡す必要がある。
+`BacktestResult` dataclass 自体は変更せず、メソッド引数 `metadata` で別途渡す:
+
+```python
+metadata = {
+    2023: {"train_start": "2020-01-01", "train_end": "2022-12-31",
+           "test_start": "2023-01-01", "test_end": "2023-12-31",
+           "train_seconds": 1123, "test_seconds": 689},
+    ...
+}
+```
 
 ## コマンドライン引数
 
@@ -176,8 +212,16 @@ python scripts/run_multi_year_backtest.py [--years 2023 2024 2025]
 ## テスト方針
 
 - 新しいスクリプトのテストは不要（スクリプトは薄いラッパー）
-- `BacktestEngine` の既存テストは `bet_history` のキー数が増えるだけで、値の検証はしていないため修正不要
-- `MultiYearReportGenerator` のユニットテストを `tests/test_backtest_report.py` に追加（コンソール出力テストは省略）
+- `BacktestEngine` の既存テストは `bet_history` のキーが増える可能性があるため、**実装後に `pytest` を実行して確認**が必要
+  - 特に `bet_history[0].keys()` のような検証をしているテストがあれば更新
+- `MultiYearReportGenerator` のユニットテストを追加（コンソール出力テストは省略）
+
+## エラーハンドリング
+
+- 学習失敗時: その年度をスキップし、コンソールにエラーを表示して次年度に進む
+- テスト失敗時: 同様にスキップ
+- 全年度失敗時: エラーメッセージを表示して終了（HTML生成はスキップ）
+- 学習のローリングウィンドウ設計: test_year=2024 の学習データ (2021-2023) には test_year=2023 のテストデータが含まれる。これは意図的な設計（過去の予測結果を含むデータで学習するローリングウィンドウ）
 
 ## 出力先
 
