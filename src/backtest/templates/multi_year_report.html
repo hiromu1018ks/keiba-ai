@@ -262,7 +262,8 @@
                 <thead>
                     <tr>
                         <th>年度</th><th>日付</th><th>競馬場</th><th>R</th><th>レース名</th>
-                        <th>馬名</th><th>騎手</th><th>人気</th><th>EV</th><th>オッズ</th>
+                        <th>馬番</th><th>馬名</th><th>騎手</th><th>路面</th><th>距離</th><th>馬場</th>
+                        <th>人気</th><th>EV</th><th>オッズ</th>
                         <th>ベット額</th><th>着順</th><th>払戻</th><th>利益</th><th>結果</th>
                     </tr>
                 </thead>
@@ -275,8 +276,12 @@
                         <td data-jyocd="{{ bet.jyocd }}"></td>
                         <td>{{ bet.racenum }}</td>
                         <td data-grade="{{ bet.grade_code }}">{{ bet.race_name }}</td>
+                        <td>{{ bet.umaban }}</td>
                         <td>{{ bet.bamei }}</td>
                         <td>{{ bet.kisyu }}</td>
+                        <td>{{ "芝" if bet.surface == "turf" else ("ダ" if bet.surface == "dirt" else bet.surface) }}</td>
+                        <td>{{ bet.kyori }}m</td>
+                        <td data-track="{{ bet.track_condition_code }}"></td>
                         <td>{{ bet.popularity }}</td>
                         <td>{{ "%.2f" | format(bet.ev) }}</td>
                         <td>{{ "%.1f" | format(bet.odds) }}</td>
@@ -322,13 +327,18 @@ const TRACK_CONDITION_MAP = {1:'良',2:'稍重',3:'重',4:'不良'};
 
 // 競馬場セルを変換
 document.querySelectorAll('td[data-jyocd]').forEach(td => {
-    const code = String(td.dataset.jyocd).padStart(2, '0');
+    const code = String(Math.round(Number(td.dataset.jyocd))).padStart(2, '0');
     td.textContent = KEIBAJO_MAP[code] || code;
 });
 // グレードセルにツールチップ
 document.querySelectorAll('td[data-grade]').forEach(td => {
     const g = td.dataset.grade;
     td.title = GRADE_MAP[g] || '';
+});
+// 馬場状態セルにツールチップ
+document.querySelectorAll('td[data-track]').forEach(td => {
+    const c = Math.round(Number(td.dataset.track));
+    td.textContent = TRACK_CONDITION_MAP[c] || '';
 });
 
 // --- 年度別ROIチャート ---
