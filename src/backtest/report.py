@@ -321,21 +321,19 @@ class MultiYearReportGenerator:
         all_bets = sum(r.total_bets for r in results.values()) if results else 0
         all_stake = sum(r.total_stake for r in results.values()) if results else 0.0
         all_return = sum(r.total_return for r in results.values()) if results else 0.0
-        overall = {
+        best_year: int = max(results, key=lambda y: results[y].total_roi) if results else 0
+        worst_year: int = min(results, key=lambda y: results[y].total_roi) if results else 0
+        overall: dict[str, Any] = {
             "total_bets": all_bets,
             "total_stake": all_stake,
             "total_return": all_return,
             "profit": all_return - all_stake,
             "roi": all_return / all_stake if all_stake > 0 else 0.0,
-            "best_year": max(results, key=lambda y: results[y].total_roi) if results else 0,
-            "worst_year": min(results, key=lambda y: results[y].total_roi) if results else 0,
+            "best_year": best_year,
+            "worst_year": worst_year,
+            "best_roi": results[best_year].total_roi if results else 0.0,
+            "worst_roi": results[worst_year].total_roi if results else 0.0,
         }
-        if results:
-            overall["best_roi"] = results[overall["best_year"]].total_roi
-            overall["worst_roi"] = results[overall["worst_year"]].total_roi
-        else:
-            overall["best_roi"] = 0.0
-            overall["worst_roi"] = 0.0
 
         html = template.render(
             year_data=year_data,
