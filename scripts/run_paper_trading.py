@@ -442,7 +442,12 @@ def _run_diagnose(
     """Parquet データを使って診断推論を実行 (EveryDB2 バイパス)"""
     from backtest.diagnostic_logger import DiagnosticLogger
     from backtest.race_predictor import RacePredictor
-    from db.readers import load_entries, load_odds_snapshots, load_races
+    from db.readers import (
+        load_entries,
+        load_odds_snapshots,
+        load_odds_time_series_range,
+        load_races,
+    )
     from features.feature_engine import FeatureEngine
     from features.horse_history_features import HorseHistoryFeatures
     from features.jockey_context_features import JockeyContextFeatures
@@ -465,7 +470,8 @@ def _run_diagnose(
     # 特徴量生成 (_run_predict と同じパイプライン)
     feat_engine = FeatureEngine()
     submodel_mgr = SubModelManager()
-    feat_df = feat_engine.build_all(race_df, entry_df, odds_df, odds_ts_df=None, store=store)
+    odds_ts_df = load_odds_time_series_range(store, start_ymd, end_ymd)
+    feat_df = feat_engine.build_all(race_df, entry_df, odds_df, odds_ts_df=odds_ts_df, store=store)
     feat_df = submodel_mgr.add_distance_band_features(feat_df)
 
     race_ids = feat_df["race_id"].unique()

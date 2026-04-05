@@ -15,7 +15,7 @@ import pandas as pd
 from backtest.diagnostic_logger import DiagnosticLogger
 from backtest.race_predictor import RacePredictor
 from db.parquet_store import ParquetStore
-from db.readers import load_entries, load_odds_snapshots, load_races
+from db.readers import load_entries, load_odds_snapshots, load_odds_time_series_range, load_races
 from domain.models import Bet, BetType
 
 if TYPE_CHECKING:
@@ -107,7 +107,7 @@ class BacktestEngine:
 
         feat_engine = FeatureEngine()
         submodel_mgr = SubModelManager()
-        odds_ts_df = None  # Stage1 FEATURE_COLS で未使用 (メモリ節約)
+        odds_ts_df = load_odds_time_series_range(self.store, start, end)
         feat_df = feat_engine.build_all(
             race_df, entry_df, odds_df, odds_ts_df=odds_ts_df, store=self.store
         )
@@ -247,7 +247,7 @@ class BacktestEngine:
                             int(result_df["kyori"].iloc[0]) if "kyori" in result_df.columns else 0
                         ),
                         "ev": float(bet.ev_lower_corrected),
-                        "popularity": int(pop_val),
+                        "popularity": int(pop_val) if pd.notna(pop_val) else 0,
                         "bankroll_after": round(bankroll, 2),
                     }
                 )
