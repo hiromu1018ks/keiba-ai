@@ -265,3 +265,85 @@ class BacktestReportGenerator:
                 }
             )
         return series
+
+
+class MultiYearReportGenerator:
+    """マルチ年度バックテスト結果から自己完結型HTMLレポートを生成"""
+
+    def __init__(self, output_dir: Path) -> None:
+        self.output_dir = output_dir
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+        self._single_gen = BacktestReportGenerator(output_dir)
+
+    def generate(
+        self,
+        results: dict[int, BacktestResult],
+        metadata: dict[int, dict[str, str]],
+    ) -> Path:
+        """マルチ年度HTMLレポートを生成"""
+        template_dir = Path(__file__).parent / "templates"
+        env = Environment(loader=FileSystemLoader(str(template_dir)), autoescape=True)
+        env.filters["format_number"] = lambda x: f"{x:,.0f}"
+        template = env.get_template("multi_year_report.html")
+
+        # 年度別データを組み立て
+        year_data: dict[int, dict[str, Any]] = {}
+        for year, result in sorted(results.items()):
+            enriched = self._single_gen._derive_fields(result.bet_history)
+            meta = metadata.get(year, {})
+            year_data[year] = {
+                "summary": {
+                    "roi": result.total_roi,
+                    "win_rate": (
+                        result.winning_bets / result.total_bets
+                        if result.total_bets > 0
+                        else 0.0
+                    ),
+                    "profit": result.profit,
+                    "max_dd": result.max_drawdown,
+                    "final_bankroll": result.final_bankroll,
+                    "total_bets": result.total_bets,
+                    "total_stake": result.total_stake,
+                    "total_return": result.total_return,
+                    "total_wins": result.winning_bets,
+                    "train_period": f"{meta.get('train_start', '')} ~ {meta.get('train_end', '')}",
+                    "test_period": f"{meta.get('test_start', '')} ~ {meta.get('test_end', '')}",
+                    "train_seconds": int(float(meta.get("train_seconds", "0"))),
+                    "test_seconds": int(float(meta.get("test_seconds", "0"))),
+                },
+                "monthly_stats": self._single_gen._compute_monthly_stats(enriched),
+                "condition_stats": self._single_gen._compute_condition_stats(enriched),
+                "bankroll_series": self._single_gen._compute_bankroll_series(enriched),
+                "bet_details": enriched,
+            }
+
+        # 全体サマリー計算
+        all_bets = sum(r.total_bets for r in results.values()) if results else 0
+        all_stake = sum(r.total_stake for r in results.values()) if results else 0.0
+        all_return = sum(r.total_return for r in results.values()) if results else 0.0
+        overall = {
+            "total_bets": all_bets,
+            "total_stake": all_stake,
+            "total_return": all_return,
+            "profit": all_return - all_stake,
+            "roi": all_return / all_stake if all_stake > 0 else 0.0,
+            "best_year": max(results, key=lambda y: results[y].total_roi) if results else 0,
+            "worst_year": min(results, key=lambda y: results[y].total_roi) if results else 0,
+        }
+        if results:
+            overall["best_roi"] = results[overall["best_year"]].total_roi
+            overall["worst_roi"] = results[overall["worst_year"]].total_roi
+        else:
+            overall["best_roi"] = 0.0
+            overall["worst_roi"] = 0.0
+
+        html = template.render(
+            year_data=year_data,
+            overall=overall,
+            years=sorted(results.keys()),
+            generated_at=datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC"),
+        )
+
+        outpath = self.output_dir / "multi_year_report.html"
+        outpath.write_text(html, encoding="utf-8")
+        return outpath
