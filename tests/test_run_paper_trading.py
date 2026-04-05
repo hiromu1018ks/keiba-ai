@@ -4,8 +4,6 @@ import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 
 class TestRunPaperTradingCLI:
     def test_parse_args_setup_mode(self) -> None:
@@ -176,10 +174,9 @@ class TestRunPaperTradingCLI:
 
 def test_diagnose_mode_no_everydb2_import():
     """_run_diagnose 関数が EveryDB2 リーダーをインポートしないことを確認"""
-    import inspect
-
     # scripts ディレクトリをモジュールとしてロード
     import importlib.util
+    import inspect
 
     spec = importlib.util.spec_from_file_location(
         "run_paper_trading",
@@ -187,14 +184,17 @@ def test_diagnose_mode_no_everydb2_import():
     )
     mod = importlib.util.module_from_spec(spec)
     # 実行時インポートをスキップ (DB接続不要)
-    with patch.dict("sys.modules", {
-        "db.parquet_store": MagicMock(),
-        "db.model_loader": MagicMock(),
-        "paper_trading.config": MagicMock(),
-        "backtest.race_predictor": MagicMock(),
-        "features.feature_engine": MagicMock(),
-        "models.submodel_manager": MagicMock(),
-    }):
+    with patch.dict(
+        "sys.modules",
+        {
+            "db.parquet_store": MagicMock(),
+            "db.model_loader": MagicMock(),
+            "paper_trading.config": MagicMock(),
+            "backtest.race_predictor": MagicMock(),
+            "features.feature_engine": MagicMock(),
+            "models.submodel_manager": MagicMock(),
+        },
+    ):
         spec.loader.exec_module(mod)  # type: ignore[attr-defined]
 
     source = inspect.getsource(mod._run_diagnose)

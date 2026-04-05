@@ -5,7 +5,6 @@ from __future__ import annotations
 import os
 
 import lightgbm as lgb
-import numpy as np
 import pandas as pd
 
 from domain.models import TwoStageConfig
@@ -15,18 +14,19 @@ def _train_valid_split(
     features: pd.DataFrame,
     label: pd.Series,
     valid_ratio: float = 0.2,
-    seed: int = 42,
+    seed: int = 42,  # noqa: ARG001 — kept for API compat
 ) -> tuple[lgb.Dataset, lgb.Dataset]:
-    """学習データを train/valid にランダム分割して (train_data, valid_data) を返す。"""
-    n = len(features)
-    perm = np.random.RandomState(seed).permutation(n)
-    split = int(n * (1 - valid_ratio))
-    train_idx, valid_idx = perm[:split], perm[split:]
+    """学習データを時系列順に train/valid に分割。
 
-    train_data = lgb.Dataset(features.iloc[train_idx], label=label.iloc[train_idx])
-    valid_data = lgb.Dataset(
-        features.iloc[valid_idx], label=label.iloc[valid_idx], reference=train_data
-    )
+    **前提条件**: 呼び出し側は df.sort_values("race_date") で事前にソートしておくこと。
+    前の80%をtrain、後の20%をvalidにする。
+    時系列データでのランダム分割による look-ahead bias を防止する。
+    """
+    n = len(features)
+    split = int(n * (1 - valid_ratio))
+
+    train_data = lgb.Dataset(features.iloc[:split], label=label.iloc[:split])
+    valid_data = lgb.Dataset(features.iloc[split:], label=label.iloc[split:], reference=train_data)
     return train_data, valid_data
 
 

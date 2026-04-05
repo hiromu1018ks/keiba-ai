@@ -118,22 +118,21 @@ class AbilityModel:
             n_groups = len(groups)
 
             if early_stopping and n_groups >= 2:
-                # レース単位で train/valid を分割する
-                # group 配列: [4, 4, 3] = レース1に4頭, レース2に4頭, レース3に3頭
-                race_perm = np.random.RandomState(42).permutation(n_groups)
+                # 時系列分割: groupはrace_id順に既にソートされている前提
+                # 前半80%をtrain、後半20%をvalidとする (リーク防止)
                 race_split = int(n_groups * 0.8)
+
+                train_groups = groups[:race_split]
+                valid_groups = groups[race_split:]
 
                 # 行レベルのインデックスに変換
                 race_ids_per_row = np.repeat(np.arange(n_groups), groups)
-                train_race_ids = set(race_perm[:race_split].tolist())
+                train_race_ids = set(range(race_split))
                 train_mask = np.array([rid in train_race_ids for rid in race_ids_per_row])
                 valid_mask = ~train_mask
 
                 train_idx = np.where(train_mask)[0]
                 valid_idx = np.where(valid_mask)[0]
-
-                train_groups = groups[np.sort(race_perm[:race_split])]
-                valid_groups = groups[np.sort(race_perm[race_split:])]
 
                 train_data = lgb.Dataset(
                     features.iloc[train_idx],

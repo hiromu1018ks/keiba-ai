@@ -75,41 +75,74 @@ class TestJockeySurprise:
 
 
 class TestHaronTimeZscore:
-    """haron_time_zscore_avg (階層fallback) のテスト"""
+    """expanding hierarchical fallback z-score のテスト"""
 
-    def test_fallback_l1_to_l2(self):
-        """Level 1 サンプル不足 → Level 2 にfallback"""
-        from features.horse_history_features import _get_group_stats
+    def test_lookup_returns_stats_before_target_date(self):
+        """target_date 以前の最新 expanding stats を返す"""
+        from features.horse_history_features import _lookup_expanding_stats
 
-        global_stats = {
-            ("sprint", "turf", "1"): {"mean": 12.5, "std": 0.3, "n": 10},  # L1: 不足
-            ("sprint", "turf"): {"mean": 12.3, "std": 0.4, "n": 80},  # L2: OK
-            ("sprint",): {"mean": 12.4, "std": 0.5, "n": 200},  # L3
-            ("all",): {"mean": 12.4, "std": 0.5, "n": 5000},  # L4
+        # Build expanding_stats: key=("sprint","turf","1") -> array of (date_float, mean, std)
+        # Dates: 2024-01-01 and 2024-03-01
+        d1 = np.datetime64("2024-01-01", "ns").astype(float)
+        d2 = np.datetime64("2024-03-01", "ns").astype(float)
+        expanding_stats = {
+            ("sprint", "turf", "1"): np.array([[d1, 12.0, 0.2], [d2, 12.3, 0.4]]),
         }
-        mean, std = _get_group_stats(
-            distance_bin="sprint",
-            surface="turf",
-            baba_cd="1",
-            global_stats=global_stats,
-        )
+        # Query date after d2 → should get d2's stats
+        target = np.datetime64("2024-06-01", "ns")
+        mean, std = _lookup_expanding_stats(target, "sprint", "turf", "1", expanding_stats)
         assert mean == 12.3
         assert std == 0.4
 
-    def test_fallback_to_global(self):
-        """全レベル不足 → グローバルfallback"""
-        from features.horse_history_features import _get_group_stats
+    def test_lookup_fallback_l1_to_l2(self):
+        """Level 1 key に target_date 以前のデータが無い → Level 2 に fallback"""
+        from features.horse_history_features import _lookup_expanding_stats
 
-        global_stats = {
-            ("all",): {"mean": 12.4, "std": 0.5, "n": 5000},
+        d1 = np.datetime64("2024-03-01", "ns").astype(float)
+        d2 = np.datetime64("2024-01-01", "ns").astype(float)
+        expanding_stats = {
+            # L1: data only after target_date, so idx=0 → skip
+            ("sprint", "turf", "1"): np.array([[d1, 12.5, 0.3]]),
+            # L2: has data before target
+            ("sprint", "turf"): np.array([[d2, 12.3, 0.4]]),
         }
-        mean, std = _get_group_stats(
-            distance_bin="long",
-            surface="dirt",
-            baba_cd="3",
-            global_stats=global_stats,
-        )
+        target = np.datetime64("2024-02-01", "ns")
+        mean, std = _lookup_expanding_stats(target, "sprint", "turf", "1", expanding_stats)
+        assert mean == 12.3
+        assert std == 0.4
+
+    def test_lookup_fallback_to_global(self):
+        """全レベル該当なし → グローバル fallback (all,)"""
+        from features.horse_history_features import _lookup_expanding_stats
+
+        d1 = np.datetime64("2024-01-01", "ns").astype(float)
+        expanding_stats = {
+            ("all",): np.array([[d1, 12.4, 0.5]]),
+        }
+        target = np.datetime64("2024-06-01", "ns")
+        mean, std = _lookup_expanding_stats(target, "long", "dirt", "3", expanding_stats)
         assert mean == 12.4
+
+    def test_lookup_returns_nan_if_no_data(self):
+        """該当データが全く無い場合 → (nan, nan)"""
+        from features.horse_history_features import _lookup_expanding_stats
+
+        expanding_stats: dict[tuple, np.ndarray] = {}
+        target = np.datetime64("2024-06-01", "ns")
+        mean, std = _lookup_expanding_stats(target, "long", "dirt", "3", expanding_stats)
+        assert np.isnan(mean)
+        assert np.isnan(std)
+
+    def test_expanding_stats_not_leaky(self):
+        """compute() が expanding_stats を使っていることをソースコードで確認"""
+        import inspect
+
+        from features.horse_history_features import HorseHistoryFeatures
+
+        source = inspect.getsource(HorseHistoryFeatures.compute)
+        assert "expanding_stats" in source, "Should use expanding_stats"
+        assert "_lookup_expanding_stats" in source, "Should use _lookup_expanding_stats"
+        assert "global_stats: dict" not in source, "Should not have old global_stats pattern"
 
 
 class TestRaceTransforms:

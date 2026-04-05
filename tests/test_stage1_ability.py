@@ -117,6 +117,15 @@ class TestAbilityModelFeatures:
         assert "field_size" in AbilityModel.FEATURE_COLS
 
 
+class TestAbilityModelTrainSplit:
+    def test_stage1_no_random_permutation_in_train(self) -> None:
+        """Stage1AbilityModel.train() が random permutation を使わないことを確認"""
+        import inspect
+
+        source = inspect.getsource(AbilityModel.train)
+        assert "permutation" not in source, "Still using random permutation in train()!"
+
+
 class TestAbilityModelPredict:
     def test_add_ability_probs_returns_probs(
         self,

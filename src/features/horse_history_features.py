@@ -102,35 +102,35 @@ FALLBACK_LEVELS: list[tuple[list[str], int]] = [
 ]
 
 
-def _get_group_stats(
-    distance_bin: str,
-    surface: str,
-    baba_cd: str,
-    global_stats: dict[tuple, dict],
+def _lookup_expanding_stats(
+    target_date: np.datetime64,
+    db_val: str,
+    surf_val: str,
+    baba_val: str,
+    expanding_stats: dict[tuple, np.ndarray],
 ) -> tuple[float, float]:
-    """階層fallbackで (mean, std) を返す。
+    """expanding_stats から target_date 以前の最新の mean/std を取得。
 
-    FALLBACK_LEVELS を上から順に試し、global_stats に key が存在し
-    n >= min_n を満たす最初のレベルの統計量を返す。
-    最終的に ("all",) キーの統計量にfallbackする。
+    Returns (mean, std). 見つからない場合は (nan, nan).
     """
-    values: dict[str, str] = {
-        "distance_bin": distance_bin,
-        "surface": surface,
-        "baba_cd": baba_cd,
-    }
+    for cols, _min_n in FALLBACK_LEVELS:
+        if cols:
+            col_map = {"distance_bin": db_val, "surface": surf_val, "baba_cd": baba_val}
+            key = tuple(col_map[c] for c in cols)
+        else:
+            key = ("all",)
 
-    for cols, min_n in FALLBACK_LEVELS:
-        key = tuple(values[c] for c in cols) if cols else ("all",)
-        if key in global_stats and global_stats[key].get("n", 0) >= min_n:
-            stats = global_stats[key]
-            return float(stats["mean"]), float(stats["std"])
+        arr = expanding_stats.get(key)
+        if arr is None or len(arr) == 0:
+            continue
 
-    # final fallback
-    fallback = global_stats.get(("all",))
-    if fallback is None:
-        return float("nan"), float("nan")
-    return float(fallback["mean"]), float(fallback["std"])
+        dates = arr[:, 0].astype("datetime64[ns]")
+        # searchsorted for target_date: find last index where date < target_date
+        idx = dates.searchsorted(target_date, side="left")
+        if idx > 0:
+            return float(arr[idx - 1, 1]), float(arr[idx - 1, 2])
+
+    return float("nan"), float("nan")
 
 
 # ---------------------------------------------------------------------------
@@ -347,51 +347,72 @@ class HorseHistoryFeatures:
         _has_baba_cd = "baba_cd" in _sample_arrs
 
         # -------------------------------------------------------------------
-        # Pre-compute global stats for harontimel3 z-score hierarchical fallback
-        # Stats are computed from ALL past data (not just per-horse)
+        # Pre-compute EXPANDING stats for harontimel3 z-score (time-series, no leak)
+        # Key: group_tuple -> np.array of (race_date, cumulative_mean, cumulative_std)
+        # At query time, searchsorted for the date to get stats BEFORE that date.
         # -------------------------------------------------------------------
-        global_stats: dict[tuple, dict] = {}
+        expanding_stats: dict[tuple, np.ndarray] = {}
         if _has_harontimel3 and _has_distance_bin:
             valid_past_all = past_df_sorted[
                 past_df_sorted["harontimel3"].notna() & past_df_sorted["distance_bin"].notna()
-            ]
+            ].copy()
             if len(valid_past_all) > 0:
-                ht_all = valid_past_all["harontimel3"].values
-                # Fill baba_cd / surface defaults for groupby
+                # Fill defaults
                 if _has_surface:
-                    surf_all = valid_past_all["surface"].fillna("").values
+                    valid_past_all["_surf"] = valid_past_all["surface"].fillna("")
                 else:
-                    surf_all = np.full(len(valid_past_all), "")
+                    valid_past_all["_surf"] = ""
                 if _has_baba_cd:
-                    baba_all = valid_past_all["baba_cd"].fillna("").values
+                    valid_past_all["_baba"] = valid_past_all["baba_cd"].fillna("")
                 else:
-                    baba_all = np.full(len(valid_past_all), "")
-                db_all = valid_past_all["distance_bin"].values
+                    valid_past_all["_baba"] = ""
+                valid_past_all["_db"] = valid_past_all["distance_bin"]
+                valid_past_all["_ht"] = valid_past_all["harontimel3"].astype(float)
+                valid_past_all["_rd"] = valid_past_all["race_date"]
 
+                # Sort by race_date (should already be, but ensure)
+                valid_past_all = valid_past_all.sort_values("_rd").reset_index(drop=True)
+
+                # Compute expanding stats per FALLBACK_LEVELS group
                 for cols, min_n in FALLBACK_LEVELS:
                     if cols:
-                        grp_df = pd.DataFrame(
-                            {"ht": ht_all, "db": db_all, "surf": surf_all, "baba": baba_all}
-                        )
-                        col_map = {"distance_bin": "db", "surface": "surf", "baba_cd": "baba"}
+                        col_map = {"distance_bin": "_db", "surface": "_surf", "baba_cd": "_baba"}
                         group_cols = [col_map[c] for c in cols]
-                        grouped = grp_df.groupby(group_cols)["ht"].agg(["mean", "std", "count"])
-                        for key, row in grouped.iterrows():
+                        grouped = valid_past_all.groupby(group_cols)
+                        for key, grp_df in grouped:
                             if not isinstance(key, tuple):
                                 key = (key,)
-                            if row["count"] >= min_n:
-                                global_stats[key] = {
-                                    "mean": row["mean"],
-                                    "std": row["std"] if pd.notna(row["std"]) else 0.0,
-                                    "n": int(row["count"]),
-                                }
-                # Global fallback (L4)
-                global_std = float(ht_all.std())
-                global_stats[("all",)] = {
-                    "mean": float(ht_all.mean()),
-                    "std": global_std if pd.notna(global_std) else 0.0,
-                    "n": len(ht_all),
-                }
+                            if len(grp_df) < min_n:
+                                continue
+                            ht_vals = grp_df["_ht"].values
+                            dates_vals = grp_df["_rd"].values
+                            # Expanding mean/std: cumulative from start
+                            cum_count = np.arange(1, len(ht_vals) + 1)
+                            cum_mean = np.cumsum(ht_vals) / cum_count
+                            # Expanding std via online algorithm
+                            cum_x2 = np.cumsum(ht_vals**2) / cum_count
+                            cum_var = cum_x2 - cum_mean**2
+                            # Bessel's correction: multiply by n/(n-1)
+                            cum_var[1:] = cum_var[1:] * cum_count[1:] / (cum_count[1:] - 1)
+                            cum_var[0] = 0.0
+                            cum_std = np.sqrt(np.maximum(cum_var, 0.0))
+                            # Store: [(date, mean, std), ...] sorted by date
+                            arr = np.column_stack([dates_vals.astype(float), cum_mean, cum_std])
+                            expanding_stats[key] = arr
+
+                # Global fallback (L4): expanding stats over ALL data
+                ht_all_vals = valid_past_all["_ht"].values
+                dates_all_vals = valid_past_all["_rd"].values
+                if len(ht_all_vals) > 0:
+                    cum_count = np.arange(1, len(ht_all_vals) + 1)
+                    cum_mean = np.cumsum(ht_all_vals) / cum_count
+                    cum_x2 = np.cumsum(ht_all_vals**2) / cum_count
+                    cum_var = cum_x2 - cum_mean**2
+                    cum_var[1:] = cum_var[1:] * cum_count[1:] / (cum_count[1:] - 1)
+                    cum_var[0] = 0.0
+                    cum_std = np.sqrt(np.maximum(cum_var, 0.0))
+                    arr = np.column_stack([dates_all_vals.astype(float), cum_mean, cum_std])
+                    expanding_stats[("all",)] = arr
 
         total = len(horses)
         results: list[dict] = []
@@ -448,8 +469,8 @@ class HorseHistoryFeatures:
             else:
                 harontimel3_avg = float("nan")
 
-            # harontimel3_zscore — global hierarchical fallback z-score
-            if _has_harontimel3 and _has_distance_bin and n_past > 0 and global_stats:
+            # harontimel3_zscore — expanding hierarchical fallback z-score (no leak)
+            if _has_harontimel3 and _has_distance_bin and n_past > 0 and expanding_stats:
                 ht_raw = horse_arrs["harontimel3"][valid_mask][start:idx].astype(float)
                 db_raw = horse_arrs["distance_bin"][valid_mask][start:idx]
                 surf_raw = horse_arrs.get("surface", np.array([], dtype=object))
@@ -469,14 +490,22 @@ class HorseHistoryFeatures:
                     db_v = db_raw[valid_ht_db]
                     surf_v = surf_raw[valid_ht_db]
                     baba_v = baba_raw[valid_ht_db]
-                    # Compute z-scores using global stats with hierarchical fallback
+                    # Get dates for each past race
+                    dates_v = horse_arrs["race_date"][valid_mask][start:idx][valid_ht_db]
+                    dates_v = dates_v.astype("datetime64[ns]")
+
                     zscores: list[float] = []
-                    for ht_val, db_val, surf_val, baba_val in zip(ht_v, db_v, surf_v, baba_v):
-                        mean, std = _get_group_stats(
-                            str(db_val), str(surf_val), str(baba_val), global_stats
+                    for j in range(len(ht_v)):
+                        target_np = dates_v[j]
+                        mean, std = _lookup_expanding_stats(
+                            target_np,
+                            str(db_v[j]),
+                            str(surf_v[j]),
+                            str(baba_v[j]),
+                            expanding_stats,
                         )
                         if std > 0:
-                            zscores.append(float((ht_val - mean) / std))
+                            zscores.append(float((ht_v[j] - mean) / std))
                         else:
                             zscores.append(float("nan"))
                     if zscores:

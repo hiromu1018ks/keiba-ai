@@ -2,7 +2,35 @@
   "permissions": {
     "allow": [
       "Bash(git:*)",
-      "Bash(wc:*)"
+      "Bash(wc:*)",
+      "mcp__plugin_playwright_playwright__browser_navigate",
+      "Bash(echo \"exit: $?\")",
+      "Read(//c/Users/hirom/.local/share/mise/installs/**)",
+      "Bash(mise which:*)",
+      "Bash(\"/c/Users/hirom/.local/share/mise/installs/python/3.11.15/python.exe\" --version)",
+      "Bash(\"/c/Users/hirom/AppData/Local/mise/shims/python\" --version)",
+      "mcp__plugin_playwright_playwright__browser_run_code",
+      "mcp__plugin_playwright_playwright__browser_close",
+      "Bash(pip install:*)",
+      "Bash(playwright install:*)",
+      "Bash(python -m pip install -e \".[scraping]\")",
+      "Bash(mise current:*)",
+      "Bash(mise exec:*)",
+      "Bash(ls ~/.local/share/mise/installs/python/3.11*/bin/python*)",
+      "Bash(ls /c/Users/hirom/.local/share/mise/installs/python/*/bin/python*)",
+      "Bash(mise where:*)",
+      "Bash(export PATH=\"/c/Users/hirom/AppData/Local/mise/installs/python/3.11.15:/c/Users/hirom/AppData/Local/mise/installs/python/3.11.15/Scripts:$PATH\")",
+      "Bash(pip --version)",
+      "Bash(python -m playwright install chromium)",
+      "Bash(ruff check:*)",
+      "Bash(ruff format:*)",
+      "Bash(python scripts/scrape_everydb2_manual.py --help)",
+      "Bash(python -m pytest tests/ --co -q)",
+      "Bash(python scripts/scrape_everydb2_manual.py --formats --outdir docs/everydb2 --pages 03 --delay 0)",
+      "Bash(python scripts/scrape_everydb2_manual.py --pages 03 --outdir docs/everydb2 --delay 0)",
+      "Bash(python scripts/scrape_everydb2_manual.py --all --outdir docs/everydb2 --delay 0)",
+      "Bash(python scripts/scrape_everydb2_manual.py --codes --outdir docs/everydb2 --delay 0)",
+      "Bash(ls docs/everydb2/*.md)"
     ]
   },
   "outputStyle": "Explanatory"

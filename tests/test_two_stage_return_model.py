@@ -276,3 +276,27 @@ class TestTrainValidSplit:
         valid_idx = mock_ds.call_args_list[1][0][0].index
 
         assert len(set(train_idx) & set(valid_idx)) == 0
+
+    def test_train_valid_split_is_chronological(self) -> None:
+        """_train_valid_split が時系列順で前80%/後20%に分割することを確認"""
+        # 10行のデータ、明確なラベルで時系列順を確認
+        features = pd.DataFrame({"f1": np.arange(10, dtype=float)})
+        label = pd.Series(np.arange(10, dtype=float))  # 0,1,...,9
+
+        train_data, valid_data = _train_valid_split(features, label, valid_ratio=0.2)
+
+        # train は前8行 (label 0-7)、valid は後2行 (label 8-9)
+        assert len(train_data.get_label()) == 8
+        assert len(valid_data.get_label()) == 2
+        train_labels = sorted(train_data.get_label())
+        assert train_labels == [0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0]
+        valid_labels = sorted(valid_data.get_label())
+        assert valid_labels == [8.0, 9.0]
+
+    def test_train_valid_split_no_random_permutation(self) -> None:
+        """_train_valid_split が np.random.permutation を使わないことを確認"""
+        import inspect
+
+        source = inspect.getsource(_train_valid_split)
+        assert "permutation" not in source, "Still using random permutation!"
+        assert "RandomState" not in source, "Still using RandomState!"

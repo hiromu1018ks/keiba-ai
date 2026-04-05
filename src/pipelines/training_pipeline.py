@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING
 
 import joblib
 import mlflow
+import numpy as np
 import pandas as pd
 
 from db.parquet_store import ParquetStore
@@ -163,12 +164,24 @@ class TrainingPipelineV5:
                 except (ValueError, TypeError):
                     pass
 
+        # 4b. Market Model の出力を feat_df にも反映
+        # (サブモデル学習で market model が作成した予測誤差を feat_df にマージ)
+        for surface, sub in models.items():
+            mask = feat_df["surface"] == surface
+            if mask.any():
+                result_df = sub.market.predict_and_calc_error(feat_df.loc[mask].copy())
+                # 新規列のみ feat_df に反映 (列数不一致を避ける)
+                new_cols = [c for c in result_df.columns if c not in feat_df.columns]
+                for c in new_cols:
+                    feat_df[c] = np.nan
+                feat_df.loc[mask, new_cols] = result_df[new_cols].values
+
         # 5. レースレベル特徴量を構築
         required_cols = ["signed_log_error_win", "abs_log_error_win"]
         missing = [c for c in required_cols if c not in feat_df.columns]
         if missing:
             logger.warning(
-                "Market model columns missing: %s — skipping race-level features", missing
+                "Market model columns missing: %s — filling with 0.0", missing
             )
             for c in missing:
                 feat_df[c] = 0.0
@@ -619,6 +632,7 @@ class TrainingPipelineV5:
             "train_start": train_start,
             "train_end": train_end,
             "surfaces": list(models.keys()),
+            "quality_threshold": quality_screen.threshold,
             "saved_at": pd.Timestamp.now().isoformat(),
         }
         with open(models_dir / "meta.json", "w", encoding="utf-8") as f:
