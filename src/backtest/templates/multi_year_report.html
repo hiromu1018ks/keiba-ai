@@ -68,11 +68,11 @@
 
     <!-- タブバー -->
     <div class="tab-bar">
-        <button class="tab-btn active" onclick="switchTab('overview')">全体サマリー</button>
+        <button class="tab-btn active" onclick="switchTab('overview', this)">全体サマリー</button>
         {% for year in years %}
-        <button class="tab-btn" onclick="switchTab('year-{{ year }}')">{{ year }}年</button>
+        <button class="tab-btn" onclick="switchTab('year-{{ year }}', this)">{{ year }}年</button>
         {% endfor %}
-        <button class="tab-btn" onclick="switchTab('bets')">ベット明細</button>
+        <button class="tab-btn" onclick="switchTab('bets', this)">ベット明細</button>
     </div>
 
     <!-- ===== タブ: 全体サマリー ===== -->
@@ -128,7 +128,6 @@
             <h2>年度別チャート</h2>
             <div class="charts-row">
                 <div class="chart-container"><canvas id="yearly-roi-chart"></canvas></div>
-                <div class="chart-container"><canvas id="yearly-bankroll-chart"></canvas></div>
             </div>
         </div>
     </div>
@@ -277,11 +276,11 @@
 
 <script>
 // --- タブ切り替え ---
-function switchTab(tabId) {
-    document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
-    document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
+function switchTab(tabId, el) {
+    document.querySelectorAll('.tab-content').forEach(e => e.classList.remove('active'));
+    document.querySelectorAll('.tab-btn').forEach(e => e.classList.remove('active'));
     document.getElementById('tab-' + tabId).classList.add('active');
-    event.target.classList.add('active');
+    el.classList.add('active');
 }
 
 // --- コード変換マップ ---
