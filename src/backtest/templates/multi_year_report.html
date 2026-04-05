@@ -101,8 +101,8 @@
             <table style="width:100%;">
                 <thead>
                     <tr>
-                        <th>年度</th><th>学習期間</th><th>ベット数</th><th>投資額</th>
-                        <th>払戻額</th><th>利益</th><th>ROI</th><th>最大DD</th>
+                        <th>年度</th><th>学習期間</th><th>ベット数</th><th>的中数</th><th>的中率</th>
+                        <th>投資額</th><th>払戻額</th><th>利益</th><th>ROI</th><th>最大DD</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -112,6 +112,8 @@
                         <td>{{ year }}</td>
                         <td style="font-size:12px;">{{ s.train_period }}</td>
                         <td>{{ s.total_bets }}</td>
+                        <td>{{ s.total_wins }}</td>
+                        <td>{{ "%.1f%%" | format(s.win_rate * 100) }}</td>
                         <td>&yen;{{ s.total_stake | format_number }}</td>
                         <td>&yen;{{ s.total_return | format_number }}</td>
                         <td style="color:{{ '#16a34a' if s.profit >= 0 else '#dc2626' }}">
@@ -178,15 +180,39 @@
             {% if yd.monthly_stats %}
             <table style="width:100%;margin-top:10px;">
                 <thead>
-                    <tr><th>月</th><th>ベット数</th><th>的中</th><th>投資額</th><th>払戻額</th><th>ROI</th></tr>
+                    <tr><th>月</th><th>ベット数</th><th>的中</th><th>的中率</th><th>投資額</th><th>払戻額</th><th>ROI</th></tr>
                 </thead>
                 <tbody>
                 {% for m in yd.monthly_stats %}
                     <tr class="{{ 'heatmap-positive' if m.roi >= 1 else 'heatmap-negative' }}">
                         <td>{{ m.month }}</td><td>{{ m.bets }}</td><td>{{ m.wins }}</td>
+                        <td>{{ "%.1f%%" | format(m.win_rate * 100) }}</td>
                         <td>&yen;{{ m.stake | format_number }}</td>
                         <td>&yen;{{ m.total_return | format_number }}</td>
                         <td>{{ "%.1f%%" | format(m.roi * 100) }}</td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <p class="no-data">データなし</p>
+            {% endif %}
+        </div>
+        <div class="section">
+            <h2>日次統計</h2>
+            {% if yd.daily_stats %}
+            <table style="width:100%;margin-top:10px;">
+                <thead>
+                    <tr><th>日付</th><th>ベット数</th><th>的中</th><th>的中率</th><th>投資額</th><th>払戻額</th><th>ROI</th></tr>
+                </thead>
+                <tbody>
+                {% for d in yd.daily_stats %}
+                    <tr class="{{ 'heatmap-positive' if d.roi >= 1 else 'heatmap-negative' }}">
+                        <td>{{ d.date }}</td><td>{{ d.bets }}</td><td>{{ d.wins }}</td>
+                        <td>{{ "%.1f%%" | format(d.win_rate * 100) }}</td>
+                        <td>&yen;{{ d.stake | format_number }}</td>
+                        <td>&yen;{{ d.total_return | format_number }}</td>
+                        <td>{{ "%.1f%%" | format(d.roi * 100) }}</td>
                     </tr>
                 {% endfor %}
                 </tbody>
