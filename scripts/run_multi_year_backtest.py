@@ -52,7 +52,7 @@ def main() -> None:
     all_metadata: dict[int, dict[str, str]] = {}
 
     for test_year in args.years:
-        train_start = f"{test_year - 3}-01-01"
+        train_start = f"{test_year - 5}-01-01"
         train_end = f"{test_year - 1}-12-31"
         test_start = f"{test_year}-01-01"
         test_end = f"{test_year}-12-31"
