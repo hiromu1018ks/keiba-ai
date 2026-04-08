@@ -19,6 +19,11 @@ from typing import Any
 
 warnings.filterwarnings("ignore")
 
+# Windows cp932 環境で ¥ が表示できない問題を回避
+if sys.platform == "win32":
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 sys.path.insert(0, os.path.join(ROOT, "src"))
