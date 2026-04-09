@@ -46,36 +46,43 @@ PostgreSQL (EveryDB2) が `localhost:5432` で稼働している前提です。
 export PGPASSWORD=<your_password>
 
 # Step 1: ETL — EveryDB2のデータをParquetにエクスポート
-python scripts/run_etl.py --start 20140101 --end 20231231
+python scripts/run_etl.py --mode full --start 20140101 --end 20251231
 
-# Step 2: 学習 — 特徴量生成 + LightGBMモデルの学習
-python scripts/run_train.py --start 20200101 --end 20231231
+# Step 2: 学習 — 特徴量生成 + LightGBMモデルの学習（4年ウィンドウ推奨）
+python scripts/run_train.py --start 20220101 --end 20251231
 
 # Step 3: バックテスト — 学習+テスト期間の投資シミュレーション
 python scripts/run_backtest.py \
-  --train-start 20200101 --train-end 20231231 \
-  --test-start 20240101 --test-end 20241231
+  --train-start 20220101 --train-end 20251231 \
+  --test-start 20260101 --test-end 20261231
 ```
 
 ### スクリプト一覧
 
 | スクリプト | 役割 | 所要時間 |
 |-----------|------|---------|
-| `scripts/run_etl.py` | PostgreSQL (EveryDB2) → Parquetファイル群へのETL | ~5分 |
-| `scripts/run_train.py` | HorseHistoryFeatures生成 + LightGBM Ranker + 補正モデル学習 | ~68分 |
-| `scripts/run_backtest.py` | 学習 → テスト期間でレース毎にシミュレーション → ROI計算 | ~80分 |
+| `scripts/run_etl.py` | PostgreSQL (EveryDB2) → Parquetファイル群へのETL | ~10分 (full) |
+| `scripts/run_train.py` | HorseHistoryFeatures生成 + LightGBM Ranker + 補正モデル学習 | ~17分 |
+| `scripts/run_backtest.py` | 学習 → テスト期間でレース毎にシミュレーション → ROI計算 | ~57分 |
+| `scripts/run_paper_trading.py` | リアルタイム予測・結果照合（setup/predict/reconcile/dry-run） | ~25秒/日 |
+| `scripts/run_multi_year_backtest.py` | 複数年度・複数学習期間での一括バックテスト | ~3時間 |
 
-### バックテスト結果（2020-2023学習 / 2024テスト）
+### バックテスト結果（学習期間比較: 2023-2025テスト）
 
-| 項目 | 値 |
-|------|------|
-| テストベット数 | 2,967 |
-| 投資額 | 296,700 円 |
-| 払戻額 | 196,780 円 |
-| ROI | 66.3% |
-| 最大ドローダウン | 99.9% |
+| 指標 | 3年学習 | **4年学習 (推奨)** | 5年学習 |
+|------|---------|-------------------|---------|
+| 全体ROI | 113.6% | **123.2%** | 121.7% |
+| 総利益 | +¥259,590 | **+¥436,700** | +¥412,450 |
 
-> 現状は固定100円ベットの簡易戦略であり、ROIは市場を上回れていません。改善の余地があります。
+年度別ROI:
+
+| テスト年 | 3年 | **4年** | 5年 |
+|----------|-----|---------|-----|
+| 2023 | 97.3% (赤字) | **112.0%** | 117.4% |
+| 2024 | 112.1% | **127.8%** | 131.1% |
+| 2025 | 132.5% | **130.3%** | 117.2% |
+
+> **4年学習が最適**: 全年度黒字でROI最高。3年はデータ不足で不安定、5年は古いデータがノイズになる。
 
 ## Paper Trading（ペーパートレード）
 
@@ -215,65 +222,109 @@ ORDER BY year, monthday, jyocd, kaiji, nichiji, racenum, umaban, happyotime DESC
 **その他の修正:**
 - `_connect()` に `set_client_encoding("UTF8")` を追加し、Windows環境での日本語文字化けを解消
 
-### 理想的な運用ワークフロー
+### 週末予想ワークフロー（推奨）
 
-#### 週次: モデル再学習 (日曜夜)
+学習期間の多年度バックテスト (2023-2025テスト) の結果に基づく、**4年学習**をベースとした運用手順です。
 
-競馬データは非定常（市場構造・馬の状態が時期によって変化）のため、定期的に再学習してモデルを鮮度に保つ。
+#### 学習期間の設計指針
+
+```
+予想対象年の前年から4年遡る:
+
+  2026年の予想 → 学習: 2022-01-01 ~ 2025-12-31 (4年)
+  2027年の予想 → 学習: 2023-01-01 ~ 2026-12-31 (4年)
+```
+
+- **学習データは完結した年次を使用** (2026年の予想なら2025年末まで)
+- **特徴量は最新**: 予測時に HorseHistoryFeatures 等が Parquet 全期間データから直近成績を計算するため、学習終了日より後のデータも特徴量として反映される
+- **月1回の再学習で十分**: LightGBM は4年分のデータでロバスト。週次再学習は不要
+
+#### Phase 0: 初回セットアップ (初回のみ)
 
 ```bash
-# 1. ETL delta — 前週のレース結果をParquetに追加
-python scripts/run_etl.py --start <先週木曜> --end <今週日曜>
+export PGPASSWORD=<your_password>
 
-# 2. 学習 — 直近日までのデータで再学習 (約17分)
-python scripts/run_train.py --start 2020-01-01 --end <今週日曜>
+# 全量ETL (初回のみ。以降はdeltaで更新)
+python scripts/run_etl.py --mode full --start 20140101 --end 20251231
+
+# 4年ウィンドウで学習 (約17分)
+python scripts/run_train.py --start 20220101 --end 20251231 --experiment keiba-v5
 ```
 
-- **学習期間**: 2020-01-01 〜 直近の日曜日（5年+のデータ）
-- **頻度**: 週1回。日より頻度を上げるのは過学習リスクがあり非推奨
-- **理由**: 遅いオッズの市場構造・新種牡馬の産駒デビュー等の変化に追従するため
-
-#### 当日: 予測 (発走5分前)
-
-**発走5分前**に predict を実行するのが最適。遅いオッズ（プロの情報が反映された締め切り直前のオッズ）を捕捉するため。
-
-```
-例: 阪神9R 14:15発走 の場合
-
-  14:10  predict 実行 (データ取得5秒 + 特徴量生成20秒 ≈ 25秒で完了)
-  14:10  予測結果をコンソール/Slackに表示
-  14:15  レース発走
-  18:30  reconcile 実行 (結果照合)
-```
-
-**なぜ5分前か:**
-
-| タイミング | オッズ情報量 | リスク |
-|-----------|------------|------|
-| 30分前 | 低い（一般層の賭けのみ） | 精度低下 |
-| **5分前** | **高い（遅いオッズ反映済み）** | **最適** |
-| 1分前 | 最高（ほぼ確定） | パイプライン遅延リスク |
-
-- JRAは前レース発走時に当該レースの投票が締め切られるため、5分前にはオッズがほぼ安定している
-- オッズ動態特徴量 (`odds_drop_rate`, `odds_velocity`) は前日〜直前までの時系列が必要
-- パイプラインは約25秒で完了するため、5分の余裕で安全
+#### Phase 1: データ更新 (予想のたびに)
 
 ```bash
-# 当日の予測 (PowerShell)
-$env:PGPASSWORD = "xxx"
-python scripts/run_paper_trading.py --mode predict --date 2026-04-04
+# delta ETL — 前回以降のレース結果・オッズをParquetに反映
+python scripts/run_etl.py --mode delta
+```
 
-# 当日の結果照合 (レース終了後)
-python scripts/run_paper_trading.py --mode reconcile --date 2026-04-04
+delta ETLは差分のみ更新するため高速です。これにより HorseHistoryFeatures 等の特徴量計算に直近のレース結果が反映されます。
+
+#### Phase 2: 週末予想
+
+```bash
+# Setup — 当日のレース一覧・出走馬を確認
+python scripts/run_paper_trading.py --mode setup --date 2026-04-11
+python scripts/run_paper_trading.py --mode setup --date 2026-04-12
+
+# Predict — 発走5分前に実行 (データ取得+特徴量生成+推論 ≈ 25秒)
+python scripts/run_paper_trading.py --mode predict --date 2026-04-11
+python scripts/run_paper_trading.py --mode predict --date 2026-04-12
+```
+
+**発走5分前**が最適なタイミング。JRAは前レース発走時に当該レースの投票が締め切られるため、5分前にはオッズがほぼ安定しています。
+
+#### Phase 3: レース後の照合
+
+```bash
+# Reconcile — 全レース確定後に実行
+python scripts/run_paper_trading.py --mode reconcile --date 2026-04-11
+python scripts/run_paper_trading.py --mode reconcile --date 2026-04-12
+```
+
+#### Phase R: 再学習 (月1回 or トリガーベース)
+
+再学習は以下のいずれかのタイミングで実施します:
+
+| トリガー | 例 | 理由 |
+|----------|-----|------|
+| 月1回の定期 | 毎月1回 | 新しい月のデータを学習に反映 |
+| 累積ROI低下 | 直近4週ROI < 100% | モデルの劣化兆候 |
+| 大規模レース後 | GI週の後 | 新しいパターンの学習 |
+
+```bash
+# 再学習 (学習期間は毎年初めにスライド)
+python scripts/run_train.py --start 20220101 --end 20251231 --experiment keiba-v5
+```
+
+> 学習期間の更新は年末年始の中山GIシリーズ終了後が自然です。2027年の予想からは `--start 20230101 --end 20261231` にスライドします。
+
+#### 週次ワークフローの全体像
+
+```
+月例再学習が必要か確認
+  │
+  ├─ YES → run_train.py (4年ウィンドウで学習、約17分)
+  │
+  └─ NO ↓
+      │
+delta ETL (直近データをParquetに反映)
+      │
+setup → レース一覧確認
+      │
+predict → 発走5分前にベット生成 (各レース25秒)
+      │
+レース終了後 → reconcile → 結果記録・HTMLレポート更新
 ```
 
 #### 自動化イメージ (cron)
 
 ```
-日曜 22:00  ETL delta + 学習 (週次)
-毎日 09:00  ETL delta (当日分の登録馬・馬体重を更新)
-毎日 発走5分前  predict (watch モードで自動化予定)
-毎日 19:00  reconcile (全レース確定後)
+月1回 日曜 22:00  run_train.py (再学習判定あり)
+毎週 金曜 22:00   run_etl.py --mode delta
+毎日 09:00        run_etl.py --mode delta (当日分の登録馬・馬体重を更新)
+毎日 発走5分前    run_paper_trading.py --mode predict
+毎日 19:00        run_paper_trading.py --mode reconcile
 ```
 
 ### 追加ファイル一覧
@@ -320,12 +371,12 @@ python scripts/run_paper_trading.py --mode reconcile --date 2026-04-04
 
 ## 期待できる成果とリスク
 
-| 項目 | 目標 | 現状 |
-|------|------|------|
-| 回収率 | **101%以上**（100円賭けて平均101円以上の払戻し） | 66.3% |
-| 最大ドローダウン | **16%以内** | 99.9% |
+| 項目 | 目標 | 現状 (4年学習) |
+|------|------|---------------|
+| 回収率 | **101%以上**（100円賭けて平均101円以上の払戻し） | 123.2% |
+| 年度別ROI | 全年度黒字 | 2023: 112%, 2024: 128%, 2025: 130% |
 
-> **注意:** 過去のデータでの検証結果は、将来の成績を保証するものではありません。競馬は不確実性の高いギャンブルであり、本システムを使用して生じた損失について、開発者は一切の責任を負いません。
+> **注意:** バックテストの良好な結果は将来の成績を保証するものではありません。競馬は不確実性の高いギャンブルであり、本システムを使用して生じた損失について、開発者は一切の責任を負いません。
 
 ## 免責事項
 

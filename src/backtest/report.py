@@ -247,6 +247,37 @@ class BacktestReportGenerator:
             "ev_bands": ev_bands,
         }
 
+    def _compute_daily_stats(self, bets: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """日次集計: 的中率, 回収率, ベット数, 投資額, 払戻額"""
+        if not bets:
+            return []
+        daily: dict[str, dict[str, float]] = defaultdict(
+            lambda: {"bets": 0, "wins": 0, "stake": 0.0, "total_return": 0.0}
+        )
+        for b in bets:
+            day = b["race_date"][:10]  # "YYYY-MM-DD"
+            daily[day]["bets"] += 1
+            daily[day]["stake"] += b["stake"]
+            if b["result"] > 0:
+                daily[day]["wins"] += 1
+                daily[day]["total_return"] += b["result"]
+
+        result = []
+        for day, stats in sorted(daily.items()):
+            bets_count = stats["bets"]
+            result.append(
+                {
+                    "date": day,
+                    "bets": bets_count,
+                    "wins": int(stats["wins"]),
+                    "win_rate": stats["wins"] / bets_count if bets_count > 0 else 0.0,
+                    "stake": stats["stake"],
+                    "total_return": stats["total_return"],
+                    "roi": stats["total_return"] / stats["stake"] if stats["stake"] > 0 else 0.0,
+                }
+            )
+        return result
+
     def _compute_bankroll_series(self, bets: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """日付ごとの資金推移とドローダウンを抽出"""
         if not bets:
@@ -312,6 +343,7 @@ class MultiYearReportGenerator:
                     "test_seconds": int(float(meta.get("test_seconds", "0"))),
                 },
                 "monthly_stats": self._single_gen._compute_monthly_stats(enriched),
+                "daily_stats": self._single_gen._compute_daily_stats(enriched),
                 "condition_stats": self._single_gen._compute_condition_stats(enriched),
                 "bankroll_series": self._single_gen._compute_bankroll_series(enriched),
                 "bet_details": enriched,
