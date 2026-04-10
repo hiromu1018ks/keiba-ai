@@ -62,6 +62,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--start", help="期間開始 (YYYY-MM-DD, diagnose/dry-run用)")
     parser.add_argument("--end", help="期間終了 (YYYY-MM-DD, diagnose/dry-run用)")
     parser.add_argument("--run-id", help="MLflow run ID (省略時は最新)")
+    parser.add_argument(
+        "--ensemble", action="store_true",
+        help="StackedEnsemble (.joblib) モデルをロード",
+    )
     return parser.parse_args()
 
 
@@ -84,13 +88,15 @@ def load_config(args: argparse.Namespace) -> "PaperTradingConfig":
     return config
 
 
-def _load_models(config: "PaperTradingConfig") -> tuple["TrainedModelsV5", object]:
+def _load_models(
+    config: "PaperTradingConfig", *, use_ensemble: bool = False
+) -> tuple["TrainedModelsV5", object]:
     """MLflowから学習済みモデルをロード"""
     from db.model_loader import ModelInfo, ModelLoader
 
     t0 = time.time()
     loader = ModelLoader(tracking_uri=config.mlflow_tracking_uri)
-    models, model_info = loader.load(run_id=config.mlflow_run_id)
+    models, model_info = loader.load(run_id=config.mlflow_run_id, use_ensemble=use_ensemble)
     logger.info(
         "Model loaded: %s (train: %s ~ %s) in %.1fs",
         model_info.mlflow_run_id,
@@ -228,6 +234,7 @@ def _run_predict(
     from features.feature_engine import FeatureEngine
     from features.horse_history_features import HorseHistoryFeatures
     from features.jockey_context_features import JockeyContextFeatures
+    from features.jockey_trainer_combo import JockeyTrainerComboFeatures
     from features.trainer_context_features import TrainerContextFeatures
     from models.submodel_manager import SubModelManager
 
@@ -257,6 +264,7 @@ def _run_predict(
     hist_all = HorseHistoryFeatures(store=store).compute(race_df, entry_df, race_ids)
     jockey_all = JockeyContextFeatures(store).compute(entry_df)
     trainer_all = TrainerContextFeatures(store).compute(entry_df)
+    jt_all = JockeyTrainerComboFeatures(store).compute(entry_df)
     blood_all = BloodlineFeatures(store=store).compute(entry_df)
 
     # 血統特徴量を feat_df にマージ
@@ -277,8 +285,9 @@ def _run_predict(
         hist_race = hist_all[hist_all["race_id"] == race_id]
         jockey_race = jockey_all[jockey_all["race_id"] == race_id]
         trainer_race = trainer_all[trainer_all["race_id"] == race_id]
+        jt_race = jt_all[jt_all["race_id"] == race_id]
 
-        result_df = race_predictor.predict(single_race, hist_race, jockey_race, trainer_race)
+        result_df = race_predictor.predict(single_race, hist_race, jockey_race, trainer_race, jt_combo_features=jt_race)
         if result_df.empty:
             continue
 
@@ -451,6 +460,7 @@ def _run_diagnose(
     from features.feature_engine import FeatureEngine
     from features.horse_history_features import HorseHistoryFeatures
     from features.jockey_context_features import JockeyContextFeatures
+    from features.jockey_trainer_combo import JockeyTrainerComboFeatures
     from features.trainer_context_features import TrainerContextFeatures
     from models.submodel_manager import SubModelManager
 
@@ -478,6 +488,7 @@ def _run_diagnose(
     hist_all = HorseHistoryFeatures(store=store).compute(race_df, entry_df, race_ids)
     jockey_all = JockeyContextFeatures(store).compute(entry_df)
     trainer_all = TrainerContextFeatures(store).compute(entry_df)
+    jt_all = JockeyTrainerComboFeatures(store).compute(entry_df)
 
     # 推論 + 診断ログ
     race_predictor = RacePredictor(models)
@@ -488,8 +499,9 @@ def _run_diagnose(
         hist_race = hist_all[hist_all["race_id"] == race_id]
         jockey_race = jockey_all[jockey_all["race_id"] == race_id]
         trainer_race = trainer_all[trainer_all["race_id"] == race_id]
+        jt_race = jt_all[jt_all["race_id"] == race_id]
 
-        result_df = race_predictor.predict(single_race, hist_race, jockey_race, trainer_race)
+        result_df = race_predictor.predict(single_race, hist_race, jockey_race, trainer_race, jt_combo_features=jt_race)
         if result_df.empty:
             continue
 
@@ -790,6 +802,7 @@ def _run_dry_run(
     from features.feature_engine import FeatureEngine
     from features.horse_history_features import HorseHistoryFeatures
     from features.jockey_context_features import JockeyContextFeatures
+    from features.jockey_trainer_combo import JockeyTrainerComboFeatures
     from features.trainer_context_features import TrainerContextFeatures
     from models.submodel_manager import SubModelManager
 
@@ -842,6 +855,7 @@ def _run_dry_run(
     hist_all = HorseHistoryFeatures(store=store).compute(race_df, entry_df, race_ids)
     jockey_all = JockeyContextFeatures(store).compute(entry_df)
     trainer_all = TrainerContextFeatures(store).compute(entry_df)
+    jt_all = JockeyTrainerComboFeatures(store).compute(entry_df)
     blood_all = BloodlineFeatures(store=store).compute(entry_df)
 
     # 血統特徴量を feat_df にマージ
@@ -873,8 +887,9 @@ def _run_dry_run(
             hist_race = hist_all[hist_all["race_id"] == race_id]
             jockey_race = jockey_all[jockey_all["race_id"] == race_id]
             trainer_race = trainer_all[trainer_all["race_id"] == race_id]
+            jt_race = jt_all[jt_all["race_id"] == race_id]
 
-            result_df = race_predictor.predict(race_df_single, hist_race, jockey_race, trainer_race)
+            result_df = race_predictor.predict(race_df_single, hist_race, jockey_race, trainer_race, jt_combo_features=jt_race)
             if result_df.empty:
                 continue
 
@@ -936,7 +951,7 @@ def main() -> None:
     config = load_config(args)
 
     # --- モデルロード ---
-    models, model_info = _load_models(config)
+    models, model_info = _load_models(config, use_ensemble=args.ensemble)
 
     # --- ParquetStore ---
     from db.parquet_store import ParquetStore
