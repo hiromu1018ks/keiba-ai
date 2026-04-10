@@ -253,10 +253,10 @@ class FeatureEngine:
         if "zogen_sa" in df.columns:
             zogen = df["zogen_sa"].astype(float)
             zone = pd.Series(1, index=df.index)  # default: stable (-4 ~ +4)
-            zone[(zogen >= 4) & (zogen <= 12)] = 2   # golden
-            zone[(zogen >= -14) & (zogen < -4)] = 0   # caution (下側)
-            zone[(zogen > 12) & (zogen <= 14)] = 0    # caution (上側)
-            zone[(zogen < -14) | (zogen > 14)] = -1    # danger
+            zone[(zogen >= 4) & (zogen <= 12)] = 2  # golden
+            zone[(zogen >= -14) & (zogen < -4)] = 0  # caution (下側)
+            zone[(zogen > 12) & (zogen <= 14)] = 0  # caution (上側)
+            zone[(zogen < -14) | (zogen > 14)] = -1  # danger
             df["weight_change_zone"] = zone.astype(float)
         else:
             df["weight_change_zone"] = float("nan")
