@@ -48,6 +48,11 @@ def main() -> None:
         default="flat",
         help="ベット額計算モード (flat=100円固定, kelly=Fractional Kelly)",
     )
+    parser.add_argument(
+        "--ensemble",
+        action="store_true",
+        help="アンサンブル (B1) を有効化",
+    )
     args = parser.parse_args()
 
     train_start = to_dash_date(args.train_start)
@@ -76,7 +81,7 @@ def main() -> None:
 
     pipeline = TrainingPipelineV5(store=store)
     try:
-        models = pipeline.run(train_start, train_end)
+        models = pipeline.run(train_start, train_end, use_ensemble=args.ensemble)
     except KeyboardInterrupt:
         logger.warning("学習が中断されました")
         sys.exit(1)

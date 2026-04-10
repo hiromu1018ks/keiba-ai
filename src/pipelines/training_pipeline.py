@@ -76,16 +76,20 @@ class TrainingPipelineV5:
         """YYYY-MM-DD → YYYYMMDD"""
         return date_str.replace("-", "")
 
-    def run(self, train_start: str, train_end: str) -> TrainedModelsV5:
+    def run(
+        self, train_start: str, train_end: str, *, use_ensemble: bool = False
+    ) -> TrainedModelsV5:
         """全モデルを学習し TrainedModelsV5 を返す
 
         Args:
             train_start: 学習開始日 (YYYY-MM-DD)
             train_end: 学習終了日 (YYYY-MM-DD)
+            use_ensemble: アンサンブル (B1) を有効化
 
         Returns:
             学習済みモデルのコンテナ
         """
+        self.use_ensemble = use_ensemble
         start = self._to_yyyymmdd(train_start)
         end = self._to_yyyymmdd(train_end)
 
@@ -136,14 +140,19 @@ class TrainingPipelineV5:
         if len(surfaces_to_train) == 1:
             # Single surface — no parallelism needed
             surface, subset_df = surfaces_to_train[0]
-            sub = self._train_submodel(subset_df, num_threads=_get_num_threads(1))
+            sub = self._train_submodel(
+                subset_df, num_threads=_get_num_threads(1), use_ensemble=self.use_ensemble
+            )
             models[surface] = sub
             logger.info(f"Trained {surface} submodel")
         elif len(surfaces_to_train) >= 2:
             with ThreadPoolExecutor(max_workers=2) as executor:
                 futures = {
                     executor.submit(
-                        self._train_submodel, subset_df, num_threads=_get_num_threads(2)
+                        self._train_submodel,
+                        subset_df,
+                        num_threads=_get_num_threads(2),
+                        use_ensemble=self.use_ensemble,
                     ): surface
                     for surface, subset_df in surfaces_to_train
                 }
@@ -210,7 +219,9 @@ class TrainingPipelineV5:
             train_period=(train_start, train_end),
         )
 
-    def _train_submodel(self, df: pd.DataFrame, *, num_threads: int = 0) -> SubmodelSet:
+    def _train_submodel(
+        self, df: pd.DataFrame, *, num_threads: int = 0, use_ensemble: bool = False
+    ) -> SubmodelSet:
         """単一 surface のサブモデル群を学習"""
         if num_threads <= 0:
             num_threads = max(1, (os.cpu_count() or 4) // 2)
@@ -271,8 +282,23 @@ class TrainingPipelineV5:
 
         # 3. 単勝 2段階モデル
         win_2s = WinTwoStageModel()
-        with TimingContext(f"{surface}/win_hit"):
-            win_2s.train_hit_model(df_oof, num_threads=num_threads)
+        if use_ensemble:
+            from models.stacked_ensemble import StackedEnsemble
+
+            with TimingContext(f"{surface}/win_hit_ensemble"):
+                features = win_2s._prepare_features(df_oof)
+                y = (df_oof["kakuteijyuni"] == 1).astype(int)
+                split = int(len(features) * 0.8)
+                ensemble = StackedEnsemble(cat_cols=["surface", "distance_bin", "grade_code"])
+                ensemble.train(
+                    features.iloc[:split], y.iloc[:split],
+                    features.iloc[split:], y.iloc[split:],
+                    num_threads=num_threads,
+                )
+                win_2s.hit_model = ensemble
+        else:
+            with TimingContext(f"{surface}/win_hit"):
+                win_2s.train_hit_model(df_oof, num_threads=num_threads)
         with TimingContext(f"{surface}/win_return"):
             win_2s.train_return_model(df_oof, num_threads=num_threads)
         with TimingContext(f"{surface}/win_predict"):
@@ -308,8 +334,25 @@ class TrainingPipelineV5:
 
         # 5. 複勝 2段階モデル
         place_2s = PlaceTwoStageModel()
-        with TimingContext(f"{surface}/place_hit"):
-            place_2s.train_hit_model(df_oof, num_threads=num_threads)
+        if use_ensemble:
+            from models.stacked_ensemble import StackedEnsemble
+
+            with TimingContext(f"{surface}/place_hit_ensemble"):
+                features = place_2s._prepare_features(df_oof)
+                y = (df_oof["kakuteijyuni"] <= 3).astype(int)
+                split = int(len(features) * 0.8)
+                ensemble_place = StackedEnsemble(
+                    cat_cols=["surface", "distance_bin", "grade_code"]
+                )
+                ensemble_place.train(
+                    features.iloc[:split], y.iloc[:split],
+                    features.iloc[split:], y.iloc[split:],
+                    num_threads=num_threads,
+                )
+                place_2s.hit_model = ensemble_place
+        else:
+            with TimingContext(f"{surface}/place_hit"):
+                place_2s.train_hit_model(df_oof, num_threads=num_threads)
         with TimingContext(f"{surface}/place_return"):
             place_2s.train_return_model(df_oof, num_threads=num_threads)
         with TimingContext(f"{surface}/place_predict"):
@@ -348,6 +391,7 @@ class TrainingPipelineV5:
             place=place_2s,
             wide=wide_2s,
             confidence=conf,
+            use_ensemble=use_ensemble,
         )
 
     def _build_race_level_features(self, feat_df: pd.DataFrame) -> pd.DataFrame:

@@ -229,6 +229,7 @@ class SubmodelSet:
     place: PlaceTwoStageModel
     wide: WideTwoStageModel
     confidence: RobustConfidenceEstimator
+    use_ensemble: bool = False
 
 
 @dataclass
