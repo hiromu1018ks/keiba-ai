@@ -18,6 +18,8 @@ from __future__ import annotations
 import math
 from typing import TYPE_CHECKING, Optional
 
+from features.form_cycle_features import compute_form_features
+
 import numpy as np
 import pandas as pd
 
@@ -156,6 +158,10 @@ class HorseHistoryFeatures:
         "weight_zscore",  # A2: 馬個体の体重分布に対する正規化
         "days_since_last_race",  # A3: 前走からの日数
         "rest_category",  # A3: 休養期間カテゴリ (1-5)
+        # B3: フォームサイクル
+        "form_trend",
+        "form_consistency",
+        "form_peak_flag",
     ]
 
     def __init__(self, store: ParquetStore, *, n_past: int = 5) -> None:
@@ -683,6 +689,16 @@ class HorseHistoryFeatures:
             else:
                 weight_zscore = float("nan")
 
+            # B3: フォームサイクル特徴量
+            if n_past >= 2:
+                _fc_kj = horse_arrs["kakuteijyuni"][valid_mask][start:idx].astype(float)
+                _fc_ss = horse_arrs["syussotosu"][valid_mask][start:idx].astype(float)
+                form_trend, form_consistency, form_peak_flag = compute_form_features(_fc_kj, _fc_ss)
+            else:
+                form_trend = float("nan")
+                form_consistency = float("nan")
+                form_peak_flag = float("nan")
+
             results.append(
                 {
                     "race_id": row.race_id,
@@ -701,6 +717,9 @@ class HorseHistoryFeatures:
                     "weight_zscore": weight_zscore,
                     "days_since_last_race": days_since,
                     "rest_category": rest_cat,
+                    "form_trend": form_trend,
+                    "form_consistency": form_consistency,
+                    "form_peak_flag": form_peak_flag,
                 }
             )
 
