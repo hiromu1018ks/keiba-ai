@@ -56,6 +56,10 @@ def _make_train_df(n_races: int = 20, field_size: int = 8):
                     # 休養期間 (2)
                     "days_since_last_race": np.random.uniform(1, 200),
                     "rest_category": float(np.random.choice([1, 2, 3, 4, 5])),
+                    # フォームサイクル (3)
+                    "form_trend": np.random.uniform(-1, 1),
+                    "form_consistency": np.random.uniform(0, 1),
+                    "form_peak_flag": float(np.random.choice([0, 1])),
                     "kakuteijyuni": h + 1,
                     "p_ability_win": 1.0 / field_size,
                 }

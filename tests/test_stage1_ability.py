@@ -76,6 +76,10 @@ def train_df() -> pd.DataFrame:
             # 休養期間 (2)
             "days_since_last_race": rng.uniform(1, 200, 8),
             "rest_category": rng.choice([1.0, 2.0, 3.0, 4.0, 5.0], size=8),
+            # フォームサイクル (3)
+            "form_trend": rng.uniform(-1, 1, 8),
+            "form_consistency": rng.uniform(0, 1, 8),
+            "form_peak_flag": rng.choice([0.0, 1.0], size=8),
             "distance": [1600] * 4 + [1200] * 4,
             "kakuteijyuni": [1, 2, 3, 4, 1, 3, 2, 4],
         }

@@ -220,7 +220,7 @@ class TrainingPipelineV5:
         from features.horse_history_features import HorseHistoryFeatures
 
         with TimingContext(f"{surface}/horse_history"):
-            hist = HorseHistoryFeatures(store=self.store)
+            hist = HorseHistoryFeatures(store=self.store, n_past=5)
             hist_df = hist.compute(self._race_df, self._entry_df, df["race_id"].unique())
             df = df.merge(hist_df, on=["race_id", "umaban"], how="left")
         with TimingContext(f"{surface}/add_race_transforms"):

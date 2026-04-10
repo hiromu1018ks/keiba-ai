@@ -65,6 +65,10 @@ class PlaceAbilityModel:
         # 休養期間 (2)
         "days_since_last_race",
         "rest_category",
+        # フォームサイクル (3) — B3
+        "form_trend",
+        "form_consistency",
+        "form_peak_flag",
         # Stage1 output
         "p_ability_win",
     ]
