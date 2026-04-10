@@ -62,6 +62,9 @@ class PlaceAbilityModel:
         "weight_absolute",
         "weight_zscore",
         "weight_change_zone",
+        # 休養期間 (2)
+        "days_since_last_race",
+        "rest_category",
         # Stage1 output
         "p_ability_win",
     ]

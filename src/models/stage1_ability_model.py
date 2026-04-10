@@ -64,6 +64,9 @@ class AbilityModel:
         "weight_absolute",
         "weight_zscore",
         "weight_change_zone",
+        # 休養期間 (2)
+        "days_since_last_race",
+        "rest_category",
     ]
 
     def __init__(self) -> None:

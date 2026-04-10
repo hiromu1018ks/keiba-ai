@@ -186,6 +186,9 @@ def _make_feature_df(n: int = 8000, n_races: int = 800) -> pd.DataFrame:
                     "weight_absolute": np.random.uniform(400, 550),
                     "weight_zscore": np.random.uniform(-2, 2),
                     "weight_change_zone": float(np.random.choice([-1, 0, 1, 2])),
+                    # 休養期間 (2)
+                    "days_since_last_race": np.random.uniform(1, 200),
+                    "rest_category": float(np.random.choice([1, 2, 3, 4, 5])),
                     "odds_change_rate_30min": np.random.normal(0, 0.1),
                     "odds_volatility_60min": np.random.uniform(0, 0.5),
                     "signed_log_error_win": np.random.normal(0, 0.3),

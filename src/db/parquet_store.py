@@ -67,7 +67,9 @@ class ParquetStore:
                 continue
             series = df[col]
             # 文字列列とdatetime値の比較をサポート
-            if pd.api.types.is_datetime64_any_dtype(val) and not pd.api.types.is_datetime64_any_dtype(series):
+            if pd.api.types.is_datetime64_any_dtype(
+                val
+            ) and not pd.api.types.is_datetime64_any_dtype(series):
                 series = pd.to_datetime(series)
             if op == ">=":
                 mask &= series >= val

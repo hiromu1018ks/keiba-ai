@@ -154,6 +154,8 @@ class HorseHistoryFeatures:
         "jockey_cond_wr",  # existing (will move to Stage2 in Task 9)
         "weight_absolute",  # A2: 馬体重
         "weight_zscore",  # A2: 馬個体の体重分布に対する正規化
+        "days_since_last_race",  # A3: 前走からの日数
+        "rest_category",  # A3: 休養期間カテゴリ (1-5)
     ]
 
     def __init__(self, store: ParquetStore) -> None:
@@ -450,6 +452,31 @@ class HorseHistoryFeatures:
             else:
                 n_past = 0
 
+            # A3: days_since_last_race + rest_category
+            if n_past > 0:
+                last_race_date = horse_arrs["race_date"][valid_mask][idx - 1]
+                if isinstance(last_race_date, np.datetime64):
+                    days_since: float = float(
+                        (np.datetime64(race_date, "ns") - last_race_date.astype("datetime64[ns]"))
+                        / np.timedelta64(1, "D")
+                    )
+                else:
+                    days_since = float("nan")
+                # rest_category (数値エンコード、LightGBM用)
+                if days_since <= 7:
+                    rest_cat: float = 1.0  # consecutive
+                elif days_since <= 30:
+                    rest_cat = 2.0  # short
+                elif days_since <= 90:
+                    rest_cat = 3.0  # medium
+                elif days_since <= 180:
+                    rest_cat = 4.0  # long
+                else:
+                    rest_cat = 5.0  # return
+            else:
+                days_since = float("nan")
+                rest_cat = float("nan")
+
             # norm_finish_logit_avg
             if n_past > 0:
                 logits = _norm_finish_logit_vec(
@@ -670,6 +697,8 @@ class HorseHistoryFeatures:
                     "jockey_cond_wr": jockey_cond_wr,
                     "weight_absolute": weight_absolute,
                     "weight_zscore": weight_zscore,
+                    "days_since_last_race": days_since,
+                    "rest_category": rest_cat,
                 }
             )
 

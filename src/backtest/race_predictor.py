@@ -65,6 +65,7 @@ class RacePredictor:
             df = submodel.market.predict_and_calc_error(df)
         except Exception as e:
             import traceback
+
             logger.error("Market prediction failed: %s\n%s", e, traceback.format_exc())
             return pd.DataFrame()
         df = submodel.stage1.add_ability_probs(df)

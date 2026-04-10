@@ -76,6 +76,7 @@ class RobustConfidenceEstimator:
         if not self._calibrated:
             # 未キャリブレーション時: EVをそのまま下限として使用 (保守的)
             import logging
+
             logging.getLogger(__name__).warning(
                 "RobustConfidenceEstimator not calibrated, using EV as lower bound"
             )

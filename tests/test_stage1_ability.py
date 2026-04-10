@@ -73,6 +73,9 @@ def train_df() -> pd.DataFrame:
             "weight_absolute": rng.uniform(400, 550, 8),
             "weight_zscore": rng.uniform(-2, 2, 8),
             "weight_change_zone": rng.choice([-1, 0, 1, 2], size=8).astype(float),
+            # 休養期間 (2)
+            "days_since_last_race": rng.uniform(1, 200, 8),
+            "rest_category": rng.choice([1.0, 2.0, 3.0, 4.0, 5.0], size=8),
             "distance": [1600] * 4 + [1200] * 4,
             "kakuteijyuni": [1, 2, 3, 4, 1, 3, 2, 4],
         }

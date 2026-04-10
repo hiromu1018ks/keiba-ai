@@ -326,9 +326,7 @@ class MultiYearReportGenerator:
                 "summary": {
                     "roi": result.total_roi,
                     "win_rate": (
-                        result.winning_bets / result.total_bets
-                        if result.total_bets > 0
-                        else 0.0
+                        result.winning_bets / result.total_bets if result.total_bets > 0 else 0.0
                     ),
                     "profit": result.profit,
                     "max_dd": result.max_drawdown,

@@ -81,10 +81,14 @@ class TestLoadOddsTimeSeries:
         store = MagicMock()
         store.exists.side_effect = lambda cat, name: name in ("time_series", "jodds_tanpuku")
         empty_df = pd.DataFrame()
-        fallback_df = pd.DataFrame({
-            "race_id": ["20260401010101"], "happyotime": ["03241000"],
-            "umaban": [1], "tanodds": [3.0],
-        })
+        fallback_df = pd.DataFrame(
+            {
+                "race_id": ["20260401010101"],
+                "happyotime": ["03241000"],
+                "umaban": [1],
+                "tanodds": [3.0],
+            }
+        )
         store.read.side_effect = [empty_df, fallback_df]
         result = load_odds_time_series(store, "20260401010101")
         assert store.read.call_count == 2
@@ -105,10 +109,14 @@ class TestLoadOddsTimeSeriesRange:
         store = MagicMock()
         store.exists.side_effect = lambda cat, name: name in ("time_series", "jodds_tanpuku")
         empty_df = pd.DataFrame()
-        fallback_df = pd.DataFrame({
-            "race_id": ["20260401010101"], "happyotime": ["03241000"],
-            "umaban": [1], "tanodds": [3.0],
-        })
+        fallback_df = pd.DataFrame(
+            {
+                "race_id": ["20260401010101"],
+                "happyotime": ["03241000"],
+                "umaban": [1],
+                "tanodds": [3.0],
+            }
+        )
         store.read.side_effect = [empty_df, fallback_df]
         result = load_odds_time_series_range(store, "20260401", "20260401")
         assert store.read.call_count == 2
@@ -118,10 +126,14 @@ class TestLoadOddsTimeSeriesRange:
         """time_series にデータがある場合、フォールバックしない。"""
         store = MagicMock()
         store.exists.return_value = True
-        valid_df = pd.DataFrame({
-            "race_id": ["20240701010101"], "happyotime": ["03241000"],
-            "umaban": [1], "tanodds": [5.4],
-        })
+        valid_df = pd.DataFrame(
+            {
+                "race_id": ["20240701010101"],
+                "happyotime": ["03241000"],
+                "umaban": [1],
+                "tanodds": [5.4],
+            }
+        )
         store.read.return_value = valid_df
         result = load_odds_time_series_range(store, "20240701", "20240701")
         assert store.read.call_count == 1

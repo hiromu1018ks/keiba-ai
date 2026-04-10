@@ -148,46 +148,42 @@ class BacktestEngine:
             # --- レースメタデータ抽出 (bet_history拡張用) ---
             race_row = race_df_single.iloc[0]
             race_date_str = (
-                f"{race_id[:4]}-{race_id[4:6]}-{race_id[6:8]}"
-                if len(race_id) >= 8 else ""
+                f"{race_id[:4]}-{race_id[4:6]}-{race_id[6:8]}" if len(race_id) >= 8 else ""
             )
             _jyocd = (
-                str(race_row.get("jyocd", "")).zfill(2)
-                if pd.notna(race_row.get("jyocd")) else ""
+                str(race_row.get("jyocd", "")).zfill(2) if pd.notna(race_row.get("jyocd")) else ""
             )
-            _racenum = (
-                int(race_row.get("racenum", 0))
-                if pd.notna(race_row.get("racenum")) else 0
-            )
+            _racenum = int(race_row.get("racenum", 0)) if pd.notna(race_row.get("racenum")) else 0
             _grade_code = (
                 str(race_row.get("grade_code", "_"))
-                if pd.notna(race_row.get("grade_code")) else "_"
+                if pd.notna(race_row.get("grade_code"))
+                else "_"
             )
-            _race_name = (
-                str(race_row.get("hondai", ""))
-                if pd.notna(race_row.get("hondai")) else ""
-            )
+            _race_name = str(race_row.get("hondai", "")) if pd.notna(race_row.get("hondai")) else ""
             _track_condition = (
                 int(race_row.get("track_condition_code", 0))
-                if pd.notna(race_row.get("track_condition_code")) else 0
+                if pd.notna(race_row.get("track_condition_code"))
+                else 0
             )
 
             # top3_finishers: kakuteijyuni でソートした上位3頭
             _valid = race_df_single[
-                race_df_single["kakuteijyuni"].notna()
-                & (race_df_single["kakuteijyuni"] > 0)
+                race_df_single["kakuteijyuni"].notna() & (race_df_single["kakuteijyuni"] > 0)
             ].nsmallest(3, "kakuteijyuni")
             _top3: list[dict[str, Any]] = []
             for _, r in _valid.iterrows():
-                _top3.append({
-                    "umaban": int(r["umaban"]),
-                    "bamei": str(r.get("bamei", "")) if pd.notna(r.get("bamei")) else "",
-                    "kisyuryakusyo": (
-                        str(r.get("kisyuryakusyo", ""))
-                        if pd.notna(r.get("kisyuryakusyo")) else ""
-                    ),
-                    "kakuteijyuni": int(r["kakuteijyuni"]),
-                })
+                _top3.append(
+                    {
+                        "umaban": int(r["umaban"]),
+                        "bamei": str(r.get("bamei", "")) if pd.notna(r.get("bamei")) else "",
+                        "kisyuryakusyo": (
+                            str(r.get("kisyuryakusyo", ""))
+                            if pd.notna(r.get("kisyuryakusyo"))
+                            else ""
+                        ),
+                        "kakuteijyuni": int(r["kakuteijyuni"]),
+                    }
+                )
 
             # 事前計算済み特徴量をマージ
             hist_df_race = hist_df_all[hist_df_all["race_id"] == race_id]
@@ -319,11 +315,13 @@ class BacktestEngine:
                         "track_condition_code": _track_condition,
                         "p_place_pred": (
                             float(horse_rows.iloc[0].get("p_place_pred", 0))
-                            if not horse_rows.empty else 0.0
+                            if not horse_rows.empty
+                            else 0.0
                         ),
                         "e_return_place_pred": (
                             float(horse_rows.iloc[0].get("e_return_place_pred", 0))
-                            if not horse_rows.empty else 0.0
+                            if not horse_rows.empty
+                            else 0.0
                         ),
                         "top3_finishers": _top3,
                     }

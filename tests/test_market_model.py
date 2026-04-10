@@ -179,7 +179,6 @@ class TestMarketModelTrain:
         # lgb.Dataset が 2回呼ばれる (train + valid)
         assert mock_dataset_cls.call_count == 2
 
-
     @patch("models.market_model.lgb.train")
     @patch("models.market_model.lgb.Dataset")
     def test_train_uses_time_based_split_not_random(

@@ -256,14 +256,14 @@ class TestBetHistoryEnrichment:
                 "odds": [5.0],
                 "bataijyu": [480],
                 # --- 拡張フィールド用の追加列 ---
-                "jyocd": [6],                   # 中山
-                "racenum": [11],                # 11R
-                "grade_code": ["E"],            # 特別
-                "hondai": ["テスト特別"],        # レース名
-                "bamei": ["テスト馬"],           # 馬名
-                "kisyuryakusyo": ["テスト騎手"], # 騎手名
-                "track_condition_code": [1],    # 良
-                "p_place_pred": [0.65],         # 複勝確率予測
+                "jyocd": [6],  # 中山
+                "racenum": [11],  # 11R
+                "grade_code": ["E"],  # 特別
+                "hondai": ["テスト特別"],  # レース名
+                "bamei": ["テスト馬"],  # 馬名
+                "kisyuryakusyo": ["テスト騎手"],  # 騎手名
+                "track_condition_code": [1],  # 良
+                "p_place_pred": [0.65],  # 複勝確率予測
                 "e_return_place_pred": [1.80],  # 期待払戻予測
             }
         )

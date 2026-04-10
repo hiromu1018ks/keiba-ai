@@ -63,8 +63,8 @@ class ModelLoader:
             artifact_uri = mlflow.get_artifact_uri(run_id)
         except Exception:
             # Fallback: ファイルシステムから直接読み込み
-            artifact_uri, train_start, train_end, quality_threshold = (
-                self._resolve_run_from_fs(run_id)
+            artifact_uri, train_start, train_end, quality_threshold = self._resolve_run_from_fs(
+                run_id
             )
 
         surfaces = ["turf", "dirt"]
@@ -89,9 +89,7 @@ class ModelLoader:
 
             # AbilityModel (per-surface booster)
             ability = AbilityModel()
-            ability.models = {
-                surface: self._load_lgbm(f"{artifact_uri}/stage1_{surface}")
-            }
+            ability.models = {surface: self._load_lgbm(f"{artifact_uri}/stage1_{surface}")}
 
             # WinTwoStageModel
             win = WinTwoStageModel()
@@ -100,12 +98,8 @@ class ModelLoader:
 
             # EVCorrectionModel
             ev_corr = EVCorrectionModel()
-            ev_corr.p_correction_model = self._load_lgbm(
-                f"{artifact_uri}/ev_corrector_p_{surface}"
-            )
-            ev_corr.e_correction_model = self._load_lgbm(
-                f"{artifact_uri}/ev_corrector_e_{surface}"
-            )
+            ev_corr.p_correction_model = self._load_lgbm(f"{artifact_uri}/ev_corrector_p_{surface}")
+            ev_corr.e_correction_model = self._load_lgbm(f"{artifact_uri}/ev_corrector_e_{surface}")
 
             # PlaceTwoStageModel
             place = PlaceTwoStageModel()
@@ -273,9 +267,7 @@ class ModelLoader:
             if (params_dir / "train_end").is_file():
                 train_end = (params_dir / "train_end").read_text().strip()
             if (params_dir / "quality_threshold").is_file():
-                quality_threshold = float(
-                    (params_dir / "quality_threshold").read_text().strip()
-                )
+                quality_threshold = float((params_dir / "quality_threshold").read_text().strip())
 
         return str(artifact_uri), train_start, train_end, quality_threshold
 
@@ -332,9 +324,7 @@ class ModelLoader:
 
             # AbilityModel
             ability = AbilityModel()
-            ability.models = {
-                surface: self._load_lgbm(str(models_dir / f"stage1_{surface}.lgb"))
-            }
+            ability.models = {surface: self._load_lgbm(str(models_dir / f"stage1_{surface}.lgb"))}
 
             # WinTwoStageModel
             win = WinTwoStageModel()

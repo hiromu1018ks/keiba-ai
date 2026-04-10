@@ -535,6 +535,434 @@ class TestWeightZscore:
         assert result["weight_zscore"].isna().all()
 
 
+class TestRestPeriodFeatures:
+    """A3: days_since_last_race, rest_category のテスト"""
+
+    def _make_mock_store_with_dates(self) -> MagicMock:
+        """過去出走データに race_date を含むモックストア"""
+        store = MagicMock(spec=ParquetStore)
+        entries_hist = pd.DataFrame(
+            {
+                "race_id": ["p1", "p2", "p3"],
+                "race_date": pd.to_datetime(["2024-01-15", "2024-03-01", "2024-05-10"]),
+                "kettonum": ["K1", "K1", "K1"],
+                "kisyucode": ["J1", "J1", "J1"],
+                "umaban": [1, 1, 1],
+                "kakuteijyuni": [3, 5, 2],
+                "odds": [5.0, 8.0, 3.0],
+                "harontimel3": [35.0, 36.0, 34.5],
+                "distance_bin": ["mile", "mile", "sprint"],
+                "surface": ["turf", "turf", "turf"],
+                "track_condition_code": [1, 2, 1],
+                "timediff": [0.3, -0.2, 0.5],
+                "jyuni1c": [5, 8, 3],
+                "jyuni4c": [4, 6, 2],
+                "kyakusitukubun": [2, 2, 1],
+                "bataijyu": [480.0, 482.0, 484.0],
+            }
+        )
+        races_hist = pd.DataFrame(
+            {
+                "race_id": ["p1", "p2", "p3"],
+                "syussotosu": [10, 12, 8],
+                "race_date": pd.to_datetime(["2024-01-15", "2024-03-01", "2024-05-10"]),
+                "trackcd": [11, 11, 11],
+                "kyori": [1600, 1600, 1200],
+                "surface": ["turf", "turf", "turf"],
+                "track_condition_code": [1, 2, 1],
+            }
+        )
+
+        def mock_read(category, name, **kwargs):
+            if name == "entries":
+                return entries_hist
+            elif name == "races":
+                return races_hist
+            return pd.DataFrame()
+
+        store.read = MagicMock(side_effect=mock_read)
+        return store
+
+    def test_days_since_last_race_in_output(self) -> None:
+        """compute() の出力に days_since_last_race 列が含まれる"""
+        from features.horse_history_features import HorseHistoryFeatures
+
+        store = self._make_mock_store_with_dates()
+        hhf = HorseHistoryFeatures(store=store)
+        race_df = pd.DataFrame(
+            {
+                "race_id": ["R1"],
+                "race_date": pd.to_datetime(["2024-07-01"]),
+                "surface": ["turf"],
+                "kyori": [1600],
+            }
+        )
+        entry_df = pd.DataFrame(
+            {
+                "race_id": ["R1"],
+                "umaban": [1],
+                "kettonum": ["K1"],
+                "kisyucode": ["J1"],
+                "bataijyu": [486.0],
+                "kakuteijyuni": [1],
+                "syussotosu": [10],
+            }
+        )
+        result = hhf.compute(race_df, entry_df)
+        assert "days_since_last_race" in result.columns
+        assert "rest_category" in result.columns
+        # 2024-05-10 → 2024-07-01 = 52日 → rest_category = 3 (medium: 31-90日)
+        assert result["rest_category"].iloc[0] == 3.0
+        assert result["days_since_last_race"].iloc[0] == 52.0
+
+    def test_rest_category_consecutive(self) -> None:
+        """consecutive (≤7日) → rest_category = 1"""
+        from features.horse_history_features import HorseHistoryFeatures
+
+        store = MagicMock(spec=ParquetStore)
+        entries_hist = pd.DataFrame(
+            {
+                "race_id": ["p1"],
+                "race_date": pd.to_datetime(["2024-06-28"]),
+                "kettonum": ["K1"],
+                "kisyucode": ["J1"],
+                "umaban": [1],
+                "kakuteijyuni": [3],
+                "odds": [5.0],
+                "harontimel3": [35.0],
+                "distance_bin": ["mile"],
+                "surface": ["turf"],
+                "track_condition_code": [1],
+                "timediff": [0.3],
+                "jyuni1c": [5],
+                "jyuni4c": [4],
+                "kyakusitukubun": [2],
+                "bataijyu": [480.0],
+            }
+        )
+        races_hist = pd.DataFrame(
+            {
+                "race_id": ["p1"],
+                "syussotosu": [10],
+                "race_date": pd.to_datetime(["2024-06-28"]),
+                "trackcd": [11],
+                "kyori": [1600],
+                "surface": ["turf"],
+                "track_condition_code": [1],
+            }
+        )
+
+        def mock_read(category, name, **kwargs):
+            if name == "entries":
+                return entries_hist
+            elif name == "races":
+                return races_hist
+            return pd.DataFrame()
+
+        store.read = MagicMock(side_effect=mock_read)
+        hhf = HorseHistoryFeatures(store=store)
+        race_df = pd.DataFrame(
+            {
+                "race_id": ["R1"],
+                "race_date": pd.to_datetime(["2024-07-01"]),
+                "surface": ["turf"],
+                "kyori": [1600],
+            }
+        )
+        entry_df = pd.DataFrame(
+            {
+                "race_id": ["R1"],
+                "umaban": [1],
+                "kettonum": ["K1"],
+                "kisyucode": ["J1"],
+                "bataijyu": [486.0],
+                "kakuteijyuni": [1],
+                "syussotosu": [10],
+            }
+        )
+        result = hhf.compute(race_df, entry_df)
+        assert result["rest_category"].iloc[0] == 1.0
+        assert result["days_since_last_race"].iloc[0] == 3.0
+
+    def test_rest_category_short(self) -> None:
+        """short (8-30日) → rest_category = 2"""
+        from features.horse_history_features import HorseHistoryFeatures
+
+        store = MagicMock(spec=ParquetStore)
+        entries_hist = pd.DataFrame(
+            {
+                "race_id": ["p1"],
+                "race_date": pd.to_datetime(["2024-06-15"]),
+                "kettonum": ["K1"],
+                "kisyucode": ["J1"],
+                "umaban": [1],
+                "kakuteijyuni": [3],
+                "odds": [5.0],
+                "harontimel3": [35.0],
+                "distance_bin": ["mile"],
+                "surface": ["turf"],
+                "track_condition_code": [1],
+                "timediff": [0.3],
+                "jyuni1c": [5],
+                "jyuni4c": [4],
+                "kyakusitukubun": [2],
+                "bataijyu": [480.0],
+            }
+        )
+        races_hist = pd.DataFrame(
+            {
+                "race_id": ["p1"],
+                "syussotosu": [10],
+                "race_date": pd.to_datetime(["2024-06-15"]),
+                "trackcd": [11],
+                "kyori": [1600],
+                "surface": ["turf"],
+                "track_condition_code": [1],
+            }
+        )
+
+        def mock_read(category, name, **kwargs):
+            if name == "entries":
+                return entries_hist
+            elif name == "races":
+                return races_hist
+            return pd.DataFrame()
+
+        store.read = MagicMock(side_effect=mock_read)
+        hhf = HorseHistoryFeatures(store=store)
+        race_df = pd.DataFrame(
+            {
+                "race_id": ["R1"],
+                "race_date": pd.to_datetime(["2024-07-01"]),
+                "surface": ["turf"],
+                "kyori": [1600],
+            }
+        )
+        entry_df = pd.DataFrame(
+            {
+                "race_id": ["R1"],
+                "umaban": [1],
+                "kettonum": ["K1"],
+                "kisyucode": ["J1"],
+                "bataijyu": [486.0],
+                "kakuteijyuni": [1],
+                "syussotosu": [10],
+            }
+        )
+        result = hhf.compute(race_df, entry_df)
+        assert result["rest_category"].iloc[0] == 2.0  # 16日 = short (8-30)
+        assert result["days_since_last_race"].iloc[0] == 16.0
+
+    def test_rest_category_long(self) -> None:
+        """long (91-180日) → rest_category = 4"""
+        from features.horse_history_features import HorseHistoryFeatures
+
+        store = MagicMock(spec=ParquetStore)
+        entries_hist = pd.DataFrame(
+            {
+                "race_id": ["p1"],
+                "race_date": pd.to_datetime(["2024-01-15"]),
+                "kettonum": ["K1"],
+                "kisyucode": ["J1"],
+                "umaban": [1],
+                "kakuteijyuni": [3],
+                "odds": [5.0],
+                "harontimel3": [35.0],
+                "distance_bin": ["mile"],
+                "surface": ["turf"],
+                "track_condition_code": [1],
+                "timediff": [0.3],
+                "jyuni1c": [5],
+                "jyuni4c": [4],
+                "kyakusitukubun": [2],
+                "bataijyu": [480.0],
+            }
+        )
+        races_hist = pd.DataFrame(
+            {
+                "race_id": ["p1"],
+                "syussotosu": [10],
+                "race_date": pd.to_datetime(["2024-01-15"]),
+                "trackcd": [11],
+                "kyori": [1600],
+                "surface": ["turf"],
+                "track_condition_code": [1],
+            }
+        )
+
+        def mock_read(category, name, **kwargs):
+            if name == "entries":
+                return entries_hist
+            elif name == "races":
+                return races_hist
+            return pd.DataFrame()
+
+        store.read = MagicMock(side_effect=mock_read)
+        hhf = HorseHistoryFeatures(store=store)
+        race_df = pd.DataFrame(
+            {
+                "race_id": ["R1"],
+                "race_date": pd.to_datetime(["2024-07-01"]),
+                "surface": ["turf"],
+                "kyori": [1600],
+            }
+        )
+        entry_df = pd.DataFrame(
+            {
+                "race_id": ["R1"],
+                "umaban": [1],
+                "kettonum": ["K1"],
+                "kisyucode": ["J1"],
+                "bataijyu": [486.0],
+                "kakuteijyuni": [1],
+                "syussotosu": [10],
+            }
+        )
+        result = hhf.compute(race_df, entry_df)
+        assert result["rest_category"].iloc[0] == 4.0  # 168日 = long (91-180)
+        assert result["days_since_last_race"].iloc[0] == 168.0
+
+    def test_rest_category_return(self) -> None:
+        """return (>180日) → rest_category = 5"""
+        from features.horse_history_features import HorseHistoryFeatures
+
+        store = MagicMock(spec=ParquetStore)
+        entries_hist = pd.DataFrame(
+            {
+                "race_id": ["p1"],
+                "race_date": pd.to_datetime(["2023-06-01"]),
+                "kettonum": ["K1"],
+                "kisyucode": ["J1"],
+                "umaban": [1],
+                "kakuteijyuni": [3],
+                "odds": [5.0],
+                "harontimel3": [35.0],
+                "distance_bin": ["mile"],
+                "surface": ["turf"],
+                "track_condition_code": [1],
+                "timediff": [0.3],
+                "jyuni1c": [5],
+                "jyuni4c": [4],
+                "kyakusitukubun": [2],
+                "bataijyu": [480.0],
+            }
+        )
+        races_hist = pd.DataFrame(
+            {
+                "race_id": ["p1"],
+                "syussotosu": [10],
+                "race_date": pd.to_datetime(["2023-06-01"]),
+                "trackcd": [11],
+                "kyori": [1600],
+                "surface": ["turf"],
+                "track_condition_code": [1],
+            }
+        )
+
+        def mock_read(category, name, **kwargs):
+            if name == "entries":
+                return entries_hist
+            elif name == "races":
+                return races_hist
+            return pd.DataFrame()
+
+        store.read = MagicMock(side_effect=mock_read)
+        hhf = HorseHistoryFeatures(store=store)
+        race_df = pd.DataFrame(
+            {
+                "race_id": ["R1"],
+                "race_date": pd.to_datetime(["2024-07-01"]),
+                "surface": ["turf"],
+                "kyori": [1600],
+            }
+        )
+        entry_df = pd.DataFrame(
+            {
+                "race_id": ["R1"],
+                "umaban": [1],
+                "kettonum": ["K1"],
+                "kisyucode": ["J1"],
+                "bataijyu": [486.0],
+                "kakuteijyuni": [1],
+                "syussotosu": [10],
+            }
+        )
+        result = hhf.compute(race_df, entry_df)
+        assert result["rest_category"].iloc[0] == 5.0  # 396日 = return (>180)
+        assert result["days_since_last_race"].iloc[0] == 396.0
+
+    def test_rest_category_nan_for_no_history(self) -> None:
+        """過去データなしの場合はNaN"""
+        from features.horse_history_features import HorseHistoryFeatures
+
+        store = MagicMock(spec=ParquetStore)
+        # 馬がいるが有効な過去レースがない (= field_size < 8 なので valid_field==0)
+        entries_hist = pd.DataFrame(
+            {
+                "race_id": ["p1"],
+                "race_date": pd.to_datetime(["2024-06-01"]),
+                "kettonum": ["K99"],
+                "kisyucode": ["J1"],
+                "umaban": [1],
+                "kakuteijyuni": [1],
+                "odds": [5.0],
+                "harontimel3": [35.0],
+                "distance_bin": ["mile"],
+                "surface": ["turf"],
+                "track_condition_code": [1],
+                "timediff": [0.3],
+                "jyuni1c": [5],
+                "jyuni4c": [4],
+                "kyakusitukubun": [2],
+                "bataijyu": [480.0],
+            }
+        )
+        races_hist = pd.DataFrame(
+            {
+                "race_id": ["p1"],
+                "syussotosu": [6],  # 8未満 → valid_field == 0
+                "race_date": pd.to_datetime(["2024-06-01"]),
+                "trackcd": [11],
+                "kyori": [1600],
+                "surface": ["turf"],
+                "track_condition_code": [1],
+            }
+        )
+
+        def mock_read(category, name, **kwargs):
+            if name == "entries":
+                return entries_hist
+            elif name == "races":
+                return races_hist
+            return pd.DataFrame()
+
+        store.read = MagicMock(side_effect=mock_read)
+        hhf = HorseHistoryFeatures(store=store)
+        race_df = pd.DataFrame(
+            {
+                "race_id": ["R1"],
+                "race_date": pd.to_datetime(["2024-07-01"]),
+                "surface": ["turf"],
+                "kyori": [1600],
+            }
+        )
+        entry_df = pd.DataFrame(
+            {
+                "race_id": ["R1"],
+                "umaban": [1],
+                "kettonum": ["K99"],  # 履歴なし
+                "kisyucode": ["J1"],
+                "bataijyu": [486.0],
+                "kakuteijyuni": [1],
+                "syussotosu": [10],
+            }
+        )
+        result = hhf.compute(race_df, entry_df)
+        assert not result.empty
+        assert np.isnan(result["days_since_last_race"].iloc[0])
+        assert np.isnan(result["rest_category"].iloc[0])
+
+
 class TestHorseHistoryFeaturesWithStore2:
     """ParquetStore経由のHorseHistoryFeaturesテスト (caching)"""
 

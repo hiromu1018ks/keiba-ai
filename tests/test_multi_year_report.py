@@ -68,10 +68,18 @@ class TestMultiYearHtmlGeneration:
         gen = MultiYearReportGenerator(output_dir=tmp_path)
         results = {2023: _make_result(), 2024: _make_result()}
         metadata = {
-            2023: {"train_start": "2020-01-01", "train_end": "2022-12-31",
-                   "test_start": "2023-01-01", "test_end": "2023-12-31"},
-            2024: {"train_start": "2021-01-01", "train_end": "2023-12-31",
-                   "test_start": "2024-01-01", "test_end": "2024-12-31"},
+            2023: {
+                "train_start": "2020-01-01",
+                "train_end": "2022-12-31",
+                "test_start": "2023-01-01",
+                "test_end": "2023-12-31",
+            },
+            2024: {
+                "train_start": "2021-01-01",
+                "train_end": "2023-12-31",
+                "test_start": "2024-01-01",
+                "test_end": "2024-12-31",
+            },
         }
         path = gen.generate(results, metadata)
         html = path.read_text(encoding="utf-8")
@@ -86,8 +94,14 @@ class TestMultiYearHtmlGeneration:
 
         gen = MultiYearReportGenerator(output_dir=tmp_path)
         results = {2024: _make_result()}
-        metadata = {2024: {"train_start": "2021-01-01", "train_end": "2023-12-31",
-                           "test_start": "2024-01-01", "test_end": "2024-12-31"}}
+        metadata = {
+            2024: {
+                "train_start": "2021-01-01",
+                "train_end": "2023-12-31",
+                "test_start": "2024-01-01",
+                "test_end": "2024-12-31",
+            }
+        }
         path = gen.generate(results, metadata)
         html = path.read_text(encoding="utf-8")
 
@@ -101,8 +115,14 @@ class TestMultiYearHtmlGeneration:
 
         gen = MultiYearReportGenerator(output_dir=tmp_path)
         results = {2024: _make_result()}
-        metadata = {2024: {"train_start": "2021-01-01", "train_end": "2023-12-31",
-                           "test_start": "2024-01-01", "test_end": "2024-12-31"}}
+        metadata = {
+            2024: {
+                "train_start": "2021-01-01",
+                "train_end": "2023-12-31",
+                "test_start": "2024-01-01",
+                "test_end": "2024-12-31",
+            }
+        }
         path = gen.generate(results, metadata)
 
         assert path.name == "multi_year_report.html"

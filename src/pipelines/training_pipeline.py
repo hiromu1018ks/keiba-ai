@@ -180,9 +180,7 @@ class TrainingPipelineV5:
         required_cols = ["signed_log_error_win", "abs_log_error_win"]
         missing = [c for c in required_cols if c not in feat_df.columns]
         if missing:
-            logger.warning(
-                "Market model columns missing: %s — filling with 0.0", missing
-            )
+            logger.warning("Market model columns missing: %s — filling with 0.0", missing)
             for c in missing:
                 feat_df[c] = 0.0
         with TimingContext("race_level_features"):
