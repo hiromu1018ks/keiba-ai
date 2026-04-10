@@ -118,7 +118,11 @@ class RacePredictor:
         race_df: pd.DataFrame,
         bankroll: float,
     ) -> list[Bet]:
-        """EV > 閾値 の馬をベット候補として抽出。flat/kelly モード対応。"""
+        """EV > 閾値 の馬をベット候補として抽出。flat/kelly モード対応。
+
+        閾値判定は常に ev_place (点推定) を使用。
+        kellyモードの賭け金計算は EV_lower_place (信頼区間下限) を使用。
+        """
         regime = self.models.regime_detector.current_regime
         regime_params = self.models.regime_detector.get_strategy_params(regime)
 
@@ -126,8 +130,8 @@ class RacePredictor:
         ev_threshold = regime_params.get("ev_threshold", 1.10)
         max_bets = regime_params.get("max_bets_per_race", 3)
 
-        # EV列の選択: kellyモードは信頼区間下限、flatモードは点推定
-        ev_col = "EV_lower_place" if self._betting_mode == "kelly" else "ev_place"
+        # 閾値判定は常に点推定 (ev_place)、kellyの賭け金のみ信頼区間下限を使用
+        ev_col = "ev_place"
         if ev_col not in race_df.columns or "fukuoddslow" not in race_df.columns:
             return bets
 
@@ -136,8 +140,15 @@ class RacePredictor:
 
         for _, row in candidates.iterrows():
             if self._betting_mode == "kelly" and self.stake_calc is not None:
+                # 賭け金計算は保守的下限、なければ点推定
+                stake_ev = (
+                    float(row["EV_lower_place"])
+                    if "EV_lower_place" in race_df.columns
+                    and pd.notna(row.get("EV_lower_place"))
+                    else float(row[ev_col])
+                )
                 stake = self.stake_calc.calc_stake(
-                    ev_lower=float(row[ev_col]),
+                    ev_lower=stake_ev,
                     odds=float(row["fukuoddslow"]),
                     bankroll=bankroll,
                     bet_type=BetType.PLACE,
@@ -146,6 +157,7 @@ class RacePredictor:
                     stake = self.dd_ctrl.adjust_stake(stake, bankroll)
             else:
                 stake = 100.0
+                stake_ev = float(row.get(ev_col, 0))
 
             if bankroll >= stake:
                 bets.append(
@@ -154,7 +166,7 @@ class RacePredictor:
                         umaban=int(row["umaban"]),
                         bet_type=BetType.PLACE,
                         odds=float(row["fukuoddslow"]),
-                        ev_lower_corrected=float(row.get(ev_col, 0)),
+                        ev_lower_corrected=stake_ev,
                         stake=stake,
                     )
                 )
