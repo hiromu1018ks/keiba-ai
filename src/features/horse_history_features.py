@@ -18,10 +18,10 @@ from __future__ import annotations
 import math
 from typing import TYPE_CHECKING, Optional
 
-from features.form_cycle_features import compute_form_features
-
 import numpy as np
 import pandas as pd
+
+from features.form_cycle_features import compute_form_features
 
 if TYPE_CHECKING:
     from db.parquet_store import ParquetStore
@@ -549,7 +549,9 @@ class HorseHistoryFeatures:
                     if zscores:
                         z_arr = np.array(zscores)
                         # tail(3).mean() — last 3 values
-                        harontimel3_zscore: float = float(pd.Series(z_arr).tail(self._n_past).mean())
+                        harontimel3_zscore = float(
+                            pd.Series(z_arr).tail(self._n_past).mean()
+                        )
                     else:
                         harontimel3_zscore = float("nan")
                 else:

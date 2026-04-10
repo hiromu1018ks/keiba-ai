@@ -54,6 +54,11 @@ class JockeyTrainerComboFeatures:
         if hist.empty or "chokyosicode" not in entry_df.columns:
             return result.assign(**nan_cols)
 
+        # リーク防止: entry_df のレース日以前のデータのみ使用
+        if not hist.empty and "race_date" in hist.columns and "race_date" in entry_df.columns:
+            max_date = entry_df["race_date"].max()
+            hist = hist[hist["race_date"] < max_date]
+
         entry = entry_df.copy()
         entry["jt_combo"] = entry["kisyucode"].astype(str) + "_" + entry["chokyosicode"].astype(str)
 

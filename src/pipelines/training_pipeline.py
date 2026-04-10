@@ -551,7 +551,19 @@ class TrainingPipelineV5:
                 mlflow.lightgbm.log_model(sub.market.model, artifact_path=f"market_{surface}")
 
                 # WinTwoStageModel
-                mlflow.lightgbm.log_model(sub.win.hit_model, artifact_path=f"win_hit_{surface}")
+                if sub.use_ensemble:
+                    # StackedEnsemble — joblib pickle で保存
+                    _se_tmp: str | None = None
+                    try:
+                        with tempfile.NamedTemporaryFile(suffix=".joblib", delete=False) as _f:
+                            _se_tmp = _f.name
+                            joblib.dump(sub.win.hit_model, _f.name)
+                        mlflow.log_artifact(_se_tmp, f"win_hit_{surface}")
+                    finally:
+                        if _se_tmp and os.path.exists(_se_tmp):
+                            os.unlink(_se_tmp)
+                else:
+                    mlflow.lightgbm.log_model(sub.win.hit_model, artifact_path=f"win_hit_{surface}")
                 mlflow.lightgbm.log_model(sub.win.return_model, artifact_path=f"win_ret_{surface}")
 
                 # EVCorrectionModel
@@ -565,7 +577,20 @@ class TrainingPipelineV5:
                 )
 
                 # PlaceTwoStageModel
-                mlflow.lightgbm.log_model(sub.place.hit_model, artifact_path=f"place_hit_{surface}")
+                if sub.use_ensemble:
+                    _se_tmp2: str | None = None
+                    try:
+                        with tempfile.NamedTemporaryFile(suffix=".joblib", delete=False) as _f2:
+                            _se_tmp2 = _f2.name
+                            joblib.dump(sub.place.hit_model, _f2.name)
+                        mlflow.log_artifact(_se_tmp2, f"place_hit_{surface}")
+                    finally:
+                        if _se_tmp2 and os.path.exists(_se_tmp2):
+                            os.unlink(_se_tmp2)
+                else:
+                    mlflow.lightgbm.log_model(
+                        sub.place.hit_model, artifact_path=f"place_hit_{surface}"
+                    )
                 mlflow.lightgbm.log_model(
                     sub.place.return_model, artifact_path=f"place_ret_{surface}"
                 )
@@ -631,9 +656,13 @@ class TrainingPipelineV5:
         models_dir.mkdir(parents=True, exist_ok=True)
 
         saved: dict[str, object] = {}
+        ensemble_keys: set[str] = set()
         for surface, sub in models.items():
             saved[f"stage1_{surface}"] = sub.stage1.models.get(surface)
             saved[f"market_{surface}"] = sub.market.model
+            if sub.use_ensemble:
+                ensemble_keys.add(f"win_hit_{surface}")
+                ensemble_keys.add(f"place_hit_{surface}")
             saved[f"win_hit_{surface}"] = sub.win.hit_model
             saved[f"win_ret_{surface}"] = sub.win.return_model
             saved[f"ev_corrector_p_{surface}"] = sub.ev_corrector.p_correction_model
@@ -655,13 +684,17 @@ class TrainingPipelineV5:
         saved["race_quality"] = quality_screen.model
         saved["regime_detector"] = regime_det.model
 
-        # LightGBM モデルを model.lgb として保存
+        # LightGBM モデルを model.lgb として保存; StackedEnsemble は joblib
         for name, model in saved.items():
             if model is None:
                 continue
             if name.startswith("place_ability"):
                 continue  # joblib で既に保存済み
-            model.save_model(str(models_dir / f"{name}.lgb"))
+            if name in ensemble_keys:
+                # StackedEnsemble — joblib pickle で保存
+                joblib.dump(model, models_dir / f"{name}.joblib")
+            elif hasattr(model, "save_model"):
+                model.save_model(str(models_dir / f"{name}.lgb"))
 
         # RobustConfidenceEstimator パラメータ保存
         for surface, sub in models.items():

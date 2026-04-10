@@ -11,6 +11,7 @@ best_iteration=0 + predict(X) → ndarray を返すことで互換。
 from __future__ import annotations
 
 import os
+from typing import Any
 
 import lightgbm as lgb
 import numpy as np
@@ -94,7 +95,9 @@ class StackedEnsemble:
         return np.clip(self.meta_model.predict(stacked), 0, 1)
 
     # --- LightGBM helpers ---
-    def _train_lgbm_fold(self, X_tr, y_tr, X_va, nt):
+    def _train_lgbm_fold(
+        self, X_tr: pd.DataFrame, y_tr: pd.Series, X_va: pd.DataFrame, nt: int
+    ) -> np.ndarray:
         m = lgb.train(
             {"objective": "binary", "metric": "auc", "learning_rate": 0.03,
              "num_leaves": 31, "verbose": -1, "num_threads": nt},
@@ -102,7 +105,7 @@ class StackedEnsemble:
         )
         return m.predict(X_va)
 
-    def _train_lgbm_full(self, X, y, nt):
+    def _train_lgbm_full(self, X: pd.DataFrame, y: pd.Series, nt: int) -> lgb.Booster:
         return lgb.train(
             {"objective": "binary", "metric": "auc", "learning_rate": 0.03,
              "num_leaves": 31, "verbose": -1, "num_threads": nt},
@@ -110,7 +113,9 @@ class StackedEnsemble:
         )
 
     # --- XGBoost helpers ---
-    def _train_xgb_fold(self, X_tr, y_tr, X_va, nt):
+    def _train_xgb_fold(
+        self, X_tr: pd.DataFrame, y_tr: pd.Series, X_va: pd.DataFrame, nt: int
+    ) -> np.ndarray:
         import xgboost as xgb
         m = xgb.train(
             {"objective": "binary:logistic", "learning_rate": 0.03,
@@ -119,7 +124,7 @@ class StackedEnsemble:
         )
         return m.predict(xgb.DMatrix(X_va))
 
-    def _train_xgb_full(self, X, y, nt):
+    def _train_xgb_full(self, X: pd.DataFrame, y: pd.Series, nt: int) -> Any:
         import xgboost as xgb
         return xgb.train(
             {"objective": "binary:logistic", "learning_rate": 0.03,
@@ -128,7 +133,9 @@ class StackedEnsemble:
         )
 
     # --- CatBoost helpers ---
-    def _train_cat_fold(self, X_tr, y_tr, X_va, nt):
+    def _train_cat_fold(
+        self, X_tr: pd.DataFrame, y_tr: pd.Series, X_va: pd.DataFrame, nt: int
+    ) -> np.ndarray:
         from catboost import CatBoostClassifier
         m = CatBoostClassifier(
             iterations=300, learning_rate=0.03, depth=6,
@@ -137,7 +144,7 @@ class StackedEnsemble:
         m.fit(X_tr, y_tr)
         return m.predict_proba(X_va)[:, 1]
 
-    def _train_cat_full(self, X, y, nt):
+    def _train_cat_full(self, X: pd.DataFrame, y: pd.Series, nt: int) -> Any:
         from catboost import CatBoostClassifier
         m = CatBoostClassifier(
             iterations=300, learning_rate=0.03, depth=6,
