@@ -719,6 +719,7 @@ class TrainingPipelineV5:
             "surfaces": list(models.keys()),
             "quality_threshold": quality_screen.threshold,
             "saved_at": pd.Timestamp.now().isoformat(),
+            "use_ensemble": all(sub.use_ensemble for sub in models.values()),
         }
         with open(models_dir / "meta.json", "w", encoding="utf-8") as f:
             json.dump(meta, f, indent=2, ensure_ascii=False)

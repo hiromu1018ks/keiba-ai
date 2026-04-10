@@ -34,7 +34,9 @@ class ModelLoader:
     def __init__(self, tracking_uri: str = "file:///mlruns") -> None:
         mlflow.set_tracking_uri(tracking_uri)
 
-    def load(self, run_id: str | None = None) -> tuple[TrainedModelsV5, ModelInfo]:
+    def load(
+        self, run_id: str | None = None, *, use_ensemble: bool | None = None
+    ) -> tuple[TrainedModelsV5, ModelInfo]:
         """学習済みモデルを読み込み、TrainedModelsV5 を再構築。
 
         優先: ローカルディレクトリ (data/models/) → MLflow run artifacts
@@ -42,7 +44,7 @@ class ModelLoader:
         # 1. ローカルディレクトリから読み込み
         models_dir = Path("data/models")
         if models_dir.is_dir() and (models_dir / "meta.json").is_file():
-            return self._load_from_local(models_dir)
+            return self._load_from_local(models_dir, use_ensemble_override=use_ensemble)
 
         # 2. MLflow 経由 (フォールバック)
         if run_id is None:
@@ -296,7 +298,37 @@ class ModelLoader:
         # MLflow URI フォールバック
         return mlflow.lightgbm.load_model(path)
 
-    def _load_from_local(self, models_dir: Path) -> tuple[TrainedModelsV5, ModelInfo]:
+    @staticmethod
+    def _load_hit_model(
+        models_dir: Path, name: str, *, use_ensemble: bool = False
+    ) -> object:
+        """Load hit model from .joblib (StackedEnsemble) or .lgb (LightGBM)."""
+        joblib_path = models_dir / f"{name}.joblib"
+        lgb_path = models_dir / f"{name}.lgb"
+
+        if use_ensemble:
+            if joblib_path.is_file():
+                logger.info("Loading StackedEnsemble: %s", joblib_path)
+                return joblib.load(joblib_path)
+            if lgb_path.is_file():
+                logger.warning(
+                    "use_ensemble=True but .joblib not found, falling back to .lgb"
+                )
+                return ModelLoader._load_lgbm(str(lgb_path))
+        else:
+            if lgb_path.is_file():
+                return ModelLoader._load_lgbm(str(lgb_path))
+            if joblib_path.is_file():
+                logger.info(
+                    "Loading StackedEnsemble (discovered from .joblib): %s", name
+                )
+                return joblib.load(joblib_path)
+
+        raise FileNotFoundError(f"No model file found for {name} in {models_dir}")
+
+    def _load_from_local(
+        self, models_dir: Path, *, use_ensemble_override: bool | None = None
+    ) -> tuple[TrainedModelsV5, ModelInfo]:
         """data/models/ から全モデルをロード"""
         from domain.models import SubmodelSet, TrainedModelsV5
         from models.ev_correction_model import EVCorrectionModel
@@ -315,6 +347,11 @@ class ModelLoader:
         train_start = meta["train_start"]
         train_end = meta["train_end"]
         surfaces = meta["surfaces"]
+        use_ensemble = (
+            use_ensemble_override
+            if use_ensemble_override is not None
+            else meta.get("use_ensemble", False)
+        )
 
         submodels: dict[str, SubmodelSet] = {}
         for surface in surfaces:
@@ -328,7 +365,9 @@ class ModelLoader:
 
             # WinTwoStageModel
             win = WinTwoStageModel()
-            win.hit_model = self._load_lgbm(str(models_dir / f"win_hit_{surface}.lgb"))
+            win.hit_model = self._load_hit_model(
+                models_dir, f"win_hit_{surface}", use_ensemble=use_ensemble
+            )
             win.return_model = self._load_lgbm(str(models_dir / f"win_ret_{surface}.lgb"))
 
             # EVCorrectionModel
@@ -342,7 +381,9 @@ class ModelLoader:
 
             # PlaceTwoStageModel
             place = PlaceTwoStageModel()
-            place.hit_model = self._load_lgbm(str(models_dir / f"place_hit_{surface}.lgb"))
+            place.hit_model = self._load_hit_model(
+                models_dir, f"place_hit_{surface}", use_ensemble=use_ensemble
+            )
             place.return_model = self._load_lgbm(str(models_dir / f"place_ret_{surface}.lgb"))
 
             # PlaceAbilityModel (joblib)
