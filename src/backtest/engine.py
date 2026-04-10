@@ -72,6 +72,8 @@ class BacktestEngine:
         store: ParquetStore | None = None,
         betting_mode: str = "flat",
     ) -> None:
+        if betting_mode not in ("flat", "kelly"):
+            raise ValueError(f"betting_mode must be 'flat' or 'kelly', got '{betting_mode}'")
         self.models = models
         self.initial_bankroll = initial_bankroll
         self.store = store or ParquetStore()
@@ -279,6 +281,10 @@ class BacktestEngine:
                 bankroll -= bet.stake
                 if bet_result > 0:
                     bankroll += bet_result
+
+                # A4: DD Controller にベット結果をフィードバック (kelly モード時)
+                if self._race_predictor.dd_ctrl is not None:
+                    self._race_predictor.dd_ctrl.update(bankroll, bet_result)
 
                 horse_rows = result_df[result_df["umaban"] == bet.umaban]
                 pop_val = (

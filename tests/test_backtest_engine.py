@@ -108,6 +108,13 @@ class TestBacktestEngine:
         assert engine._race_predictor._betting_mode == "flat"
         assert engine._race_predictor.stake_calc is None
 
+    def test_engine_invalid_betting_mode_raises(self, mock_models: MagicMock) -> None:
+        """不正なbetting_modeはValueError"""
+        from backtest.engine import BacktestEngine
+
+        with pytest.raises(ValueError, match="betting_mode must be"):
+            BacktestEngine(models=mock_models, betting_mode="invalid")
+
     @patch("backtest.engine.load_odds_snapshots")
     @patch("backtest.engine.load_entries")
     @patch("backtest.engine.load_races")
