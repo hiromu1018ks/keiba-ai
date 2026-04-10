@@ -32,6 +32,7 @@ class StackedEnsemble:
     def __init__(self, cat_cols: list[str] | None = None, n_folds: int = 3) -> None:
         self.cat_cols = cat_cols or []
         self.n_folds = n_folds
+        self._cat_codes: dict[str, dict[str, int]] = {}
         self.lgbm_model: lgb.Booster | None = None
         self.xgb_model = None
         self.cat_model = None
@@ -53,6 +54,7 @@ class StackedEnsemble:
         # --- Level 1: K-fold OOF 予測生成 ---
         n = len(X_train)
         oof_preds = np.full((n, 3), np.nan)
+        self._learn_cat_codes(X_train)
 
         for i in range(self.n_folds):
             # 時系列考慮: 各foldのvalidは後半部分、trainは前半 (expanding window)
@@ -86,13 +88,28 @@ class StackedEnsemble:
         p_lgbm = self.lgbm_model.predict(X)
 
         import xgboost as xgb
-        p_xgb = self.xgb_model.predict(xgb.DMatrix(X))
+        X_num = self._encode_cats(X)
+        p_xgb = self.xgb_model.predict(xgb.DMatrix(X_num))
 
         # CatBoost: predict() はクラスラベル(0/1)を返すため predict_proba() を使用
-        p_cat = self.cat_model.predict_proba(X)[:, 1]
+        p_cat = self.cat_model.predict_proba(X_num)[:, 1]
 
         stacked = np.column_stack([p_lgbm, p_xgb, p_cat])
         return np.clip(self.meta_model.predict(stacked), 0, 1)
+
+    def _encode_cats(self, X: pd.DataFrame) -> pd.DataFrame:
+        """カテゴリ列を数値コードに変換 (XGBoost/CatBoost 用)。"""
+        X_out = X.copy()
+        for col in self.cat_cols:
+            if col in X_out.columns and X_out[col].dtype.name == "category":
+                X_out[col] = X_out[col].cat.codes.astype(float)
+        return X_out
+
+    def _learn_cat_codes(self, X: pd.DataFrame) -> None:
+        """最初の学習データからカテゴリのコードマップを構築。"""
+        for col in self.cat_cols:
+            if col in X.columns and X[col].dtype.name == "category":
+                self._cat_codes[col] = {cat: code for code, cat in enumerate(X[col].cat.categories)}
 
     # --- LightGBM helpers ---
     def _train_lgbm_fold(
@@ -117,19 +134,22 @@ class StackedEnsemble:
         self, X_tr: pd.DataFrame, y_tr: pd.Series, X_va: pd.DataFrame, nt: int
     ) -> np.ndarray:
         import xgboost as xgb
+        X_tr_num = self._encode_cats(X_tr)
+        X_va_num = self._encode_cats(X_va)
         m = xgb.train(
             {"objective": "binary:logistic", "learning_rate": 0.03,
              "max_depth": 6, "nthread": nt},
-            xgb.DMatrix(X_tr, label=y_tr), num_boost_round=300,
+            xgb.DMatrix(X_tr_num, label=y_tr), num_boost_round=300,
         )
-        return m.predict(xgb.DMatrix(X_va))
+        return m.predict(xgb.DMatrix(X_va_num))
 
     def _train_xgb_full(self, X: pd.DataFrame, y: pd.Series, nt: int) -> Any:
         import xgboost as xgb
+        X_num = self._encode_cats(X)
         return xgb.train(
             {"objective": "binary:logistic", "learning_rate": 0.03,
              "max_depth": 6, "nthread": nt},
-            xgb.DMatrix(X, label=y), num_boost_round=300,
+            xgb.DMatrix(X_num, label=y), num_boost_round=300,
         )
 
     # --- CatBoost helpers ---
@@ -137,18 +157,21 @@ class StackedEnsemble:
         self, X_tr: pd.DataFrame, y_tr: pd.Series, X_va: pd.DataFrame, nt: int
     ) -> np.ndarray:
         from catboost import CatBoostClassifier
+        X_tr_num = self._encode_cats(X_tr)
+        X_va_num = self._encode_cats(X_va)
         m = CatBoostClassifier(
             iterations=300, learning_rate=0.03, depth=6,
             thread_count=nt, verbose=0,
         )
-        m.fit(X_tr, y_tr)
-        return m.predict_proba(X_va)[:, 1]
+        m.fit(X_tr_num, y_tr)
+        return m.predict_proba(X_va_num)[:, 1]
 
     def _train_cat_full(self, X: pd.DataFrame, y: pd.Series, nt: int) -> Any:
         from catboost import CatBoostClassifier
+        X_num = self._encode_cats(X)
         m = CatBoostClassifier(
             iterations=300, learning_rate=0.03, depth=6,
             thread_count=nt, verbose=0,
         )
-        m.fit(X, y)
+        m.fit(X_num, y)
         return m
