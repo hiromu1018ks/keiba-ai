@@ -53,11 +53,10 @@ class MarketModel:
             if col in features.columns:
                 features[col] = features[col].astype("category")
 
-        # 80/20 train/valid split (再現性のため固定seed)
+        # 80/20 time-based split (過去→未来、リーク防止)
         n = len(features)
-        perm = np.random.RandomState(42).permutation(n)
         split = int(n * 0.8)
-        train_idx, valid_idx = perm[:split], perm[split:]
+        train_idx, valid_idx = np.arange(split), np.arange(split, n)
 
         train_data = lgb.Dataset(features.iloc[train_idx], label=target.iloc[train_idx])
         valid_data = lgb.Dataset(

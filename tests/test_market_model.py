@@ -180,6 +180,54 @@ class TestMarketModelTrain:
         assert mock_dataset_cls.call_count == 2
 
 
+    @patch("models.market_model.lgb.train")
+    @patch("models.market_model.lgb.Dataset")
+    def test_train_uses_time_based_split_not_random(
+        self, mock_dataset_cls: MagicMock, mock_lgb_train: MagicMock
+    ) -> None:
+        """train() が時間ベースの分割を使用し、ランダム置換を使わないことを確認"""
+        mock_booster = MagicMock()
+        mock_booster.best_iteration = 50
+        mock_lgb_train.return_value = mock_booster
+
+        n = 100
+        # p_market_win_adj に一意の値を使い、train/valid に渡る feature の順序を検証
+        df = pd.DataFrame(
+            {
+                "race_id": ["R1"] * 50 + ["R2"] * 50,
+                "surface": ["turf"] * n,
+                "distance_bin": ["sprint"] * n,
+                "track_condition_code": [1] * n,
+                "grade_code": [0] * n,
+                "field_size": [10] * n,
+                "weight_diff_from_mean": np.arange(n, dtype=float),  # 一意な値
+                "difficulty_score": [0.5] * n,
+                "p_market_win_adj": np.linspace(0.1, 0.5, n),
+            }
+        )
+
+        model = MarketModel()
+        model.train(df)
+
+        # lgb.train が呼ばれたことを確認
+        assert mock_lgb_train.called
+
+        # train_idx が [0, 79]、valid_idx が [80, 99] であることを確認
+        # (時間ベースの最初80% = 学習、最後20% = 検証)
+        call_args = mock_dataset_cls.call_args_list
+        train_features = call_args[0][0][0]  # first lgb.Dataset call = train data
+        assert len(train_features) == 80  # 最初の80%
+        valid_features = call_args[1][0][0]  # second lgb.Dataset call = valid data
+        assert len(valid_features) == 20  # 最後の20%
+
+        # weight_diff_from_mean が sequential に渡されることを確認
+        # ランダム分割なら train に行0-79以外のインデックスが含まれる
+        train_weight = call_args[0][0][0]["weight_diff_from_mean"].values
+        np.testing.assert_array_equal(train_weight, np.arange(80, dtype=float))
+        valid_weight = call_args[1][0][0]["weight_diff_from_mean"].values
+        np.testing.assert_array_equal(valid_weight, np.arange(80, 100, dtype=float))
+
+
 class TestMarketModelStage2Features:
     def test_no_p_market_pred_in_features(self) -> None:
         """get_stage2_features() に p_market_pred は含まれない (Rule 11)"""

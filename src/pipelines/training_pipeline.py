@@ -244,6 +244,8 @@ class TrainingPipelineV5:
                     pass
 
         with TimingContext(f"{surface}/market_model"):
+            # 時間ベース分割の前提: race_date でソート
+            df = df.sort_values("race_date").reset_index(drop=True)
             market = MarketModel()
             market.train(df, num_threads=num_threads)
             df = market.predict_and_calc_error(df)
