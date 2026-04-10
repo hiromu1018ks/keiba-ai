@@ -40,6 +40,11 @@ def pre_ev_df() -> pd.DataFrame:
             "trainer_wr_distance": [0.12] * 8,
             "trainer_wr_venue": [0.13] * 8,
             "trainer_prize_log": [10.5] * 8,
+            # 騎手-調教師コンビ (B4)
+            "jt_combo_wr": [0.15] * 8,
+            "jt_combo_place_rate": [0.25] * 8,
+            "jt_combo_starts": [5.0] * 8,
+            "jt_combo_prize_log": [4.0] * 8,
         }
     )
 
@@ -213,6 +218,11 @@ def large_ev_df() -> pd.DataFrame:
                     "trainer_wr_distance": float(np.random.uniform(0.03, 0.18)),
                     "trainer_wr_venue": float(np.random.uniform(0.04, 0.19)),
                     "trainer_prize_log": float(np.random.uniform(7.0, 11.5)),
+                    # 騎手-調教師コンビ (B4)
+                    "jt_combo_wr": float(np.random.uniform(0.05, 0.20)),
+                    "jt_combo_place_rate": float(np.random.uniform(0.10, 0.35)),
+                    "jt_combo_starts": float(np.random.randint(1, 30)),
+                    "jt_combo_prize_log": float(np.random.uniform(2.0, 6.0)),
                 }
             )
     return pd.DataFrame(rows)

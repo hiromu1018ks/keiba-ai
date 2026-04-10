@@ -41,6 +41,7 @@ class RacePredictor:
         hist_features: pd.DataFrame | None = None,
         jockey_features: pd.DataFrame | None = None,
         trainer_features: pd.DataFrame | None = None,
+        jt_combo_features: pd.DataFrame | None = None,
     ) -> pd.DataFrame:
         """1レースの推論パイプラインを実行。
 
@@ -92,6 +93,11 @@ class RacePredictor:
                 trainer_features["race_id"] == race_df["race_id"].iloc[0]
             ]
             df = df.merge(trainer_race, on=["race_id", "umaban"], how="left")
+        if jt_combo_features is not None:
+            jt_race = jt_combo_features[
+                jt_combo_features["race_id"] == race_df["race_id"].iloc[0]
+            ]
+            df = df.merge(jt_race, on=["race_id", "umaban"], how="left")
 
         # 6. EV補正 + Place推論
         df = submodel.ev_corrector.correct_ev(df)

@@ -50,6 +50,11 @@ class EVCorrectionModel:
         "trainer_wr_distance",
         "trainer_wr_venue",
         "trainer_prize_log",
+        # 騎手-調教師コンビ (B4, Stage2)
+        "jt_combo_wr",
+        "jt_combo_place_rate",
+        "jt_combo_starts",
+        "jt_combo_prize_log",
     ]
 
     def _add_interaction_features(self, df: pd.DataFrame) -> pd.DataFrame:

@@ -292,6 +292,14 @@ class TrainingPipelineV5:
             trainer_df = trainer_ctx.compute(df_oof)
             df_oof = pd.merge(df_oof, trainer_df, on=["race_id", "umaban"], how="left")
 
+        # B4: 騎手-調教師コンビコンテキスト (Stage2)
+        from features.jockey_trainer_combo import JockeyTrainerComboFeatures
+
+        with TimingContext(f"{surface}/jt_combo"):
+            jt_combo = JockeyTrainerComboFeatures(self.store)
+            jt_df = jt_combo.compute(df_oof)
+            df_oof = pd.merge(df_oof, jt_df, on=["race_id", "umaban"], how="left")
+
         # 4. EV補正モデル (P/E分解)
         with TimingContext(f"{surface}/ev_correction"):
             ev_corrector = EVCorrectionModel()

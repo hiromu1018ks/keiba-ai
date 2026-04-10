@@ -131,6 +131,7 @@ class BacktestEngine:
         # 3. 特徴量の一括事前計算 (ループ外で全レース分を一度に計算)
         from features.horse_history_features import HorseHistoryFeatures
         from features.jockey_context_features import JockeyContextFeatures
+        from features.jockey_trainer_combo import JockeyTrainerComboFeatures
         from features.trainer_context_features import TrainerContextFeatures
 
         race_ids = feat_df["race_id"].unique()
@@ -146,6 +147,10 @@ class BacktestEngine:
         logger.info("Pre-computing TrainerContextFeatures for %d entries...", len(entry_df))
         trainer_ctx = TrainerContextFeatures(self.store)
         trainer_df_all = trainer_ctx.compute(entry_df)
+
+        logger.info("Pre-computing JockeyTrainerComboFeatures for %d entries...", len(entry_df))
+        jt_combo = JockeyTrainerComboFeatures(self.store)
+        jt_df_all = jt_combo.compute(entry_df)
 
         # 4. レースごとにシミュレーション (推論は RacePredictor に委譲)
         diag_logger = DiagnosticLogger()
@@ -204,6 +209,7 @@ class BacktestEngine:
             hist_df_race = hist_df_all[hist_df_all["race_id"] == race_id]
             jockey_df_race = jockey_df_all[jockey_df_all["race_id"] == race_id]
             trainer_df_race = trainer_df_all[trainer_df_all["race_id"] == race_id]
+            jt_df_race = jt_df_all[jt_df_all["race_id"] == race_id]
 
             # RacePredictor に委譲
             result_df = self._race_predictor.predict(
@@ -211,6 +217,7 @@ class BacktestEngine:
                 hist_features=hist_df_race,
                 jockey_features=jockey_df_race,
                 trainer_features=trainer_df_race,
+                jt_combo_features=jt_df_race,
             )
             if result_df.empty:
                 continue
