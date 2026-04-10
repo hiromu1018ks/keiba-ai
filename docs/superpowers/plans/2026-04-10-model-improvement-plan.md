@@ -141,41 +141,79 @@ git commit -m "fix: MarketModel のランダム分割を時間ベース分割に
 - Modify: `src/models/place_ability_model.py:26-65` (FEATURE_COLS)
 - Modify: `tests/test_horse_history_features.py`
 
-- [ ] **Step 1: Write the failing test**
+- [ ] **Step 1: Write the failing tests for weight_change_zone**
 
-`tests/test_horse_history_features.py` に新しいクラスを追加:
+`tests/test_feature_engine.py` に新しいクラスを追加:
 
 ```python
-class TestWeightZscoreFeatures:
-    """A2: weight_zscore, weight_change_zone の計算テスト"""
+class TestWeightChangeZone:
+    """A2: weight_change_zone のユニットテスト (_map_basic_features内)"""
 
-    def test_weight_zscore_computed_from_history(self) -> None:
-        """過去の馬体重からz-scoreが正しく計算される"""
-        # このテストは compute() の出力 DataFrame に weight_zscore が含まれることを確認
-        # 詳細な計算ロジックのテストは別メソッドで
-        pass
+    def _make_df_with_zogen(self, zogen_values: list[float]) -> pd.DataFrame:
+        return pd.DataFrame({
+            "race_id": ["R1"] * len(zogen_values),
+            "umaban": list(range(1, len(zogen_values) + 1)),
+            "surface": ["turf"] * len(zogen_values),
+            "kyori": [1600] * len(zogen_values),
+            "gradecd": [0] * len(zogen_values),
+            "syussotosu": [10] * len(zogen_values),
+            "ninki": list(range(1, len(zogen_values) + 1)),
+            "kyakusitukubun": [1] * len(zogen_values),
+            "zogen_sa": zogen_values,
+        })
 
-    def test_weight_zscore_nan_for_first_race(self) -> None:
-        """初出走 (過去データなし) の場合はNaN"""
-        pass
+    def test_golden_zone(self) -> None:
+        from features.feature_engine import FeatureEngine
+        fe = FeatureEngine()
+        df = self._make_df_with_zogen([5.0, 8.0, 12.0])
+        result = fe._map_basic_features(df)
+        assert "weight_change_zone" in result.columns
+        assert (result["weight_change_zone"] == 2).all()
 
-    def test_weight_change_zone_golden(self) -> None:
-        """+4 ~ +12kg は golden ゾーン"""
-        pass
+    def test_stable_zone(self) -> None:
+        from features.feature_engine import FeatureEngine
+        fe = FeatureEngine()
+        df = self._make_df_with_zogen([0.0, -3.0, 3.0, 4.0])
+        result = fe._map_basic_features(df)
+        # -3, 0, 3 → stable (1); 4 → golden boundary (2)
+        assert result["weight_change_zone"].iloc[0] == 1  # 0.0 → stable
+        assert result["weight_change_zone"].iloc[1] == 1  # -3.0 → stable
+        assert result["weight_change_zone"].iloc[2] == 1  # 3.0 → stable
 
-    def test_weight_change_zone_stable(self) -> None:
-        """-4 ~ +4kg は stable ゾーン"""
-        pass
+    def test_caution_zone(self) -> None:
+        from features.feature_engine import FeatureEngine
+        fe = FeatureEngine()
+        df = self._make_df_with_zogen([-5.0, 13.0])
+        result = fe._map_basic_features(df)
+        assert (result["weight_change_zone"] == 0).all()
 
-    def test_weight_change_zone_danger(self) -> None:
-        """±14kg以上は danger ゾーン"""
-        pass
+    def test_danger_zone(self) -> None:
+        from features.feature_engine import FeatureEngine
+        fe = FeatureEngine()
+        df = self._make_df_with_zogen([15.0, -15.0])
+        result = fe._map_basic_features(df)
+        assert (result["weight_change_zone"] == -1).all()
+
+    def test_missing_zogen_sa(self) -> None:
+        """zogen_sa 列がない場合はNaN"""
+        from features.feature_engine import FeatureEngine
+        fe = FeatureEngine()
+        df = pd.DataFrame({
+            "race_id": ["R1"], "umaban": [1], "surface": ["turf"],
+            "kyori": [1600], "gradecd": [0], "syussotosu": [10],
+            "ninki": [1], "kyakusitukubun": [1],
+        })
+        result = fe._map_basic_features(df)
+        assert "weight_change_zone" in result.columns
+        assert result["weight_change_zone"].isna().all()
 ```
 
-Note: 具体的なテスト実装は `HorseHistoryFeatures` の内部構造に依存するため、
-Step 3で実装コードと合わせて詳細を記述する。
+- [ ] **Step 2: Run test to verify it fails**
 
-- [ ] **Step 2: Modify `src/features/horse_history_features.py`**
+Run: `python -m pytest tests/test_feature_engine.py::TestWeightChangeZone -v`
+Expected: FAIL (`weight_change_zone` column does not exist yet)
+
+- [ ] **Step 3: Modify `src/features/horse_history_features.py`**
 
 **2a: `cols_horse` に `bataijyu` を追加** (line 279-292):
 
@@ -201,8 +239,10 @@ Step 3で実装コードと合わせて詳細を記述する。
 
 ```python
             # weight_zscore — 馬個体の体重分布に対する正規化
+            # 注意: 全履歴 [:idx] を使用 (直近3走 [start:idx] ではない)
+            # 理由: 平均・標準偏差は可能な限り多くのサンプルから計算すべき
             if n_past > 0 and "bataijyu" in horse_arrs:
-                past_weights = horse_arrs["bataijyu"][valid_mask][start:idx].astype(float)
+                past_weights = horse_arrs["bataijyu"][valid_mask][:idx].astype(float)
                 past_valid_w = past_weights[~np.isnan(past_weights)]
                 if len(past_valid_w) >= 2 and pd.notna(weight_absolute):
                     w_mean = float(past_valid_w.mean())
@@ -229,22 +269,13 @@ Step 3で実装コードと合わせて詳細を記述する。
 `_map_basic_features()` の末尾 (line 250付近) に追加:
 
 ```python
-        # A2: weight_change_zone — 体重変化カテゴリ (zogen_sa ベース)
+        # A2: weight_change_zone — 体重変化カテゴリ (zogen_sa ベース、数値エンコード)
         if "zogen_sa" in df.columns:
             zogen = df["zogen_sa"].astype(float)
-            conditions = [
-                (zogen >= 4) & (zogen <= 12),       # golden
-                (zogen >= -4) & (zogen < 4),         # stable (下側)
-                (zogen > -4) & (zogen < 4),          # stable (統合)
-                (zogen >= -14) & (zogen < -4),        # caution (下側)
-                (zogen > 12) & (zogen <= 14),         # caution (上側)
-                (zogen < -14) | (zogen > 14),         # danger
-            ]
-            # シンプルなカテゴリ値 (LightGBM用数値エンコード)
-            zone = pd.Series(1, index=df.index)  # default: stable
+            zone = pd.Series(1, index=df.index)  # default: stable (-4 ~ +4)
             zone[(zogen >= 4) & (zogen <= 12)] = 2   # golden
-            zone[(zogen >= -14) & (zogen < -4)] = 0   # caution
-            zone[(zogen > 12) & (zogen <= 14)] = 0    # caution
+            zone[(zogen >= -14) & (zogen < -4)] = 0   # caution (下側)
+            zone[(zogen > 12) & (zogen <= 14)] = 0    # caution (上側)
             zone[(zogen < -14) | (zogen > 14)] = -1    # danger
             df["weight_change_zone"] = zone.astype(float)
         else:
@@ -271,62 +302,68 @@ Step 3で実装コードと合わせて詳細を記述する。
         "weight_change_zone",
 ```
 
-- [ ] **Step 5: Write concrete tests**
+- [ ] **Step 5: Write weight_zscore tests in test_horse_history_features.py**
 
 ```python
-class TestWeightZscoreFeatures:
-    """A2: weight_zscore のユニットテスト"""
+class TestWeightZscore:
+    """A2: weight_zscore が results DataFrame に含まれることを確認"""
 
-    def _make_weight_data(self) -> tuple:
-        """過去体重データのモックを構築"""
-        past_weights = np.array([480.0, 482.0, 484.0, 486.0, 488.0])
-        return past_weights
+    def _make_mock_store_with_weights(self) -> MagicMock:
+        """過去出走データに bataijyu 列を含むモックストア"""
+        store = MagicMock(spec=ParquetStore)
 
-    def test_zscore_normal(self) -> None:
-        """平均±1σの範囲でz-scoreが正しく計算される"""
-        from features.horse_history_features import HorseHistoryFeatures
-        # 詳細は実装に合わせて調整
-        # (480-484)/std ≈ 負のz-score, (488-484)/std ≈ 正のz-score
-        pass
-
-    def test_zscore_nan_insufficient_history(self) -> None:
-        """過去データが2件未満の場合NaN"""
-        pass
-
-    def test_zscore_zero_std(self) -> None:
-        """標準偏差0の場合は0.0"""
-        pass
-
-class TestWeightChangeZone:
-    """A2: weight_change_zone のユニットテスト"""
-
-    def _make_df_with_zogen(self, zogen_values: list[float]) -> pd.DataFrame:
-        return pd.DataFrame({
-            "race_id": ["R1"] * len(zogen_values),
-            "zogen_sa": zogen_values,
+        entries_hist = pd.DataFrame({
+            "race_date": pd.to_datetime(["2024-01-01", "2024-02-01", "2024-03-01"]),
+            "kettonum": ["K1", "K1", "K1"],
+            "umaban": [1, 1, 1],
+            "kakuteijyuni": [3, 5, 2],
+            "syussotosu": [10, 12, 8],
+            "harontimel3": [35.0, 36.0, 34.5],
+            "distance_bin": ["mile", "mile", "sprint"],
+            "surface": ["turf", "turf", "turf"],
+            "baba_cd": [1, 2, 1],
+            "timediff": [0.3, -0.2, 0.5],
+            "jyuni1c": [5, 8, 3],
+            "jyuni4c": [4, 6, 2],
+            "kyakusitukubun": [2, 2, 1],
+            "bataijyu": [480.0, 482.0, 484.0],
         })
 
-    def test_golden_zone(self) -> None:
-        from features.feature_engine import FeatureEngine
-        fe = FeatureEngine()
-        df = self._make_df_with_zogen([5.0, 8.0, 12.0])
-        result = fe._map_basic_features(df)
-        assert (result["weight_change_zone"] == 2).all()
+        def mock_read(category, name, **kwargs):
+            if name == "entries":
+                return entries_hist
+            return pd.DataFrame()
 
-    def test_stable_zone(self) -> None:
-        from features.feature_engine import FeatureEngine
-        fe = FeatureEngine()
-        df = self._make_df_with_zogen([0.0, -3.0, 3.0])
-        result = fe._map_basic_features(df)
-        assert (result["weight_change_zone"] == 1).all()
+        store.read = MagicMock(side_effect=mock_read)
+        return store
 
-    def test_danger_zone(self) -> None:
-        from features.feature_engine import FeatureEngine
-        fe = FeatureEngine()
-        df = self._make_df_with_zogen([15.0, -15.0])
-        result = fe._map_basic_features(df)
-        assert (result["weight_change_zone"] == -1).all()
+    def test_weight_zscore_in_output_columns(self) -> None:
+        """compute() の出力に weight_zscore 列が含まれる"""
+        from features.horse_history_features import HorseHistoryFeatures
+        store = self._make_mock_store_with_weights()
+        hhf = HorseHistoryFeatures(store=store)
+
+        race_df = pd.DataFrame({
+            "race_id": ["R1"],
+            "race_date": pd.to_datetime(["2024-04-01"]),
+            "surface": ["turf"],
+            "kyori": [1600],
+        })
+        entry_df = pd.DataFrame({
+            "race_id": ["R1"],
+            "umaban": [1],
+            "kettonum": ["K1"],
+            "kisyucode": ["J1"],
+            "bataijyu": [486.0],
+            "kakuteijyuni": [1],
+            "syussotosu": [10],
+        })
+
+        result = hhf.compute(race_df, entry_df)
+        assert "weight_zscore" in result.columns
 ```
+
+- [ ] **Step 6: Run tests**
 
 - [ ] **Step 6: Run tests**
 
@@ -363,21 +400,90 @@ git commit -m "feat: 体重変化特徴量を追加 (weight_zscore, weight_chang
 class TestRestPeriodFeatures:
     """A3: days_since_last_race, rest_category のテスト"""
 
-    def test_days_computed_from_last_race(self) -> None:
-        """前走からの日数が正しく計算される"""
-        pass
+    def _make_mock_store_with_dates(self) -> MagicMock:
+        """過去出走データに race_date を含むモックストア"""
+        store = MagicMock(spec=ParquetStore)
 
-    def test_days_nan_for_first_race(self) -> None:
-        """初出走の場合はNaN"""
-        pass
+        entries_hist = pd.DataFrame({
+            "race_date": pd.to_datetime(["2024-01-15", "2024-03-01", "2024-05-10"]),
+            "kettonum": ["K1", "K1", "K1"],
+            "umaban": [1, 1, 1],
+            "kakuteijyuni": [3, 5, 2],
+            "syussotosu": [10, 12, 8],
+            "harontimel3": [35.0, 36.0, 34.5],
+            "distance_bin": ["mile", "mile", "sprint"],
+            "surface": ["turf", "turf", "turf"],
+            "baba_cd": [1, 2, 1],
+            "timediff": [0.3, -0.2, 0.5],
+            "jyuni1c": [5, 8, 3],
+            "jyuni4c": [4, 6, 2],
+            "kyakusitukubun": [2, 2, 1],
+            "bataijyu": [480.0, 482.0, 484.0],
+        })
 
-    def test_rest_category_consecutive(self) -> None:
-        """7日以内は consecutive (1)"""
-        pass
+        def mock_read(category, name, **kwargs):
+            if name == "entries":
+                return entries_hist
+            return pd.DataFrame()
 
-    def test_rest_category_return(self) -> None:
-        """181日以上は return (5)"""
-        pass
+        store.read = MagicMock(side_effect=mock_read)
+        return store
+
+    def test_days_since_last_race_in_output(self) -> None:
+        """compute() の出力に days_since_last_race 列が含まれる"""
+        from features.horse_history_features import HorseHistoryFeatures
+        store = self._make_mock_store_with_dates()
+        hhf = HorseHistoryFeatures(store=store)
+
+        race_df = pd.DataFrame({
+            "race_id": ["R1"],
+            "race_date": pd.to_datetime(["2024-07-01"]),
+            "surface": ["turf"],
+            "kyori": [1600],
+        })
+        entry_df = pd.DataFrame({
+            "race_id": ["R1"],
+            "umaban": [1],
+            "kettonum": ["K1"],
+            "kisyucode": ["J1"],
+            "bataijyu": [486.0],
+            "kakuteijyuni": [1],
+            "syussotosu": [10],
+        })
+
+        result = hhf.compute(race_df, entry_df)
+        assert "days_since_last_race" in result.columns
+        assert "rest_category" in result.columns
+        # 2024-05-10 → 2024-07-01 = 52日 → rest_category = 3 (medium: 31-90日)
+        assert result["rest_category"].iloc[0] == 3.0
+        assert result["days_since_last_race"].iloc[0] == 52.0
+
+    def test_rest_category_nan_for_no_history(self) -> None:
+        """過去データなしの場合はNaN"""
+        from features.horse_history_features import HorseHistoryFeatures
+        store = MagicMock(spec=ParquetStore)
+        store.read = MagicMock(return_value=pd.DataFrame())
+        hhf = HorseHistoryFeatures(store=store)
+
+        race_df = pd.DataFrame({
+            "race_id": ["R1"],
+            "race_date": pd.to_datetime(["2024-07-01"]),
+            "surface": ["turf"],
+            "kyori": [1600],
+        })
+        entry_df = pd.DataFrame({
+            "race_id": ["R1"],
+            "umaban": [1],
+            "kettonum": ["K99"],  # 履歴なし
+            "kisyucode": ["J1"],
+            "bataijyu": [486.0],
+            "kakuteijyuni": [1],
+            "syussotosu": [10],
+        })
+
+        result = hhf.compute(race_df, entry_df)
+        assert np.isnan(result["days_since_last_race"].iloc[0])
+        assert np.isnan(result["rest_category"].iloc[0])
 ```
 
 - [ ] **Step 2: Modify `src/features/horse_history_features.py`**
