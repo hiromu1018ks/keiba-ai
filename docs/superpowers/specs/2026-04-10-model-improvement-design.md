@@ -1,7 +1,7 @@
 # MLモデル改善デザイン (A群: 即効性のある改善)
 
 日付: 2026-04-10
-ステータス: 承認済み
+ステータス: レビュー指摘反映済み
 
 ## 背景
 
@@ -32,19 +32,24 @@ ROI 123%は良好だが、以下の改善余地を特定:
 時系列データにランダム分割は未来データの混入 (データリーク) を引き起こす。
 MarketModelのCVスコアが過大評価されている可能性が高い。
 
-**修正:**
+**修正:** 現在の単一80/20分割アーキテクチャに合わせ、**時間ベースの単一分割**を採用する。
+`TimeSeriesSplit`は現在のコード構造 (LightGBMの単一train/valid) と互換性がないため使わない。
+
 ```python
 # Before (line 58)
-indices = np.random.RandomState(42).permutation(n)
+perm = np.random.RandomState(42).permutation(n)
 
-# After
-from sklearn.model_selection import TimeSeriesSplit
-tscv = TimeSeriesSplit(n_splits=3)
+# After — 時間順の単一分割 (最初80%=学習, 最後20%=検証)
+split = int(n * 0.8)
+train_idx = np.arange(split)
+valid_idx = np.arange(split, n)
 ```
 
-**期待効果:** MarketModel精度は下がる可能性があるが、これは「真の精度」。他モデルへのEV補正入力の信頼性が向上する。
+**前提条件 (必須):** `MarketModel.train()` に渡すDataFrameを `race_date` でソートする。
+`TrainingPipelineV5._train_submodel()` 内で `df.sort_values("race_date")` を実行してから
+`market.train()` を呼び出す。
 
-**注意:** 学習データが時系列順にソートされていることが前提。`TrainingPipelineV5` でソート確認が必要。
+**期待効果:** MarketModel精度は下がる可能性があるが、これは「真の精度」。他モデルへのEV補正入力の信頼性が向上する。
 
 ---
 
@@ -52,7 +57,12 @@ tscv = TimeSeriesSplit(n_splits=3)
 
 **ファイル:** `src/features/horse_history_features.py`, `src/features/feature_engine.py`
 
-**現状:** `zogen_sa` (体重変化値) と `zogen_fugo` (増減符号) をそのまま特徴量として使用。
+**現状:** ドメインモデルに `zogen_sa`/`zogen_fugo` は存在するが、**現在はML特徴量として使用されていない**。
+実際に使用されている体重関連特徴量は:
+- `weight_diff_from_mean` (intra_race_features.py): レース内の平均体重からの差 — レース相対
+- `weight_absolute` (horse_history_features.py): 馬の絶対体重
+
+これらは**レースコンテキスト**の情報であって、**馬個体の履歴コンテキスト** (その馬の過去の体重分布に対する相対値) は欠けている。
 
 **exa調査で判明したベストプラクティス:**
 
@@ -70,6 +80,9 @@ tscv = TimeSeriesSplit(n_splits=3)
    HorseHistoryFeatures で過去の馬体重から平均・標準偏差を計算。
 
 2. `weight_change_zone`: カテゴリ化 (4段階)
+   **閾値は絶対kg値 (`zogen_sa`) に基づく。** z-scoreではない。
+   理由: ゴールデンゾーン等の閾値はexa調査で「絶対kg」ベースで実証されている。
+   `zogen_sa` 列はentries_histに含まれるが、現在 `cols_horse` に含まれていないため追加が必要。
    - `golden`: +4 ~ +12kg (好調サイン)
    - `stable`: -4 ~ +4kg (コンディション維持)
    - `caution`: -14 ~ -4kg, +12 ~ +14kg (注意)
@@ -78,8 +91,10 @@ tscv = TimeSeriesSplit(n_splits=3)
    LightGBMは数値のままでも分割可能だが、カテゴリ化で閾値を明示的に与えると安定性が増す。
 
 **実装方針:**
+- `HorseHistoryFeatures.cols_horse` に `bataijyu` を追加して過去体重を取得可能にする
 - `HorseHistoryFeatures`: 過去出走から馬個体の体重平均・標準偏差を計算
 - `FeatureEngine._map_basic_features()`: 正規化・カテゴリ化を適用
+- `weight_zscore` と既存の `weight_diff_from_mean` (レース相対) は**直交する情報**。両方保持する
 
 ---
 
@@ -99,34 +114,55 @@ tscv = TimeSeriesSplit(n_splits=3)
 
 **実装方針:**
 - `HorseHistoryFeatures` で前走の `race_date` から経過日数を計算
-- 初出走の場合はNaN (LightGBMがネイティブ処理)
+- 初出走の場合 (n_past = 0 の分岐): `days_since_last_race = NaN`, `rest_category = NaN` を明示的に設定
+- LightGBMがネイティブにNaN処理可能
 
 ---
 
 ### A4: バックテストと本番のベットロジック統一 (切替可能)
 
-**ファイル:** `src/backtest/race_predictor.py`, `src/backtest/engine.py`
+**ファイル:** `src/backtest/race_predictor.py`, `src/backtest/engine.py`, `src/betting/orchestrator.py`
 
 **現状の不整合:**
 
 | 項目 | バックテスト (RacePredictor) | 本番 (BettingOrchestrator) |
 |------|------|------|
 | 投資額 | 常に100円固定 | Kelly基準で可変 |
-| EV判定 | `ev_place` | `ev_lower_corrected` |
-| DD制御 | なし | DD Controller |
+| EV判定 | `ev_place` (line 123) | `ev_lower_corrected` (line 199) |
+| DD制御 | なし | DD Controller (line 204) |
 
 **設計方針:** 設定で切り替え可能にする。結果次第で元に戻せるように。
 
 **実装:**
 - `BacktestEngine` に `betting_mode` パラメータを追加
-- `settings.yaml` または CLI引数で指定:
-  ```yaml
-  betting_mode: "flat"   # 従来の100円固定 (現状維持)
-  betting_mode: "kelly"  # 本番と同じFractional Kelly (0.5x)
-  ```
+- CLI引数のみで制御 (settings.yamlは使わない — 現在BacktestEngineは設定ファイルを読まない)
 - `RacePredictor.select_bets()` にモード分岐を追加:
-  - `flat`: 既存の100円固定 + ev_place (変更なし)
-  - `kelly`: ev_lower_corrected + Fractional Kelly + DD Controller
+  - `flat` (デフォルト): 既存の100円固定 + ev_place (変更なし)
+  - `kelly`: `ev_lower_corrected` + Fractional Kelly + DD Controller
+
+**kellyモードの依存関係注入:**
+- `RacePredictor.__init__()` に `StakeCalculator` と `DrawdownController` をオプション引数で追加
+- `kelly` モード時のみこれらを使用:
+  ```python
+  def __init__(self, models, *, stake_calculator=None, dd_controller=None):
+      self.stake_calc = stake_calculator
+      self.dd_ctrl = dd_controller
+  ```
+- `BacktestEngine` の `kelly` モード初期化でインスタンス化して注入:
+  ```python
+  if betting_mode == "kelly":
+      from betting.stake_calculator import StakeCalculator
+      from betting.drawdown_controller import DrawdownController
+      self.predictor = RacePredictor(
+          models,
+          stake_calculator=StakeCalculator(fraction=0.5),
+          dd_controller=DrawdownController(),
+      )
+  ```
+
+**kellyモードのEV列:** `predict()` が既に出力している `ev_lower_place` を使用。
+`ev_lower_corrected` は `BettingOrchestrator` 内部での命名だが、`RacePredictor.predict()` では
+`ev_lower_place` として出力済み (line 95)。
 
 **`run_backtest.py` CLI:**
 ```bash
@@ -168,12 +204,26 @@ B群完了後に別スペックで設計:
 
 | ファイル | 変更内容 |
 |----------|----------|
-| `src/models/market_model.py` | TimeSeriesSplit導入 |
-| `src/features/horse_history_features.py` | 体重統計・休養期間の計算追加 |
-| `src/features/feature_engine.py` | weight_zscore, weight_change_zone, rest_category の追加 |
-| `src/backtest/race_predictor.py` | betting_mode分岐 (flat/kelly) |
+| `src/models/market_model.py` | 時間ベース単一分割 (race_dateソート前提) |
+| `src/pipelines/training_pipeline.py` | MarketModel学習前にrace_dateソート追加 |
+| `src/features/horse_history_features.py` | cols_horseにbataijyu追加, 体重統計・休養期間の計算 |
+| `src/features/feature_engine.py` | weight_zscore, weight_change_zone, rest_category のマッピング |
+| `src/backtest/race_predictor.py` | betting_mode分岐 (flat/kelly), StakeCalculator/DDController注入 |
 | `src/backtest/engine.py` | betting_mode パラメータ伝播 |
 | `scripts/run_backtest.py` | --betting-mode CLI引数追加 |
+
+### 新特徴量 → モデル FEATURE_COLS マッピング
+
+新特徴量を追加するだけではモデルに使われない。以下のFEATURE_COLSに追加が必要:
+
+| 新特徴量 | 追加先モデル |
+|----------|------------|
+| `weight_zscore` | `Stage1AbilityModel.FEATURE_COLS`, `PlaceAbilityModel` フィーチャー |
+| `weight_change_zone` | `Stage1AbilityModel.FEATURE_COLS` (カテゴリはエンコード必要) |
+| `days_since_last_race` | `Stage1AbilityModel.FEATURE_COLS`, `PlaceAbilityModel` フィーチャー |
+| `rest_category` | `Stage1AbilityModel.FEATURE_COLS` (カテゴリはエンコード必要) |
+
+MarketModel には追加しない (MarketModelは市場指標ベースであり、馬個体の特徴量は入力しない)。
 
 ### 学習への影響
 
@@ -181,3 +231,13 @@ A1のMarketModel修正により、再学習後のバックテスト結果は変�
 - MarketModel精度は下がる可能性 (リーク排除の代償)
 - 体重・休養特徴量の追加で精度向上が期待できる
 - 全体としてROIがどう変化するかは再学習+バックテストで確認
+
+### テスト方針
+
+CLAUDE.mdに従いDB不要・mock使用でテストを作成:
+
+1. **A1テスト**: 時間ベース分割が過去インデックスのみを学習に使用することを確認
+2. **A2テスト**: weight_zscore, weight_change_zone が期待される型と範囲で生成されることを確認
+3. **A3テスト**: days_since_last_race, rest_category の計算が正しいこと (初出走=NaN含む)
+4. **A4テスト (flat)**: 従来の100円固定動作と完全一致すること (回帰テスト)
+5. **A4テスト (kelly)**: kellyモードがStakeCalculatorとDDControllerを使用することを確認
