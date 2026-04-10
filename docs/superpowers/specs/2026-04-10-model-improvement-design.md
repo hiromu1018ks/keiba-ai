@@ -1,7 +1,7 @@
 # MLモデル改善デザイン (A群: 即効性のある改善)
 
 日付: 2026-04-10
-ステータス: レビュー指摘反映済み
+ステータス: レビュー承認済み
 
 ## 背景
 
@@ -156,13 +156,13 @@ valid_idx = np.arange(split, n)
       self.predictor = RacePredictor(
           models,
           stake_calculator=StakeCalculator(fraction=0.5),
-          dd_controller=DrawdownController(),
+          dd_controller=DrawdownController(peak_bankroll=self.initial_bankroll),
       )
   ```
 
-**kellyモードのEV列:** `predict()` が既に出力している `ev_lower_place` を使用。
+**kellyモードのEV列:** `predict()` が既に出力している `EV_lower_place` を使用。
 `ev_lower_corrected` は `BettingOrchestrator` 内部での命名だが、`RacePredictor.predict()` では
-`ev_lower_place` として出力済み (line 95)。
+`EV_lower_place` として出力済み (line 95、大文字EVに注意)。
 
 **`run_backtest.py` CLI:**
 ```bash
