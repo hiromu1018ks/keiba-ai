@@ -42,6 +42,12 @@ def main() -> None:
     parser.add_argument("--test-start", required=True, help="テスト開始日 (YYYYMMDD)")
     parser.add_argument("--test-end", required=True, help="テスト終了日 (YYYYMMDD)")
     parser.add_argument("--report", action="store_true", help="HTMLレポートを生成")
+    parser.add_argument(
+        "--betting-mode",
+        choices=["flat", "kelly"],
+        default="flat",
+        help="ベット額計算モード (flat=100円固定, kelly=Fractional Kelly)",
+    )
     args = parser.parse_args()
 
     train_start = to_dash_date(args.train_start)
@@ -89,7 +95,7 @@ def main() -> None:
 
     from backtest.engine import BacktestEngine
 
-    engine = BacktestEngine(models=models, store=store)
+    engine = BacktestEngine(models=models, store=store, betting_mode=args.betting_mode)
     result = engine.run(test_start, test_end)
     elapsed_test = time.time() - t1
     logger.info("バックテスト完了 (%.0f秒)", elapsed_test)

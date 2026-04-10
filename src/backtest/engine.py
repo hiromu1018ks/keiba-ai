@@ -70,11 +70,24 @@ class BacktestEngine:
         models: TrainedModelsV5,
         initial_bankroll: float = 100_000,
         store: ParquetStore | None = None,
+        betting_mode: str = "flat",
     ) -> None:
         self.models = models
         self.initial_bankroll = initial_bankroll
         self.store = store or ParquetStore()
-        self._race_predictor = RacePredictor(models)
+        self.betting_mode = betting_mode
+
+        if betting_mode == "kelly":
+            from betting.drawdown_controller import DrawdownController
+            from betting.stake_calculator import StakeCalculator
+
+            self._race_predictor = RacePredictor(
+                models,
+                stake_calculator=StakeCalculator(),
+                dd_controller=DrawdownController(peak_bankroll=initial_bankroll),
+            )
+        else:
+            self._race_predictor = RacePredictor(models)
 
     def run(
         self,

@@ -89,6 +89,25 @@ class TestBacktestEngine:
         engine = BacktestEngine(models=mock_models, initial_bankroll=200000)
         assert engine.initial_bankroll == 200000
 
+    def test_engine_kelly_mode_creates_predictor_with_stake_calc(
+        self, mock_models: MagicMock
+    ) -> None:
+        """betting_mode='kelly' の場合、RacePredictor に StakeCalculator が注入される"""
+        from backtest.engine import BacktestEngine
+
+        engine = BacktestEngine(models=mock_models, betting_mode="kelly")
+        assert engine._race_predictor._betting_mode == "kelly"
+        assert engine._race_predictor.stake_calc is not None
+        assert engine._race_predictor.dd_ctrl is not None
+
+    def test_engine_flat_mode_default(self, mock_models: MagicMock) -> None:
+        """デフォルトはflatモード"""
+        from backtest.engine import BacktestEngine
+
+        engine = BacktestEngine(models=mock_models)
+        assert engine._race_predictor._betting_mode == "flat"
+        assert engine._race_predictor.stake_calc is None
+
     @patch("backtest.engine.load_odds_snapshots")
     @patch("backtest.engine.load_entries")
     @patch("backtest.engine.load_races")

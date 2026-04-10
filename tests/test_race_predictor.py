@@ -134,6 +134,53 @@ class TestRacePredictor:
         assert len(bets) >= 1
         assert all(b.stake == 100.0 for b in bets)
 
+    def test_select_bets_flat_mode_uses_100_yen(self, mock_models: MagicMock) -> None:
+        """flat モード (デフォルト) は100円固定ベット"""
+        from backtest.race_predictor import RacePredictor
+
+        predictor = RacePredictor(mock_models)
+        race_df = pd.DataFrame(
+            {
+                "race_id": ["R1", "R1"],
+                "umaban": [1, 2],
+                "ev_place": [1.5, 1.3],
+                "fukuoddslow": [3.0, 2.5],
+                "surface": ["turf", "turf"],
+            }
+        )
+        bets = predictor.select_bets(race_df, bankroll=100000)
+        assert len(bets) > 0
+        assert all(b.stake == 100.0 for b in bets)
+
+    def test_select_bets_kelly_mode_uses_stake_calculator(self, mock_models: MagicMock) -> None:
+        """kelly モードは StakeCalculator を使用する"""
+        from backtest.race_predictor import RacePredictor
+        from betting.drawdown_controller import DrawdownController
+        from betting.stake_calculator import StakeCalculator
+
+        stake_calc = MagicMock(spec=StakeCalculator)
+        stake_calc.calc_stake.return_value = 200.0
+        dd_ctrl = MagicMock(spec=DrawdownController)
+        dd_ctrl.adjust_stake.return_value = 200.0
+
+        predictor = RacePredictor(
+            mock_models,
+            stake_calculator=stake_calc,
+            dd_controller=dd_ctrl,
+        )
+        race_df = pd.DataFrame(
+            {
+                "race_id": ["R1", "R1"],
+                "umaban": [1, 2],
+                "EV_lower_place": [1.5, 1.3],
+                "ev_place": [1.5, 1.3],
+                "fukuoddslow": [3.0, 2.5],
+                "surface": ["turf", "turf"],
+            }
+        )
+        predictor.select_bets(race_df, bankroll=100000)
+        assert stake_calc.calc_stake.called or dd_ctrl.adjust_stake.called
+
     def test_build_race_features(self, mock_models: MagicMock) -> None:
         from backtest.race_predictor import RacePredictor
 

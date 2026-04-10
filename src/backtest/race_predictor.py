@@ -13,6 +13,8 @@ import pandas as pd
 from domain.models import Bet, BetType
 
 if TYPE_CHECKING:
+    from betting.drawdown_controller import DrawdownController
+    from betting.stake_calculator import StakeCalculator
     from domain.models import TrainedModelsV5
 
 logger = logging.getLogger(__name__)
@@ -21,8 +23,17 @@ logger = logging.getLogger(__name__)
 class RacePredictor:
     """1レース分の特徴量→推論→ベット候補生成を担当する共通コンポーネント"""
 
-    def __init__(self, models: TrainedModelsV5) -> None:
+    def __init__(
+        self,
+        models: TrainedModelsV5,
+        *,
+        stake_calculator: StakeCalculator | None = None,
+        dd_controller: DrawdownController | None = None,
+    ) -> None:
         self.models = models
+        self.stake_calc = stake_calculator
+        self.dd_ctrl = dd_controller
+        self._betting_mode = "kelly" if stake_calculator is not None else "flat"
 
     def predict(
         self,
@@ -107,10 +118,7 @@ class RacePredictor:
         race_df: pd.DataFrame,
         bankroll: float,
     ) -> list[Bet]:
-        """EV > 閾値 の馬をベット候補として抽出。
-
-        BacktestEngine._generate_bets() と同じロジック。
-        """
+        """EV > 閾値 の馬をベット候補として抽出。flat/kelly モード対応。"""
         regime = self.models.regime_detector.current_regime
         regime_params = self.models.regime_detector.get_strategy_params(regime)
 
@@ -118,14 +126,27 @@ class RacePredictor:
         ev_threshold = regime_params.get("ev_threshold", 1.10)
         max_bets = regime_params.get("max_bets_per_race", 3)
 
-        if "ev_place" not in race_df.columns or "fukuoddslow" not in race_df.columns:
+        # EV列の選択: kellyモードは信頼区間下限、flatモードは点推定
+        ev_col = "EV_lower_place" if self._betting_mode == "kelly" else "ev_place"
+        if ev_col not in race_df.columns or "fukuoddslow" not in race_df.columns:
             return bets
 
-        candidates = race_df[race_df["ev_place"].fillna(0) >= ev_threshold].copy()
-        candidates = candidates.nlargest(max_bets, "ev_place")
+        candidates = race_df[race_df[ev_col].fillna(0) >= ev_threshold].copy()
+        candidates = candidates.nlargest(max_bets, ev_col)
 
         for _, row in candidates.iterrows():
-            stake = 100.0
+            if self._betting_mode == "kelly" and self.stake_calc is not None:
+                stake = self.stake_calc.calc_stake(
+                    ev_lower=float(row[ev_col]),
+                    odds=float(row["fukuoddslow"]),
+                    bankroll=bankroll,
+                    bet_type=BetType.PLACE,
+                )
+                if self.dd_ctrl is not None:
+                    stake = self.dd_ctrl.adjust_stake(stake, bankroll)
+            else:
+                stake = 100.0
+
             if bankroll >= stake:
                 bets.append(
                     Bet(
@@ -133,7 +154,7 @@ class RacePredictor:
                         umaban=int(row["umaban"]),
                         bet_type=BetType.PLACE,
                         odds=float(row["fukuoddslow"]),
-                        ev_lower_corrected=float(row.get("ev_place", 0)),
+                        ev_lower_corrected=float(row.get(ev_col, 0)),
                         stake=stake,
                     )
                 )
