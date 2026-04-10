@@ -49,7 +49,13 @@ class StakeCalculator:
         Returns:
             100円単位の賭け金(float)。EVが閾値未満なら0.0。
         """
-        if bankroll <= 0 or ev_lower < self.MIN_EV_THRESHOLD or odds <= 1.0:
+        if (
+            bankroll <= 0
+            or odds <= 1.0
+            or math.isnan(ev_lower)
+            or math.isnan(odds)
+            or ev_lower < self.MIN_EV_THRESHOLD
+        ):
             return 0.0
 
         edge = ev_lower - 1.0
