@@ -158,8 +158,10 @@ class HorseHistoryFeatures:
         "rest_category",  # A3: 休養期間カテゴリ (1-5)
     ]
 
-    def __init__(self, store: ParquetStore) -> None:
+    def __init__(self, store: ParquetStore, *, n_past: int = 5) -> None:
         self.store = store
+        self.n_past = n_past
+        self._n_past = n_past  # 内部参照用
         self._entries_cache: pd.DataFrame | None = None
         self._races_cache: pd.DataFrame | None = None
 
@@ -442,7 +444,7 @@ class HorseHistoryFeatures:
                     # searchsorted on valid dates only
                     valid_dates = dates_all[valid_mask]
                     idx = valid_dates.searchsorted(target_date_np, side="left")
-                    start = max(0, idx - 3)
+                    start = max(0, idx - self._n_past)
                     # Gather last-3 valid past race arrays
                     hp_kakuteijyuni = horse_arrs["kakuteijyuni"][valid_mask][start:idx]
                     hp_syussotosu = horse_arrs["syussotosu"][valid_mask][start:idx]
@@ -493,7 +495,7 @@ class HorseHistoryFeatures:
                 ht_valid = ht_raw[~np.isnan(ht_raw)]
                 if len(ht_valid) > 0:
                     # tail(3) → last 3 non-NaN values
-                    harontimel3_avg: float = float(ht_valid[-3:].mean())
+                    harontimel3_avg: float = float(ht_valid[-self._n_past:].mean())
                 else:
                     harontimel3_avg = float("nan")
             else:
@@ -541,7 +543,7 @@ class HorseHistoryFeatures:
                     if zscores:
                         z_arr = np.array(zscores)
                         # tail(3).mean() — last 3 values
-                        harontimel3_zscore: float = float(pd.Series(z_arr).tail(3).mean())
+                        harontimel3_zscore: float = float(pd.Series(z_arr).tail(self._n_past).mean())
                     else:
                         harontimel3_zscore = float("nan")
                 else:
@@ -554,7 +556,7 @@ class HorseHistoryFeatures:
                 td_raw = horse_arrs["timediff"][valid_mask][start:idx].astype(float)
                 td_valid = td_raw[~np.isnan(td_raw)]
                 if len(td_valid) > 0:
-                    timediff_avg: float = float(td_valid[-3:].mean())
+                    timediff_avg: float = float(td_valid[-self._n_past:].mean())
                 else:
                     timediff_avg = float("nan")
             else:
@@ -565,7 +567,7 @@ class HorseHistoryFeatures:
                 c1_raw = horse_arrs["jyuni1c"][valid_mask][start:idx].astype(float)
                 c1_valid = c1_raw[~np.isnan(c1_raw)]
                 if len(c1_valid) > 0:
-                    jyuni1c_avg: float = float(c1_valid[-3:].mean())
+                    jyuni1c_avg: float = float(c1_valid[-self._n_past:].mean())
                 else:
                     jyuni1c_avg = float("nan")
             else:
@@ -576,7 +578,7 @@ class HorseHistoryFeatures:
                 c4_raw = horse_arrs["jyuni4c"][valid_mask][start:idx].astype(float)
                 c4_valid = c4_raw[~np.isnan(c4_raw)]
                 if len(c4_valid) > 0:
-                    jyuni4c_avg: float = float(c4_valid[-3:].mean())
+                    jyuni4c_avg: float = float(c4_valid[-self._n_past:].mean())
                 else:
                     jyuni4c_avg = float("nan")
             else:
@@ -592,7 +594,7 @@ class HorseHistoryFeatures:
                     norm_4c = (c4_raw[valid_ci] - 1) / (sy_raw[valid_ci] - 1)
                     norm_finish = (kj_raw[valid_ci] - 1) / (sy_raw[valid_ci] - 1)
                     closing_indices = norm_4c - norm_finish
-                    closing_index_avg: float = float(closing_indices[-3:].mean())
+                    closing_index_avg: float = float(closing_indices[-self._n_past:].mean())
                 else:
                     closing_index_avg = float("nan")
             else:

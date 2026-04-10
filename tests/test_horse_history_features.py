@@ -242,6 +242,21 @@ class TestRaceTransforms:
         assert abs(ranks[3] - 0.375) < 1e-6
 
 
+class TestNPastParameter:
+    """n_past パラメータ化のテスト"""
+
+    def test_n_past_parameter(self):
+        """n_past=5 の場合、過去5走分のデータが使用される"""
+        from features.horse_history_features import HorseHistoryFeatures
+
+        mock_store = MagicMock(spec=ParquetStore)
+        hist = HorseHistoryFeatures(store=mock_store, n_past=5)
+        assert hist._n_past == 5
+        # デフォルト値は5 (B3仕様)
+        hist_default = HorseHistoryFeatures(store=mock_store)
+        assert hist_default._n_past == 5
+
+
 class TestLeakPrevention:
     """リーク防止のテスト"""
 
