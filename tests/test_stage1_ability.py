@@ -69,8 +69,10 @@ def train_df() -> pd.DataFrame:
             "timediff_avg_race_rank": rng.uniform(0, 1, 8),
             "jyuni1c_avg_race_rank": rng.uniform(0, 1, 8),
             "closing_index_avg_race_rank": rng.uniform(0, 1, 8),
-            # 馬体 (1)
+            # 馬体 (3)
             "weight_absolute": rng.uniform(400, 550, 8),
+            "weight_zscore": rng.uniform(-2, 2, 8),
+            "weight_change_zone": rng.choice([-1, 0, 1, 2], size=8).astype(float),
             "distance": [1600] * 4 + [1200] * 4,
             "kakuteijyuni": [1, 2, 3, 4, 1, 3, 2, 4],
         }

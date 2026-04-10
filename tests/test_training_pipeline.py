@@ -182,8 +182,10 @@ def _make_feature_df(n: int = 8000, n_races: int = 800) -> pd.DataFrame:
                     "timediff_avg_race_rank": np.random.uniform(0, 1),
                     "jyuni1c_avg_race_rank": np.random.uniform(0, 1),
                     "closing_index_avg_race_rank": np.random.uniform(0, 1),
-                    # 馬体 (1)
+                    # 馬体 (3)
                     "weight_absolute": np.random.uniform(400, 550),
+                    "weight_zscore": np.random.uniform(-2, 2),
+                    "weight_change_zone": float(np.random.choice([-1, 0, 1, 2])),
                     "odds_change_rate_30min": np.random.normal(0, 0.1),
                     "odds_volatility_60min": np.random.uniform(0, 0.5),
                     "signed_log_error_win": np.random.normal(0, 0.3),

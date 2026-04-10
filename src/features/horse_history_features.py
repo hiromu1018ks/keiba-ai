@@ -152,6 +152,8 @@ class HorseHistoryFeatures:
         "kyakusitukubun_cd",  # NEW (non-numeric, category)
         "jockey_surprise",  # existing (will move to Stage2 in Task 9)
         "jockey_cond_wr",  # existing (will move to Stage2 in Task 9)
+        "weight_absolute",  # A2: 馬体重
+        "weight_zscore",  # A2: 馬個体の体重分布に対する正規化
     ]
 
     def __init__(self, store: ParquetStore) -> None:
@@ -289,6 +291,7 @@ class HorseHistoryFeatures:
             "jyuni1c",
             "jyuni4c",
             "kyakusitukubun",
+            "bataijyu",
         ]
         cols_jockey = ["race_date", "kakuteijyuni", "odds"]
         cols_jockey_all = ["race_date", "kakuteijyuni"]
@@ -635,6 +638,22 @@ class HorseHistoryFeatures:
             else:
                 weight_absolute = float("nan")
 
+            # A2: weight_zscore — 馬個体の体重分布に対する正規化
+            if n_past > 0 and "bataijyu" in horse_arrs:
+                past_weights = horse_arrs["bataijyu"][valid_mask][:idx].astype(float)
+                past_valid_w = past_weights[~np.isnan(past_weights)]
+                if len(past_valid_w) >= 2 and pd.notna(weight_absolute):
+                    w_mean = float(past_valid_w.mean())
+                    w_std = float(past_valid_w.std())
+                    if w_std > 0:
+                        weight_zscore: float = float((weight_absolute - w_mean) / w_std)
+                    else:
+                        weight_zscore = 0.0
+                else:
+                    weight_zscore = float("nan")
+            else:
+                weight_zscore = float("nan")
+
             results.append(
                 {
                     "race_id": row.race_id,
@@ -650,6 +669,7 @@ class HorseHistoryFeatures:
                     "jockey_surprise": jockey_surprise,
                     "jockey_cond_wr": jockey_cond_wr,
                     "weight_absolute": weight_absolute,
+                    "weight_zscore": weight_zscore,
                 }
             )
 

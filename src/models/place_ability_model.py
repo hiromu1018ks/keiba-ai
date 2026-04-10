@@ -58,8 +58,10 @@ class PlaceAbilityModel:
         "timediff_avg_race_rank",
         "jyuni1c_avg_race_rank",
         "closing_index_avg_race_rank",
-        # 馬体 (1)
+        # 馬体 (3)
         "weight_absolute",
+        "weight_zscore",
+        "weight_change_zone",
         # Stage1 output
         "p_ability_win",
     ]

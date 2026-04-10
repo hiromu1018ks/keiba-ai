@@ -381,6 +381,142 @@ class TestHorseHistoryFeaturesWithStore:
         # Verify store.read was called (for entries and races)
         assert mock_store.read.called
 
+class TestWeightZscore:
+    """A2: weight_zscore が results DataFrame に含まれることを確認"""
+
+    def _make_mock_store_with_weights(self) -> MagicMock:
+        """過去出走データに bataijyu 列を含むモックストア"""
+        store = MagicMock(spec=ParquetStore)
+        entries_hist = pd.DataFrame({
+            "race_id": ["p1", "p2", "p3"],
+            "race_date": pd.to_datetime(["2024-01-01", "2024-02-01", "2024-03-01"]),
+            "kettonum": ["K1", "K1", "K1"],
+            "kisyucode": ["J1", "J1", "J1"],
+            "umaban": [1, 1, 1],
+            "kakuteijyuni": [3, 5, 2],
+            "odds": [5.0, 8.0, 3.0],
+            "harontimel3": [35.0, 36.0, 34.5],
+            "distance_bin": ["mile", "mile", "sprint"],
+            "timediff": [0.3, -0.2, 0.5],
+            "jyuni1c": [5, 8, 3],
+            "jyuni4c": [4, 6, 2],
+            "kyakusitukubun": [2, 2, 1],
+            "bataijyu": [480.0, 482.0, 484.0],
+        })
+        races_hist = pd.DataFrame({
+            "race_id": ["p1", "p2", "p3"],
+            "syussotosu": [10, 12, 8],
+            "race_date": pd.to_datetime(["2024-01-01", "2024-02-01", "2024-03-01"]),
+            "trackcd": [11, 11, 11],
+            "kyori": [1600, 1600, 1200],
+            "surface": ["turf", "turf", "turf"],
+            "track_condition_code": [1, 2, 1],
+        })
+
+        def mock_read(category, name, **kwargs):
+            if name == "entries":
+                return entries_hist
+            elif name == "races":
+                return races_hist
+            return pd.DataFrame()
+
+        store.read = MagicMock(side_effect=mock_read)
+        return store
+
+    def test_weight_zscore_in_output_columns(self) -> None:
+        """compute() の出力に weight_zscore 列が含まれる"""
+        from features.horse_history_features import HorseHistoryFeatures
+
+        store = self._make_mock_store_with_weights()
+        hhf = HorseHistoryFeatures(store=store)
+        race_df = pd.DataFrame({
+            "race_id": ["R1"],
+            "race_date": pd.to_datetime(["2024-04-01"]),
+            "surface": ["turf"],
+            "kyori": [1600],
+        })
+        entry_df = pd.DataFrame({
+            "race_id": ["R1"],
+            "umaban": [1],
+            "kettonum": ["K1"],
+            "kisyucode": ["J1"],
+            "bataijyu": [486.0],
+            "kakuteijyuni": [1],
+            "syussotosu": [10],
+        })
+        result = hhf.compute(race_df, entry_df)
+        assert "weight_zscore" in result.columns
+
+    def test_weight_zscore_computed_correctly(self) -> None:
+        """weight_zscore が正しく計算される (past weights: 480, 482, 484 → mean=482, std≈2)"""
+        from features.horse_history_features import HorseHistoryFeatures
+
+        store = self._make_mock_store_with_weights()
+        hhf = HorseHistoryFeatures(store=store)
+        race_df = pd.DataFrame({
+            "race_id": ["R1"],
+            "race_date": pd.to_datetime(["2024-04-01"]),
+            "surface": ["turf"],
+            "kyori": [1600],
+        })
+        entry_df = pd.DataFrame({
+            "race_id": ["R1"],
+            "umaban": [1],
+            "kettonum": ["K1"],
+            "kisyucode": ["J1"],
+            "bataijyu": [486.0],
+            "kakuteijyuni": [1],
+            "syussotosu": [10],
+        })
+        result = hhf.compute(race_df, entry_df)
+        # Past weights: 480, 482, 484 → mean=482, std≈2.0 (population std of [480,482,484])
+        # Current weight: 486 → zscore = (486 - 482) / 2.0 = 2.0
+        assert not result["weight_zscore"].isna().all()
+        zscore = result["weight_zscore"].iloc[0]
+        assert abs(zscore - 2.0) < 0.5, f"Expected zscore ≈ 2.0, got {zscore}"
+
+    def test_weight_zscore_nan_when_no_past(self) -> None:
+        """過去出走がない場合 weight_zscore は NaN"""
+        from features.horse_history_features import HorseHistoryFeatures
+
+        store = MagicMock(spec=ParquetStore)
+        entries_hist = pd.DataFrame(
+            columns=["race_id", "race_date", "kettonum", "kisyucode", "kakuteijyuni", "syussotosu", "odds"]
+        )
+        races_hist = pd.DataFrame(columns=["race_id", "syussotosu", "race_date"])
+
+        def mock_read(category, name, **kwargs):
+            if name == "entries":
+                return entries_hist
+            elif name == "races":
+                return races_hist
+            return pd.DataFrame()
+
+        store.read = MagicMock(side_effect=mock_read)
+
+        hhf = HorseHistoryFeatures(store=store)
+        race_df = pd.DataFrame({
+            "race_id": ["R1"],
+            "race_date": pd.to_datetime(["2024-04-01"]),
+        })
+        entry_df = pd.DataFrame({
+            "race_id": ["R1"],
+            "umaban": [1],
+            "kettonum": ["NEW_HORSE"],
+            "kisyucode": ["J1"],
+            "bataijyu": [480.0],
+        })
+        result = hhf.compute(race_df, entry_df)
+        assert result["weight_zscore"].isna().all()
+
+
+class TestHorseHistoryFeaturesWithStore2:
+    """ParquetStore経由のHorseHistoryFeaturesテスト (caching)"""
+
+    @pytest.fixture
+    def mock_store(self) -> MagicMock:
+        return MagicMock(spec=ParquetStore)
+
     def test_caching_prevents_repeated_loads(self, mock_store: MagicMock) -> None:
         from features.horse_history_features import HorseHistoryFeatures
 

@@ -249,4 +249,16 @@ class FeatureEngine:
         if "kyakusitukubun" in df.columns:
             df["running_style"] = df["kyakusitukubun"].fillna(0).astype(int)
 
+        # A2: weight_change_zone — 体重変化カテゴリ (zogen_sa ベース、数値エンコード)
+        if "zogen_sa" in df.columns:
+            zogen = df["zogen_sa"].astype(float)
+            zone = pd.Series(1, index=df.index)  # default: stable (-4 ~ +4)
+            zone[(zogen >= 4) & (zogen <= 12)] = 2   # golden
+            zone[(zogen >= -14) & (zogen < -4)] = 0   # caution (下側)
+            zone[(zogen > 12) & (zogen <= 14)] = 0    # caution (上側)
+            zone[(zogen < -14) | (zogen > 14)] = -1    # danger
+            df["weight_change_zone"] = zone.astype(float)
+        else:
+            df["weight_change_zone"] = float("nan")
+
         return df

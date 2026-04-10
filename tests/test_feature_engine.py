@@ -315,3 +315,85 @@ class TestFeatureEngineBuildFeatures:
         result = engine.build_features(sample_race, sample_entries, odds_snapshot=odds_df)
         assert "tanodds" in result.columns
         assert result["tanodds"].tolist() == [2.0, 3.0, 4.0]
+
+
+class TestWeightChangeZone:
+    """A2: weight_change_zone のユニットテスト (_map_basic_features内)"""
+
+    def _make_df_with_zogen(self, zogen_values: list[float]) -> pd.DataFrame:
+        return pd.DataFrame({
+            "race_id": ["R1"] * len(zogen_values),
+            "umaban": list(range(1, len(zogen_values) + 1)),
+            "surface": ["turf"] * len(zogen_values),
+            "kyori": [1600] * len(zogen_values),
+            "gradecd": [0] * len(zogen_values),
+            "syussotosu": [10] * len(zogen_values),
+            "ninki": list(range(1, len(zogen_values) + 1)),
+            "kyakusitukubun": [1] * len(zogen_values),
+            "zogen_sa": zogen_values,
+        })
+
+    def test_golden_zone(self) -> None:
+        from features.feature_engine import FeatureEngine
+
+        fe = FeatureEngine()
+        df = self._make_df_with_zogen([5.0, 8.0, 12.0])
+        result = fe._map_basic_features(df)
+        assert "weight_change_zone" in result.columns
+        assert (result["weight_change_zone"] == 2).all()
+
+    def test_stable_zone(self) -> None:
+        from features.feature_engine import FeatureEngine
+
+        fe = FeatureEngine()
+        df = self._make_df_with_zogen([0.0, -3.0, 3.0, 4.0])
+        result = fe._map_basic_features(df)
+        assert result["weight_change_zone"].iloc[0] == 1  # 0.0 -> stable
+        assert result["weight_change_zone"].iloc[1] == 1  # -3.0 -> stable
+        assert result["weight_change_zone"].iloc[2] == 1  # 3.0 -> stable
+
+    def test_caution_zone(self) -> None:
+        from features.feature_engine import FeatureEngine
+
+        fe = FeatureEngine()
+        df = self._make_df_with_zogen([-5.0, 13.0])
+        result = fe._map_basic_features(df)
+        assert (result["weight_change_zone"] == 0).all()
+
+    def test_danger_zone(self) -> None:
+        from features.feature_engine import FeatureEngine
+
+        fe = FeatureEngine()
+        df = self._make_df_with_zogen([15.0, -15.0])
+        result = fe._map_basic_features(df)
+        assert (result["weight_change_zone"] == -1).all()
+
+    def test_missing_zogen_sa(self) -> None:
+        from features.feature_engine import FeatureEngine
+
+        fe = FeatureEngine()
+        df = pd.DataFrame({
+            "race_id": ["R1"],
+            "umaban": [1],
+            "surface": ["turf"],
+            "kyori": [1600],
+            "gradecd": [0],
+            "syussotosu": [10],
+            "ninki": [1],
+            "kyakusitukubun": [1],
+        })
+        result = fe._map_basic_features(df)
+        assert "weight_change_zone" in result.columns
+        assert result["weight_change_zone"].isna().all()
+
+    def test_boundary_values(self) -> None:
+        """境界値テスト: zogen=4 は golden, zogen=-4 は stable"""
+        from features.feature_engine import FeatureEngine
+
+        fe = FeatureEngine()
+        df = self._make_df_with_zogen([4.0, -4.0, 14.0, -14.0])
+        result = fe._map_basic_features(df)
+        assert result["weight_change_zone"].iloc[0] == 2   # 4 -> golden (4<=4<=12)
+        assert result["weight_change_zone"].iloc[1] == 1   # -4 -> stable (-4 ~ 4)
+        assert result["weight_change_zone"].iloc[2] == 0   # 14 -> caution (wait, 14 > 12 and <=14)
+        assert result["weight_change_zone"].iloc[3] == 0   # -14 -> caution (-14 <= -4 boundary)
