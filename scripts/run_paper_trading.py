@@ -599,6 +599,8 @@ def _run_predict(
         for b in new_bets:
             rid = b["race_id"]
             if rid != prev_rid:
+                if prev_rid:
+                    lines.append("")
                 t = b.get("post_time", "--:--")
                 lines.append(f"  ── {t}  {_fmt_race_id(rid)} ──")
                 prev_rid = rid
@@ -608,12 +610,15 @@ def _run_predict(
             )
 
     if prev_bets_from_df:
+        lines.append("")
         lines.append(f"  --- Previous Predictions ({len(prev_bets_from_df)} bets) ---")
         prev_bets_from_df.sort(key=lambda b: b.get("post_time", "99:99"))
         prev_rid = ""
         for b in prev_bets_from_df:
             rid = b["race_id"]
             if rid != prev_rid:
+                if prev_rid:
+                    lines.append("")
                 t = b.get("post_time", "--:--")
                 lines.append(f"  ── {t}  {_fmt_race_id(rid)} ──")
                 prev_rid = rid
@@ -941,6 +946,8 @@ def _run_reconcile(
     for _, row in pred_df.iterrows():
         rid = row["race_id"]
         if rid != prev_rid:
+            if prev_rid:
+                lines.append("")
             post_time = str(row.get("post_time", ""))
             lines.append(f"  ── {post_time}  {_fmt_race_id(rid)} ──")
             prev_rid = rid

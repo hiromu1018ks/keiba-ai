@@ -183,7 +183,7 @@ class TrainingPipelineV5:
                 new_cols = [c for c in result_df.columns if c not in feat_df.columns]
                 for c in new_cols:
                     feat_df[c] = np.nan
-                feat_df.loc[mask, new_cols] = result_df[new_cols].values
+                feat_df.loc[mask, new_cols] = result_df[new_cols].astype(float).values
 
         # 5. レースレベル特徴量を構築
         required_cols = ["signed_log_error_win", "abs_log_error_win"]
@@ -545,10 +545,10 @@ class TrainingPipelineV5:
                 # Stage1 (AbilityModel per surface)
                 stage1_model = sub.stage1.models.get(surface)
                 if stage1_model is not None:
-                    mlflow.lightgbm.log_model(stage1_model, artifact_path=f"stage1_{surface}")
+                    mlflow.lightgbm.log_model(stage1_model, name=f"stage1_{surface}")
 
                 # MarketModel
-                mlflow.lightgbm.log_model(sub.market.model, artifact_path=f"market_{surface}")
+                mlflow.lightgbm.log_model(sub.market.model, name=f"market_{surface}")
 
                 # WinTwoStageModel
                 if sub.use_ensemble:
@@ -563,17 +563,17 @@ class TrainingPipelineV5:
                         if _se_tmp and os.path.exists(_se_tmp):
                             os.unlink(_se_tmp)
                 else:
-                    mlflow.lightgbm.log_model(sub.win.hit_model, artifact_path=f"win_hit_{surface}")
-                mlflow.lightgbm.log_model(sub.win.return_model, artifact_path=f"win_ret_{surface}")
+                    mlflow.lightgbm.log_model(sub.win.hit_model, name=f"win_hit_{surface}")
+                mlflow.lightgbm.log_model(sub.win.return_model, name=f"win_ret_{surface}")
 
                 # EVCorrectionModel
                 mlflow.lightgbm.log_model(
                     sub.ev_corrector.p_correction_model,
-                    artifact_path=f"ev_corrector_p_{surface}",
+                    name=f"ev_corrector_p_{surface}",
                 )
                 mlflow.lightgbm.log_model(
                     sub.ev_corrector.e_correction_model,
-                    artifact_path=f"ev_corrector_e_{surface}",
+                    name=f"ev_corrector_e_{surface}",
                 )
 
                 # PlaceTwoStageModel
@@ -589,10 +589,10 @@ class TrainingPipelineV5:
                             os.unlink(_se_tmp2)
                 else:
                     mlflow.lightgbm.log_model(
-                        sub.place.hit_model, artifact_path=f"place_hit_{surface}"
+                        sub.place.hit_model, name=f"place_hit_{surface}"
                     )
                 mlflow.lightgbm.log_model(
-                    sub.place.return_model, artifact_path=f"place_ret_{surface}"
+                    sub.place.return_model, name=f"place_ret_{surface}"
                 )
 
                 # PlaceAbilityModel (sklearn CalibratedClassifierCV → joblib)
@@ -609,17 +609,17 @@ class TrainingPipelineV5:
                             os.unlink(_tmp_path)
 
                 # WideTwoStageModel
-                mlflow.lightgbm.log_model(sub.wide.hit_model, artifact_path=f"wide_hit_{surface}")
+                mlflow.lightgbm.log_model(sub.wide.hit_model, name=f"wide_hit_{surface}")
                 mlflow.lightgbm.log_model(
-                    sub.wide.return_model, artifact_path=f"wide_ret_{surface}"
+                    sub.wide.return_model, name=f"wide_ret_{surface}"
                 )
 
             # RaceQualityScreener
-            mlflow.lightgbm.log_model(quality_screen.model, artifact_path="race_quality")
+            mlflow.lightgbm.log_model(quality_screen.model, name="race_quality")
             mlflow.log_param("quality_threshold", quality_screen.threshold)
 
             # RegimeDetector
-            mlflow.lightgbm.log_model(regime_det.model, artifact_path="regime_detector")
+            mlflow.lightgbm.log_model(regime_det.model, name="regime_detector")
 
             # RobustConfidenceEstimator キャリブレーション値 (JSON)
             first_sub = next(iter(models.values()))
