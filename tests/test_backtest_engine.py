@@ -72,6 +72,37 @@ class TestBacktestResult:
         assert "110.000%" in s
 
 
+    def test_bet_final_odds_default(self) -> None:
+        """Bet.final_odds のデフォルトは 0.0"""
+        from domain.models import Bet, BetType
+
+        bet = Bet(
+            race_id="20250401110101",
+            umaban=1,
+            bet_type=BetType.PLACE,
+            odds=1.3,
+            ev_lower_corrected=1.5,
+            stake=100.0,
+        )
+        assert bet.final_odds == 0.0
+        assert bet.odds == 1.3
+
+    def test_bet_final_odds_set(self) -> None:
+        """Bet.final_odds に値を設定できる"""
+        from domain.models import Bet, BetType
+
+        bet = Bet(
+            race_id="20250401110101",
+            umaban=1,
+            bet_type=BetType.PLACE,
+            odds=1.3,
+            final_odds=1.5,
+            ev_lower_corrected=1.5,
+            stake=100.0,
+        )
+        assert bet.final_odds == 1.5
+
+
 class TestBacktestEngine:
     """BacktestEngine のテスト"""
 
