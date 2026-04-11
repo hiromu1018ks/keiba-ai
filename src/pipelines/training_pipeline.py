@@ -121,7 +121,9 @@ class TrainingPipelineV5:
                 pre_post_odds = odds_df
         else:
             pre_post_odds = odds_df
-            logger.warning("No time-series odds or hassotime, using final odds (potential look-ahead)")
+            logger.warning(
+                "No time-series odds or hassotime, using final odds (look-ahead bias)"
+            )
 
         # 2. 特徴量生成
         logger.info("Building features")
@@ -385,9 +387,9 @@ class TrainingPipelineV5:
         with TimingContext(f"{surface}/confidence"):
             conf = RobustConfidenceEstimator()
             win_calib_df = df_oof.copy()
-            win_calib_df["actual_ev_win"] = df_oof["confirmed_odds"] * (df_oof["kakuteijyuni"] == 1).astype(
-                int
-            )
+            win_calib_df["actual_ev_win"] = df_oof["confirmed_odds"] * (
+                df_oof["kakuteijyuni"] == 1
+            ).astype(int)
             place_calib_df = df_oof.copy()
             place_calib_df["actual_ev_place"] = df_oof["fukuoddslow"] * (
                 df_oof["kakuteijyuni"] <= 3

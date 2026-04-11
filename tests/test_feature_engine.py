@@ -196,8 +196,8 @@ class TestFeatureEngineBuildAll:
         assert "field_size" in result.columns
         assert (result["field_size"] == 18).all()
 
-    def test_popularity_rank_from_ninki(self, sample_race_df, sample_entry_df, sample_odds_df):
-        """ninki から popularity_rank にコピーされる"""
+    def test_popularity_rank_from_tanninki(self, sample_race_df, sample_entry_df, sample_odds_df):
+        """tanninki (発走前人気) から popularity_rank にコピーされる"""
         engine = FeatureEngine()
         result = engine.build_all(sample_race_df, sample_entry_df, sample_odds_df)
         assert "popularity_rank" in result.columns
@@ -401,3 +401,109 @@ class TestWeightChangeZone:
         assert result["weight_change_zone"].iloc[1] == 1  # -4 -> stable (-4 ~ 4)
         assert result["weight_change_zone"].iloc[2] == 0  # 14 -> caution (wait, 14 > 12 and <=14)
         assert result["weight_change_zone"].iloc[3] == 0  # -14 -> caution (-14 <= -4 boundary)
+
+
+class TestLeakPrevention:
+    """データリーク修正の検証テスト"""
+
+    def _make_race_df(self) -> pd.DataFrame:
+        return pd.DataFrame(
+            {
+                "race_id": ["R001"] * 3,
+                "trackcd": [11] * 3,
+                "kyori": [1600] * 3,
+                "syussotosu": [3] * 3,
+                "surface": ["turf"] * 3,
+                "gradecd": ["_"] * 3,
+            }
+        )
+
+    def _make_entry_df(self, odds: list[float], ninki: list[int]) -> pd.DataFrame:
+        return pd.DataFrame(
+            {
+                "race_id": ["R001"] * 3,
+                "umaban": [1, 2, 3],
+                "odds": odds,
+                "ninki": ninki,
+                "bataijyu": [480.0, 470.0, 490.0],
+            }
+        )
+
+    def _make_odds_df(self, tanodds: list[float], tanninki: list[int]) -> pd.DataFrame:
+        return pd.DataFrame(
+            {
+                "race_id": ["R001"] * 3,
+                "umaban": [1, 2, 3],
+                "tanodds": tanodds,
+                "fukuoddslow": [1.1, 1.3, 1.5],
+                "tanninki": tanninki,
+            }
+        )
+
+    def test_popularity_rank_uses_tanninki_not_ninki(self) -> None:
+        """tanninki と ninki が異なる場合、popularity_rank は tanninki を使用"""
+        engine = FeatureEngine()
+        race_df = self._make_race_df()
+        # ninki は確定人気 (1,2,3) — リーク源
+        entry_df = self._make_entry_df(odds=[3.0, 5.0, 8.0], ninki=[1, 2, 3])
+        # tanninki は発走前人気 (3,1,2) — 正しい値
+        odds_df = self._make_odds_df(tanodds=[3.0, 5.0, 8.0], tanninki=[3, 1, 2])
+
+        result = engine.build_all(race_df, entry_df, odds_df)
+        assert result["popularity_rank"].tolist() == [3, 1, 2]
+
+    def test_popularity_rank_fallback_when_tanninki_zero(self) -> None:
+        """tanninki が全て 0 の場合、ninki をフォールバックとして使用"""
+        engine = FeatureEngine()
+        race_df = self._make_race_df()
+        entry_df = self._make_entry_df(odds=[3.0, 5.0, 8.0], ninki=[1, 2, 3])
+        odds_df = self._make_odds_df(tanodds=[3.0, 5.0, 8.0], tanninki=[0, 0, 0])
+
+        result = engine.build_all(race_df, entry_df, odds_df)
+        # tanninki=0 → ninki フォールバック
+        assert result["popularity_rank"].tolist() == [1, 2, 3]
+
+    def test_odds_replaced_by_tanodds(self) -> None:
+        """odds (確定) が tanodds (発走前) で上書きされる"""
+        engine = FeatureEngine()
+        race_df = self._make_race_df()
+        # entries.odds は確定オッズ (低い = 強い馬)
+        entry_df = self._make_entry_df(odds=[2.0, 4.0, 7.0], ninki=[1, 2, 3])
+        # tanodds は発走前オッズ (異なる値)
+        odds_df = self._make_odds_df(tanodds=[3.5, 5.0, 9.0], tanninki=[1, 2, 3])
+
+        result = engine.build_all(race_df, entry_df, odds_df)
+        # odds 列は tanodds の値に上書きされているはず
+        assert result["odds"].tolist() == [3.5, 5.0, 9.0]
+
+    def test_confirmed_odds_preserved(self) -> None:
+        """confirmed_odds 列に元の確定オッズが保存される"""
+        engine = FeatureEngine()
+        race_df = self._make_race_df()
+        entry_df = self._make_entry_df(odds=[2.0, 4.0, 7.0], ninki=[1, 2, 3])
+        odds_df = self._make_odds_df(tanodds=[3.5, 5.0, 9.0], tanninki=[1, 2, 3])
+
+        result = engine.build_all(race_df, entry_df, odds_df)
+        assert "confirmed_odds" in result.columns
+        assert result["confirmed_odds"].tolist() == [2.0, 4.0, 7.0]
+
+    def test_odds_fallback_when_tanodds_missing(self) -> None:
+        """tanodds が 0/NaN の場合、entries.odds をフォールバックとして保持"""
+        engine = FeatureEngine()
+        race_df = self._make_race_df()
+        entry_df = self._make_entry_df(odds=[2.0, 4.0, 7.0], ninki=[1, 2, 3])
+        odds_df = pd.DataFrame(
+            {
+                "race_id": ["R001"] * 3,
+                "umaban": [1, 2, 3],
+                "tanodds": [0.0, float("nan"), 9.0],
+                "fukuoddslow": [1.1, 1.3, 1.5],
+                "tanninki": [1, 2, 3],
+            }
+        )
+
+        result = engine.build_all(race_df, entry_df, odds_df)
+        # tanodds=0 と NaN はフォールバック、9.0 は上書き
+        assert result["odds"].iloc[0] == 2.0  # tanodds=0 → entries.odds
+        assert result["odds"].iloc[1] == 4.0  # tanodds=NaN → entries.odds
+        assert result["odds"].iloc[2] == 9.0  # tanodds=9.0 → 上書き
