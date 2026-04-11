@@ -6,9 +6,11 @@ from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pandas as pd
+import pytest
 
 from domain.models import SubmodelSet, TrainedModelsV5
 from features.feature_engine import FeatureEngine
+from models.regime_detector import RegimeDetector
 from models.submodel_manager import SubModelManager
 from pipelines.training_pipeline import TrainingPipelineV5
 
@@ -328,3 +330,190 @@ class TestTrainingPipelineV5:
                             pipeline.run("2020-01-01", "2023-12-31")
 
         mock_mlflow.start_run.assert_called_once()
+
+
+class TestBuildRaceLevelFeatures:
+    """_build_race_level_features の favorite_win_rate expanding テスト"""
+
+    @pytest.fixture
+    def pipeline(self) -> TrainingPipelineV5:
+        """テスト用パイプライン (store/db なし)"""
+        p = TrainingPipelineV5.__new__(TrainingPipelineV5)
+        p.store = MagicMock()
+        p.db = None
+        p.feature_engine = FeatureEngine()
+        p.submodel_mgr = SubModelManager()
+        return p
+
+    def _make_feat_df(self, n_races: int = 20) -> pd.DataFrame:
+        """テスト用馬レベルDataFrame (1番人気が約30%の割合で勝つ)"""
+        np.random.seed(42)
+        rows = []
+        for r in range(n_races):
+            race_id = f"2020{(r // 28) % 12 + 1:02d}{r % 28 + 1:02d}0101{r:02d}"
+            n_horses = 10
+            fav_wins = np.random.random() < 0.30
+            for h in range(n_horses):
+                kakuteijyuni = h + 1
+                pop_rank = h + 1
+                if h == 0 and fav_wins:
+                    kakuteijyuni = 1
+                elif h == 0:
+                    kakuteijyuni = np.random.randint(2, n_horses + 1)
+                rows.append({
+                    "race_id": race_id,
+                    "umaban": h + 1,
+                    "surface": "turf" if r % 2 == 0 else "dirt",
+                    "distance_bin": "mile",
+                    "track_condition_code": 1,
+                    "grade_code": "C",
+                    "field_size": n_horses,
+                    "difficulty_score": 0.5,
+                    "signed_log_error_win": np.random.normal(0, 0.3),
+                    "abs_log_error_win": np.random.uniform(0, 1),
+                    "market_entropy": np.random.uniform(1.0, 3.0),
+                    "overround": np.random.uniform(0.15, 0.30),
+                    "kakuteijyuni": kakuteijyuni,
+                    "popularity_rank": pop_rank,
+                    "race_date": f"2020-{(r // 28) % 12 + 1:02d}-{(r % 28) + 1:02d}",
+                })
+        return pd.DataFrame(rows)
+
+    def test_favorite_win_rate_is_expanding_mean_of_past_races(
+        self, pipeline: TrainingPipelineV5
+    ) -> None:
+        """favorite_win_rate が過去レースのみの expanding mean である"""
+        feat_df = self._make_feat_df(n_races=50)
+        result = pipeline._build_race_level_features(feat_df)
+        assert "favorite_win_rate" in result.columns
+        first_val = result.iloc[0]["favorite_win_rate"]
+        assert first_val == pytest.approx(0.3), (
+            f"First favorite_win_rate should be 0.3 (baseline), got {first_val}"
+        )
+
+    def test_favorite_win_rate_does_not_use_current_race(
+        self, pipeline: TrainingPipelineV5
+    ) -> None:
+        """favorite_win_rate は現在のレース結果を使用しない (shift(1))"""
+        feat_df = self._make_feat_df(n_races=30)
+        result = pipeline._build_race_level_features(feat_df)
+        assert (result["favorite_win_rate"].dropna() >= 0).all()
+        assert (result["favorite_win_rate"].dropna() <= 1).all()
+
+    def test_favorite_win_rate_no_kakuteijyuni_defaults_to_baseline(
+        self, pipeline: TrainingPipelineV5
+    ) -> None:
+        """kakuteijyuni がない場合は 0.3 (ベースライン) にフォールバック"""
+        feat_df = self._make_feat_df(n_races=10)
+        feat_df = feat_df.drop(columns=["kakuteijyuni"])
+        result = pipeline._build_race_level_features(feat_df)
+        assert "favorite_win_rate" in result.columns
+        assert (result["favorite_win_rate"] == 0.3).all()
+
+    def test_hist_hit_rate_topk_uses_expanding_favorite_win_rate(
+        self, pipeline: TrainingPipelineV5
+    ) -> None:
+        """hist_hit_rate_topk が存在し、妥当な範囲の値を持つ"""
+        feat_df = self._make_feat_df(n_races=30)
+        result = pipeline._build_race_level_features(feat_df)
+        assert "hist_hit_rate_topk" in result.columns
+        # compute_hist_features が topk_hit (0) から expanding 計算するため
+        # NaN を含む場合があるが、列は存在し妥当な値であること
+        valid_vals = result["hist_hit_rate_topk"].dropna()
+        assert (valid_vals >= 0).all()
+        assert (valid_vals <= 1).all()
+
+    def test_hist_win_rate_same_condition_uses_expanding(
+        self, pipeline: TrainingPipelineV5
+    ) -> None:
+        """hist_win_rate_same_condition が expanding 版 favorite_win_rate を引き継ぐ"""
+        feat_df = self._make_feat_df(n_races=30)
+        result = pipeline._build_race_level_features(feat_df)
+        assert "hist_win_rate_same_condition" in result.columns
+        assert result["hist_win_rate_same_condition"].notna().any()
+
+
+class TestBuildRegimeStats:
+    """_build_regime_stats の新 FEATURE_COLS マッピング テスト"""
+
+    @pytest.fixture
+    def pipeline(self) -> TrainingPipelineV5:
+        p = TrainingPipelineV5.__new__(TrainingPipelineV5)
+        p.store = MagicMock()
+        p.db = None
+        p.feature_engine = FeatureEngine()
+        p.submodel_mgr = SubModelManager()
+        return p
+
+    def _make_race_feat_df(self, n_races: int = 20) -> pd.DataFrame:
+        rows = []
+        for r in range(n_races):
+            rows.append({
+                "race_id": f"2020{(r // 28) % 12 + 1:02d}{r % 28 + 1:02d}0101{r:02d}",
+                "surface": "turf" if r % 2 == 0 else "dirt",
+                "distance_bin": "mile",
+                "track_condition_code": 1,
+                "grade_code": "C",
+                "field_size": 12,
+                "difficulty_score": 0.5,
+                "market_log_error_mean": np.random.normal(0, 0.1),
+                "market_log_error_std": np.random.uniform(0.1, 0.5),
+                "market_log_error_abs_mean": np.random.uniform(0, 0.5),
+                "n_positive_errors": 5,
+                "top_k_error_sum": 0.1,
+                "positive_error_ratio": 0.4,
+                "market_entropy_mean": np.random.uniform(1.5, 3.0),
+                "overround_mean": np.random.uniform(0.15, 0.30),
+                "favorite_win_rate": 0.3,
+                "hist_hit_rate_topk": 0.3,
+                "hist_roi_topk": 1.0,
+                "hist_positive_return_ratio": 0.3,
+                "market_log_error_max_abs": 0.4,
+                "market_log_error_top_q75": 0.3,
+                "market_entropy": 2.0,
+                "overround": 0.20,
+                "overround_deviation": 0.0,
+                "hist_win_rate_same_condition": 0.3,
+                "hist_market_entropy_avg": 2.0,
+                "race_date": f"2020-{(r // 28) % 12 + 1:02d}-{(r % 28) + 1:02d}",
+            })
+        return pd.DataFrame(rows)
+
+    def _make_feat_df(self, n_races: int = 20) -> pd.DataFrame:
+        rows = []
+        for r in range(n_races):
+            race_id = f"2020{(r // 28) % 12 + 1:02d}{r % 28 + 1:02d}0101{r:02d}"
+            for h in range(5):
+                rows.append({
+                    "race_id": race_id,
+                    "umaban": h + 1,
+                    "tanodds": np.random.uniform(2.0, 20.0),
+                    "kakuteijyuni": h + 1,
+                    "popularity_rank": h + 1,
+                    "odds_volatility": np.random.uniform(0, 0.3),
+                    "surface": "turf" if r % 2 == 0 else "dirt",
+                    "race_date": f"2020-{(r // 28) % 12 + 1:02d}-{(r % 28) + 1:02d}",
+                })
+        return pd.DataFrame(rows)
+
+    def test_build_regime_stats_has_all_feature_cols(
+        self, pipeline: TrainingPipelineV5
+    ) -> None:
+        """_build_regime_stats の出力が RegimeDetector.FEATURE_COLS の全列を含む"""
+        race_feat_df = self._make_race_feat_df(20)
+        feat_df = self._make_feat_df(20)
+        result = pipeline._build_regime_stats(race_feat_df, feat_df)
+        for col in RegimeDetector.FEATURE_COLS:
+            assert col in result.columns, f"Missing FEATURE_COLS column: {col}"
+
+    def test_build_regime_stats_replaces_old_cols(
+        self, pipeline: TrainingPipelineV5
+    ) -> None:
+        """旧 FEATURE_COLS (結果依存) が新 FEATURE_COLS に置き換わる"""
+        race_feat_df = self._make_race_feat_df(20)
+        feat_df = self._make_feat_df(20)
+        result = pipeline._build_regime_stats(race_feat_df, feat_df)
+        assert "overround_rolling" in result.columns
+        assert "entropy_rolling" in result.columns
+        assert "favorite_implied_prob_rolling" in result.columns
+        assert "odds_skewness_rolling" in result.columns

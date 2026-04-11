@@ -430,6 +430,7 @@ class TrainingPipelineV5:
         """馬レベル特徴量 → レースレベル特徴量に集約
 
         RaceQualityScreener.FEATURE_COLS (19列) に対応。
+        v5.5 leak-fix: favorite_win_rate を expanding window で計算 (C3)。
         """
         race_feat = (
             feat_df.groupby("race_id")
@@ -454,16 +455,30 @@ class TrainingPipelineV5:
                 # 市場構造
                 market_entropy_mean=("market_entropy", "first"),
                 overround_mean=("overround", "first"),
-                # 人気順位統計
-                favorite_win_rate=(
-                    "kakuteijyuni",
-                    lambda x: (x == 1).mean() if len(x) > 0 else 0.0,
-                ),
             )
             .reset_index()
         )
 
-        # 結果ベース proxy (初期値)
+        # C3 fix: favorite_win_rate を expanding window で計算
+        if "race_date" in feat_df.columns:
+            date_map = feat_df.groupby("race_id")["race_date"].first()
+            race_feat["race_date"] = race_feat["race_id"].map(date_map)
+            race_feat = race_feat.sort_values("race_date").reset_index(drop=True)
+
+        if "kakuteijyuni" in feat_df.columns and "popularity_rank" in feat_df.columns:
+            fav_df = feat_df[feat_df["popularity_rank"] == 1][["race_id", "kakuteijyuni"]].copy()
+            fav_df["fav_won"] = (fav_df["kakuteijyuni"] == 1).astype(float)
+            race_feat = race_feat.merge(fav_df[["race_id", "fav_won"]], on="race_id", how="left")
+            race_feat["fav_won"] = race_feat["fav_won"].fillna(0.0)
+            race_feat["favorite_win_rate"] = (
+                race_feat["fav_won"].shift(1).expanding(min_periods=10).mean()
+            )
+            race_feat["favorite_win_rate"] = race_feat["favorite_win_rate"].fillna(0.3)
+            race_feat = race_feat.drop(columns=["fav_won"])
+        else:
+            race_feat["favorite_win_rate"] = 0.3
+
+        # 結果ベース proxy (初期値) — favorite_win_rate は expanding 済み
         race_feat["hist_hit_rate_topk"] = race_feat["favorite_win_rate"]
         race_feat["hist_roi_topk"] = 1.0
         race_feat["hist_positive_return_ratio"] = 0.3
@@ -486,11 +501,7 @@ class TrainingPipelineV5:
         race_feat["hist_market_entropy_avg"] = race_feat["market_entropy_mean"]
 
         # 履歴特徴量 (expanding window — リークフリー)
-        if "race_date" in feat_df.columns:
-            date_map = feat_df.groupby("race_id")["race_date"].first()
-            race_feat["race_date"] = race_feat["race_id"].map(date_map)
-            race_feat = race_feat.sort_values("race_date").reset_index(drop=True)
-
+        if "race_date" in race_feat.columns:
             try:
                 from features.info_asymmetry_features import compute_hist_features
 
@@ -505,8 +516,8 @@ class TrainingPipelineV5:
     ) -> pd.DataFrame:
         """RegimeDetector 用の rolling 統計を構築
 
-        RegimeDetector.FEATURE_COLS (11列) に対応。
-        直近200レースの window 統計。実データ計算を使用。
+        RegimeDetector.FEATURE_COLS (8列) に対応。
+        直近200レースの window 統計。全て発走前情報のみ使用。
         """
         if "race_date" in race_feat_df.columns:
             race_feat_df = race_feat_df.sort_values("race_date").reset_index(drop=True)
@@ -514,64 +525,63 @@ class TrainingPipelineV5:
         window = 200
         stats = race_feat_df.copy()
 
-        # Rolling 統計
-        for col in ["market_log_error_mean", "favorite_win_rate", "overround_mean"]:
-            if col in stats.columns:
-                stats[f"{col}_rolling"] = stats[col].rolling(window=window, min_periods=50).mean()
-
-        # RegimeDetector.FEATURE_COLS に必要な列をマッピング
+        # 基本列マッピング (MarketModel 由来)
         stats["market_error_std"] = stats["market_log_error_std"].fillna(0.2)
         stats["market_error_mean"] = stats["market_log_error_mean"].fillna(0.0)
         stats["field_size_mean"] = stats["field_size"].fillna(14.0).astype(float)
 
-        # --- Phase 3: 実データ化 ---
-        # FLB slope: 馬レベル feat_df から計算 → レース単位に集約
-        from features.market_bias_features import compute_flb_slope
-
-        if "tanodds" in feat_df.columns and "race_id" in feat_df.columns:
-            odds_shape_df = compute_flb_slope(feat_df)
-            for col in ["odds_skewness", "implied_prob_hhi"]:
-                feat_copy = feat_df.copy()
-                feat_copy[col] = odds_shape_df[col].values
-                race_col = feat_copy.groupby("race_id")[col].first()
-                stats[col] = stats["race_id"].map(race_col).fillna(0.0)
+        # overround_rolling: overround の rolling mean
+        if "overround_mean" in stats.columns:
+            stats["overround_rolling"] = (
+                stats["overround_mean"].rolling(window=window, min_periods=50).mean()
+            )
         else:
-            stats["odds_skewness"] = 0.0
-            stats["implied_prob_hhi"] = 0.0
-        # 後方互換: RegimeDetector は依然として flb_slope を期待 (Section 3 で置換予定)
-        stats["flb_slope"] = stats["odds_skewness"]
+            stats["overround_rolling"] = 0.20
 
-        # Rolling volatility: 馬レベル odds_volatility → レース平均 → rolling
-        from features.odds_dynamics_features import compute_rolling_volatility
+        # entropy_rolling: market_entropy の rolling mean
+        if "market_entropy_mean" in stats.columns:
+            stats["entropy_rolling"] = (
+                stats["market_entropy_mean"].rolling(window=window, min_periods=50).mean()
+            )
+        else:
+            stats["entropy_rolling"] = 2.0
 
+        # favorite_implied_prob_rolling
+        if all(c in feat_df.columns for c in ["race_id", "tanodds", "popularity_rank"]):
+            fav_df = (
+                feat_df[feat_df["popularity_rank"] == 1][["race_id", "tanodds"]].copy()
+            )
+            fav_df["fav_implied"] = 1.0 / fav_df["tanodds"].replace(0, np.nan)
+            race_fav_implied = fav_df.groupby("race_id")["fav_implied"].first()
+            stats["fav_implied"] = stats["race_id"].map(race_fav_implied).fillna(0.3)
+            stats["favorite_implied_prob_rolling"] = (
+                stats["fav_implied"].rolling(window=window, min_periods=50).mean()
+            )
+            stats = stats.drop(columns=["fav_implied"])
+        else:
+            stats["favorite_implied_prob_rolling"] = 0.3
+
+        # odds_skewness_rolling
+        if all(c in feat_df.columns for c in ["race_id", "tanodds"]):
+            race_skew = feat_df.groupby("race_id")["tanodds"].skew()
+            stats["odds_skew"] = stats["race_id"].map(race_skew).fillna(0.0)
+            stats["odds_skewness_rolling"] = (
+                stats["odds_skew"].rolling(window=window, min_periods=50).mean()
+            )
+            stats = stats.drop(columns=["odds_skew"])
+        else:
+            stats["odds_skewness_rolling"] = 0.0
+
+        # odds_volatility_mean
         if "odds_volatility" in feat_df.columns:
-            feat_copy = feat_df.copy()
-            vol_series = compute_rolling_volatility(feat_copy, window=window, min_periods=50)
-            feat_copy["odds_volatility_rolling"] = vol_series.values
-            race_vol = feat_copy.groupby("race_id")["odds_volatility_rolling"].mean()
-            stats["odds_volatility_mean"] = stats["race_id"].map(race_vol).fillna(0.1)
+            race_vol = feat_df.groupby("race_id")["odds_volatility"].mean()
+            stats["race_vol"] = stats["race_id"].map(race_vol).fillna(0.1)
+            stats["odds_volatility_mean"] = (
+                stats["race_vol"].rolling(window=window, min_periods=50).mean()
+            )
+            stats = stats.drop(columns=["race_vol"])
         else:
             stats["odds_volatility_mean"] = 0.1
-
-        # オッズベース EMA: 発走前指標のみ (kakuteijyuni 不使用)
-        from features.odds_dynamics_features import compute_roi_ema
-
-        if all(c in feat_df.columns for c in ["race_id", "tanodds", "popularity_rank"]):
-            odds_ema_df = compute_roi_ema(feat_df, span=50, min_periods=50)
-            for col in ["favorite_implied_prob_ema", "overround_ema", "entropy_ema"]:
-                feat_copy = feat_df.copy()
-                feat_copy[col] = odds_ema_df[col].values
-                race_ema = feat_copy.groupby("race_id")[col].mean()
-                stats[col] = stats["race_id"].map(race_ema).fillna(0.0)
-        else:
-            stats["favorite_implied_prob_ema"] = 0.0
-            stats["overround_ema"] = 0.0
-            stats["entropy_ema"] = 0.0
-
-        # 後方互換: RegimeDetector FEATURE_COLS が旧列名を参照 (Task 7 で修正)
-        stats["favorite_roi_ema"] = stats.get("favorite_implied_prob_ema", 0.0)
-        stats["mid_roi_ema"] = 0.0
-        stats["longshot_roi_ema"] = 0.0
 
         return stats
 
