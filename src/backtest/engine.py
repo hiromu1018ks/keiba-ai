@@ -37,21 +37,30 @@ class BacktestResult:
     final_bankroll: float = 0.0
     monthly_returns: dict[str, float] = field(default_factory=dict)
     bet_history: list[dict[str, Any]] = field(default_factory=list)
+    n_pre_post_odds_bets: int = 0   # 発走前オッズでベットした件数
+    n_fallback_odds_bets: int = 0   # フォールバック（確定オッズ）でベットした件数
 
     @property
     def profit(self) -> float:
         return self.total_return - self.total_stake
 
     def summary(self) -> str:
-        return (
-            f"Backtest Result:\n"
-            f"  Bets: {self.total_bets}\n"
-            f"  Stake: ¥{self.total_stake:,.0f}\n"
-            f"  Return: ¥{self.total_return:,.0f}\n"
-            f"  ROI: {self.total_roi:.3%}\n"
-            f"  Max DD: {self.max_drawdown:.3%}\n"
-            f"  Final Bankroll: ¥{self.final_bankroll:,.0f}"
-        )
+        lines = [
+            f"Backtest Result:",
+            f"  Bets: {self.total_bets}",
+            f"  Stake: ¥{self.total_stake:,.0f}",
+            f"  Return: ¥{self.total_return:,.0f}",
+            f"  ROI: {self.total_roi:.3%}",
+            f"  Max DD: {self.max_drawdown:.3%}",
+            f"  Final Bankroll: ¥{self.final_bankroll:,.0f}",
+        ]
+        if self.n_pre_post_odds_bets + self.n_fallback_odds_bets > 0:
+            total = self.n_pre_post_odds_bets + self.n_fallback_odds_bets
+            fallback_pct = self.n_fallback_odds_bets / total * 100
+            lines.append(
+                f"  Odds fallback: {self.n_fallback_odds_bets}/{total} ({fallback_pct:.1f}%)"
+            )
+        return "\n".join(lines)
 
 
 class BacktestEngine:
@@ -126,9 +135,12 @@ class BacktestEngine:
         odds_ts_df = load_odds_time_series_range(self.store, start, end)
 
         # 発走前オッズの抽出（フォールバック: 確定オッズ）
+        used_pre_post_odds = False
         if not odds_ts_df.empty and "hassotime" in race_df.columns:
             pre_post_odds = extract_pre_post_odds(odds_ts_df, race_df, minutes_before=5)
-            if pre_post_odds.empty:
+            if not pre_post_odds.empty:
+                used_pre_post_odds = True
+            else:
                 logger.warning("extract_pre_post_odds returned empty, falling back to final odds")
                 pre_post_odds = final_odds_df
         else:
@@ -179,6 +191,8 @@ class BacktestEngine:
         max_dd = 0.0
         bet_history: list[dict[str, Any]] = []
         monthly_returns: dict[str, float] = {}
+        n_pre_post_odds_bets = 0
+        n_fallback_odds_bets = 0
 
         for race_id in race_ids:
             race_df_single = feat_df[feat_df["race_id"] == race_id].copy()
@@ -285,6 +299,12 @@ class BacktestEngine:
                 fo = final_odds_map.get((bet.race_id, bet.umaban), bet.odds)
                 updated_bets.append(replace(bet, final_odds=fo))
             bets = updated_bets
+
+            # フォールバックメトリクス集計
+            if used_pre_post_odds:
+                n_pre_post_odds_bets += len(bets)
+            else:
+                n_fallback_odds_bets += len(bets)
 
             # Log diagnostics for quality-passed race
             diag_logger.log_race(
@@ -404,6 +424,8 @@ class BacktestEngine:
             final_bankroll=bankroll,
             monthly_returns=monthly_returns,
             bet_history=bet_history,
+            n_pre_post_odds_bets=n_pre_post_odds_bets,
+            n_fallback_odds_bets=n_fallback_odds_bets,
         )
 
     def _build_race_features(self, race_df: pd.DataFrame) -> dict[str, Any]:

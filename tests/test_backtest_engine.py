@@ -415,6 +415,7 @@ class TestBetHistoryEnrichment:
 
         # --- assertions ---
         assert result.total_bets >= 1, "Should place at least 1 bet"
+        assert result.n_pre_post_odds_bets + result.n_fallback_odds_bets >= 1
         bet = result.bet_history[0]
         assert "surface" in bet
         assert bet["surface"] == "turf"
