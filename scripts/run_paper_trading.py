@@ -419,7 +419,7 @@ def _run_predict(
                     "result": 0.0,  # 未確定
                     "surface": result_df.iloc[0].get("surface", ""),
                     "distance": result_df.iloc[0].get("kyori", 0),
-                    "bankroll_after": bet.stake,  # reconcileで更新
+                    "bankroll_after": round(bankroll - bet.stake, 2),
                     "race_date": ymd,
                     "post_time": _race_time_map.get(race_id, ""),
                     "is_paper": True,
