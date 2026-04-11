@@ -9,7 +9,8 @@ from typing import TYPE_CHECKING, Any, cast
 
 import pandas as pd
 
-from db.readers import load_entries, load_odds_snapshots, load_races
+from db.odds_extractor import extract_pre_post_odds
+from db.readers import load_entries, load_odds_snapshots, load_odds_time_series_range, load_races
 
 if TYPE_CHECKING:
     from backtest.race_predictor import RacePredictor
@@ -72,10 +73,22 @@ class PaperPredictor:
             logger.warning("No race data in Parquet for %s", target_date)
             return []
 
+        # 発走前オッズを優先使用 (フォールバック: 確定オッズ)
+        odds_ts_df = load_odds_time_series_range(self.store, ymd, ymd)
+        if not odds_ts_df.empty and "hassotime" in race_df.columns:
+            pre_post_odds = extract_pre_post_odds(odds_ts_df, race_df, minutes_before=5)
+            if not pre_post_odds.empty:
+                logger.info("Using pre-race odds for %s (%d entries)", ymd, len(pre_post_odds))
+                odds_df = pre_post_odds
+            else:
+                logger.info("Pre-race odds empty for %s, falling back to confirmed odds", ymd)
+        else:
+            logger.info("No time-series odds for %s, using confirmed odds", ymd)
+
         feat_engine = FeatureEngine()
         submodel_mgr = SubModelManager()
         feat_df = feat_engine.build_all(
-            race_df, entry_df, odds_df, odds_ts_df=None, store=self.store
+            race_df, entry_df, odds_df, odds_ts_df=odds_ts_df, store=self.store
         )
         feat_df = submodel_mgr.add_distance_band_features(feat_df)
 

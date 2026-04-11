@@ -551,6 +551,7 @@ def _run_diagnose(
     """Parquet データを使って診断推論を実行 (EveryDB2 バイパス)"""
     from backtest.diagnostic_logger import DiagnosticLogger
     from backtest.race_predictor import RacePredictor
+    from db.odds_extractor import extract_pre_post_odds
     from db.readers import (
         load_entries,
         load_odds_snapshots,
@@ -577,10 +578,22 @@ def _run_diagnose(
         logger.error("No Parquet data for %s ~ %s", args.start, args.end)
         return
 
+    # 発走前オッズを優先使用 (フォールバック: 確定オッズ)
+    odds_ts_df = load_odds_time_series_range(store, start_ymd, end_ymd)
+    minutes_before = getattr(args, "minutes_before", 5)
+    if not odds_ts_df.empty and "hassotime" in race_df.columns:
+        pre_post_odds = extract_pre_post_odds(odds_ts_df, race_df, minutes_before=minutes_before)
+        if not pre_post_odds.empty:
+            logger.info("Using pre-race odds for diagnose (%d entries)", len(pre_post_odds))
+            odds_df = pre_post_odds
+        else:
+            logger.info("Pre-race odds empty, falling back to confirmed odds")
+    else:
+        logger.info("No time-series odds, using confirmed odds")
+
     # 特徴量生成 (_run_predict と同じパイプライン)
     feat_engine = FeatureEngine()
     submodel_mgr = SubModelManager()
-    odds_ts_df = load_odds_time_series_range(store, start_ymd, end_ymd)
     feat_df = feat_engine.build_all(race_df, entry_df, odds_df, odds_ts_df=odds_ts_df, store=store)
     feat_df = submodel_mgr.add_distance_band_features(feat_df)
 
@@ -899,6 +912,7 @@ def _run_dry_run(
 
     from backtest.race_predictor import RacePredictor
     from db.everydb2_queries import EveryDB2Queries
+    from db.odds_extractor import extract_pre_post_odds
     from db.readers import (
         load_entries_from_db,
         load_odds_snapshots_from_db,
@@ -952,6 +966,18 @@ def _run_dry_run(
     if race_df.empty or entry_df.empty or odds_df.empty or odds_ts_df.empty:
         logger.error("EveryDB2 からデータ取得失敗: %s ~ %s", all_start, all_end)
         return
+
+    # 発走前オッズを優先使用 (フォールバック: 確定オッズ)
+    minutes_before = getattr(args, "minutes_before", 5)
+    if not odds_ts_df.empty and "hassotime" in race_df.columns:
+        pre_post_odds = extract_pre_post_odds(odds_ts_df, race_df, minutes_before=minutes_before)
+        if not pre_post_odds.empty:
+            logger.info("Using pre-race odds for dry-run (%d entries)", len(pre_post_odds))
+            odds_df = pre_post_odds
+        else:
+            logger.info("Pre-race odds empty, falling back to confirmed odds")
+    else:
+        logger.info("No time-series odds, using confirmed odds")
 
     feat_engine = FeatureEngine()
     submodel_mgr = SubModelManager()
