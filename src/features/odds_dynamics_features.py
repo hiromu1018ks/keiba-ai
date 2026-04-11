@@ -191,66 +191,56 @@ def compute_roi_ema(
     span: int = 50,
     min_periods: int = 50,
 ) -> pd.DataFrame:
-    """人気層別 ROI EMA を計算
-
-    各レースの人気層 (favorite/mid/longshot) ごとの ROI を
-    指数移動平均 (EMA) で平滑化。
-
-    Args:
-        race_feat_df: race_id, kakuteijyuni, tanodds, popularity_rank を含む DataFrame
-        span: EMA の span
-        min_periods: 計算に必要な最小サンプル数
-
-    Returns:
-        favorite_roi_ema, mid_roi_ema, longshot_roi_ema 列を追加した DataFrame
-    """
+    """オッズベース市場指標の EMA を計算 (kakuteijyuni 不使用)"""
     df = race_feat_df.copy()
-
-    # 必須列チェック
-    required = {"kakuteijyuni", "tanodds", "popularity_rank", "race_id"}
+    required = {"tanodds", "popularity_rank", "race_id"}
     if not required.issubset(df.columns):
-        df["favorite_roi_ema"] = 0.0
-        df["mid_roi_ema"] = 0.0
-        df["longshot_roi_ema"] = 0.0
+        df["favorite_implied_prob_ema"] = 0.0
+        df["overround_ema"] = 0.0
+        df["entropy_ema"] = 0.0
         return df
 
-    # 各馬の ROI (= odds × win) を計算
-    df["is_win"] = (df["kakuteijyuni"] == 1).astype(float)
-    df["roi"] = df["tanodds"] * df["is_win"]
+    # Overround: sum(1/tanodds) - 1 (レース単位)
+    p_raw = 1.0 / df["tanodds"].replace(0, np.nan)
+    race_overround = p_raw.groupby(df["race_id"]).sum() - 1.0
+    race_overround.name = "overround"
 
-    # 人気層分類: favorite (1-3), mid (4-8), longshot (9+)
-    df["pop_band"] = pd.cut(
-        df["popularity_rank"],
-        bins=[0, 3, 8, float("inf")],
-        labels=["favorite", "mid", "longshot"],
-    )
+    # Entropy: H = -sum(p_i * ln(p_i)) (レース単位)
+    p_norm = p_raw.groupby(df["race_id"]).transform(lambda x: x / x.sum())
 
-    # レースごと・人気層ごとの平均 ROI
-    race_band_roi = (
-        df.groupby(["race_id", "pop_band"], observed=False)["roi"].mean().unstack(fill_value=0.0)
-    )
+    def _entropy(group: pd.Series) -> float:
+        p = group.dropna().values.astype(float)
+        p = p[p > 0]
+        return float(-np.sum(p * np.log(p))) if len(p) > 0 else 0.0
 
-    # 時系列ソート
+    race_entropy = p_norm.groupby(df["race_id"]).apply(_entropy, include_groups=False)
+    race_entropy.name = "entropy"
+
+    # 1番人気の implied probability
+    fav_df = df.loc[df["popularity_rank"] == 1, ["race_id", "tanodds"]].copy()
+    fav_df["implied_prob"] = 1.0 / fav_df["tanodds"].replace(0, np.nan)
+    race_fav_prob = fav_df.groupby("race_id")["implied_prob"].first()
+    race_fav_prob.name = "favorite_implied_prob"
+
+    # レース単位 DataFrame (列名を明示的に指定)
+    race_stats = pd.DataFrame({
+        "favorite_implied_prob": race_fav_prob,
+        "overround": race_overround,
+        "entropy": race_entropy,
+    })
+
     if "race_date" in df.columns:
         date_map = df.groupby("race_id")["race_date"].first()
-        race_band_roi["race_date"] = date_map
-        race_band_roi = race_band_roi.sort_values("race_date")
-        race_band_roi = race_band_roi.drop(columns=["race_date"])
+        race_stats["_sort"] = date_map
+        race_stats = race_stats.sort_values("_sort").drop(columns=["_sort"])
 
-    # EMA 計算
-    ema_cols: dict[str, pd.Series] = {}
-    for band in ["favorite", "mid", "longshot"]:
-        if band in race_band_roi.columns:
-            series = race_band_roi[band]
-        else:
-            series = pd.Series(0.0, index=race_band_roi.index)
-        ema = series.ewm(span=span, min_periods=min_periods).mean()
-        ema_cols[f"{band}_roi_ema"] = ema
+    # EMA (列名で明示的にアクセス)
+    for ema_col, src_col in [
+        ("favorite_implied_prob_ema", "favorite_implied_prob"),
+        ("overround_ema", "overround"),
+        ("entropy_ema", "entropy"),
+    ]:
+        ema = race_stats[src_col].fillna(0.0).ewm(span=span, min_periods=min_periods).mean()
+        df[ema_col] = df["race_id"].map(ema).fillna(0.0)
 
-    # レースごとの EMA 値を元 DataFrame にマップ
-    for col_name, ema_series in ema_cols.items():
-        df[col_name] = df["race_id"].map(ema_series).fillna(0.0)
-
-    # 作業列を除去
-    df = df.drop(columns=["is_win", "roi", "pop_band"], errors="ignore")
     return df

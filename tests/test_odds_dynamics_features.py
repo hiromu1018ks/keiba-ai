@@ -219,56 +219,57 @@ class TestComputeRollingVolatility:
         assert result.isna().all()
 
 
-class TestComputeRoiEma:
+class TestComputeOddsEma:
     def test_returns_dataframe_with_ema_columns(self) -> None:
-        """3つの ROI EMA 列を含む DataFrame を返す"""
+        """3つのオッズ EMA 列を含む DataFrame を返す"""
         np.random.seed(42)
-        n_races = 60
         rows = []
-        for r in range(n_races):
+        for r in range(60):
             for h in range(10):
-                rows.append(
-                    {
-                        "race_id": f"R{r:04d}",
-                        "umaban": h + 1,
-                        "kakuteijyuni": 1 if h == 0 else np.random.randint(2, 11),
-                        "tanodds": np.random.uniform(1.5, 100.0),
-                        "popularity_rank": h + 1,
-                    }
-                )
+                rows.append({"race_id": f"R{r:04d}", "umaban": h + 1,
+                    "tanodds": np.random.uniform(1.5, 100.0), "popularity_rank": h + 1})
         df = pd.DataFrame(rows)
         result = compute_roi_ema(df, span=20, min_periods=10)
-        assert "favorite_roi_ema" in result.columns
-        assert "mid_roi_ema" in result.columns
-        assert "longshot_roi_ema" in result.columns
-        assert len(result) == len(df)
+        assert "favorite_implied_prob_ema" in result.columns
+        assert "overround_ema" in result.columns
+        assert "entropy_ema" in result.columns
 
     def test_missing_columns_returns_zeros(self) -> None:
-        """必須列がない場合は 0.0 を返す"""
         df = pd.DataFrame({"race_id": ["R1", "R1"], "umaban": [1, 2]})
         result = compute_roi_ema(df)
-        assert (result["favorite_roi_ema"] == 0.0).all()
-        assert (result["mid_roi_ema"] == 0.0).all()
-        assert (result["longshot_roi_ema"] == 0.0).all()
+        assert (result["favorite_implied_prob_ema"] == 0.0).all()
 
-    def test_ema_increases_with_more_wins(self) -> None:
-        """勝利が多いほど favorite ROI EMA が大きい"""
+    def test_no_kakuteijyuni_used(self) -> None:
+        """kakuteijyuni 列がなくても正常に計算される"""
         np.random.seed(42)
         rows = []
-        # 前半: favorite がよく勝つ
-        for r in range(30):
+        for r in range(60):
             for h in range(10):
-                rows.append(
-                    {
-                        "race_id": f"R{r:04d}",
-                        "umaban": h + 1,
-                        "kakuteijyuni": 1 if h == 0 else np.random.randint(2, 11),
-                        "tanodds": 3.0,
-                        "popularity_rank": h + 1,
-                    }
-                )
+                rows.append({"race_id": f"R{r:04d}", "umaban": h + 1,
+                    "tanodds": np.random.uniform(1.5, 30.0), "popularity_rank": h + 1})
+        df = pd.DataFrame(rows)
+        assert "kakuteijyuni" not in df.columns
+        result = compute_roi_ema(df, span=10, min_periods=5)
+        assert "favorite_implied_prob_ema" in result.columns
+
+    def test_overround_ema_computed(self) -> None:
+        """overround_ema が計算される (NaN ではない)"""
+        np.random.seed(42)
+        rows = []
+        for r in range(60):
+            for h in range(10):
+                rows.append({"race_id": f"R{r:04d}", "umaban": h + 1,
+                    "tanodds": np.random.uniform(1.5, 30.0), "popularity_rank": h + 1})
         df = pd.DataFrame(rows)
         result = compute_roi_ema(df, span=10, min_periods=5)
-        # 最後のレースの favorite_roi_ema は 0 より大きいはず
-        last_race = result[result["race_id"] == "R0029"]
-        assert last_race["favorite_roi_ema"].mean() > 0.0
+        last = result[result["race_id"] == "R0059"]
+        assert not last["overround_ema"].isna().any()
+
+    def test_single_race_returns_same_value(self) -> None:
+        """同一レース内の全行が同じ EMA 値を持つ"""
+        np.random.seed(42)
+        rows = [{"race_id": "R0001", "umaban": h + 1, "tanodds": np.random.uniform(1.5, 30.0),
+            "popularity_rank": h + 1} for h in range(10)]
+        df = pd.DataFrame(rows)
+        result = compute_roi_ema(df, span=20, min_periods=1)
+        assert result["favorite_implied_prob_ema"].nunique() == 1

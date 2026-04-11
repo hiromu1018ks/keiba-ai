@@ -553,17 +553,25 @@ class TrainingPipelineV5:
         else:
             stats["odds_volatility_mean"] = 0.1
 
-        # ROI EMA: 人気層別の指数移動平均
+        # オッズベース EMA: 発走前指標のみ (kakuteijyuni 不使用)
         from features.odds_dynamics_features import compute_roi_ema
 
-        roi_ema_df = compute_roi_ema(feat_df, span=50, min_periods=50)
-        # レース単位に集約 (人気層別 ROI EMA の平均)
-        for band in ["favorite", "mid", "longshot"]:
-            col = f"{band}_roi_ema"
-            feat_copy = feat_df.copy()
-            feat_copy[col] = roi_ema_df[col].values
-            race_ema = feat_copy.groupby("race_id")[col].mean()
-            stats[col] = stats["race_id"].map(race_ema).fillna(0.0)
+        if all(c in feat_df.columns for c in ["race_id", "tanodds", "popularity_rank"]):
+            odds_ema_df = compute_roi_ema(feat_df, span=50, min_periods=50)
+            for col in ["favorite_implied_prob_ema", "overround_ema", "entropy_ema"]:
+                feat_copy = feat_df.copy()
+                feat_copy[col] = odds_ema_df[col].values
+                race_ema = feat_copy.groupby("race_id")[col].mean()
+                stats[col] = stats["race_id"].map(race_ema).fillna(0.0)
+        else:
+            stats["favorite_implied_prob_ema"] = 0.0
+            stats["overround_ema"] = 0.0
+            stats["entropy_ema"] = 0.0
+
+        # 後方互換: RegimeDetector FEATURE_COLS が旧列名を参照 (Task 7 で修正)
+        stats["favorite_roi_ema"] = stats.get("favorite_implied_prob_ema", 0.0)
+        stats["mid_roi_ema"] = 0.0
+        stats["longshot_roi_ema"] = 0.0
 
         return stats
 
