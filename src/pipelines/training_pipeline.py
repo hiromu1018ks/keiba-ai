@@ -110,10 +110,23 @@ class TrainingPipelineV5:
         # オッズ時系列データ — Stage2 (WinTwoStageModel) のオッズ動的特徴量に必須
         odds_ts_df = load_odds_time_series_range(self.store, start, end)
 
+        # LEAK修正: 発走前オッズ (5分前) を特徴量に使用
+        # バックテストエンジンと同じ extract_pre_post_odds() で時系列から抽出
+        from db.odds_extractor import extract_pre_post_odds
+
+        if not odds_ts_df.empty and "hassotime" in race_df.columns:
+            pre_post_odds = extract_pre_post_odds(odds_ts_df, race_df, minutes_before=5)
+            if pre_post_odds.empty:
+                logger.warning("extract_pre_post_odds returned empty, using final odds")
+                pre_post_odds = odds_df
+        else:
+            pre_post_odds = odds_df
+            logger.warning("No time-series odds or hassotime, using final odds (potential look-ahead)")
+
         # 2. 特徴量生成
         logger.info("Building features")
         feat_df = self.feature_engine.build_all(
-            race_df, entry_df, odds_df, odds_ts_df=odds_ts_df, store=self.store
+            race_df, entry_df, pre_post_odds, odds_ts_df=odds_ts_df, store=self.store
         )
         feat_df = self.submodel_mgr.add_distance_band_features(feat_df)
 
