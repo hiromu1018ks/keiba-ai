@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import sys
+from datetime import datetime
 
 import pandas as pd
 import pytest
@@ -21,6 +22,11 @@ def _make_odds_ts_df(entries: list[dict]) -> pd.DataFrame:
 def _make_race_df(entries: list[dict]) -> pd.DataFrame:
     """テスト用の race_df を構築するヘルパー。"""
     return pd.DataFrame(entries)
+
+
+# テスト内で一律使う「現在時刻」: レース日(2026-04-11)の12:00。
+# これにより、hassotime=1005 (10:05発走 → cutoff=10:00) は常に過去。
+_FIXED_NOW = datetime(2026, 4, 11, 12, 0)
 
 
 class TestExtractPrePostOdds:
@@ -75,7 +81,7 @@ class TestExtractPrePostOdds:
                 },
             ]
         )
-        result = extract(ts_df, race_df, minutes_before=5)
+        result = extract(ts_df, race_df, minutes_before=5, _now=_FIXED_NOW)
         assert len(result) == 1
         assert result.iloc[0]["fukuoddslow"] == 35.0  # 10:00 の値
 
@@ -98,7 +104,7 @@ class TestExtractPrePostOdds:
                 },
             ]
         )
-        result = extract(ts_df, race_df, minutes_before=5)
+        result = extract(ts_df, race_df, minutes_before=5, _now=_FIXED_NOW)
         assert len(result) == 0
 
     def test_stale_snapshot_excluded(self) -> None:
@@ -120,7 +126,7 @@ class TestExtractPrePostOdds:
                 },
             ]
         )
-        result = extract(ts_df, race_df, minutes_before=5, max_staleness_minutes=60)
+        result = extract(ts_df, race_df, minutes_before=5, max_staleness_minutes=60, _now=_FIXED_NOW)
         assert len(result) == 0
 
     def test_output_schema_compatible_with_build_all(self) -> None:
@@ -142,7 +148,7 @@ class TestExtractPrePostOdds:
                 },
             ]
         )
-        result = extract(ts_df, race_df, minutes_before=5)
+        result = extract(ts_df, race_df, minutes_before=5, _now=_FIXED_NOW)
         required = {"race_id", "umaban", "tanodds", "fukuoddslow", "tanninki"}
         assert required.issubset(set(result.columns))
 
@@ -172,7 +178,7 @@ class TestExtractPrePostOdds:
                 },
             ]
         )
-        result = extract(ts_df, race_df, minutes_before=5)
+        result = extract(ts_df, race_df, minutes_before=5, _now=_FIXED_NOW)
         assert len(result) == 1  # 境界値は包含
 
     def test_happyotime_short_padding(self) -> None:
@@ -181,9 +187,6 @@ class TestExtractPrePostOdds:
         race_df = _make_race_df(
             [{"race_id": "20260411060101", "hassotime": 1005}]
         )
-        # "4110930" -> zfill(8) -> "04110930" -- represents 04/11 09:30
-        # cutoff for 10:05 race is 10:00. min_cutoff = 10:00 - 60min = 09:00.
-        # 09:30 is within [09:00, 10:00].
         ts_df = _make_odds_ts_df(
             [
                 {
@@ -197,5 +200,55 @@ class TestExtractPrePostOdds:
                 },
             ]
         )
-        result = extract(ts_df, race_df, minutes_before=5)
+        result = extract(ts_df, race_df, minutes_before=5, _now=_FIXED_NOW)
         assert len(result) == 1
+
+    def test_future_cutoff_excludes_race(self) -> None:
+        """cutoff時刻がまだ来ていないレースは除外される。"""
+        extract = self._import_target()
+        # レース: 14:00発走 → cutoff = 13:55
+        race_df = _make_race_df(
+            [{"race_id": "20260411060101", "hassotime": 1400}]
+        )
+        # 13:30時点で実行 → cutoff(13:55)はまだ未来
+        now_1330 = datetime(2026, 4, 11, 13, 30)
+        ts_df = _make_odds_ts_df(
+            [
+                {
+                    "race_id": "20260411060101",
+                    "umaban": 1,
+                    "year": 2026,
+                    "happyotime": "04111330",
+                    "tanodds": 100.0,
+                    "fukuoddslow": 30.0,
+                    "tanninki": 5,
+                },
+            ]
+        )
+        result = extract(ts_df, race_df, minutes_before=5, _now=now_1330)
+        assert len(result) == 0  # cutoffが未来なので除外
+
+    def test_cutoff_just_reached_includes_race(self) -> None:
+        """cutoff時刻ちょうどになればレースが含まれる。"""
+        extract = self._import_target()
+        # レース: 14:00発走 → cutoff = 13:55
+        race_df = _make_race_df(
+            [{"race_id": "20260411060101", "hassotime": 1400}]
+        )
+        # 13:55時点で実行 → cutoff(13:55)にちょうど到達
+        now_1355 = datetime(2026, 4, 11, 13, 55)
+        ts_df = _make_odds_ts_df(
+            [
+                {
+                    "race_id": "20260411060101",
+                    "umaban": 1,
+                    "year": 2026,
+                    "happyotime": "04111355",
+                    "tanodds": 100.0,
+                    "fukuoddslow": 30.0,
+                    "tanninki": 5,
+                },
+            ]
+        )
+        result = extract(ts_df, race_df, minutes_before=5, _now=now_1355)
+        assert len(result) == 1  # cutoff時刻に到達 → 含まれる

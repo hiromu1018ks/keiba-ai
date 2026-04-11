@@ -226,6 +226,8 @@ def _extract_pre_post_odds(
     race_df: pd.DataFrame,
     minutes_before: int = 5,
     max_staleness_minutes: int = 60,
+    *,
+    _now: datetime | None = None,
 ) -> pd.DataFrame:
     """各レースの発走N分前時点のオッズスナップショットを抽出.
 
@@ -239,6 +241,8 @@ def _extract_pre_post_odds(
         発走何分前のオッズを使うか (デフォルト: 5)。
     max_staleness_minutes : int
         cutoff から何分以上前のスナップショットを除外するか (デフォルト: 60)。
+    _now : datetime, optional
+        現在時刻のオーバーライド (テスト用)。未指定時は datetime.now()。
 
     Returns
     -------
@@ -293,11 +297,16 @@ def _extract_pre_post_odds(
     odds_ts_df = odds_ts_df[odds_ts_df["_ht_datetime"].notna()]
 
     # 3. 各行に cutoff を付与し、cutoff 以前のエントリのみ残す
+    now = _now or datetime.now()
+
     def _is_before_cutoff(row: pd.Series) -> bool:
         post_time = post_time_map.get(row["race_id"])
         if post_time is None:
             return False
         cutoff = post_time - timedelta(minutes=minutes_before)
+        # cutoff時刻に達していないレースはまだオッズが確定していない → 除外
+        if cutoff > now:
+            return False
         min_cutoff = cutoff - timedelta(minutes=max_staleness_minutes)
         ht_dt = row["_ht_datetime"]
         return min_cutoff <= ht_dt <= cutoff
