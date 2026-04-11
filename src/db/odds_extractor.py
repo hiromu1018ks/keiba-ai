@@ -42,67 +42,71 @@ def extract_pre_post_odds(
     if odds_ts_df.empty or race_df.empty:
         return pd.DataFrame(columns=["race_id", "umaban", "tanodds", "fukuoddslow", "tanninki"])
 
-    # 1. race_id -> post_datetime のマッピング
-    post_time_map: dict[str, datetime] = {}
-    for _, r in race_df.iterrows():
-        ht = r.get("hassotime")
-        if pd.isna(ht) or str(ht).strip() == "":
-            continue
-        ht_str = f"{int(ht):04d}"  # 930 -> "0930"
-        # race_id の先頭8桁 = YYYYMMDD
-        rid = r["race_id"]
-        race_date_str = rid[:8]
-        post_time_map[rid] = datetime(
-            int(race_date_str[:4]),
-            int(race_date_str[4:6]),
-            int(race_date_str[6:8]),
-            int(ht_str[:2]),
-            int(ht_str[2:]),
-        )
+    # 1. race_id -> post_datetime のマッピング (vectorized)
+    race_info = race_df.drop_duplicates(subset=["race_id"]).set_index("race_id")
+    hassotime = race_info["hassotime"]
+    valid_ht = hassotime.notna() & (hassotime != 0)
+    if not valid_ht.any():
+        return pd.DataFrame(columns=["race_id", "umaban", "tanodds", "fukuoddslow", "tanninki"])
 
-    # 2. odds_ts_df の各行について happyotime -> datetime
-    def _parse_happyotime(row: pd.Series) -> datetime | None:
-        ht = row.get("happyotime")
-        if pd.isna(ht):
-            return None
-        ht = str(ht).zfill(8)  # "4110930" -> "04110930"
-        if len(ht) != 8:
-            return None
-        year = int(row["year"])
-        month = int(ht[:2])
-        day = int(ht[2:4])
-        hour = int(ht[4:6])
-        minute = int(ht[6:8])
-        return datetime(year, month, day, hour, minute)
+    valid_rids = valid_ht[valid_ht].index
+    ht_values = hassotime[valid_rids].astype(int).astype(str).str.zfill(4)
+    rid_dates = pd.Series(valid_rids, index=valid_rids)
 
+    # YYYYMMDD + HHMM → datetime (vectorized)
+    year = rid_dates.str[:4].astype(int)
+    month = rid_dates.str[4:6].astype(int)
+    day = rid_dates.str[6:8].astype(int)
+    hour = ht_values.str[:2].astype(int)
+    minute = ht_values.str[2:4].astype(int)
+
+    post_dt_str = (
+        year.astype(str) + month.astype(str).str.zfill(2)
+        + day.astype(str).str.zfill(2) + hour.astype(str).str.zfill(2)
+        + minute.astype(str).str.zfill(2)
+    )
+    post_time_map = pd.to_datetime(post_dt_str, format="%Y%m%d%H%M")
+    post_time_map.index = valid_rids
+
+    if post_time_map.empty:
+        return pd.DataFrame(columns=["race_id", "umaban", "tanodds", "fukuoddslow", "tanninki"])
+
+    # 2. happyotime → datetime (vectorized)
     odds_ts_df = odds_ts_df.copy()
-    odds_ts_df["_ht_datetime"] = odds_ts_df.apply(_parse_happyotime, axis=1)
+    ht_raw = odds_ts_df["happyotime"].astype(str).str.zfill(8)
+    year_str = odds_ts_df["year"].astype(int).astype(str)
+    datetime_str = year_str + ht_raw.str[:4] + ht_raw.str[4:]
+    odds_ts_df["_ht_datetime"] = pd.to_datetime(datetime_str, format="%Y%m%d%H%M", errors="coerce")
     odds_ts_df = odds_ts_df[odds_ts_df["_ht_datetime"].notna()]
 
-    # 3. 各行に cutoff を付与し、cutoff 以前のエントリのみ残す
+    if odds_ts_df.empty:
+        return pd.DataFrame(columns=["race_id", "umaban", "tanodds", "fukuoddslow", "tanninki"])
+
+    # 3. cutoff フィルタ (vectorized)
     now = _now or datetime.now()
+    now_pd = pd.Timestamp(now)
 
-    def _is_before_cutoff(row: pd.Series) -> bool:
-        post_time = post_time_map.get(row["race_id"])
-        if post_time is None:
-            return False
-        cutoff = post_time - timedelta(minutes=minutes_before)
-        # cutoff時刻に達していないレースはまだオッズが確定していない → 除外
-        if cutoff > now:
-            return False
-        min_cutoff = cutoff - timedelta(minutes=max_staleness_minutes)
-        ht_dt = row["_ht_datetime"]
-        return min_cutoff <= ht_dt <= cutoff
+    # post_datetime を merge で付与
+    post_time_series = post_time_map.rename("post_datetime")
+    odds_ts_df = odds_ts_df.merge(post_time_series, left_on="race_id", right_index=True, how="inner")
 
-    mask = odds_ts_df.apply(_is_before_cutoff, axis=1)
-    valid = odds_ts_df[mask]
+    cutoff = odds_ts_df["post_datetime"] - pd.Timedelta(minutes=minutes_before)
+    min_cutoff = cutoff - pd.Timedelta(minutes=max_staleness_minutes)
 
-    if valid.empty:
+    # cutoff時刻に達していないレースは除外
+    valid = (
+        (cutoff <= now_pd)
+        & (odds_ts_df["_ht_datetime"] >= min_cutoff)
+        & (odds_ts_df["_ht_datetime"] <= cutoff)
+    )
+    filtered = odds_ts_df[valid]
+
+    if filtered.empty:
         return pd.DataFrame(columns=["race_id", "umaban", "tanodds", "fukuoddslow", "tanninki"])
 
     # 4. (race_id, umaban) ごとに最新エントリを取得
-    idx = valid.groupby(["race_id", "umaban"])["_ht_datetime"].idxmax()
-    snapshot = valid.loc[idx]
+    idx = filtered.groupby(["race_id", "umaban"])["_ht_datetime"].idxmax()
+    snapshot = filtered.loc[idx]
 
     # 5. build_all() と互換のスキーマで返す
     result = snapshot[["race_id", "umaban", "tanodds", "fukuoddslow", "tanninki"]].copy()
