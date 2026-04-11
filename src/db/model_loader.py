@@ -346,6 +346,22 @@ class ModelLoader:
             meta = json.load(f)
         train_start = meta["train_start"]
         train_end = meta["train_end"]
+
+        # 整合性チェック: meta.json の use_ensemble と .joblib の有無が矛盾していないか
+        meta_ensemble = meta.get("use_ensemble", False)
+        has_joblib_hit = any((models_dir / f"win_hit_{s}.joblib").is_file() for s in meta.get("surfaces", []))
+        if meta_ensemble and not has_joblib_hit:
+            raise ValueError(
+                "Model file inconsistency: meta.json says use_ensemble=true "
+                "but no .joblib hit models found. Models may have been partially "
+                "overwritten by a non-ensemble training. Re-run training to fix."
+            )
+        if not meta_ensemble and has_joblib_hit:
+            raise ValueError(
+                "Model file inconsistency: meta.json says use_ensemble=false "
+                "but stale .joblib hit models found. Models may have been partially "
+                "overwritten. Re-run training to fix."
+            )
         surfaces = meta["surfaces"]
         use_ensemble = (
             use_ensemble_override

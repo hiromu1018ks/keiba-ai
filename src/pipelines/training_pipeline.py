@@ -655,6 +655,14 @@ class TrainingPipelineV5:
         models_dir = Path("data/models")
         models_dir.mkdir(parents=True, exist_ok=True)
 
+        # 古いモデルファイルを完全に削除 (アンサンブル/非アンサンブル間の不整合を防止)
+        for old_file in models_dir.glob("*.lgb"):
+            old_file.unlink()
+        for old_file in models_dir.glob("*.joblib"):
+            old_file.unlink()
+        for old_file in models_dir.glob("*.json"):
+            old_file.unlink()
+
         saved: dict[str, object] = {}
         ensemble_keys: set[str] = set()
         for surface, sub in models.items():
