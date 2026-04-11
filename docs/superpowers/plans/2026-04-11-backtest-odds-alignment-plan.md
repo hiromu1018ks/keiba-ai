@@ -405,6 +405,7 @@ def test_pre_post_odds_used_for_bet_decision(
             "p_place_pred": [0.65],
             "e_return_place_pred": [1.80],
             "hassotime": [930],
+            "fukuoddslow_final": [1.1],  # 確定オッズ（精算用）
         }
     )
 
@@ -415,6 +416,7 @@ def test_pre_post_odds_used_for_bet_decision(
         patch("features.interaction_features.compute_interaction_features", side_effect=lambda df: df),
         patch("features.jockey_context_features.JockeyContextFeatures") as mock_jc_cls,
         patch("features.trainer_context_features.TrainerContextFeatures") as mock_tc_cls,
+        patch("features.jockey_trainer_combo.JockeyTrainerComboFeatures") as mock_jt_cls,
     ):
         mock_fe = MagicMock()
         mock_fe_cls.return_value = mock_fe
@@ -422,7 +424,7 @@ def test_pre_post_odds_used_for_bet_decision(
         mock_sm = MagicMock()
         mock_sm_cls.return_value = mock_sm
         mock_sm.add_distance_band_features.return_value = feat_df
-        for cls in [mock_hist_cls, mock_jc_cls, mock_tc_cls]:
+        for cls in [mock_hist_cls, mock_jc_cls, mock_tc_cls, mock_jt_cls]:
             inst = MagicMock()
             cls.return_value = inst
             inst.compute.return_value = pd.DataFrame(columns=["race_id", "umaban"])
@@ -581,11 +583,12 @@ if "fukuoddslow_final" in result_df.columns:
 updated_bets = []
 for bet in bets:
     fo = final_odds_map.get((bet.race_id, bet.umaban), bet.odds)
-    updated_bets.append(dataclasses.replace(bet, final_odds=fo))
+    updated_bets.append(replace(bet, final_odds=fo))
 bets = updated_bets
 ```
 
-ファイル先頭の import に `import dataclasses` を追加。
+ファイル先頭の import に `from dataclasses import replace` を追加
+（既存の `from dataclasses import dataclass, field` に `replace` を追記）。
 
 - [ ] **Step 6: `_generate_bets` レガシーメソッドも更新**
 
@@ -692,18 +695,32 @@ class BacktestResult:
 `BacktestEngine.run()` のレースループ内、ベット処理の後に:
 
 ```python
-# フォールバック判定
-is_fallback = (
-    "fukuoddslow_final" not in result_df.columns
-    or result_df["fukuoddslow_final"].isna().all()
-)
-if is_fallback:
+# フォールバック判定（グローバルフラグベース）
+# _used_pre_post_odds は Step 5 で設定されるフラグ
+if not getattr(self, "_used_pre_post_odds", False):
     n_fallback_odds_bets += len(bets)
 else:
     n_pre_post_odds_bets += len(bets)
 ```
 
-`BacktestResult` 構築時にこれらの値を渡す。
+`_used_pre_post_odds` フラグは、Step 5 のオッズ取得部分で設定:
+
+```python
+# 発走前オッズの抽出（フォールバック: 確定オッズ）
+self._used_pre_post_odds = False
+if not odds_ts_df.empty and "hassotime" in race_df.columns:
+    pre_post_odds = extract_pre_post_odds(odds_ts_df, race_df, minutes_before=5)
+    if not pre_post_odds.empty:
+        self._used_pre_post_odds = True
+    else:
+        logger.warning("extract_pre_post_odds returned empty, falling back to final odds")
+        pre_post_odds = final_odds_df
+else:
+    pre_post_odds = final_odds_df
+    logger.warning("No time-series odds data, using final odds (look-ahead bias)")
+```
+
+`BacktestResult` 構築時に `n_pre_post_odds_bets` と `n_fallback_odds_bets` を渡す。
 
 - [ ] **Step 3: `summary()` に メトリクス を表示**
 
