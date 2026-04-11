@@ -241,14 +241,22 @@ class FeatureEngine:
                     df["race_id"].map(actual).fillna(df["field_size"]).astype("Int64")
                 )
 
-        # LEAK修正: popularity_rank は発走前情報 (tanninki) を優先使用
-        # ninki (確定人気) はフォールバックのみ
+        # LEAK修正: popularity_rank は発走前情報 (tanninki) のみ使用
+        # ninki (確定人気) はフォールバックにも使用しない
         if "popularity_rank" not in df.columns:
             if "tanninki" in df.columns:
                 df["popularity_rank"] = df["tanninki"]
-                if "ninki" in df.columns:
-                    mask = (df["popularity_rank"] == 0) | df["popularity_rank"].isna()
-                    df.loc[mask, "popularity_rank"] = df.loc[mask, "ninki"]
+                invalid_mask = (df["popularity_rank"] == 0) | df["popularity_rank"].isna()
+                n_invalid = int(invalid_mask.sum())
+                if n_invalid > 0:
+                    import logging
+
+                    logging.getLogger(__name__).warning(
+                        "popularity_rank is NaN for %d horses (tanninki=0/NaN, no ninki fallback)",
+                        n_invalid,
+                    )
+                    # tanninki=0/NaN を NaN に変換 (ninki フォールバックなし)
+                    df.loc[invalid_mask, "popularity_rank"] = float("nan")
             elif "ninki" in df.columns:
                 df["popularity_rank"] = df["ninki"]
 

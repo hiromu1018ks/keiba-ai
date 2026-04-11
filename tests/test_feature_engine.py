@@ -453,15 +453,30 @@ class TestLeakPrevention:
         assert result["popularity_rank"].tolist() == [3, 1, 2]
 
     def test_popularity_rank_fallback_when_tanninki_zero(self) -> None:
-        """tanninki が全て 0 の場合、ninki をフォールバックとして使用"""
+        """tanninki が全て 0 の場合、popularity_rank は NaN のまま (ninki フォールバックなし)"""
         engine = FeatureEngine()
         race_df = self._make_race_df()
         entry_df = self._make_entry_df(odds=[3.0, 5.0, 8.0], ninki=[1, 2, 3])
         odds_df = self._make_odds_df(tanodds=[3.0, 5.0, 8.0], tanninki=[0, 0, 0])
 
         result = engine.build_all(race_df, entry_df, odds_df)
-        # tanninki=0 → ninki フォールバック
-        assert result["popularity_rank"].tolist() == [1, 2, 3]
+        # tanninki=0 → NaN のまま (ninki フォールバックを削除)
+        assert result["popularity_rank"].isna().all()
+
+    def test_popularity_rank_warns_on_zero_tanninki(self, caplog: object) -> None:
+        """tanninki が 0/NaN の場合に警告ログを出力する"""
+        import logging
+
+        engine = FeatureEngine()
+        race_df = self._make_race_df()
+        entry_df = self._make_entry_df(odds=[3.0, 5.0, 8.0], ninki=[1, 2, 3])
+        odds_df = self._make_odds_df(tanodds=[3.0, 5.0, 8.0], tanninki=[0, 0, 0])
+        with caplog.at_level(logging.WARNING, logger="features.feature_engine"):  # type: ignore[attr-defined]
+            result = engine.build_all(race_df, entry_df, odds_df)  # noqa: F841
+        assert any(
+            "popularity_rank" in rec.message and ("NaN" in rec.message or "tanninki" in rec.message)
+            for rec in caplog.records  # type: ignore[attr-defined]
+        )
 
     def test_odds_replaced_by_tanodds(self) -> None:
         """odds (確定) が tanodds (発走前) で上書きされる"""
