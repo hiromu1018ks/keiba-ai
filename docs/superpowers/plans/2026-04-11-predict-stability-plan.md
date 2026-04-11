@@ -64,32 +64,117 @@ def _make_race_df(entries: list[dict]) -> pd.DataFrame:
 class TestExtractPrePostOdds:
     """_extract_pre_post_odds() のテスト群。"""
 
+    @pytest.fixture(autouse=True)
+    def _setup_path(self) -> None:
+        """スクリプトのパスを通す。"""
+        import sys, os
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        sys.path.insert(0, root)
+        sys.path.insert(0, os.path.join(root, "src"))
+
+    def _import_target(self):
+        from scripts.run_paper_trading import _extract_pre_post_odds
+        return _extract_pre_post_odds
+
     def test_basic_extraction(self) -> None:
         """発走5分前のスナップショットが正しく抽出される。"""
-        # import は関数定義後に成功する。ここでは関数名だけでテスト構造を示す。
-        # 実装後に import してテストする。
-        from pathlib import sys
-        # テスト対象のインポート
-        import importlib
-        # scripts/run_paper_trading.py はスクリプトなので直接 import できない。
-        # 代わりにテスト用ヘルパーとして同じロジックを実装してテストする。
-        # → 実装後に関数を抽出してテスト可能にする。
-        pass
+        extract = self._import_target()
+        # レース: 20260411, 10:05発走 → cutoff = 10:00
+        race_df = _make_race_df([{
+            "race_id": "20260411060101", "hassotime": 1005,
+        }])
+        # 時系列: 09:55, 10:00, 10:03 のエントリ → 10:00 が選ばれる
+        ts_df = _make_odds_ts_df([
+            {"race_id": "20260411060101", "umaban": 1, "year": 2026,
+             "happyotime": "04100955", "tanodds": 100.0, "fukuoddslow": 30.0, "tanninki": 5},
+            {"race_id": "20260411060101", "umaban": 1, "year": 2026,
+             "happyotime": "04101000", "tanodds": 120.0, "fukuoddslow": 35.0, "tanninki": 5},
+            {"race_id": "20260411060101", "umaban": 1, "year": 2026,
+             "happyotime": "04101003", "tanodds": 150.0, "fukuoddslow": 40.0, "tanninki": 5},
+        ])
+        result = extract(ts_df, race_df, minutes_before=5)
+        assert len(result) == 1
+        assert result.iloc[0]["fukuoddslow"] == 35.0  # 10:00 の値
 
     def test_no_snapshot_before_cutoff_skips_race(self) -> None:
         """cutoff 以前のエントリがないレースは結果に含まれない。"""
-        pass
+        extract = self._import_target()
+        race_df = _make_race_df([{
+            "race_id": "20260411060101", "hassotime": 1005,
+        }])
+        # 全エントリが cutoff (10:00) より後
+        ts_df = _make_odds_ts_df([
+            {"race_id": "20260411060101", "umaban": 1, "year": 2026,
+             "happyotime": "04101003", "tanodds": 100.0, "fukuoddslow": 30.0, "tanninki": 5},
+        ])
+        result = extract(ts_df, race_df, minutes_before=5)
+        assert len(result) == 0
 
     def test_stale_snapshot_excluded(self) -> None:
         """cutoff の60分以上前のスナップショットは除外される。"""
-        pass
+        extract = self._import_target()
+        race_df = _make_race_df([{
+            "race_id": "20260411060101", "hassotime": 1005,
+        }])
+        # cutoff = 10:00, min_cutoff = 09:00 → 08:30 のエントリは除外
+        ts_df = _make_odds_ts_df([
+            {"race_id": "20260411060101", "umaban": 1, "year": 2026,
+             "happyotime": "04100830", "tanodds": 100.0, "fukuoddslow": 30.0, "tanninki": 5},
+        ])
+        result = extract(ts_df, race_df, minutes_before=5, max_staleness_minutes=60)
+        assert len(result) == 0
 
     def test_output_schema_compatible_with_build_all(self) -> None:
-        """出力 DataFrame が race_id, umaban, tanodds, fukuoddslow, tanninki を含む。"""
-        pass
+        """出力 DataFrame が必須5列を含む。"""
+        extract = self._import_target()
+        race_df = _make_race_df([{
+            "race_id": "20260411060101", "hassotime": 1005,
+        }])
+        ts_df = _make_odds_ts_df([
+            {"race_id": "20260411060101", "umaban": 1, "year": 2026,
+             "happyotime": "04101000", "tanodds": 100.0, "fukuoddslow": 30.0, "tanninki": 5},
+        ])
+        result = extract(ts_df, race_df, minutes_before=5)
+        required = {"race_id", "umaban", "tanodds", "fukuoddslow", "tanninki"}
+        assert required.issubset(set(result.columns))
+
+    def test_empty_inputs(self) -> None:
+        """空の DataFrame が入力された場合、空の結果を返す。"""
+        extract = self._import_target()
+        result = extract(pd.DataFrame(), pd.DataFrame())
+        assert len(result) == 0
+        assert "race_id" in result.columns
+
+    def test_boundary_inclusive_at_cutoff(self) -> None:
+        """cutoff ちょうどのエントリは含まれる。"""
+        extract = self._import_target()
+        race_df = _make_race_df([{
+            "race_id": "20260411060101", "hassotime": 1005,
+        }])
+        # cutoff = 10:00 ちょうどのエントリ
+        ts_df = _make_odds_ts_df([
+            {"race_id": "20260411060101", "umaban": 1, "year": 2026,
+             "happyotime": "04101000", "tanodds": 100.0, "fukuoddslow": 30.0, "tanninki": 5},
+        ])
+        result = extract(ts_df, race_df, minutes_before=5)
+        assert len(result) == 1  # 境界値は包含
+
+    def test_happyotime_short_padding(self) -> None:
+        """happyotime が7桁の場合でも正しくパースされる (zfill対応)。"""
+        extract = self._import_target()
+        race_df = _make_race_df([{
+            "race_id": "20260411060101", "hassotime": 1005,
+        }])
+        # "4110930" → zfill(8) → "04110930"
+        ts_df = _make_odds_ts_df([
+            {"race_id": "20260411060101", "umaban": 1, "year": 2026,
+             "happyotime": "4110930", "tanodds": 100.0, "fukuoddslow": 30.0, "tanninki": 5},
+        ])
+        result = extract(ts_df, race_df, minutes_before=5)
+        assert len(result) == 1
 ```
 
-※ テストは関数実装後に有効化する。まずはスケルトンとして作成。
+※ テストは `_extract_pre_post_odds()` 実装後に実行可能。
 
 - [ ] **Step 2: テストが失敗することを確認**
 
@@ -155,7 +240,10 @@ def _extract_pre_post_odds(
     # 2. odds_ts_df の各行について happyotime → datetime
     def _parse_happyotime(row: pd.Series) -> datetime | None:
         ht = row.get("happyotime")
-        if pd.isna(ht) or not isinstance(ht, str) or len(ht) != 8:
+        if pd.isna(ht):
+            return None
+        ht = str(ht).zfill(8)  # "4110930" → "04110930"
+        if len(ht) != 8:
             return None
         year = int(row["year"])
         month = int(ht[:2])
@@ -211,8 +299,29 @@ git commit -m "feat: _extract_pre_post_odds() 追加 (発走N分前オッズス�
 ### Task 2: `_run_predict()` のオッズフロー変更 + `--minutes-before` 引数追加
 
 **Files:**
-- Modify: `scripts/run_paper_trading.py:_run_predict()` (lines ~246-262)
+- Modify: `scripts/run_paper_trading.py:line 32` (import文)
 - Modify: `scripts/run_paper_trading.py:parse_args()` (line ~53)
+- Modify: `scripts/run_paper_trading.py:_run_predict()` (lines ~246-262)
+
+**前提修正 (import文):**
+
+現在 (line 32):
+```python
+from datetime import date, timedelta
+```
+変更後:
+```python
+from datetime import date, datetime, timedelta
+```
+※ `predicted_at = datetime.now().isoformat()` で必要。
+
+**`parse_args()` の変更 (line ~68 に追加):**
+```python
+parser.add_argument(
+    "--minutes-before", type=int, default=5,
+    help="発走何分前のオッズを使用するか (デフォルト: 5)",
+)
+```
 
 **現在のコード (lines 246-262):**
 ```python
@@ -246,6 +355,14 @@ if race_df.empty or entry_df.empty:
     logger.error("EveryDB2 からデータ取得失敗: %s", ymd)
     return
 
+# ★ 発走時刻マッピングを先に構築 (_extract_pre_post_odds のログと出力で使用)
+_race_time_map: dict[str, str] = {}
+for _, r in race_df.iterrows():
+    ht = r.get("hassotime", "")
+    if pd.notna(ht) and str(ht).strip():
+        ht_str = f"{int(ht):04d}"
+        _race_time_map[r["race_id"]] = f"{ht_str[:2]}:{ht_str[2:]}"
+
 # 発走N分前のオッズスナップショットを生成
 minutes_before = getattr(args, "minutes_before", 5)
 if odds_ts_df.empty:
@@ -268,7 +385,8 @@ if not odds_ts_df.empty and odds_df is not odds_snapshot_df:
 else:
     skipped_race_ids = set()
 
-# 特徴量生成 (odds_df を差し替え)
+# 特徴量生成 (odds_df を5分前スナップショットに差し替え。
+# odds_ts_df はそのまま渡す → odds_dynamics 特徴量は完全時系列から計算)
 feat_engine = FeatureEngine()
 submodel_mgr = SubModelManager()
 feat_df = feat_engine.build_all(race_df, entry_df, odds_df, odds_ts_df=odds_ts_df)
@@ -315,7 +433,7 @@ git commit -m "feat: _run_predict() のオッズを発走N分前に固定"
 3. 新規 + 既存を追記保存
 4. 出力を "New Predictions" と "Previous Predictions" に分離
 
-**Step 1: 既存予測の読み込み + `predicted_at` 列追加**
+**Step 1: 既存予測の読み込み + `predicted_at` 列追加 + 重複回避**
 
 推論ループの前に追加 (line ~292 の前):
 
@@ -327,6 +445,17 @@ existing_race_ids: set[str] = set()
 if pred_path.exists():
     existing_pred_df = pd.read_parquet(pred_path)
     existing_race_ids = set(existing_pred_df["race_id"].unique())
+```
+
+推論ループ内で既存 race_id をスキップ (重複回避):
+
+```python
+for race_id in race_ids:
+    if race_id in skipped_race_ids:
+        continue  # 5分前スナップショットなし
+    if race_id in existing_race_ids:
+        continue  # 既に予測済み (重複回避)
+    # ... 既存の推論ロジック
 ```
 
 各ベットに `predicted_at` を付与 (line ~376 の `all_bets.append` 内):
@@ -341,7 +470,7 @@ all_bets.append({
 **Step 2: 保存ロジックの変更 (既存 line 396-399)**
 
 ```python
-# 予測結果を保存 (追記)
+# 予測結果を保存 (追記、重複なし)
 new_pred_df = pd.DataFrame(all_bets)
 if not existing_pred_df.empty:
     combined_pred_df = pd.concat([existing_pred_df, new_pred_df], ignore_index=True)
@@ -390,6 +519,23 @@ if prev_bets_from_df:
         )
 
 lines.append("")
+```
+
+**Slack 通知の更新 (既存 lines 442-448 も同様に変更):**
+
+```python
+# Slack通知
+slack_msg = f"Predict: {len(new_bets)} new bets for {args.date} ({len(skipped_race_ids)} skipped)\n"
+if new_bets:
+    slack_msg += "--- New ---\n"
+    for b in new_bets:
+        slack_msg += (
+            f"  {b.get('post_time', '--:--')} {_fmt_race_id(b['race_id'])} "
+            f"馬番{b['umaban']} {b['horse_name']} 複勝{b['odds']:.1f} EV={b['ev']:.2f}\n"
+        )
+if prev_bets_from_df:
+    slack_msg += f"--- Previous ({len(prev_bets_from_df)} bets) ---\n"
+_send_slack(config, slack_msg)
 ```
 
 ※ `_fmt_race_id` と `_venue_map` は既存コード (lines 403-420) をそのまま使用。
