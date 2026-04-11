@@ -238,6 +238,8 @@ def _run_predict(
     from features.trainer_context_features import TrainerContextFeatures
     from models.submodel_manager import SubModelManager
 
+    import pandas as pd
+
     target_date = date.fromisoformat(args.date)
     ymd = target_date.strftime("%Y%m%d")
 
@@ -261,6 +263,15 @@ def _run_predict(
     feat_df = submodel_mgr.add_distance_band_features(feat_df)
 
     race_ids = feat_df["race_id"].unique()
+
+    # 発走時刻マッピング (hassotime: int/str "hhmm" → "HH:MM" 文字列)
+    _race_time_map: dict[str, str] = {}
+    for _, r in race_df.iterrows():
+        ht = r.get("hassotime", "")
+        if pd.notna(ht) and str(ht).strip():
+            ht_str = f"{int(ht):04d}"  # "930" → "0930"
+            _race_time_map[r["race_id"]] = f"{ht_str[:2]}:{ht_str[2:]}"
+
     hist_all = HorseHistoryFeatures(store=store).compute(race_df, entry_df, race_ids)
     jockey_all = JockeyContextFeatures(store).compute(entry_df)
     trainer_all = TrainerContextFeatures(store).compute(entry_df)
@@ -368,6 +379,7 @@ def _run_predict(
                     "distance": result_df.iloc[0].get("kyori", 0),
                     "bankroll_after": bet.stake,  # reconcileで更新
                     "race_date": ymd,
+                    "post_time": _race_time_map.get(race_id, ""),
                     "is_paper": True,
                 }
             )
@@ -382,16 +394,12 @@ def _run_predict(
         return
 
     # 予測結果を保存
-    import pandas as pd
-
     pred_path = config.paper_trading_dir / "predictions" / f"{ymd}.parquet"
     pred_df = pd.DataFrame(all_bets)
     pred_df.to_parquet(pred_path, index=False)
     logger.info("Predictions saved: %d bets → %s", len(all_bets), pred_path)
 
     # コンソール出力 (Windows cp932 対応)
-    import io
-
     _venue_map = {
         "01": "札幌",
         "02": "函館",
@@ -411,16 +419,20 @@ def _run_predict(
         venue = _venue_map.get(jyocd, jyocd)
         return f"{venue}{int(racenum):2d}R"
 
+    # 発走時刻順にソート (時刻なしが最後)
+    all_bets.sort(key=lambda b: b.get("post_time", "99:99"))
+
     lines: list[str] = []
     lines.append("")
     lines.append("=" * 60)
     lines.append(f"  Predict: {args.date}  -  {len(all_bets)} bets")
     lines.append("=" * 60)
     for b in all_bets:
+        t = b.get("post_time", "--:--")
         lines.append(
-            f"  {_fmt_race_id(b['race_id'])}  "
-            f"馬番{int(b['umaban']):2d}  {b['horse_name']:16s}  "
-            f"複勝{b['odds']:.1f}  EV={b['ev']:.2f}"
+            f"  {t}  {_fmt_race_id(b['race_id'])}  "
+            f"馬番{int(b['umaban']):2d}  {b['horse_name']:<16s}  "
+            f"複勝{b['odds']:5.1f}  EV={b['ev']:.2f}"
         )
     lines.append("")
     text = "\n".join(lines)
