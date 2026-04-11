@@ -24,6 +24,29 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def _calc_odds_skewness(race_df: pd.DataFrame) -> float:
+    """tanodds 分布の歪度 (レース単位、発走前のみ)"""
+    if "odds" not in race_df.columns:
+        return 0.0
+    odds = race_df["odds"].dropna()
+    if len(odds) < 3:
+        return 0.0
+    return float(odds.skew())
+
+
+def _calc_favorite_implied_prob(race_df: pd.DataFrame) -> float:
+    """1番人気の implied probability (1/tanodds、発走前のみ)"""
+    if "popularity_rank" not in race_df.columns or "odds" not in race_df.columns:
+        return 0.3
+    fav = race_df[race_df["popularity_rank"] == 1]
+    if fav.empty:
+        return 0.3
+    odds_val = fav["odds"].iloc[0]
+    if pd.isna(odds_val) or odds_val <= 0:
+        return 0.3
+    return float(1.0 / odds_val)
+
+
 @dataclass
 class BacktestResult:
     """バックテスト結果"""
@@ -194,6 +217,9 @@ class BacktestEngine:
         n_pre_post_odds_bets = 0
         n_fallback_odds_bets = 0
 
+        # RegimeDetector 用: 直近200レースの統計を蓄積
+        recent_stats_list: list[dict[str, float]] = []
+
         for race_id in race_ids:
             race_df_single = feat_df[feat_df["race_id"] == race_id].copy()
             if race_df_single.empty:
@@ -256,8 +282,12 @@ class BacktestEngine:
             if result_df.empty:
                 continue
 
-            # Quality screening
-            regime = self.models.regime_detector.current_regime
+            # Quality screening — RegimeDetector.detect() でレジーム更新
+            recent_stats_df = pd.DataFrame(recent_stats_list[-200:])
+            if len(recent_stats_df) >= self.models.regime_detector.cfg.min_samples:
+                regime = self.models.regime_detector.detect(recent_stats_df)
+            else:
+                regime = self.models.regime_detector.current_regime
             regime_params = self.models.regime_detector.get_strategy_params(regime)
             ev_threshold = regime_params.get("ev_threshold", 1.10)
             n_candidates = (
@@ -404,6 +434,34 @@ class BacktestEngine:
                 peak_bankroll = max(peak_bankroll, bankroll)
                 dd = (peak_bankroll - bankroll) / peak_bankroll if peak_bankroll > 0 else 0
                 max_dd = max(max_dd, dd)
+
+            # 統計を蓄積 (発走前情報のみ)
+            row_data = result_df.iloc[0] if not result_df.empty else {}
+            recent_stats_list.append({
+                "market_error_std": (
+                    float(result_df["signed_log_error_win"].std())
+                    if "signed_log_error_win" in result_df.columns and len(result_df) > 1
+                    else 0.2
+                ),
+                "market_error_mean": (
+                    float(result_df["signed_log_error_win"].mean())
+                    if "signed_log_error_win" in result_df.columns
+                    else 0.0
+                ),
+                "overround_rolling": float(row_data.get("overround", 0.20))
+                    if not result_df.empty else 0.20,
+                "entropy_rolling": float(row_data.get("market_entropy", 2.0))
+                    if not result_df.empty else 2.0,
+                "odds_skewness_rolling": _calc_odds_skewness(result_df),
+                "favorite_implied_prob_rolling": _calc_favorite_implied_prob(result_df),
+                "odds_volatility_mean": (
+                    float(result_df["odds_volatility"].mean())
+                    if "odds_volatility" in result_df.columns and not result_df.empty
+                    else 0.1
+                ),
+                "field_size_mean": float(row_data.get("field_size", 14.0))
+                    if not result_df.empty else 14.0,
+            })
 
         # 5. 診断ログ保存
         diag_logger.save(Path("data/backtest"), prefix="bt")

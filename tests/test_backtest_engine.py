@@ -20,11 +20,13 @@ def mock_models() -> MagicMock:
     models.quality_screener.should_bet.return_value = True
     models.regime_detector = MagicMock()
     models.regime_detector.current_regime = RegimeState.CONSERVATIVE
+    models.regime_detector.cfg.min_samples = 5
     models.regime_detector.get_strategy_params.return_value = {
         "ev_threshold": 1.20,
         "score_threshold": 0.015,
         "max_bets_per_race": 3,
     }
+    models.regime_detector.detect.return_value = RegimeState.CONSERVATIVE
     return models
 
 
