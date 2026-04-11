@@ -29,7 +29,7 @@ import logging
 import os
 import sys
 import time
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -418,6 +418,14 @@ def _run_predict(
         how="left",
     )
 
+    # 既存予測の読み込み (重複回避)
+    pred_path = config.paper_trading_dir / "predictions" / f"{ymd}.parquet"
+    existing_pred_df = pd.DataFrame()
+    existing_race_ids: set[str] = set()
+    if pred_path.exists():
+        existing_pred_df = pd.read_parquet(pred_path)
+        existing_race_ids = set(existing_pred_df["race_id"].unique())
+
     # 推論
     race_predictor = RacePredictor(models)
     bankroll = config.initial_bankroll
@@ -427,6 +435,8 @@ def _run_predict(
     for race_id in race_ids:
         if race_id in skipped_race_ids:
             continue  # 発走前オッズスナップショットなし → スキップ
+        if race_id in existing_race_ids:
+            continue  # 既に予測済み (重複回避)
         single_race = feat_df[feat_df["race_id"] == race_id].copy()
         hist_race = hist_all[hist_all["race_id"] == race_id]
         jockey_race = jockey_all[jockey_all["race_id"] == race_id]
@@ -516,6 +526,7 @@ def _run_predict(
                     "race_date": ymd,
                     "post_time": _race_time_map.get(race_id, ""),
                     "is_paper": True,
+                    "predicted_at": datetime.now().isoformat(),
                 }
             )
             bankroll -= bet.stake
@@ -523,16 +534,24 @@ def _run_predict(
     # Save diagnostics
     diag_logger.save(config.paper_trading_dir, prefix=f"diag_{ymd}")
 
-    if not all_bets:
+    if not all_bets and existing_pred_df.empty:
         logger.info("No bets generated for %s", args.date)
         _send_slack(config, f"Predict: 0 bets for {args.date}")
         return
 
-    # 予測結果を保存
-    pred_path = config.paper_trading_dir / "predictions" / f"{ymd}.parquet"
-    pred_df = pd.DataFrame(all_bets)
-    pred_df.to_parquet(pred_path, index=False)
-    logger.info("Predictions saved: %d bets → %s", len(all_bets), pred_path)
+    # 予測結果を保存 (追記、重複なし)
+    if all_bets:
+        new_pred_df = pd.DataFrame(all_bets)
+        if not existing_pred_df.empty:
+            combined_pred_df = pd.concat([existing_pred_df, new_pred_df], ignore_index=True)
+        else:
+            combined_pred_df = new_pred_df
+        combined_pred_df.to_parquet(pred_path, index=False)
+        logger.info("Predictions saved: %d new + %d existing → %s",
+                     len(all_bets), len(existing_pred_df), pred_path)
+    elif not existing_pred_df.empty:
+        # No new bets but existing ones remain
+        logger.info("No new bets for %s, %d existing predictions preserved", args.date, len(existing_pred_df))
 
     # コンソール出力 (Windows cp932 対応)
     _venue_map = {
@@ -554,34 +573,58 @@ def _run_predict(
         venue = _venue_map.get(jyocd, jyocd)
         return f"{venue}{int(racenum):2d}R"
 
-    # 発走時刻順にソート (時刻なしが最後)
-    all_bets.sort(key=lambda b: b.get("post_time", "99:99"))
+    # New vs Previous bets
+    new_bets = [b for b in all_bets if b["race_id"] not in existing_race_ids]
+    prev_bets_from_df = existing_pred_df.to_dict("records") if not existing_pred_df.empty else []
 
     lines: list[str] = []
     lines.append("")
     lines.append("=" * 60)
-    lines.append(f"  Predict: {args.date}  -  {len(all_bets)} bets")
+    lines.append(f"  Predict: {args.date}  -  {len(new_bets)} new bets  ({len(skipped_race_ids)} races skipped)")
     lines.append("=" * 60)
-    for b in all_bets:
-        t = b.get("post_time", "--:--")
-        lines.append(
-            f"  {t}  {_fmt_race_id(b['race_id'])}  "
-            f"馬番{int(b['umaban']):2d}  {b['horse_name']:<16s}  "
-            f"複勝{b['odds']:5.1f}  EV={b['ev']:.2f}"
-        )
+
+    if new_bets:
+        lines.append("  --- New Predictions ---")
+        new_bets.sort(key=lambda b: b.get("post_time", "99:99"))
+        for b in new_bets:
+            t = b.get("post_time", "--:--")
+            lines.append(
+                f"  {t}  {_fmt_race_id(b['race_id'])}  "
+                f"馬番{int(b['umaban']):2d}  {b['horse_name']:<16s}  "
+                f"複勝{b['odds']:5.1f}  EV={b['ev']:.2f}"
+            )
+
+    if prev_bets_from_df:
+        lines.append(f"  --- Previous Predictions ({len(prev_bets_from_df)} bets) ---")
+        prev_bets_from_df.sort(key=lambda b: b.get("post_time", "99:99"))
+        for b in prev_bets_from_df:
+            t = b.get("post_time", "--:--")
+            name = b.get("horse_name", "")
+            lines.append(
+                f"  {t}  {_fmt_race_id(b['race_id'])}  "
+                f"馬番{int(b['umaban']):2d}  {name:<16s}  "
+                f"複勝{b['odds']:5.1f}  EV={b['ev']:.2f}"
+            )
+
     lines.append("")
     text = "\n".join(lines)
     sys.stdout.buffer.write(text.encode("utf-8", errors="replace"))
     sys.stdout.buffer.flush()
 
     # Slack通知
-    slack_msg = f"Predict: {len(all_bets)} bets for {args.date}\n" + "\n".join(
-        f"  {b.get('post_time', '--:--')} {_fmt_race_id(b['race_id'])} "
-        f"馬番{b['umaban']} {b['horse_name']} 複勝{b['odds']:.1f} EV={b['ev']:.2f}"
-        for b in all_bets
-    )
+    slack_msg = f"Predict: {len(new_bets)} new bets for {args.date} ({len(skipped_race_ids)} skipped)\n"
+    if new_bets:
+        slack_msg += "--- New ---\n"
+        new_bets.sort(key=lambda b: b.get("post_time", "99:99"))
+        for b in new_bets:
+            slack_msg += (
+                f"  {b.get('post_time', '--:--')} {_fmt_race_id(b['race_id'])} "
+                f"馬番{b['umaban']} {b['horse_name']} 複勝{b['odds']:.1f} EV={b['ev']:.2f}\n"
+            )
+    if prev_bets_from_df:
+        slack_msg += f"--- Previous ({len(prev_bets_from_df)} bets) ---\n"
     _send_slack(config, slack_msg)
-    logger.info("Predict complete: %d bets", len(all_bets))
+    logger.info("Predict complete: %d new bets, %d existing", len(new_bets), len(prev_bets_from_df))
 
 
 # ─────────────────────────────────────────────────
