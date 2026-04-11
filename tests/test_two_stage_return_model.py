@@ -133,6 +133,7 @@ class TestWinTwoStageModel:
             {
                 "kakuteijyuni": [1] * 5,
                 "odds": [3.0, 5.0, 8.0, 15.0, 25.0],
+                "confirmed_odds": [3.0, 5.0, 8.0, 15.0, 25.0],
                 "p_ability_win": [0.3] * 5,
                 "signed_log_error_win": [0.1] * 5,
                 "abs_log_error_win": [0.1] * 5,

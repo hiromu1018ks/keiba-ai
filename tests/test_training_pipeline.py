@@ -146,6 +146,7 @@ def _make_feature_df(n: int = 8000, n_races: int = 800) -> pd.DataFrame:
                     "field_size": horses_per_race,
                     "kakuteijyuni": h + 1 if h == 0 else np.random.randint(2, horses_per_race + 1),
                     "odds": np.random.uniform(1.5, 100.0),
+                    "confirmed_odds": np.random.uniform(1.5, 100.0),
                     "fukuoddslow": np.random.uniform(1.1, 20.0),
                     "place_odds_actual": np.random.uniform(1.1, 20.0),
                     "tanodds": np.random.uniform(1.5, 100.0),
