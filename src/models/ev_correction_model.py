@@ -132,7 +132,7 @@ class EVCorrectionModel:
         winners = df[df["kakuteijyuni"] == 1].copy()
         e_pred_clipped = np.clip(winners["e_return_win_pred"], self.E_CLIP_FLOOR, None)
         winners["log_e_correction"] = np.log(
-            winners["odds"].clip(lower=self.E_CLIP_FLOOR)
+            winners["confirmed_odds"].clip(lower=self.E_CLIP_FLOOR)
         ) - np.log(e_pred_clipped)
         winners["_e_sample_weight"] = 1.0 / np.sqrt(np.clip(winners["p_win_pred"], 0.01, None))
 

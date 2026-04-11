@@ -119,7 +119,7 @@ class WinTwoStageModel:
             )
 
         features = self._prepare_features(hit_df)
-        y = hit_df["odds"]
+        y = hit_df["confirmed_odds"]
 
         params = {
             "objective": "regression_l1",

@@ -385,7 +385,7 @@ class TrainingPipelineV5:
         with TimingContext(f"{surface}/confidence"):
             conf = RobustConfidenceEstimator()
             win_calib_df = df_oof.copy()
-            win_calib_df["actual_ev_win"] = df_oof["odds"] * (df_oof["kakuteijyuni"] == 1).astype(
+            win_calib_df["actual_ev_win"] = df_oof["confirmed_odds"] * (df_oof["kakuteijyuni"] == 1).astype(
                 int
             )
             place_calib_df = df_oof.copy()
