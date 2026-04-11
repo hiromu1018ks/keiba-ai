@@ -72,3 +72,46 @@ class TestJockeyTrainerCombo:
             "jt_combo_wr", "jt_combo_place_rate",
             "jt_combo_starts", "jt_combo_prize_log",
         ]
+
+    def test_no_future_leak_per_row(self):
+        """行ごとの race_date より未来の履歴が混入しないことを確認。
+
+        同一コンビ (K01+T01) が2つの異なるレース日に出走:
+        - Race A (2023-06-01): 直前の履歴は R001(1着), R002(3着) の2走のみ
+        - Race B (2023-09-01): 直前の履歴は R001, R002, R003, R004 の4走
+        """
+        mock_store = MagicMock(spec=ParquetStore)
+        combo = JockeyTrainerComboFeatures(store=mock_store)
+
+        combo._cache = pd.DataFrame({
+            "race_id": ["R001", "R002", "R003", "R004"],
+            "race_date": pd.to_datetime([
+                "2023-01-01", "2023-02-01", "2023-07-01", "2023-08-01",
+            ]),
+            "kisyucode": ["K01", "K01", "K01", "K01"],
+            "chokyosicode": ["T01", "T01", "T01", "T01"],
+            "kakuteijyuni": [1, 3, 2, 5],
+            "umaban": [1, 1, 1, 1],
+        })
+
+        entry_df = pd.DataFrame({
+            "race_id": ["R_A", "R_B"],
+            "umaban": [1, 1],
+            "kisyucode": ["K01", "K01"],
+            "chokyosicode": ["T01", "T01"],
+            "race_date": pd.to_datetime(["2023-06-01", "2023-09-01"]),
+        })
+
+        result = combo.compute(entry_df)
+
+        # Race A (2023-06-01): R001(1着), R002(3着) のみ参照 → 2走
+        row_a = result[result["race_id"] == "R_A"].iloc[0]
+        assert row_a["jt_combo_starts"] == 2, (
+            f"Race A starts expected 2, got {row_a['jt_combo_starts']}"
+        )
+
+        # Race B (2023-09-01): R001, R002, R003, R004 の4走を参照
+        row_b = result[result["race_id"] == "R_B"].iloc[0]
+        assert row_b["jt_combo_starts"] == 4, (
+            f"Race B starts expected 4, got {row_b['jt_combo_starts']}"
+        )

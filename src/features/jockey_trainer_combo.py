@@ -54,44 +54,64 @@ class JockeyTrainerComboFeatures:
         if hist.empty or "chokyosicode" not in entry_df.columns:
             return result.assign(**nan_cols)
 
-        # リーク防止: entry_df のレース日以前のデータのみ使用
-        if not hist.empty and "race_date" in hist.columns and "race_date" in entry_df.columns:
-            max_date = entry_df["race_date"].max()
-            hist = hist[hist["race_date"] < max_date]
-
-        entry = entry_df.copy()
-        entry["jt_combo"] = entry["kisyucode"].astype(str) + "_" + entry["chokyosicode"].astype(str)
-
         hist = hist.copy()
         hist["jt_combo"] = hist["kisyucode"].astype(str) + "_" + hist["chokyosicode"].astype(str)
 
-        # コンビ別集計
-        grouped = hist.groupby("jt_combo")
-        stats = pd.DataFrame({
-            "jt_starts": grouped["kakuteijyuni"].count(),
-            "jt_wins": grouped["kakuteijyuni"].apply(lambda x: (x == 1).sum()),
-            "jt_places": grouped["kakuteijyuni"].apply(lambda x: (x <= 3).sum()),
-        })
+        # Sort by combo + date, build numpy arrays per combo
+        hist_sorted = hist.sort_values(["jt_combo", "race_date"]).reset_index(drop=True)
+        grouped_hist = {
+            k: g.reset_index(drop=True)
+            for k, g in hist_sorted.groupby("jt_combo")
+        }
 
-        # Beta(1,10) smoothing
-        stats["jt_combo_wr"] = (stats["jt_wins"] + 1) / (stats["jt_starts"] + 11)
-        stats["jt_combo_place_rate"] = (stats["jt_places"] + 1) / (stats["jt_starts"] + 11)
-        stats["jt_combo_starts"] = stats["jt_starts"]
-        stats["jt_combo_prize_log"] = np.log1p(stats["jt_starts"] * 10)  # 賞金列が無い場合の代替
+        combo_arrays: dict[str, dict[str, np.ndarray]] = {}
+        for k, g in grouped_hist.items():
+            combo_arrays[k] = {
+                "race_date": g["race_date"].values.astype("datetime64[ns]"),
+                "kakuteijyuni": g["kakuteijyuni"].values.astype(float),
+            }
+            if "honsyokin" in g.columns:
+                combo_arrays[k]["honsyokin"] = (
+                    pd.to_numeric(g["honsyokin"], errors="coerce").fillna(0).values
+                )
 
-        # 賞金列が存在する場合はそちらを使用
-        if "honsyokin" in hist.columns:
-            prize_sum = grouped["honsyokin"].apply(
-                lambda x: pd.to_numeric(x, errors="coerce").fillna(0).sum()
-            )
-            stats["jt_combo_prize_log"] = np.log1p(prize_sum)
+        n_rows = len(entry_df)
+        jt_combo_wr = np.full(n_rows, np.nan)
+        jt_combo_place_rate = np.full(n_rows, np.nan)
+        jt_combo_starts = np.full(n_rows, np.nan)
+        jt_combo_prize_log = np.full(n_rows, np.nan)
 
-        # マージ
-        result["jt_combo"] = entry["jt_combo"].values
-        result = result.merge(
-            stats[FEATURE_COLS].reset_index(),
-            on="jt_combo",
-            how="left",
-        )
+        for i, row in enumerate(entry_df.itertuples(index=False)):
+            key = f"{row.kisyucode}_{row.chokyosicode}"
+            arrs = combo_arrays.get(key)
+            if arrs is None or len(arrs["race_date"]) == 0:
+                continue
+
+            target_date_np = np.datetime64(row.race_date, "ns")
+            dates = arrs["race_date"]
+            idx = int(dates.searchsorted(target_date_np, side="left"))
+
+            if idx == 0:
+                continue
+
+            past_jyuni = arrs["kakuteijyuni"][:idx]
+            n = len(past_jyuni)
+            wins = float((past_jyuni == 1).sum())
+            places = float((past_jyuni <= 3).sum())
+
+            jt_combo_wr[i] = (wins + 1) / (n + 11)
+            jt_combo_place_rate[i] = (places + 1) / (n + 11)
+            jt_combo_starts[i] = n
+
+            if "honsyokin" in arrs:
+                prize_sum = float(arrs["honsyokin"][:idx].sum())
+            else:
+                prize_sum = float(n) * 10.0
+            jt_combo_prize_log[i] = np.log1p(prize_sum)
+
+        result["jt_combo_wr"] = jt_combo_wr
+        result["jt_combo_place_rate"] = jt_combo_place_rate
+        result["jt_combo_starts"] = jt_combo_starts
+        result["jt_combo_prize_log"] = jt_combo_prize_log
 
         return result[["race_id", "umaban"] + FEATURE_COLS]
