@@ -271,9 +271,15 @@ class BacktestEngine:
             trainer_df_race = trainer_df_all[trainer_df_all["race_id"] == race_id]
             jt_df_race = jt_df_all[jt_df_all["race_id"] == race_id]
 
+            # M3 fix: POST_RACE 列を predict() に渡さない
+            _POST_RACE_COLS = ["kakuteijyuni", "confirmed_odds"]
+            predict_df = race_df_single.drop(
+                columns=[c for c in _POST_RACE_COLS if c in race_df_single.columns],
+                errors="ignore",
+            )
             # RacePredictor に委譲
             result_df = self._race_predictor.predict(
-                race_df_single,
+                predict_df,
                 hist_features=hist_df_race,
                 jockey_features=jockey_df_race,
                 trainer_features=trainer_df_race,
@@ -281,6 +287,15 @@ class BacktestEngine:
             )
             if result_df.empty:
                 continue
+
+            # 精算・bet_history 用に POST_RACE 列を復元
+            for col in _POST_RACE_COLS:
+                if col in race_df_single.columns and col not in result_df.columns:
+                    result_df = result_df.merge(
+                        race_df_single[["umaban", col]],
+                        on="umaban",
+                        how="left",
+                    )
 
             # Quality screening — RegimeDetector.detect() でレジーム更新
             recent_stats_df = pd.DataFrame(recent_stats_list[-200:])
