@@ -46,7 +46,7 @@ class BacktestResult:
 
     def summary(self) -> str:
         lines = [
-            f"Backtest Result:",
+            "Backtest Result:",
             f"  Bets: {self.total_bets}",
             f"  Stake: ¥{self.total_stake:,.0f}",
             f"  Return: ¥{self.total_return:,.0f}",
