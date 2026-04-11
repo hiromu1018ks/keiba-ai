@@ -2,6 +2,7 @@
 
 run_paper_trading / BacktestEngine で共用するオッズ抽出ロジック。
 """
+
 from __future__ import annotations
 
 from datetime import datetime, timedelta
@@ -39,9 +40,7 @@ def extract_pre_post_odds(
         race_id, umaban, tanodds, fukuoddslow, tanninki
     """
     if odds_ts_df.empty or race_df.empty:
-        return pd.DataFrame(
-            columns=["race_id", "umaban", "tanodds", "fukuoddslow", "tanninki"]
-        )
+        return pd.DataFrame(columns=["race_id", "umaban", "tanodds", "fukuoddslow", "tanninki"])
 
     # 1. race_id -> post_datetime のマッピング
     post_time_map: dict[str, datetime] = {}
@@ -99,9 +98,7 @@ def extract_pre_post_odds(
     valid = odds_ts_df[mask]
 
     if valid.empty:
-        return pd.DataFrame(
-            columns=["race_id", "umaban", "tanodds", "fukuoddslow", "tanninki"]
-        )
+        return pd.DataFrame(columns=["race_id", "umaban", "tanodds", "fukuoddslow", "tanninki"])
 
     # 4. (race_id, umaban) ごとに最新エントリを取得
     idx = valid.groupby(["race_id", "umaban"])["_ht_datetime"].idxmax()

@@ -1,10 +1,10 @@
 """odds_extractor のテスト"""
+
 from __future__ import annotations
 
 from datetime import datetime
 
 import pandas as pd
-import pytest
 
 
 class TestExtractPrePostOdds:
