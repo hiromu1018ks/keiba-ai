@@ -79,9 +79,13 @@ class FeatureEngine:
         odds_cols = ["race_id", "umaban", "tanodds", "fukuoddslow", "tanninki"]
         df = pd.merge(df, odds_df[odds_cols], on=["race_id", "umaban"], how="left")
 
-        # entries.odds が 0 の場合（未発走レース）、tanodds をフォールバック
+        # LEAK修正: entries.odds は確定オッズ (レース後)。特徴量計算では
+        # tanodds (発走前スナップショット) を優先使用する。
+        # 確定オッズは confirmed_odds に保存 (学習ターゲット用)
+        if "odds" in df.columns:
+            df["confirmed_odds"] = df["odds"].copy()
         if "odds" in df.columns and "tanodds" in df.columns:
-            mask = (df["odds"] == 0) | df["odds"].isna()
+            mask = (df["tanodds"] > 0) & df["tanodds"].notna()
             df.loc[mask, "odds"] = df.loc[mask, "tanodds"]
 
         # 3. 障害レース除外
@@ -187,9 +191,9 @@ class FeatureEngine:
         # 4. オッズ結合
         if odds_snapshot is not None:
             df = pd.merge(df, odds_snapshot, on=["race_id", "umaban"], how="left")
-            # entries.odds が 0 の場合、tanodds をフォールバック
+            # 推論パス: entries.odds は 0 (未発走)、tanodds を使用
             if "odds" in df.columns and "tanodds" in df.columns:
-                mask = (df["odds"] == 0) | df["odds"].isna()
+                mask = (df["tanodds"] > 0) & df["tanodds"].notna()
                 df.loc[mask, "odds"] = df.loc[mask, "tanodds"]
 
         # 5. 基本特徴量マッピング
@@ -237,13 +241,16 @@ class FeatureEngine:
                     df["race_id"].map(actual).fillna(df["field_size"]).astype("Int64")
                 )
 
-        # popularity_rank: ninki → popularity_rank コピー
-        # 未発走では ninki=0 のため、tanninki (odds_tanpuku) をフォールバック
-        if "ninki" in df.columns and "popularity_rank" not in df.columns:
-            df["popularity_rank"] = df["ninki"]
+        # LEAK修正: popularity_rank は発走前情報 (tanninki) を優先使用
+        # ninki (確定人気) はフォールバックのみ
+        if "popularity_rank" not in df.columns:
             if "tanninki" in df.columns:
-                mask = (df["popularity_rank"] == 0) | df["popularity_rank"].isna()
-                df.loc[mask, "popularity_rank"] = df.loc[mask, "tanninki"]
+                df["popularity_rank"] = df["tanninki"]
+                if "ninki" in df.columns:
+                    mask = (df["popularity_rank"] == 0) | df["popularity_rank"].isna()
+                    df.loc[mask, "popularity_rank"] = df.loc[mask, "ninki"]
+            elif "ninki" in df.columns:
+                df["popularity_rank"] = df["ninki"]
 
         # running_style: kyakusitukubun → running_style (int変換)
         if "kyakusitukubun" in df.columns:
