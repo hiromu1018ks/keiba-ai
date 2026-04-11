@@ -71,11 +71,81 @@ def extract_pre_post_odds(
 - ベット判定（EV計算、閾値判定）: 発走前オッズ
 - 精算（払戻計算）: 確定オッズ
 
-確定オッズは別列 `fukuoddslow_final` として保持。`Bet.odds` には発走前オッズを格納し、
-精算時に `final_odds_map[(race_id, umaban)]` から確定オッズを引いて payout を計算。
+#### 精算オッズの渡し方
 
-**フォールバック:** 時系列データが存在しないレースでは、確定オッズをそのまま使用
+`Bet` データクラス（`src/domain/types.py`）に `final_odds: float` フィールドを追加。
+
+```python
+@dataclass
+class Bet:
+    race_id: str
+    umaban: int
+    bet_type: BetType
+    odds: float           # 発走前オッズ（ベット判定に使用した値）
+    final_odds: float     # 確定オッズ（精算に使用する値）
+    ev_lower_corrected: float
+    stake: float
+```
+
+- `Bet.odds`: 発走前オッズ（従来通り、EV判定に使用した値を記録）
+- `Bet.final_odds`: 確定オッズ（精算用）
+
+`_settle_bet()` は `bet.final_odds` を使用:
+```python
+return float(bet.stake * bet.final_odds)
+```
+
+`final_odds` の値は、`BacktestEngine._run_simulation()` 内で確定オッズの
+`(race_id, umaban) -> fukuoddslow` マップを構築し、`select_bets()` の後に各 `Bet` に設定:
+
+```python
+# 確定オッズのマップ構築
+final_odds_map = {
+    (row["race_id"], row["umaban"]): row["fukuoddslow"]
+    for _, row in final_odds_df.iterrows()
+}
+
+# ベット生成後
+bets = race_predictor.select_bets(result_df, bankroll)
+for bet in bets:
+    bet = dataclasses.replace(bet, final_odds=final_odds_map.get(
+        (bet.race_id, bet.umaban), bet.odds
+    ))
+```
+
+#### `fukuoddslow_final` の生成方法
+
+`FeatureEngine.build_all()` を呼ぶ前に、`pre_post_odds` に確定オッズを列として追加:
+
+```python
+# pre_post_odds に確定オッズを fukuoddslow_final として追加
+pre_post_with_final = pre_post_odds.merge(
+    final_odds_df[["race_id", "umaban", "fukuoddslow"]].rename(
+        columns={"fukuoddslow": "fukuoddslow_final"}
+    ),
+    on=["race_id", "umaban"],
+    how="left",
+)
+feat_df = feat_engine.build_all(race_df, entry_df, pre_post_with_final, odds_ts_df)
+```
+
+`FeatureEngine.build_all()` 自体は変更不要（`fukuoddslow_final` はマージされるが
+EV計算には使われない。`final_odds_map` の構築に使用）。
+
+#### `_generate_bets` レガシーメソッド
+
+`_generate_bets()` (engine.py:429-464) も `Bet(odds=float(row["fukuoddslow"]))` を使用している。
+このメソッドは `_run_simulation` から呼ばれなくなったレガシーだが、
+互換性のため残している。同様に `final_odds` を設定するよう修正。
+
+#### フォールバック
+
+時系列データが存在しないレースでは、確定オッズをそのまま使用
 （旧来の動作と同じ）。ログで警告を出力。
+フォールバック時は `bet.odds == bet.final_odds` となる。
+
+バックテスト結果には、発走前オッズでベットした件数とフォールバック件数を
+メトリクスとして含め、結果の信頼性を評価可能にする。
 
 ### セクション3: その他の修正
 
@@ -92,22 +162,51 @@ def extract_pre_post_odds(
 
 #### 3c. 時系列オッズデータの可用性
 
+**設計上の前提条件:**
+
+- `data/odds/time_series/` は 2015-2024 年のデータを含む
+- `data/odds/jodds_tanpuku/` は 2015-2026 年のデータを含む
+- `load_odds_time_series_range()` は `time_series` → `jodds_tanpuku` へ自動フォールバック
+- したがって、2025年テストでは `jodds_tanpuku` が使用される
+
+**重要:** `_extract_pre_post_odds()` は `happyotime` 列を「MMDDHHmm」(8桁) 形式と想定。
+`jodds_tanpuku` Parquet の `happyotime` が同じ形式であることを実装時に検証する。
+形式が異なる場合は、正規化ロジックを追加。
+
 実装前に以下を確認:
-- `data/odds/jodds_tanpuku/` または `data/odds/time_series/` にテスト期間のデータが存在するか
+- `jodds_tanpuku` の `happyotime` 列の形式とサンプル値
 - データが欠損している期間の割合
 - フォールバック時の動作（確定オッズ使用 + 警告ログ）
+
+#### 3d. スコープ外の対象
+
+以下は同じルックアヘッド問題を抱えているが、**今回のスコープ外**とする:
+- `_run_dry_run()` (run_paper_trading.py:1004-1153): 確定オッズスナップショットを使用
+- `_run_diagnose()` (run_paper_trading.py:657-780): 確定オッズスナップショットを使用
+
+これらは本格的なバックテストではなく、補助的な診断機能であるため。
+将来のタスクで対応を検討。
 
 ## 影響範囲
 
 | ファイル | 変更内容 |
 |---------|---------|
 | `src/db/odds_extractor.py` | 新規: 共通オッズ抽出関数 |
-| `src/backtest/engine.py` | オッズ取得・精算ロジック変更 |
+| `src/domain/types.py` | `Bet` に `final_odds: float` フィールド追加 |
+| `src/backtest/engine.py` | オッズ取得・精算ロジック変更、`_generate_bets` レガシーメソッド対応 |
 | `scripts/run_paper_trading.py` | `_extract_pre_post_odds` → import に変更、bankroll_after バグ修正 |
 | テスト | `tests/test_backtest*.py` にオッズ関連テスト追加 |
 
+**テストケース:**
+1. 発走前オッズが `Bet.odds` に格納され、確定オッズが `Bet.final_odds` に格納されること
+2. `_settle_bet` が `bet.final_odds`（`bet.odds` ではない）を使用すること
+3. 時系列データがない場合のフォールバック動作が確定オッズを使用すること
+4. `extract_pre_post_odds` が共有モジュールから正しくインポートされること
+5. `jodds_tanpuku` の `happyotime` 形式が想定通りであること
+
 ## 期待される効果
 
-- バックテストのベット頻度がペーパートレードに近づく（0.6 → ~1.0-1.7 bets/race 程度）
+- バックテストのベット頻度がペーパートレードに近づく（実装後に bets/race を計測・比較）
 - バックテストの ROI は低下する可能性があるが、より現実的な数字になる
 - ルックアヘッドバイアスの除去により、実運用への信頼性が向上
+- バックテスト結果に「発走前オッズ使用件数 / フォールバック件数」のメトリクスを含め、結果の信頼性を評価可能にする
