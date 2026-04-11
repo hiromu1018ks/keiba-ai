@@ -66,6 +66,7 @@ python scripts/run_backtest.py \
 | `scripts/run_backtest.py` | 学習 → テスト期間でレース毎にシミュレーション → ROI計算 | ~57分 |
 | `scripts/run_paper_trading.py` | リアルタイム予測・結果照合（setup/predict/reconcile/dry-run） | ~25秒/日 |
 | `scripts/run_multi_year_backtest.py` | 複数年度・複数学習期間での一括バックテスト | ~3時間 |
+| `scripts/run_tuning.py` | Optuna によるハイパーパラメータチューニング | ~30分 (50trials) |
 
 ### バックテスト結果（学習期間比較: 2023-2025テスト）
 
@@ -83,6 +84,53 @@ python scripts/run_backtest.py \
 | 2025 | 132.5% | **130.3%** | 117.2% |
 
 > **4年学習が最適**: 全年度黒字でROI最高。3年はデータ不足で不安定、5年は古いデータがノイズになる。
+
+## B群モデル改善
+
+A群改善 (リーク修正・体重特徴量・休養期間) に続き、予測精度をさらに向上させる4つの改善を追加しました。
+
+### 追加した改善
+
+| 改善 | 内容 | ファイル |
+|------|------|---------|
+| **B3: 過去走拡張** | 過去走参照を3→5走に拡張 + フォームサイクル特徴量 (form_trend, form_consistency, form_peak_flag) | `src/features/form_cycle_features.py` |
+| **B4: コンビ特徴量** | 騎手-調教師コンビの過去実績 (Beta平滑) | `src/features/jockey_trainer_combo.py` |
+| **B1: アンサンブル** | LightGBM + XGBoost + CatBoost → Ridge メタラーナー | `src/models/stacked_ensemble.py` |
+| **B2: Optunaチューニング** | ハイパーパラメータ最適化 CLI | `src/tuning/optuna_tuner.py`, `scripts/run_tuning.py` |
+
+### バックテスト結果 (2025年テスト, 学習: 2021-2024)
+
+| 指標 | A群 (Before) | B群のみ | **B群+アンサンブル** | **B群+Ens+Kelly** |
+|------|-------------|---------|---------------------|-------------------|
+| ROI | 129.9% | 138.0% | **221.2%** | **229.4%** |
+| 利益 | +¥185,200 | +¥232,630 | +¥249,250 | **+¥7,904,130** |
+| 最大DD | 7.3% | 4.1% | 0.6% | 9.0% |
+| ベット数 | 6,199 | 6,121 | 2,056 | 2,056 |
+| 複勝的中率 | — | — | **48.2%** | — |
+
+> アンサンブルによりベット数が減少 (より厳選) しつつ、ROIと的中率が大幅に向上。
+
+### 実行コマンド
+
+```bash
+# バックテスト (アンサンブル有効)
+python scripts/run_backtest.py \
+  --train-start 20210101 --train-end 20241231 \
+  --test-start 20250101 --test-end 20251231 \
+  --betting-mode flat --ensemble
+
+# バックテスト (アンサンブル + Kelly)
+python scripts/run_backtest.py \
+  --train-start 20210101 --train-end 20241231 \
+  --test-start 20250101 --test-end 20251231 \
+  --betting-mode kelly --ensemble
+
+# Optunaハイパーパラメータチューニング
+python scripts/run_tuning.py --model win_hit --start 20210101 --end 20241231 --trials 50
+
+# ペーパートレード (アンサンブル有効)
+python scripts/run_paper_trading.py --mode predict --date 2026-04-12 --ensemble
+```
 
 ## Paper Trading（ペーパートレード）
 
@@ -124,8 +172,8 @@ export SLACK_WEBHOOK_URL=<your_slack_webhook_url>
 # Setup — 当日のレース一覧を確認
 python scripts/run_paper_trading.py --mode setup --date 2026-04-04
 
-# Predict — 特徴量生成→推論→ベット保存（当日レースの予測を実行）
-python scripts/run_paper_trading.py --mode predict --date 2026-04-04
+# Predict — アンサンブル有効で予測
+python scripts/run_paper_trading.py --mode predict --date 2026-04-04 --ensemble
 
 # Reconcile — レース結果を取得してベットの勝敗を確定
 python scripts/run_paper_trading.py --mode reconcile --date 2026-04-04
@@ -171,6 +219,7 @@ python scripts/run_paper_trading.py --mode dry-run --date 2024-07-13
    ├── HorseHistoryFeatures.compute() — 過去走行データ (Parquet 5年分)
    ├── JockeyContextFeatures.compute() — 騎手コンテキスト
    ├── TrainerContextFeatures.compute() — 調教師コンテキスト
+   ├── JockeyTrainerComboFeatures.compute() — 騎手-調教師コンビ実績
    └── BloodlineFeatures.compute()    — 血統特徴量
 
 4. AI推論 (TwoStageReturnModel)
@@ -342,6 +391,12 @@ predict → 発走5分前にベット生成 (各レース25秒)
 | `src/monitoring/notifier.py` | +57 | Slack通知機能（追加） |
 | `src/pipelines/training_pipeline.py` | +75 | MLflow ログ拡張（追加） |
 | `scripts/run_paper_trading.py` | 393 | CLI エントリーポイント |
+| `src/features/form_cycle_features.py` | 52 | フォームサイクル特徴量 (好調/不調トレンド) |
+| `src/features/jockey_trainer_combo.py` | 80 | 騎手-調教師コンビ実績特徴量 |
+| `src/models/stacked_ensemble.py` | 155 | スタックド・アンサンブル (LGBM+XGB+CB→Ridge) |
+| `src/tuning/optuna_tuner.py` | 85 | Optunaハイパーパラメータチューナー |
+| `src/tuning/__init__.py` | 0 | パッケージ初期化 |
+| `scripts/run_tuning.py` | 65 | Optunaチューニング CLI |
 
 ## ドキュメントマップ
 
@@ -371,10 +426,10 @@ predict → 発走5分前にベット生成 (各レース25秒)
 
 ## 期待できる成果とリスク
 
-| 項目 | 目標 | 現状 (4年学習) |
+| 項目 | 目標 | 現状 (B群+アンサンブル) |
 |------|------|---------------|
-| 回収率 | **101%以上**（100円賭けて平均101円以上の払戻し） | 123.2% |
-| 年度別ROI | 全年度黒字 | 2023: 112%, 2024: 128%, 2025: 130% |
+| 回収率 | **101%以上**（100円賭けて平均101円以上の払戻し） | 229.4% (アンサンブル+Kelly) / 221.2% (アンサンブル+flat) |
+| 年度別ROI | 全年度黒字 | 2025: 221% (アンサンブル+flat) |
 
 > **注意:** バックテストの良好な結果は将来の成績を保証するものではありません。競馬は不確実性の高いギャンブルであり、本システムを使用して生じた損失について、開発者は一切の責任を負いません。
 
@@ -387,7 +442,7 @@ predict → 発走5分前にベット生成 (各レース25秒)
 | カテゴリ | 技術 |
 |----------|------|
 | 言語 | Python 3.11 |
-| 機械学習 | LightGBM, scikit-learn |
+| 機械学習 | LightGBM, XGBoost, CatBoost, scikit-learn, Optuna |
 | データベース | PostgreSQL (EveryDB2 / JRA-VAN DataLab) |
 | 実験管理 | MLflow |
 | 品質ツール | Ruff (lint/format), Mypy (型チェック), pytest (テスト) |
