@@ -34,6 +34,10 @@ def main() -> None:
     parser.add_argument("--start", required=True, help="学習開始日 (YYYYMMDD)")
     parser.add_argument("--end", required=True, help="学習終了日 (YYYYMMDD)")
     parser.add_argument("--experiment", default="keiba-v5", help="MLflow実験名 (default: keiba-v5)")
+    parser.add_argument(
+        "--ensemble", action="store_true",
+        help="StackedEnsemble (LGBM+XGB+CatBoost→Ridge) を有効化",
+    )
     args = parser.parse_args()
 
     train_start = to_dash_date(args.start)
@@ -61,7 +65,7 @@ def main() -> None:
     t0 = time.time()
 
     try:
-        models = pipeline.run(train_start, train_end)
+        models = pipeline.run(train_start, train_end, use_ensemble=args.ensemble)
     except KeyboardInterrupt:
         logger.warning("学習が中断されました")
         sys.exit(1)
