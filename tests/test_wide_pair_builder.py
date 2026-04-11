@@ -27,7 +27,7 @@ class TestWideJointPairBuilder:
                     "field_size": 3,
                     "kakuteijyuni": 1,
                     "popularity_rank": 1,
-                    "running_style": 1,
+                    "kyakusitukubun_cd": 1,
                     "odds": 3.0,
                     "wide_odds_1_2": 5.0,
                     "wide_odds_1_3": 8.0,
@@ -43,7 +43,7 @@ class TestWideJointPairBuilder:
                     "field_size": 3,
                     "kakuteijyuni": 2,
                     "popularity_rank": 2,
-                    "running_style": 2,
+                    "kyakusitukubun_cd": 2,
                     "odds": 5.0,
                     "wide_odds_1_2": 5.0,
                     "wide_odds_1_3": 8.0,
@@ -59,7 +59,7 @@ class TestWideJointPairBuilder:
                     "field_size": 3,
                     "kakuteijyuni": 3,
                     "popularity_rank": 3,
-                    "running_style": 3,
+                    "kyakusitukubun_cd": 3,
                     "odds": 10.0,
                     "wide_odds_1_2": 5.0,
                     "wide_odds_1_3": 8.0,
@@ -90,7 +90,7 @@ class TestWideJointPairBuilder:
             "joint_hit",
             "wide_odds",
             "popularity_sum",
-            "running_style_combo",
+            "kyakusitukubun_cd_combo",
         ]
         for col in required:
             assert col in pairs.columns, f"Missing column: {col}"
@@ -116,7 +116,7 @@ class TestWideJointPairBuilder:
                     "field_size": 4,
                     "kakuteijyuni": 1,
                     "popularity_rank": 1,
-                    "running_style": 1,
+                    "kyakusitukubun_cd": 1,
                     "odds": 3.0,
                     "wide_odds_1_2": 5.0,
                     "wide_odds_1_3": 8.0,
@@ -135,7 +135,7 @@ class TestWideJointPairBuilder:
                     "field_size": 4,
                     "kakuteijyuni": 2,
                     "popularity_rank": 2,
-                    "running_style": 2,
+                    "kyakusitukubun_cd": 2,
                     "odds": 5.0,
                     "wide_odds_1_2": 5.0,
                     "wide_odds_1_3": 8.0,
@@ -154,7 +154,7 @@ class TestWideJointPairBuilder:
                     "field_size": 4,
                     "kakuteijyuni": 3,
                     "popularity_rank": 3,
-                    "running_style": 3,
+                    "kyakusitukubun_cd": 3,
                     "odds": 10.0,
                     "wide_odds_1_2": 5.0,
                     "wide_odds_1_3": 8.0,
@@ -173,7 +173,7 @@ class TestWideJointPairBuilder:
                     "field_size": 4,
                     "kakuteijyuni": 4,
                     "popularity_rank": 4,
-                    "running_style": 4,
+                    "kyakusitukubun_cd": 4,
                     "odds": 20.0,
                     "wide_odds_1_2": 5.0,
                     "wide_odds_1_3": 8.0,
@@ -231,7 +231,7 @@ class TestWideJointPairBuilder:
                         "field_size": 3,
                         "kakuteijyuni": pos,
                         "popularity_rank": i,
-                        "running_style": i,
+                        "kyakusitukubun_cd": i,
                         "odds": float(i * 3),
                         "wide_odds_1_2": 5.0,
                         "wide_odds_1_3": 8.0,
@@ -242,6 +242,25 @@ class TestWideJointPairBuilder:
         builder = WideJointPairBuilder()
         pairs = builder.build(df)
         assert len(pairs) == 6  # 3 pairs per race × 2 races
+
+    def test_missing_kyakusitukubun_cd_defaults_to_zero(self) -> None:
+        """kyakusitukubun_cd 列がない場合、kyakusitukubun_cd_combo は 0 になる"""
+        df = pd.DataFrame({
+            "race_id": ["R1", "R1"],
+            "umaban": [1, 2],
+            "surface": ["turf", "turf"],
+            "distance_bin": ["mile", "mile"],
+            "track_condition_code": [1, 1],
+            "grade_code": ["C", "C"],
+            "field_size": [2, 2],
+            "kakuteijyuni": [1, 2],
+            "popularity_rank": [1, 2],
+            # Note: no kyakusitukubun_cd column
+        })
+        builder = WideJointPairBuilder()
+        pairs = builder.build(df)
+        assert "kyakusitukubun_cd_combo" in pairs.columns
+        assert (pairs["kyakusitukubun_cd_combo"] == 0).all()
 
 
 class TestWideTwoStageModelTraining:
@@ -269,7 +288,7 @@ class TestWideTwoStageModelTraining:
                 "joint_hit": hits,
                 "wide_odds": np.random.uniform(3.0, 50.0, n),
                 "popularity_sum": np.random.randint(2, 20, n),
-                "running_style_combo": np.random.randint(2, 8, n),
+                "kyakusitukubun_cd_combo": np.random.randint(2, 8, n),
             }
         )
 

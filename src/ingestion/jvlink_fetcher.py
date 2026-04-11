@@ -108,7 +108,7 @@ class JVLinkFetcher:
             finish_pos=int(row["kakuteijyuni"]),
             win_odds_actual=float(row["odds"]),
             popularity_rank=int(row["ninki"]),
-            running_style=int(row["kyakusitukubun"]),
+            running_style=0,  # POST_RACE: kyakusitukubun はレース後判定
             ba_taijyu=float(row["bataijyu"]),
             zogen_fugo=int(row["zogenfugo"]),
             zogen_sa=float(row["zogensa"]),

@@ -200,7 +200,7 @@ class WideTwoStageModel:
         2段階フィルタ:
           1. ev_wide >= ev_threshold
           2. wide_score_adj >= score_threshold
-        追加フィルタ: popularity_sum >= 6, running_style_combo != 0,
+        追加フィルタ: popularity_sum >= 6, kyakusitukubun_cd_combo != 0,
                      p_hit >= 0.05, e_return_given_hit >= 2.0
         """
         scored = self.predict_score(pair_df)
@@ -208,7 +208,7 @@ class WideTwoStageModel:
             (scored["ev_wide"] >= ev_threshold)
             & (scored["wide_score_adj"] >= score_threshold)
             & (scored["popularity_sum"] >= 6)
-            & (scored["running_style_combo"] != 0)
+            & (scored["kyakusitukubun_cd_combo"] != 0)
             & (scored["p_hit"] >= 0.05)
             & (scored["e_return_given_hit"] >= 2.0)
         ]

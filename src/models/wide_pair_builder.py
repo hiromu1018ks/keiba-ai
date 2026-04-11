@@ -6,6 +6,7 @@ import logging
 from itertools import combinations
 from typing import Any
 
+import numpy as np
 import pandas as pd
 
 logger = logging.getLogger(__name__)
@@ -15,11 +16,11 @@ class WideJointPairBuilder:
     """レース内の全馬ペア (C(n,2)) を構築する
 
     WideTwoStageModel の学習・推論の前提。
-    各ペアに joint_hit ラベル, wide_odds, popularity_sum, running_style_combo を付与。
+    各ペアに joint_hit ラベル, wide_odds, popularity_sum, kyakusitukubun_cd_combo を付与。
 
     必要列 (入力DF):
       race_id, umaban, surface, distance_bin, track_condition_code,
-      grade_code, field_size, kakuteijyuni, popularity_rank, running_style,
+      grade_code, field_size, kakuteijyuni, popularity_rank, kyakusitukubun_cd (省略可),
       wide_odds_{a}_{b} (全ペア分)
     """
 
@@ -40,7 +41,11 @@ class WideJointPairBuilder:
             umabans = horses["umaban"].values.astype(int)
             finish_positions = horses["kakuteijyuni"].values.astype(int)
             popularity_ranks = horses["popularity_rank"].values.astype(int)
-            running_styles = horses["running_style"].values.astype(int)
+            running_styles = (
+                horses["kyakusitukubun_cd"].fillna(0).values.astype(int)
+                if "kyakusitukubun_cd" in horses.columns
+                else np.zeros(n, dtype=int)
+            )
 
             # Get wide odds columns from first row
             first_row = horses.iloc[0]
@@ -71,7 +76,7 @@ class WideJointPairBuilder:
                         "umaban_b": int(umabans[j]),
                         "joint_hit": int(finish_positions[i] <= 3 and finish_positions[j] <= 3),
                         "popularity_sum": int(popularity_ranks[i] + popularity_ranks[j]),
-                        "running_style_combo": int(running_styles[i] + running_styles[j]),
+                        "kyakusitukubun_cd_combo": int(running_styles[i] + running_styles[j]),
                         "wide_odds": wide_odds_cache.get(odds_col, 0.0),
                     }
                 )

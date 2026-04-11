@@ -116,7 +116,8 @@ class Entry:
     finish_pos: int  # 確定着順 (1=1着, 0=取消等)
     win_odds_actual: float  # 確定単勝オッズ
     popularity_rank: int  # 人気順位
-    running_style: int  # 脚質 (1=逃げ, 2=先行, 3=差し, 4=追込, 0=不明)
+    running_style: int  # POST_RACE — kyakusitukubun (SE No.73) レース後判定。
+                        # ML特徴量では使用不可。kyakusitukubun_cd (過去走) を代用。
     ba_taijyu: float  # 馬体重
     zogen_fugo: int  # 体重増減符号 (1=増, 2=減, 3=不变)
     zogen_sa: float  # 体重増減幅

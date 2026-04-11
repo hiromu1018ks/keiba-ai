@@ -252,10 +252,6 @@ class FeatureEngine:
             elif "ninki" in df.columns:
                 df["popularity_rank"] = df["ninki"]
 
-        # running_style: kyakusitukubun → running_style (int変換)
-        if "kyakusitukubun" in df.columns:
-            df["running_style"] = df["kyakusitukubun"].fillna(0).astype(int)
-
         # A2: weight_change_zone — 体重変化カテゴリ (zogen_sa ベース、数値エンコード)
         if "zogen_sa" in df.columns:
             zogen = df["zogen_sa"].astype(float)

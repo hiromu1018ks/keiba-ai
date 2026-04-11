@@ -20,7 +20,7 @@ def pair_df() -> pd.DataFrame:
             "umaban_a": [1, 1, 2],
             "umaban_b": [2, 3, 3],
             "popularity_sum": [3, 5, 9],
-            "running_style_combo": [3, 0, 5],
+            "kyakusitukubun_cd_combo": [3, 0, 5],
             "p_hit": [0.30, 0.10, 0.05],
             "e_return_given_hit": [4.0, 12.0, 24.0],
             "surface": ["turf"] * 3,
@@ -103,10 +103,10 @@ class TestWideTwoStageModel:
         trained_wide_model: WideTwoStageModel,
         pair_df: pd.DataFrame,
     ) -> None:
-        """running_style_combo == 0 のペアは除外される"""
+        """kyakusitukubun_cd_combo == 0 のペアは除外される"""
         bets = trained_wide_model.select_bets(pair_df, ev_threshold=0.0, score_threshold=0.0)
         for bet in bets:
-            assert bet["running_style_combo"] != 0
+            assert bet["kyakusitukubun_cd_combo"] != 0
 
     def test_select_bets_popularity_filter(
         self,

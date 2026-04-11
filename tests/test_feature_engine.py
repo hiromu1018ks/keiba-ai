@@ -487,6 +487,41 @@ class TestLeakPrevention:
         assert "confirmed_odds" in result.columns
         assert result["confirmed_odds"].tolist() == [2.0, 4.0, 7.0]
 
+    def test_running_style_not_created_from_kyakusitukubun(self) -> None:
+        """kyakusitukubun が入力にあっても running_style 列は生成されない"""
+        engine = FeatureEngine()
+        race_df = pd.DataFrame(
+            {
+                "race_id": ["R001"] * 3,
+                "trackcd": [11] * 3,
+                "kyori": [1600] * 3,
+                "syussotosu": [3] * 3,
+                "surface": ["turf"] * 3,
+                "gradecd": ["_"] * 3,
+            }
+        )
+        entry_df = pd.DataFrame(
+            {
+                "race_id": ["R001"] * 3,
+                "umaban": [1, 2, 3],
+                "odds": [3.0, 5.0, 8.0],
+                "ninki": [1, 2, 3],
+                "bataijyu": [480.0, 470.0, 490.0],
+                "kyakusitukubun": [1, 2, 3],
+            }
+        )
+        odds_df = pd.DataFrame(
+            {
+                "race_id": ["R001"] * 3,
+                "umaban": [1, 2, 3],
+                "tanodds": [3.0, 5.0, 8.0],
+                "fukuoddslow": [1.1, 1.3, 1.5],
+                "tanninki": [1, 2, 3],
+            }
+        )
+        result = engine.build_all(race_df, entry_df, odds_df)
+        assert "running_style" not in result.columns
+
     def test_odds_fallback_when_tanodds_missing(self) -> None:
         """tanodds が 0/NaN の場合、entries.odds をフォールバックとして保持"""
         engine = FeatureEngine()
