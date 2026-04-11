@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from unittest.mock import MagicMock, patch
 
 import pandas as pd
@@ -294,12 +295,14 @@ class TestPostRaceColumnExclusion:
 
     _POST_RACE_COLS = ["kakuteijyuni", "confirmed_odds"]
 
+    @patch("db.odds_extractor.extract_pre_post_odds")
     @patch("features.trainer_context_features.TrainerContextFeatures")
     @patch("features.jockey_context_features.JockeyContextFeatures")
     @patch("features.interaction_features.compute_interaction_features")
     @patch("features.horse_history_features.HorseHistoryFeatures")
     @patch("models.submodel_manager.SubModelManager")
     @patch("features.feature_engine.FeatureEngine")
+    @patch("backtest.engine.load_odds_time_series_range")
     @patch("backtest.engine.load_odds_snapshots")
     @patch("backtest.engine.load_entries")
     @patch("backtest.engine.load_races")
@@ -308,12 +311,14 @@ class TestPostRaceColumnExclusion:
         mock_load_races: MagicMock,
         mock_load_entries: MagicMock,
         mock_load_odds: MagicMock,
+        mock_load_odds_ts: MagicMock,
         mock_feat_engine_cls: MagicMock,
         mock_submodel_mgr_cls: MagicMock,
         mock_hist_cls: MagicMock,
         mock_interaction_fn: MagicMock,
         mock_jockey_cls: MagicMock,
         mock_trainer_cls: MagicMock,
+        mock_extract_odds: MagicMock,
         mock_models: MagicMock,
     ) -> None:
         """predict() に渡される DataFrame に POST_RACE 列が含まれない"""
@@ -322,6 +327,7 @@ class TestPostRaceColumnExclusion:
             {
                 "race_id": ["20240101010101"],
                 "race_date": pd.to_datetime("2024-01-01"),
+                "hassotime": ["03101500"],
             }
         )
         mock_load_entries.return_value = pd.DataFrame(
@@ -340,6 +346,12 @@ class TestPostRaceColumnExclusion:
             }
         )
         mock_load_odds.return_value = pd.DataFrame()
+        mock_load_odds_ts.return_value = pd.DataFrame(
+            {"race_id": ["20240101010101"], "umaban": [1], "odds": [5.0]}
+        )
+        mock_extract_odds.return_value = pd.DataFrame(
+            {"race_id": ["20240101010101"], "umaban": [1], "fukuoddslow": [2.4]}
+        )
 
         # --- feat_df with POST_RACE columns present ---
         feat_df = pd.DataFrame(
@@ -442,12 +454,14 @@ class TestPostRaceColumnExclusion:
 class TestBetHistoryEnrichment:
     """bet_history への surface/distance/ev/popularity/bankroll_after 付与テスト"""
 
+    @patch("db.odds_extractor.extract_pre_post_odds")
     @patch("features.trainer_context_features.TrainerContextFeatures")
     @patch("features.jockey_context_features.JockeyContextFeatures")
     @patch("features.interaction_features.compute_interaction_features")
     @patch("features.horse_history_features.HorseHistoryFeatures")
     @patch("models.submodel_manager.SubModelManager")
     @patch("features.feature_engine.FeatureEngine")
+    @patch("backtest.engine.load_odds_time_series_range")
     @patch("backtest.engine.load_odds_snapshots")
     @patch("backtest.engine.load_entries")
     @patch("backtest.engine.load_races")
@@ -456,12 +470,14 @@ class TestBetHistoryEnrichment:
         mock_load_races: MagicMock,
         mock_load_entries: MagicMock,
         mock_load_odds: MagicMock,
+        mock_load_odds_ts: MagicMock,
         mock_feat_engine_cls: MagicMock,
         mock_submodel_mgr_cls: MagicMock,
         mock_hist_cls: MagicMock,
         mock_interaction_fn: MagicMock,
         mock_jockey_cls: MagicMock,
         mock_trainer_cls: MagicMock,
+        mock_extract_odds: MagicMock,
         mock_models: MagicMock,
     ) -> None:
         """エンジンループが bet_history に拡張フィールドを付与する"""
@@ -470,6 +486,7 @@ class TestBetHistoryEnrichment:
             {
                 "race_id": ["20240101010101"],
                 "race_date": pd.to_datetime("2024-01-01"),
+                "hassotime": ["03101500"],
             }
         )
         mock_load_entries.return_value = pd.DataFrame(
@@ -488,6 +505,12 @@ class TestBetHistoryEnrichment:
             }
         )
         mock_load_odds.return_value = pd.DataFrame()
+        mock_load_odds_ts.return_value = pd.DataFrame(
+            {"race_id": ["20240101010101"], "umaban": [1], "odds": [5.0]}
+        )
+        mock_extract_odds.return_value = pd.DataFrame(
+            {"race_id": ["20240101010101"], "umaban": [1], "fukuoddslow": [2.4]}
+        )
 
         # --- feat_df (complete columns for pipeline) ---
         feat_df = pd.DataFrame(
@@ -567,10 +590,8 @@ class TestBetHistoryEnrichment:
 
         # --- assertions ---
         assert result.total_bets >= 1, "Should place at least 1 bet"
-        assert result.n_pre_post_odds_bets + result.n_fallback_odds_bets >= 1
-        # mock で odds_ts が空 → フォールバック扱い
-        assert result.n_fallback_odds_bets >= 1
-        assert result.n_pre_post_odds_bets == 0
+        assert result.n_pre_post_odds_bets >= 1
+        assert result.n_fallback_odds_bets == 0
         bet = result.bet_history[0]
         assert "surface" in bet
         assert bet["surface"] == "turf"
@@ -602,3 +623,62 @@ class TestBetHistoryEnrichment:
         assert isinstance(bet["top3_finishers"], list)
         assert len(bet["top3_finishers"]) >= 1  # feat_df に1頭のみ
         assert bet["top3_finishers"][0]["umaban"] == 1
+
+
+class TestOddsFallbackSkip:
+    """odds_ts_df が空の場合はフォールバックせず全レースをスキップ"""
+
+    @patch("backtest.engine.load_odds_time_series_range")
+    @patch("backtest.engine.load_odds_snapshots")
+    @patch("backtest.engine.load_entries")
+    @patch("backtest.engine.load_races")
+    def test_empty_odds_ts_skips_all_races(
+        self,
+        mock_load_races: MagicMock,
+        mock_load_entries: MagicMock,
+        mock_load_odds: MagicMock,
+        mock_load_odds_ts: MagicMock,
+        mock_models: MagicMock,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """時系列オッズが空の場合、全レースをスキップして total_bets == 0"""
+        mock_load_races.return_value = pd.DataFrame(
+            {
+                "race_id": ["20240101010101"],
+                "race_date": pd.to_datetime("2024-01-01"),
+            }
+        )
+        mock_load_entries.return_value = pd.DataFrame(
+            {
+                "race_id": ["20240101010101"],
+                "umaban": [1],
+                "kettonum": [1234],
+                "kakuteijyuni": [2],
+                "odds": [5.0],
+                "ninki": [3],
+                "bataijyu": [480],
+                "zogen_fugo": [0],
+                "zogen_sa": [0],
+                "kisyucode": [100],
+                "chokyosicode": [200],
+            }
+        )
+        mock_load_odds.return_value = pd.DataFrame()
+        # 空の時系列オッズ → フォールバックなしでスキップ
+        mock_load_odds_ts.return_value = pd.DataFrame()
+
+        from backtest.engine import BacktestEngine
+
+        mock_store = MagicMock()
+        engine = BacktestEngine(models=mock_models, store=mock_store)
+
+        with caplog.at_level(logging.WARNING, logger="backtest.engine"):
+            result = engine.run("2024-01-01", "2024-12-31")
+
+        assert result.total_bets == 0
+        assert result.n_pre_post_odds_bets == 0
+        assert result.n_fallback_odds_bets == 0
+        # 警告ログに "skipping" が含まれる
+        assert any("skipping" in rec.message.lower() for rec in caplog.records), (
+            f"Expected warning about skipping, got: {[r.message for r in caplog.records]}"
+        )

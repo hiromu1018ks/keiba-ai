@@ -157,18 +157,27 @@ class BacktestEngine:
         submodel_mgr = SubModelManager()
         odds_ts_df = load_odds_time_series_range(self.store, start, end)
 
-        # 発走前オッズの抽出（フォールバック: 確定オッズ）
-        used_pre_post_odds = False
-        if not odds_ts_df.empty and "hassotime" in race_df.columns:
-            pre_post_odds = extract_pre_post_odds(odds_ts_df, race_df, minutes_before=5)
-            if not pre_post_odds.empty:
-                used_pre_post_odds = True
-            else:
-                logger.warning("extract_pre_post_odds returned empty, falling back to final odds")
-                pre_post_odds = final_odds_df
-        else:
-            pre_post_odds = final_odds_df
-            logger.warning("No time-series odds data, using final odds (look-ahead bias)")
+        # 発走前オッズの抽出（フォールバックなし: 時系列オッズがない場合は全レーススキップ）
+        if odds_ts_df.empty:
+            logger.warning(
+                "No time-series odds data for %s ~ %s, skipping all races", test_start, test_end
+            )
+            return BacktestResult(final_bankroll=self.initial_bankroll)
+
+        if "hassotime" not in race_df.columns:
+            logger.warning(
+                "hassotime column missing, cannot extract pre-race odds, skipping all races"
+            )
+            return BacktestResult(final_bankroll=self.initial_bankroll)
+
+        pre_post_odds = extract_pre_post_odds(odds_ts_df, race_df, minutes_before=5)
+        if pre_post_odds.empty:
+            logger.warning(
+                "extract_pre_post_odds returned empty for %s ~ %s, skipping all races",
+                test_start,
+                test_end,
+            )
+            return BacktestResult(final_bankroll=self.initial_bankroll)
 
         # 確定オッズマップを構築（精算用。FeatureEngine の列フィルタ回避）
         final_odds_map: dict[tuple[str, int], float] = {}
@@ -345,11 +354,8 @@ class BacktestEngine:
                 updated_bets.append(replace(bet, final_odds=fo))
             bets = updated_bets
 
-            # フォールバックメトリクス集計
-            if used_pre_post_odds:
-                n_pre_post_odds_bets += len(bets)
-            else:
-                n_fallback_odds_bets += len(bets)
+            # メトリクス集計 (全ベットが発走前オッズ)
+            n_pre_post_odds_bets += len(bets)
 
             # Log diagnostics for quality-passed race
             diag_logger.log_race(
