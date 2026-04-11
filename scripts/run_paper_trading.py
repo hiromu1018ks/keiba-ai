@@ -68,6 +68,10 @@ def parse_args() -> argparse.Namespace:
         "--ensemble", action="store_true",
         help="StackedEnsemble (.joblib) モデルをロード",
     )
+    parser.add_argument(
+        "--minutes-before", type=int, default=5,
+        help="発走何分前のオッズを使用するか (デフォルト: 5)",
+    )
     return parser.parse_args()
 
 
@@ -354,14 +358,45 @@ def _run_predict(
     db = EveryDB2Queries(config.everydb2_connection_string)
     race_df = load_races_from_db(db, ymd)
     entry_df = load_entries_from_db(db, ymd)
-    odds_df = load_odds_snapshots_from_db(db, ymd)
+    odds_snapshot_df = load_odds_snapshots_from_db(db, ymd)  # fallback用
     odds_ts_df = load_odds_time_series_from_db(db, ymd)
 
-    if race_df.empty or entry_df.empty or odds_df.empty or odds_ts_df.empty:
+    if race_df.empty or entry_df.empty:
         logger.error("EveryDB2 からデータ取得失敗: %s", ymd)
         return
 
-    # 特徴量生成 (dry-runと同じパイプライン)
+    # 発走時刻マッピングを先に構築 (_extract_pre_post_odds のログと出力で使用)
+    _race_time_map: dict[str, str] = {}
+    for _, r in race_df.iterrows():
+        ht = r.get("hassotime", "")
+        if pd.notna(ht) and str(ht).strip():
+            ht_str = f"{int(ht):04d}"
+            _race_time_map[r["race_id"]] = f"{ht_str[:2]}:{ht_str[2:]}"
+
+    # 発走N分前のオッズスナップショットを生成
+    minutes_before = getattr(args, "minutes_before", 5)
+    if odds_ts_df.empty:
+        logger.warning("No odds time series for %s, falling back to snapshots", ymd)
+        odds_df = odds_snapshot_df
+    else:
+        odds_df = _extract_pre_post_odds(odds_ts_df, race_df, minutes_before=minutes_before)
+        if odds_df.empty:
+            logger.warning("No pre-post odds extracted for %s, falling back to snapshots", ymd)
+            odds_df = odds_snapshot_df
+
+    # オッズスナップショットがないレースの race_id を特定
+    if odds_df.empty:
+        logger.error("No odds data available for %s (time series and snapshots both empty)", ymd)
+        return
+    all_race_ids = set(race_df["race_id"].unique())
+    covered_race_ids = set(odds_df["race_id"].unique())
+    skipped_race_ids = all_race_ids - covered_race_ids
+    for rid in sorted(skipped_race_ids):
+        post_time = _race_time_map.get(rid, "??")
+        logger.info("Skipping %s: no odds snapshot (post_time=%s)", rid, post_time)
+
+    # 特徴量生成 (odds_df を発走N分前スナップショットに差し替え。
+    # odds_ts_df はそのまま渡す → odds_dynamics 特徴量は完全時系列から計算)
     logger.info("Generating features...")
     feat_engine = FeatureEngine()
     submodel_mgr = SubModelManager()
@@ -369,14 +404,6 @@ def _run_predict(
     feat_df = submodel_mgr.add_distance_band_features(feat_df)
 
     race_ids = feat_df["race_id"].unique()
-
-    # 発走時刻マッピング (hassotime: int/str "hhmm" → "HH:MM" 文字列)
-    _race_time_map: dict[str, str] = {}
-    for _, r in race_df.iterrows():
-        ht = r.get("hassotime", "")
-        if pd.notna(ht) and str(ht).strip():
-            ht_str = f"{int(ht):04d}"  # "930" → "0930"
-            _race_time_map[r["race_id"]] = f"{ht_str[:2]}:{ht_str[2:]}"
 
     hist_all = HorseHistoryFeatures(store=store).compute(race_df, entry_df, race_ids)
     jockey_all = JockeyContextFeatures(store).compute(entry_df)
@@ -398,6 +425,8 @@ def _run_predict(
     all_bets: list[dict[str, object]] = []
 
     for race_id in race_ids:
+        if race_id in skipped_race_ids:
+            continue  # 発走前オッズスナップショットなし → スキップ
         single_race = feat_df[feat_df["race_id"] == race_id].copy()
         hist_race = hist_all[hist_all["race_id"] == race_id]
         jockey_race = jockey_all[jockey_all["race_id"] == race_id]
