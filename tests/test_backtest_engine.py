@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from unittest.mock import MagicMock, patch
 
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -73,7 +74,6 @@ class TestBacktestResult:
         s = result.summary()
         assert "50" in s
         assert "110.000%" in s
-
 
     def test_bet_final_odds_default(self) -> None:
         """Bet.final_odds のデフォルトは 0.0"""
@@ -365,8 +365,8 @@ class TestPostRaceColumnExclusion:
                 "ninki": [3],
                 "ev_place": [1.5],
                 "fukuoddslow": [2.4],
-                "kakuteijyuni": [2],          # POST_RACE — must be excluded from predict
-                "confirmed_odds": [1.8],      # POST_RACE — must be excluded from predict
+                "kakuteijyuni": [2],  # POST_RACE — must be excluded from predict
+                "confirmed_odds": [1.8],  # POST_RACE — must be excluded from predict
                 "kettonum": [1234],
                 "odds": [5.0],
                 "bataijyu": [480],
@@ -682,3 +682,92 @@ class TestOddsFallbackSkip:
         assert any("skipping" in rec.message.lower() for rec in caplog.records), (
             f"Expected warning about skipping, got: {[r.message for r in caplog.records]}"
         )
+
+
+class TestLeakIntegration:
+    """全コンポーネントのリーク修正が統合されていることを確認"""
+
+    def test_regime_detector_feature_cols_no_post_race(self) -> None:
+        """RegimeDetector.FEATURE_COLS に POST_RACE 指標が含まれない"""
+        from models.regime_detector import RegimeDetector
+
+        post_race_cols = {
+            "favorite_win_rate",
+            "flb_slope",
+            "favorite_roi_ema",
+            "mid_roi_ema",
+            "longshot_roi_ema",
+        }
+        for col in post_race_cols:
+            assert col not in RegimeDetector.FEATURE_COLS, (
+                f"POST_RACE column '{col}' still in FEATURE_COLS"
+            )
+
+    def test_regime_detector_feature_cols_has_pre_race(self) -> None:
+        """RegimeDetector.FEATURE_COLS が PRE_RACE 指標のみで構成される"""
+        from models.regime_detector import RegimeDetector
+
+        expected_cols = {
+            "market_error_std",
+            "market_error_mean",
+            "overround_rolling",
+            "entropy_rolling",
+            "favorite_implied_prob_rolling",
+            "odds_skewness_rolling",
+            "odds_volatility_mean",
+            "field_size_mean",
+        }
+        actual_cols = set(RegimeDetector.FEATURE_COLS)
+        assert actual_cols == expected_cols, (
+            f"FEATURE_COLS mismatch: expected {expected_cols}, got {actual_cols}"
+        )
+
+    def test_favorite_win_rate_is_expanding_not_current(self) -> None:
+        """_build_race_level_features の favorite_win_rate が
+        過去レースのみの expanding mean である (現在レースを含まない)"""
+        from features.feature_engine import FeatureEngine
+        from models.submodel_manager import SubModelManager
+        from pipelines.training_pipeline import TrainingPipelineV5
+
+        pipeline = TrainingPipelineV5.__new__(TrainingPipelineV5)
+        pipeline.store = MagicMock()
+        pipeline.db = None
+        pipeline.feature_engine = FeatureEngine()
+        pipeline.submodel_mgr = SubModelManager()
+
+        # 20レース: 最初の10レースは1番人気が全勝、次の10レースは全敗
+        rows: list[dict[str, object]] = []
+        for r in range(20):
+            race_id = f"2020{1:02d}{r + 1:02d}0101{r:02d}"
+            for h in range(5):
+                if r < 10:
+                    kakuteijyuni = 1 if h == 0 else h + 1
+                else:
+                    kakuteijyuni = 2 if h == 0 else h
+                rows.append(
+                    {
+                        "race_id": race_id,
+                        "umaban": h + 1,
+                        "surface": "turf",
+                        "distance_bin": "mile",
+                        "track_condition_code": 1,
+                        "grade_code": "C",
+                        "field_size": 5,
+                        "difficulty_score": 0.5,
+                        "signed_log_error_win": np.random.normal(0, 0.3),
+                        "abs_log_error_win": np.random.uniform(0, 1),
+                        "market_entropy": np.random.uniform(1.0, 3.0),
+                        "overround": np.random.uniform(0.15, 0.30),
+                        "kakuteijyuni": kakuteijyuni,
+                        "popularity_rank": h + 1,
+                        "race_date": f"2020-01-{r + 1:02d}",
+                    }
+                )
+        feat_df = pd.DataFrame(rows)
+        result = pipeline._build_race_level_features(feat_df)
+
+        # 最初のレース: データなし → 0.3
+        assert result.iloc[0]["favorite_win_rate"] == pytest.approx(0.3)
+        # 11レース目: 10レース前までの1番人気勝率 (全勝) → 高い値
+        race_11_fwr = result.iloc[10]["favorite_win_rate"]
+        assert race_11_fwr > 0.8, f"Race 11 favorite_win_rate should be high, got {race_11_fwr}"
