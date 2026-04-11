@@ -441,8 +441,8 @@ def _run_predict(
 
     # Slack通知
     slack_msg = f"Predict: {len(all_bets)} bets for {args.date}\n" + "\n".join(
-        f"  {_fmt_race_id(b['race_id'])} 馬番{b['umaban']} {b['horse_name']} "
-        f"複勝{b['odds']:.1f} EV={b['ev']:.2f}"
+        f"  {b.get('post_time', '--:--')} {_fmt_race_id(b['race_id'])} "
+        f"馬番{b['umaban']} {b['horse_name']} 複勝{b['odds']:.1f} EV={b['ev']:.2f}"
         for b in all_bets
     )
     _send_slack(config, slack_msg)
