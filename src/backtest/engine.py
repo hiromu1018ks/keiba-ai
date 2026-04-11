@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -110,21 +110,43 @@ class BacktestEngine:
         end = test_end.replace("-", "")
         race_df = load_races(self.store, start, end)
         entry_df = load_entries(self.store, start, end)
-        odds_df = load_odds_snapshots(self.store, start, end)
+        final_odds_df = load_odds_snapshots(self.store, start, end)  # 確定オッズ（精算用）
 
         if race_df.empty:
             logger.warning(f"No races found in {test_start} ~ {test_end}")
             return BacktestResult(final_bankroll=self.initial_bankroll)
 
         # 2. 特徴量生成
+        from db.odds_extractor import extract_pre_post_odds
         from features.feature_engine import FeatureEngine
         from models.submodel_manager import SubModelManager
 
         feat_engine = FeatureEngine()
         submodel_mgr = SubModelManager()
         odds_ts_df = load_odds_time_series_range(self.store, start, end)
+
+        # 発走前オッズの抽出（フォールバック: 確定オッズ）
+        if not odds_ts_df.empty and "hassotime" in race_df.columns:
+            pre_post_odds = extract_pre_post_odds(odds_ts_df, race_df, minutes_before=5)
+            if pre_post_odds.empty:
+                logger.warning("extract_pre_post_odds returned empty, falling back to final odds")
+                pre_post_odds = final_odds_df
+        else:
+            pre_post_odds = final_odds_df
+            logger.warning("No time-series odds data, using final odds (look-ahead bias)")
+
+        # 確定オッズを fukuoddslow_final として発走前オッズにマージ
+        if not final_odds_df.empty:
+            pre_post_odds = pre_post_odds.merge(
+                final_odds_df[["race_id", "umaban", "fukuoddslow"]].rename(
+                    columns={"fukuoddslow": "fukuoddslow_final"}
+                ),
+                on=["race_id", "umaban"],
+                how="left",
+            )
+
         feat_df = feat_engine.build_all(
-            race_df, entry_df, odds_df, odds_ts_df=odds_ts_df, store=self.store
+            race_df, entry_df, pre_post_odds, odds_ts_df=odds_ts_df, store=self.store
         )
         feat_df = submodel_mgr.add_distance_band_features(feat_df)
 
@@ -258,6 +280,20 @@ class BacktestEngine:
             # Bet generation
             surface_key = result_df["surface"].iloc[0]
             bets = self._race_predictor.select_bets(result_df, bankroll)
+
+            # Bet に確定オッズを設定
+            final_odds_map: dict[tuple[str, int], float] = {}
+            if "fukuoddslow_final" in result_df.columns:
+                for _, r in result_df.iterrows():
+                    key = (r["race_id"], int(r["umaban"]))
+                    if pd.notna(r.get("fukuoddslow_final")):
+                        final_odds_map[key] = float(r["fukuoddslow_final"])
+
+            updated_bets = []
+            for bet in bets:
+                fo = final_odds_map.get((bet.race_id, bet.umaban), bet.odds)
+                updated_bets.append(replace(bet, final_odds=fo))
+            bets = updated_bets
 
             # Log diagnostics for quality-passed race
             diag_logger.log_race(
@@ -456,6 +492,7 @@ class BacktestEngine:
                             umaban=int(row["umaban"]),
                             bet_type=BetType.PLACE,
                             odds=float(row["fukuoddslow"]),
+                            final_odds=float(row.get("fukuoddslow_final", row["fukuoddslow"])),
                             ev_lower_corrected=float(row.get("ev_place", 0)),
                             stake=stake,
                         )
@@ -470,19 +507,20 @@ class BacktestEngine:
             return 0.0
 
         finish_pos = int(horse.iloc[0]["kakuteijyuni"])
+        settle_odds = bet.final_odds if bet.final_odds > 0 else bet.odds
 
         if bet.bet_type == BetType.PLACE:
             if 1 <= finish_pos <= 3:
-                return float(bet.stake * bet.odds)
+                return float(bet.stake * settle_odds)
         elif bet.bet_type == BetType.WIN:
             if finish_pos == 1:
-                return float(bet.stake * bet.odds)
+                return float(bet.stake * settle_odds)
         elif bet.bet_type == BetType.WIDE:
             if 1 <= finish_pos <= 3:
                 pair_b = getattr(bet, "umaban_b", None)
                 if pair_b is not None:
                     pair_horse = race_df[race_df["umaban"] == pair_b]
                     if not pair_horse.empty and int(pair_horse.iloc[0]["kakuteijyuni"]) <= 3:
-                        return float(bet.stake * bet.odds)
+                        return float(bet.stake * settle_odds)
 
         return 0.0

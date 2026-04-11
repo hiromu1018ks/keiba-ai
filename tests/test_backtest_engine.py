@@ -146,6 +146,47 @@ class TestBacktestEngine:
         with pytest.raises(ValueError, match="betting_mode must be"):
             BacktestEngine(models=mock_models, betting_mode="invalid")
 
+    def test_settle_bet_uses_final_odds(self, mock_models: MagicMock) -> None:
+        """_settle_bet が final_odds を使用する"""
+        from backtest.engine import BacktestEngine
+        from domain.models import Bet, BetType
+
+        engine = BacktestEngine(models=mock_models)
+        bet = Bet(
+            race_id="20240101010101",
+            umaban=1,
+            bet_type=BetType.PLACE,
+            odds=2.0,  # 発走前オッズ
+            final_odds=1.1,  # 確定オッズ
+            ev_lower_corrected=1.5,
+            stake=100.0,
+        )
+        race_df = pd.DataFrame(
+            {"umaban": [1], "kakuteijyuni": [2]}  # 2着 → 複勝的中
+        )
+        payout = engine._settle_bet(bet, race_df)
+        # 精算は final_odds (1.1) で計算: 100 * 1.1 = 110.0
+        assert abs(payout - 110.0) < 0.01
+
+    def test_settle_bet_falls_back_to_odds(self, mock_models: MagicMock) -> None:
+        """final_odds が 0 の場合は odds にフォールバック"""
+        from backtest.engine import BacktestEngine
+        from domain.models import Bet, BetType
+
+        engine = BacktestEngine(models=mock_models)
+        bet = Bet(
+            race_id="20240101010101",
+            umaban=1,
+            bet_type=BetType.PLACE,
+            odds=2.0,
+            final_odds=0.0,  # デフォルト → フォールバック
+            ev_lower_corrected=1.5,
+            stake=100.0,
+        )
+        race_df = pd.DataFrame({"umaban": [1], "kakuteijyuni": [2]})
+        payout = engine._settle_bet(bet, race_df)
+        assert payout == 200.0  # 100 * 2.0 (odds, not final_odds)
+
     @patch("backtest.engine.load_odds_snapshots")
     @patch("backtest.engine.load_entries")
     @patch("backtest.engine.load_races")
