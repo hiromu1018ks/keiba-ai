@@ -15,19 +15,16 @@ from models.regime_detector import RegimeDetector
 
 @pytest.fixture
 def regime_stats_df() -> pd.DataFrame:
-    """レジーム検知用のレース集計データ (5行)"""
+    """レジーム検知用のレース集計データ (5行) — 新 FEATURE_COLS"""
     return pd.DataFrame(
         {
             "market_error_std": [0.4, 0.2, 0.6, 0.15, 0.5],
             "market_error_mean": [0.1, 0.05, 0.2, 0.03, 0.15],
-            "market_entropy_mean": [2.8, 2.2, 3.2, 2.0, 3.0],
-            "overround_mean": [0.24, 0.20, 0.28, 0.18, 0.26],
-            "favorite_win_rate": [0.22, 0.35, 0.15, 0.40, 0.18],
-            "flb_slope": [0.8, 0.3, 1.2, 0.2, 1.0],
+            "overround_rolling": [0.24, 0.20, 0.28, 0.18, 0.26],
+            "entropy_rolling": [2.8, 2.2, 3.2, 2.0, 3.0],
+            "favorite_implied_prob_rolling": [0.35, 0.42, 0.28, 0.50, 0.30],
+            "odds_skewness_rolling": [0.8, 0.3, 1.2, 0.2, 1.0],
             "odds_volatility_mean": [0.15, 0.08, 0.25, 0.05, 0.20],
-            "favorite_roi_ema": [0.95, 1.10, 0.80, 1.20, 0.85],
-            "mid_roi_ema": [0.90, 1.05, 0.75, 1.15, 0.80],
-            "longshot_roi_ema": [0.85, 1.00, 0.70, 1.10, 0.75],
             "field_size_mean": [14, 12, 16, 10, 15],
         }
     )
@@ -45,7 +42,6 @@ class TestRegimeDetector:
         cfg = RegimeConfig(min_samples=5)
         detector = RegimeDetector(cfg=cfg)
         mock_model = MagicMock()
-        # 3番目の行: entropy高 + fav_rate低 → AGGRESSIVE
         mock_model.predict.return_value = np.array([[0.6, 0.3, 0.1]])
         detector.model = mock_model
 
@@ -59,19 +55,16 @@ class TestRegimeDetector:
         """ヒステリシス: 連続N回同じ状態で初めて遷移"""
         cfg = RegimeConfig(min_samples=5)
         detector = RegimeDetector(cfg=cfg)
-        detector._transition_hysteresis = 3  # テスト用に短縮
+        detector._transition_hysteresis = 3
 
         mock_model = MagicMock()
-        # 常に AGGRESSIVE を予測
         mock_model.predict.return_value = np.array([[0.6, 0.3, 0.1]])
         detector.model = mock_model
 
-        # ヒステリシス未満では遷移しない
         for _ in range(2):
             result = detector.detect(regime_stats_df)
             assert result == RegimeState.CONSERVATIVE
 
-        # ヒステリシス到達で遷移
         result = detector.detect(regime_stats_df)
         assert result == RegimeState.CONSERVATIVE  # counter=2, threshold=3
         result = detector.detect(regime_stats_df)
@@ -111,27 +104,50 @@ class TestRegimeDetector:
             {
                 "market_error_std": [0.1],
                 "market_error_mean": [0.0],
-                "market_entropy_mean": [2.0],
-                "overround_mean": [0.20],
-                "favorite_win_rate": [0.30],
-                "flb_slope": [0.3],
+                "overround_rolling": [0.20],
+                "entropy_rolling": [2.0],
+                "favorite_implied_prob_rolling": [0.30],
+                "odds_skewness_rolling": [0.3],
                 "odds_volatility_mean": [0.05],
-                "favorite_roi_ema": [1.0],
-                "mid_roi_ema": [0.9],
-                "longshot_roi_ema": [0.8],
                 "field_size_mean": [12],
             }
         )
         result = detector.detect(small_df)
         assert result == RegimeState.CONSERVATIVE
 
-    def test_feature_cols_no_strategy_dependent_in_label(self) -> None:
-        """教師ラベルに戦略依存指標を使用しない (Rule 19)"""
-        assert "favorite_win_rate" in RegimeDetector.FEATURE_COLS
-        assert "flb_slope" in RegimeDetector.FEATURE_COLS
-        # Phase 3: ROI EMA columns replaced rolling_roi_200 + hit_rate_top3_mean
-        assert "favorite_roi_ema" in RegimeDetector.FEATURE_COLS
-        assert "mid_roi_ema" in RegimeDetector.FEATURE_COLS
-        assert "longshot_roi_ema" in RegimeDetector.FEATURE_COLS
-        assert "rolling_roi_200" not in RegimeDetector.FEATURE_COLS
-        assert "hit_rate_top3_mean" not in RegimeDetector.FEATURE_COLS
+    def test_feature_cols_contain_only_pre_race_indicators(self) -> None:
+        """FEATURE_COLS に結果依存 (POST_RACE) 指標が含まれないことを確認"""
+        assert "favorite_win_rate" not in RegimeDetector.FEATURE_COLS
+        assert "flb_slope" not in RegimeDetector.FEATURE_COLS
+        assert "favorite_roi_ema" not in RegimeDetector.FEATURE_COLS
+        assert "mid_roi_ema" not in RegimeDetector.FEATURE_COLS
+        assert "longshot_roi_ema" not in RegimeDetector.FEATURE_COLS
+        # PRE_RACE 指標が含まれる
+        assert "overround_rolling" in RegimeDetector.FEATURE_COLS
+        assert "entropy_rolling" in RegimeDetector.FEATURE_COLS
+        assert "favorite_implied_prob_rolling" in RegimeDetector.FEATURE_COLS
+        assert "odds_skewness_rolling" in RegimeDetector.FEATURE_COLS
+        assert "odds_volatility_mean" in RegimeDetector.FEATURE_COLS
+        assert "market_error_std" in RegimeDetector.FEATURE_COLS
+        assert "market_error_mean" in RegimeDetector.FEATURE_COLS
+        assert "field_size_mean" in RegimeDetector.FEATURE_COLS
+
+    def test_train_uses_pre_race_features_for_labels(self) -> None:
+        """train() の教師ラベルが PRE_RACE 指標のみで計算される"""
+        detector = RegimeDetector()
+        np.random.seed(42)
+        n = 200
+        df_race = pd.DataFrame(
+            {
+                "market_error_std": np.random.uniform(0.1, 0.5, n),
+                "market_error_mean": np.random.uniform(0.0, 0.2, n),
+                "overround_rolling": np.random.uniform(0.15, 0.30, n),
+                "entropy_rolling": np.random.uniform(1.5, 3.5, n),
+                "favorite_implied_prob_rolling": np.random.uniform(0.20, 0.50, n),
+                "odds_skewness_rolling": np.random.uniform(0.1, 1.5, n),
+                "odds_volatility_mean": np.random.uniform(0.05, 0.25, n),
+                "field_size_mean": np.random.choice([10, 12, 14, 16], n),
+            }
+        )
+        detector.train(df_race, num_threads=1)
+        assert hasattr(detector, "model")

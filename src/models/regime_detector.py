@@ -24,20 +24,17 @@ class RegimeDetector:
     """
 
     FEATURE_COLS: list[str] = [
-        # 市場歪み (直近200レース集計)
+        # 市場歪み (MarketModel 出力、発走前)
         "market_error_std",
         "market_error_mean",
-        "market_entropy_mean",
-        "overround_mean",
-        # 市場側指標 (v5.4改: 戦略非依存の市場状態)
-        "favorite_win_rate",
-        "flb_slope",
+        # 市場構造 (オッズ分布由来、発走前)
+        "overround_rolling",
+        "entropy_rolling",
+        "favorite_implied_prob_rolling",
+        "odds_skewness_rolling",
+        # オッズボラティリティ (発走前)
         "odds_volatility_mean",
-        # ROI EMA (Phase 3: 実データ化, v5.5: 教師ラベルには不使用)
-        "favorite_roi_ema",
-        "mid_roi_ema",
-        "longshot_roi_ema",
-        # レース構造
+        # レース構造 (発走前確定)
         "field_size_mean",
     ]
 
@@ -55,8 +52,7 @@ class RegimeDetector:
     def train(self, df_race: pd.DataFrame, *, num_threads: int = 0) -> None:
         """
         レジーム分類器の学習 (軽量・3状態分類)。
-        v5.5: 教師ラベルを市場指標ベースに変更 (Rule 19)。
-        時系列ベース80/20 split + early_stopping(20) + num_threads。
+        v5.5 leak-fix: 教師ラベルを PRE_RACE 指標のみで計算。
         """
         if num_threads <= 0:
             num_threads = max(1, (os.cpu_count() or 4) // 2)
@@ -65,21 +61,23 @@ class RegimeDetector:
             if pd.api.types.is_integer_dtype(features[col]):
                 features[col] = features[col].astype(float)
 
-        fav = df_race["favorite_win_rate"]
-        overround = df_race["overround_mean"]
-        entropy = df_race["market_entropy_mean"]
+        favorite_implied = df_race["favorite_implied_prob_rolling"]
+        overround = df_race["overround_rolling"]
+        entropy = df_race["entropy_rolling"]
 
-        # 市場効率スコア: favorite勝率が高い + overround が低い = 効率的
-        market_efficiency = fav * (1 - np.clip(overround - 0.20, 0, 0.15) / 0.15)
+        # 市場状態スコア: 1番人気の implied prob が高い + overround 低い = 効率的
+        market_condition_score = favorite_implied * (
+            1 - np.clip(overround - 0.20, 0, 0.15) / 0.15
+        )
 
         y = np.where(
-            (market_efficiency < 0.28) & (entropy > np.median(entropy)),
+            (market_condition_score < 0.28) & (entropy > np.median(entropy)),
             0,  # AGGRESSIVE
             np.where(
-                market_efficiency < 0.18,
+                market_condition_score < 0.18,
                 2,  # COLLAPSED
-                1,
-            ),  # CONSERVATIVE
+                1,  # CONSERVATIVE
+            ),
         )
 
         # 時系列ベース 80/20 split (最後20%をvalidに)
