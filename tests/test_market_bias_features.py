@@ -104,55 +104,52 @@ class TestMarketBiasFeatures:
         assert "tanodds" in result.columns
 
 
-class TestComputeFlbSlope:
-    def test_returns_series(self) -> None:
-        """Series を返す"""
-        df = pd.DataFrame(
-            {
-                "race_id": ["R1"] * 5,
-                "umaban": [1, 2, 3, 4, 5],
-                "tanodds": [2.0, 3.0, 5.0, 10.0, 20.0],
-                "kakuteijyuni": [1, 2, 3, 4, 5],
-            }
-        )
+class TestComputeOddsShape:
+    def test_returns_dataframe_with_two_columns(self) -> None:
+        """odds_skewness と implied_prob_hhi の2列を持つ DataFrame を返す"""
+        df = pd.DataFrame({"race_id": ["R1"] * 3, "umaban": [1, 2, 3],
+            "tanodds": [2.0, 5.0, 10.0]})
         result = compute_flb_slope(df)
-        assert isinstance(result, pd.Series)
-        assert len(result) == len(df)
+        assert isinstance(result, pd.DataFrame)
+        assert "odds_skewness" in result.columns
+        assert "implied_prob_hhi" in result.columns
 
-    def test_single_race_returns_same_value(self) -> None:
-        """同一レース内の全行が同じ slope 値を持つ"""
-        df = pd.DataFrame(
-            {
-                "race_id": ["R1"] * 6,
-                "umaban": [1, 2, 3, 4, 5, 6],
-                "tanodds": [2.0, 3.0, 4.0, 6.0, 10.0, 20.0],
-                "kakuteijyuni": [1, 2, 3, 4, 5, 6],
-            }
-        )
+    def test_equal_odds_zero_skewness(self) -> None:
+        """均等オッズの歪度は0に近い"""
+        df = pd.DataFrame({"race_id": ["R1"] * 4, "umaban": [1, 2, 3, 4],
+            "tanodds": [4.0, 4.0, 4.0, 4.0]})
         result = compute_flb_slope(df)
-        # 全行同じ値
-        assert result.nunique() == 1
+        assert abs(result["odds_skewness"].iloc[0]) < 1e-10
 
-    def test_missing_columns_returns_zeros(self) -> None:
-        """必須列がない場合は 0.0 を返す"""
+    def test_skewed_odds_positive_skewness(self) -> None:
+        """オッズのばらつきが大きいと正の歪度になる"""
+        df = pd.DataFrame({"race_id": ["R1"] * 3, "umaban": [1, 2, 3],
+            "tanodds": [2.0, 5.0, 100.0]})
+        result = compute_flb_slope(df)
+        assert result["odds_skewness"].iloc[0] > 0.0
+
+    def test_hhi_dominant_favorite(self) -> None:
+        """圧倒的1番人気のHHIが高い"""
+        df_dom = pd.DataFrame({"race_id": ["R1"] * 3, "umaban": [1, 2, 3],
+            "tanodds": [1.1, 20.0, 50.0]})
+        df_eq = pd.DataFrame({"race_id": ["R2"] * 3, "umaban": [1, 2, 3],
+            "tanodds": [5.0, 5.0, 5.0]})
+        assert compute_flb_slope(df_dom)["implied_prob_hhi"].iloc[0] > \
+               compute_flb_slope(df_eq)["implied_prob_hhi"].iloc[0]
+
+    def test_missing_tanodds_returns_zeros(self) -> None:
         df = pd.DataFrame({"race_id": ["R1", "R1"], "umaban": [1, 2]})
         result = compute_flb_slope(df)
-        assert (result == 0.0).all()
+        assert (result["odds_skewness"] == 0.0).all()
 
     def test_multi_race_independent(self) -> None:
-        """複数レースで独立に計算"""
-        df = pd.DataFrame(
-            {
-                "race_id": ["R1"] * 4 + ["R2"] * 4,
-                "umaban": [1, 2, 3, 4] * 2,
-                "tanodds": [2.0, 4.0, 6.0, 10.0, 3.0, 3.0, 3.0, 3.0],
-                "kakuteijyuni": [1, 2, 3, 4, 1, 2, 3, 4],
-            }
-        )
+        df = pd.DataFrame({"race_id": ["R1"]*3 + ["R2"]*3, "umaban": [1,2,3,1,2,3],
+            "tanodds": [2.0, 5.0, 10.0, 3.0, 3.0, 3.0]})
         result = compute_flb_slope(df)
-        # R1 と R2 で異なる値
-        r1_val = result.iloc[0]
-        r2_val = result.iloc[4]
-        # R2 の方がオッズが均等なので傾きが異なるはず
-        assert isinstance(r1_val, float)
-        assert isinstance(r2_val, float)
+        assert abs(result.iloc[3]["odds_skewness"]) < abs(result.iloc[0]["odds_skewness"])
+
+    def test_single_race_same_values(self) -> None:
+        df = pd.DataFrame({"race_id": ["R1"]*5, "umaban": [1,2,3,4,5],
+            "tanodds": [2.0, 3.0, 5.0, 10.0, 20.0]})
+        result = compute_flb_slope(df)
+        assert result["odds_skewness"].nunique() == 1

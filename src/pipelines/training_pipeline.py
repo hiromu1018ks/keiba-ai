@@ -102,13 +102,45 @@ class TrainingPipelineV5:
         if "datakubun" in entry_df.columns:
             entry_df = entry_df.sort_values("datakubun", na_position="last")
         entry_df = entry_df.drop_duplicates(subset=["race_id", "umaban"], keep="first")
-        odds_df = load_odds_snapshots(self.store, start, end)
+        odds_df = load_odds_snapshots(self.store, start, end)  # フォールバック用
 
         # NEW: _train_submodel 内で HorseHistoryFeatures が使用するため保存
         self._race_df = race_df
         self._entry_df = entry_df
         # オッズ時系列データ — Stage2 (WinTwoStageModel) のオッズ動的特徴量に必須
         odds_ts_df = load_odds_time_series_range(self.store, start, end)
+
+        # 発走5分前オッズの抽出 (本番と同じ時点のデータを使用)
+        # 年ごとに処理してメモリ使用量を抑制
+        if not odds_ts_df.empty and "hassotime" in race_df.columns:
+            from db.odds_extractor import extract_pre_post_odds
+
+            start_year = int(start[:4])
+            end_year = int(end[:4])
+            pre_post_frames: list[pd.DataFrame] = []
+            for year in range(start_year, end_year + 1):
+                year_ts = odds_ts_df[odds_ts_df["year"] == year]
+                if year_ts.empty:
+                    continue
+                pp = extract_pre_post_odds(
+                    year_ts, race_df, minutes_before=5
+                )
+                if not pp.empty:
+                    pre_post_frames.append(pp)
+            if pre_post_frames:
+                odds_df = pd.concat(pre_post_frames, ignore_index=True)
+                logger.info(
+                    "Using pre-post odds (5min before): %d rows",
+                    len(odds_df),
+                )
+            else:
+                logger.warning(
+                    "extract_pre_post_odds empty, using snapshots"
+                )
+        else:
+            logger.warning(
+                "No time-series data or hassotime, using snapshots"
+            )
 
         # 2. 特徴量生成
         logger.info("Building features")
@@ -496,14 +528,18 @@ class TrainingPipelineV5:
         # FLB slope: 馬レベル feat_df から計算 → レース単位に集約
         from features.market_bias_features import compute_flb_slope
 
-        if all(c in feat_df.columns for c in ["race_id", "tanodds", "kakuteijyuni"]):
-            flb_series = compute_flb_slope(feat_df)
-            feat_copy = feat_df.copy()
-            feat_copy["flb_slope"] = flb_series.values
-            race_flb = feat_copy.groupby("race_id")["flb_slope"].first()
-            stats["flb_slope"] = stats["race_id"].map(race_flb).fillna(0.0)
+        if "tanodds" in feat_df.columns and "race_id" in feat_df.columns:
+            odds_shape_df = compute_flb_slope(feat_df)
+            for col in ["odds_skewness", "implied_prob_hhi"]:
+                feat_copy = feat_df.copy()
+                feat_copy[col] = odds_shape_df[col].values
+                race_col = feat_copy.groupby("race_id")[col].first()
+                stats[col] = stats["race_id"].map(race_col).fillna(0.0)
         else:
-            stats["flb_slope"] = 0.0
+            stats["odds_skewness"] = 0.0
+            stats["implied_prob_hhi"] = 0.0
+        # 後方互換: RegimeDetector は依然として flb_slope を期待 (Section 3 で置換予定)
+        stats["flb_slope"] = stats["odds_skewness"]
 
         # Rolling volatility: 馬レベル odds_volatility → レース平均 → rolling
         from features.odds_dynamics_features import compute_rolling_volatility
