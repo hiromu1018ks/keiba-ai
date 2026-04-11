@@ -595,23 +595,31 @@ def _run_predict(
     if new_bets:
         lines.append("  --- New Predictions ---")
         new_bets.sort(key=lambda b: b.get("post_time", "99:99"))
+        prev_rid: str = ""
         for b in new_bets:
-            t = b.get("post_time", "--:--")
+            rid = b["race_id"]
+            if rid != prev_rid:
+                t = b.get("post_time", "--:--")
+                lines.append(f"  ── {t}  {_fmt_race_id(rid)} ──")
+                prev_rid = rid
             lines.append(
-                f"  {t}  {_fmt_race_id(b['race_id'])}  "
-                f"馬番{int(b['umaban']):2d}  {b['horse_name']:<16s}  "
+                f"      馬番{int(b['umaban']):2d}  {b['horse_name']:<16s}  "
                 f"複勝{b['odds']:5.1f}  EV={b['ev']:.2f}"
             )
 
     if prev_bets_from_df:
         lines.append(f"  --- Previous Predictions ({len(prev_bets_from_df)} bets) ---")
         prev_bets_from_df.sort(key=lambda b: b.get("post_time", "99:99"))
+        prev_rid = ""
         for b in prev_bets_from_df:
-            t = b.get("post_time", "--:--")
+            rid = b["race_id"]
+            if rid != prev_rid:
+                t = b.get("post_time", "--:--")
+                lines.append(f"  ── {t}  {_fmt_race_id(rid)} ──")
+                prev_rid = rid
             name = b.get("horse_name", "")
             lines.append(
-                f"  {t}  {_fmt_race_id(b['race_id'])}  "
-                f"馬番{int(b['umaban']):2d}  {name:<16s}  "
+                f"      馬番{int(b['umaban']):2d}  {name:<16s}  "
                 f"複勝{b['odds']:5.1f}  EV={b['ev']:.2f}"
             )
 
@@ -929,7 +937,13 @@ def _run_reconcile(
         venue = _venue_map.get(jyocd, jyocd)
         return f"{venue}{int(racenum):2d}R"
 
+    prev_rid = ""
     for _, row in pred_df.iterrows():
+        rid = row["race_id"]
+        if rid != prev_rid:
+            post_time = str(row.get("post_time", ""))
+            lines.append(f"  ── {post_time}  {_fmt_race_id(rid)} ──")
+            prev_rid = rid
         res_mark = "---"
         actual_pay = 0.0
         winners = payout_map.get(row["race_id"], {})
@@ -940,8 +954,7 @@ def _run_reconcile(
             res_mark = "LOSE"
 
         lines.append(
-            f"  {_fmt_race_id(row['race_id'])}  "
-            f"馬番{int(row['umaban']):2d}  "
+            f"      馬番{int(row['umaban']):2d}  "
             f"予測Odds={row['odds']:.1f}  "
             f"{res_mark:4s}  "
             f"払戻{actual_pay:,.0f}円"
