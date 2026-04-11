@@ -1,32 +1,37 @@
+from unittest.mock import MagicMock
+
 import numpy as np
 import pandas as pd
-import pytest
-from unittest.mock import MagicMock
+
 from db.parquet_store import ParquetStore
-from features.jockey_trainer_combo import JockeyTrainerComboFeatures, FEATURE_COLS
+from features.jockey_trainer_combo import FEATURE_COLS, JockeyTrainerComboFeatures
 
 
 def _make_entries_hist() -> pd.DataFrame:
     """騎手-調教師コンビの過去出走履歴"""
-    return pd.DataFrame({
-        "race_id": ["R001", "R002", "R003", "R004"],
-        "race_date": pd.to_datetime(["2023-01-01", "2023-02-01", "2023-03-01", "2023-04-01"]),
-        "kisyucode": ["K01", "K01", "K01", "K02"],
-        "chokyosicode": ["T01", "T01", "T02", "T01"],
-        "kakuteijyuni": [1, 3, 5, 2],
-        "umaban": [1, 1, 1, 1],
-    })
+    return pd.DataFrame(
+        {
+            "race_id": ["R001", "R002", "R003", "R004"],
+            "race_date": pd.to_datetime(["2023-01-01", "2023-02-01", "2023-03-01", "2023-04-01"]),
+            "kisyucode": ["K01", "K01", "K01", "K02"],
+            "chokyosicode": ["T01", "T01", "T02", "T01"],
+            "kakuteijyuni": [1, 3, 5, 2],
+            "umaban": [1, 1, 1, 1],
+        }
+    )
 
 
 def _make_entry_df() -> pd.DataFrame:
     """現在の出走データ"""
-    return pd.DataFrame({
-        "race_id": ["R005", "R005"],
-        "umaban": [1, 2],
-        "kisyucode": ["K01", "K02"],
-        "chokyosicode": ["T01", "T01"],
-        "race_date": pd.to_datetime(["2023-06-01", "2023-06-01"]),
-    })
+    return pd.DataFrame(
+        {
+            "race_id": ["R005", "R005"],
+            "umaban": [1, 2],
+            "kisyucode": ["K01", "K02"],
+            "chokyosicode": ["T01", "T01"],
+            "race_date": pd.to_datetime(["2023-06-01", "2023-06-01"]),
+        }
+    )
 
 
 class TestJockeyTrainerCombo:
@@ -69,8 +74,10 @@ class TestJockeyTrainerCombo:
 
     def test_feature_cols(self):
         assert FEATURE_COLS == [
-            "jt_combo_wr", "jt_combo_place_rate",
-            "jt_combo_starts", "jt_combo_prize_log",
+            "jt_combo_wr",
+            "jt_combo_place_rate",
+            "jt_combo_starts",
+            "jt_combo_prize_log",
         ]
 
     def test_no_future_leak_per_row(self):
@@ -83,24 +90,33 @@ class TestJockeyTrainerCombo:
         mock_store = MagicMock(spec=ParquetStore)
         combo = JockeyTrainerComboFeatures(store=mock_store)
 
-        combo._cache = pd.DataFrame({
-            "race_id": ["R001", "R002", "R003", "R004"],
-            "race_date": pd.to_datetime([
-                "2023-01-01", "2023-02-01", "2023-07-01", "2023-08-01",
-            ]),
-            "kisyucode": ["K01", "K01", "K01", "K01"],
-            "chokyosicode": ["T01", "T01", "T01", "T01"],
-            "kakuteijyuni": [1, 3, 2, 5],
-            "umaban": [1, 1, 1, 1],
-        })
+        combo._cache = pd.DataFrame(
+            {
+                "race_id": ["R001", "R002", "R003", "R004"],
+                "race_date": pd.to_datetime(
+                    [
+                        "2023-01-01",
+                        "2023-02-01",
+                        "2023-07-01",
+                        "2023-08-01",
+                    ]
+                ),
+                "kisyucode": ["K01", "K01", "K01", "K01"],
+                "chokyosicode": ["T01", "T01", "T01", "T01"],
+                "kakuteijyuni": [1, 3, 2, 5],
+                "umaban": [1, 1, 1, 1],
+            }
+        )
 
-        entry_df = pd.DataFrame({
-            "race_id": ["R_A", "R_B"],
-            "umaban": [1, 1],
-            "kisyucode": ["K01", "K01"],
-            "chokyosicode": ["T01", "T01"],
-            "race_date": pd.to_datetime(["2023-06-01", "2023-09-01"]),
-        })
+        entry_df = pd.DataFrame(
+            {
+                "race_id": ["R_A", "R_B"],
+                "umaban": [1, 1],
+                "kisyucode": ["K01", "K01"],
+                "chokyosicode": ["T01", "T01"],
+                "race_date": pd.to_datetime(["2023-06-01", "2023-09-01"]),
+            }
+        )
 
         result = combo.compute(entry_df)
 

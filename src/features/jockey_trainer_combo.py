@@ -59,10 +59,7 @@ class JockeyTrainerComboFeatures:
 
         # Sort by combo + date, build numpy arrays per combo
         hist_sorted = hist.sort_values(["jt_combo", "race_date"]).reset_index(drop=True)
-        grouped_hist = {
-            k: g.reset_index(drop=True)
-            for k, g in hist_sorted.groupby("jt_combo")
-        }
+        grouped_hist = {k: g.reset_index(drop=True) for k, g in hist_sorted.groupby("jt_combo")}
 
         combo_arrays: dict[str, dict[str, np.ndarray]] = {}
         for k, g in grouped_hist.items():
