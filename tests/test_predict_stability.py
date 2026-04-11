@@ -10,7 +10,7 @@ import pandas as pd
 import pytest
 
 # ---------------------------------------------------------------------------
-# _extract_pre_post_odds() のテスト
+# extract_pre_post_odds() のテスト
 # ---------------------------------------------------------------------------
 
 
@@ -30,7 +30,7 @@ _FIXED_NOW = datetime(2026, 4, 11, 12, 0)
 
 
 class TestExtractPrePostOdds:
-    """_extract_pre_post_odds() のテスト群。"""
+    """extract_pre_post_odds() のテスト群。"""
 
     @pytest.fixture(autouse=True)
     def _setup_path(self) -> None:
@@ -40,9 +40,9 @@ class TestExtractPrePostOdds:
         sys.path.insert(0, os.path.join(root, "src"))
 
     def _import_target(self):
-        from scripts.run_paper_trading import _extract_pre_post_odds
+        from db.odds_extractor import extract_pre_post_odds
 
-        return _extract_pre_post_odds
+        return extract_pre_post_odds
 
     def test_basic_extraction(self) -> None:
         """発走5分前のスナップショットが正しく抽出される。"""
