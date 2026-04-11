@@ -42,6 +42,9 @@ mlruns/
 mlflow.db
 notebooks/mlflow.db
 
+# CatBoost training logs
+catboost_info/
+
 # Jupyter
 .ipynb_checkpoints/
 
