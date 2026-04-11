@@ -135,15 +135,13 @@ class BacktestEngine:
             pre_post_odds = final_odds_df
             logger.warning("No time-series odds data, using final odds (look-ahead bias)")
 
-        # 確定オッズを fukuoddslow_final として発走前オッズにマージ
+        # 確定オッズマップを構築（精算用。FeatureEngine の列フィルタ回避）
+        final_odds_map: dict[tuple[str, int], float] = {}
         if not final_odds_df.empty:
-            pre_post_odds = pre_post_odds.merge(
-                final_odds_df[["race_id", "umaban", "fukuoddslow"]].rename(
-                    columns={"fukuoddslow": "fukuoddslow_final"}
-                ),
-                on=["race_id", "umaban"],
-                how="left",
-            )
+            for _, r in final_odds_df.iterrows():
+                key = (str(r["race_id"]), int(r["umaban"]))
+                if pd.notna(r.get("fukuoddslow")):
+                    final_odds_map[key] = float(r["fukuoddslow"])
 
         feat_df = feat_engine.build_all(
             race_df, entry_df, pre_post_odds, odds_ts_df=odds_ts_df, store=self.store
@@ -282,13 +280,6 @@ class BacktestEngine:
             bets = self._race_predictor.select_bets(result_df, bankroll)
 
             # Bet に確定オッズを設定
-            final_odds_map: dict[tuple[str, int], float] = {}
-            if "fukuoddslow_final" in result_df.columns:
-                for _, r in result_df.iterrows():
-                    key = (r["race_id"], int(r["umaban"]))
-                    if pd.notna(r.get("fukuoddslow_final")):
-                        final_odds_map[key] = float(r["fukuoddslow_final"])
-
             updated_bets = []
             for bet in bets:
                 fo = final_odds_map.get((bet.race_id, bet.umaban), bet.odds)
@@ -343,6 +334,7 @@ class BacktestEngine:
                         "umaban": bet.umaban,
                         "stake": bet.stake,
                         "odds": bet.odds,
+                        "final_odds": bet.final_odds,
                         "result": bet_result,
                         "surface": surface_key,
                         "kyori": (
@@ -492,7 +484,7 @@ class BacktestEngine:
                             umaban=int(row["umaban"]),
                             bet_type=BetType.PLACE,
                             odds=float(row["fukuoddslow"]),
-                            final_odds=float(row.get("fukuoddslow_final", row["fukuoddslow"])),
+                            final_odds=float(row["fukuoddslow"]),  # レガシー: 同一オッズ
                             ev_lower_corrected=float(row.get("ev_place", 0)),
                             stake=stake,
                         )
