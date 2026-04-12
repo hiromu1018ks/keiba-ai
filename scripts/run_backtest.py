@@ -27,7 +27,10 @@ import sys
 import time
 import warnings
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from backtest.engine import BacktestResult
 
 import pandas as pd
 
@@ -64,12 +67,16 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--test-end", required=False, help="テスト終了日 (YYYYMMDD)")
     parser.add_argument("--years", nargs="+", type=int, help="マルチ年度指定 (テスト年度)")
     parser.add_argument(
-        "--train-window", type=int, default=4,
+        "--train-window",
+        type=int,
+        default=4,
         help="マルチ年度の学習年数 (デフォルト: 4)",
     )
     parser.add_argument("--report", action="store_true", help="HTMLレポート + parquet を生成")
     parser.add_argument(
-        "--betting-mode", choices=["flat", "kelly"], default="flat",
+        "--betting-mode",
+        choices=["flat", "kelly"],
+        default="flat",
         help="ベット額計算モード (flat=100円固定, kelly=Fractional Kelly)",
     )
     parser.add_argument("--ensemble", action="store_true", help="アンサンブル (B1) を有効化")
@@ -88,7 +95,7 @@ def validate_args(parser: argparse.ArgumentParser, args: argparse.Namespace) -> 
     )
 
 
-def save_year_parquet(year: int, result: object) -> None:
+def save_year_parquet(year: int, result: BacktestResult) -> None:
     """年度別 parquet 出力: horse_diagnostics + bet_history を結合して保存
 
     注意: HorseDiagnostic に含まれないフィールド (race_date, bamei, surface, kyori,
@@ -113,11 +120,23 @@ def save_year_parquet(year: int, result: object) -> None:
         # bet_history 側の付加情報を horse_diagnostics に left-join
         # bet_cols: ベット対象のみに存在するフィールド (非ベット馬は NaN)
         bet_only_cols = [
-            "bet_type", "stake", "odds", "final_odds", "result",
-            "ev", "popularity", "bankroll_after",
-            "race_date", "surface", "kyori", "grade_code",
-            "race_name", "bamei", "kisyu",
-            "kakuteijyuni", "track_condition_code",
+            "bet_type",
+            "stake",
+            "odds",
+            "final_odds",
+            "result",
+            "ev",
+            "popularity",
+            "bankroll_after",
+            "race_date",
+            "surface",
+            "kyori",
+            "grade_code",
+            "race_name",
+            "bamei",
+            "kisyu",
+            "kakuteijyuni",
+            "track_condition_code",
         ]
         # 存在する列のみ選択
         available_cols = ["race_id", "umaban"] + [c for c in bet_only_cols if c in bet_df.columns]
@@ -132,7 +151,7 @@ def save_year_parquet(year: int, result: object) -> None:
 
 
 def display_single_year_result(
-    result: object,
+    result: BacktestResult,
     elapsed_train: float,
     elapsed_test: float,
     train_start: str,
@@ -226,7 +245,9 @@ def _run_single_year(args: argparse.Namespace) -> None:
 
     test_year = int(test_start[:4])
     engine = BacktestEngine(
-        models=models, store=store, betting_mode=args.betting_mode,
+        models=models,
+        store=store,
+        betting_mode=args.betting_mode,
         diag_prefix=f"bt_{test_year}",
     )
     result = engine.run(test_start, test_end)
@@ -235,8 +256,13 @@ def _run_single_year(args: argparse.Namespace) -> None:
 
     # 結果表示
     out = display_single_year_result(
-        result, elapsed_train, elapsed_test,
-        train_start, train_end, test_start, test_end,
+        result,
+        elapsed_train,
+        elapsed_test,
+        train_start,
+        train_end,
+        test_start,
+        test_end,
     )
 
     # 出力
@@ -251,13 +277,12 @@ def _run_single_year(args: argparse.Namespace) -> None:
         print(f"\nbet_history保存: {bet_history_path}")
 
         result_path = output_dir / "backtest_result.json"
-        result_path.write_text(
-            json.dumps(out, indent=2, ensure_ascii=False), encoding="utf-8"
-        )
+        result_path.write_text(json.dumps(out, indent=2, ensure_ascii=False), encoding="utf-8")
         print(f"結果保存: {result_path}")
 
         report_path = gen.generate(
-            result, result.bet_history,
+            result,
+            result.bet_history,
             train_period=f"{train_start} ~ {train_end}",
             test_period=f"{test_start} ~ {test_end}",
         )
@@ -317,7 +342,9 @@ def _run_multi_year(args: argparse.Namespace) -> None:
             from backtest.engine import BacktestEngine
 
             engine = BacktestEngine(
-                models=models, store=store, betting_mode=args.betting_mode,
+                models=models,
+                store=store,
+                betting_mode=args.betting_mode,
                 diag_prefix=f"bt_{test_year}",
             )
             result = engine.run(test_start, test_end)
@@ -412,9 +439,7 @@ def _run_multi_year(args: argparse.Namespace) -> None:
                 "metadata": all_metadata[year],
             }
         json_path = output_dir / "multi_year_result.json"
-        json_path.write_text(
-            json.dumps(json_data, indent=2, ensure_ascii=False), encoding="utf-8"
-        )
+        json_path.write_text(json.dumps(json_data, indent=2, ensure_ascii=False), encoding="utf-8")
         print(f"  JSON保存: {json_path}")
 
         all_bets: list[dict[str, Any]] = []
@@ -422,9 +447,7 @@ def _run_multi_year(args: argparse.Namespace) -> None:
             for bet in r.bet_history:
                 all_bets.append({**bet, "_test_year": year})
         bets_path = output_dir / "multi_year_bet_history.json"
-        bets_path.write_text(
-            json.dumps(all_bets, indent=2, ensure_ascii=False), encoding="utf-8"
-        )
+        bets_path.write_text(json.dumps(all_bets, indent=2, ensure_ascii=False), encoding="utf-8")
         print(f"  bet_history保存: {bets_path}")
 
 
