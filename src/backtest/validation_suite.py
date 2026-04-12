@@ -585,7 +585,9 @@ class BacktestValidationSuite:
             )
 
             # 1. Train
-            pipeline = TrainingPipelineV5(store=self.store, model_dir=Path("data/models-validation"))
+            pipeline = TrainingPipelineV5(
+                store=self.store, model_dir=Path("data/models-validation")
+            )
             trained = pipeline.run(w["train"][0], w["train"][1])
 
             # 2. Freeze parameters (Rule 7)
