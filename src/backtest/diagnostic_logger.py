@@ -107,3 +107,12 @@ class DiagnosticLogger:
             path = outdir / f"{prefix}_horse_diagnostics.csv"
             pd.DataFrame([asdict(r) for r in self.horse_records]).to_csv(path, index=False)
             logger.info("Horse diagnostics saved: %d records -> %s", len(self.horse_records), path)
+
+        if self.feature_records:
+            path = outdir / f"{prefix}_horse_features.parquet"
+            pd.DataFrame(self.feature_records).to_parquet(path, index=False)
+            logger.info(
+                "Feature diagnostics saved: %d records -> %s",
+                len(self.feature_records),
+                path,
+            )

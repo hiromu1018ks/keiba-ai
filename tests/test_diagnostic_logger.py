@@ -88,6 +88,45 @@ class TestDiagnosticLogger:
         assert logger.feature_records[0]["race_id"] == "20240101010111"
         assert logger.feature_records[0]["umaban"] == 5
 
+    def test_save_creates_parquet_when_features_logged(self):
+        logger = DiagnosticLogger()
+        logger.log_horse_features({
+            "race_id": "20240101010111",
+            "umaban": 5,
+            "ev_place": 1.5,
+            "surface": "turf",
+        })
+        logger.log_horse_features({
+            "race_id": "20240101010111",
+            "umaban": 8,
+            "ev_place": 0.9,
+            "surface": "dirt",
+        })
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            outdir = Path(tmpdir)
+            logger.save(outdir, prefix="test")
+
+            parquet_path = outdir / "test_horse_features.parquet"
+            assert parquet_path.exists()
+
+            df = pd.read_parquet(parquet_path)
+            assert len(df) == 2
+            assert "race_id" in df.columns
+            assert "umaban" in df.columns
+            assert "ev_place" in df.columns
+            assert "surface" in df.columns
+
+    def test_save_creates_no_parquet_when_no_features(self):
+        logger = DiagnosticLogger()
+        logger.log_race("20240101010111", "AGGRESSIVE", 1.10, True, 0.6, 3, 2)
+        logger.log_horse("20240101010111", 5, 0.35, 4.5, 1.575, 4.2, True)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            outdir = Path(tmpdir)
+            logger.save(outdir, prefix="test")
+            assert not (outdir / "test_horse_features.parquet").exists()
+
     def test_multiple_races_and_horses(self):
         logger = DiagnosticLogger()
         # 2 races, 3 horses each
