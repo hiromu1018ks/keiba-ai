@@ -128,10 +128,15 @@ python scripts/run_etl.py --start 20140101 --end 20231231
 # Step 2: 学習 — Parquet → 特徴量生成 → LightGBM Ranker + 補正モデル
 python scripts/run_train.py --start 20200101 --end 20231231
 
-# Step 3: バックテスト — 学習 + テスト期間のシミュレーション
+# Step 3a: バックテスト (単一年度)
 python scripts/run_backtest.py \
   --train-start 20200101 --train-end 20231231 \
   --test-start 20240101 --test-end 20241231
+
+# Step 3b: バックテスト (マルチ年度)
+python scripts/run_backtest.py \
+  --years 2023 2024 2025 \
+  --train-window 4
 ```
 
 ### 各スクリプトの詳細
@@ -140,7 +145,7 @@ python scripts/run_backtest.py \
 |-----------|------|------|------|---------|
 | `scripts/run_etl.py` | PostgreSQL→Parquet抽出 | EveryDB2外部テーブル | `data/raw/*.parquet`, `data/odds/*.parquet` | ~10分 |
 | `scripts/run_train.py` | MLモデル学習 | Parquetファイル群 | MLflowモデル, 特徴量キャッシュ | ~44分 |
-| `scripts/run_backtest.py` | 学習+バックテスト | Parquet + 学習済みモデル | `backtest_result.json` | ~57分 |
+| `scripts/run_backtest.py` | 学習+バックテスト (単一年度/マルチ年度) | Parquet + 学習済みモデル | `backtest_result.json` または `data/backtest/multi_year_result.json` | ~57分/年 |
 
 ### 直近のバックテスト結果 (2024年テスト)
 
@@ -151,7 +156,8 @@ python scripts/run_backtest.py \
 
 - PostgreSQL GENERATED列（`distance_band`, `surface` via `track_cd`）はParquet ETLに含まれない → `FeatureEngine._map_basic_features()` でPython再計算
 - Phase 1プレースホルダー: `haron_time_zscore_avg` は常にNaN → LightGBMはNaN処理可能だが `PlaceAbilityModel.train()` の `dropna()` で除外済み
-- `run_backtest.py` は毎回学習し直す設計（再現性保証）。モデルの保存/読み込みはMLflow経由
+- `run_backtest.py` は毎回学習し直す設計（再現性保証）。モデルは `data/models-backtest/` に保存 (本番 `data/models/` は上書きしない)
+- `run_multi_year_backtest.py` は廃止。`run_backtest.py --years` に統合済み
 
 ## Configuration
 
