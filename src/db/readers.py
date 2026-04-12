@@ -198,14 +198,13 @@ def load_odds_time_series_range(store: ParquetStore, start: str, end: str) -> pd
         ("race_date", ">=", s),
         ("race_date", "<=", e),
     ]
-    # time_series (旧ETL, 高粒度) を優先、なければ jodds_tanpuku (新ETL) を使用
-    subpath = "time_series" if store.exists("odds", "time_series") else "jodds_tanpuku"
+    # jodds_tanpuku (新ETL) を優先: 100% JRA, 2015-2026, 重複なし
+    # time_series (旧ETL) は 2015-2024 のみで4x重複・NAR混入あり
+    subpath = "jodds_tanpuku" if store.exists("odds", "jodds_tanpuku") else "time_series"
     df = store.read("odds", subpath, filters=filters)
-    # time_series が要求範囲のデータを持たない場合、jodds_tanpuku にフォールバック
-    # jodds_tanpuku も year/month パーティションなので同一 filters が適用可能
-    if df.empty and subpath == "time_series" and store.exists("odds", "jodds_tanpuku"):
-        logger.debug("time_series empty for %s-%s, falling back to jodds_tanpuku", start, end)
-        df = store.read("odds", "jodds_tanpuku", filters=filters)
+    if df.empty and subpath == "jodds_tanpuku" and store.exists("odds", "time_series"):
+        logger.debug("jodds_tanpuku empty for %s-%s, falling back to time_series", start, end)
+        df = store.read("odds", "time_series", filters=filters)
     df = _coerce_types(df)
     # 旧time_seriesの列名を生カラム名に正規化
     rename_ts = {"happyo_time": "happyotime", "tan_odds": "tanodds", "fuku_odds": "fukuoddslow"}
@@ -216,11 +215,11 @@ def load_odds_time_series_range(store: ParquetStore, start: str, end: str) -> pd
 
 
 def load_odds_time_series(store: ParquetStore, race_id: str) -> pd.DataFrame:
-    subpath = "time_series" if store.exists("odds", "time_series") else "jodds_tanpuku"
+    subpath = "jodds_tanpuku" if store.exists("odds", "jodds_tanpuku") else "time_series"
     df = store.read("odds", subpath, filters=[("race_id", "==", race_id)])
-    if df.empty and subpath == "time_series" and store.exists("odds", "jodds_tanpuku"):
-        logger.debug("time_series empty for %s, falling back to jodds_tanpuku", race_id)
-        df = store.read("odds", "jodds_tanpuku", filters=[("race_id", "==", race_id)])
+    if df.empty and subpath == "jodds_tanpuku" and store.exists("odds", "time_series"):
+        logger.debug("jodds_tanpuku empty for %s, falling back to time_series", race_id)
+        df = store.read("odds", "time_series", filters=[("race_id", "==", race_id)])
     df = _coerce_types(df)
     rename_ts = {"happyo_time": "happyotime", "tan_odds": "tanodds", "fuku_odds": "fukuoddslow"}
     existing = {k: v for k, v in rename_ts.items() if k in df.columns and v not in df.columns}

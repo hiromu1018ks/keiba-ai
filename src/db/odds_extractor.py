@@ -1,13 +1,15 @@
 """発走N分前オッズスナップショット抽出モジュール.
 
-run_paper_trading / BacktestEngine で共用するオッズ抽出ロジック。
+run_paper_trading / BacktestEngine / TrainingPipeline で共用するオッズ抽出ロジック。
 """
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime
 
 import pandas as pd
+
+_OUTPUT_COLS = ["race_id", "umaban", "tanodds", "fukuoddslow", "tanninki"]
 
 
 def extract_pre_post_odds(
@@ -40,14 +42,25 @@ def extract_pre_post_odds(
         race_id, umaban, tanodds, fukuoddslow, tanninki
     """
     if odds_ts_df.empty or race_df.empty:
-        return pd.DataFrame(columns=["race_id", "umaban", "tanodds", "fukuoddslow", "tanninki"])
+        return pd.DataFrame(columns=_OUTPUT_COLS)
+
+    # 列名正規化: ninki / tanninki 両対応
+    ninki_col: str | None = None
+    if "tanninki" in odds_ts_df.columns:
+        ninki_col = "tanninki"
+    elif "ninki" in odds_ts_df.columns:
+        ninki_col = "ninki"
+
+    required = ["race_id", "umaban", "tanodds", "fukuoddslow", ninki_col, "year", "happyotime"]
+    if ninki_col is None or any(c not in odds_ts_df.columns for c in required):
+        return pd.DataFrame(columns=_OUTPUT_COLS)
 
     # 1. race_id -> post_datetime のマッピング (vectorized)
     race_info = race_df.drop_duplicates(subset=["race_id"]).set_index("race_id")
     hassotime = race_info["hassotime"]
     valid_ht = hassotime.notna() & (hassotime != 0)
     if not valid_ht.any():
-        return pd.DataFrame(columns=["race_id", "umaban", "tanodds", "fukuoddslow", "tanninki"])
+        return pd.DataFrame(columns=_OUTPUT_COLS)
 
     valid_rids = valid_ht[valid_ht].index
     ht_values = hassotime[valid_rids].astype(int).astype(str).str.zfill(4)
@@ -69,18 +82,20 @@ def extract_pre_post_odds(
     post_time_map.index = valid_rids
 
     if post_time_map.empty:
-        return pd.DataFrame(columns=["race_id", "umaban", "tanodds", "fukuoddslow", "tanninki"])
+        return pd.DataFrame(columns=_OUTPUT_COLS)
 
-    # 2. happyotime → datetime (vectorized)
-    odds_ts_df = odds_ts_df.copy()
-    ht_raw = odds_ts_df["happyotime"].astype(str).str.zfill(8)
-    year_str = odds_ts_df["year"].astype(int).astype(str)
+    # 2. 必要列だけ選択してから処理 (メモリ削減: 全列コピーを避ける)
+    ts = odds_ts_df[required].copy()
+
+    # happyotime → datetime (vectorized)
+    ht_raw = ts["happyotime"].astype(str).str.zfill(8)
+    year_str = ts["year"].astype(int).astype(str)
     datetime_str = year_str + ht_raw.str[:4] + ht_raw.str[4:]
-    odds_ts_df["_ht_datetime"] = pd.to_datetime(datetime_str, format="%Y%m%d%H%M", errors="coerce")
-    odds_ts_df = odds_ts_df[odds_ts_df["_ht_datetime"].notna()]
+    ts["_ht_datetime"] = pd.to_datetime(datetime_str, format="%Y%m%d%H%M", errors="coerce")
+    ts = ts[ts["_ht_datetime"].notna()]
 
-    if odds_ts_df.empty:
-        return pd.DataFrame(columns=["race_id", "umaban", "tanodds", "fukuoddslow", "tanninki"])
+    if ts.empty:
+        return pd.DataFrame(columns=_OUTPUT_COLS)
 
     # 3. cutoff フィルタ (vectorized)
     now = _now or datetime.now()
@@ -88,27 +103,27 @@ def extract_pre_post_odds(
 
     # post_datetime を merge で付与
     post_time_series = post_time_map.rename("post_datetime")
-    odds_ts_df = odds_ts_df.merge(post_time_series, left_on="race_id", right_index=True, how="inner")
+    ts = ts.merge(post_time_series, left_on="race_id", right_index=True, how="inner")
 
-    cutoff = odds_ts_df["post_datetime"] - pd.Timedelta(minutes=minutes_before)
+    cutoff = ts["post_datetime"] - pd.Timedelta(minutes=minutes_before)
     min_cutoff = cutoff - pd.Timedelta(minutes=max_staleness_minutes)
 
     # cutoff時刻に達していないレースは除外
     valid = (
         (cutoff <= now_pd)
-        & (odds_ts_df["_ht_datetime"] >= min_cutoff)
-        & (odds_ts_df["_ht_datetime"] <= cutoff)
+        & (ts["_ht_datetime"] >= min_cutoff)
+        & (ts["_ht_datetime"] <= cutoff)
     )
-    filtered = odds_ts_df[valid]
+    filtered = ts[valid]
 
     if filtered.empty:
-        return pd.DataFrame(columns=["race_id", "umaban", "tanodds", "fukuoddslow", "tanninki"])
+        return pd.DataFrame(columns=_OUTPUT_COLS)
 
     # 4. (race_id, umaban) ごとに最新エントリを取得
     idx = filtered.groupby(["race_id", "umaban"])["_ht_datetime"].idxmax()
     snapshot = filtered.loc[idx]
 
-    # 5. build_all() と互換のスキーマで返す
-    result = snapshot[["race_id", "umaban", "tanodds", "fukuoddslow", "tanninki"]].copy()
-    result = result.reset_index(drop=True)
+    # 5. 列名正規化して返す (ninki → tanninki)
+    result = snapshot.rename(columns={ninki_col: "tanninki"})
+    result = result[_OUTPUT_COLS].reset_index(drop=True)
     return result
