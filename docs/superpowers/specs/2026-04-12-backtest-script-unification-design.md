@@ -133,7 +133,49 @@ if args.report:
 | 単一年度 | `data/backtest/backtest_result.json` + HTML | `backtest_result.json` (ルート) |
 | マルチ年度 | `data/backtest/multi_year_result.json` + HTML + bet_history | コンソール出力のみ |
 
-### 5. .gitignore
+### 5. 年度別 Parquet 出力
+
+マルチ年度モードで各年度の分析結果を parquet ファイルとして出力する。
+
+**出力先:** `data/backtest/predictions/{year}.parquet`
+
+**各ファイルに含まれるデータ:**
+
+| データ | 内容 | 行単位 |
+|---|---|---|
+| bet_history | ベット対象馬の予測・結果・払戻 | ベット1件 = 1行 |
+| 診断データ | 全馬の予測結果 (p_place_pred, e_return_place_pred, ev_place, is_bet) | 各馬1行 |
+
+**実装方針:**
+- `BacktestEngine.run()` の実行中に `DiagnosticLogger` が `bt_horse_diagnostics.csv` に全馬データを出力済み
+- `run_backtest.py` のマルチ年度ループ内で、各年の `bet_history` と `bt_horse_diagnostics.csv` を結合して parquet に保存
+- 単一年度モードでは `--report` 指定時に `data/backtest/predictions/{test_year}.parquet` に出力
+- マルチ年度モードでは各年ごとに `data/backtest/predictions/{year}.parquet` に出力
+
+**Parquet スキーマ (各ファイル):**
+
+```
+race_id: str           レースID
+umaban: int            馬番
+race_date: str         レース日付 (YYYY-MM-DD)
+bamei: str             馬名
+surface: str           芝/ダート
+kyori: int             距離
+grade_code: str        グレード
+bet_type: str|nan      ベット種別 (PLACE等、ベット対象のみ)
+stake: float|nan       ベット額 (ベット対象のみ)
+odds: float|nan        発走前オッズ (ベット対象のみ)
+final_odds: float|nan  確定オッズ (ベット対象のみ)
+result: float|nan      払戻額 (ベット対象のみ)
+p_place_pred: float    複勝確率予測
+e_return_place_pred: float  複勝期待リターン予測
+ev_place: float        EV値
+is_bet: bool           ベット対象かどうか
+```
+
+**特徴量 (features) は今後の拡張枠:** 現在は BacktestEngine 実行中のみメモリ上に存在し `run()` 終了後に破棄される。Engine の変更が必要なため別タスクとする。
+
+### 6. .gitignore
 
 `.gitignore` に `data/` が既に含まれており、`data/models-backtest/` を含むすべてのサブディレクトリをカバー済み。追加のエントリは不要。
 
