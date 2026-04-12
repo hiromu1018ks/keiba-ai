@@ -15,6 +15,29 @@ from domain.types import RegimeState
 logger = logging.getLogger(__name__)
 
 
+def calc_odds_skewness(race_df: pd.DataFrame) -> float:
+    """tanodds 分布の歪度 (レース単位、発走前のみ)"""
+    if "odds" not in race_df.columns:
+        return 0.0
+    odds = race_df["odds"].dropna()
+    if len(odds) < 3:
+        return 0.0
+    return float(odds.skew())
+
+
+def calc_favorite_implied_prob(race_df: pd.DataFrame) -> float:
+    """1番人気の implied probability (1/tanodds、発走前のみ)"""
+    if "popularity_rank" not in race_df.columns or "odds" not in race_df.columns:
+        return 0.3
+    fav = race_df[race_df["popularity_rank"] == 1]
+    if fav.empty:
+        return 0.3
+    odds_val = fav["odds"].iloc[0]
+    if pd.isna(odds_val) or odds_val <= 0:
+        return 0.3
+    return float(1.0 / odds_val)
+
+
 class RegimeDetector:
     """
     市場状態の切り替えを検知し、戦略パラメータを動的に調整する。

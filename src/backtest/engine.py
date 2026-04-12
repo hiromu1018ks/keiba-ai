@@ -17,34 +17,31 @@ from backtest.race_predictor import RacePredictor
 from db.parquet_store import ParquetStore
 from db.readers import load_entries, load_odds_snapshots, load_odds_time_series_range, load_races
 from domain.models import Bet, BetType
+from models.regime_detector import calc_favorite_implied_prob, calc_odds_skewness
 
 if TYPE_CHECKING:
     from domain.models import TrainedModelsV5
 
 logger = logging.getLogger(__name__)
 
-
-def _calc_odds_skewness(race_df: pd.DataFrame) -> float:
-    """tanodds 分布の歪度 (レース単位、発走前のみ)"""
-    if "odds" not in race_df.columns:
-        return 0.0
-    odds = race_df["odds"].dropna()
-    if len(odds) < 3:
-        return 0.0
-    return float(odds.skew())
-
-
-def _calc_favorite_implied_prob(race_df: pd.DataFrame) -> float:
-    """1番人気の implied probability (1/tanodds、発走前のみ)"""
-    if "popularity_rank" not in race_df.columns or "odds" not in race_df.columns:
-        return 0.3
-    fav = race_df[race_df["popularity_rank"] == 1]
-    if fav.empty:
-        return 0.3
-    odds_val = fav["odds"].iloc[0]
-    if pd.isna(odds_val) or odds_val <= 0:
-        return 0.3
-    return float(1.0 / odds_val)
+POST_RACE_COLS: list[str] = [
+    "kakuteijyuni",
+    "confirmed_odds",
+    "ninki",
+    "kyakusitukubun",
+    "time",
+    "timediff",
+    "harontimel3",
+    "harontimel4",
+    "jyuni1c",
+    "jyuni2c",
+    "jyuni3c",
+    "jyuni4c",
+    "honsyokin",
+    "chakusacd",
+    "dmjyuni",
+    "dmtime",
+]
 
 
 @dataclass
@@ -296,9 +293,8 @@ class BacktestEngine:
             jt_df_race = jt_df_all[jt_df_all["race_id"] == race_id]
 
             # M3 fix: POST_RACE 列を predict() に渡さない
-            _POST_RACE_COLS = ["kakuteijyuni", "confirmed_odds"]
             predict_df = race_df_single.drop(
-                columns=[c for c in _POST_RACE_COLS if c in race_df_single.columns],
+                columns=[c for c in POST_RACE_COLS if c in race_df_single.columns],
                 errors="ignore",
             )
             # RacePredictor に委譲
@@ -312,8 +308,8 @@ class BacktestEngine:
             if result_df.empty:
                 continue
 
-            # 精算・bet_history 用に POST_RACE 列を復元
-            for col in _POST_RACE_COLS:
+            # 精算・bet_history 用に POST_RACE 列を復元 (kakuteijyuni, confirmed_odds のみ)
+            for col in POST_RACE_COLS[:2]:
                 if col in race_df_single.columns and col not in result_df.columns:
                     result_df = result_df.merge(
                         race_df_single[["umaban", col]],
@@ -490,8 +486,8 @@ class BacktestEngine:
                     if not result_df.empty else 0.20,
                 "entropy_rolling": float(row_data.get("market_entropy", 2.0))
                     if not result_df.empty else 2.0,
-                "odds_skewness_rolling": _calc_odds_skewness(result_df),
-                "favorite_implied_prob_rolling": _calc_favorite_implied_prob(result_df),
+                "odds_skewness_rolling": calc_odds_skewness(result_df),
+                "favorite_implied_prob_rolling": calc_favorite_implied_prob(result_df),
                 "odds_volatility_mean": (
                     float(result_df["odds_volatility"].mean())
                     if "odds_volatility" in result_df.columns and not result_df.empty

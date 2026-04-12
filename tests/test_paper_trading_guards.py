@@ -2,7 +2,24 @@
 
 import pandas as pd
 
-POST_RACE_COLS = ("kakuteijyuni", "confirmed_odds")
+POST_RACE_COLS = (
+    "kakuteijyuni",
+    "confirmed_odds",
+    "ninki",
+    "kyakusitukubun",
+    "time",
+    "timediff",
+    "harontimel3",
+    "harontimel4",
+    "jyuni1c",
+    "jyuni2c",
+    "jyuni3c",
+    "jyuni4c",
+    "honsyokin",
+    "chakusacd",
+    "dmjyuni",
+    "dmtime",
+)
 
 
 def _drop_post_race_cols(df: pd.DataFrame) -> pd.DataFrame:
@@ -29,6 +46,12 @@ def test_post_race_cols_removed():
             "umaban": [1],
             "kakuteijyuni": [3],
             "confirmed_odds": [5.2],
+            "ninki": [5],
+            "kyakusitukubun": [2],
+            "time": [65.3],
+            "timediff": [0.5],
+            "harontimel3": [34.2],
+            "honsyokin": [500],
             "tanodds": [4.8],
         }
     )
@@ -37,6 +60,12 @@ def test_post_race_cols_removed():
 
     assert "kakuteijyuni" not in result.columns
     assert "confirmed_odds" not in result.columns
+    assert "ninki" not in result.columns
+    assert "kyakusitukubun" not in result.columns
+    assert "time" not in result.columns
+    assert "timediff" not in result.columns
+    assert "harontimel3" not in result.columns
+    assert "honsyokin" not in result.columns
     assert "tanodds" in result.columns
     assert "umaban" in result.columns
 

@@ -51,7 +51,24 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-POST_RACE_COLS = ("kakuteijyuni", "confirmed_odds")
+POST_RACE_COLS = (
+    "kakuteijyuni",
+    "confirmed_odds",
+    "ninki",
+    "kyakusitukubun",
+    "time",
+    "timediff",
+    "harontimel3",
+    "harontimel4",
+    "jyuni1c",
+    "jyuni2c",
+    "jyuni3c",
+    "jyuni4c",
+    "honsyokin",
+    "chakusacd",
+    "dmjyuni",
+    "dmtime",
+)
 
 
 def _drop_post_race_cols(df: pd.DataFrame) -> pd.DataFrame:
@@ -79,6 +96,41 @@ def _apply_jra_filter(
             after_count,
         )
     return feat_df
+
+
+def _build_race_stats(result_df: pd.DataFrame) -> dict[str, float]:
+    """RegimeDetector 用のレース統計を構築 (BT engine.py と同等)。"""
+    from models.regime_detector import calc_favorite_implied_prob, calc_odds_skewness
+
+    row_data = result_df.iloc[0] if not result_df.empty else {}
+    return {
+        "market_error_std": (
+            float(result_df["signed_log_error_win"].std())
+            if "signed_log_error_win" in result_df.columns and len(result_df) > 1
+            else 0.2
+        ),
+        "market_error_mean": (
+            float(result_df["signed_log_error_win"].mean())
+            if "signed_log_error_win" in result_df.columns
+            else 0.0
+        ),
+        "overround_rolling": float(row_data.get("overround", 0.20))
+        if not result_df.empty
+        else 0.20,
+        "entropy_rolling": float(row_data.get("market_entropy", 2.0))
+        if not result_df.empty
+        else 2.0,
+        "odds_skewness_rolling": calc_odds_skewness(result_df),
+        "favorite_implied_prob_rolling": calc_favorite_implied_prob(result_df),
+        "odds_volatility_mean": (
+            float(result_df["odds_volatility"].mean())
+            if "odds_volatility" in result_df.columns and not result_df.empty
+            else 0.1
+        ),
+        "field_size_mean": float(row_data.get("field_size", 14.0))
+        if not result_df.empty
+        else 14.0,
+    }
 
 
 def parse_args() -> argparse.Namespace:
@@ -364,6 +416,9 @@ def _run_predict(
     diag_logger = DiagnosticLogger()
     all_bets: list[dict[str, object]] = []
 
+    # RegimeDetector 用: 直近200レースの統計を蓄積 (BT と同等)
+    recent_stats_list: list[dict[str, float]] = []
+
     for race_id in race_ids:
         if race_id in skipped_race_ids:
             continue  # 発走前オッズスナップショットなし → スキップ
@@ -384,8 +439,13 @@ def _run_predict(
         if result_df.empty:
             continue
 
-        # Regime info for diagnostics
-        regime = models.regime_detector.current_regime
+        # 統計を蓄積してレジーム判定 (BT engine.py と同等)
+        recent_stats_list.append(_build_race_stats(result_df))
+        recent_stats_df = pd.DataFrame(recent_stats_list[-200:])
+        if len(recent_stats_df) >= models.regime_detector.cfg.min_samples:
+            regime = models.regime_detector.detect(recent_stats_df)
+        else:
+            regime = models.regime_detector.current_regime
         regime_params = models.regime_detector.get_strategy_params(regime)
         ev_threshold = regime_params.get("ev_threshold", 1.10)
         if "ev_place" in result_df.columns:
@@ -664,6 +724,9 @@ def _run_diagnose(
     race_predictor = RacePredictor(models)
     diag_logger = DiagnosticLogger()
 
+    # RegimeDetector 用: 直近200レースの統計を蓄積 (BT と同等)
+    recent_stats_list: list[dict[str, float]] = []
+
     for race_id in race_ids:
         single_race = feat_df[feat_df["race_id"] == race_id].copy()
         hist_race = hist_all[hist_all["race_id"] == race_id]
@@ -680,7 +743,13 @@ def _run_diagnose(
         if result_df.empty:
             continue
 
-        regime = models.regime_detector.current_regime
+        # 統計を蓄積してレジーム判定 (BT engine.py と同等)
+        recent_stats_list.append(_build_race_stats(result_df))
+        recent_stats_df = pd.DataFrame(recent_stats_list[-200:])
+        if len(recent_stats_df) >= models.regime_detector.cfg.min_samples:
+            regime = models.regime_detector.detect(recent_stats_df)
+        else:
+            regime = models.regime_detector.current_regime
         regime_params = models.regime_detector.get_strategy_params(regime)
         ev_threshold = regime_params.get("ev_threshold", 1.10)
         if "ev_place" in result_df.columns:
