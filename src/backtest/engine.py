@@ -192,6 +192,19 @@ class BacktestEngine:
         )
         feat_df = submodel_mgr.add_distance_band_features(feat_df)
 
+        # JRAフィルタ: NARレース (jyocd 30以上) を除外
+        if "jyocd" in feat_df.columns:
+            jyocd_int = pd.to_numeric(feat_df["jyocd"], errors="coerce")
+            before_count = len(feat_df)
+            feat_df = feat_df[jyocd_int.between(1, 10)]
+            after_count = len(feat_df)
+            if before_count > after_count:
+                logger.info(
+                    "JRA filter: excluded %d NAR entries (jyocd >= 30), %d remaining",
+                    before_count - after_count,
+                    after_count,
+                )
+
         # 3. 特徴量の一括事前計算 (ループ外で全レース分を一度に計算)
         from features.horse_history_features import HorseHistoryFeatures
         from features.jockey_context_features import JockeyContextFeatures

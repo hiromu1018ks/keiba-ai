@@ -771,3 +771,270 @@ class TestLeakIntegration:
         # 11レース目: 10レース前までの1番人気勝率 (全勝) → 高い値
         race_11_fwr = result.iloc[10]["favorite_win_rate"]
         assert race_11_fwr > 0.8, f"Race 11 favorite_win_rate should be high, got {race_11_fwr}"
+
+
+class TestJRAFilterBacktest:
+    """バックテストエンジン JRAフィルタのテスト"""
+
+    @patch("db.odds_extractor.extract_pre_post_odds")
+    @patch("features.trainer_context_features.TrainerContextFeatures")
+    @patch("features.jockey_context_features.JockeyContextFeatures")
+    @patch("features.interaction_features.compute_interaction_features")
+    @patch("features.horse_history_features.HorseHistoryFeatures")
+    @patch("models.submodel_manager.SubModelManager")
+    @patch("features.feature_engine.FeatureEngine")
+    @patch("backtest.engine.load_odds_time_series_range")
+    @patch("backtest.engine.load_odds_snapshots")
+    @patch("backtest.engine.load_entries")
+    @patch("backtest.engine.load_races")
+    def test_nar_race_excluded_from_backtest(
+        self,
+        mock_load_races: MagicMock,
+        mock_load_entries: MagicMock,
+        mock_load_odds: MagicMock,
+        mock_load_odds_ts: MagicMock,
+        mock_feat_engine_cls: MagicMock,
+        mock_submodel_mgr_cls: MagicMock,
+        mock_hist_cls: MagicMock,
+        mock_interaction_fn: MagicMock,
+        mock_jockey_cls: MagicMock,
+        mock_trainer_cls: MagicMock,
+        mock_extract_odds: MagicMock,
+        mock_models: MagicMock,
+    ) -> None:
+        """NARレース (jyocd >= 30) はバックテストから除外される"""
+        mock_load_races.return_value = pd.DataFrame(
+            {
+                "race_id": ["20240101010101"],
+                "race_date": pd.to_datetime("2024-01-01"),
+                "hassotime": ["03101500"],
+            }
+        )
+        mock_load_entries.return_value = pd.DataFrame(
+            {
+                "race_id": ["20240101010101"],
+                "umaban": [1],
+                "kettonum": [1234],
+                "kakuteijyuni": [2],
+                "odds": [5.0],
+                "ninki": [3],
+                "bataijyu": [480],
+                "zogen_fugo": [0],
+                "zogen_sa": [0],
+                "kisyucode": [100],
+                "chokyosicode": [200],
+            }
+        )
+        mock_load_odds.return_value = pd.DataFrame()
+        mock_load_odds_ts.return_value = pd.DataFrame(
+            {"race_id": ["20240101010101"], "umaban": [1], "odds": [5.0]}
+        )
+        mock_extract_odds.return_value = pd.DataFrame(
+            {"race_id": ["20240101010101"], "umaban": [1], "fukuoddslow": [2.4]}
+        )
+
+        feat_df = pd.DataFrame(
+            {
+                "race_id": ["20240101010101"],
+                "umaban": [1],
+                "surface": ["turf"],  # turf にして submodel が存在する状態にする
+                "kyori": [1200],
+                "distance_bin": ["sprint"],
+                "popularity_rank": [3],
+                "ninki": [3],
+                "ev_place": [1.5],
+                "fukuoddslow": [2.4],
+                "kakuteijyuni": [2],
+                "kettonum": [1234],
+                "odds": [5.0],
+                "bataijyu": [480],
+                "jyocd": ["35"],  # NAR — フィルタで除外されるべき
+                "racenum": [1],
+                "grade_code": ["E"],
+                "hondai": ["地方レース"],
+                "bamei": ["テスト馬"],
+                "kisyuryakusyo": ["テスト騎手"],
+                "track_condition_code": [1],
+                "p_place_pred": [0.65],
+                "e_return_place_pred": [1.80],
+            }
+        )
+
+        mock_feat_engine = MagicMock()
+        mock_feat_engine_cls.return_value = mock_feat_engine
+        mock_feat_engine.build_all.return_value = feat_df
+
+        mock_submodel_mgr = MagicMock()
+        mock_submodel_mgr_cls.return_value = mock_submodel_mgr
+        mock_submodel_mgr.add_distance_band_features.return_value = feat_df
+
+        mock_hist = MagicMock()
+        mock_hist_cls.return_value = mock_hist
+        mock_hist.compute.return_value = pd.DataFrame(columns=["race_id", "umaban"])
+        mock_hist.add_race_transforms = staticmethod(lambda df: df)
+
+        mock_interaction_fn.side_effect = lambda df: df
+
+        mock_jockey = MagicMock()
+        mock_jockey_cls.return_value = mock_jockey
+        mock_jockey.compute.return_value = pd.DataFrame(columns=["race_id", "umaban"])
+
+        mock_trainer = MagicMock()
+        mock_trainer_cls.return_value = mock_trainer
+        mock_trainer.compute.return_value = pd.DataFrame(columns=["race_id", "umaban"])
+
+        # Submodel mocks — needed so the test actually exercises the filter
+        # Without these, the test passes for the wrong reason (no submodel = skip)
+        submodel = MagicMock()
+        mock_models.submodels["turf"] = submodel
+        submodel.market.predict_and_calc_error.return_value = feat_df
+        submodel.stage1.add_ability_probs.return_value = feat_df
+        submodel.place_ability.predict.return_value = feat_df
+        submodel.win.predict_ev.return_value = feat_df
+        submodel.ev_corrector.correct_ev.return_value = feat_df
+        submodel.place.predict_ev.return_value = feat_df
+        submodel.confidence.predict_lower_bound.return_value = (
+            feat_df,
+            pd.DataFrame({"EV_lower_place": [1.5]}),
+        )
+
+        from backtest.engine import BacktestEngine
+
+        mock_store = MagicMock()
+        engine = BacktestEngine(models=mock_models, store=mock_store)
+        result = engine.run("2024-01-01", "2024-12-31")
+
+        assert result.total_bets == 0, (
+            "NAR race (jyocd=35) should be excluded from backtest"
+        )
+
+    @patch("db.odds_extractor.extract_pre_post_odds")
+    @patch("features.trainer_context_features.TrainerContextFeatures")
+    @patch("features.jockey_context_features.JockeyContextFeatures")
+    @patch("features.interaction_features.compute_interaction_features")
+    @patch("features.horse_history_features.HorseHistoryFeatures")
+    @patch("models.submodel_manager.SubModelManager")
+    @patch("features.feature_engine.FeatureEngine")
+    @patch("backtest.engine.load_odds_time_series_range")
+    @patch("backtest.engine.load_odds_snapshots")
+    @patch("backtest.engine.load_entries")
+    @patch("backtest.engine.load_races")
+    def test_jra_race_included_in_backtest(
+        self,
+        mock_load_races: MagicMock,
+        mock_load_entries: MagicMock,
+        mock_load_odds: MagicMock,
+        mock_load_odds_ts: MagicMock,
+        mock_feat_engine_cls: MagicMock,
+        mock_submodel_mgr_cls: MagicMock,
+        mock_hist_cls: MagicMock,
+        mock_interaction_fn: MagicMock,
+        mock_jockey_cls: MagicMock,
+        mock_trainer_cls: MagicMock,
+        mock_extract_odds: MagicMock,
+        mock_models: MagicMock,
+    ) -> None:
+        """JRAレース (jyocd 01-10) は通常通りバックテスト対象"""
+        mock_load_races.return_value = pd.DataFrame(
+            {
+                "race_id": ["20240101010101"],
+                "race_date": pd.to_datetime("2024-01-01"),
+                "hassotime": ["03101500"],
+            }
+        )
+        mock_load_entries.return_value = pd.DataFrame(
+            {
+                "race_id": ["20240101010101"],
+                "umaban": [1],
+                "kettonum": [1234],
+                "kakuteijyuni": [2],
+                "odds": [5.0],
+                "ninki": [3],
+                "bataijyu": [480],
+                "zogen_fugo": [0],
+                "zogen_sa": [0],
+                "kisyucode": [100],
+                "chokyosicode": [200],
+            }
+        )
+        mock_load_odds.return_value = pd.DataFrame()
+        mock_load_odds_ts.return_value = pd.DataFrame(
+            {"race_id": ["20240101010101"], "umaban": [1], "odds": [5.0]}
+        )
+        mock_extract_odds.return_value = pd.DataFrame(
+            {"race_id": ["20240101010101"], "umaban": [1], "fukuoddslow": [2.4]}
+        )
+
+        feat_df = pd.DataFrame(
+            {
+                "race_id": ["20240101010101"],
+                "umaban": [1],
+                "surface": ["turf"],
+                "kyori": [1200],
+                "distance_bin": ["sprint"],
+                "popularity_rank": [3],
+                "ninki": [3],
+                "ev_place": [1.5],
+                "fukuoddslow": [2.4],
+                "kakuteijyuni": [2],
+                "kettonum": [1234],
+                "odds": [5.0],
+                "bataijyu": [480],
+                "jyocd": ["05"],  # JRA — フィルタを通過する
+                "racenum": [11],
+                "grade_code": ["E"],
+                "hondai": ["JRAレース"],
+                "bamei": ["テスト馬"],
+                "kisyuryakusyo": ["テスト騎手"],
+                "track_condition_code": [1],
+                "p_place_pred": [0.65],
+                "e_return_place_pred": [1.80],
+            }
+        )
+
+        mock_feat_engine = MagicMock()
+        mock_feat_engine_cls.return_value = mock_feat_engine
+        mock_feat_engine.build_all.return_value = feat_df
+
+        mock_submodel_mgr = MagicMock()
+        mock_submodel_mgr_cls.return_value = mock_submodel_mgr
+        mock_submodel_mgr.add_distance_band_features.return_value = feat_df
+
+        mock_hist = MagicMock()
+        mock_hist_cls.return_value = mock_hist
+        mock_hist.compute.return_value = pd.DataFrame(columns=["race_id", "umaban"])
+        mock_hist.add_race_transforms = staticmethod(lambda df: df)
+
+        mock_interaction_fn.side_effect = lambda df: df
+
+        mock_jockey = MagicMock()
+        mock_jockey_cls.return_value = mock_jockey
+        mock_jockey.compute.return_value = pd.DataFrame(columns=["race_id", "umaban"])
+
+        mock_trainer = MagicMock()
+        mock_trainer_cls.return_value = mock_trainer
+        mock_trainer.compute.return_value = pd.DataFrame(columns=["race_id", "umaban"])
+
+        # Submodel mocks for prediction
+        submodel = MagicMock()
+        mock_models.submodels["turf"] = submodel
+        submodel.market.predict_and_calc_error.return_value = feat_df
+        submodel.stage1.add_ability_probs.return_value = feat_df
+        submodel.place_ability.predict.return_value = feat_df
+        submodel.win.predict_ev.return_value = feat_df
+        submodel.ev_corrector.correct_ev.return_value = feat_df
+        submodel.place.predict_ev.return_value = feat_df
+        submodel.confidence.predict_lower_bound.return_value = (
+            feat_df,
+            pd.DataFrame({"EV_lower_place": [1.5]}),
+        )
+
+        from backtest.engine import BacktestEngine
+
+        mock_store = MagicMock()
+        engine = BacktestEngine(models=mock_models, store=mock_store)
+        result = engine.run("2024-01-01", "2024-12-31")
+
+        assert result.total_bets >= 1, (
+            "JRA race (jyocd=05) should be included in backtest"
+        )
