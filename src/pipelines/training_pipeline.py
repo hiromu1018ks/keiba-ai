@@ -149,6 +149,18 @@ class TrainingPipelineV5:
         )
         feat_df = self.submodel_mgr.add_distance_band_features(feat_df)
 
+        # JRAフィルタ: NARレース (jyocd 30以上) を除外
+        if "jyocd" in feat_df.columns:
+            jyocd_int = pd.to_numeric(feat_df["jyocd"], errors="coerce")
+            before = len(feat_df)
+            feat_df = feat_df[jyocd_int.between(1, 10)]
+            after = len(feat_df)
+            if after < before:
+                logger.info(
+                    "JRA filter: %d -> %d entries (removed %d NAR)",
+                    before, after, before - after,
+                )
+
         # 2b. ワイドオッズを pivot して特徴量に merge
         wide_odds_df = load_wide_odds(self.store, start, end)
         if wide_odds_df is not None and not wide_odds_df.empty:

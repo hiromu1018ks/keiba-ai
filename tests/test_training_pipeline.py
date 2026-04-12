@@ -517,3 +517,79 @@ class TestBuildRegimeStats:
         assert "entropy_rolling" in result.columns
         assert "favorite_implied_prob_rolling" in result.columns
         assert "odds_skewness_rolling" in result.columns
+
+
+class TestJRAFilterTraining:
+    """学習パイプラインのJRAフィルタ テスト"""
+
+    @staticmethod
+    def _run_pipeline_with_mocks(feat_df: pd.DataFrame) -> MagicMock:
+        """_train_submodel をモックしてパイプラインを実行し、mock_train を返す"""
+        from contextlib import ExitStack
+
+        mock_store = _make_mock_store()
+        mock_market = MagicMock()
+        mock_market.predict_and_calc_error = MagicMock(side_effect=lambda df: df.copy())
+        mock_sub = SubmodelSet(
+            market=mock_market, stage1=MagicMock(), place_ability=MagicMock(),
+            win=MagicMock(), ev_corrector=MagicMock(), place=MagicMock(),
+            wide=MagicMock(), confidence=MagicMock(),
+        )
+        patches = [
+            patch.object(FeatureEngine, "build_all", return_value=feat_df),
+            patch.object(
+                SubModelManager,
+                "add_distance_band_features",
+                side_effect=lambda df: df.copy(),
+            ),
+            patch.object(TrainingPipelineV5, "_train_submodel", return_value=mock_sub),
+            patch.object(
+                TrainingPipelineV5, "_build_race_level_features", return_value=pd.DataFrame()
+            ),
+            patch.object(
+                TrainingPipelineV5, "_build_regime_stats", return_value=pd.DataFrame()
+            ),
+            patch.object(TrainingPipelineV5, "_log_to_mlflow"),
+            patch("pipelines.training_pipeline.RaceQualityScreener"),
+            patch("pipelines.training_pipeline.RegimeDetector"),
+            patch("pipelines.training_pipeline.TrainingPipelineV5._save_models_local"),
+        ]
+        with ExitStack() as stack:
+            mocks = [stack.enter_context(p) for p in patches]
+            pipeline = TrainingPipelineV5.__new__(TrainingPipelineV5)
+            pipeline.store = mock_store
+            pipeline.db = None
+            pipeline.feature_engine = FeatureEngine()
+            pipeline.submodel_mgr = SubModelManager()
+            pipeline.run("2020-01-01", "2023-12-31")
+        # mocks[2] is the _train_submodel mock
+        return mocks[2]
+
+    @patch("pipelines.training_pipeline.mlflow")
+    def test_nar_entries_filtered_before_surface_split(
+        self, mock_mlflow: MagicMock
+    ) -> None:
+        """NARエントリ (jyocd >= 30) が surface分割前に除外される"""
+        feat_df = _make_feature_df(8000, 800)
+        feat_df["jyocd"] = "05"
+        dirt_mask = feat_df["surface"] == "dirt"
+        dirt_indices = feat_df[dirt_mask].index
+        nar_count = len(dirt_indices) // 2
+        feat_df.loc[dirt_indices[:nar_count], "jyocd"] = "35"
+
+        mock_train = self._run_pipeline_with_mocks(feat_df)
+
+        for call_args in mock_train.call_args_list:
+            args, kwargs = call_args
+            df = args[0]
+            if "jyocd" in df.columns:
+                jyocd_int = pd.to_numeric(df["jyocd"], errors="coerce")
+                nar_found = (jyocd_int >= 30).sum()
+                assert nar_found == 0, f"NAR entries should be filtered, found {nar_found}"
+
+    @patch("pipelines.training_pipeline.mlflow")
+    def test_no_jyocd_column_skips_filter(self, mock_mlflow: MagicMock) -> None:
+        """jyocd列がない場合はフィルタを実行しない (後方互換)"""
+        feat_df = _make_feature_df(8000, 800)
+        mock_train = self._run_pipeline_with_mocks(feat_df)
+        assert mock_train.call_count >= 1, "Should train at least 1 submodel"
