@@ -60,11 +60,9 @@ def compute_odds_dynamics(
     if "tanninki" in ts.columns and "ninki" not in ts.columns:
         ts["ninki"] = ts["tanninki"].astype(float)
 
-    # 大量時系列データのメモリ削減: 各(race_id, umaban)につき直近MAX_POINTSのみ保持
-    # 特徴量は t-60min → t-10min の変化率等を計算するため、直近60ポイント(≈60分)で十分
+    # 各(race_id, umaban)につき直近MAX_POINTSのみ保持 (PT/BT 一致のため無条件)
     max_points = 60
-    if len(ts) > 1_000_000:
-        ts = ts.groupby(["race_id", "umaban"], as_index=False).tail(max_points)
+    ts = ts.groupby(["race_id", "umaban"], as_index=False).tail(max_points)
 
     grouped = ts.groupby(["race_id", "umaban"])
 
@@ -223,11 +221,13 @@ def compute_roi_ema(
     race_fav_prob.name = "favorite_implied_prob"
 
     # レース単位 DataFrame (列名を明示的に指定)
-    race_stats = pd.DataFrame({
-        "favorite_implied_prob": race_fav_prob,
-        "overround": race_overround,
-        "entropy": race_entropy,
-    })
+    race_stats = pd.DataFrame(
+        {
+            "favorite_implied_prob": race_fav_prob,
+            "overround": race_overround,
+            "entropy": race_entropy,
+        }
+    )
 
     if "race_date" in df.columns:
         date_map = df.groupby("race_id")["race_date"].first()

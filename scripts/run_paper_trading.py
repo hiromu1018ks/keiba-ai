@@ -51,6 +51,35 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+POST_RACE_COLS = ("kakuteijyuni", "confirmed_odds")
+
+
+def _drop_post_race_cols(df: pd.DataFrame) -> pd.DataFrame:
+    """POST_RACE 列を除外 (BT engine.py と同じ処理)。"""
+    return df.drop(
+        columns=[c for c in POST_RACE_COLS if c in df.columns],
+        errors="ignore",
+    )
+
+
+def _apply_jra_filter(
+    feat_df: pd.DataFrame,
+) -> pd.DataFrame:
+    """JRAフィルタ: NARレース (jyocd >= 30) を除外 (BT engine.py と同じ処理)。"""
+    if "jyocd" not in feat_df.columns:
+        return feat_df
+    jyocd_int = pd.to_numeric(feat_df["jyocd"], errors="coerce")
+    before_count = len(feat_df)
+    feat_df = feat_df[jyocd_int.between(1, 10)]
+    after_count = len(feat_df)
+    if before_count > after_count:
+        logger.info(
+            "JRA filter: excluded %d NAR entries, %d remaining",
+            before_count - after_count,
+            after_count,
+        )
+    return feat_df
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Paper Trading")
@@ -65,11 +94,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--end", help="期間終了 (YYYY-MM-DD, diagnose/dry-run用)")
     parser.add_argument("--run-id", help="MLflow run ID (省略時は最新)")
     parser.add_argument(
-        "--ensemble", action="store_true",
+        "--ensemble",
+        action="store_true",
         help="StackedEnsemble (.joblib) モデルをロード",
     )
     parser.add_argument(
-        "--minutes-before", type=int, default=5,
+        "--minutes-before",
+        type=int,
+        default=5,
         help="発走何分前のオッズを使用するか (デフォルト: 5)",
     )
     return parser.parse_args()
@@ -300,6 +332,9 @@ def _run_predict(
     feat_df = feat_engine.build_all(race_df, entry_df, odds_df, odds_ts_df=odds_ts_df)
     feat_df = submodel_mgr.add_distance_band_features(feat_df)
 
+    # JRAフィルタ: NARレースを除外 (BT と同等)
+    feat_df = _apply_jra_filter(feat_df)
+
     race_ids = feat_df["race_id"].unique()
 
     hist_all = HorseHistoryFeatures(store=store).compute(race_df, entry_df, race_ids)
@@ -340,7 +375,12 @@ def _run_predict(
         trainer_race = trainer_all[trainer_all["race_id"] == race_id]
         jt_race = jt_all[jt_all["race_id"] == race_id]
 
-        result_df = race_predictor.predict(single_race, hist_race, jockey_race, trainer_race, jt_combo_features=jt_race)
+        # POST_RACE 列を除外 (BT engine.py と同じ処理)
+        single_race = _drop_post_race_cols(single_race)
+
+        result_df = race_predictor.predict(
+            single_race, hist_race, jockey_race, trainer_race, jt_combo_features=jt_race
+        )
         if result_df.empty:
             continue
 
@@ -446,11 +486,19 @@ def _run_predict(
         else:
             combined_pred_df = new_pred_df
         combined_pred_df.to_parquet(pred_path, index=False)
-        logger.info("Predictions saved: %d new + %d existing → %s",
-                     len(all_bets), len(existing_pred_df), pred_path)
+        logger.info(
+            "Predictions saved: %d new + %d existing → %s",
+            len(all_bets),
+            len(existing_pred_df),
+            pred_path,
+        )
     elif not existing_pred_df.empty:
         # No new bets but existing ones remain
-        logger.info("No new bets for %s, %d existing predictions preserved", args.date, len(existing_pred_df))
+        logger.info(
+            "No new bets for %s, %d existing predictions preserved",
+            args.date,
+            len(existing_pred_df),
+        )
 
     # コンソール出力 (Windows cp932 対応)
     _venue_map = {
@@ -479,7 +527,9 @@ def _run_predict(
     lines: list[str] = []
     lines.append("")
     lines.append("=" * 60)
-    lines.append(f"  Predict: {args.date}  -  {len(new_bets)} new bets  ({len(skipped_race_ids)} races skipped)")
+    lines.append(
+        f"  Predict: {args.date}  -  {len(new_bets)} new bets  ({len(skipped_race_ids)} races skipped)"
+    )
     lines.append("=" * 60)
 
     if new_bets:
@@ -524,7 +574,9 @@ def _run_predict(
     sys.stdout.buffer.flush()
 
     # Slack通知
-    slack_msg = f"Predict: {len(new_bets)} new bets for {args.date} ({len(skipped_race_ids)} skipped)\n"
+    slack_msg = (
+        f"Predict: {len(new_bets)} new bets for {args.date} ({len(skipped_race_ids)} skipped)\n"
+    )
     if new_bets:
         slack_msg += "--- New ---\n"
         new_bets.sort(key=lambda b: b.get("post_time", "99:99"))
@@ -599,6 +651,9 @@ def _run_diagnose(
     feat_df = feat_engine.build_all(race_df, entry_df, odds_df, odds_ts_df=odds_ts_df, store=store)
     feat_df = submodel_mgr.add_distance_band_features(feat_df)
 
+    # JRAフィルタ: NARレースを除外 (BT と同等)
+    feat_df = _apply_jra_filter(feat_df)
+
     race_ids = feat_df["race_id"].unique()
     hist_all = HorseHistoryFeatures(store=store).compute(race_df, entry_df, race_ids)
     jockey_all = JockeyContextFeatures(store).compute(entry_df)
@@ -616,7 +671,12 @@ def _run_diagnose(
         trainer_race = trainer_all[trainer_all["race_id"] == race_id]
         jt_race = jt_all[jt_all["race_id"] == race_id]
 
-        result_df = race_predictor.predict(single_race, hist_race, jockey_race, trainer_race, jt_combo_features=jt_race)
+        # POST_RACE 列を除外 (BT engine.py と同じ処理)
+        single_race = _drop_post_race_cols(single_race)
+
+        result_df = race_predictor.predict(
+            single_race, hist_race, jockey_race, trainer_race, jt_combo_features=jt_race
+        )
         if result_df.empty:
             continue
 
@@ -988,6 +1048,9 @@ def _run_dry_run(
     feat_df = feat_engine.build_all(race_df, entry_df, odds_df, odds_ts_df=odds_ts_df)
     feat_df = submodel_mgr.add_distance_band_features(feat_df)
 
+    # JRAフィルタ: NARレースを除外 (BT と同等)
+    feat_df = _apply_jra_filter(feat_df)
+
     race_ids = feat_df["race_id"].unique()
     hist_all = HorseHistoryFeatures(store=store).compute(race_df, entry_df, race_ids)
     jockey_all = JockeyContextFeatures(store).compute(entry_df)
@@ -1026,7 +1089,12 @@ def _run_dry_run(
             trainer_race = trainer_all[trainer_all["race_id"] == race_id]
             jt_race = jt_all[jt_all["race_id"] == race_id]
 
-            result_df = race_predictor.predict(race_df_single, hist_race, jockey_race, trainer_race, jt_combo_features=jt_race)
+            # POST_RACE 列を除外 (BT engine.py と同じ処理)
+            race_df_single = _drop_post_race_cols(race_df_single)
+
+            result_df = race_predictor.predict(
+                race_df_single, hist_race, jockey_race, trainer_race, jt_combo_features=jt_race
+            )
             if result_df.empty:
                 continue
 
