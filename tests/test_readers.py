@@ -6,6 +6,7 @@ import pandas as pd
 import pytest
 
 from db.readers import (
+    load_career_stats,
     load_entries,
     load_horses,
     load_jockey_stats,
@@ -152,3 +153,22 @@ class TestLoadStaticTables:
     def test_load_trainer_stats(self, mock_store):
         load_trainer_stats(mock_store)
         mock_store.read.assert_called_once_with("raw", "chokyo_seiseki")
+
+
+class TestLoadCareerStats:
+    def test_returns_empty_dataframe_when_not_exists(self, mock_store):
+        """horse_career_stats.parquet が存在しない場合は空 DataFrame を返す。"""
+        mock_store.exists.return_value = False
+        result = load_career_stats(mock_store)
+        assert isinstance(result, pd.DataFrame)
+        assert result.empty
+
+    def test_calls_store_with_correct_args(self, mock_store):
+        """存在する場合は正しい引数で store.read を呼ぶ。"""
+        mock_store.exists.return_value = True
+        mock_store.read.return_value = pd.DataFrame(
+            {"race_id": ["20240101010101"], "kettonum": ["1234"], "cum_starts": [5]}
+        )
+        result = load_career_stats(mock_store)
+        assert not result.empty
+        mock_store.read.assert_called_once_with("raw", "horse_career_stats")

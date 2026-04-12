@@ -266,6 +266,14 @@ def load_trainer_stats(store: ParquetStore) -> pd.DataFrame:
     return _coerce_types(df)
 
 
+def load_career_stats(store: ParquetStore) -> pd.DataFrame:
+    """Point-in-time キャリア統計を読み込む。"""
+    if not store.exists("raw", "horse_career_stats"):
+        return pd.DataFrame()
+    df = store.read("raw", "horse_career_stats")
+    return _coerce_types(df)
+
+
 def load_features(store: ParquetStore, start: str, end: str) -> pd.DataFrame | None:
     if not store.exists("features", "horse_features"):
         return None
