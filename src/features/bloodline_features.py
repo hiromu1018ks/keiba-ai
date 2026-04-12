@@ -1,12 +1,17 @@
-"""bloodline_features.py — Group B: 血統・産駒成績特徴量 (x_UMA 静的)
+"""bloodline_features.py — Group B: 血統・産駒成績特徴量 (Point-in-Time)
 
 主な特徴量:
-  - blood_surface_wr:  血統馬場別勝率 (芝=ba1) Beta平滑化
-  - blood_distance_wr: 血統距離別勝率 (短距離=kyori1) Beta平滑化
-  - blood_condition_wr: 血統馬場状態別勝率 (Phase 2, 現在NaN)
-  - blood_total_wr:    血統総合成績勝率 (中央=chuo) Beta平滑化
+  - blood_surface_wr:  芝別勝率 Beta平滑化 (entries+races から再構成)
+  - blood_distance_wr: 芝1600M以下勝率 Beta平滑化 (entries+races から再構成)
+  - blood_condition_wr: 馬場状態別勝率 (Phase 2, 現在NaN)
+  - blood_total_wr:    総合成績勝率 Beta平滑化 (entries から再構成)
   - blood_prize_log:   log(1 + 累計賞金)
   - blood_keito_cd:    系統コード (Phase 2, 現在NaN)
+
+ルックアヘッドバイアス修正:
+  従来は horses.parquet (x_UMA ETL時点の累積値) を使用しており、
+  BT で未来のレース結果が特徴量に混入していた。
+  修正後は horse_career_stats.parquet (各レース時点での事前累積値) を使用。
 """
 
 from __future__ import annotations
@@ -39,31 +44,25 @@ FEATURE_COLS: list[str] = [
 
 
 class BloodlineFeatures:
-    """x_UMA の産駒成績から血統特徴量を生成。静的 (馬ごとに1回計算)。"""
+    """Point-in-Time 血統特徴量を生成。
 
-    @staticmethod
-    def _safe_int(val: object) -> int:
-        """NaN-safe int conversion for pandas Series values from left joins."""
-        if val is None or (isinstance(val, float) and np.isnan(val)):
-            return 0
-        try:
-            return int(val)
-        except (ValueError, TypeError):
-            return 0
+    horse_career_stats.parquet から各レース時点での累積成績を読み込み、
+    Beta 平滑化勝率を計算する。
+    """
 
     def __init__(self, store: ParquetStore) -> None:
         self.store = store
-        self._horses_cache: pd.DataFrame | None = None
+        self._career_cache: pd.DataFrame | None = None
 
-    def _load_horses(self) -> pd.DataFrame:
-        if self._horses_cache is None:
-            from db.readers import load_horses
+    def _load_career_stats(self) -> pd.DataFrame:
+        if self._career_cache is None:
+            from db.readers import load_career_stats
 
-            self._horses_cache = load_horses(self.store)
-        return self._horses_cache
+            self._career_cache = load_career_stats(self.store)
+        return self._career_cache
 
     @staticmethod
-    def _smoothed_wr(wins: int, total: int) -> float:
+    def _smoothed_wr(wins: float, total: float) -> float:
         """Beta(alpha, beta) 平滑化勝率: (wins+1)/(total+11)。
 
         total=0 の場合は NaN を返す (未出走カテゴリ)。
@@ -75,53 +74,52 @@ class BloodlineFeatures:
     def compute(self, entry_df: pd.DataFrame) -> pd.DataFrame:
         """entry_df (race_id, umaban, kettonum) -> 血統特徴量 DataFrame。
 
-        x_UMA の産駒成績列 (Ba*/Kyori*/ChuoChakukaisu*/RuikeiHonsyo*) を使用。
-        blood_condition_wr and blood_keito_cd are Phase 2 (currently NaN).
+        horse_career_stats.parquet から point-in-time 累積成績を取得し、
+        Beta 平滑化勝率を計算する。
         """
-        horses_df = self._load_horses()
+        career = self._load_career_stats()
 
-        if "kettonum" not in entry_df.columns or horses_df.empty:
+        if "kettonum" not in entry_df.columns or career.empty:
             return entry_df[["race_id", "umaban"]].assign(**{c: float("nan") for c in FEATURE_COLS})
 
+        # entry_df と career_stats を (race_id, kettonum) で結合
+        merge_keys = ["race_id", "kettonum"]
         merged = entry_df[["race_id", "umaban", "kettonum"]].merge(
-            horses_df, on="kettonum", how="left"
+            career, on=merge_keys, how="left"
         )
 
         result = merged[["race_id", "umaban"]].copy()
 
-        # --- 馬場別勝率 (芝 = ba1) ---
-        ba_cols = [f"ba1chakukaisu{i}" for i in range(1, 7)]
-        ba_data = merged[ba_cols].fillna(0).astype(float)
-        ba1_wins = ba_data["ba1chakukaisu1"]
-        ba1_total = ba_data[ba_cols].sum(axis=1)
-        result["blood_surface_wr"] = np.where(
-            ba1_total == 0, np.nan, (ba1_wins + ALPHA_PRIOR) / (ba1_total + TOTAL_OFFSET)
+        # --- 総合成績勝率 ---
+        result["blood_total_wr"] = np.where(
+            merged["cum_starts"].fillna(0) == 0,
+            np.nan,
+            (merged["cum_wins"].fillna(0) + ALPHA_PRIOR)
+            / (merged["cum_starts"].fillna(0) + TOTAL_OFFSET),
         )
 
-        # --- 距離別勝率 (短距離 = kyori1) ---
-        ky_cols = [f"kyori1chakukaisu{i}" for i in range(1, 7)]
-        ky_data = merged[ky_cols].fillna(0).astype(float)
-        ky1_wins = ky_data["kyori1chakukaisu1"]
-        ky1_total = ky_data[ky_cols].sum(axis=1)
+        # --- 累計賞金 (log変換) ---
+        prize = merged["cum_prize"].fillna(0)
+        result["blood_prize_log"] = np.where(prize > 0, np.log1p(prize), np.nan)
+
+        # --- 芝別勝率 (全芝 = ba1chakukaisu の近似) ---
+        result["blood_surface_wr"] = np.where(
+            merged["cum_turf_starts"].fillna(0) == 0,
+            np.nan,
+            (merged["cum_turf_wins"].fillna(0) + ALPHA_PRIOR)
+            / (merged["cum_turf_starts"].fillna(0) + TOTAL_OFFSET),
+        )
+
+        # --- 芝1600以下勝率 (kyori1chakukaisu の近似) ---
         result["blood_distance_wr"] = np.where(
-            ky1_total == 0, np.nan, (ky1_wins + ALPHA_PRIOR) / (ky1_total + TOTAL_OFFSET)
+            merged["cum_short_starts"].fillna(0) == 0,
+            np.nan,
+            (merged["cum_short_wins"].fillna(0) + ALPHA_PRIOR)
+            / (merged["cum_short_starts"].fillna(0) + TOTAL_OFFSET),
         )
 
         # --- 馬場状態別勝率 — Phase 2 ---
         result["blood_condition_wr"] = np.nan
-
-        # --- 総合成績勝率 (中央 = chuo) ---
-        ch_cols = [f"chuochakukaisu{i}" for i in range(1, 7)]
-        ch_data = merged[ch_cols].fillna(0).astype(float)
-        ch_wins = ch_data["chuochakukaisu1"]
-        ch_total = ch_data[ch_cols].sum(axis=1)
-        result["blood_total_wr"] = np.where(
-            ch_total == 0, np.nan, (ch_wins + ALPHA_PRIOR) / (ch_total + TOTAL_OFFSET)
-        )
-
-        # --- 累計賞金 (log変換) ---
-        prize = pd.to_numeric(merged["ruikeihonsyoheiti"], errors="coerce")
-        result["blood_prize_log"] = np.where(prize.fillna(0) > 0, np.log1p(prize.fillna(0)), np.nan)
 
         # --- 系統コード — Phase 2 ---
         result["blood_keito_cd"] = np.nan
