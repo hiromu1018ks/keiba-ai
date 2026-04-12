@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import subprocess
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
@@ -584,7 +585,7 @@ class BacktestValidationSuite:
             )
 
             # 1. Train
-            pipeline = TrainingPipelineV5(store=self.store)
+            pipeline = TrainingPipelineV5(store=self.store, model_dir=Path("data/models-validation"))
             trained = pipeline.run(w["train"][0], w["train"][1])
 
             # 2. Freeze parameters (Rule 7)
