@@ -80,6 +80,7 @@ class BacktestEngine:
         initial_bankroll: float = 100_000,
         store: ParquetStore | None = None,
         betting_mode: str = "flat",
+        diag_prefix: str = "bt",
     ) -> None:
         if betting_mode not in ("flat", "kelly"):
             raise ValueError(f"betting_mode must be 'flat' or 'kelly', got '{betting_mode}'")
@@ -87,6 +88,7 @@ class BacktestEngine:
         self.initial_bankroll = initial_bankroll
         self.store = store or ParquetStore()
         self.betting_mode = betting_mode
+        self.diag_prefix = diag_prefix
 
         if betting_mode == "kelly":
             from betting.drawdown_controller import DrawdownController
@@ -406,7 +408,7 @@ class BacktestEngine:
                 max_dd = max(max_dd, dd)
 
         # 5. 診断ログ保存
-        diag_logger.save(Path("data/backtest"), prefix="bt")
+        diag_logger.save(Path("data/backtest"), prefix=self.diag_prefix)
 
         # 6. ROI 計算
         total_stake = sum(b["stake"] for b in bet_history)
