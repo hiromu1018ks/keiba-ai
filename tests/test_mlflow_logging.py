@@ -1,5 +1,6 @@
 """MLflow ロギング拡張のテスト"""
 
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from pipelines.training_pipeline import TrainingPipelineV5
@@ -54,6 +55,7 @@ class TestExtendedMLflowLogging:
             mock_sub.confidence = mock_confidence
 
             pipeline = TrainingPipelineV5.__new__(TrainingPipelineV5)
+            pipeline.model_dir = Path("data/models")
             pipeline._log_to_mlflow(
                 models={"turf": mock_sub, "dirt": mock_sub},
                 quality_screen=mock_quality,
@@ -116,6 +118,7 @@ class TestExtendedMLflowLogging:
             mock_sub.confidence = mock_confidence
 
             pipeline = TrainingPipelineV5.__new__(TrainingPipelineV5)
+            pipeline.model_dir = Path("data/models")
             pipeline._log_to_mlflow(
                 models={"turf": mock_sub},
                 quality_screen=mock_quality,

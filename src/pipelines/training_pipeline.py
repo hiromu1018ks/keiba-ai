@@ -65,11 +65,13 @@ class TrainingPipelineV5:
         store: ParquetStore | None = None,
         db: DatabaseConnection | None = None,
         settings_path: str | None = None,
+        model_dir: Path | None = None,
     ) -> None:
         self.store = store or ParquetStore()
         self.db = db  # kept for etl_to_parquet if needed, can be None
         self.feature_engine = FeatureEngine()
         self.submodel_mgr = SubModelManager()
+        self.model_dir = model_dir or Path("data/models")
 
     @staticmethod
     def _to_yyyymmdd(date_str: str) -> str:
@@ -643,8 +645,8 @@ class TrainingPipelineV5:
             # ローカルにもモデル保存 (MLflow Model Registry不使用時のフォールバック)
             self._save_models_local(models, quality_screen, regime_det, train_start, train_end)
 
-    @staticmethod
     def _save_models_local(
+        self,
         models: dict[str, SubmodelSet],
         quality_screen: RaceQualityScreener,
         regime_det: RegimeDetector,
@@ -652,7 +654,7 @@ class TrainingPipelineV5:
         train_end: str,
     ) -> Path:
         """全モデルをローカルディレクトリに保存 (MLflow非依存)"""
-        models_dir = Path("data/models")
+        models_dir = self.model_dir
         models_dir.mkdir(parents=True, exist_ok=True)
 
         # 古いモデルファイルを完全に削除 (アンサンブル/非アンサンブル間の不整合を防止)

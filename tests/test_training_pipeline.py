@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import numpy as np
@@ -245,6 +246,7 @@ class TestTrainingPipelineV5:
                             pipeline.db = None
                             pipeline.feature_engine = FeatureEngine()
                             pipeline.submodel_mgr = SubModelManager()
+                            pipeline.model_dir = Path("data/models")
 
                             result = pipeline.run("2020-01-01", "2023-12-31")
 
@@ -287,6 +289,7 @@ class TestTrainingPipelineV5:
                             pipeline.db = None
                             pipeline.feature_engine = FeatureEngine()
                             pipeline.submodel_mgr = SubModelManager()
+                            pipeline.model_dir = Path("data/models")
 
                             result = pipeline.run("2020-01-01", "2023-12-31")
 
@@ -323,7 +326,27 @@ class TestTrainingPipelineV5:
                             pipeline.db = None
                             pipeline.feature_engine = FeatureEngine()
                             pipeline.submodel_mgr = SubModelManager()
+                            pipeline.model_dir = Path("data/models")
 
                             pipeline.run("2020-01-01", "2023-12-31")
 
         mock_mlflow.start_run.assert_called_once()
+
+
+class TestModelDir:
+    """TrainingPipelineV5.model_dir のテスト"""
+
+    def test_default_model_dir(self) -> None:
+        """model_dir を省略した場合のデフォルトは Path('data/models')"""
+        pipeline2 = TrainingPipelineV5()
+        assert pipeline2.model_dir == Path("data/models")
+
+    def test_custom_model_dir(self) -> None:
+        """カスタム model_dir が設定できる"""
+        pipeline = TrainingPipelineV5(model_dir=Path("data/models-backtest"))
+        assert pipeline.model_dir == Path("data/models-backtest")
+
+    def test_model_dir_none_uses_default(self) -> None:
+        """model_dir=None の場合はデフォルト値が使用される"""
+        pipeline = TrainingPipelineV5(model_dir=None)
+        assert pipeline.model_dir == Path("data/models")
