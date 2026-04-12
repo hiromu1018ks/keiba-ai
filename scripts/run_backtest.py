@@ -1,10 +1,23 @@
 """バックテスト計測スクリプト
 
 使い方:
-  python scripts/run_backtest.py \
-    --train-start 20200101 --train-end 20231231 \
+  # モード1: 単一年度 (従来互換)
+  python scripts/run_backtest.py \\
+    --train-start 20200101 --train-end 20231231 \\
     --test-start 20240101 --test-end 20241231
+
+  # モード2: マルチ年度
+  python scripts/run_backtest.py \\
+    --years 2023 2024 2025 \\
+    --train-window 4
+
+  # 共通オプション
+    --betting-mode flat|kelly   (デフォルト: flat)
+    --ensemble                  (アンサンブル有効化)
+    --report                    (HTMLレポート + JSON + parquet 生成)
 """
+
+from __future__ import annotations
 
 import argparse
 import json
@@ -14,10 +27,20 @@ import sys
 import time
 import warnings
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from backtest.engine import BacktestResult
+
+import pandas as pd
 
 warnings.filterwarnings("ignore")
 
-# プロジェクトルートをパスに追加
+# Windows cp932 環境で ¥ が表示できない問題を回避
+if sys.platform == "win32":
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 sys.path.insert(0, os.path.join(ROOT, "src"))
@@ -35,41 +58,163 @@ def to_dash_date(yyyymmdd: str) -> str:
     return f"{yyyymmdd[:4]}-{yyyymmdd[4:6]}-{yyyymmdd[6:8]}"
 
 
-def main() -> None:
+def build_parser() -> argparse.ArgumentParser:
+    """引数パーサーを構築"""
     parser = argparse.ArgumentParser(description="バックテスト")
-    parser.add_argument("--train-start", required=True, help="学習開始日 (YYYYMMDD)")
-    parser.add_argument("--train-end", required=True, help="学習終了日 (YYYYMMDD)")
-    parser.add_argument("--test-start", required=True, help="テスト開始日 (YYYYMMDD)")
-    parser.add_argument("--test-end", required=True, help="テスト終了日 (YYYYMMDD)")
-    parser.add_argument("--report", action="store_true", help="HTMLレポートを生成")
+    parser.add_argument("--train-start", required=False, help="学習開始日 (YYYYMMDD)")
+    parser.add_argument("--train-end", required=False, help="学習終了日 (YYYYMMDD)")
+    parser.add_argument("--test-start", required=False, help="テスト開始日 (YYYYMMDD)")
+    parser.add_argument("--test-end", required=False, help="テスト終了日 (YYYYMMDD)")
+    parser.add_argument("--years", nargs="+", type=int, help="マルチ年度指定 (テスト年度)")
+    parser.add_argument(
+        "--train-window",
+        type=int,
+        default=4,
+        help="マルチ年度の学習年数 (デフォルト: 4)",
+    )
+    parser.add_argument("--report", action="store_true", help="HTMLレポート + parquet を生成")
     parser.add_argument(
         "--betting-mode",
         choices=["flat", "kelly"],
         default="flat",
         help="ベット額計算モード (flat=100円固定, kelly=Fractional Kelly)",
     )
-    parser.add_argument(
-        "--ensemble",
-        action="store_true",
-        help="アンサンブル (B1) を有効化",
-    )
-    args = parser.parse_args()
+    parser.add_argument("--ensemble", action="store_true", help="アンサンブル (B1) を有効化")
+    return parser
 
+
+def validate_args(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:
+    """引数の排他バリデーション"""
+    if args.years:
+        return  # マルチ年度モード — OK
+    single_year_args = [args.train_start, args.train_end, args.test_start, args.test_end]
+    if all(single_year_args):
+        return  # 単一年度モード — OK
+    parser.error(
+        "単一年度モードには --train-start, --train-end, --test-start, --test-end が必要です"
+    )
+
+
+def save_year_parquet(year: int, result: BacktestResult) -> None:
+    """年度別 parquet 出力: horse_diagnostics + bet_history を結合して保存
+
+    注意: HorseDiagnostic に含まれないフィールド (race_date, bamei, surface, kyori,
+    grade_code 等) は bet_history 側にのみ存在する。ベット対象外の馬 (is_bet=False) は
+    これらのフィールドが NaN になる。
+    """
+    pred_dir = Path(ROOT) / "data" / "backtest" / "predictions"
+    pred_dir.mkdir(parents=True, exist_ok=True)
+
+    # 年度別プレフィックスで診断 CSV を読み込む
+    diag_path = Path(ROOT) / "data" / "backtest" / f"bt_{year}_horse_diagnostics.csv"
+    if not diag_path.exists():
+        logger.warning("診断CSVが見つかりません: %s", diag_path)
+        return
+
+    diag_df = pd.read_csv(diag_path)
+
+    if not result.bet_history:
+        merged = diag_df
+    else:
+        bet_df = pd.DataFrame(result.bet_history)
+        # bet_history 側の付加情報を horse_diagnostics に left-join
+        # bet_cols: ベット対象のみに存在するフィールド (非ベット馬は NaN)
+        bet_only_cols = [
+            "bet_type",
+            "stake",
+            "odds",
+            "final_odds",
+            "result",
+            "ev",
+            "popularity",
+            "bankroll_after",
+            "race_date",
+            "surface",
+            "kyori",
+            "grade_code",
+            "race_name",
+            "bamei",
+            "kisyu",
+            "kakuteijyuni",
+            "track_condition_code",
+        ]
+        # 存在する列のみ選択
+        available_cols = ["race_id", "umaban"] + [c for c in bet_only_cols if c in bet_df.columns]
+        bet_subset = bet_df[available_cols].copy()
+        merged = diag_df.merge(
+            bet_subset, on=["race_id", "umaban"], how="left", suffixes=("", "_bet")
+        )
+
+    out_path = pred_dir / f"{year}.parquet"
+    merged.to_parquet(out_path, index=False)
+    logger.info("Parquet保存: %s (%d rows)", out_path, len(merged))
+
+
+def display_single_year_result(
+    result: BacktestResult,
+    elapsed_train: float,
+    elapsed_test: float,
+    train_start: str,
+    train_end: str,
+    test_start: str,
+    test_end: str,
+) -> dict[str, Any]:
+    """単一年度の結果を表示し、JSON用dictを返す"""
+    print()
+    print("=" * 50)
+    print("  結果")
+    print("=" * 50)
+    print(f"  レース数:       {result.total_bets:>8,}")
+    print(f"  投資額:         {result.total_stake:>10,.0f} 円")
+    print(f"  払戻額:         {result.total_return:>10,.0f} 円")
+    print(f"  利益:           {result.profit:>10,.0f} 円")
+    print(f"  ROI:            {result.total_roi:>9.1%}")
+    print(f"  最大DD:         {result.max_drawdown:>9.1%}")
+    print(f"  最終資金:       {result.final_bankroll:>10,.0f} 円")
+    print(f"  学習時間:       {elapsed_train:>7,.0f} 秒")
+    print(f"  テスト時間:     {elapsed_test:>7,.0f} 秒")
+
+    before_roi = 0.638
+    diff = result.total_roi - before_roi
+    status = "目標達成!" if result.total_roi >= 1.01 else "未達"
+    print()
+    print("=" * 50)
+    print("  Before vs After")
+    print("=" * 50)
+    print(f"  改善前 ROI:     {before_roi:.1%}")
+    print(f"  改善後 ROI:     {result.total_roi:.1%}")
+    print(f"  差分:           {diff:+.1%}")
+    print(f"  判定:           {status}")
+
+    return {
+        "before_roi": before_roi,
+        "total_roi": result.total_roi,
+        "total_bets": result.total_bets,
+        "total_stake": result.total_stake,
+        "total_return": result.total_return,
+        "max_drawdown": result.max_drawdown,
+        "final_bankroll": result.final_bankroll,
+        "train_period": [train_start, train_end],
+        "test_period": [test_start, test_end],
+        "train_seconds": round(elapsed_train),
+        "test_seconds": round(elapsed_test),
+    }
+
+
+def _run_single_year(args: argparse.Namespace) -> None:
+    """単一年度バックテスト"""
     train_start = to_dash_date(args.train_start)
     train_end = to_dash_date(args.train_end)
     test_start = to_dash_date(args.test_start)
     test_end = to_dash_date(args.test_end)
 
-    # データ検証
     from db.parquet_store import ParquetStore
+    from pipelines.training_pipeline import TrainingPipelineV5
 
     store = ParquetStore()
     if not store.exists("raw", "races"):
         logger.error("Parquetデータが見つかりません。先に run_etl.py を実行してください。")
         sys.exit(1)
-
-    # データリポジトリ
-    logger.info("ParquetStore OK")
 
     # 学習
     logger.info("=" * 50)
@@ -77,9 +222,7 @@ def main() -> None:
     logger.info("=" * 50)
     t0 = time.time()
 
-    from pipelines.training_pipeline import TrainingPipelineV5
-
-    pipeline = TrainingPipelineV5(store=store)
+    pipeline = TrainingPipelineV5(store=store, model_dir=Path("data/models-backtest"))
     try:
         models = pipeline.run(train_start, train_end, use_ensemble=args.ensemble)
     except KeyboardInterrupt:
@@ -100,85 +243,223 @@ def main() -> None:
 
     from backtest.engine import BacktestEngine
 
-    engine = BacktestEngine(models=models, store=store, betting_mode=args.betting_mode)
+    test_year = int(test_start[:4])
+    engine = BacktestEngine(
+        models=models,
+        store=store,
+        betting_mode=args.betting_mode,
+        diag_prefix=f"bt_{test_year}",
+    )
     result = engine.run(test_start, test_end)
     elapsed_test = time.time() - t1
     logger.info("バックテスト完了 (%.0f秒)", elapsed_test)
 
     # 結果表示
-    print()
-    print("=" * 50)
-    print("  結果")
-    print("=" * 50)
-    print(f"  レース数:       {result.total_bets:>8,}")
-    print(f"  投資額:         {result.total_stake:>10,.0f} 円")
-    print(f"  払戻額:         {result.total_return:>10,.0f} 円")
-    print(f"  利益:           {result.profit:>10,.0f} 円")
-    print(f"  ROI:            {result.total_roi:>9.1%}")
-    print(f"  最大DD:         {result.max_drawdown:>9.1%}")
-    print(f"  最終資金:       {result.final_bankroll:>10,.0f} 円")
-    print(f"  学習時間:       {elapsed_train:>7.0f} 秒")
-    print(f"  テスト時間:     {elapsed_test:>7.0f} 秒")
+    out = display_single_year_result(
+        result,
+        elapsed_train,
+        elapsed_test,
+        train_start,
+        train_end,
+        test_start,
+        test_end,
+    )
 
-    # 改善前との比較
-    before_roi = 0.638
-    diff = result.total_roi - before_roi
-    status = "目標達成!" if result.total_roi >= 1.01 else "未達"
-    print()
-    print("=" * 50)
-    print("  Before vs After")
-    print("=" * 50)
-    print(f"  改善前 ROI:     {before_roi:.1%}")
-    print(f"  改善後 ROI:     {result.total_roi:.1%}")
-    print(f"  差分:           {diff:+.1%}")
-    print(f"  判定:           {status}")
-
-    # JSON出力
-    out = {
-        "before_roi": before_roi,
-        "total_roi": result.total_roi,
-        "total_bets": result.total_bets,
-        "total_stake": result.total_stake,
-        "total_return": result.total_return,
-        "max_drawdown": result.max_drawdown,
-        "final_bankroll": result.final_bankroll,
-        "train_period": [train_start, train_end],
-        "test_period": [test_start, test_end],
-        "train_seconds": round(elapsed_train),
-        "test_seconds": round(elapsed_test),
-    }
-
-    # --report フラグ: 全出力を data/backtest/ に集約
+    # 出力
     if args.report:
         from backtest.report import BacktestReportGenerator
 
-        output_dir = os.path.join(ROOT, "data", "backtest")
-        os.makedirs(output_dir, exist_ok=True)
+        output_dir = Path(ROOT) / "data" / "backtest"
+        output_dir.mkdir(parents=True, exist_ok=True)
 
-        gen = BacktestReportGenerator(output_dir=Path(output_dir))
+        gen = BacktestReportGenerator(output_dir=output_dir)
         bet_history_path = gen.save_bet_history(result.bet_history)
         print(f"\nbet_history保存: {bet_history_path}")
 
-        result_path = os.path.join(output_dir, "backtest_result.json")
-        with open(result_path, "w", encoding="utf-8") as f:
-            json.dump(out, f, indent=2, ensure_ascii=False)
+        result_path = output_dir / "backtest_result.json"
+        result_path.write_text(json.dumps(out, indent=2, ensure_ascii=False), encoding="utf-8")
         print(f"結果保存: {result_path}")
 
-        train_period_str = f"{train_start} ~ {train_end}"
-        test_period_str = f"{test_start} ~ {test_end}"
         report_path = gen.generate(
             result,
             result.bet_history,
-            train_period=train_period_str,
-            test_period=test_period_str,
+            train_period=f"{train_start} ~ {train_end}",
+            test_period=f"{test_start} ~ {test_end}",
         )
         print(f"レポート生成: {report_path}")
+
+        save_year_parquet(test_year, result)
     else:
-        # 従来通りプロジェクトルートに保存
         outpath = os.path.join(ROOT, "backtest_result.json")
         with open(outpath, "w", encoding="utf-8") as f:
             json.dump(out, f, indent=2, ensure_ascii=False)
         print(f"\n結果保存: {outpath}")
+
+
+def _run_multi_year(args: argparse.Namespace) -> None:
+    """マルチ年度バックテスト"""
+    from db.parquet_store import ParquetStore
+
+    store = ParquetStore()
+    if not store.exists("raw", "races"):
+        logger.error("Parquetデータが見つかりません。先に run_etl.py を実行してください。")
+        sys.exit(1)
+
+    logger.info("ParquetStore OK")
+
+    all_results: dict[int, Any] = {}
+    all_metadata: dict[int, dict[str, str]] = {}
+
+    for test_year in args.years:
+        train_start = f"{test_year - args.train_window}-01-01"
+        train_end = f"{test_year - 1}-12-31"
+        test_start = f"{test_year}-01-01"
+        test_end = f"{test_year}-12-31"
+
+        print()
+        print("=" * 50)
+        print(f"  {test_year}年 (学習: {train_start[:4]}-{train_end[:4]})")
+        print("=" * 50)
+
+        # 学習
+        t0 = time.time()
+        try:
+            from pipelines.training_pipeline import TrainingPipelineV5
+
+            pipeline = TrainingPipelineV5(store=store, model_dir=Path("data/models-backtest"))
+            models = pipeline.run(train_start, train_end, use_ensemble=args.ensemble)
+        except KeyboardInterrupt:
+            logger.warning("中断されました")
+            sys.exit(1)
+        except Exception as e:
+            logger.error("%d年 学習失敗: %s — スキップ", test_year, e)
+            continue
+        elapsed_train = time.time() - t0
+
+        # バックテスト
+        t1 = time.time()
+        try:
+            from backtest.engine import BacktestEngine
+
+            engine = BacktestEngine(
+                models=models,
+                store=store,
+                betting_mode=args.betting_mode,
+                diag_prefix=f"bt_{test_year}",
+            )
+            result = engine.run(test_start, test_end)
+        except Exception as e:
+            logger.error("%d年 テスト失敗: %s — スキップ", test_year, e)
+            continue
+        elapsed_test = time.time() - t1
+
+        all_results[test_year] = result
+        all_metadata[test_year] = {
+            "train_start": train_start,
+            "train_end": train_end,
+            "test_start": test_start,
+            "test_end": test_end,
+            "train_seconds": str(round(elapsed_train)),
+            "test_seconds": str(round(elapsed_test)),
+        }
+
+        # マルチ年度では常に parquet 出力
+        save_year_parquet(test_year, result)
+
+        profit = result.profit
+        print(f"  学習完了 ({elapsed_train:.0f}秒)")
+        print(f"  テスト完了 ({elapsed_test:.0f}秒)")
+        print(
+            f"  ベット数: {result.total_bets:>8,} | "
+            f"投資額: ¥{result.total_stake:>10,.0f} | "
+            f"払戻: ¥{result.total_return:>10,.0f}"
+        )
+        print(
+            f"  ROI: {result.total_roi:>8.1%} | "
+            f"利益: ¥{profit:>+10,.0f} | "
+            f"最大DD: {result.max_drawdown:>6.1%}"
+        )
+
+    if not all_results:
+        logger.error("全年度失敗。レポートは生成しません。")
+        sys.exit(1)
+
+    # 全体サマリー
+    print()
+    print("=" * 50)
+    print("  全体サマリー")
+    print("=" * 50)
+    total_bets = sum(r.total_bets for r in all_results.values())
+    total_stake = sum(r.total_stake for r in all_results.values())
+    total_return = sum(r.total_return for r in all_results.values())
+    total_profit = total_return - total_stake
+    total_roi = total_return / total_stake if total_stake > 0 else 0.0
+    best_year = max(all_results, key=lambda y: all_results[y].total_roi)
+    worst_year = min(all_results, key=lambda y: all_results[y].total_roi)
+
+    print(f"  総ベット数:  {total_bets:>10,}")
+    print(f"  総投資額:  ¥{total_stake:>12,.0f}")
+    print(f"  総払戻額:  ¥{total_return:>12,.0f}")
+    print(f"  総利益:    ¥{total_profit:>+12,.0f}")
+    print(f"  合計 ROI:   {total_roi:>10.1%}")
+    print(f"  最良年度:  {best_year} ({all_results[best_year].total_roi:.1%})")
+    print(f"  最悪年度:  {worst_year} ({all_results[worst_year].total_roi:.1%})")
+
+    # --report 時の出力
+    if args.report:
+        output_dir = Path(ROOT) / "data" / "backtest"
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        from backtest.report import MultiYearReportGenerator
+
+        gen = MultiYearReportGenerator(output_dir=output_dir)
+        report_path = gen.generate(all_results, all_metadata)
+        print(f"\n  レポート生成: {report_path}")
+
+        json_data: dict[str, Any] = {
+            "overall": {
+                "total_bets": total_bets,
+                "total_stake": total_stake,
+                "total_return": total_return,
+                "profit": total_profit,
+                "roi": total_roi,
+                "best_year": best_year,
+                "worst_year": worst_year,
+            },
+            "years": {},
+        }
+        for year, r in all_results.items():
+            json_data["years"][str(year)] = {
+                "total_bets": r.total_bets,
+                "total_stake": r.total_stake,
+                "total_return": r.total_return,
+                "roi": r.total_roi,
+                "profit": r.profit,
+                "max_drawdown": r.max_drawdown,
+                "metadata": all_metadata[year],
+            }
+        json_path = output_dir / "multi_year_result.json"
+        json_path.write_text(json.dumps(json_data, indent=2, ensure_ascii=False), encoding="utf-8")
+        print(f"  JSON保存: {json_path}")
+
+        all_bets: list[dict[str, Any]] = []
+        for year, r in all_results.items():
+            for bet in r.bet_history:
+                all_bets.append({**bet, "_test_year": year})
+        bets_path = output_dir / "multi_year_bet_history.json"
+        bets_path.write_text(json.dumps(all_bets, indent=2, ensure_ascii=False), encoding="utf-8")
+        print(f"  bet_history保存: {bets_path}")
+
+
+def main() -> None:
+    parser = build_parser()
+    args = parser.parse_args()
+    validate_args(parser, args)
+
+    if args.years:
+        _run_multi_year(args)
+    else:
+        _run_single_year(args)
 
 
 if __name__ == "__main__":

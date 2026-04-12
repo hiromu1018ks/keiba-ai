@@ -65,7 +65,6 @@ python scripts/run_backtest.py \
 | `scripts/run_train.py` | HorseHistoryFeatures生成 + LightGBM Ranker + 補正モデル学習 | ~17分 |
 | `scripts/run_backtest.py` | 学習 → テスト期間でレース毎にシミュレーション → ROI計算 | ~57分 |
 | `scripts/run_paper_trading.py` | リアルタイム予測・結果照合（setup/predict/reconcile/dry-run） | ~25秒/日 |
-| `scripts/run_multi_year_backtest.py` | 複数年度・複数学習期間での一括バックテスト | ~3時間 |
 | `scripts/run_tuning.py` | Optuna によるハイパーパラメータチューニング | ~30分 (50trials) |
 
 ### バックテスト結果（学習期間比較: 2023-2025テスト）

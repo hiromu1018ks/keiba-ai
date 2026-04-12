@@ -142,6 +142,20 @@ class TestBacktestEngine:
         assert engine._race_predictor._betting_mode == "flat"
         assert engine._race_predictor.stake_calc is None
 
+    def test_init_with_diag_prefix(self, mock_models: MagicMock) -> None:
+        """diag_prefix パラメータを設定できる"""
+        from backtest.engine import BacktestEngine
+
+        engine = BacktestEngine(models=mock_models, diag_prefix="bt_2024")
+        assert engine.diag_prefix == "bt_2024"
+
+    def test_init_diag_prefix_default(self, mock_models: MagicMock) -> None:
+        """diag_prefix のデフォルトは 'bt'"""
+        from backtest.engine import BacktestEngine
+
+        engine = BacktestEngine(models=mock_models)
+        assert engine.diag_prefix == "bt"
+
     def test_engine_invalid_betting_mode_raises(self, mock_models: MagicMock) -> None:
         """不正なbetting_modeはValueError"""
         from backtest.engine import BacktestEngine
