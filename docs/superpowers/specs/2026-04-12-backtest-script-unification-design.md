@@ -11,6 +11,7 @@
 ## 現状の問題
 
 - `TrainingPipelineV5.run()` → `_save_models_local()` が `data/models/` を全削除→再保存するため、バックテスト実行で本番モデルが上書きされる
+- **`BacktestValidationSuite`** も同様に `TrainingPipelineV5` を呼び出し、`data/models/` を上書きする（3つ目の呼び出し元）
 - `run_multi_year_backtest.py` は `--betting-mode`, `--ensemble` オプションがない
 - `run_multi_year_backtest.py` は 5年学習固定で柔軟性がない
 - レポート生成がスクリプト間で非対称（片方は `--report` フラグ、片方は常に生成）
@@ -28,7 +29,10 @@ class TrainingPipelineV5:
         self.model_dir = model_dir or Path("data/models")
 ```
 
-- `_save_models_local()` 内の `Path("data/models")` を `self.model_dir` に置き換え
+- **`_save_models_local()` を `@staticmethod` からインスタンスメソッドに変換**し、`self.model_dir` を使用する
+  - 現在 `_save_models_local` は `@staticmethod` として宣言されており `self` にアクセスできない
+  - `@staticmethod` デコレータを削除し、第一引数に `self` を追加する
+  - メソッド内の `Path("data/models")` を `self.model_dir` に置き換え
 - MLflow への記録は変更なし（常に実行）
 - `run_train.py` (本番) は引数なし → デフォルト `data/models/`
 - `run_backtest.py` は `model_dir=Path("data/models-backtest")` を渡す
@@ -61,18 +65,28 @@ python scripts/run_backtest.py \
 
 | 引数 | デフォルト | 説明 |
 |---|---|---|
-| `--train-start` / `--train-end` | 必須(モード1) | 学習期間 (YYYYMMDD) |
-| `--test-start` / `--test-end` | 必須(モード1) | テスト期間 (YYYYMMDD) |
+| `--train-start` / `--train-end` | モード1で必須 | 学習期間 (YYYYMMDD) |
+| `--test-start` / `--test-end` | モード1で必須 | テスト期間 (YYYYMMDD) |
 | `--years` | なし | マルチ年度指定 (モード2) |
 | `--train-window` | 4 | マルチ年度の学習年数 |
 | `--betting-mode` | flat | flat / kelly |
 | `--ensemble` | false | アンサンブル有効化 |
 | `--report` | false | HTMLレポート + JSON 生成 |
 
+**注意:** `--train-window` のデフォルトは 4年。旧 `run_multi_year_backtest.py` は 5年固定だったが、4年学習が最適というバックテスト結果に基づく（MEMORY.md 参照）。旧動作を再現する場合は `--train-window 5` を指定すること。
+
 #### 排他ロジック
 
-- `--years` 指定あり → マルチ年度モード（`--train-start/end`, `--test-start/end` は無視）
-- `--years` 指定なし → 単一年度モード（`--train-start/end`, `--test-start/end` 必須）
+- `--train-start/end`, `--test-start/end` をすべて `required=False` に変更
+- 引数検証:
+  - `--years` 指定あり → マルチ年度モード（`--train-start/end`, `--test-start/end` は無視）
+  - `--years` 指定なし → 単一年度モード（`--train-start/end`, `--test-start/end` がすべて必要）
+  - どちらの条件も満たさない場合 → `parser.error("単一年度モードには --train-start, --train-end, --test-start, --test-end が必要です")` でエラーメッセージを出力
+
+**マルチ年度のみ指定時のデフォルト動作:**
+- `--betting-mode flat` — 旧 `run_multi_year_backtest.py` と同等（`BacktestEngine` のデフォルトが flat）
+- `--ensemble` なし — 旧スクリプトと同等（`pipeline.run()` に `use_ensemble` 未渡し）
+- `--report` なし — **動作変更あり**: 旧スクリプトは常にレポートを生成していたが、統合後は `--report` が必要。`--report` なしの場合はコンソール出力のみ
 
 #### 内部フロー
 
@@ -119,27 +133,25 @@ if args.report:
 | 単一年度 | `data/backtest/backtest_result.json` + HTML | `backtest_result.json` (ルート) |
 | マルチ年度 | `data/backtest/multi_year_result.json` + HTML + bet_history | コンソール出力のみ |
 
-### 5. .gitignore 更新
+### 5. .gitignore
 
-```
-data/models-backtest/
-```
+`.gitignore` に `data/` が既に含まれており、`data/models-backtest/` を含むすべてのサブディレクトリをカバー済み。追加のエントリは不要。
 
 ## 影響範囲
 
 | コンポーネント | 変更 | 影響 |
 |---|---|---|
 | `TrainingPipelineV5.__init__` | `model_dir` パラメータ追加 | `run_train.py` は変更不要（デフォルト値） |
-| `_save_models_local()` | `Path("data/models")` → `self.model_dir` | 保存先の変更のみ |
-| `ModelLoader` | 変更なし | 本番は `data/models/` を参照し続ける |
+| `_save_models_local()` | `@staticmethod` → インスタンスメソッド化 + `Path("data/models")` → `self.model_dir` | 保存先の変更 + メソッドシグネチャ変更 |
+| `ModelLoader` | 変更なし | バックテストは `TrainingPipelineV5.run()` からメモリ上で直接モデルを取得するため、`ModelLoader` 経由のロードは発生しない。本番のみ `data/models/` を参照 |
+| `BacktestValidationSuite` | `model_dir=Path("data/models-validation")` を渡す | バリデーション実行時の本番モデル上書きを防止 |
 | `run_train.py` | 変更不要 | デフォルト `data/models/` を使用 |
-| `run_backtest.py` | 大幅変更 | マルチ年度モード + model_dir 分離 |
+| `run_backtest.py` | 大幅変更 | マルチ年度モード + model_dir 分離 + 引数検証追加 |
 | `run_multi_year_backtest.py` | 削除 | 機能は `run_backtest.py` に統合 |
-| `.gitignore` | `data/models-backtest/` 追加 | バックテストモデルをGit管理外に |
 
 ## テスト計画
 
-- 既存テストへの影響は最小（mock 使用のため）
+- 既存のテスト (`test_training_pipeline.py`, `test_mlflow_logging.py`) は `TrainingPipelineV5.__new__()` で `__init__` をバイパスしているため、`model_dir` 属性が初期化されない。`pipeline.model_dir = Path("data/models")` を明示的に設定するようテストコードを更新
 - `TrainingPipelineV5` の `model_dir` パラメータのテストを追加
 - モード判定ロジック（`--years` vs `--train-start/end`）のテストを追加
 - バックテスト実行時に `data/models/` が上書きされないことの確認
