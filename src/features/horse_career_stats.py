@@ -23,13 +23,11 @@ _SHORT_DISTANCE_MAX = 1600  # 芝1600M以下 (x_UMA kyori1 の定義)
 
 
 def _classify_surface(trackcd: pd.Series) -> pd.Series:
-    """trackcd から surface を分類。"""
+    """trackcd から surface を分類。NaN は "other" 扱い。"""
     trackcd_num = pd.to_numeric(trackcd, errors="coerce")
-    return np.where(
-        trackcd_num.between(*_TURF_TRACKCD_RANGE),
-        "turf",
-        np.where(trackcd_num.between(*_DIRT_TRACKCD_RANGE), "dirt", "other"),
-    )
+    is_turf = trackcd_num.between(*_TURF_TRACKCD_RANGE).fillna(False)
+    is_dirt = trackcd_num.between(*_DIRT_TRACKCD_RANGE).fillna(False)
+    return np.where(is_turf, "turf", np.where(is_dirt, "dirt", "other"))
 
 
 def _compute_cumulative_before(
