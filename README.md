@@ -118,6 +118,11 @@ python scripts/run_backtest.py \
   --test-start 20250101 --test-end 20251231 \
   --betting-mode flat --ensemble
 
+# バックテストの出力ファイル:
+#   data/backtest/bt_{year}_horse_features.parquet — 全馬の特徴量+予測値 (乖離分析用)
+#   data/backtest/bt_{year}_horse_diagnostics.csv   — 診断ログ
+#   data/backtest/backtest_result.json               — ROI等のサマリー
+
 # バックテスト (アンサンブル + Kelly)
 python scripts/run_backtest.py \
   --train-start 20210101 --train-end 20241231 \
@@ -142,6 +147,7 @@ python scripts/run_paper_trading.py --mode predict --date 2026-04-12 --ensemble
 - **自動確定処理** — レース結果取得後にベットの勝敗を自動計算（冪等設計）
 - **HTMLレポート** — 日次のベット履歴・ROI・ドローダウンをHTMLで可視化
 - **ドライラン** — 過去のレースデータを使って一連の流れをシミュレーション
+- **特徴量診断出力** — 全馬の特徴量+予測値を parquet に出力（バックテストとの乖離分析用）
 
 ### アーキテクチャ
 
@@ -231,7 +237,10 @@ python scripts/run_paper_trading.py --mode dry-run --date 2024-07-13
    └── select_bets() — EV上位2頭を複勝100円でベット
 
 6. 結果保存
-   └── data/paper_trading/predictions/YYYYMMDD.parquet
+   ├── data/paper_trading/predictions/YYYYMMDD.parquet  — ベット履歴
+   ├── data/paper_trading/bets.parquet                  — 累積ベット
+   ├── data/paper_trading/diag_YYYYMMDD_horse_features.parquet  — 全馬の特徴量+予測値
+   └── data/paper_trading/diag_YYYYMMDD_*_diagnostics.csv       — 診断ログ
 ```
 
 **出力例 (2026-04-04 阪神9R アザレア賞):**
