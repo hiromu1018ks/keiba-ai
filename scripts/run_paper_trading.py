@@ -649,6 +649,7 @@ def _run_diagnose(
                         fukuoddslow=float(hr.get("fukuoddslow", 0)),
                         is_bet=False,
                     )
+                    diag_logger.log_horse_features(hr.to_dict())
             continue
 
         bets = race_predictor.select_bets(result_df, bankroll=0)
@@ -673,6 +674,7 @@ def _run_diagnose(
                     fukuoddslow=float(hr.get("fukuoddslow", 0)),
                     is_bet=int(hr["umaban"]) in bet_umabans,
                 )
+                diag_logger.log_horse_features(hr.to_dict())
 
     prefix = f"diag_parquet_{start_ymd}_{end_ymd}"
     diag_logger.save(config.paper_trading_dir, prefix=prefix)
