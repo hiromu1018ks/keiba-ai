@@ -105,18 +105,30 @@ class TestTrainWindowDefault:
 
     def test_default_train_window_is_four(self) -> None:
         """デフォルトは 4"""
-        import argparse
+        import os
+        import sys
 
-        parser = argparse.ArgumentParser()
-        parser.add_argument("--train-window", type=int, default=4)
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        sys.path.insert(0, root)
+        sys.path.insert(0, os.path.join(root, "src"))
+
+        from scripts.run_backtest import build_parser
+
+        parser = build_parser()
         args = parser.parse_args([])
         assert args.train_window == 4
 
     def test_custom_train_window(self) -> None:
         """カスタム値を指定できる"""
-        import argparse
+        import os
+        import sys
 
-        parser = argparse.ArgumentParser()
-        parser.add_argument("--train-window", type=int, default=4)
-        args = parser.parse_args(["--train-window", "5"])
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        sys.path.insert(0, root)
+        sys.path.insert(0, os.path.join(root, "src"))
+
+        from scripts.run_backtest import build_parser
+
+        parser = build_parser()
+        args = parser.parse_args(["--years", "2024", "--train-window", "5"])
         assert args.train_window == 5
