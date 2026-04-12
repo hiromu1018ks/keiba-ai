@@ -116,7 +116,7 @@ NumPy 型 (np.int64, np.float64 等) は pandas が parquet 書き出し時に
 
 | 列群 | 例 | 取得元 |
 |------|-----|--------|
-| ID列 | `race_id`, `umaban`, `race_date` | feat_df |
+| ID列 | `race_id`, `umaban`, `race_date` | result_df (RacePredictor 出力) |
 | レース条件 | `surface`, `distance_bin`, `track_condition_code`, `grade_code`, `field_size` | Group A |
 | オッズ | `fukuoddslow`, `odds_drop_rate_*`, `odds_velocity`, `overround` | Group J, I |
 | 能力特徴量 | `blood_surface_wr`, `hist_place_rate_*`, `weight_zscore` 等 | Group D-G |
@@ -146,6 +146,16 @@ NumPy 型 (np.int64, np.float64 等) は pandas が parquet 書き出し時に
 2. **同一レース差分比較**
    - `race_id` で JOIN して列値の差分を確認
    - 特にオッズ系特徴量（発走前オッズのタイミング差等）に注目
+
+### 7. 既知の制約
+
+- **JRA フィルタ不一致**: BacktestEngine は NAR エントリ (`jyocd >= 30`) を除外するが、
+  `_run_predict` / `_run_diagnose` には JRA フィルタがない。比較時はバックテスト側に
+  合わせて NAR 行を除外するか、Phase 2 の分析スクリプトでフィルタする必要がある。
+- **モード間の列数差**: `_run_diagnose` は BloodlineFeatures をマージしないため、
+  predict モードより列数が少なくなる可能性がある。比較時は共通列のみを使用する。
+- **`_run_dry_run` はスコープ外**: DiagnosticLogger を使用しないため、
+  `log_horse_features()` の追加対象外。
 
 ## 変更ファイル一覧
 
