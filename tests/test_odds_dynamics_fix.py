@@ -1,4 +1,5 @@
 """compute_odds_dynamics の切り詰めがデータ量に関わらず常に発動することを検証。"""
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -11,13 +12,15 @@ def _make_ts(n_points: int, n_horses: int = 2) -> pd.DataFrame:
     rows = []
     for umaban in range(1, n_horses + 1):
         for i in range(n_points):
-            rows.append({
-                "race_id": "20260412010101",
-                "umaban": umaban,
-                "happyotime": f"{1200 + i:04d}",
-                "tanodds": 5.0 + np.random.randn() * 0.1,
-                "ninki": umaban,
-            })
+            rows.append(
+                {
+                    "race_id": "20260412010101",
+                    "umaban": umaban,
+                    "happyotime": f"{1200 + i:04d}",
+                    "tanodds": 5.0 + np.random.randn() * 0.1,
+                    "ninki": umaban,
+                }
+            )
     return pd.DataFrame(rows)
 
 
@@ -37,23 +40,27 @@ def _make_ts_with_early_spike(
     for umaban in range(1, n_horses + 1):
         for i in range(n_points):
             odds = spike_odds if i < spike_count else normal_odds
-            rows.append({
-                "race_id": "20260412010101",
-                "umaban": umaban,
-                "happyotime": f"{1200 + i:04d}",
-                "tanodds": odds,
-                "ninki": umaban,
-            })
+            rows.append(
+                {
+                    "race_id": "20260412010101",
+                    "umaban": umaban,
+                    "happyotime": f"{1200 + i:04d}",
+                    "tanodds": odds,
+                    "ninki": umaban,
+                }
+            )
     return pd.DataFrame(rows)
 
 
 @pytest.mark.parametrize("n_points", [100, 200])
 def test_truncation_always_applies(n_points: int):
     """切り詰め (max_points=60) はデータ量に関わらず常に発動し、特徴量が計算される。"""
-    base = pd.DataFrame({
-        "race_id": ["20260412010101"] * 2,
-        "umaban": [1, 2],
-    })
+    base = pd.DataFrame(
+        {
+            "race_id": ["20260412010101"] * 2,
+            "umaban": [1, 2],
+        }
+    )
     ts = _make_ts(n_points)
     result = compute_odds_dynamics(base, ts)
     assert result["odds_drop_rate_60_10"].notna().all()
@@ -67,13 +74,19 @@ def test_truncation_limit_60_points():
     drop_rate_60_10 ≈ (5.0 - 5.0) / 5.0 = 0.0。
     切り詰めが動作しなければ first_odds = 100.0 となり drop_rate ≈ 0.95。
     """
-    base = pd.DataFrame({
-        "race_id": ["20260412010101"] * 2,
-        "umaban": [1, 2],
-    })
+    base = pd.DataFrame(
+        {
+            "race_id": ["20260412010101"] * 2,
+            "umaban": [1, 2],
+        }
+    )
     # 100 points: first 40 at 100.0, last 60 at 5.0
     ts = _make_ts_with_early_spike(
-        n_points=100, spike_count=40, spike_odds=100.0, normal_odds=5.0, n_horses=2,
+        n_points=100,
+        spike_count=40,
+        spike_odds=100.0,
+        normal_odds=5.0,
+        n_horses=2,
     )
     result = compute_odds_dynamics(base, ts)
 
@@ -82,6 +95,4 @@ def test_truncation_limit_60_points():
     drop_rates = result["odds_drop_rate_60_10"].values
     assert len(drop_rates) == 2
     for rate in drop_rates:
-        assert abs(rate) < 0.1, (
-            f"drop_rate should be near 0 after truncation, got {rate}"
-        )
+        assert abs(rate) < 0.1, f"drop_rate should be near 0 after truncation, got {rate}"

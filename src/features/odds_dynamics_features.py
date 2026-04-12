@@ -221,11 +221,13 @@ def compute_roi_ema(
     race_fav_prob.name = "favorite_implied_prob"
 
     # レース単位 DataFrame (列名を明示的に指定)
-    race_stats = pd.DataFrame({
-        "favorite_implied_prob": race_fav_prob,
-        "overround": race_overround,
-        "entropy": race_entropy,
-    })
+    race_stats = pd.DataFrame(
+        {
+            "favorite_implied_prob": race_fav_prob,
+            "overround": race_overround,
+            "entropy": race_entropy,
+        }
+    )
 
     if "race_date" in df.columns:
         date_map = df.groupby("race_id")["race_date"].first()
