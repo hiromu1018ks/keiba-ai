@@ -356,6 +356,7 @@ class BacktestEngine:
                             fukuoddslow=float(hr.get("fukuoddslow", 0)),
                             is_bet=False,
                         )
+                        diag_logger.log_horse_features(hr.to_dict())
                 continue
 
             # Bet generation
@@ -394,6 +395,7 @@ class BacktestEngine:
                         fukuoddslow=float(hr.get("fukuoddslow", 0)),
                         is_bet=int(hr["umaban"]) in bet_umabans,
                     )
+                    diag_logger.log_horse_features(hr.to_dict())
 
             # Settlement (BacktestEngine 固有)
             for bet in bets:
