@@ -61,16 +61,6 @@ class BloodlineFeatures:
             self._career_cache = load_career_stats(self.store)
         return self._career_cache
 
-    @staticmethod
-    def _smoothed_wr(wins: float, total: float) -> float:
-        """Beta(alpha, beta) 平滑化勝率: (wins+1)/(total+11)。
-
-        total=0 の場合は NaN を返す (未出走カテゴリ)。
-        """
-        if total == 0:
-            return float("nan")
-        return (wins + ALPHA_PRIOR) / (total + TOTAL_OFFSET)
-
     def compute(self, entry_df: pd.DataFrame) -> pd.DataFrame:
         """entry_df (race_id, umaban, kettonum) -> 血統特徴量 DataFrame。
 

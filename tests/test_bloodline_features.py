@@ -62,34 +62,6 @@ def _make_career_row(
 # === Tests ===
 
 
-class TestSmoothedWr:
-    """Beta(alpha, beta) 平滑化勝率: (wins+1)/(total+11)"""
-
-    def test_smoothed_wr_basic(self):
-        """wins=5, total=50 -> (5+1)/(50+11) = 6/61"""
-        result = BloodlineFeatures._smoothed_wr(5, 50)
-        expected = (5 + ALPHA_PRIOR) / (50 + TOTAL_OFFSET)
-        assert abs(result - expected) < 1e-10
-        assert abs(result - 6 / 61) < 1e-10
-
-    def test_smoothed_wr_zero_total(self):
-        """total=0 -> NaN"""
-        result = BloodlineFeatures._smoothed_wr(3, 0)
-        assert np.isnan(result)
-
-    def test_smoothed_wr_zero_wins(self):
-        """wins=0, total=100 -> (0+1)/(100+11) = 1/111"""
-        result = BloodlineFeatures._smoothed_wr(0, 100)
-        expected = 1 / 111
-        assert abs(result - expected) < 1e-10
-
-    def test_smoothed_wr_all_wins(self):
-        """wins=100, total=100 -> (100+1)/(100+11) = 101/111"""
-        result = BloodlineFeatures._smoothed_wr(100, 100)
-        expected = 101 / 111
-        assert abs(result - expected) < 1e-10
-
-
 class TestBloodTotalWr:
     def test_blood_total_wr(self):
         """cum_wins=10, cum_starts=80 -> (10+1)/(80+11)"""
