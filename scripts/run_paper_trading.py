@@ -32,9 +32,9 @@ import time
 from datetime import date, datetime, timedelta
 from typing import TYPE_CHECKING
 
-if TYPE_CHECKING:
-    import pandas as pd
+import pandas as pd
 
+if TYPE_CHECKING:
     from db.parquet_store import ParquetStore
     from domain.models import TrainedModelsV5
     from paper_trading.config import PaperTradingConfig
