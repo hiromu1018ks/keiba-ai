@@ -78,10 +78,7 @@ class DiagnosticLogger:
 ```python
 for _, hr in result_df.iterrows():
     diag_logger.log_horse(...)            # 既存 (変更なし)
-    diag_logger.log_horse_features(       # NEW
-        {k: v for k, v in hr.items()
-         if not isinstance(v, (list, dict))}
-    )
+    diag_logger.log_horse_features(hr.to_dict())  # NEW: ネスト型フィルタはメソッド内で処理
 ```
 
 出力先: `data/backtest/{diag_prefix}_horse_features.parquet`
@@ -101,11 +98,16 @@ for _, hr in result_df.iterrows():
 ### 3. ネスト型列の除外
 
 `top3_finishers` (list[dict]) 等、parquet にシリアライズできない型は
-dict 内包で除外:
+`log_horse_features()` メソッド内で除外する（呼び出し側は `hr.to_dict()` をそのまま渡す）:
 
 ```python
-{k: v for k, v in hr.items() if not isinstance(v, (list, dict))}
+def log_horse_features(self, row: dict[str, Any]) -> None:
+    self.feature_records.append(
+        {k: v for k, v in row.items() if not isinstance(v, (list, dict))}
+    )
 ```
+
+DRY のためフィルタはメソッド内に集約し、呼び出し側はフィルタ不要。
 
 NumPy 型 (np.int64, np.float64 等) は pandas が parquet 書き出し時に
 自動変換するため対応不要。
