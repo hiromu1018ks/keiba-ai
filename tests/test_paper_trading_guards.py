@@ -13,6 +13,14 @@ def _drop_post_race_cols(df: pd.DataFrame) -> pd.DataFrame:
     )
 
 
+def _apply_jra_filter(feat_df: pd.DataFrame) -> pd.DataFrame:
+    """JRAフィルタ: NARレース (jyocd >= 30) を除外 (BT engine.py と同じ処理)。"""
+    if "jyocd" not in feat_df.columns:
+        return feat_df
+    jyocd_int = pd.to_numeric(feat_df["jyocd"], errors="coerce")
+    return feat_df[jyocd_int.between(1, 10)]
+
+
 def test_post_race_cols_removed():
     """POST_RACE 列が predict 前に DROP されることを検証。"""
     df = pd.DataFrame(
@@ -47,3 +55,48 @@ def test_post_race_cols_missing_no_error():
 
     assert "tanodds" in result.columns
     assert len(result) == 1
+
+
+def test_jra_filter_removes_nar():
+    """jyocd >= 30 の NAR レースが除外される。"""
+    df = pd.DataFrame(
+        {
+            "race_id": ["R001", "R002", "R003"],
+            "jyocd": [5, 30, 8],
+            "umaban": [1, 2, 3],
+        }
+    )
+
+    result = _apply_jra_filter(df)
+
+    assert len(result) == 2
+    assert set(result["race_id"]) == {"R001", "R003"}
+
+
+def test_jra_filter_preserves_all_jra():
+    """jyocd 1-10 は全て保持される。"""
+    df = pd.DataFrame(
+        {
+            "race_id": [f"R{i:03d}" for i in range(10)],
+            "jyocd": list(range(1, 11)),
+            "umaban": [1] * 10,
+        }
+    )
+
+    result = _apply_jra_filter(df)
+
+    assert len(result) == 10
+
+
+def test_jra_filter_handles_missing_jyocd():
+    """jyocd 列がない場合はフィルタをスキップ。"""
+    df = pd.DataFrame(
+        {
+            "race_id": ["R001"],
+            "umaban": [1],
+        }
+    )
+
+    _apply_jra_filter(df)
+
+    assert len(df) == 1

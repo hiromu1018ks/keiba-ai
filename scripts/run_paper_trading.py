@@ -62,6 +62,25 @@ def _drop_post_race_cols(df: pd.DataFrame) -> pd.DataFrame:
     )
 
 
+def _apply_jra_filter(
+    feat_df: pd.DataFrame,
+) -> pd.DataFrame:
+    """JRAフィルタ: NARレース (jyocd >= 30) を除外 (BT engine.py と同じ処理)。"""
+    if "jyocd" not in feat_df.columns:
+        return feat_df
+    jyocd_int = pd.to_numeric(feat_df["jyocd"], errors="coerce")
+    before_count = len(feat_df)
+    feat_df = feat_df[jyocd_int.between(1, 10)]
+    after_count = len(feat_df)
+    if before_count > after_count:
+        logger.info(
+            "JRA filter: excluded %d NAR entries, %d remaining",
+            before_count - after_count,
+            after_count,
+        )
+    return feat_df
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Paper Trading")
     parser.add_argument(
@@ -312,6 +331,9 @@ def _run_predict(
     submodel_mgr = SubModelManager()
     feat_df = feat_engine.build_all(race_df, entry_df, odds_df, odds_ts_df=odds_ts_df)
     feat_df = submodel_mgr.add_distance_band_features(feat_df)
+
+    # JRAフィルタ: NARレースを除外 (BT と同等)
+    feat_df = _apply_jra_filter(feat_df)
 
     race_ids = feat_df["race_id"].unique()
 
@@ -626,6 +648,9 @@ def _run_diagnose(
     submodel_mgr = SubModelManager()
     feat_df = feat_engine.build_all(race_df, entry_df, odds_df, odds_ts_df=odds_ts_df, store=store)
     feat_df = submodel_mgr.add_distance_band_features(feat_df)
+
+    # JRAフィルタ: NARレースを除外 (BT と同等)
+    feat_df = _apply_jra_filter(feat_df)
 
     race_ids = feat_df["race_id"].unique()
     hist_all = HorseHistoryFeatures(store=store).compute(race_df, entry_df, race_ids)
@@ -1018,6 +1043,9 @@ def _run_dry_run(
     submodel_mgr = SubModelManager()
     feat_df = feat_engine.build_all(race_df, entry_df, odds_df, odds_ts_df=odds_ts_df)
     feat_df = submodel_mgr.add_distance_band_features(feat_df)
+
+    # JRAフィルタ: NARレースを除外 (BT と同等)
+    feat_df = _apply_jra_filter(feat_df)
 
     race_ids = feat_df["race_id"].unique()
     hist_all = HorseHistoryFeatures(store=store).compute(race_df, entry_df, race_ids)
