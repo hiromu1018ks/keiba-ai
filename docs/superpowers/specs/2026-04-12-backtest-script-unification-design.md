@@ -135,7 +135,7 @@ if args.report:
 
 ### 5. 年度別 Parquet 出力
 
-マルチ年度モードで各年度の分析結果を parquet ファイルとして出力する。
+マルチ年度モードで各年度の分析結果を parquet ファイルとして**常に**出力する（`--report` フラグに依存しない）。単一年度モードでは `--report` 指定時のみ出力。
 
 **出力先:** `data/backtest/predictions/{year}.parquet`
 
@@ -157,21 +157,24 @@ if args.report:
 ```
 race_id: str           レースID
 umaban: int            馬番
-race_date: str         レース日付 (YYYY-MM-DD)
-bamei: str             馬名
-surface: str           芝/ダート
-kyori: int             距離
-grade_code: str        グレード
+p_place_pred: float    複勝確率予測
+e_return_place_pred: float  複勝期待リターン予測
+ev_place: float        EV値
+fukuoddslow: float     複勝オッズ (低)
+is_bet: bool           ベット対象かどうか
 bet_type: str|nan      ベット種別 (PLACE等、ベット対象のみ)
 stake: float|nan       ベット額 (ベット対象のみ)
 odds: float|nan        発走前オッズ (ベット対象のみ)
 final_odds: float|nan  確定オッズ (ベット対象のみ)
 result: float|nan      払戻額 (ベット対象のみ)
-p_place_pred: float    複勝確率予測
-e_return_place_pred: float  複勝期待リターン予測
-ev_place: float        EV値
-is_bet: bool           ベット対象かどうか
+race_date: str|nan     レース日付 (bet_history 由来、非ベット馬は NaN)
+bamei: str|nan         馬名 (bet_history 由来、非ベット馬は NaN)
+surface: str|nan       芝/ダート (bet_history 由来、非ベット馬は NaN)
+kyori: int|nan         距離 (bet_history 由来、非ベット馬は NaN)
+grade_code: str|nan    グレード (bet_history 由来、非ベット馬は NaN)
 ```
+
+**注意:** HorseDiagnostic データクラスに含まれるのは race_id, umaban, p_place_pred, e_return_place_pred, ev_place, fukuoddslow, is_bet のみ。race_date, bamei, surface 等は bet_history との left-join で付与するため、非ベット馬 (is_bet=False) では NaN になる。
 
 **特徴量 (features) は今後の拡張枠:** 現在は BacktestEngine 実行中のみメモリ上に存在し `run()` 終了後に破棄される。Engine の変更が必要なため別タスクとする。
 
