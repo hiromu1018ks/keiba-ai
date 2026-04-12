@@ -81,6 +81,13 @@ class TestDiagnosticLogger:
             assert not (outdir / "empty_race_diagnostics.csv").exists()
             assert not (outdir / "empty_horse_diagnostics.csv").exists()
 
+    def test_log_horse_features_adds_record(self):
+        logger = DiagnosticLogger()
+        logger.log_horse_features({"race_id": "20240101010111", "umaban": 5, "ev_place": 1.5})
+        assert len(logger.feature_records) == 1
+        assert logger.feature_records[0]["race_id"] == "20240101010111"
+        assert logger.feature_records[0]["umaban"] == 5
+
     def test_multiple_races_and_horses(self):
         logger = DiagnosticLogger()
         # 2 races, 3 horses each

@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from dataclasses import asdict, dataclass
 from pathlib import Path
+from typing import Any
 
 import pandas as pd
 
@@ -43,6 +44,7 @@ class DiagnosticLogger:
     def __init__(self) -> None:
         self.race_records: list[RaceDiagnostic] = []
         self.horse_records: list[HorseDiagnostic] = []
+        self.feature_records: list[dict[str, Any]] = []
 
     def log_race(
         self,
@@ -87,6 +89,10 @@ class DiagnosticLogger:
                 is_bet=is_bet,
             )
         )
+
+    def log_horse_features(self, row: dict[str, Any]) -> None:
+        """result_df の1行（特徴量+予測値+判定）を収集する。"""
+        self.feature_records.append(row)
 
     def save(self, outdir: Path, prefix: str = "diag") -> None:
         """診断レコードをCSVに出力。レコードが0件ならファイルを作成しない。"""
