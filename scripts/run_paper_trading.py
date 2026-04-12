@@ -376,6 +376,7 @@ def _run_predict(
                         fukuoddslow=float(hr.get("fukuoddslow", 0)),
                         is_bet=False,
                     )
+                    diag_logger.log_horse_features(hr.to_dict())
             continue
 
         bets = race_predictor.select_bets(result_df, bankroll)
@@ -403,6 +404,7 @@ def _run_predict(
                     fukuoddslow=float(hr.get("fukuoddslow", 0)),
                     is_bet=int(hr["umaban"]) in bet_umabans,
                 )
+                diag_logger.log_horse_features(hr.to_dict())
 
         for bet in bets:
             horse = result_df[result_df["umaban"] == bet.umaban]
