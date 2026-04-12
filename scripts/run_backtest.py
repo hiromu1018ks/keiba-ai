@@ -141,7 +141,13 @@ def save_year_parquet(year: int, result: BacktestResult) -> None:
         # 存在する列のみ選択
         available_cols = ["race_id", "umaban"] + [c for c in bet_only_cols if c in bet_df.columns]
         bet_subset = bet_df[available_cols].copy()
-        merged = diag_df.merge(
+        # merge key の型不一致を解消 (CSV は string, bet_history は int64)
+        bet_subset["race_id"] = bet_subset["race_id"].astype(str)
+        bet_subset["umaban"] = bet_subset["umaban"].astype(str)
+        diag_df_merge = diag_df.copy()
+        diag_df_merge["race_id"] = diag_df_merge["race_id"].astype(str)
+        diag_df_merge["umaban"] = diag_df_merge["umaban"].astype(str)
+        merged = diag_df_merge.merge(
             bet_subset, on=["race_id", "umaban"], how="left", suffixes=("", "_bet")
         )
 
