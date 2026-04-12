@@ -127,6 +127,27 @@ class TestDiagnosticLogger:
             logger.save(outdir, prefix="test")
             assert not (outdir / "test_horse_features.parquet").exists()
 
+    def test_parquet_excludes_nested_types(self):
+        """list/dict 値を持つ列が parquet に出力されないことを確認。"""
+        logger = DiagnosticLogger()
+        logger.log_horse_features({
+            "race_id": "20240101010111",
+            "umaban": 5,
+            "top3_finishers": [{"umaban": 1}, {"umaban": 2}],
+            "nested": {"key": "value"},
+            "ev_place": 1.5,
+        })
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            outdir = Path(tmpdir)
+            logger.save(outdir, prefix="test")
+
+            df = pd.read_parquet(outdir / "test_horse_features.parquet")
+            assert "top3_finishers" not in df.columns
+            assert "nested" not in df.columns
+            assert "ev_place" in df.columns
+            assert "race_id" in df.columns
+
     def test_multiple_races_and_horses(self):
         logger = DiagnosticLogger()
         # 2 races, 3 horses each

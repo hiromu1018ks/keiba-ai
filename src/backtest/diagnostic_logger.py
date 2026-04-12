@@ -91,8 +91,10 @@ class DiagnosticLogger:
         )
 
     def log_horse_features(self, row: dict[str, Any]) -> None:
-        """result_df の1行（特徴量+予測値+判定）を収集する。"""
-        self.feature_records.append(row)
+        """result_df の1行（特徴量+予測値+判定）を収集する。list/dict 値は除外。"""
+        self.feature_records.append(
+            {k: v for k, v in row.items() if not isinstance(v, (list, dict))}
+        )
 
     def save(self, outdir: Path, prefix: str = "diag") -> None:
         """診断レコードをCSVに出力。レコードが0件ならファイルを作成しない。"""
