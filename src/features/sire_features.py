@@ -116,14 +116,20 @@ class SireFeatures:
 
         # 各行の sire_id ごとに最新の累積統計をマージ
         # merge_asof で race_date 以前の最新行を取得 (PIT安全)
+        # sire_id の型を統一 (object ← ketto3infohansyokunum1 は文字列)
+        _stats_str = self._stats.copy()
+        _stats_str["sire_id"] = _stats_str["sire_id"].astype(str)
+        left = df[["sire_id", "race_date"]].copy()
+        left["sire_id"] = left["sire_id"].astype(str)
+
         merged = pd.merge_asof(
-            df[["sire_id", "race_date"]].sort_values("race_date"),
-            self._stats[["sire_id", "race_date", "sire_starts", "sire_wins",
-                         "sire_places", "sire_turf_starts", "sire_turf_wins",
-                         "sire_dirt_starts", "sire_dirt_wins",
-                         "sire_short_starts", "sire_short_wins",
-                         "sire_long_starts", "sire_long_wins",
-                         "sire_prize_total"]].sort_values(["sire_id", "race_date"]),
+            left.sort_values("race_date"),
+            _stats_str[["sire_id", "race_date", "sire_starts", "sire_wins",
+                       "sire_places", "sire_turf_starts", "sire_turf_wins",
+                       "sire_dirt_starts", "sire_dirt_wins",
+                       "sire_short_starts", "sire_short_wins",
+                       "sire_long_starts", "sire_long_wins",
+                       "sire_prize_total"]].sort_values(["sire_id", "race_date"]),
             on="race_date",
             by="sire_id",
             direction="backward",
@@ -160,9 +166,12 @@ class SireFeatures:
         result["sire_prize_avg"] = np.log1p(merged["sire_prize_total"].fillna(0) / starts_safe)
 
         # bms_wr: 母父の産駒勝率 (bms_id で同様にマージ)
+        bms_left = df[["bms_id", "race_date"]].rename(columns={"bms_id": "sire_id"}).copy()
+        bms_left["sire_id"] = bms_left["sire_id"].astype(str)
+
         bms_merged = pd.merge_asof(
-            df[["bms_id", "race_date"]].rename(columns={"bms_id": "sire_id"}).sort_values("race_date"),
-            self._stats[["sire_id", "race_date", "sire_starts", "sire_wins"]].sort_values(["sire_id", "race_date"]),
+            bms_left.sort_values("race_date"),
+            _stats_str[["sire_id", "race_date", "sire_starts", "sire_wins"]].sort_values(["sire_id", "race_date"]),
             on="race_date",
             by="sire_id",
             direction="backward",
