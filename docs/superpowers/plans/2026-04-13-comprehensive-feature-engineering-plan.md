@@ -68,51 +68,67 @@
 ### Task 1.1: `blood_condition_wr` — horse_career_stats に baba_cd 列追加
 
 **Files:**
-- Modify: `src/features/horse_career_stats.py:72-82`
-- Modify: `scripts/precompute_career_stats.py`
+- Modify: `src/features/horse_career_stats.py:72-122`
+- Modify: `tests/test_horse_career_stats.py`
+
+**既存パターン (確認済):**
+- 関数名: `precompute_career_stats(entries_df, races_df)` (NOT `compute_career_stats`)
+- 累積計算: `_compute_cumulative_before(df, group_col, value_col)` ヘルパー (line 33-42)
+  - 内部: `df.groupby(group_col)[value_col].transform(lambda x: x.shift(1).fillna(0).cumsum())`
+- line 72: `races_df[["race_id", "trackcd", "kyori"]].copy()` — ここに `track_condition_code` を追加
+- line 82 以降: `is_turf_win`, `is_dirt_win` 等のフラグ列を作成 → `_compute_cumulative_before` で累積
+- line 107-122: `result = ent[["race_id", "kettonum", ...]].copy()` — 出力列を明示的に指定
 
 - [ ] **Step 1: テストを書く**
 
 `tests/test_horse_career_stats.py` に追加:
 
 ```python
-def test_compute_condition_columns():
+def test_condition_columns_in_precompute():
     """baba_cd別の累積成績が正しく計算される"""
     import pandas as pd
-    from features.horse_career_stats import compute_career_stats
+    import numpy as np
+    from features.horse_career_stats import precompute_career_stats
 
+    # entries と races は別々のDataFrame
     entries = pd.DataFrame({
         "kettonum": ["001", "001", "001"],
         "race_date": pd.to_datetime(["2024-01-01", "2024-02-01", "2024-03-01"]),
         "race_id": ["R1", "R2", "R3"],
         "kakuteijyuni": [1, 3, 2],
+        "jyocd": [5, 5, 5],
+        "honsyokin": [1000, 0, 500],
+    })
+    # races に track_condition_code を含める
+    races = pd.DataFrame({
+        "race_id": ["R1", "R2", "R3"],
         "trackcd": [11, 11, 11],
         "kyori": [1600, 1800, 1600],
-        "track_condition_code": [1, 3, 2],
-        "syussotosu": [10, 12, 8],
+        "track_condition_code": [1, 3, 2],  # good, heavy, good
     })
-    races = entries[["race_id", "trackcd", "kyori", "track_condition_code"]].copy()
 
-    result = compute_career_stats(entries, races)
+    result = precompute_career_stats(entries, races)
 
-    # track_condition_code がマージされている
-    assert "track_condition_code" in result.columns
     # 条件別累積列が存在する
-    for col in ["turf_good_starts", "turf_good_wins", "turf_heavy_starts", "turf_heavy_wins"]:
-        assert col in result.columns
-    # PIT: shift(1) により当日の結果は含まれない
+    for col in ["cum_turf_good_starts", "cum_turf_good_wins",
+                "cum_turf_heavy_starts", "cum_turf_heavy_wins"]:
+        assert col in result.columns, f"Missing column: {col}"
+    # PIT: shift(1)→cumsum により当日の結果は含まれない
     row0 = result.iloc[0]
-    assert row0["turf_good_starts"] == 0  # 最初のレース前は0
+    assert row0["cum_turf_good_starts"] == 0  # 最初のレース前は0
+    # 2走目: R1はturf+good で1回出走している → cum_turf_good_starts=1
+    row1 = result.iloc[1]
+    assert row1["cum_turf_good_starts"] == 1
 ```
 
 - [ ] **Step 2: テストが失敗することを確認**
 
-Run: `python -m pytest tests/test_horse_career_stats.py::test_compute_condition_columns -v`
-Expected: FAIL (track_condition_code 列がまだ存在しない)
+Run: `python -m pytest tests/test_horse_career_stats.py::test_condition_columns_in_precompute -v`
+Expected: FAIL (cum_turf_good_starts 列がまだ存在しない)
 
 - [ ] **Step 3: 実装 — horse_career_stats.py に baba_cd 処理を追加**
 
-`src/features/horse_career_stats.py` line 72 を変更:
+**3a. line 72 — race_info に track_condition_code を追加:**
 
 ```python
 # Before:
@@ -124,31 +140,66 @@ _race_cols = [c for c in ["race_id", "trackcd", "kyori", "track_condition_code"]
 race_info = races_df[_race_cols].copy()
 ```
 
-line 82 の後に追加 (surface/is_short の後):
+**3b. line 82 の後 (is_short 定義の後) に馬場状態フラグを追加:**
 
 ```python
     # 馬場状態 (good: 1,2 / heavy: 3,4)
     if "track_condition_code" in ent.columns:
-        ent["is_good"] = ent["track_condition_code"].isin([1, 2]).astype(int)
-        ent["is_heavy"] = ent["track_condition_code"].isin([3, 4]).astype(int)
+        baba = pd.to_numeric(ent["track_condition_code"], errors="coerce")
+        ent["is_good"] = baba.isin([1, 2]).astype(int)
+        ent["is_heavy"] = baba.isin([3, 4]).astype(int)
     else:
         ent["is_good"] = 0
         ent["is_heavy"] = 0
 ```
 
-`_compute_cumulative_before` の累積列リストに追加:
+**3c. line 88-90 の後 (is_turf_win 等の定義の後) に条件別フラグを追加:**
 
 ```python
-    # 条件別
-    _add_cum("turf_good", is_turf & is_good)
-    _add_cum("turf_heavy", is_turf & is_heavy)
-    _add_cum("dirt_good", ~is_turf & is_good)
-    _add_cum("dirt_heavy", ~is_turf & is_heavy)
+    ent["is_turf_good"] = (ent["is_turf"] & ent["is_good"]).astype(int)
+    ent["is_turf_good_win"] = (ent["is_turf"] & ent["is_good"] & ent["is_win"]).astype(int)
+    ent["is_turf_heavy"] = (ent["is_turf"] & ent["is_heavy"]).astype(int)
+    ent["is_turf_heavy_win"] = (ent["is_turf"] & ent["is_heavy"] & ent["is_win"]).astype(int)
+    ent["is_dirt_good"] = (ent["is_dirt"] & ent["is_good"]).astype(int)
+    ent["is_dirt_good_win"] = (ent["is_dirt"] & ent["is_good"] & ent["is_win"]).astype(int)
+    ent["is_dirt_heavy"] = (ent["is_dirt"] & ent["is_heavy"]).astype(int)
+    ent["is_dirt_heavy_win"] = (ent["is_dirt"] & ent["is_heavy"] & ent["is_win"]).astype(int)
+```
+
+**3d. line 97-105 の後 (_compute_cumulative_before 呼び出しの後) に累積列を追加:**
+
+```python
+    ent["cum_turf_good_starts"] = _compute_cumulative_before(ent, "kettonum", "is_turf_good")
+    ent["cum_turf_good_wins"] = _compute_cumulative_before(ent, "kettonum", "is_turf_good_win")
+    ent["cum_turf_heavy_starts"] = _compute_cumulative_before(ent, "kettonum", "is_turf_heavy")
+    ent["cum_turf_heavy_wins"] = _compute_cumulative_before(ent, "kettonum", "is_turf_heavy_win")
+    ent["cum_dirt_good_starts"] = _compute_cumulative_before(ent, "kettonum", "is_dirt_good")
+    ent["cum_dirt_good_wins"] = _compute_cumulative_before(ent, "kettonum", "is_dirt_good_win")
+    ent["cum_dirt_heavy_starts"] = _compute_cumulative_before(ent, "kettonum", "is_dirt_heavy")
+    ent["cum_dirt_heavy_wins"] = _compute_cumulative_before(ent, "kettonum", "is_dirt_heavy_win")
+```
+
+**3e. line 107-122 の result 列リストに新しい列を追加:**
+
+```python
+    result = ent[
+        [
+            "race_id", "kettonum", "race_date",
+            "cum_starts", "cum_wins", "cum_prize",
+            "cum_turf_starts", "cum_turf_wins",
+            "cum_dirt_starts", "cum_dirt_wins",
+            "cum_short_starts", "cum_short_wins",
+            "cum_turf_good_starts", "cum_turf_good_wins",
+            "cum_turf_heavy_starts", "cum_turf_heavy_wins",
+            "cum_dirt_good_starts", "cum_dirt_good_wins",
+            "cum_dirt_heavy_starts", "cum_dirt_heavy_wins",
+        ]
+    ].copy()
 ```
 
 - [ ] **Step 4: テストが通ることを確認**
 
-Run: `python -m pytest tests/test_horse_career_stats.py::test_compute_condition_columns -v`
+Run: `python -m pytest tests/test_horse_career_stats.py::test_condition_columns_in_precompute -v`
 Expected: PASS
 
 - [ ] **Step 5: コミット**
@@ -160,85 +211,124 @@ git commit -m "feat: horse_career_stats に馬場状態別累積統計を追加"
 
 ---
 
-### Task 1.2: `blood_condition_wr` — bloodline_features で計算実装
+### Task 1.2: `blood_condition_wr` — bloodline_features で vectorized 計算
 
 **Files:**
-- Modify: `src/features/bloodline_features.py:112`
+- Modify: `src/features/bloodline_features.py:111-112`
 - Modify: `tests/test_bloodline_features.py`
+
+**既存パターン (確認済):**
+- `BloodlineFeatures.compute(entry_df)` → `entry_df.merge(career, ...)` → `np.where(条件, 勝率, NaN)` のベクトル化パターン
+- `merged["cum_turf_starts"]` 等は career からマージ済み
+- Alpha=1, Beta=10, TOTAL_OFFSET=11
 
 - [ ] **Step 1: テストを書く**
 
 ```python
-def test_blood_condition_wr_uses_track_condition():
-    """blood_condition_wr が馬場状態別勝率を返す"""
-    # good track (baba_cd=1) の場合、turf_good_wins/turf_good_starts を使用
-    career_df = pd.DataFrame({
-        "kettonum": ["001"],
-        "race_date": [pd.Timestamp("2024-06-01")],
-        "turf_good_starts": [10], "turf_good_wins": [3],
-        "turf_heavy_starts": [5], "turf_heavy_wins": [1],
-        "dirt_good_starts": [0], "dirt_good_wins": [0],
-        "dirt_heavy_starts": [0], "dirt_heavy_wins": [0],
+def test_blood_condition_wr_good_turf():
+    """blood_condition_wr が芝良馬場の勝率を返す"""
+    import pandas as pd
+    import numpy as np
+    from unittest.mock import MagicMock
+
+    store = MagicMock()
+    feat = BloodlineFeatures.__new__(BloodlineFeatures)
+    feat.store = store
+    feat._career_cache = pd.DataFrame({
+        "race_id": ["R1"], "kettonum": ["001"], "race_date": [pd.Timestamp("2024-06-01")],
+        "cum_starts": [20], "cum_wins": [3], "cum_prize": [5000],
+        "cum_turf_starts": [10], "cum_turf_wins": [2],
+        "cum_dirt_starts": [10], "cum_dirt_wins": [1],
+        "cum_short_starts": [8], "cum_short_wins": [2],
+        "cum_turf_good_starts": [8], "cum_turf_good_wins": [2],
+        "cum_turf_heavy_starts": [2], "cum_turf_heavy_wins": [0],
+        "cum_dirt_good_starts": [6], "cum_dirt_good_wins": [1],
+        "cum_dirt_heavy_starts": [4], "cum_dirt_heavy_wins": [0],
     })
-    entry_row = pd.Series({
-        "kettonum": "001", "race_date": pd.Timestamp("2024-06-01"),
+
+    # entry_df に track_condition_code と surface を含める
+    entry_df = pd.DataFrame({
+        "race_id": ["R1"], "umaban": [1], "kettonum": ["001"],
+        "surface": ["turf"],
+        "track_condition_code": [1],  # good
     })
-    # surface=turf, baba_cd=1 (good) → turf_good 勝率を使用
-    result = compute_condition_wr(career_df, entry_row, surface="turf", baba_cd=1)
-    expected = (1 + 3) / (1 + 10 + 10 - 3)  # Beta(1+3, 1+10+10-3)
-    assert abs(result - expected) < 0.001
+    result = feat.compute(entry_df)
+    # turf + good → cum_turf_good: 2/8 → Beta(1+2, 1+10+8-2) = 3/18
+    expected = 3 / 18
+    assert abs(result["blood_condition_wr"].iloc[0] - expected) < 0.001
+
+def test_blood_condition_wr_heavy_dirt():
+    """blood_condition_wr がダート不良馬場の勝率を返す"""
+    # (同上のパターンで surface="dirt", track_condition_code=4)
+    ...
 ```
 
 - [ ] **Step 2: テストが失敗することを確認**
 
-Run: `python -m pytest tests/test_bloodline_features.py::test_blood_condition_wr_uses_track_condition -v`
-Expected: FAIL
+Run: `python -m pytest tests/test_bloodline_features.py::test_blood_condition_wr_good_turf -v`
+Expected: FAIL (blood_condition_wr は常に NaN)
 
-- [ ] **Step 3: 実装 — bloodline_features.py line 112 を np.nan から実計算に変更**
+- [ ] **Step 3: 実装 — bloodline_features.py line 111-112 を vectorized コードに変更**
 
 ```python
-# Before (line 112):
-result["blood_condition_wr"] = np.nan
+# Before (lines 111-112):
+        # --- 馬場状態別勝率 — Phase 2 ---
+        result["blood_condition_wr"] = np.nan
 
 # After:
-# --- 馬場状態別勝率 ---
-surface = _get_surface(track_cd)
-baba_cd = row.get("track_condition_code", np.nan)
-if pd.notna(baba_cd):
-    baba_cd = int(baba_cd)
-    if surface == "turf":
-        if baba_cd in (1, 2):
-            wr = _beta_smooth(
-                stats_row.get("turf_good_wins", 0), stats_row.get("turf_good_starts", 0)
-            )
-        else:
-            wr = _beta_smooth(
-                stats_row.get("turf_heavy_wins", 0), stats_row.get("turf_heavy_starts", 0)
-            )
-    else:
-        if baba_cd in (1, 2):
-            wr = _beta_smooth(
-                stats_row.get("dirt_good_wins", 0), stats_row.get("dirt_good_starts", 0)
-            )
-        else:
-            wr = _beta_smooth(
-                stats_row.get("dirt_heavy_wins", 0), stats_row.get("dirt_heavy_starts", 0)
-            )
-    result["blood_condition_wr"] = wr
-else:
-    result["blood_condition_wr"] = np.nan
+        # --- 馬場状態別勝率 ---
+        baba = pd.to_numeric(entry_df.get("track_condition_code", pd.Series(0, index=entry_df.index)), errors="coerce")
+        is_good = baba.isin([1, 2])
+        is_heavy = baba.isin([3, 4])
+        is_turf_race = entry_df.get("surface", pd.Series("", index=entry_df.index)) == "turf"
+
+        # 芝良
+        cond_turf_good = is_turf_race & is_good
+        result["blood_condition_wr"] = np.where(
+            cond_turf_good & (merged["cum_turf_good_starts"].fillna(0) > 0),
+            (merged["cum_turf_good_wins"].fillna(0) + ALPHA_PRIOR)
+            / (merged["cum_turf_good_starts"].fillna(0) + TOTAL_OFFSET),
+            np.nan,
+        )
+        # 芝重
+        cond_turf_heavy = is_turf_race & is_heavy
+        result["blood_condition_wr"] = np.where(
+            cond_turf_heavy & (merged["cum_turf_heavy_starts"].fillna(0) > 0),
+            (merged["cum_turf_heavy_wins"].fillna(0) + ALPHA_PRIOR)
+            / (merged["cum_turf_heavy_starts"].fillna(0) + TOTAL_OFFSET),
+            result["blood_condition_wr"],
+        )
+        # ダート良
+        cond_dirt_good = ~is_turf_race & is_good
+        result["blood_condition_wr"] = np.where(
+            cond_dirt_good & (merged["cum_dirt_good_starts"].fillna(0) > 0),
+            (merged["cum_dirt_good_wins"].fillna(0) + ALPHA_PRIOR)
+            / (merged["cum_dirt_good_starts"].fillna(0) + TOTAL_OFFSET),
+            result["blood_condition_wr"],
+        )
+        # ダート重
+        cond_dirt_heavy = ~is_turf_race & is_heavy
+        result["blood_condition_wr"] = np.where(
+            cond_dirt_heavy & (merged["cum_dirt_heavy_starts"].fillna(0) > 0),
+            (merged["cum_dirt_heavy_wins"].fillna(0) + ALPHA_PRIOR)
+            / (merged["cum_dirt_heavy_starts"].fillna(0) + TOTAL_OFFSET),
+            result["blood_condition_wr"],
+        )
 ```
+
+**注:** `entry_df` に `surface` と `track_condition_code` 列が含まれている必要がある。
+`feature_engine.py` の `build_all()` または `training_pipeline.py` でこれらがマージ済みであることを確認。
 
 - [ ] **Step 4: テストが通ることを確認**
 
-Run: `python -m pytest tests/test_bloodline_features.py::test_blood_condition_wr_uses_track_condition -v`
+Run: `python -m pytest tests/test_bloodline_features.py::test_blood_condition_wr_good_turf -v`
 Expected: PASS
 
 - [ ] **Step 5: コミット**
 
 ```bash
 git add src/features/bloodline_features.py tests/test_bloodline_features.py
-git commit -m "feat: blood_condition_wr を馬場状態別勝率で実装"
+git commit -m "feat: blood_condition_wr を vectorized な馬場状態別勝率で実装"
 ```
 
 ---
@@ -247,21 +337,24 @@ git commit -m "feat: blood_condition_wr を馬場状態別勝率で実装"
 
 **Files:**
 - Modify: `src/db/readers.py` (load_keito 追加)
-- Modify: `src/features/bloodline_features.py:115`
+- Modify: `src/features/bloodline_features.py:114-115`
 - Modify: `tests/test_bloodline_features.py`, `tests/test_readers.py`
+
+**JOINパス (2段):**
+`entries.kettonum` → `horses.kettonum` → `horses.ketto3infohansyokunum1` (種牡馬血統番号) → `keito.keitoucode` で系統コードを取得。
+
+**既存パターン:** `BloodlineFeatures.__init__(store)` → `_load_career_stats()` でキャッシュ。
+同じパターンで `_load_keito_map()` を追加。
 
 - [ ] **Step 1: テストを書く (readers)**
 
 ```python
-def test_load_keito():
-    """keito.parquet から系統コードマスタを読み込む"""
-    store = ParquetStore(BASE_DIR)
+def test_load_keito_returns_empty_when_missing(tmp_path):
+    """keito.parquet が存在しない場合、空DataFrameを返す"""
+    from db.parquet_store import ParquetStore
+    store = ParquetStore(str(tmp_path))
     df = load_keito(store)
-    # ファイルが存在しない場合は空DataFrame
-    if df.empty:
-        assert True
-    else:
-        assert "keitoucode" in df.columns
+    assert df.empty
 ```
 
 - [ ] **Step 2: load_keito() を実装**
@@ -277,34 +370,122 @@ def load_keito(store: ParquetStore) -> pd.DataFrame:
     return _coerce_types(df)
 ```
 
-- [ ] **Step 3: テストを書く (bloodline)**
+- [ ] **Step 3: テストを書く (bloodline — 完全なモック)**
 
 ```python
 def test_blood_keito_cd_from_sire():
     """blood_keito_cd が種牡馬の系統コードを返す"""
-    # モックで horses と keito を用意
-    # entries.kettonum -> horses.kettonum -> horses.ketto3infohansyokunum1 -> keito.keitoucode
-    # "SS系" 等の系統コードが返ることを確認
+    import pandas as pd
+    from unittest.mock import MagicMock, patch
+
+    store = MagicMock()
+    feat = BloodlineFeatures.__new__(BloodlineFeatures)
+    feat.store = store
+    feat._career_cache = pd.DataFrame({
+        "race_id": ["R1"], "kettonum": ["001"], "race_date": [pd.Timestamp("2024-06-01")],
+        "cum_starts": [5], "cum_wins": [0], "cum_prize": [0],
+        "cum_turf_starts": [3], "cum_turf_wins": [0],
+        "cum_dirt_starts": [2], "cum_dirt_wins": [0],
+        "cum_short_starts": [2], "cum_short_wins": [0],
+        "cum_turf_good_starts": [0], "cum_turf_good_wins": [0],
+        "cum_turf_heavy_starts": [0], "cum_turf_heavy_wins": [0],
+        "cum_dirt_good_starts": [0], "cum_dirt_good_wins": [0],
+        "cum_dirt_heavy_starts": [0], "cum_dirt_heavy_wins": [0],
+    })
+
+    # horses: kettonum → sire_id (ketto3infohansyokunum1)
+    mock_horses = pd.DataFrame({
+        "kettonum": ["001"],
+        "ketto3infohansyokunum1": ["SIRE_X"],
+    })
+    # keito: keitoucode → keitousystemcd (系統コード)
+    mock_keito = pd.DataFrame({
+        "keitoucode": ["SIRE_X"],
+        "keitousystemcd": ["SS"],  # サンデーサイレンス系
+    })
+
+    with patch.object(store, "read", side_effect=lambda cat, name: {
+        ("raw", "horses"): mock_horses,
+        ("raw", "keito"): mock_keito,
+    }.get((cat, name), pd.DataFrame())):
+        feat._keito_cache = None  # キャッシュクリア
+        entry_df = pd.DataFrame({
+            "race_id": ["R1"], "umaban": [1], "kettonum": ["001"],
+        })
+        result = feat.compute(entry_df)
+        assert result["blood_keito_cd"].iloc[0] == "SS"
+
+def test_blood_keito_cd_unknown_for_missing_sire():
+    """未知の種牡馬は 'unknown' を返す"""
+    # horses に kettonum がない場合
     ...
 ```
 
-- [ ] **Step 4: blood_keito_cd を実装**
+- [ ] **Step 4: BloodlineFeatures に _load_keito_map() を追加して blood_keito_cd を実装**
 
-`src/features/bloodline_features.py` line 115 を変更:
+**4a. `__init__` に `_keito_cache` を追加:**
+
+```python
+    def __init__(self, store: ParquetStore) -> None:
+        self.store = store
+        self._career_cache: pd.DataFrame | None = None
+        self._keito_cache: dict[str, str] | None = None  # 追加
+```
+
+**4b. `_load_keito_map()` メソッドを追加:**
+
+```python
+    def _load_keito_map(self) -> dict[str, str]:
+        """sire_id → keitousystemcd のマッピングを構築"""
+        if self._keito_cache is None:
+            from db.readers import load_keito, load_career_stats
+            keito = load_keito(self.store)
+            horses = self.store.read("raw", "horses") if self.store.exists("raw", "horses") else pd.DataFrame()
+            if keito.empty or horses.empty:
+                self._keito_cache = {}
+            else:
+                # sire_id (ketto3infohansyokunum1) → keitousystemcd
+                sire_col = "ketto3infohansyokunum1"
+                code_col = "keitousystemcd" if "keitousystemcd" in keito.columns else keito.columns[1]
+                keito_map = keito.set_index("keitoucode")[code_col].to_dict()
+                self._keito_cache = horses.set_index(sire_col).index.map(
+                    lambda x: keito_map.get(x, "unknown")
+                )
+                # より正確には: horses の sire_id → keito の keitoucode で JOIN
+                merged = horses[[sire_col]].merge(
+                    keito, left_on=sire_col, right_on="keitoucode", how="left"
+                )
+                self._keito_cache = dict(zip(horses[sire_col], merged[code_col].fillna("unknown")))
+        return self._keito_cache
+```
+
+**4c. `compute()` 内で line 114-115 を変更:**
 
 ```python
 # Before:
-result["blood_keito_cd"] = np.nan
+        # --- 系統コード — Phase 2 ---
+        result["blood_keito_cd"] = np.nan
 
 # After:
-# --- 系統コード ---
-# sire_keito_map は __init__ または compute() の冒頭でロード済み
-sire_id = row.get("sire_id")  # horses.ketto3infohansyokunum1
-if sire_id and sire_id in self._keito_map:
-    result["blood_keito_cd"] = self._keito_map[sire_id]
-else:
-    result["blood_keito_cd"] = "unknown"
+        # --- 系統コード ---
+        keito_map = self._load_keito_map()
+        if keito_map and "kettonum" in merged.columns:
+            # entry_df の kettonum → horses の ketto3infohansyokunum1 → keito の系統コード
+            # (horses のロードとマージが必要)
+            from db.readers import load_career_stats
+            horses = self.store.read("raw", "horses") if self.store.exists("raw", "horses") else pd.DataFrame()
+            if not horses.empty and "ketto3infohansyokunum1" in horses.columns:
+                sire_map = horses.set_index("kettonum")["ketto3infohansyokunum1"]
+                sire_ids = merged["kettonum"].map(sire_map)
+                result["blood_keito_cd"] = sire_ids.map(keito_map).fillna("unknown")
+            else:
+                result["blood_keito_cd"] = "unknown"
+        else:
+            result["blood_keito_cd"] = "unknown"
 ```
+
+**注:** この実装は horse_career_stats.py の `horses` ロードパターンに従う。
+実際の keito.parquet の列名は ETL 実行後に確認が必要。
 
 - [ ] **Step 5: テストが通ることを確認**
 
@@ -315,7 +496,7 @@ Expected: ALL PASS
 
 ```bash
 git add src/db/readers.py src/features/bloodline_features.py tests/
-git commit -m "feat: blood_keito_cd を種牡馬系統コードで実装"
+git commit -m "feat: blood_keito_cd を種牡馬系統コードで実装 (2段JOIN)"
 ```
 
 ---
@@ -324,10 +505,28 @@ git commit -m "feat: blood_keito_cd を種牡馬系統コードで実装"
 
 **Files:**
 - Modify: `src/features/feature_engine.py:112` (build_all 内)
-- Modify: `src/models/two_stage_return_model.py` (FEATURE_COLS)
-- Modify: `src/models/ev_correction_model.py` (FEATURE_COLS)
+- Modify: `src/models/two_stage_return_model.py` (FEATURE_COLS: 16→17)
+- Modify: `src/models/ev_correction_model.py` (FEATURE_COLS: 23→24)
 
-- [ ] **Step 1: feature_engine.py に呼び出し追加**
+**注:** WinTwoStageModel に追加するのは `odds_skewness` の1列のみ (16→17)。
+`implied_prob_hhi` は EVCorrectionModel にのみ追加 (23→24)。合計2列の追加。
+
+- [ ] **Step 1: テストを書く**
+
+```python
+def test_flb_slope_wired_in_build_all():
+    """build_all の結果に odds_skewness と implied_prob_hhi が含まれる"""
+    # feature_engine.build_all() の結果にこれらの列が含まれることを確認する
+    # モックデータで build_all を呼び出し、列の存在を検証
+    ...
+```
+
+- [ ] **Step 2: テストが失敗することを確認**
+
+Run: `python -m pytest tests/test_feature_engine.py::test_flb_slope_wired_in_build_all -v`
+Expected: FAIL
+
+- [ ] **Step 3: feature_engine.py に呼び出し追加**
 
 `src/features/feature_engine.py` line 112 の後に追加:
 
@@ -340,11 +539,11 @@ with TimingContext("build_all/flb_slope"):
     df["implied_prob_hhi"] = flb_result["implied_prob_hhi"]
 ```
 
-- [ ] **Step 2: two_stage_return_model.py の FEATURE_COLS に追加**
+- [ ] **Step 4: two_stage_return_model.py の FEATURE_COLS に追加**
 
 `src/models/two_stage_return_model.py` の `FEATURE_COLS` に `"odds_skewness"` を追加。
 
-- [ ] **Step 3: ev_correction_model.py の FEATURE_COLS に追加**
+- [ ] **Step 5: ev_correction_model.py の FEATURE_COLS に追加**
 
 `src/models/ev_correction_model.py` の `FEATURE_COLS` に `"implied_prob_hhi"` を追加。
 
@@ -366,9 +565,29 @@ git commit -m "feat: compute_flb_slope をパイプラインに統合 + odds_ske
 
 **Files:**
 - Modify: `src/pipelines/training_pipeline.py` (_build_race_level_features 内)
-- Modify: `src/models/race_quality_screener.py` (FEATURE_COLS)
+- Modify: `src/models/race_quality_screener.py` (FEATURE_COLS: 20→22)
 
-- [ ] **Step 1: training_pipeline.py に呼び出し追加**
+**重要:** `compute_roi_ema()` は race-level で計算し、EMA値を返す。
+`_build_race_level_features()` は race-level DataFrame を返すが、
+呼び出し側で horse-level にマージされる。
+`overround_ema` と `entropy_ema` は race-level なので race_id で JOIN するだけでhorse-levelに展開可能。
+
+- [ ] **Step 1: テストを書く**
+
+```python
+def test_roi_ema_wired_in_race_level_features():
+    """_build_race_level_features の結果に EMA 列が含まれる"""
+    # モックで training_pipeline の _build_race_level_features を呼び出し、
+    # overround_ema, entropy_ema 列の存在を確認
+    ...
+```
+
+- [ ] **Step 2: テストが失敗することを確認**
+
+Run: `python -m pytest tests/test_training_pipeline.py::test_roi_ema_wired_in_race_level_features -v`
+Expected: FAIL
+
+- [ ] **Step 3: training_pipeline.py に呼び出し追加**
 
 `_build_race_level_features()` 内 (line 524 の後) に追加:
 
@@ -379,7 +598,7 @@ if "tanodds" in race_feat.columns:
     race_feat = compute_roi_ema(race_feat)
 ```
 
-- [ ] **Step 2: race_quality_screener.py の FEATURE_COLS に追加**
+- [ ] **Step 4: race_quality_screener.py の FEATURE_COLS に追加**
 
 `src/models/race_quality_screener.py` の `FEATURE_COLS` に `"overround_ema"`, `"entropy_ema"` を追加。
 
@@ -444,6 +663,7 @@ def test_precompute_sire_stats_creates_parquet(tmp_path):
         "kyori": [1600, 1600, 1800, 1800],
         "trackcd": [11, 11, 11, 11],
         "track_condition_code": [1, 1, 2, 2],
+        "honsyokin": [1000, 0, 0, 500],
     })
     horses = pd.DataFrame({
         "kettonum": ["001", "002"],
@@ -458,9 +678,13 @@ def test_precompute_sire_stats_creates_parquet(tmp_path):
     assert "sire_wins" in result.columns
     assert "sire_turf_starts" in result.columns
     assert "sire_short_starts" in result.columns
+    assert "sire_prize_total" in result.columns
 
-    # PIT: cumsum().shift(1) — 当日の結果を含まない
-    # 2/1 の時点で sire_starts は 1/1 の分だけ (2頭 x 1レース = 2)
+    # PIT: shift(1).cumsum() — 当日の結果を含まない (horse_career_stats と同じパターン)
+    # 1/1: daily_starts=2, daily_wins=1 → shift(1)=0 → cum=0
+    row_jan = result[result["race_date"] == "2024-01-01"]
+    assert row_jan["sire_starts"].iloc[0] == 0  # 最初のレース前は0
+    # 2/1: shift(1)=2 → cum=2
     row_feb = result[result["race_date"] == "2024-02-01"]
     assert row_feb["sire_starts"].iloc[0] == 2  # 1/1の2件
     assert row_feb["sire_wins"].iloc[0] == 1    # 1/1のkettonum=001が1着
@@ -477,7 +701,8 @@ Expected: FAIL (モジュールが存在しない)
 #!/usr/bin/env python3
 """種牡馬産駒累積統計の事前計算スクリプト。
 
-PIT保証: cumsum().shift(1) により当日の結果を含まない。
+PIT保証: shift(1).fillna(0).cumsum() により当日の結果を含まない。
+         horse_career_stats.py の _compute_cumulative_before パターンに統一。
 出力: data/raw/sire_career_stats.parquet
 """
 import sys
@@ -488,6 +713,11 @@ import pandas as pd
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_PROJECT_ROOT / "src"))
+
+
+def _cumulative_before(series: pd.Series, group: pd.Series) -> pd.Series:
+    """PIT安全な累積: shift(1)→fillna(0)→cumsum (horse_career_stats.py と同じ)"""
+    return series.groupby(group).transform(lambda x: x.shift(1).fillna(0).cumsum())
 
 
 def compute_sire_stats(
@@ -505,35 +735,44 @@ def compute_sire_stats(
     """
     # entries → horses → sire_id を結合
     sire_map = horses_df.set_index("kettonum")["ketto3infohansyokunum1"]
-    entries = entries_df.copy()
-    entries["sire_id"] = entries["kettonum"].map(sire_map)
+    ent = entries_df.copy()
+    ent["sire_id"] = ent["kettonum"].map(sire_map)
 
-    # サーフェス判定 (trackcd: 10-22=turf, 23-29=dirt)
-    entries["is_turf"] = entries["trackcd"].between(10, 22)
-    entries["is_short"] = entries["kyori"] <= 1600
-    entries["is_win"] = entries["kakuteijyuni"] == 1
-    entries["is_place"] = entries["kakuteijyuni"].between(1, 3)
+    # フラグ列 (horse_career_stats.py と同じパターン)
+    ent["is_turf"] = ent["trackcd"].between(10, 22).astype(int)
+    ent["is_dirt"] = (~ent["trackcd"].between(10, 22)).astype(int)
+    ent["is_short"] = (ent["kyori"] <= 1600).astype(int)
+    ent["is_long"] = (ent["kyori"] > 1600).astype(int)
+    ent["is_win"] = (ent["kakuteijyuni"] == 1).astype(int)
+    ent["is_place"] = ent["kakuteijyuni"].between(1, 3).astype(int)
+
+    # 複合フラグ (lambda なし — 外部DataFrame参照バグを回避)
+    ent["is_turf_win"] = ent["is_turf"] * ent["is_win"]
+    ent["is_dirt_win"] = ent["is_dirt"] * ent["is_win"]
+    ent["is_short_win"] = ent["is_short"] * ent["is_win"]
+    ent["is_long_win"] = ent["is_long"] * ent["is_win"]
 
     # (sire_id, race_date) で日次集計
-    daily = entries.groupby(["sire_id", "race_date"]).agg(
+    daily = ent.groupby(["sire_id", "race_date"]).agg(
         daily_starts=("kakuteijyuni", "count"),
         daily_wins=("is_win", "sum"),
         daily_places=("is_place", "sum"),
         daily_turf_starts=("is_turf", "sum"),
-        daily_turf_wins=("is_win", lambda x: x[entries.loc[x.index, "is_turf"]].sum()),
-        daily_dirt_starts=("is_turf", lambda x: (~entries.loc[x.index, "is_turf"]).sum()),
-        daily_dirt_wins=("is_win", lambda x: x[~entries.loc[x.index, "is_turf"]].sum()),
+        daily_turf_wins=("is_turf_win", "sum"),
+        daily_dirt_starts=("is_dirt", "sum"),
+        daily_dirt_wins=("is_dirt_win", "sum"),
         daily_short_starts=("is_short", "sum"),
-        daily_short_wins=("is_win", lambda x: x[entries.loc[x.index, "is_short"]].sum()),
-        daily_long_starts=("is_short", lambda x: (~entries.loc[x.index, "is_short"]).sum()),
-        daily_long_wins=("is_win", lambda x: x[~entries.loc[x.index, "is_short"]].sum()),
+        daily_short_wins=("is_short_win", "sum"),
+        daily_long_starts=("is_long", "sum"),
+        daily_long_wins=("is_long_win", "sum"),
+        daily_prize_total=("honsyokin", "sum"),
     ).reset_index()
 
-    # cumsum + shift(1) で PIT保証
+    # PIT安全な累積: shift(1).fillna(0).cumsum() (horse_career_stats.py と統一)
     cum_cols = [c for c in daily.columns if c.startswith("daily_")]
     for col in cum_cols:
         prefix = col.replace("daily_", "sire_")
-        daily[prefix] = daily.groupby("sire_id")[col].cumsum().shift(1).fillna(0).astype(int)
+        daily[prefix] = _cumulative_before(daily[col], daily["sire_id"])
 
     # 不要な daily_* 列を削除
     result = daily.drop(columns=cum_cols)
@@ -785,7 +1024,7 @@ git commit -m "feat: SireFeatures モジュール + load_sire_stats() を追加"
 ```python
 from features.sire_features import SireFeatures
 
-# 種牡馬産駎特徴量の追加
+# 種牡馬産駒特徴量の追加
 sire_stats = load_sire_stats(store)
 if not sire_stats.empty:
     horses_df = store.read("raw", "horses")
@@ -793,7 +1032,7 @@ if not sire_stats.empty:
     # entry_df に sire_id 列を追加 (kettonum → horses → sire_id)
     sire_map = horses_df.set_index("kettonum")["ketto3infohansyokunum1"]
     df["sire_id"] = df["kettonum"].map(sire_map)
-    # bms_id (母父) も同様
+    # bms_id (母父) も同様 — ketto3infohansyokunum3 は母父の血統番号
     bms_map = horses_df.set_index("kettonum")["ketto3infohansyokunum3"]
     df["bms_id"] = df["kettonum"].map(bms_map)
     # 各行に特徴量を計算
@@ -802,15 +1041,18 @@ if not sire_stats.empty:
     for idx, row in df.iterrows():
         surface = row.get("surface", "turf")
         kyori = int(row.get("kyori", 1600)) if pd.notna(row.get("kyori")) else 1600
+        # 種牡馬 (父) の産駒特徴量 — sire_wr, sire_surface_wr 等
         feats = sire_feat.compute(row.get("sire_id"), row.get("race_date"), surface, kyori)
         for k, v in feats.items():
             df.at[idx, k] = v
-        # bms_wr (母父)
+        # bms_wr (母父): SireFeatures.compute() に bms_id を渡すと
+        # その「種牡馬としての産駒勝率」= sire_wr が返る。これを bms_wr として格納。
         bms_feats = sire_feat.compute(row.get("bms_id"), row.get("race_date"), surface, kyori)
         df.at[idx, "bms_wr"] = bms_feats.get("sire_wr", np.nan)
 ```
 
-**注:** 本番実装では `iterrows` をベクトル化するが、初期実装では可読性優先。パフォーマンス問題があれば後で最適化。
+**注:** `bms_wr` は `SireFeatures.compute(bms_id)` が返す `sire_wr` (=母父の産駒勝率) を格納。
+FEATURE_COLS 側の列名は `bms_wr` だが、計算は `SireFeatures` の `sire_wr` を再利用。
 
 - [ ] **Step 4: テスト実行**
 
@@ -886,12 +1128,51 @@ def test_predict_oof_returns_oof_predictions():
     assert len(oof) == n
     # NaNなし (全foldカバー)
     assert oof.notna().all()
+
+
+def test_predict_oof_invariant():
+    """OOF予測値 ≠ insample予測値 — 各行の予測はその行を学習に使っていないモデルから生成"""
+    import pandas as pd
+    import numpy as np
+    from models.market_model import MarketModel
+
+    np.random.seed(42)
+    n = 500
+    df = pd.DataFrame({
+        "p_market_win_adj": np.random.rand(n),
+        "surface": np.random.choice(["turf", "dirt"], n),
+        "distance_bin": np.random.choice(["sprint", "mile", "intermediate"], n),
+        "track_condition_code": np.random.randint(1, 5, n).astype(float),
+        "grade_code": np.random.choice(["A", "B", "C", "X"], n),
+        "field_size": np.random.randint(8, 18, n).astype(float),
+        "weight_diff_from_mean": np.random.randn(n),
+        "difficulty_score": np.random.rand(n),
+    })
+
+    model = MarketModel()
+    model.train(df, num_threads=1)
+
+    # insample予測
+    insample = model.predict_and_calc_error(df.copy())["_p_market_pred_win"]
+
+    # OOF予測
+    oof_result = model.predict_oof(df.copy(), n_splits=5)
+    oof = oof_result["_p_market_pred_win"]
+
+    # OOF ≠ insample (リーク除去の証明)
+    diff = (oof - insample).abs()
+    assert diff.mean() > 1e-6, "OOF should differ from insample predictions"
 ```
 
 - [ ] **Step 2: テストが失敗することを確認**
 
 Run: `python -m pytest tests/test_market_model_oof.py -v`
 Expected: FAIL (predict_oof が存在しない)
+
+- [ ] **Step 2b: OOF不変量テストも失敗することを確認**
+
+Run: `python -m pytest tests/test_market_model_oof.py::test_predict_oof_invariant -v`
+Expected: FAIL
 
 - [ ] **Step 3: predict_oof() を実装**
 
@@ -988,17 +1269,16 @@ df = market.predict_and_calc_error(df)
 market = MarketModel()
 market.train(df, num_threads=num_threads)
 df = market.predict_and_calc_error(df)
-# OOF予測で学習データのリークを除去 (テストデータは予測値そのまま)
-train_mask = df["race_date"] < test_start_date
-if train_mask.any():
-    df_train = df[train_mask].copy()
-    df_train = market.predict_oof(df_train, n_splits=5)
-    df.loc[train_mask, "signed_log_error_win"] = df_train["signed_log_error_win"]
-    df.loc[train_mask, "abs_log_error_win"] = df_train["abs_log_error_win"]
+# OOF予測で学習データのリークを除去
+# 注: _train_submodel は学習データのみを受け取る (呼び出し側で既にフィルタ済み)。
+#      よって df 全体に OOF を適用してよい。test_start_date の分割は不要。
+df = market.predict_oof(df, n_splits=5)
 ```
 
-**注:** `test_start_date` は `_train_submodel` のパラメータとして渡す必要あり。
-既存の呼び出し側で test_start を渡すように修正。
+**注:** `_train_submodel` は学習データのみを受け取る関数シグネチャ
+(`def _train_submodel(self, df, *, num_threads, use_ensemble)` — line 268)。
+呼び出し側で既に学習期間にフィルタされているため、`test_start_date` による
+再分割は不要。`df` 全体に OOF を適用すればリーク除去が完了する。
 
 - [ ] **Step 2: テスト実行**
 
@@ -1046,15 +1326,41 @@ Run: `python scripts/run_backtest.py --train-start 20210101 --train-end 20241231
 ```python
 def test_harontimel5_avg_uses_5_races():
     """harontimel5_avg が5走分のハロンタイム平均を返す"""
-    # 5走分のハロンタイムがあり、NaNをスキップして平均を計算することを確認
-    ...
-    assert result["harontimel5_avg"] == expected_avg
+    import pandas as pd
+    import numpy as np
+    from features.horse_history_features import HorseHistoryFeatures
+
+    # 5走分のハロンタイムデータ (NaN混じり)
+    history = pd.DataFrame({
+        "race_date": pd.to_datetime(["2024-01-01", "2024-02-01", "2024-03-01",
+                                      "2024-04-01", "2024-05-01"]),
+        "harontime3f": [34.5, 35.0, np.nan, 34.0, 34.8],
+    })
+    feat = HorseHistoryFeatures()
+    result = feat._compute_haron_stats(history, target_date="2024-06-01")
+    # NaNをスキップした4走の平均: (34.5+35.0+34.0+34.8) / 4 = 34.575
+    expected = np.nanmean([34.5, 35.0, np.nan, 34.0, 34.8])
+    assert abs(result["harontimel5_avg"] - expected) < 0.01
+
 
 def test_harontime_late_trend():
     """harontime_late_trend が最後2走 vs 最初3走の差を返す"""
-    # 最後2走が速ければ負の値 (改善傾向)
-    ...
-    assert result["harontime_late_trend"] < 0  # 改善
+    import pandas as pd
+    import numpy as np
+    from features.horse_history_features import HorseHistoryFeatures
+
+    # 最近2走が速い (改善傾向) → late_trend < 0
+    history = pd.DataFrame({
+        "race_date": pd.to_datetime(["2024-01-01", "2024-02-01", "2024-03-01",
+                                      "2024-04-01", "2024-05-01"]),
+        "harontime3f": [36.0, 35.5, 35.0, 34.0, 33.5],
+    })
+    feat = HorseHistoryFeatures()
+    result = feat._compute_haron_stats(history, target_date="2024-06-01")
+    # 最後2走平均: (34.0+33.5)/2 = 33.75
+    # 最初3走平均: (36.0+35.5+35.0)/3 = 35.5
+    # late_trend = 33.75 - 35.5 = -1.75 (< 0 = 改善)
+    assert result["harontime_late_trend"] < 0  # 改善傾向
 ```
 
 - [ ] **Step 2: テストが失敗することを確認**
