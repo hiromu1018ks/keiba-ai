@@ -71,6 +71,12 @@ class AbilityModel:
         "form_trend",
         "form_consistency",
         "form_peak_flag",
+        # 種牡馬産駎 (5)
+        "sire_wr",
+        "sire_surface_wr",
+        "sire_distance_wr",
+        "sire_prize_avg",
+        "bms_wr",
     ]
 
     def __init__(self) -> None:

@@ -60,6 +60,12 @@ def _make_train_df(n_races: int = 20, field_size: int = 8):
                     "form_trend": np.random.uniform(-1, 1),
                     "form_consistency": np.random.uniform(0, 1),
                     "form_peak_flag": float(np.random.choice([0, 1])),
+                    # 種牡馬産駎 (5)
+                    "sire_wr": np.random.uniform(0.05, 0.2),
+                    "sire_surface_wr": np.random.uniform(0.03, 0.15),
+                    "sire_distance_wr": np.random.uniform(0.03, 0.15),
+                    "sire_prize_avg": np.random.uniform(10, 15),
+                    "bms_wr": np.random.uniform(0.02, 0.10),
                     "kakuteijyuni": h + 1,
                     "p_ability_win": 1.0 / field_size,
                 }

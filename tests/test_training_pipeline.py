@@ -197,6 +197,14 @@ def _make_feature_df(n: int = 8000, n_races: int = 800) -> pd.DataFrame:
                     "form_trend": np.random.uniform(-1, 1),
                     "form_consistency": np.random.uniform(0, 1),
                     "form_peak_flag": float(np.random.choice([0, 1])),
+                    # 種牡馬産駎 (5)
+                    "sire_wr": np.random.uniform(0.05, 0.2),
+                    "sire_surface_wr": np.random.uniform(0.03, 0.15),
+                    "sire_distance_wr": np.random.uniform(0.03, 0.15),
+                    "sire_prize_avg": np.random.uniform(10, 15),
+                    "bms_wr": np.random.uniform(0.02, 0.10),
+                    # sire_features wiring 用
+                    "kettonum": np.random.randint(10000000, 99999999),
                     "odds_change_rate_30min": np.random.normal(0, 0.1),
                     "odds_volatility_60min": np.random.uniform(0, 0.5),
                     "signed_log_error_win": np.random.normal(0, 0.3),
@@ -246,14 +254,18 @@ class TestTrainingPipelineV5:
                         with patch(
                             "pipelines.training_pipeline.TrainingPipelineV5._save_models_local",
                         ):
-                            pipeline = TrainingPipelineV5.__new__(TrainingPipelineV5)
-                            pipeline.store = mock_store
-                            pipeline.db = None
-                            pipeline.feature_engine = FeatureEngine()
-                            pipeline.submodel_mgr = SubModelManager()
-                            pipeline.model_dir = Path("data/models")
+                            with patch(
+                                "db.readers.load_sire_stats",
+                                return_value=pd.DataFrame(),
+                            ):
+                                pipeline = TrainingPipelineV5.__new__(TrainingPipelineV5)
+                                pipeline.store = mock_store
+                                pipeline.db = None
+                                pipeline.feature_engine = FeatureEngine()
+                                pipeline.submodel_mgr = SubModelManager()
+                                pipeline.model_dir = Path("data/models")
 
-                            result = pipeline.run("2020-01-01", "2023-12-31")
+                                result = pipeline.run("2020-01-01", "2023-12-31")
 
         assert isinstance(result, TrainedModelsV5)
         assert "turf" in result.submodels or "dirt" in result.submodels
@@ -289,14 +301,18 @@ class TestTrainingPipelineV5:
                         with patch(
                             "pipelines.training_pipeline.TrainingPipelineV5._save_models_local",
                         ):
-                            pipeline = TrainingPipelineV5.__new__(TrainingPipelineV5)
-                            pipeline.store = mock_store
-                            pipeline.db = None
-                            pipeline.feature_engine = FeatureEngine()
-                            pipeline.submodel_mgr = SubModelManager()
-                            pipeline.model_dir = Path("data/models")
+                            with patch(
+                                "db.readers.load_sire_stats",
+                                return_value=pd.DataFrame(),
+                            ):
+                                pipeline = TrainingPipelineV5.__new__(TrainingPipelineV5)
+                                pipeline.store = mock_store
+                                pipeline.db = None
+                                pipeline.feature_engine = FeatureEngine()
+                                pipeline.submodel_mgr = SubModelManager()
+                                pipeline.model_dir = Path("data/models")
 
-                            result = pipeline.run("2020-01-01", "2023-12-31")
+                                result = pipeline.run("2020-01-01", "2023-12-31")
 
         assert len(result.submodels) >= 1
 
@@ -326,14 +342,18 @@ class TestTrainingPipelineV5:
                         with patch(
                             "pipelines.training_pipeline.TrainingPipelineV5._save_models_local",
                         ):
-                            pipeline = TrainingPipelineV5.__new__(TrainingPipelineV5)
-                            pipeline.store = mock_store
-                            pipeline.db = None
-                            pipeline.feature_engine = FeatureEngine()
-                            pipeline.submodel_mgr = SubModelManager()
-                            pipeline.model_dir = Path("data/models")
+                            with patch(
+                                "db.readers.load_sire_stats",
+                                return_value=pd.DataFrame(),
+                            ):
+                                pipeline = TrainingPipelineV5.__new__(TrainingPipelineV5)
+                                pipeline.store = mock_store
+                                pipeline.db = None
+                                pipeline.feature_engine = FeatureEngine()
+                                pipeline.submodel_mgr = SubModelManager()
+                                pipeline.model_dir = Path("data/models")
 
-                            pipeline.run("2020-01-01", "2023-12-31")
+                                pipeline.run("2020-01-01", "2023-12-31")
 
         mock_mlflow.start_run.assert_called_once()
 

@@ -80,6 +80,12 @@ def train_df() -> pd.DataFrame:
             "form_trend": rng.uniform(-1, 1, 8),
             "form_consistency": rng.uniform(0, 1, 8),
             "form_peak_flag": rng.choice([0.0, 1.0], size=8),
+            # 種牡馬産駎 (5)
+            "sire_wr": rng.uniform(0.05, 0.2, 8),
+            "sire_surface_wr": rng.uniform(0.03, 0.15, 8),
+            "sire_distance_wr": rng.uniform(0.03, 0.15, 8),
+            "sire_prize_avg": rng.uniform(10, 15, 8),
+            "bms_wr": rng.uniform(0.02, 0.10, 8),
             "distance": [1600] * 4 + [1200] * 4,
             "kakuteijyuni": [1, 2, 3, 4, 1, 3, 2, 4],
         }

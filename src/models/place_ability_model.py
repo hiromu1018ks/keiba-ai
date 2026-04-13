@@ -71,6 +71,12 @@ class PlaceAbilityModel:
         "form_peak_flag",
         # Stage1 output
         "p_ability_win",
+        # 種牡馬産駎 (5)
+        "sire_wr",
+        "sire_surface_wr",
+        "sire_distance_wr",
+        "sire_prize_avg",
+        "bms_wr",
     ]
 
     def __init__(self) -> None:
