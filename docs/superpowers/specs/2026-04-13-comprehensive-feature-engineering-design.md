@@ -28,8 +28,19 @@ ROI 98.8% (損益分岐点) の現状から、PIT安全性を最優先に確保�
 
 ### 目的
 
-Stage1の39特徴量のうち2つが常にNaN (モデル容量の無駄) と、
-計算済みだが未使用の5特徴量の活用による選別精度改善。
+Stage1の37特徴量のうち2つが常にNaN (モデル容量の無駄) と、
+定義済みだがパイプラインにwiringされていない5特徴量の活用による選別精度改善。
+
+**正確な特徴量数 (実コード確認済):**
+
+| モデル | 現在のFEATURE_COLS数 |
+|--------|---------------------|
+| `AbilityModel` | 37 |
+| `PlaceAbilityModel` | 37 |
+| `WinTwoStageModel` | 16 |
+| `PlaceTwoStageModel` | 16 |
+| `EVCorrectionModel` | 23 |
+| `RaceQualityScreener` | 20 |
 
 ### 1-1. `blood_condition_wr` の実装
 
@@ -41,6 +52,9 @@ Stage1の39特徴量のうち2つが常にNaN (モデル容量の無駄) と、
   - `turf_heavy_starts`, `turf_heavy_wins` (baba_cd in [3,4] の芝)
   - `dirt_good_starts`, `dirt_good_wins` (baba_cd in [1,2] のダート)
   - `dirt_heavy_starts`, `dirt_heavy_wins` (baba_cd in [3,4] のダート)
+  - **データソース:** `baba_cd` は `races_df["track_condition_code"]` から取得。
+    現在 `horse_career_stats.py` は `trackcd` と `kyori` を `races_df` からマージしているが、
+    `track_condition_code` (baba_cd) も同時にマージする必要がある。
 - `src/features/bloodline_features.py` でレースの `surface` + `baba_cd` に応じて
   該当する条件別勝率を Beta(1,10) 平滑化して出力
 - `scripts/precompute_career_stats.py` を更新して新しい列を出力
@@ -61,11 +75,12 @@ Stage1の39特徴量のうち2つが常にNaN (モデル容量の無駄) と、
 **現状:** `bloodline_features.py:115` で常に `np.nan`。
 
 **実装内容:**
-- ETL設定 (`config/etl_tables.yaml`) に `n_keito` テーブルの抽出設定を追加
-- `src/db/connection.py` で `n_keito` → `data/raw/keito.parquet` の抽出処理を追加
+- ETL設定 (`config/etl_tables.yaml`) — `n_keito` は既に設定済み (行290)。ETL実行で `data/raw/keito.parquet` が生成される。
+  **前提条件:** ETLを実行して `keito.parquet` を生成済みであること。未実行の場合は先に ETL を実行。
 - `src/db/readers.py` に `load_keito()` メソッドを追加
 - `src/features/bloodline_features.py` で:
-  - `horses.parquet` の `ketto3infohansyokunum1` → `keito.parquet` の `keitoucode` で JOIN
+  - JOINパス: `entries.kettonum` → `horses.kettonum` → `horses.ketto3infohansyokunum1` → `keito.keitoucode`
+  - (中間テーブル `horses` を経由する2段JOIN)
   - 系統コードをカテゴリ変数として取得
   - 欠損 (外国馬・未知種牡馬) は `"unknown"` で補完
 
@@ -74,32 +89,39 @@ Stage1の39特徴量のうち2つが常にNaN (モデル容量の無駄) と、
 **変更ファイル:**
 | ファイル | 変更内容 |
 |---------|----------|
-| `config/etl_tables.yaml` | `n_keito` テーブルの追加 |
-| `src/db/connection.py` | `n_keito` のETL処理 |
-| `src/db/readers.py` | `load_keito()` メソッド |
+| `src/db/readers.py` | `load_keito()` メソッド追加 (前提: `data/raw/keito.parquet` 存在) |
 | `src/features/bloodline_features.py` | `blood_keito_cd` の計算実装 |
 | `tests/test_readers.py` | `load_keito` テスト |
 | `tests/test_bloodline_features.py` | keito_cd テスト |
 
 ### 1-3. 計算済み未使用特徴量の活用
 
-| 特徴量 | 現状 | 組込先モデル | FEATURE_COLS追加 |
-|--------|------|-------------|-----------------|
-| `odds_skewness` | `market_bias_features.py` で計算済み | `WinTwoStageModel`, `PlaceTwoStageModel` | 16→18 |
-| `implied_prob_hhi` | 同上 | `EVCorrectionModel` | 26→27 |
-| `favorite_implied_prob_ema` | `odds_dynamics_features.py` で計算済み | `RegimeDetector` (確認・修正) | 既にFEATURE_COLSにあるか確認 |
-| `overround_ema` | 同上 | `RaceQualityScreener` | 20→21 |
-| `entropy_ema` | 同上 | `RaceQualityScreener` | 20→22 |
+**重要:** 以下の5特徴量は関数として定義されているが、**パイプライン (`feature_engine.py`, `training_pipeline.py`) で一度も呼ばれていない**。FEATURE_COLSに追加する前に、まず関数の呼び出し (wiring) を追加する必要がある。
+
+| 特徴量 | 定義関数 | 呼び出し追加先 | 組込先モデル | FEATURE_COLS変更 |
+|--------|---------|--------------|-------------|-----------------|
+| `odds_skewness` | `compute_flb_slope()` in `market_bias_features.py` | `feature_engine.py` の `build_all()` (又は `training_pipeline.py`) | `WinTwoStageModel`, `PlaceTwoStageModel` | 16→18 |
+| `implied_prob_hhi` | `compute_flb_slope()` (同上) | 同上 | `EVCorrectionModel` | 23→24 |
+| `favorite_implied_prob_ema` | `compute_roi_ema()` in `odds_dynamics_features.py` | `training_pipeline.py` の `_build_race_level_features()` 内 | `RegimeDetector` | FEATURE_COLSには `favorite_implied_prob_rolling` が既にある。`_ema`版は別名なので、どちらを使うか要確認。`_rolling`と`_ema`は計算方法が異なる (rolling平均 vs EMA)。 |
+| `overround_ema` | `compute_roi_ema()` (同上) | 同上 | `RaceQualityScreener` | 20→21 |
+| `entropy_ema` | `compute_roi_ema()` (同上) | 同上 | `RaceQualityScreener` | 20→22 |
+
+**Wiring手順:**
+
+1. `feature_engine.py` の `build_all()` で `compute_market_bias()` 呼び出し後に `compute_flb_slope()` を呼び出し、結果をマージ
+2. `training_pipeline.py` で `compute_roi_ema()` を呼び出し、`favorite_implied_prob_ema`, `overround_ema`, `entropy_ema` を DataFrame にマージ
+3. 各モデルの `FEATURE_COLS` に新特徴量を追加
 
 **PIT保証:** すべて発走前オッズ由来。PIT安全。
 
 **変更ファイル:**
 | ファイル | 変更内容 |
 |---------|----------|
+| `src/features/feature_engine.py` | `build_all()` に `compute_flb_slope()` の呼び出し追加 |
+| `src/pipelines/training_pipeline.py` | `compute_roi_ema()` の呼び出し追加 + 結果マージ |
 | `src/models/two_stage_return_model.py` | FEATURE_COLS に `odds_skewness` 追加 |
 | `src/models/ev_correction_model.py` | FEATURE_COLS に `implied_prob_hhi` 追加 |
 | `src/models/race_quality_screener.py` | FEATURE_COLS に `overround_ema`, `entropy_ema` 追加 |
-| `src/pipelines/training_pipeline.py` | 該当特徴量のマージ確認 |
 
 ### 1-4. Phase 1 検証計画
 
@@ -193,9 +215,9 @@ sire_career_stats.parquet
 
 | モデル | 追加特徴量 | 変更前 | 変更後 |
 |--------|----------|--------|--------|
-| `AbilityModel` (Stage1) | `sire_wr`, `sire_surface_wr`, `sire_distance_wr`, `sire_prize_avg`, `bms_wr` | 39 | 44 |
-| `PlaceAbilityModel` | 同上 | 40 | 45 |
-| `EVCorrectionModel` | 追加なし | 26 | 26 |
+| `AbilityModel` (Stage1) | `sire_wr`, `sire_surface_wr`, `sire_distance_wr`, `sire_prize_avg`, `bms_wr` | 37 | 42 |
+| `PlaceAbilityModel` | 同上 | 37 | 42 |
+| `EVCorrectionModel` | 追加なし | 23 | 23 |
 
 **現行 `blood_*` 特徴量は残置** (馬自身のキャリア統計として有用性は変わらない)。
 
@@ -249,13 +271,14 @@ Stage2に入る `signed_log_error_win` と `abs_log_error_win` を真の予測�
 
 **`src/pipelines/training_pipeline.py`:**
 - `MarketModel.train()` 後に `predict_oof()` を呼び出し
-- OOF予測値を `signed_log_error_win` と `abs_log_error_win` に上書き
+- OOF予測値を `signed_log_error_win` と `abs_log_error_win` に上書き (学習データのみ)
 - Stage2 の入力に OOF版を使用
-- 推論時は全データ学習モデルを使用
+- 推論時は全データ学習モデルを使用 (OOFは推論に不要)
 
-**`src/backtest/engine.py`:**
-- バックテストの年次スプリット内でのみ OOF を適用
-- テスト期間は全データ学習モデルの予測を使用
+**`src/backtest/engine.py` — 変更なし:**
+- バックテストでは `training_pipeline` で学習済みのモデルをそのまま使用
+- OOF予測値の適用は `training_pipeline` 内で完結するため、engine.py は変更不要
+- テスト期間の予測は全データ学習モデルの `predict_and_calc_error()` を使用
 
 ### 3-4. PIT安全性
 
@@ -302,7 +325,13 @@ Stage2に入る `signed_log_error_win` と `abs_log_error_win` を真の予測�
 | `front_pace_wr` | ペースが速いレース (1C上位が好走) での過去勝率 |
 | `closing_pace_wr` | ペースが遅いレース (4C上位が好走) での過去勝率 |
 
-**データソース:** 過去走の `kyakusitukubun_cd` (脚質) と `kakuteijyuni` (着順)。
+**データソース:** 過去走の `jyuni1c` (1コーナー通過順位) と `jyuni4c` (4コーナー通過順位) と `kakuteijyuni` (着順)。レースのペースは角通過順位から推定 (明示的なペース指標はデータに存在しないため)。脚質 `kyakusitukubun_cd` は補助的に使用。
+
+**パイプライン統合:**
+- `training_pipeline.py` の特徴量計算フローに追加
+- Stage1 `AbilityModel` の `FEATURE_COLS` に `pace_aptitude`, `front_pace_wr`, `closing_pace_wr` を追加
+- `feature_engine.py` の `build_all()` に呼び出しを追加
+
 **PIT保証:** `searchsorted` で過去レースのみ参照。
 
 ### 4-3. コース別適性
@@ -350,10 +379,10 @@ Phase 4: 過去走拡張 + ペース適性 + コース適性
 
 | Phase | 新規ファイル | 変更ファイル |
 |-------|------------|------------|
-| P1 | なし | `bloodline_features.py`, `horse_career_stats.py`, `precompute_career_stats.py`, `two_stage_return_model.py`, `ev_correction_model.py`, `race_quality_screener.py`, `training_pipeline.py`, `readers.py`, `connection.py` |
+| P1 | なし | `feature_engine.py` (wiring追加), `training_pipeline.py` (wiring追加), `bloodline_features.py`, `horse_career_stats.py`, `precompute_career_stats.py`, `two_stage_return_model.py`, `ev_correction_model.py`, `race_quality_screener.py`, `readers.py` |
 | P2 | `sire_features.py`, `precompute_sire_stats.py` | `stage1_ability_model.py`, `place_ability_model.py`, `readers.py`, `training_pipeline.py` |
-| P3 | なし | `market_model.py`, `training_pipeline.py`, `engine.py` |
-| P4 | `pace_aptitude_features.py`, `course_features.py` | `horse_history_features.py`, `stage1_ability_model.py`, `training_pipeline.py` |
+| P3 | なし | `market_model.py`, `training_pipeline.py` (engine.py変更なし) |
+| P4 | `pace_aptitude_features.py`, `course_features.py` | `feature_engine.py` (wiring追加), `horse_history_features.py`, `stage1_ability_model.py`, `training_pipeline.py` |
 
 ---
 
