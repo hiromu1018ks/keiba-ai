@@ -87,6 +87,13 @@ def train_df() -> pd.DataFrame:
             "sire_distance_wr": rng.uniform(0.03, 0.15, 8),
             "sire_prize_avg": rng.uniform(10, 15, 8),
             "bms_wr": rng.uniform(0.02, 0.10, 8),
+            # ペース適性 (3)
+            "pace_aptitude": rng.uniform(-0.5, 0.5, 8),
+            "front_pace_wr": rng.uniform(0.05, 0.3, 8),
+            "closing_pace_wr": rng.uniform(0.05, 0.3, 8),
+            # コース適性 (2)
+            "course_wr": rng.uniform(0.05, 0.3, 8),
+            "course_distance_wr": rng.uniform(0.05, 0.3, 8),
             "distance": [1600] * 4 + [1200] * 4,
             "kakuteijyuni": [1, 2, 3, 4, 1, 3, 2, 4],
         }

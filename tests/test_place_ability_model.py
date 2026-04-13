@@ -67,6 +67,13 @@ def _make_train_df(n_races: int = 20, field_size: int = 8):
                     "sire_distance_wr": np.random.uniform(0.03, 0.15),
                     "sire_prize_avg": np.random.uniform(10, 15),
                     "bms_wr": np.random.uniform(0.02, 0.10),
+                    # ペース適性 (3)
+                    "pace_aptitude": np.random.uniform(-0.5, 0.5),
+                    "front_pace_wr": np.random.uniform(0.05, 0.3),
+                    "closing_pace_wr": np.random.uniform(0.05, 0.3),
+                    # コース適性 (2)
+                    "course_wr": np.random.uniform(0.05, 0.3),
+                    "course_distance_wr": np.random.uniform(0.05, 0.3),
                     "kakuteijyuni": h + 1,
                     "p_ability_win": 1.0 / field_size,
                 }

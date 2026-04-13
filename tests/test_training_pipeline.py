@@ -204,6 +204,13 @@ def _make_feature_df(n: int = 8000, n_races: int = 800) -> pd.DataFrame:
                     "sire_distance_wr": np.random.uniform(0.03, 0.15),
                     "sire_prize_avg": np.random.uniform(10, 15),
                     "bms_wr": np.random.uniform(0.02, 0.10),
+                    # ペース適性 (3)
+                    "pace_aptitude": np.random.uniform(-0.5, 0.5),
+                    "front_pace_wr": np.random.uniform(0.05, 0.3),
+                    "closing_pace_wr": np.random.uniform(0.05, 0.3),
+                    # コース適性 (2)
+                    "course_wr": np.random.uniform(0.05, 0.3),
+                    "course_distance_wr": np.random.uniform(0.05, 0.3),
                     # sire_features wiring 用
                     "kettonum": np.random.randint(10000000, 99999999),
                     "odds_change_rate_30min": np.random.normal(0, 0.1),
@@ -387,24 +394,26 @@ class TestBuildRaceLevelFeatures:
                     kakuteijyuni = 1
                 elif h == 0:
                     kakuteijyuni = np.random.randint(2, n_horses + 1)
-                rows.append({
-                    "race_id": race_id,
-                    "umaban": h + 1,
-                    "surface": "turf" if r % 2 == 0 else "dirt",
-                    "distance_bin": "mile",
-                    "track_condition_code": 1,
-                    "grade_code": "C",
-                    "field_size": n_horses,
-                    "difficulty_score": 0.5,
-                    "signed_log_error_win": np.random.normal(0, 0.3),
-                    "abs_log_error_win": np.random.uniform(0, 1),
-                    "market_entropy": np.random.uniform(1.0, 3.0),
-                    "overround": np.random.uniform(0.15, 0.30),
-                    "kakuteijyuni": kakuteijyuni,
-                    "popularity_rank": pop_rank,
-                    "tanodds": np.random.uniform(2.0, 50.0),
-                    "race_date": f"2020-{(r // 28) % 12 + 1:02d}-{(r % 28) + 1:02d}",
-                })
+                rows.append(
+                    {
+                        "race_id": race_id,
+                        "umaban": h + 1,
+                        "surface": "turf" if r % 2 == 0 else "dirt",
+                        "distance_bin": "mile",
+                        "track_condition_code": 1,
+                        "grade_code": "C",
+                        "field_size": n_horses,
+                        "difficulty_score": 0.5,
+                        "signed_log_error_win": np.random.normal(0, 0.3),
+                        "abs_log_error_win": np.random.uniform(0, 1),
+                        "market_entropy": np.random.uniform(1.0, 3.0),
+                        "overround": np.random.uniform(0.15, 0.30),
+                        "kakuteijyuni": kakuteijyuni,
+                        "popularity_rank": pop_rank,
+                        "tanodds": np.random.uniform(2.0, 50.0),
+                        "race_date": f"2020-{(r // 28) % 12 + 1:02d}-{(r % 28) + 1:02d}",
+                    }
+                )
         return pd.DataFrame(rows)
 
     def test_favorite_win_rate_is_expanding_mean_of_past_races(
@@ -478,9 +487,7 @@ class TestBuildRaceLevelFeatures:
         assert pd.api.types.is_numeric_dtype(result["overround_ema"])
         assert pd.api.types.is_numeric_dtype(result["entropy_ema"])
 
-    def test_roi_ema_defaults_when_tanodds_missing(
-        self, pipeline: TrainingPipelineV5
-    ) -> None:
+    def test_roi_ema_defaults_when_tanodds_missing(self, pipeline: TrainingPipelineV5) -> None:
         """tanodds がない場合でも overround_ema/entropy_ema がデフォルト値で追加される
 
         compute_roi_ema() のガードロジック: 必要列がない場合は 0.0 で埋める。
@@ -508,35 +515,37 @@ class TestBuildRegimeStats:
     def _make_race_feat_df(self, n_races: int = 20) -> pd.DataFrame:
         rows = []
         for r in range(n_races):
-            rows.append({
-                "race_id": f"2020{(r // 28) % 12 + 1:02d}{r % 28 + 1:02d}0101{r:02d}",
-                "surface": "turf" if r % 2 == 0 else "dirt",
-                "distance_bin": "mile",
-                "track_condition_code": 1,
-                "grade_code": "C",
-                "field_size": 12,
-                "difficulty_score": 0.5,
-                "market_log_error_mean": np.random.normal(0, 0.1),
-                "market_log_error_std": np.random.uniform(0.1, 0.5),
-                "market_log_error_abs_mean": np.random.uniform(0, 0.5),
-                "n_positive_errors": 5,
-                "top_k_error_sum": 0.1,
-                "positive_error_ratio": 0.4,
-                "market_entropy_mean": np.random.uniform(1.5, 3.0),
-                "overround_mean": np.random.uniform(0.15, 0.30),
-                "favorite_win_rate": 0.3,
-                "hist_hit_rate_topk": 0.3,
-                "hist_roi_topk": 1.0,
-                "hist_positive_return_ratio": 0.3,
-                "market_log_error_max_abs": 0.4,
-                "market_log_error_top_q75": 0.3,
-                "market_entropy": 2.0,
-                "overround": 0.20,
-                "overround_deviation": 0.0,
-                "hist_win_rate_same_condition": 0.3,
-                "hist_market_entropy_avg": 2.0,
-                "race_date": f"2020-{(r // 28) % 12 + 1:02d}-{(r % 28) + 1:02d}",
-            })
+            rows.append(
+                {
+                    "race_id": f"2020{(r // 28) % 12 + 1:02d}{r % 28 + 1:02d}0101{r:02d}",
+                    "surface": "turf" if r % 2 == 0 else "dirt",
+                    "distance_bin": "mile",
+                    "track_condition_code": 1,
+                    "grade_code": "C",
+                    "field_size": 12,
+                    "difficulty_score": 0.5,
+                    "market_log_error_mean": np.random.normal(0, 0.1),
+                    "market_log_error_std": np.random.uniform(0.1, 0.5),
+                    "market_log_error_abs_mean": np.random.uniform(0, 0.5),
+                    "n_positive_errors": 5,
+                    "top_k_error_sum": 0.1,
+                    "positive_error_ratio": 0.4,
+                    "market_entropy_mean": np.random.uniform(1.5, 3.0),
+                    "overround_mean": np.random.uniform(0.15, 0.30),
+                    "favorite_win_rate": 0.3,
+                    "hist_hit_rate_topk": 0.3,
+                    "hist_roi_topk": 1.0,
+                    "hist_positive_return_ratio": 0.3,
+                    "market_log_error_max_abs": 0.4,
+                    "market_log_error_top_q75": 0.3,
+                    "market_entropy": 2.0,
+                    "overround": 0.20,
+                    "overround_deviation": 0.0,
+                    "hist_win_rate_same_condition": 0.3,
+                    "hist_market_entropy_avg": 2.0,
+                    "race_date": f"2020-{(r // 28) % 12 + 1:02d}-{(r % 28) + 1:02d}",
+                }
+            )
         return pd.DataFrame(rows)
 
     def _make_feat_df(self, n_races: int = 20) -> pd.DataFrame:
@@ -544,21 +553,21 @@ class TestBuildRegimeStats:
         for r in range(n_races):
             race_id = f"2020{(r // 28) % 12 + 1:02d}{r % 28 + 1:02d}0101{r:02d}"
             for h in range(5):
-                rows.append({
-                    "race_id": race_id,
-                    "umaban": h + 1,
-                    "tanodds": np.random.uniform(2.0, 20.0),
-                    "kakuteijyuni": h + 1,
-                    "popularity_rank": h + 1,
-                    "odds_volatility": np.random.uniform(0, 0.3),
-                    "surface": "turf" if r % 2 == 0 else "dirt",
-                    "race_date": f"2020-{(r // 28) % 12 + 1:02d}-{(r % 28) + 1:02d}",
-                })
+                rows.append(
+                    {
+                        "race_id": race_id,
+                        "umaban": h + 1,
+                        "tanodds": np.random.uniform(2.0, 20.0),
+                        "kakuteijyuni": h + 1,
+                        "popularity_rank": h + 1,
+                        "odds_volatility": np.random.uniform(0, 0.3),
+                        "surface": "turf" if r % 2 == 0 else "dirt",
+                        "race_date": f"2020-{(r // 28) % 12 + 1:02d}-{(r % 28) + 1:02d}",
+                    }
+                )
         return pd.DataFrame(rows)
 
-    def test_build_regime_stats_has_all_feature_cols(
-        self, pipeline: TrainingPipelineV5
-    ) -> None:
+    def test_build_regime_stats_has_all_feature_cols(self, pipeline: TrainingPipelineV5) -> None:
         """_build_regime_stats の出力が RegimeDetector.FEATURE_COLS の全列を含む"""
         race_feat_df = self._make_race_feat_df(20)
         feat_df = self._make_feat_df(20)
@@ -566,9 +575,7 @@ class TestBuildRegimeStats:
         for col in RegimeDetector.FEATURE_COLS:
             assert col in result.columns, f"Missing FEATURE_COLS column: {col}"
 
-    def test_build_regime_stats_replaces_old_cols(
-        self, pipeline: TrainingPipelineV5
-    ) -> None:
+    def test_build_regime_stats_replaces_old_cols(self, pipeline: TrainingPipelineV5) -> None:
         """旧 FEATURE_COLS (結果依存) が新 FEATURE_COLS に置き換わる"""
         race_feat_df = self._make_race_feat_df(20)
         feat_df = self._make_feat_df(20)
@@ -591,9 +598,14 @@ class TestJRAFilterTraining:
         mock_market = MagicMock()
         mock_market.predict_and_calc_error = MagicMock(side_effect=lambda df: df.copy())
         mock_sub = SubmodelSet(
-            market=mock_market, stage1=MagicMock(), place_ability=MagicMock(),
-            win=MagicMock(), ev_corrector=MagicMock(), place=MagicMock(),
-            wide=MagicMock(), confidence=MagicMock(),
+            market=mock_market,
+            stage1=MagicMock(),
+            place_ability=MagicMock(),
+            win=MagicMock(),
+            ev_corrector=MagicMock(),
+            place=MagicMock(),
+            wide=MagicMock(),
+            confidence=MagicMock(),
         )
         patches = [
             patch.object(FeatureEngine, "build_all", return_value=feat_df),
@@ -606,9 +618,7 @@ class TestJRAFilterTraining:
             patch.object(
                 TrainingPipelineV5, "_build_race_level_features", return_value=pd.DataFrame()
             ),
-            patch.object(
-                TrainingPipelineV5, "_build_regime_stats", return_value=pd.DataFrame()
-            ),
+            patch.object(TrainingPipelineV5, "_build_regime_stats", return_value=pd.DataFrame()),
             patch.object(TrainingPipelineV5, "_log_to_mlflow"),
             patch("pipelines.training_pipeline.RaceQualityScreener"),
             patch("pipelines.training_pipeline.RegimeDetector"),
@@ -626,9 +636,7 @@ class TestJRAFilterTraining:
         return mocks[2]
 
     @patch("pipelines.training_pipeline.mlflow")
-    def test_nar_entries_filtered_before_surface_split(
-        self, mock_mlflow: MagicMock
-    ) -> None:
+    def test_nar_entries_filtered_before_surface_split(self, mock_mlflow: MagicMock) -> None:
         """NARエントリ (jyocd >= 30) が surface分割前に除外される"""
         feat_df = _make_feature_df(8000, 800)
         feat_df["jyocd"] = "05"
