@@ -36,7 +36,7 @@ Stage1の37特徴量のうち2つが常にNaN (モデル容量の無駄) と、
 | モデル | 現在のFEATURE_COLS数 |
 |--------|---------------------|
 | `AbilityModel` | 37 |
-| `PlaceAbilityModel` | 37 |
+| `PlaceAbilityModel` | 38 (37 + `p_ability_win`) |
 | `WinTwoStageModel` | 16 |
 | `PlaceTwoStageModel` | 16 |
 | `EVCorrectionModel` | 23 |
@@ -102,7 +102,7 @@ Stage1の37特徴量のうち2つが常にNaN (モデル容量の無駄) と、
 |--------|---------|--------------|-------------|-----------------|
 | `odds_skewness` | `compute_flb_slope()` in `market_bias_features.py` | `feature_engine.py` の `build_all()` (又は `training_pipeline.py`) | `WinTwoStageModel`, `PlaceTwoStageModel` | 16→18 |
 | `implied_prob_hhi` | `compute_flb_slope()` (同上) | 同上 | `EVCorrectionModel` | 23→24 |
-| `favorite_implied_prob_ema` | `compute_roi_ema()` in `odds_dynamics_features.py` | `training_pipeline.py` の `_build_race_level_features()` 内 | `RegimeDetector` | FEATURE_COLSには `favorite_implied_prob_rolling` が既にある。`_ema`版は別名なので、どちらを使うか要確認。`_rolling`と`_ema`は計算方法が異なる (rolling平均 vs EMA)。 |
+| `favorite_implied_prob_ema` | `compute_roi_ema()` in `odds_dynamics_features.py` | `training_pipeline.py` の `_build_race_level_features()` 内 | RegimeDetectorには追加しない (既に `_rolling` 版がFEATURE_COLSにあり、重複を避ける) | — |
 | `overround_ema` | `compute_roi_ema()` (同上) | 同上 | `RaceQualityScreener` | 20→21 |
 | `entropy_ema` | `compute_roi_ema()` (同上) | 同上 | `RaceQualityScreener` | 20→22 |
 
@@ -216,7 +216,7 @@ sire_career_stats.parquet
 | モデル | 追加特徴量 | 変更前 | 変更後 |
 |--------|----------|--------|--------|
 | `AbilityModel` (Stage1) | `sire_wr`, `sire_surface_wr`, `sire_distance_wr`, `sire_prize_avg`, `bms_wr` | 37 | 42 |
-| `PlaceAbilityModel` | 同上 | 37 | 42 |
+| `PlaceAbilityModel` | 同上 | 38 | 43 |
 | `EVCorrectionModel` | 追加なし | 23 | 23 |
 
 **現行 `blood_*` 特徴量は残置** (馬自身のキャリア統計として有用性は変わらない)。
