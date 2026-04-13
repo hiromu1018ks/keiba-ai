@@ -34,6 +34,7 @@ if TYPE_CHECKING:
     from db.connection import DatabaseConnection
 
 from features.feature_engine import FeatureEngine
+from features.odds_dynamics_features import compute_roi_ema
 from models.ev_correction_model import EVCorrectionModel
 from models.market_model import MarketModel
 from models.race_quality_screener import RaceQualityScreener
@@ -522,6 +523,20 @@ class TrainingPipelineV5:
                 race_feat = compute_hist_features(race_feat)
             except Exception as e:
                 logger.debug("hist_features skipped: %s", e)
+
+        # v5.6: EMA 平滑化市場指標 (horse-level feat_df から計算し race-level に展開)
+        if "tanodds" in feat_df.columns:
+            ema_df = compute_roi_ema(feat_df[["race_id", "tanodds", "popularity_rank"] + (
+                ["race_date"] if "race_date" in feat_df.columns else []
+            )])
+            # race_id 単位で EMA 値を race_feat にマージ
+            for ema_col in ["overround_ema", "entropy_ema"]:
+                if ema_col in ema_df.columns:
+                    ema_map = ema_df.groupby("race_id")[ema_col].first()
+                    race_feat[ema_col] = race_feat["race_id"].map(ema_map).fillna(0.0)
+        else:
+            race_feat["overround_ema"] = 0.0
+            race_feat["entropy_ema"] = 0.0
 
         return race_feat
 

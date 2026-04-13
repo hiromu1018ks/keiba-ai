@@ -48,6 +48,9 @@ class RaceQualityScreener:
         # 過去統計
         "hist_win_rate_same_condition",
         "hist_market_entropy_avg",
+        # v5.6: EMA平滑化市場指標
+        "overround_ema",
+        "entropy_ema",
     ]
 
     _CATEGORY_COLS: list[str] = ["surface", "distance_bin", "grade_code"]

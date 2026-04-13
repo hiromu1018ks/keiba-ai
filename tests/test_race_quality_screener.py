@@ -36,6 +36,9 @@ def race_features_df() -> pd.DataFrame:
             "difficulty_score": [0.5, 0.4, 0.7, 0.3],
             "hist_win_rate_same_condition": [0.20, 0.15, 0.25, 0.10],
             "hist_market_entropy_avg": [2.7, 2.1, 2.9, 1.9],
+            # v5.6: EMA平滑化市場指標
+            "overround_ema": [0.21, 0.19, 0.24, 0.17],
+            "entropy_ema": [2.7, 2.1, 2.9, 1.8],
         }
     )
 
@@ -109,6 +112,13 @@ class TestRaceQualityScreener:
         assert "hist_hit_rate_topk" in RaceQualityScreener.FEATURE_COLS
         assert "hist_roi_topk" in RaceQualityScreener.FEATURE_COLS
         assert "hist_positive_return_ratio" in RaceQualityScreener.FEATURE_COLS
+
+    def test_has_ema_smoothed_market_indicators(self) -> None:
+        """EMA平滑化市場指標が含まれる (v5.6追加)"""
+        assert "overround_ema" in RaceQualityScreener.FEATURE_COLS
+        assert "entropy_ema" in RaceQualityScreener.FEATURE_COLS
+        # 合計22列であること
+        assert len(RaceQualityScreener.FEATURE_COLS) == 22
 
     def test_screener_independence(self) -> None:
         """品質スコアとedge_max_per_raceの相関<0.30 (§13.1)

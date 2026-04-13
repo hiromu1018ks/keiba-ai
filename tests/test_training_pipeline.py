@@ -381,6 +381,7 @@ class TestBuildRaceLevelFeatures:
                     "overround": np.random.uniform(0.15, 0.30),
                     "kakuteijyuni": kakuteijyuni,
                     "popularity_rank": pop_rank,
+                    "tanodds": np.random.uniform(2.0, 50.0),
                     "race_date": f"2020-{(r // 28) % 12 + 1:02d}-{(r % 28) + 1:02d}",
                 })
         return pd.DataFrame(rows)
@@ -437,6 +438,38 @@ class TestBuildRaceLevelFeatures:
         result = pipeline._build_race_level_features(feat_df)
         assert "hist_win_rate_same_condition" in result.columns
         assert result["hist_win_rate_same_condition"].notna().any()
+
+    def test_roi_ema_columns_present_when_tanodds_available(
+        self, pipeline: TrainingPipelineV5
+    ) -> None:
+        """_build_race_level_features の結果に overround_ema, entropy_ema 列が含まれる
+
+        compute_roi_ema() が wiring され、tanodds がある場合に
+        EMA 平滑化市場指標列が追加されることを確認する。
+        """
+        feat_df = self._make_feat_df(n_races=50)
+        # _make_feat_df は tanodds を含む
+        assert "tanodds" in feat_df.columns
+        result = pipeline._build_race_level_features(feat_df)
+        assert "overround_ema" in result.columns, "overround_ema 列が存在しない"
+        assert "entropy_ema" in result.columns, "entropy_ema 列が存在しない"
+        # 値は数値であること
+        assert pd.api.types.is_numeric_dtype(result["overround_ema"])
+        assert pd.api.types.is_numeric_dtype(result["entropy_ema"])
+
+    def test_roi_ema_defaults_when_tanodds_missing(
+        self, pipeline: TrainingPipelineV5
+    ) -> None:
+        """tanodds がない場合でも overround_ema/entropy_ema がデフォルト値で追加される
+
+        compute_roi_ema() のガードロジック: 必要列がない場合は 0.0 で埋める。
+        """
+        feat_df = self._make_feat_df(n_races=10)
+        feat_df = feat_df.drop(columns=["tanodds"])
+        result = pipeline._build_race_level_features(feat_df)
+        # compute_roi_ema は必要列がない場合も列を追加する (0.0 デフォルト)
+        assert "overround_ema" in result.columns
+        assert "entropy_ema" in result.columns
 
 
 class TestBuildRegimeStats:
