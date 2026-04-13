@@ -74,6 +74,8 @@ _STRING_COLUMNS: set[str] = {
     "kumi",  # ワイドオッズの馬番組み合わせ (e.g. "0102")
     "surface",  # ETL派生列: "turf"/"dirt"/"other" (文字列)
     "happyotime",  # 時系列オッズの発走時刻コード (e.g. "03101500")
+    "gradecd",  # レースグレードコード (A=G1, B=G2, C=G3, D=Listed, E=OP等)
+    "gradecdbefore",  # 前回レースグレードコード
 }
 
 

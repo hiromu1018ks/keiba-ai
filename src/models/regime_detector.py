@@ -97,8 +97,8 @@ class RegimeDetector:
             (market_condition_score < 0.28) & (entropy > np.median(entropy)),
             0,  # AGGRESSIVE
             np.where(
-                market_condition_score < 0.18,
-                2,  # COLLAPSED
+                market_condition_score > 0.50,
+                2,  # COLLAPSED（市場が効率的すぎる → ほぼ停止）
                 1,  # CONSERVATIVE
             ),
         )
@@ -121,7 +121,7 @@ class RegimeDetector:
                 "metric": "multi_logloss",
                 "learning_rate": 0.05,
                 "num_leaves": 7,
-                "min_data_in_leaf": 50,
+                "min_data_in_leaf": 30,
                 "feature_fraction": 0.8,
                 "num_threads": num_threads,
                 "verbose": -1,

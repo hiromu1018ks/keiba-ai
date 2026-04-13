@@ -196,7 +196,7 @@ class RegimeConfig:
     window: int = 200
     min_samples: int = 100
     fav_rate_aggressive: float = 0.28
-    fav_rate_collapsed: float = 0.18
+    fav_rate_collapsed: float = 0.50  # raw値ベース: 高score = 市場効率的すぎ → COLLAPSED
     overround_base: float = 0.20
     retrain_trigger: int = 100
 

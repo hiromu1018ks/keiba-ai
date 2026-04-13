@@ -528,72 +528,58 @@ class TrainingPipelineV5:
     def _build_regime_stats(
         self, race_feat_df: pd.DataFrame, feat_df: pd.DataFrame
     ) -> pd.DataFrame:
-        """RegimeDetector 用の rolling 統計を構築
+        """RegimeDetector 用のレース統計を構築
 
         RegimeDetector.FEATURE_COLS (8列) に対応。
-        直近200レースの window 統計。全て発走前情報のみ使用。
+        推論パスと整合させるため rolling を行わず、レース毎の生値を使用。
+        全て発走前情報のみ使用。
         """
         if "race_date" in race_feat_df.columns:
             race_feat_df = race_feat_df.sort_values("race_date").reset_index(drop=True)
 
-        window = 200
         stats = race_feat_df.copy()
 
-        # 基本列マッピング (MarketModel 由来)
+        # 基本列マッピング (MarketModel 由来) — 元々 rolling 不使用
         stats["market_error_std"] = stats["market_log_error_std"].fillna(0.2)
         stats["market_error_mean"] = stats["market_log_error_mean"].fillna(0.0)
         stats["field_size_mean"] = stats["field_size"].fillna(14.0).astype(float)
 
-        # overround_rolling: overround の rolling mean
+        # overround_rolling: overround の生値 (推論パスと整合)
         if "overround_mean" in stats.columns:
-            stats["overround_rolling"] = (
-                stats["overround_mean"].rolling(window=window, min_periods=50).mean()
-            )
+            stats["overround_rolling"] = stats["overround_mean"]
         else:
             stats["overround_rolling"] = 0.20
 
-        # entropy_rolling: market_entropy の rolling mean
+        # entropy_rolling: market_entropy の生値 (推論パスと整合)
         if "market_entropy_mean" in stats.columns:
-            stats["entropy_rolling"] = (
-                stats["market_entropy_mean"].rolling(window=window, min_periods=50).mean()
-            )
+            stats["entropy_rolling"] = stats["market_entropy_mean"]
         else:
             stats["entropy_rolling"] = 2.0
 
-        # favorite_implied_prob_rolling
+        # favorite_implied_prob_rolling: 1番人気オッズの逆数 (レース毎生値)
         if all(c in feat_df.columns for c in ["race_id", "tanodds", "popularity_rank"]):
             fav_df = (
                 feat_df[feat_df["popularity_rank"] == 1][["race_id", "tanodds"]].copy()
             )
             fav_df["fav_implied"] = 1.0 / fav_df["tanodds"].replace(0, np.nan)
             race_fav_implied = fav_df.groupby("race_id")["fav_implied"].first()
-            stats["fav_implied"] = stats["race_id"].map(race_fav_implied).fillna(0.3)
             stats["favorite_implied_prob_rolling"] = (
-                stats["fav_implied"].rolling(window=window, min_periods=50).mean()
+                stats["race_id"].map(race_fav_implied).fillna(0.3)
             )
-            stats = stats.drop(columns=["fav_implied"])
         else:
             stats["favorite_implied_prob_rolling"] = 0.3
 
-        # odds_skewness_rolling
+        # odds_skewness_rolling: レース毎のオッズ歪度 (生値)
         if all(c in feat_df.columns for c in ["race_id", "tanodds"]):
             race_skew = feat_df.groupby("race_id")["tanodds"].skew()
-            stats["odds_skew"] = stats["race_id"].map(race_skew).fillna(0.0)
-            stats["odds_skewness_rolling"] = (
-                stats["odds_skew"].rolling(window=window, min_periods=50).mean()
-            )
-            stats = stats.drop(columns=["odds_skew"])
+            stats["odds_skewness_rolling"] = stats["race_id"].map(race_skew).fillna(0.0)
         else:
             stats["odds_skewness_rolling"] = 0.0
 
-        # odds_volatility_mean
+        # odds_volatility_mean: レース毎の odds_volatility 平均 (生値)
         if "odds_volatility" in feat_df.columns:
             race_vol = feat_df.groupby("race_id")["odds_volatility"].mean()
-            stats["race_vol"] = stats["race_id"].map(race_vol).fillna(0.1)
-            stats["odds_volatility_mean"] = (
-                stats["race_vol"].rolling(window=window, min_periods=50).mean()
-            )
-            stats = stats.drop(columns=["race_vol"])
+            stats["odds_volatility_mean"] = stats["race_id"].map(race_vol).fillna(0.1)
         else:
             stats["odds_volatility_mean"] = 0.1
 

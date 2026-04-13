@@ -229,7 +229,7 @@ class FeatureEngine:
 
         # grade_code: gradecd → grade_code コピー
         if "gradecd" in df.columns and "grade_code" not in df.columns:
-            df["grade_code"] = df["gradecd"]
+            df["grade_code"] = df["gradecd"].replace("", "X")  # X=未格付け
 
         # field_size: syussotosu → field_size コピー
         # 未発走レースでは syussotosu=0 のため、race_id ごとの行数で補完
