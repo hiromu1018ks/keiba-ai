@@ -122,14 +122,17 @@ class SireFeatures:
         left = df[["sire_id", "race_date"]].copy()
         left["sire_id"] = left["sire_id"].astype(str)
 
+        # merge_asof は by 列が両側でソートされている必要がある
+        _right = _stats_str[["sire_id", "race_date", "sire_starts", "sire_wins",
+                             "sire_places", "sire_turf_starts", "sire_turf_wins",
+                             "sire_dirt_starts", "sire_dirt_wins",
+                             "sire_short_starts", "sire_short_wins",
+                             "sire_long_starts", "sire_long_wins",
+                             "sire_prize_total"]].sort_values(["sire_id", "race_date"])
+
         merged = pd.merge_asof(
-            left.sort_values("race_date"),
-            _stats_str[["sire_id", "race_date", "sire_starts", "sire_wins",
-                       "sire_places", "sire_turf_starts", "sire_turf_wins",
-                       "sire_dirt_starts", "sire_dirt_wins",
-                       "sire_short_starts", "sire_short_wins",
-                       "sire_long_starts", "sire_long_wins",
-                       "sire_prize_total"]].sort_values(["sire_id", "race_date"]),
+            left.sort_values(["sire_id", "race_date"]),
+            _right,
             on="race_date",
             by="sire_id",
             direction="backward",
@@ -169,9 +172,11 @@ class SireFeatures:
         bms_left = df[["bms_id", "race_date"]].rename(columns={"bms_id": "sire_id"}).copy()
         bms_left["sire_id"] = bms_left["sire_id"].astype(str)
 
+        _right_bms = _stats_str[["sire_id", "race_date", "sire_starts", "sire_wins"]].sort_values(["sire_id", "race_date"])
+
         bms_merged = pd.merge_asof(
-            bms_left.sort_values("race_date"),
-            _stats_str[["sire_id", "race_date", "sire_starts", "sire_wins"]].sort_values(["sire_id", "race_date"]),
+            bms_left.sort_values(["sire_id", "race_date"]),
+            _right_bms,
             on="race_date",
             by="sire_id",
             direction="backward",
