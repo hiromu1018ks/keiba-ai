@@ -438,7 +438,7 @@ def test_blood_keito_cd_unknown_for_missing_sire():
     def _load_keito_map(self) -> dict[str, str]:
         """sire_id → keitousystemcd のマッピングを構築"""
         if self._keito_cache is None:
-            from db.readers import load_keito, load_career_stats
+            from db.readers import load_keito
             keito = load_keito(self.store)
             horses = self.store.read("raw", "horses") if self.store.exists("raw", "horses") else pd.DataFrame()
             if keito.empty or horses.empty:
@@ -447,11 +447,7 @@ def test_blood_keito_cd_unknown_for_missing_sire():
                 # sire_id (ketto3infohansyokunum1) → keitousystemcd
                 sire_col = "ketto3infohansyokunum1"
                 code_col = "keitousystemcd" if "keitousystemcd" in keito.columns else keito.columns[1]
-                keito_map = keito.set_index("keitoucode")[code_col].to_dict()
-                self._keito_cache = horses.set_index(sire_col).index.map(
-                    lambda x: keito_map.get(x, "unknown")
-                )
-                # より正確には: horses の sire_id → keito の keitoucode で JOIN
+                # horses の sire_id → keito の keitoucode で LEFT JOIN
                 merged = horses[[sire_col]].merge(
                     keito, left_on=sire_col, right_on="keitoucode", how="left"
                 )
