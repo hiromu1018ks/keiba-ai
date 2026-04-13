@@ -45,6 +45,9 @@ PostgreSQL (EveryDB2) が `localhost:5432` で稼働している前提です。
 # 環境変数の設定
 export PGPASSWORD=<your_password>
 
+# Step 0: 馬キャリア統計の事前計算（horse_career_stats.py を変更した場合のみ必要）
+python scripts/precompute_career_stats.py
+
 # Step 1: ETL — EveryDB2のデータをParquetにエクスポート
 python scripts/run_etl.py --mode full --start 20140101 --end 20251231
 
@@ -61,11 +64,24 @@ python scripts/run_backtest.py \
 
 | スクリプト | 役割 | 所要時間 |
 |-----------|------|---------|
+| `scripts/precompute_career_stats.py` | 各馬×各レース時点での累積成績を事前計算（PIT安全） | ~2分 |
 | `scripts/run_etl.py` | PostgreSQL (EveryDB2) → Parquetファイル群へのETL | ~10分 (full) |
 | `scripts/run_train.py` | HorseHistoryFeatures生成 + LightGBM Ranker + 補正モデル学習 | ~17分 |
 | `scripts/run_backtest.py` | 学習 → テスト期間でレース毎にシミュレーション → ROI計算 | ~57分 |
 | `scripts/run_paper_trading.py` | リアルタイム予測・結果照合（setup/predict/reconcile/dry-run） | ~25秒/日 |
 | `scripts/run_tuning.py` | Optuna によるハイパーパラメータチューニング | ~30分 (50trials) |
+
+### precompute_career_stats.py について
+
+`src/features/horse_career_stats.py` を変更した場合（馬場状態別列の追加など）、**必ず事前計算を再実行**してください。このスクリプトは各馬×各レース時点での累積成績を Point-in-Time 安全に計算し、`data/raw/horse_career_stats.parquet` に出力します。
+
+```bash
+# 実行例（出力: data/raw/horse_career_stats.parquet）
+python scripts/precompute_career_stats.py
+# => Career stats: 546266 entries, 60254 horses
+```
+
+**PIT安全性:** `shift(1).fillna(0).cumsum()` パターンにより、当日のレース結果が特徴量に混入しないことを保証しています。`run_train.py` や `run_backtest.py` は内部でこの parquet を読み込むため、事前計算が完了していないと新しい特徴量列は NaN になります。
 
 ### バックテスト結果（学習期間比較: 2023-2025テスト）
 
