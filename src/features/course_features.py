@@ -2,8 +2,13 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import numpy as np
 import pandas as pd
+
+if TYPE_CHECKING:
+    from db.parquet_store import ParquetStore
 
 
 def _beta_smooth(wins: int, starts: int, alpha: int = 1, beta: int = 10) -> float:
@@ -12,6 +17,9 @@ def _beta_smooth(wins: int, starts: int, alpha: int = 1, beta: int = 10) -> floa
 
 class CourseFeatures:
     """競馬場別・距離帯別の過去勝率を計算"""
+
+    def __init__(self, store: ParquetStore) -> None:
+        self.store = store
 
     def compute(
         self,
@@ -60,3 +68,81 @@ class CourseFeatures:
             result["course_distance_wr"] = _beta_smooth(0, 0)
 
         return result
+
+    def compute_batch(self, df: pd.DataFrame) -> pd.DataFrame:
+        """全馬のコース適性特徴量を一括計算する
+
+        Args:
+            df: kettonum, race_id, race_date, surface, distance_bin, jyocd 列を持つ DataFrame
+
+        Returns:
+            course_wr, course_distance_wr 列を持つ DataFrame
+        """
+        from db.readers import load_history_entries, load_history_races
+
+        # 過去走データをロード
+        entries_hist = load_history_entries(self.store)
+        races_hist = load_history_races(self.store)
+
+        # 必要列の結合
+        race_cols = ["race_id", "trackcd", "kyori", "surface", "track_condition_code"]
+        if "jyocd" in races_hist.columns:
+            race_cols.append("jyocd")
+        races_subset = races_hist[races_hist["race_id"].isin(entries_hist["race_id"])]
+        past_df = entries_hist.merge(
+            races_subset[race_cols].drop_duplicates("race_id"),
+            on="race_id",
+            how="left",
+        )
+
+        # distance_bin 追加
+        if "distance_bin" not in past_df.columns and "kyori" in past_df.columns:
+            is_turf = past_df["surface"] == "turf"
+            dist = past_df["kyori"]
+            past_df["distance_bin"] = "unknown"
+            past_df.loc[is_turf & (dist > 2100), "distance_bin"] = "long"
+            past_df.loc[is_turf & (dist <= 2100), "distance_bin"] = "intermediate"
+            past_df.loc[is_turf & (dist <= 1700), "distance_bin"] = "mile"
+            past_df.loc[is_turf & (dist <= 1400), "distance_bin"] = "sprint"
+            past_df.loc[~is_turf & (dist > 1700), "distance_bin"] = "intermediate"
+            past_df.loc[~is_turf & (dist <= 1700), "distance_bin"] = "mile"
+            past_df.loc[~is_turf & (dist <= 1400), "distance_bin"] = "sprint"
+
+        # jyocd を文字列化（2桁ゼロ埋め）
+        if "jyocd" in past_df.columns:
+            past_df["jyocd"] = past_df["jyocd"].astype(str).str.zfill(2)
+
+        # kettonum ごとの特徴量計算
+        df["course_wr"] = np.nan
+        df["course_distance_wr"] = np.nan
+
+        for kettonum in df["kettonum"].unique():
+            target_races = df[df["kettonum"] == kettonum]["race_id"].unique()
+
+            # 該当馬の過去走を抽出 (有効な出走のみ)
+            horse_past = past_df[
+                (past_df["kettonum"] == kettonum) & (past_df["syussotosu"].fillna(-1) >= 8)
+            ].copy()
+
+            # 各対象レースの特徴量を計算
+            for target_id in target_races:
+                target_date = df[df["race_id"] == target_id]["race_date"].values[0]
+
+                # *** PIT CRITICAL: 対象レースより前のデータのみ ***
+                past_before_target = horse_past[horse_past["race_date"] < target_date]
+
+                # race_df から jyocd, distance_bin を取得
+                race_row = df[df["race_id"] == target_id].iloc[0]
+                jyocd = str(race_row.get("jyocd", ""))
+                distance_bin = str(race_row.get("distance_bin", ""))
+
+                # compute() を呼び出し
+                feat_dict = self.compute(past_before_target, jyocd, distance_bin, target_date)
+
+                # 結果を保存
+                row_mask = (df["kettonum"] == kettonum) & (df["race_id"] == target_id)
+                for col, val in feat_dict.items():
+                    df.loc[row_mask, col] = val
+
+        # 結果列のみを返す
+        return df[["kettonum", "race_id", "course_wr", "course_distance_wr"]].copy()
