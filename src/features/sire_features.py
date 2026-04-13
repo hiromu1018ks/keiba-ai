@@ -114,73 +114,93 @@ class SireFeatures:
                 result[col] = np.nan
             return result
 
-        # 各行の sire_id ごとに最新の累積統計をマージ
-        # merge_asof で race_date 以前の最新行を取得 (PIT安全)
-        # sire_id の型を統一 (object ← ketto3infohansyokunum1 は文字列)
-        _stats_str = self._stats.copy()
-        _stats_str["sire_id"] = _stats_str["sire_id"].astype(str)
-        left = df[["sire_id", "race_date"]].copy()
-        left["sire_id"] = left["sire_id"].astype(str)
-
-        # merge_asof は by 列が両側でソートされている必要がある
-        _right = _stats_str[["sire_id", "race_date", "sire_starts", "sire_wins",
-                             "sire_places", "sire_turf_starts", "sire_turf_wins",
-                             "sire_dirt_starts", "sire_dirt_wins",
-                             "sire_short_starts", "sire_short_wins",
-                             "sire_long_starts", "sire_long_wins",
-                             "sire_prize_total"]].sort_values(["sire_id", "race_date"])
-
-        merged = pd.merge_asof(
-            left.sort_values(["sire_id", "race_date"]),
-            _right,
-            on="race_date",
-            by="sire_id",
-            direction="backward",
-        )
+        # sire_id を文字列に統一
+        stats = self._stats.copy()
+        stats["sire_id"] = stats["sire_id"].astype(str)
 
         result = pd.DataFrame(index=df.index)
+        n = len(df)
 
-        # 全体勝率
-        result["sire_wr"] = _beta_smooth_vec(merged["sire_wins"], merged["sire_starts"])
+        # 各列を初期化
+        for col in ["sire_wins", "sire_starts", "sire_places",
+                    "sire_turf_wins", "sire_turf_starts",
+                    "sire_dirt_wins", "sire_dirt_starts",
+                    "sire_short_wins", "sire_short_starts",
+                    "sire_long_wins", "sire_long_starts",
+                    "sire_prize_total"]:
+            result[col] = np.nan
+
+        # sire_id ごとに groupby で lookup (merge_asof のソート要件を回避)
+        sire_ids = df["sire_id"].astype(str).values
+        race_dates = pd.to_datetime(df["race_date"]).values
+        sire_ids_unique = np.unique(sire_ids[~pd.isna(sire_ids)])
+
+        for sid in sire_ids_unique:
+            mask = sire_ids == sid
+            subset = stats[stats["sire_id"] == sid]
+            if subset.empty:
+                continue
+            # searchsorted で該当日以前の最新行
+            idx_arr = subset["race_date"].searchsorted(
+                pd.DatetimeIndex(race_dates[mask]), side="right"
+            ) - 1
+            valid = idx_arr >= 0
+            if not valid.any():
+                continue
+            row = subset.iloc[idx_arr[valid]].iloc[0]  # 全行同じ値 (cumulative)
+            for col in ["sire_wins", "sire_starts", "sire_places",
+                        "sire_turf_wins", "sire_turf_starts",
+                        "sire_dirt_wins", "sire_dirt_starts",
+                        "sire_short_wins", "sire_short_starts",
+                        "sire_long_wins", "sire_long_wins",
+                        "sire_prize_total"]:
+                result.loc[mask, col] = row[col]
+
+        # Beta 平滑化
+        result["sire_wr"] = _beta_smooth_vec(result["sire_wins"], result["sire_starts"])
+        result["sire_place_rate"] = _beta_smooth_vec(result["sire_places"], result["sire_starts"])
 
         # サーフェス別勝率
-        is_turf = df["surface"].astype(str) == "turf"
-        turf_mask = is_turf.reindex(result.index)
-        dirt_mask = ~turf_mask
-
+        is_turf = df["surface"].astype(str).values == "turf"
         result["sire_surface_wr"] = np.where(
-            turf_mask,
-            _beta_smooth_vec(merged["sire_turf_wins"], merged["sire_turf_starts"]),
-            _beta_smooth_vec(merged["sire_dirt_wins"], merged["sire_dirt_starts"]),
+            is_turf,
+            _beta_smooth_vec(result["sire_turf_wins"], result["sire_turf_starts"]),
+            _beta_smooth_vec(result["sire_dirt_wins"], result["sire_dirt_starts"]),
         )
 
         # 距離別勝率
-        kyori_num = pd.to_numeric(df["kyori"], errors="coerce").reindex(result.index)
+        kyori_num = pd.to_numeric(df["kyori"], errors="coerce").values
         is_short = kyori_num <= 1600
-
         result["sire_distance_wr"] = np.where(
             is_short,
-            _beta_smooth_vec(merged["sire_short_wins"], merged["sire_short_starts"]),
-            _beta_smooth_vec(merged["sire_long_wins"], merged["sire_long_starts"]),
+            _beta_smooth_vec(result["sire_short_wins"], result["sire_short_starts"]),
+            _beta_smooth_vec(result["sire_long_wins"], result["sire_long_starts"]),
         )
 
         # 平均賞金
-        starts_safe = merged["sire_starts"].fillna(0).clip(lower=1).astype(float)
-        result["sire_prize_avg"] = np.log1p(merged["sire_prize_total"].fillna(0) / starts_safe)
+        starts_safe = result["sire_starts"].fillna(0).clip(lower=1).astype(float)
+        result["sire_prize_avg"] = np.log1p(result["sire_prize_total"].fillna(0) / starts_safe)
 
-        # bms_wr: 母父の産駒勝率 (bms_id で同様にマージ)
-        bms_left = df[["bms_id", "race_date"]].rename(columns={"bms_id": "sire_id"}).copy()
-        bms_left["sire_id"] = bms_left["sire_id"].astype(str)
+        # bms_wr: 母父の産駒勝率 — 同じロジックで bms_id を lookup
+        bms_ids = df["bms_id"].astype(str).values
+        bms_wins = np.full(n, np.nan)
+        bms_starts = np.full(n, np.nan)
 
-        _right_bms = _stats_str[["sire_id", "race_date", "sire_starts", "sire_wins"]].sort_values(["sire_id", "race_date"])
+        bms_unique = np.unique(bms_ids[~pd.isna(bms_ids)])
+        for bid in bms_unique:
+            mask = bms_ids == bid
+            subset = stats[stats["sire_id"] == bid]
+            if subset.empty:
+                continue
+            idx_arr = subset["race_date"].searchsorted(
+                pd.DatetimeIndex(race_dates[mask]), side="right"
+            ) - 1
+            valid = idx_arr >= 0
+            if valid.any():
+                row = subset.iloc[idx_arr[valid]].iloc[0]
+                bms_wins[mask] = row["sire_wins"]
+                bms_starts[mask] = row["sire_starts"]
 
-        bms_merged = pd.merge_asof(
-            bms_left.sort_values(["sire_id", "race_date"]),
-            _right_bms,
-            on="race_date",
-            by="sire_id",
-            direction="backward",
-        )
-        result["bms_wr"] = _beta_smooth_vec(bms_merged["sire_wins"], bms_merged["sire_starts"])
+        result["bms_wr"] = _beta_smooth_vec(pd.Series(bms_wins), pd.Series(bms_starts))
 
         return result
