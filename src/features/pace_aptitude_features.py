@@ -2,8 +2,13 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import numpy as np
 import pandas as pd
+
+if TYPE_CHECKING:
+    from db.parquet_store import ParquetStore
 
 
 def _beta_smooth(wins: int, starts: int, alpha: int = 1, beta: int = 10) -> float:
@@ -12,6 +17,9 @@ def _beta_smooth(wins: int, starts: int, alpha: int = 1, beta: int = 10) -> floa
 
 class PaceAptitudeFeatures:
     """過去走の jyuni1c/jyuni4c からペース適性を計算"""
+
+    def __init__(self, store: ParquetStore) -> None:
+        self.store = store
 
     def compute(self, history: pd.DataFrame, target_date: str | pd.Timestamp) -> dict[str, float]:
         """1頭分のペース適性特徴量を計算
@@ -71,3 +79,79 @@ class PaceAptitudeFeatures:
             result["pace_aptitude"] = float(closing_avg - front_avg)
 
         return result
+
+    def compute_batch(self, df: pd.DataFrame) -> pd.DataFrame:
+        """全馬のペース適性特徴量を一括計算する
+
+        Args:
+            df: kettonum, race_id, race_date, surface, distance_bin, jyocd 列を持つ DataFrame
+
+        Returns:
+            pace_aptitude, front_pace_wr, closing_pace_wr 列を持つ DataFrame
+        """
+        from db.readers import load_history_entries, load_history_races
+
+        # 過去走データをロード（HorseHistoryFeatures と同じパターン）
+        entries_hist = load_history_entries(self.store)
+        races_hist = load_history_races(self.store)
+
+        # 結果列を初期化
+        result_cols = ["pace_aptitude", "front_pace_wr", "closing_pace_wr"]
+        for col in result_cols:
+            df[col] = np.nan
+
+        if entries_hist.empty or races_hist.empty or df.empty:
+            return df[["kettonum", "race_id"] + result_cols].copy()
+
+        # 必要列の結合
+        race_cols = ["race_id", "trackcd", "kyori", "surface", "track_condition_code"]
+        races_subset = races_hist[races_hist["race_id"].isin(entries_hist["race_id"])]
+        past_df = entries_hist.merge(
+            races_subset[race_cols].drop_duplicates("race_id"),
+            on="race_id",
+            how="left",
+        )
+
+        # distance_bin 追加 (FeatureEngine と同じマッピング)
+        if "distance_bin" not in past_df.columns and "kyori" in past_df.columns:
+            is_turf = past_df["surface"] == "turf"
+            dist = past_df["kyori"]
+            past_df["distance_bin"] = "unknown"
+            past_df.loc[is_turf & (dist > 2100), "distance_bin"] = "long"
+            past_df.loc[is_turf & (dist <= 2100), "distance_bin"] = "intermediate"
+            past_df.loc[is_turf & (dist <= 1700), "distance_bin"] = "mile"
+            past_df.loc[is_turf & (dist <= 1400), "distance_bin"] = "sprint"
+            past_df.loc[~is_turf & (dist > 1700), "distance_bin"] = "intermediate"
+            past_df.loc[~is_turf & (dist <= 1700), "distance_bin"] = "mile"
+            past_df.loc[~is_turf & (dist <= 1400), "distance_bin"] = "sprint"
+
+        # syussotosu >= 8 のみ有効な出走のみ対象
+        valid_mask = past_df["syussotosu"].fillna(-1) >= 8
+        past_df = past_df[valid_mask].copy()
+
+        # kettonum ごとの特徴量計算
+        for kettonum in df["kettonum"].unique():
+            target_rows = df[df["kettonum"] == kettonum]
+
+            # 該当馬の過去走を抽出
+            horse_past = past_df[past_df["kettonum"] == kettonum].copy()
+            if horse_past.empty:
+                continue
+
+            # 各対象レースの特徴量を計算
+            for _, target_row in target_rows.iterrows():
+                target_id = target_row["race_id"]
+                target_date = target_row["race_date"]
+
+                # *** PIT CRITICAL: 対象レースより前のデータのみ使用 ***
+                past_before_target = horse_past[horse_past["race_date"] < target_date]
+
+                # compute() を呼び出し
+                feat_dict = self.compute(past_before_target, target_date)
+
+                # 結果を保存
+                row_mask = (df["kettonum"] == kettonum) & (df["race_id"] == target_id)
+                for col, val in feat_dict.items():
+                    df.loc[row_mask, col] = val
+
+        return df[["kettonum", "race_id"] + result_cols].copy()
