@@ -10,6 +10,7 @@ from db.readers import (
     load_entries,
     load_horses,
     load_jockey_stats,
+    load_keito,
     load_odds_snapshots,
     load_odds_time_series,
     load_odds_time_series_range,
@@ -172,3 +173,22 @@ class TestLoadCareerStats:
         result = load_career_stats(mock_store)
         assert not result.empty
         mock_store.read.assert_called_once_with("raw", "horse_career_stats")
+
+
+class TestLoadKeito:
+    def test_returns_empty_dataframe_when_not_exists(self, mock_store):
+        """keito.parquet が存在しない場合は空 DataFrame を返す。"""
+        mock_store.exists.return_value = False
+        result = load_keito(mock_store)
+        assert isinstance(result, pd.DataFrame)
+        assert result.empty
+
+    def test_calls_store_with_correct_args(self, mock_store):
+        """存在する場合は正しい引数で store.read を呼ぶ。"""
+        mock_store.exists.return_value = True
+        mock_store.read.return_value = pd.DataFrame(
+            {"keitoucode": ["1234"], "keitousystemcd": ["SS"]}
+        )
+        result = load_keito(mock_store)
+        assert not result.empty
+        mock_store.read.assert_called_once_with("raw", "keito")

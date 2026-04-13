@@ -76,6 +76,9 @@ _STRING_COLUMNS: set[str] = {
     "happyotime",  # 時系列オッズの発走時刻コード (e.g. "03101500")
     "gradecd",  # レースグレードコード (A=G1, B=G2, C=G3, D=Listed, E=OP等)
     "gradecdbefore",  # 前回レースグレードコード
+    "ketto3infohansyokunum1",  # 種牡馬血統番号 (horses)
+    "keitoucode",  # 血統番号 (keito)
+    "keitousystemcd",  # 系統コード (keito, e.g. "SS"=サンデーサイレンス系)
 }
 
 
@@ -272,6 +275,14 @@ def load_career_stats(store: ParquetStore) -> pd.DataFrame:
     if not store.exists("raw", "horse_career_stats"):
         return pd.DataFrame()
     df = store.read("raw", "horse_career_stats")
+    return _coerce_types(df)
+
+
+def load_keito(store: ParquetStore) -> pd.DataFrame:
+    """系統コードマスタを読み込む。"""
+    if not store.exists("raw", "keito"):
+        return pd.DataFrame()
+    df = store.read("raw", "keito")
     return _coerce_types(df)
 
 

@@ -129,7 +129,7 @@ class TestBloodPrizeLog:
 
 class TestEdgeCases:
     def test_missing_horse(self):
-        """kettonum not in career -> all NaN"""
+        """kettonum not in career -> all NaN (except blood_keito_cd = 'unknown')"""
         career = pd.DataFrame([_make_career_row(kettonum="K999")])
         store = _make_store(career)
         result = BloodlineFeatures(store).compute(_make_entry(ketto_nums=["K001"]))
@@ -158,7 +158,8 @@ class TestEdgeCases:
         store = _make_store(career)
         result = BloodlineFeatures(store).compute(_make_entry())
         assert np.isnan(result["blood_condition_wr"].iloc[0])
-        assert np.isnan(result["blood_keito_cd"].iloc[0])
+        # blood_keito_cd は keito データが利用不可の場合 'unknown'
+        assert result["blood_keito_cd"].iloc[0] == "unknown"
 
     def test_multiple_horses(self):
         career = pd.DataFrame(
@@ -180,3 +181,100 @@ class TestEdgeCases:
         result = BloodlineFeatures(store).compute(_make_entry())
         expected_cols = ["race_id", "umaban"] + FEATURE_COLS
         assert list(result.columns) == expected_cols
+
+
+class TestBloodKeitoCd:
+    """blood_keito_cd: entries.kettonum -> horses.ketto3infohansyokunum1 -> keito.keitousystemcd"""
+
+    def test_blood_keito_cd_from_sire(self):
+        """blood_keito_cd が種牡馬の系統コードを返す"""
+        from unittest.mock import patch
+
+        store = MagicMock()
+        feat = BloodlineFeatures.__new__(BloodlineFeatures)
+        feat.store = store
+        feat._career_cache = pd.DataFrame(
+            {
+                "race_id": ["R1"],
+                "kettonum": ["001"],
+                "race_date": [pd.Timestamp("2024-06-01")],
+                "cum_starts": [5],
+                "cum_wins": [0],
+                "cum_prize": [0],
+                "cum_turf_starts": [3],
+                "cum_turf_wins": [0],
+                "cum_dirt_starts": [2],
+                "cum_dirt_wins": [0],
+                "cum_short_starts": [2],
+                "cum_short_wins": [0],
+            }
+        )
+
+        # horses: kettonum -> sire_id (ketto3infohansyokunum1)
+        mock_horses = pd.DataFrame(
+            {"kettonum": ["001"], "ketto3infohansyokunum1": ["SIRE_X"]}
+        )
+        # keito: keitoucode -> keitousystemcd
+        mock_keito = pd.DataFrame(
+            {"keitoucode": ["SIRE_X"], "keitousystemcd": ["SS"]}
+        )
+
+        with patch.object(
+            store,
+            "read",
+            side_effect=lambda cat, name: {
+                ("raw", "horses"): mock_horses,
+                ("raw", "keito"): mock_keito,
+            }.get((cat, name), pd.DataFrame()),
+        ):
+            feat._keito_cache = None  # キャッシュクリア
+            entry_df = pd.DataFrame(
+                {"race_id": ["R1"], "umaban": [1], "kettonum": ["001"]}
+            )
+            result = feat.compute(entry_df)
+            assert result["blood_keito_cd"].iloc[0] == "SS"
+
+    def test_blood_keito_cd_unknown_for_missing_sire(self):
+        """未知の種牡馬は 'unknown' を返す"""
+        from unittest.mock import patch
+
+        store = MagicMock()
+        feat = BloodlineFeatures.__new__(BloodlineFeatures)
+        feat.store = store
+        feat._career_cache = pd.DataFrame(
+            {
+                "race_id": ["R1"],
+                "kettonum": ["001"],
+                "race_date": [pd.Timestamp("2024-06-01")],
+                "cum_starts": [5],
+                "cum_wins": [0],
+                "cum_prize": [0],
+                "cum_turf_starts": [3],
+                "cum_turf_wins": [0],
+                "cum_dirt_starts": [2],
+                "cum_dirt_wins": [0],
+                "cum_short_starts": [2],
+                "cum_short_wins": [0],
+            }
+        )
+
+        # horses に kettonum=001 がない場合
+        mock_horses = pd.DataFrame(
+            {"kettonum": ["999"], "ketto3infohansyokunum1": ["OTHER_SIRE"]}
+        )
+        mock_keito = pd.DataFrame()
+
+        with patch.object(
+            store,
+            "read",
+            side_effect=lambda cat, name: {
+                ("raw", "horses"): mock_horses,
+                ("raw", "keito"): mock_keito,
+            }.get((cat, name), pd.DataFrame()),
+        ):
+            feat._keito_cache = None
+            entry_df = pd.DataFrame(
+                {"race_id": ["R1"], "umaban": [1], "kettonum": ["001"]}
+            )
+            result = feat.compute(entry_df)
+            assert result["blood_keito_cd"].iloc[0] == "unknown"
