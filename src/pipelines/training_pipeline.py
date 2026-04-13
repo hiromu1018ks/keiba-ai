@@ -328,6 +328,10 @@ class TrainingPipelineV5:
             market = MarketModel()
             market.train(df, num_threads=num_threads)
             df = market.predict_and_calc_error(df)
+            # OOF予測で学習データのリークを除去
+            # 注: _train_submodel は学習データのみを受け取る (呼び出し側で既にフィルタ済み)。
+            #      よって df 全体に OOF を適用してよい。test_start_date の分割は不要。
+            df = market.predict_oof(df, n_splits=5, num_threads=num_threads)
 
         # nullable int (Int64) → float64 (market model が Int64 を追加するため)
         for col in df.columns:
