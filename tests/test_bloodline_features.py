@@ -278,3 +278,99 @@ class TestBloodKeitoCd:
             )
             result = feat.compute(entry_df)
             assert result["blood_keito_cd"].iloc[0] == "unknown"
+
+
+class TestBloodConditionWr:
+    """blood_condition_wr: 馬場状態別勝率 Beta平滑化"""
+
+    @staticmethod
+    def _make_career_with_condition() -> pd.DataFrame:
+        return pd.DataFrame({
+            "race_id": ["R1"],
+            "kettonum": ["001"],
+            "race_date": [pd.Timestamp("2024-06-01")],
+            "cum_starts": [20],
+            "cum_wins": [3],
+            "cum_prize": [5000],
+            "cum_turf_starts": [10],
+            "cum_turf_wins": [2],
+            "cum_dirt_starts": [10],
+            "cum_dirt_wins": [1],
+            "cum_short_starts": [8],
+            "cum_short_wins": [2],
+            "cum_turf_good_starts": [8],
+            "cum_turf_good_wins": [2],
+            "cum_turf_heavy_starts": [2],
+            "cum_turf_heavy_wins": [0],
+            "cum_dirt_good_starts": [6],
+            "cum_dirt_good_wins": [1],
+            "cum_dirt_heavy_starts": [4],
+            "cum_dirt_heavy_wins": [0],
+        })
+
+    def test_blood_condition_wr_good_turf(self):
+        """blood_condition_wr が芝良馬場の勝率を返す"""
+        store = MagicMock()
+        feat = BloodlineFeatures.__new__(BloodlineFeatures)
+        feat.store = store
+        feat._career_cache = self._make_career_with_condition()
+        feat._keito_cache = {}
+
+        entry_df = pd.DataFrame({
+            "race_id": ["R1"],
+            "umaban": [1],
+            "kettonum": ["001"],
+            "surface": ["turf"],
+            "track_condition_code": [1],  # good
+        })
+        result = feat.compute(entry_df)
+        # turf + good -> cum_turf_good: 2/8 -> Beta(1+2, 10+8) = 3/19
+        expected = (2 + ALPHA_PRIOR) / (8 + TOTAL_OFFSET)
+        assert abs(result["blood_condition_wr"].iloc[0] - expected) < 0.001
+
+    def test_blood_condition_wr_heavy_dirt(self):
+        """blood_condition_wr がダート不良馬場の勝率を返す"""
+        store = MagicMock()
+        feat = BloodlineFeatures.__new__(BloodlineFeatures)
+        feat.store = store
+        feat._career_cache = self._make_career_with_condition()
+        feat._keito_cache = {}
+
+        entry_df = pd.DataFrame({
+            "race_id": ["R1"],
+            "umaban": [1],
+            "kettonum": ["001"],
+            "surface": ["dirt"],
+            "track_condition_code": [4],  # heavy (不良)
+        })
+        result = feat.compute(entry_df)
+        # dirt + heavy -> cum_dirt_heavy: 0/4 -> Beta(1+0, 10+4-0) = 1/15
+        expected = 1 / 15
+        assert abs(result["blood_condition_wr"].iloc[0] - expected) < 0.001
+
+    def test_blood_condition_wr_no_data_returns_nan(self):
+        """累積データがない場合はNaNを返す"""
+        store = MagicMock()
+        feat = BloodlineFeatures.__new__(BloodlineFeatures)
+        feat.store = store
+        feat._keito_cache = {}
+        # cum_turf_good_starts=0 -> starts>0 check fails -> NaN
+        career = self._make_career_with_condition().copy()
+        for col in [
+            "cum_turf_good_starts", "cum_turf_good_wins",
+            "cum_turf_heavy_starts", "cum_turf_heavy_wins",
+            "cum_dirt_good_starts", "cum_dirt_good_wins",
+            "cum_dirt_heavy_starts", "cum_dirt_heavy_wins",
+        ]:
+            career[col] = 0
+        feat._career_cache = career
+
+        entry_df = pd.DataFrame({
+            "race_id": ["R1"],
+            "umaban": [1],
+            "kettonum": ["001"],
+            "surface": ["turf"],
+            "track_condition_code": [1],
+        })
+        result = feat.compute(entry_df)
+        assert pd.isna(result["blood_condition_wr"].iloc[0])

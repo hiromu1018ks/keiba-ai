@@ -143,8 +143,56 @@ class BloodlineFeatures:
             / (merged["cum_short_starts"].fillna(0) + TOTAL_OFFSET),
         )
 
-        # --- 馬場状態別勝率 — Phase 2 ---
-        result["blood_condition_wr"] = np.nan
+        # --- 馬場状態別勝率 ---
+        _cond_cols = [
+            "cum_turf_good_starts", "cum_turf_good_wins",
+            "cum_turf_heavy_starts", "cum_turf_heavy_wins",
+            "cum_dirt_good_starts", "cum_dirt_good_wins",
+            "cum_dirt_heavy_starts", "cum_dirt_heavy_wins",
+        ]
+        if all(c in merged.columns for c in _cond_cols):
+            baba = pd.to_numeric(
+                entry_df.get("track_condition_code", pd.Series(0, index=entry_df.index)),
+                errors="coerce",
+            )
+            is_good = baba.isin([1, 2])
+            is_heavy = baba.isin([3, 4])
+            is_turf_race = entry_df.get("surface", pd.Series("", index=entry_df.index)) == "turf"
+
+            # 芝良
+            cond_turf_good = is_turf_race & is_good
+            result["blood_condition_wr"] = np.where(
+                cond_turf_good & (merged["cum_turf_good_starts"].fillna(0) > 0),
+                (merged["cum_turf_good_wins"].fillna(0) + ALPHA_PRIOR)
+                / (merged["cum_turf_good_starts"].fillna(0) + TOTAL_OFFSET),
+                np.nan,
+            )
+            # 芝重
+            cond_turf_heavy = is_turf_race & is_heavy
+            result["blood_condition_wr"] = np.where(
+                cond_turf_heavy & (merged["cum_turf_heavy_starts"].fillna(0) > 0),
+                (merged["cum_turf_heavy_wins"].fillna(0) + ALPHA_PRIOR)
+                / (merged["cum_turf_heavy_starts"].fillna(0) + TOTAL_OFFSET),
+                result["blood_condition_wr"],
+            )
+            # ダート良
+            cond_dirt_good = ~is_turf_race & is_good
+            result["blood_condition_wr"] = np.where(
+                cond_dirt_good & (merged["cum_dirt_good_starts"].fillna(0) > 0),
+                (merged["cum_dirt_good_wins"].fillna(0) + ALPHA_PRIOR)
+                / (merged["cum_dirt_good_starts"].fillna(0) + TOTAL_OFFSET),
+                result["blood_condition_wr"],
+            )
+            # ダート重
+            cond_dirt_heavy = ~is_turf_race & is_heavy
+            result["blood_condition_wr"] = np.where(
+                cond_dirt_heavy & (merged["cum_dirt_heavy_starts"].fillna(0) > 0),
+                (merged["cum_dirt_heavy_wins"].fillna(0) + ALPHA_PRIOR)
+                / (merged["cum_dirt_heavy_starts"].fillna(0) + TOTAL_OFFSET),
+                result["blood_condition_wr"],
+            )
+        else:
+            result["blood_condition_wr"] = np.nan
 
         # --- 系統コード ---
         keito_map = self._load_keito_map()
