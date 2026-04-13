@@ -35,6 +35,8 @@ class EVCorrectionModel:
         "abs_log_error_win",
         "market_entropy",
         "popularity_rank",
+        # FLB slope (市場集中度)
+        "implied_prob_hhi",
         # レース条件
         "surface",
         "distance_bin",

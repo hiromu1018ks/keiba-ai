@@ -63,6 +63,8 @@ class WinTwoStageModel:
         "track_condition_code",
         "grade_code",
         "field_size",
+        # FLB slope (市場歪みの非対称性)
+        "odds_skewness",
     ]
 
     def __init__(self, cfg: TwoStageConfig | None = None) -> None:

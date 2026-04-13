@@ -37,6 +37,8 @@ def feature_df() -> pd.DataFrame:
             "track_condition_code": [1] * 8,
             "grade_code": ["_"] * 8,
             "field_size": [8] * 8,
+            # FLB slope (市場歪みの非対称性)
+            "odds_skewness": [1.5] * 8,
             "finish_pos": [1, 2, 3, 4, 5, 6, 7, 8],
             "win_odds_actual": [3.5, 5.0, 8.0, 15.0, 25.0, 40.0, 80.0, 150.0],
             "place_odds_actual": [1.3, 1.6, 2.1, 3.5, 5.0, 8.0, 15.0, 30.0],
@@ -150,6 +152,7 @@ class TestWinTwoStageModel:
                 "track_condition_code": [1] * 5,
                 "grade_code": ["_"] * 5,
                 "field_size": [5] * 5,
+                "odds_skewness": [1.5] * 5,
             }
         )
 

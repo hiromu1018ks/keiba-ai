@@ -209,6 +209,8 @@ def _make_feature_df(n: int = 8000, n_races: int = 800) -> pd.DataFrame:
                     "odds_velocity": np.random.normal(0, 0.02),
                     "odds_volatility": np.random.uniform(0, 0.3),
                     "popularity_change_30_10": np.random.normal(0, 1),
+                    "odds_skewness": np.random.uniform(0.5, 3.0),
+                    "implied_prob_hhi": np.random.uniform(0.05, 0.15),
                     "race_date": f"2020-{(r // 28) % 12 + 1:02d}-{(r % 28) + 1:02d}",
                 }
             )

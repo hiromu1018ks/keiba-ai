@@ -557,3 +557,45 @@ class TestLeakPrevention:
         assert result["odds"].iloc[0] == 2.0  # tanodds=0 → entries.odds
         assert result["odds"].iloc[1] == 4.0  # tanodds=NaN → entries.odds
         assert result["odds"].iloc[2] == 9.0  # tanodds=9.0 → 上書き
+
+
+class TestFLBSlopeFeatures:
+    """compute_flb_slope の wiring テスト — odds_skewness, implied_prob_hhi"""
+
+    def test_build_all_includes_odds_skewness(
+        self, sample_race_df, sample_entry_df, sample_odds_df
+    ) -> None:
+        """build_all の結果に odds_skewness が含まれる"""
+        engine = FeatureEngine(exclude_steeple=False)
+        result = engine.build_all(sample_race_df, sample_entry_df, sample_odds_df)
+        assert "odds_skewness" in result.columns, "odds_skewness should be in output"
+
+    def test_build_all_includes_implied_prob_hhi(
+        self, sample_race_df, sample_entry_df, sample_odds_df
+    ) -> None:
+        """build_all の結果に implied_prob_hhi が含まれる"""
+        engine = FeatureEngine(exclude_steeple=False)
+        result = engine.build_all(sample_race_df, sample_entry_df, sample_odds_df)
+        assert "implied_prob_hhi" in result.columns, "implied_prob_hhi should be in output"
+
+    def test_odds_skewness_values_from_18_horse_race(
+        self, sample_race_df, sample_entry_df, sample_odds_df
+    ) -> None:
+        """18頭立てのレースで odds_skewness が正の値（右偏り）になる"""
+        engine = FeatureEngine(exclude_steeple=False)
+        result = engine.build_all(sample_race_df, sample_entry_df, sample_odds_df)
+        # 全馬同じレースなので race_id ごとに1つの値
+        skew_vals = result["odds_skewness"].dropna().unique()
+        assert len(skew_vals) == 1
+        # 18頭で 1.5〜200 のオッズ分布は右に歪む → 正の歪度
+        assert skew_vals[0] > 0
+
+    def test_implied_prob_hhi_range(
+        self, sample_race_df, sample_entry_df, sample_odds_df
+    ) -> None:
+        """implied_prob_hhi が 0 < HHI <= 1 の範囲にある"""
+        engine = FeatureEngine(exclude_steeple=False)
+        result = engine.build_all(sample_race_df, sample_entry_df, sample_odds_df)
+        hhi_vals = result["implied_prob_hhi"].dropna().unique()
+        assert len(hhi_vals) == 1
+        assert 0 < hhi_vals[0] <= 1.0

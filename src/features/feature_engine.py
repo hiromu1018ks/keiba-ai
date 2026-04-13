@@ -111,6 +111,12 @@ class FeatureEngine:
         with TimingContext("build_all/market_bias"):
             df = compute_market_bias(df)
 
+        from features.market_bias_features import compute_flb_slope
+
+        with TimingContext("build_all/flb_slope"):
+            flb_result = compute_flb_slope(df)
+            df = pd.concat([df, flb_result], axis=1)
+
         from features.race_difficulty_model import compute_difficulty_score
 
         with TimingContext("build_all/difficulty"):

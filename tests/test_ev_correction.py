@@ -26,6 +26,8 @@ def pre_ev_df() -> pd.DataFrame:
             "abs_log_error_win": [0.1, 0.1, 0.2, 0.3, 0.0, 0.5, 0.2, 0.3],
             "market_entropy": [2.5] * 8,
             "popularity_rank": [1, 2, 3, 4, 5, 6, 7, 8],
+            # FLB slope (市場集中度)
+            "implied_prob_hhi": [0.08] * 8,
             "surface": ["turf"] * 8,
             "distance_bin": ["mile"] * 8,
             "track_condition_code": [1] * 8,
@@ -204,6 +206,8 @@ def large_ev_df() -> pd.DataFrame:
                     "abs_log_error_win": abs(np.random.normal(0, 0.3)),
                     "market_entropy": float(np.random.uniform(2.0, 3.5)),
                     "popularity_rank": j + 1,
+                    # FLB slope (市場集中度)
+                    "implied_prob_hhi": float(np.random.uniform(0.05, 0.15)),
                     "surface": np.random.choice(["turf", "dirt"]),
                     "distance_bin": np.random.choice(["sprint", "mile", "intermediate", "long"]),
                     "track_condition_code": 1,
