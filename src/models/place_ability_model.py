@@ -34,8 +34,9 @@ class PlaceAbilityModel:
         "difficulty_score",
         # 過去成績 (8)
         "norm_finish_logit_avg",
-        "harontimel3_avg",
-        "harontimel3_zscore",
+        "harontimel5_avg",
+        "harontimel5_zscore",
+        "harontime_late_trend",
         "timediff_avg",
         "jyuni1c_avg",
         "jyuni4c_avg",
@@ -54,7 +55,7 @@ class PlaceAbilityModel:
         "weight_x_distance",
         # レース内正規化 (5) — race_rank
         "norm_finish_logit_avg_race_rank",
-        "harontimel3_avg_race_rank",
+        "harontimel5_avg_race_rank",
         "timediff_avg_race_rank",
         "jyuni1c_avg_race_rank",
         "closing_index_avg_race_rank",

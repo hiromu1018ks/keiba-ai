@@ -25,8 +25,9 @@ def _make_train_df(n_races: int = 20, field_size: int = 8):
                     "difficulty_score": np.random.randn(),
                     # 過去成績 (8)
                     "norm_finish_logit_avg": np.random.randn(),
-                    "harontimel3_avg": np.random.randn(),
-                    "harontimel3_zscore": np.random.randn(),
+                    "harontimel5_avg": np.random.randn(),
+                    "harontimel5_zscore": np.random.randn(),
+                    "harontime_late_trend": np.random.randn(),
                     "timediff_avg": np.random.randn(),
                     "jyuni1c_avg": np.random.uniform(1, 10),
                     "jyuni4c_avg": np.random.uniform(1, 10),
@@ -45,7 +46,7 @@ def _make_train_df(n_races: int = 20, field_size: int = 8):
                     "weight_x_distance": np.random.uniform(640000, 880000),
                     # レース内正規化 (5) — race_rank
                     "norm_finish_logit_avg_race_rank": np.random.rand(),
-                    "harontimel3_avg_race_rank": np.random.rand(),
+                    "harontimel5_avg_race_rank": np.random.rand(),
                     "timediff_avg_race_rank": np.random.rand(),
                     "jyuni1c_avg_race_rank": np.random.rand(),
                     "closing_index_avg_race_rank": np.random.rand(),

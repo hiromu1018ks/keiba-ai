@@ -156,6 +156,7 @@ class TestRaceTransforms:
                 "norm_finish_logit_avg": [2.0, 1.0, 0.0, -1.0],
                 "jockey_surprise": [0.1, 0.05, -0.02, -0.08],
                 "harontimel3_avg": [34.0, 35.0, 36.0, 37.0],
+                "harontimel5_avg": [34.0, 35.0, 36.0, 37.0],
                 "jockey_cond_wr": [0.15, 0.10, 0.05, 0.02],
             }
         )
@@ -167,7 +168,7 @@ class TestRaceTransforms:
         df = self._make_race_df()
         result = HorseHistoryFeatures.add_race_transforms(df)
         assert "norm_finish_logit_avg_race_rank" in result.columns
-        assert "harontimel3_avg_race_rank" in result.columns
+        assert "harontimel5_avg_race_rank" in result.columns
 
     def test_no_z_or_pct_columns(self):
         """_race_z と _race_pct 列は生成されない"""
@@ -1036,3 +1037,170 @@ class TestHorseHistoryFeaturesWithStore2:
         # Caching means entries is loaded once, races is loaded once
         # Total 2 calls (one for entries, one for races), not 4
         assert mock_store.read.call_count <= 2
+
+
+class TestHaronTimeL5AndLateTrend:
+    """harontimel5_avg / harontime_late_trend のテスト"""
+
+    def test_harontimel5_avg_uses_5_races(self):
+        """harontimel5_avg が5走分のハロンタイム平均を返す"""
+        import pandas as pd
+        import numpy as np
+        from features.horse_history_features import HorseHistoryFeatures
+        from unittest.mock import MagicMock
+        from db.parquet_store import ParquetStore
+
+        store = MagicMock(spec=ParquetStore)
+        entries_hist = pd.DataFrame({
+            "race_id": ["p1", "p2", "p3", "p4", "p5"],
+            "race_date": pd.to_datetime(["2024-01-01", "2024-02-01", "2024-03-01",
+                                          "2024-04-01", "2024-05-01"]),
+            "kettonum": ["K1", "K1", "K1", "K1", "K1"],
+            "kisyucode": ["J1", "J1", "J1", "J1", "J1"],
+            "umaban": [1, 1, 1, 1, 1],
+            "kakuteijyuni": [3, 5, 2, 1, 4],
+            "odds": [5.0, 8.0, 3.0, 2.0, 10.0],
+            "harontimel3": [34.5, 35.0, np.nan, 34.0, 34.8],
+            "distance_bin": ["mile", "mile", "sprint", "mile", "mile"],
+            "surface": ["turf", "turf", "turf", "turf", "turf"],
+            "track_condition_code": [1, 2, 1, 1, 2],
+            "timediff": [0.3, -0.2, 0.5, 0.1, -0.1],
+            "jyuni1c": [5, 8, 3, 1, 6],
+            "jyuni4c": [4, 6, 2, 1, 5],
+            "kyakusitukubun": [2, 2, 1, 1, 3],
+            "bataijyu": [480.0, 482.0, 484.0, 486.0, 488.0],
+        })
+        races_hist = pd.DataFrame({
+            "race_id": ["p1", "p2", "p3", "p4", "p5"],
+            "syussotosu": [10, 12, 8, 16, 14],
+            "race_date": pd.to_datetime(["2024-01-01", "2024-02-01", "2024-03-01",
+                                          "2024-04-01", "2024-05-01"]),
+            "trackcd": [11, 11, 11, 11, 11],
+            "kyori": [1600, 1600, 1200, 1600, 1600],
+            "surface": ["turf", "turf", "turf", "turf", "turf"],
+            "track_condition_code": [1, 2, 1, 1, 2],
+        })
+
+        def mock_read(category, name, **kwargs):
+            if name == "entries":
+                return entries_hist
+            elif name == "races":
+                return races_hist
+            return pd.DataFrame()
+
+        store.read = MagicMock(side_effect=mock_read)
+
+        hhf = HorseHistoryFeatures(store=store, n_past=5)
+        race_df = pd.DataFrame({
+            "race_id": ["R1"],
+            "race_date": pd.to_datetime(["2024-06-01"]),
+        })
+        entry_df = pd.DataFrame({
+            "race_id": ["R1"], "umaban": [1], "kettonum": ["K1"],
+            "kisyucode": ["J1"], "bataijyu": [490.0],
+        })
+        result = hhf.compute(race_df, entry_df)
+
+        assert "harontimel5_avg" in result.columns, f"Missing column. Got: {result.columns.tolist()}"
+        # NaNをスキップした4走の平均: (34.5+35.0+34.0+34.8) / 4 = 34.575
+        expected = float(np.nanmean([34.5, 35.0, np.nan, 34.0, 34.8]))
+        actual = result["harontimel5_avg"].iloc[0]
+        assert abs(actual - expected) < 0.01, f"Expected {expected}, got {actual}"
+
+    def test_harontime_late_trend_improving(self):
+        """harontime_late_trend が最後2走 vs 最初3走の差を返す（改善時は負）"""
+        import pandas as pd
+        import numpy as np
+        from features.horse_history_features import HorseHistoryFeatures
+        from unittest.mock import MagicMock
+        from db.parquet_store import ParquetStore
+
+        store = MagicMock(spec=ParquetStore)
+        # 最近2走が速い (改善傾向) → late_trend < 0
+        entries_hist = pd.DataFrame({
+            "race_id": ["p1", "p2", "p3", "p4", "p5"],
+            "race_date": pd.to_datetime(["2024-01-01", "2024-02-01", "2024-03-01",
+                                          "2024-04-01", "2024-05-01"]),
+            "kettonum": ["K1"] * 5,
+            "kisyucode": ["J1"] * 5,
+            "umaban": [1] * 5,
+            "kakuteijyuni": [5, 4, 3, 2, 1],
+            "odds": [20.0, 15.0, 10.0, 5.0, 2.0],
+            "harontimel3": [36.0, 35.5, 35.0, 34.0, 33.5],  # 改善傾向
+            "distance_bin": ["mile"] * 5,
+            "surface": ["turf"] * 5,
+            "track_condition_code": [1] * 5,
+            "timediff": [0.5, 0.3, 0.1, -0.1, -0.3],
+            "jyuni1c": [10, 8, 6, 3, 1],
+            "jyuni4c": [10, 7, 5, 2, 1],
+            "kyakusitukubun": [3, 3, 2, 1, 1],
+            "bataijyu": [480.0, 482.0, 484.0, 486.0, 488.0],
+        })
+        races_hist = pd.DataFrame({
+            "race_id": ["p1", "p2", "p3", "p4", "p5"],
+            "syussotosu": [16] * 5,
+            "race_date": pd.to_datetime(["2024-01-01", "2024-02-01", "2024-03-01",
+                                          "2024-04-01", "2024-05-01"]),
+            "trackcd": [11] * 5,
+            "kyori": [1600] * 5,
+            "surface": ["turf"] * 5,
+            "track_condition_code": [1] * 5,
+        })
+
+        def mock_read(category, name, **kwargs):
+            if name == "entries":
+                return entries_hist
+            elif name == "races":
+                return races_hist
+            return pd.DataFrame()
+
+        store.read = MagicMock(side_effect=mock_read)
+
+        hhf = HorseHistoryFeatures(store=store, n_past=5)
+        race_df = pd.DataFrame({
+            "race_id": ["R1"],
+            "race_date": pd.to_datetime(["2024-06-01"]),
+        })
+        entry_df = pd.DataFrame({
+            "race_id": ["R1"], "umaban": [1], "kettonum": ["K1"],
+            "kisyucode": ["J1"], "bataijyu": [490.0],
+        })
+        result = hhf.compute(race_df, entry_df)
+
+        assert "harontime_late_trend" in result.columns
+        trend = result["harontime_late_trend"].iloc[0]
+        # 最後2走平均: (34.0+33.5)/2 = 33.75
+        # 最初3走平均: (36.0+35.5+35.0)/3 = 35.5
+        # late_trend = 33.75 - 35.5 = -1.75 (< 0 = 改善)
+        assert trend < 0, f"Expected negative trend (improving), got {trend}"
+
+    def test_old_column_names_removed(self):
+        """古い列名 (harontimel3_avg, harontimel3_zscore) が出力に含まれない"""
+        from features.horse_history_features import HorseHistoryFeatures
+        base_cols = HorseHistoryFeatures.BASE_COLS
+        assert "harontimel3_avg" not in base_cols, "Old column name should be renamed"
+        assert "harontimel3_zscore" not in base_cols, "Old column name should be renamed"
+        assert "harontimel5_avg" in base_cols, "New column name should exist"
+        assert "harontimel5_zscore" in base_cols, "New column name should exist"
+        assert "harontime_late_trend" in base_cols, "New column should exist"
+
+    def test_stage1_feature_cols_updated(self):
+        """stage1_ability_model.py の FEATURE_COLS が更新されている"""
+        from models.stage1_ability_model import AbilityModel
+        cols = AbilityModel.FEATURE_COLS
+        assert "harontimel3_avg" not in cols
+        assert "harontimel3_zscore" not in cols
+        assert "harontimel5_avg" in cols
+        assert "harontimel5_zscore" in cols
+        assert "harontime_late_trend" in cols
+
+    def test_place_ability_feature_cols_updated(self):
+        """place_ability_model.py の FEATURE_COLS が更新されている"""
+        from models.place_ability_model import PlaceAbilityModel
+        cols = PlaceAbilityModel.FEATURE_COLS
+        assert "harontimel3_avg" not in cols
+        assert "harontimel3_zscore" not in cols
+        assert "harontimel5_avg" in cols
+        assert "harontimel5_zscore" in cols
+        assert "harontime_late_tate_trend" not in cols  # typo guard
+        assert "harontime_late_trend" in cols

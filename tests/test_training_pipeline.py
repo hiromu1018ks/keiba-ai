@@ -162,8 +162,9 @@ def _make_feature_df(n: int = 8000, n_races: int = 800) -> pd.DataFrame:
                     "difficulty_score": np.random.uniform(0, 1),
                     # 過去成績 (8)
                     "norm_finish_logit_avg": np.random.uniform(-2, 2),
-                    "harontimel3_avg": np.random.uniform(-3, 3),
-                    "harontimel3_zscore": np.random.uniform(-2, 2),
+                    "harontimel5_avg": np.random.uniform(-3, 3),
+                    "harontimel5_zscore": np.random.uniform(-2, 2),
+                    "harontime_late_trend": np.random.uniform(-2, 2),
                     "timediff_avg": np.random.uniform(-1, 1),
                     "jyuni1c_avg": np.random.uniform(1, 10),
                     "jyuni4c_avg": np.random.uniform(1, 10),
@@ -182,7 +183,7 @@ def _make_feature_df(n: int = 8000, n_races: int = 800) -> pd.DataFrame:
                     "weight_x_distance": np.random.uniform(640000, 880000),
                     # レース内正規化 (5) — race_rank
                     "norm_finish_logit_avg_race_rank": np.random.uniform(0, 1),
-                    "harontimel3_avg_race_rank": np.random.uniform(0, 1),
+                    "harontimel5_avg_race_rank": np.random.uniform(0, 1),
                     "timediff_avg_race_rank": np.random.uniform(0, 1),
                     "jyuni1c_avg_race_rank": np.random.uniform(0, 1),
                     "closing_index_avg_race_rank": np.random.uniform(0, 1),

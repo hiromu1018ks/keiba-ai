@@ -1,13 +1,14 @@
-"""test_history_features_v2.py — HorseHistoryFeatures 新規特徴量 (7個) のテスト
+"""test_history_features_v2.py — HorseHistoryFeatures 新規特徴量 (8個) のテスト
 
 Task 4: Group A — HorseHistoryFeatures拡張
-  1. harontimel3_avg — 直近3走のハロンタイム平均
-  2. harontimel3_zscore — 距離ビンz-score平均
-  3. timediff_avg — 直近3走のタイム差平均
-  4. jyuni1c_avg — 直近3走の1コーナー位置平均
-  5. jyuni4c_avg — 直近3走の4コーナー位置平均
-  6. closing_index_avg — (4C正規化 - 着順正規化) の直近3走平均
-  7. kyakusitukubun_cd — 直近走の脚質コード
+  1. harontimel5_avg — 直近5走のハロンタイム平均
+  2. harontimel5_zscore — 距離ビンz-score平均
+  3. harontime_late_trend — 最後2走 vs 最初3走 (負=改善)
+  4. timediff_avg — 直近5走のタイム差平均
+  5. jyuni1c_avg — 直近5走の1コーナー位置平均
+  6. jyuni4c_avg — 直近5走の4コーナー位置平均
+  7. closing_index_avg — (4C正規化 - 着順正規化) の直近5走平均
+  8. kyakusitukubun_cd — 直近走の脚質コード
 + リーク防止テスト (target_date以降のレース除外)
 + 新馬テスト (過去成績なし → NaN)
 """
@@ -107,15 +108,15 @@ def _compute_features(
 
 
 # ============================================================
-# Test 1: harontimel3_avg
+# Test 1: harontimel5_avg
 # ============================================================
 
 
-class TestHaronTimeL3Avg:
-    """harontimel3_avg — 直近3走のハロンタイム平均"""
+class TestHaronTimeL5Avg:
+    """harontimel5_avg — 直近5走のハロンタイム平均"""
 
     def test_last3_average(self) -> None:
-        """直近3走のハロンタイム平均を計算"""
+        """直近5走のハロンタイム平均を計算"""
         entries_hist = _build_entries_hist(
             [
                 {"race_id": "p1", "harontimel3": 34.0, "kakuteijyuni": 3, "odds": 5.0},
@@ -151,7 +152,7 @@ class TestHaronTimeL3Avg:
         race_df, entry_df = _make_target()
         result = _compute_features(entries_hist, races_hist, race_df, entry_df, ["r_target"])
 
-        val = result["harontimel3_avg"].iloc[0]
+        val = result["harontimel5_avg"].iloc[0]
         assert not np.isnan(val)
         assert abs(val - 35.0) < 1e-6  # (34+35+36)/3 = 35.0
 
@@ -192,7 +193,7 @@ class TestHaronTimeL3Avg:
         race_df, entry_df = _make_target()
         result = _compute_features(entries_hist, races_hist, race_df, entry_df, ["r_target"])
 
-        val = result["harontimel3_avg"].iloc[0]
+        val = result["harontimel5_avg"].iloc[0]
         assert not np.isnan(val)
         assert abs(val - 35.0) < 1e-6  # (34+36)/2 = 35.0
 
@@ -512,7 +513,7 @@ class TestLeakPrevention:
         race_df, entry_df = _make_target()  # target_date = 2024-06-01
         result = _compute_features(entries_hist, races_hist, race_df, entry_df, ["r_target"])
 
-        val = result["harontimel3_avg"].iloc[0]
+        val = result["harontimel5_avg"].iloc[0]
         assert not np.isnan(val)
         assert abs(val - 34.0) < 1e-6  # p2(7月)は除外 → p1のみ
 
@@ -545,7 +546,7 @@ class TestLeakPrevention:
         race_df, entry_df = _make_target()  # target_date = 2024-06-01
         result = _compute_features(entries_hist, races_hist, race_df, entry_df, ["r_target"])
 
-        val = result["harontimel3_avg"].iloc[0]
+        val = result["harontimel5_avg"].iloc[0]
         assert not np.isnan(val)
         assert abs(val - 34.0) < 1e-6  # p2(同日)は除外
 
@@ -594,8 +595,9 @@ class TestNewHorse:
         result = _compute_features(entries_hist, races_hist, race_df, entry_df, ["r_target"])
 
         new_cols = [
-            "harontimel3_avg",
-            "harontimel3_zscore",
+            "harontimel5_avg",
+            "harontimel5_zscore",
+            "harontime_late_trend",
             "timediff_avg",
             "jyuni1c_avg",
             "jyuni4c_avg",
@@ -608,12 +610,12 @@ class TestNewHorse:
 
 
 # ============================================================
-# Test: harontimel3_zscore
+# Test: harontimel5_zscore
 # ============================================================
 
 
-class TestHaronTimeL3Zscore:
-    """harontimel3_zscore — 距離ビンz-score平均"""
+class TestHaronTimeL5Zscore:
+    """harontimel5_zscore — 距離ビンz-score平均"""
 
     def test_zscore_calculation(self) -> None:
         """距離ビン内でz-scoreを計算"""
@@ -652,7 +654,7 @@ class TestHaronTimeL3Zscore:
         race_df, entry_df = _make_target()
         result = _compute_features(entries_hist, races_hist, race_df, entry_df, ["r_target"])
 
-        val = result["harontimel3_zscore"].iloc[0]
+        val = result["harontimel5_zscore"].iloc[0]
         assert not np.isnan(val)
         # 3走全て同じ距離ビン → mean=35.0, std=1.0
         # z-scores: (34-35)/1=-1, (36-35)/1=1, (35-35)/1=0
@@ -680,7 +682,7 @@ class TestHaronTimeL3Zscore:
         race_df, entry_df = _make_target()
         result = _compute_features(entries_hist, races_hist, race_df, entry_df, ["r_target"])
 
-        val = result["harontimel3_zscore"].iloc[0]
+        val = result["harontimel5_zscore"].iloc[0]
         # 1走のみのビンでは std=0 or NaN → zscoreはNaN
         assert np.isnan(val)
 
@@ -697,8 +699,9 @@ class TestBaseCols:
         from features.horse_history_features import HorseHistoryFeatures
 
         expected = [
-            "harontimel3_avg",
-            "harontimel3_zscore",
+            "harontimel5_avg",
+            "harontimel5_zscore",
+            "harontime_late_trend",
             "timediff_avg",
             "jyuni1c_avg",
             "jyuni4c_avg",

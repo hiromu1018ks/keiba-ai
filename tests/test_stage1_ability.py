@@ -27,8 +27,9 @@ def train_df() -> pd.DataFrame:
             "difficulty_score": [0.5] * 8,
             # 過去成績 (8)
             "norm_finish_logit_avg": rng.uniform(-2, 2, 8),
-            "harontimel3_avg": rng.uniform(-3, 3, 8),
-            "harontimel3_zscore": rng.uniform(-2, 2, 8),
+            "harontimel5_avg": rng.uniform(-3, 3, 8),
+            "harontimel5_zscore": rng.uniform(-2, 2, 8),
+            "harontime_late_trend": rng.uniform(-2, 2, 8),
             "timediff_avg": rng.uniform(-1, 1, 8),
             "jyuni1c_avg": rng.uniform(1, 10, 8),
             "jyuni4c_avg": rng.uniform(1, 10, 8),
@@ -65,7 +66,7 @@ def train_df() -> pd.DataFrame:
             "weight_x_distance": rng.uniform(640000, 880000, 8),
             # レース内正規化 (5) — race_rank
             "norm_finish_logit_avg_race_rank": rng.uniform(0, 1, 8),
-            "harontimel3_avg_race_rank": rng.uniform(0, 1, 8),
+            "harontimel5_avg_race_rank": rng.uniform(0, 1, 8),
             "timediff_avg_race_rank": rng.uniform(0, 1, 8),
             "jyuni1c_avg_race_rank": rng.uniform(0, 1, 8),
             "closing_index_avg_race_rank": rng.uniform(0, 1, 8),

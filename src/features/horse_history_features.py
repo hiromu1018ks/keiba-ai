@@ -2,12 +2,13 @@
 
 主な特徴量:
   - norm_finish_logit_avg: 着順をログット変換したスコアの平均
-  - harontimel3_avg: 直近3走のハロンタイム平均
-  - harontimel3_zscore: 距離ビンz-scoreの直近3走平均
-  - timediff_avg: 直近3走のタイム差平均
-  - jyuni1c_avg: 直近3走の1コーナー通過位置平均
-  - jyuni4c_avg: 直近3走の4コーナー通過位置平均
-  - closing_index_avg: (4C正規化 - 着順正規化) の直近3走平均
+  - harontimel5_avg: 直近5走のハロンタイム平均
+  - harontimel5_zscore: 距離ビンz-scoreの直近5走平均
+  - harontime_late_trend: 最後2走平均 - 最初3走平均 (負=改善傾向)
+  - timediff_avg: 直近5走のタイム差平均
+  - jyuni1c_avg: 直近5走の1コーナー通過位置平均
+  - jyuni4c_avg: 直近5走の4コーナー通過位置平均
+  - closing_index_avg: (4C正規化 - 着順正規化) の直近5走平均
   - kyakusitukubun_cd: 直近走の脚質コード
   - jockey_surprise: Beta事前分布でスムージングした騎手勝率サプライズ
   - jockey_cond_wr: 騎手条件別勝率
@@ -136,6 +137,66 @@ def _lookup_expanding_stats(
 
 
 # ---------------------------------------------------------------------------
+# Helper: haron stats (L5 + late trend)
+# ---------------------------------------------------------------------------
+
+
+def _compute_haron_stats(
+    history: pd.DataFrame,
+    target_date: pd.Timestamp,
+) -> dict[str, float]:
+    """直近5走のハロンタイム統計量を計算する (PIT: 当日以前のみ使用)。
+
+    Args:
+        history: race_date, harontimel3 列を持つ DataFrame
+        target_date: 対象レース日付
+
+    Returns:
+        dict with keys:
+          - harontimel5_avg: 直近5走のハロンタイム平均 (NaNスキップ、nanmean)
+          - harontimel5_zscore: 5走に拡張したz-score (expanding_stats 使用)
+          - harontime_late_trend: 最後2走平均 - 最初3走平均 (負=改善傾向)
+    """
+    # PIT CRITICAL: 必ず当日以前のみ使用
+    past = history[history["race_date"] < target_date].copy()
+    if past.empty or "harontimel3" not in past.columns:
+        return {
+            "harontimel5_avg": float("nan"),
+            "harontimel5_zscore": float("nan"),
+            "harontime_late_trend": float("nan"),
+        }
+
+    ht = past["harontimel3"].astype(float).values
+    ht_valid = ht[~np.isnan(ht)]
+
+    if len(ht_valid) == 0:
+        return {
+            "harontimel5_avg": float("nan"),
+            "harontimel5_zscore": float("nan"),
+            "harontime_late_trend": float("nan"),
+        }
+
+    # 直近5走の平均 (tail 5 of valid values)
+    l5_avg = float(ht_valid[-5:].mean())
+
+    # late_trend: 最後2走 vs 最初3走 (5走以上必要)
+    if len(ht_valid) >= 5:
+        last_2 = ht_valid[-2:].mean()
+        first_3 = ht_valid[:3].mean()
+        late_trend = float(last_2 - first_3)  # 負=改善
+    else:
+        late_trend = float("nan")
+
+    # z-score は compute() 内で expanding_stats を使って別途計算されるため、
+    # ここではプレースホルダーとして NaN を返す
+    return {
+        "harontimel5_avg": l5_avg,
+        "harontimel5_zscore": float("nan"),  # compute()内で計算
+        "harontime_late_trend": late_trend,
+    }
+
+
+# ---------------------------------------------------------------------------
 # Main class
 # ---------------------------------------------------------------------------
 
@@ -145,13 +206,14 @@ class HorseHistoryFeatures:
 
     BASE_COLS: list[str] = [
         "norm_finish_logit_avg",
-        "harontimel3_avg",  # NEW - replaces haron_time_zscore_avg
-        "harontimel3_zscore",  # NEW
-        "timediff_avg",  # NEW
-        "jyuni1c_avg",  # NEW
-        "jyuni4c_avg",  # NEW
-        "closing_index_avg",  # NEW
-        "kyakusitukubun_cd",  # NEW (non-numeric, category)
+        "harontimel5_avg",  # 直近5走ハロンタイム平均
+        "harontimel5_zscore",  # 直近5走z-score
+        "harontime_late_trend",  # 最後2走 vs 最初3走 (負=改善)
+        "timediff_avg",
+        "jyuni1c_avg",
+        "jyuni4c_avg",
+        "closing_index_avg",
+        "kyakusitukubun_cd",  # non-numeric, category
         "jockey_surprise",  # existing (will move to Stage2 in Task 9)
         "jockey_cond_wr",  # existing (will move to Stage2 in Task 9)
         "weight_absolute",  # A2: 馬体重
@@ -495,19 +557,19 @@ class HorseHistoryFeatures:
             else:
                 norm_finish_logit_avg = float("nan")
 
-            # harontimel3_avg
+            # harontimel5_avg (直近5走のハロンタイム平均)
             if _has_harontimel3 and n_past > 0:
                 ht_raw = horse_arrs["harontimel3"][valid_mask][start:idx].astype(float)
                 ht_valid = ht_raw[~np.isnan(ht_raw)]
                 if len(ht_valid) > 0:
-                    # tail(3) → last 3 non-NaN values
-                    harontimel3_avg: float = float(ht_valid[-self._n_past:].mean())
+                    # tail(5) → last 5 non-NaN values
+                    harontimel5_avg: float = float(ht_valid[-self._n_past:].mean())
                 else:
-                    harontimel3_avg = float("nan")
+                    harontimel5_avg = float("nan")
             else:
-                harontimel3_avg = float("nan")
+                harontimel5_avg = float("nan")
 
-            # harontimel3_zscore — expanding hierarchical fallback z-score (no leak)
+            # harontimel5_zscore — expanding hierarchical fallback z-score (no leak)
             if _has_harontimel3 and _has_distance_bin and n_past > 0 and expanding_stats:
                 ht_raw = horse_arrs["harontimel3"][valid_mask][start:idx].astype(float)
                 db_raw = horse_arrs["distance_bin"][valid_mask][start:idx]
@@ -548,16 +610,29 @@ class HorseHistoryFeatures:
                             zscores.append(float("nan"))
                     if zscores:
                         z_arr = np.array(zscores)
-                        # tail(3).mean() — last 3 values
-                        harontimel3_zscore = float(
+                        # tail(5).mean() — last 5 values
+                        harontimel5_zscore: float = float(
                             pd.Series(z_arr).tail(self._n_past).mean()
                         )
                     else:
-                        harontimel3_zscore = float("nan")
+                        harontimel5_zscore = float("nan")
                 else:
-                    harontimel3_zscore = float("nan")
+                    harontimel5_zscore = float("nan")
             else:
-                harontimel3_zscore = float("nan")
+                harontimel5_zscore = float("nan")
+
+            # harontime_late_trend: 最後2走 vs 最初3走 (負=改善傾向)
+            if _has_harontimel3 and n_past >= 5:
+                ht_for_trend = horse_arrs["harontimel3"][valid_mask][start:idx].astype(float)
+                ht_valid_trend = ht_for_trend[~np.isnan(ht_for_trend)]
+                if len(ht_valid_trend) >= 5:
+                    last_2 = ht_valid_trend[-2:].mean()
+                    first_3 = ht_valid_trend[:3].mean()
+                    harontime_late_trend: float = float(last_2 - first_3)  # 負=改善
+                else:
+                    harontime_late_trend = float("nan")
+            else:
+                harontime_late_trend = float("nan")
 
             # timediff_avg
             if _has_timediff and n_past > 0:
@@ -706,8 +781,9 @@ class HorseHistoryFeatures:
                     "race_id": row.race_id,
                     "umaban": row.umaban,
                     "norm_finish_logit_avg": norm_finish_logit_avg,
-                    "harontimel3_avg": harontimel3_avg,
-                    "harontimel3_zscore": harontimel3_zscore,
+                    "harontimel5_avg": harontimel5_avg,
+                    "harontimel5_zscore": harontimel5_zscore,
+                    "harontime_late_trend": harontime_late_trend,
                     "timediff_avg": timediff_avg,
                     "jyuni1c_avg": jyuni1c_avg,
                     "jyuni4c_avg": jyuni4c_avg,
@@ -737,13 +813,14 @@ class HorseHistoryFeatures:
         # race_rank を生成する列を明示 (数値のみ)
         race_rank_cols = [
             "norm_finish_logit_avg",
-            "harontimel3_avg",
-            "harontimel3_zscore",
+            "harontimel5_avg",
+            "harontimel5_zscore",
             "timediff_avg",
             "jyuni1c_avg",
             "jyuni4c_avg",
             "closing_index_avg",
-            # 注意: kyakusitukubun_cd, jockey_surprise, jockey_cond_wr は race_rank を生成しない
+            # 注意: kyakusitukubun_cd, jockey系, harontime_late_trend は
+            # race_rank を生成しない
         ]
         df = df.copy()
         for col in race_rank_cols:
