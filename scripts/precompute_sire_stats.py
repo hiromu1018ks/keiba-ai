@@ -43,22 +43,29 @@ def compute_sire_stats(
     Returns:
         sire_career_stats: (sire_id, race_date) ごとの累積統計
     """
+    # JRA レースのみ (jyocd 1-10) — horse_career_stats.py と同じフィルタ
+    jyocd_num = pd.to_numeric(entries_df.get("jyocd", pd.Series(dtype=object)), errors="coerce")
+    jra_mask = jyocd_num.between(1, 10)
+    if "jyocd" in entries_df.columns:
+        ent = entries_df[jra_mask].copy()
+    else:
+        ent = entries_df.copy()
+
     # entries -> horses -> sire_id を結合
     sire_map = horses_df.set_index("kettonum")["ketto3infohansyokunum1"]
-    ent = entries_df.copy()
     ent["sire_id"] = ent["kettonum"].map(sire_map)
 
     # フラグ列 (horse_career_stats.py と同じパターン)
     trackcd_num = pd.to_numeric(ent["trackcd"], errors="coerce")
     ent["is_turf"] = trackcd_num.between(*_TURF_TRACKCD_RANGE).fillna(False).astype(int)
-    ent["is_dirt"] = (~trackcd_num.between(*_TURF_TRACKCD_RANGE)).astype(int)
+    ent["is_dirt"] = (~trackcd_num.between(*_TURF_TRACKCD_RANGE)).fillna(False).astype(int)
     kyori_num = pd.to_numeric(ent["kyori"], errors="coerce")
     ent["is_short"] = (kyori_num <= _SHORT_DISTANCE_MAX).fillna(False).astype(int)
     ent["is_long"] = (kyori_num > _SHORT_DISTANCE_MAX).fillna(False).astype(int)
 
-    jyuni_num = pd.to_numeric(ent["kakuteijyuni"], errors="coerce")
+    jyuni_num = pd.to_numeric(ent["kakuteijyuni"], errors="coerce").fillna(0)
     ent["is_win"] = (jyuni_num == 1).astype(int)
-    ent["is_place"] = jyuni_num.between(1, 3).astype(int)
+    ent["is_place"] = jyuni_num.between(1, 3).fillna(False).astype(int)
 
     # 複合フラグ (lambda なし — 外部DataFrame参照バグを回避)
     ent["is_turf_win"] = ent["is_turf"] * ent["is_win"]
@@ -129,7 +136,9 @@ def main() -> None:
     races = store.read("raw", "races")
 
     # entries に race 条件をマージ
-    race_info = races[["race_id", "trackcd", "kyori"]].copy()
+    _race_cols = [c for c in ["race_id", "trackcd", "kyori", "track_condition_code"]
+                  if c in races.columns]
+    race_info = races[_race_cols].copy()
     entries = entries.merge(race_info, on="race_id", how="left")
 
     logger.info("Computing sire stats...")
