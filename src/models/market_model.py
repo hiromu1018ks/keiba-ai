@@ -135,7 +135,7 @@ class MarketModel:
 
         return df
 
-    def predict_oof(self, df: pd.DataFrame, n_splits: int = 5) -> pd.DataFrame:
+    def predict_oof(self, df: pd.DataFrame, n_splits: int = 5, *, num_threads: int = 0) -> pd.DataFrame:
         """OOF (out-of-fold) 予測を生成し、DataFrame の該当列を上書きする。
 
         学習データ内で KFold CV を行い、各foldのvalid予測を結合。
@@ -172,6 +172,7 @@ class MarketModel:
                     "learning_rate": 0.03,
                     "num_leaves": 31,
                     "feature_fraction": 0.7,
+                    "num_threads": num_threads,
                     "verbose": -1,
                 },
                 train_data,
@@ -185,7 +186,7 @@ class MarketModel:
             )
 
         # 全データで再学習 (推論用)
-        self.train(df)
+        self.train(df, num_threads=num_threads)
 
         # OOF予測で log_error を再計算
         df = df.copy()
