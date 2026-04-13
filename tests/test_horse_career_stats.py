@@ -121,6 +121,41 @@ def test_distance_specific_stats(sample_data):
     assert third["cum_short_wins"] == 1
 
 
+def test_condition_columns_in_precompute():
+    """baba_cd別の累積成績が正しく計算される"""
+    # entries と races は別々のDataFrame
+    entries = pd.DataFrame({
+        "kettonum": ["001", "001", "001"],
+        "race_date": pd.to_datetime(["2024-01-01", "2024-02-01", "2024-03-01"]),
+        "race_id": ["R1", "R2", "R3"],
+        "kakuteijyuni": [1, 3, 2],
+        "jyocd": [5, 5, 5],
+        "honsyokin": [1000, 0, 500],
+    })
+    # races に track_condition_code を含める
+    races = pd.DataFrame({
+        "race_id": ["R1", "R2", "R3"],
+        "trackcd": [11, 11, 11],
+        "kyori": [1600, 1800, 1600],
+        "track_condition_code": [1, 3, 2],  # good, heavy, good
+    })
+
+    result = precompute_career_stats(entries, races)
+
+    # 条件別累積列が存在する
+    for col in ["cum_turf_good_starts", "cum_turf_good_wins",
+                "cum_turf_heavy_starts", "cum_turf_heavy_wins",
+                "cum_dirt_good_starts", "cum_dirt_good_wins",
+                "cum_dirt_heavy_starts", "cum_dirt_heavy_wins"]:
+        assert col in result.columns, f"Missing column: {col}"
+    # PIT: shift(1)→cumsum により当日の結果は含まれない
+    row0 = result.iloc[0]
+    assert row0["cum_turf_good_starts"] == 0  # 最初のレース前は0
+    # 2走目: R1はturf+good で1回出走している → cum_turf_good_starts=1
+    row1 = result.iloc[1]
+    assert row1["cum_turf_good_starts"] == 1
+
+
 def test_output_columns(sample_data):
     """出力に必要なカラムが全て含まれること"""
     entries, races = sample_data
@@ -139,6 +174,14 @@ def test_output_columns(sample_data):
         "cum_dirt_wins",
         "cum_short_starts",
         "cum_short_wins",
+        "cum_turf_good_starts",
+        "cum_turf_good_wins",
+        "cum_turf_heavy_starts",
+        "cum_turf_heavy_wins",
+        "cum_dirt_good_starts",
+        "cum_dirt_good_wins",
+        "cum_dirt_heavy_starts",
+        "cum_dirt_heavy_wins",
     ]
     for col in expected_cols:
         assert col in result.columns, f"Missing column: {col}"

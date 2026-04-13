@@ -50,7 +50,7 @@ def precompute_career_stats(
 
     Args:
         entries_df: 出走履歴 (race_id, kettonum, kakuteijyuni, honsyokin, race_date, jyocd)
-        races_df: レース情報 (race_id, trackcd, kyori)
+        races_df: レース情報 (race_id, trackcd, kyori[, track_condition_code])
 
     Returns:
         DataFrame with columns:
@@ -58,7 +58,9 @@ def precompute_career_stats(
             cum_starts, cum_wins, cum_prize,
             cum_turf_starts, cum_turf_wins,
             cum_dirt_starts, cum_dirt_wins,
-            cum_short_starts, cum_short_wins
+            cum_short_starts, cum_short_wins,
+            cum_turf_good_starts/wins, cum_turf_heavy_starts/wins,
+            cum_dirt_good_starts/wins, cum_dirt_heavy_starts/wins
     """
     # JRA レースのみ (jyocd 1-10)
     jyocd_num = pd.to_numeric(entries_df["jyocd"], errors="coerce")
@@ -69,7 +71,9 @@ def precompute_career_stats(
         return pd.DataFrame()
 
     # レース条件をマージ
-    race_info = races_df[["race_id", "trackcd", "kyori"]].copy()
+    _race_cols = [c for c in ["race_id", "trackcd", "kyori", "track_condition_code"]
+                  if c in races_df.columns]
+    race_info = races_df[_race_cols].copy()
     ent = ent.merge(race_info, on="race_id", how="left")
 
     # surface / short distance 判定
@@ -81,6 +85,15 @@ def precompute_career_stats(
         & (pd.to_numeric(ent["kyori"], errors="coerce") <= _SHORT_DISTANCE_MAX)
     ).astype(int)
 
+    # 馬場状態 (good: 1,2 / heavy: 3,4)
+    if "track_condition_code" in ent.columns:
+        baba = pd.to_numeric(ent["track_condition_code"], errors="coerce")
+        ent["is_good"] = baba.isin([1, 2]).astype(int)
+        ent["is_heavy"] = baba.isin([3, 4]).astype(int)
+    else:
+        ent["is_good"] = 0
+        ent["is_heavy"] = 0
+
     # 着順・賞金の数値化 (Nullable Int64 → float64 で NA を処理)
     ent["kakuteijyuni_int"] = pd.to_numeric(ent["kakuteijyuni"], errors="coerce")
     ent["is_win"] = (ent["kakuteijyuni_int"] == 1).astype("Int64").fillna(0).astype(int)
@@ -88,6 +101,16 @@ def precompute_career_stats(
     ent["is_turf_win"] = (ent["is_turf"] & ent["is_win"]).astype(int)
     ent["is_dirt_win"] = (ent["is_dirt"] & ent["is_win"]).astype(int)
     ent["is_short_win"] = (ent["is_short"] & ent["is_win"]).astype(int)
+
+    # 馬場状態別フラグ (surface × condition × win)
+    ent["is_turf_good"] = (ent["is_turf"] & ent["is_good"]).astype(int)
+    ent["is_turf_good_win"] = (ent["is_turf"] & ent["is_good"] & ent["is_win"]).astype(int)
+    ent["is_turf_heavy"] = (ent["is_turf"] & ent["is_heavy"]).astype(int)
+    ent["is_turf_heavy_win"] = (ent["is_turf"] & ent["is_heavy"] & ent["is_win"]).astype(int)
+    ent["is_dirt_good"] = (ent["is_dirt"] & ent["is_good"]).astype(int)
+    ent["is_dirt_good_win"] = (ent["is_dirt"] & ent["is_good"] & ent["is_win"]).astype(int)
+    ent["is_dirt_heavy"] = (ent["is_dirt"] & ent["is_heavy"]).astype(int)
+    ent["is_dirt_heavy_win"] = (ent["is_dirt"] & ent["is_heavy"] & ent["is_win"]).astype(int)
 
     # 馬ごとに日付順でソート
     ent = ent.sort_values(["kettonum", "race_date", "race_id"]).reset_index(drop=True)
@@ -103,6 +126,15 @@ def precompute_career_stats(
     ent["cum_dirt_wins"] = _compute_cumulative_before(ent, "kettonum", "is_dirt_win")
     ent["cum_short_starts"] = _compute_cumulative_before(ent, "kettonum", "is_short")
     ent["cum_short_wins"] = _compute_cumulative_before(ent, "kettonum", "is_short_win")
+    # 馬場状態別累積
+    ent["cum_turf_good_starts"] = _compute_cumulative_before(ent, "kettonum", "is_turf_good")
+    ent["cum_turf_good_wins"] = _compute_cumulative_before(ent, "kettonum", "is_turf_good_win")
+    ent["cum_turf_heavy_starts"] = _compute_cumulative_before(ent, "kettonum", "is_turf_heavy")
+    ent["cum_turf_heavy_wins"] = _compute_cumulative_before(ent, "kettonum", "is_turf_heavy_win")
+    ent["cum_dirt_good_starts"] = _compute_cumulative_before(ent, "kettonum", "is_dirt_good")
+    ent["cum_dirt_good_wins"] = _compute_cumulative_before(ent, "kettonum", "is_dirt_good_win")
+    ent["cum_dirt_heavy_starts"] = _compute_cumulative_before(ent, "kettonum", "is_dirt_heavy")
+    ent["cum_dirt_heavy_wins"] = _compute_cumulative_before(ent, "kettonum", "is_dirt_heavy_win")
 
     result = ent[
         [
@@ -118,6 +150,14 @@ def precompute_career_stats(
             "cum_dirt_wins",
             "cum_short_starts",
             "cum_short_wins",
+            "cum_turf_good_starts",
+            "cum_turf_good_wins",
+            "cum_turf_heavy_starts",
+            "cum_turf_heavy_wins",
+            "cum_dirt_good_starts",
+            "cum_dirt_good_wins",
+            "cum_dirt_heavy_starts",
+            "cum_dirt_heavy_wins",
         ]
     ].copy()
 
