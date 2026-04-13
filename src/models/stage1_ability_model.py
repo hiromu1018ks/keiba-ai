@@ -78,6 +78,13 @@ class AbilityModel:
         "sire_distance_wr",
         "sire_prize_avg",
         "bms_wr",
+        # ペース適性 (3)
+        "pace_aptitude",
+        "front_pace_wr",
+        "closing_pace_wr",
+        # コース適性 (2)
+        "course_wr",
+        "course_distance_wr",
     ]
 
     def __init__(self) -> None:
