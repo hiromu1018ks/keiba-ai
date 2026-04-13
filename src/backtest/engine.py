@@ -228,6 +228,26 @@ class BacktestEngine:
         jt_combo = JockeyTrainerComboFeatures(self.store)
         jt_df_all = jt_combo.compute(entry_df)
 
+        # 種牡馬産駒特徴量の追加 (推論パス — 学習と同一ロジック)
+        from features.sire_features import SireFeatures
+        from db.readers import load_sire_stats, load_horses
+
+        logger.info("Computing SireFeatures for backtest inference...")
+        sire_stats_bt = load_sire_stats(self.store)
+        if not sire_stats_bt.empty:
+            horses_bt = load_horses(self.store)
+            sire_feat_bt = SireFeatures(sire_stats_bt)
+            sire_map_bt = horses_bt.set_index("kettonum")["ketto3infohansyokunum1"]
+            feat_df["sire_id"] = feat_df["kettonum"].map(sire_map_bt)
+            bms_map_bt = horses_bt.set_index("kettonum")["ketto3infohansyokunum3"]
+            feat_df["bms_id"] = feat_df["kettonum"].map(bms_map_bt)
+            sire_result_bt = sire_feat_bt.compute_batch(feat_df)
+            _sire_cols_needed = {"sire_wr", "sire_surface_wr", "sire_distance_wr",
+                                 "sire_prize_avg", "bms_wr"}
+            for col in _sire_cols_needed:
+                if col in sire_result_bt.columns:
+                    feat_df[col] = sire_result_bt[col].values
+
         # 4. レースごとにシミュレーション (推論は RacePredictor に委譲)
         diag_logger = DiagnosticLogger()
         bankroll = self.initial_bankroll

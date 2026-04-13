@@ -284,7 +284,7 @@ class TrainingPipelineV5:
         with TimingContext(f"{surface}/add_race_transforms"):
             df = HorseHistoryFeatures.add_race_transforms(df)
 
-        # 種牡馬産駒特徴量の追加
+        # 種牡馬産駒特徴量の追加 (ベクトル化)
         from features.sire_features import SireFeatures
         from db.readers import load_sire_stats, load_horses
 
@@ -293,27 +293,19 @@ class TrainingPipelineV5:
             if not sire_stats.empty:
                 horses_df = load_horses(self.store)
                 sire_feat = SireFeatures(sire_stats)
-                # entry_df に sire_id 列を追加 (kettonum → horses → sire_id)
+                # entry_df に sire_id / bms_id 列を追加
                 sire_map = horses_df.set_index("kettonum")["ketto3infohansyokunum1"]
                 df["sire_id"] = df["kettonum"].map(sire_map)
-                # bms_id (母父) も同様 — ketto3infohansyokunum3 は母父の血統番号
                 bms_map = horses_df.set_index("kettonum")["ketto3infohansyokunum3"]
                 df["bms_id"] = df["kettonum"].map(bms_map)
-                # 各行に特徴量を計算
-                sire_cols = ["sire_wr", "sire_surface_wr", "sire_distance_wr", "sire_prize_avg", "bms_wr"]
-                for col in sire_cols:
-                    df[col] = np.nan
-                for idx, row in df.iterrows():
-                    surface_val = row.get("surface", "turf")
-                    kyori_val = row.get("kyori")
-                    kyori = int(kyori_val) if pd.notna(kyori_val) else 1600
-                    # 種牡馬 (父) の産駒特徴量
-                    feats = sire_feat.compute(row.get("sire_id"), row.get("race_date"), surface_val, kyori)
-                    for k, v in feats.items():
-                        df.at[idx, k] = v
-                    # bms_wr (母父): 母父の種牡馬としての産駒勝率
-                    bms_feats = sire_feat.compute(row.get("bms_id"), row.get("race_date"), surface_val, kyori)
-                    df.at[idx, "bms_wr"] = bms_feats.get("sire_wr", np.nan)
+                # ベクトル化一括計算
+                sire_result = sire_feat.compute_batch(df)
+                # モデルで使用する5列のみを反映 (sire_place_rate は未使用のため除外)
+                _sire_cols_needed = {"sire_wr", "sire_surface_wr", "sire_distance_wr",
+                                     "sire_prize_avg", "bms_wr"}
+                for col in _sire_cols_needed:
+                    if col in sire_result.columns:
+                        df[col] = sire_result[col].values
 
         # Group E: 交互作用特徴量 (HorseHistoryFeatures 後に実行 — kyakusitu_cd が必要)
         from features.interaction_features import compute_interaction_features
