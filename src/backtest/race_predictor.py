@@ -223,4 +223,7 @@ class RacePredictor:
             "hist_positive_return_ratio": row.get("hist_positive_return_ratio", 0.3),
             "hist_win_rate_same_condition": row.get("hist_hit_rate_topk", 0.3),
             "hist_market_entropy_avg": row.get("market_entropy", 2.0),
+            # v5.6: EMA平滑化市場指標
+            "overround_ema": row.get("overround_ema", 0.20),
+            "entropy_ema": row.get("entropy_ema", 2.0),
         }
