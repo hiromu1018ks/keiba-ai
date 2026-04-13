@@ -135,6 +135,84 @@ class MarketModel:
 
         return df
 
+    def predict_oof(self, df: pd.DataFrame, n_splits: int = 5) -> pd.DataFrame:
+        """OOF (out-of-fold) 予測を生成し、DataFrame の該当列を上書きする。
+
+        学習データ内で KFold CV を行い、各foldのvalid予測を結合。
+        最後に全データで再学習して推論用モデルを更新。
+
+        PIT安全: shuffle=False (時系列順序維持)、各foldのvalidデータは
+        そのfoldの学習に使用されない。
+        """
+        from sklearn.model_selection import KFold
+
+        features = df[self.FEATURE_COLS].copy()
+        for col in features.columns:
+            if pd.api.types.is_integer_dtype(features[col]):
+                features[col] = features[col].astype(float)
+        for col in ["surface", "distance_bin", "grade_code"]:
+            if col in features.columns:
+                features[col] = features[col].astype("category")
+
+        target = df["p_market_win_adj"]
+        oof_pred = pd.Series(np.nan, index=df.index, name="_p_market_pred_win_oof")
+
+        kf = KFold(n_splits=n_splits, shuffle=False)
+        for train_idx, valid_idx in kf.split(features):
+            train_data = lgb.Dataset(features.iloc[train_idx], label=target.iloc[train_idx])
+            valid_data = lgb.Dataset(
+                features.iloc[valid_idx],
+                label=target.iloc[valid_idx],
+                reference=train_data,
+            )
+            fold_model = lgb.train(
+                {
+                    "objective": "regression_l1",
+                    "metric": "mae",
+                    "learning_rate": 0.03,
+                    "num_leaves": 31,
+                    "feature_fraction": 0.7,
+                    "verbose": -1,
+                },
+                train_data,
+                num_boost_round=300,
+                valid_sets=[valid_data],
+                callbacks=[lgb.early_stopping(stopping_rounds=100, verbose=False)],
+            )
+            oof_pred.iloc[valid_idx] = fold_model.predict(
+                features.iloc[valid_idx],
+                num_iteration=fold_model.best_iteration,
+            )
+
+        # 全データで再学習 (推論用)
+        self.train(df)
+
+        # OOF予測で log_error を再計算
+        df = df.copy()
+        df["_p_market_pred_win"] = oof_pred
+        p_pred = oof_pred.clip(self.P_PRED_CLIP_MIN, self.P_PRED_CLIP_MAX)
+        p_actual = df["p_market_win_adj"].clip(self.P_PRED_CLIP_MIN, self.P_PRED_CLIP_MAX)
+        df["signed_log_error_win"] = np.log(p_pred / p_actual)
+        df["abs_log_error_win"] = np.abs(df["signed_log_error_win"])
+
+        # 既存列も上書き (後方互換)
+        df["market_log_error_win"] = df["signed_log_error_win"]
+        raw_error = df["p_market_win_adj"] - oof_pred
+        df["market_pred_error_win"] = raw_error
+
+        # レース内相対ランク
+        df["market_error_rank_in_race"] = (
+            df["market_log_error_win"]
+            .groupby(df["race_id"])
+            .rank(method="first", ascending=True)
+            .astype("Int64")
+        )
+
+        # Rule 11: p_market_pred は Stage2 に渡さない
+        df = df.drop(columns=["_p_market_pred_win"])
+
+        return df
+
     def get_stage2_features(self) -> list[str]:
         """
         Stage2 に渡す Market Model 由来の特徴量リスト。
