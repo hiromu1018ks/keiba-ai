@@ -71,6 +71,12 @@ class ParquetStore:
                 val
             ) and not pd.api.types.is_datetime64_any_dtype(series):
                 series = pd.to_datetime(series)
+            # 文字列列と数値の比較をサポート (e.g. year 列が string 型)
+            if isinstance(val, (int, float)) and (
+                pd.api.types.is_string_dtype(series)
+                or pd.api.types.is_object_dtype(series)
+            ):
+                series = pd.to_numeric(series, errors="coerce")
             if op == ">=":
                 mask &= series >= val
             elif op == "<=":

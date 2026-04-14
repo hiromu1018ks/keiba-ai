@@ -53,8 +53,9 @@ def compute_form_features(
     form_consistency = float(np.std(norm))
 
     # form_peak_flag: 直近2走が全体平均より良い → 1.0
+    # 修正: norm[-2:] (最新2走) を使用。norm[:2] は最古2走だった。
     if n >= 3:
-        recent_avg = float(norm[:2].mean())
+        recent_avg = float(norm[-2:].mean())
         overall_avg = float(norm.mean())
         form_peak_flag = 1.0 if recent_avg < overall_avg else 0.0
     else:

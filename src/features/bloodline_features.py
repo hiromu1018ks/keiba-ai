@@ -102,6 +102,9 @@ class BloodlineFeatures:
         horse_career_stats.parquet から point-in-time 累積成績を取得し、
         Beta 平滑化勝率を計算する。
         """
+        # datakubun違い等で同一(race_id, umaban)が複数行ある場合に備え dedup
+        entry_df = entry_df.drop_duplicates(subset=["race_id", "umaban"], keep="first")
+
         career = self._load_career_stats()
 
         if "kettonum" not in entry_df.columns or career.empty:
@@ -112,16 +115,20 @@ class BloodlineFeatures:
         # （PIT安全: cum_start 最小の行＝当日結果を含まない）
         career = career.drop_duplicates(subset=["race_id", "kettonum"], keep="first")
         merge_keys = ["race_id", "kettonum"]
-        merged = entry_df[["race_id", "umaban", "kettonum"]].merge(
+        # surface/track_condition_code も merged に含めて全計算を merged 上で行う
+        _sel = ["race_id", "umaban", "kettonum"]
+        for _c in ("surface", "track_condition_code"):
+            if _c in entry_df.columns:
+                _sel.append(_c)
+        merged = entry_df[_sel].merge(
             career, on=merge_keys, how="left"
         )
 
-        result = merged[["race_id", "umaban"]].copy()
+        # cross-join 防御: merged 自体を (race_id, umaban) で dedup
+        # これにより merged, result, entry_df の行数が全て一致する
+        merged = merged.drop_duplicates(subset=["race_id", "umaban"], keep="first")
 
-        # cross-join 防御: merge キーで重複が発生していた場合に備え dedup
-        # （career 側 dedup でも entry 側に重複がある可能性があるため）
-        if result.duplicated(subset=["race_id", "umaban"]).any():
-            result = result.drop_duplicates(subset=["race_id", "umaban"], keep="first")
+        result = merged[["race_id", "umaban"]].copy()
 
         # --- 総合成績勝率 ---
         result["blood_total_wr"] = np.where(
@@ -160,12 +167,12 @@ class BloodlineFeatures:
         ]
         if all(c in merged.columns for c in _cond_cols):
             baba = pd.to_numeric(
-                entry_df.get("track_condition_code", pd.Series(0, index=entry_df.index)),
+                merged.get("track_condition_code", pd.Series(0, index=merged.index)),
                 errors="coerce",
             )
             is_good = baba.isin([1, 2])
             is_heavy = baba.isin([3, 4])
-            is_turf_race = entry_df.get("surface", pd.Series("", index=entry_df.index)) == "turf"
+            is_turf_race = merged.get("surface", pd.Series("", index=merged.index)) == "turf"
 
             # 芝良
             cond_turf_good = is_turf_race & is_good

@@ -168,7 +168,8 @@ class CourseFeatures:
             target_dbs = targets.loc[mask_target, "db_str"].values
             target_indices = targets.loc[mask_target].index.values
 
-            cutoffs = np.searchsorted(h_dates[hs:he], target_dates, side='right')
+            # PIT: side='left' で target_date と同日のレースを除外 (厳密な過去のみ)
+            cutoffs = np.searchsorted(h_dates[hs:he], target_dates, side='left')
             base = hs
 
             for j, (ti, c, tjc, tdb) in enumerate(zip(target_indices, cutoffs, target_jyocds, target_dbs)):
