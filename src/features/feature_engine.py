@@ -131,23 +131,9 @@ class FeatureEngine:
                 bloodline_df = bloodline.compute(df)
                 df = pd.merge(df, bloodline_df, on=["race_id", "umaban"], how="left")
 
-        # Group C: ペース適性特徴量
-        with TimingContext("build_all/pace_aptitude"):
-            import numpy as _np
-
-            # 各馬の過去走データからペース適性を計算
-            # (注意: HorseHistoryFeatures の結果を merge 後に呼ぶのが理想だが、
-            #  build_all 時点では過去走データがないため、ここではNaNを設定し、
-            #  TrainingPipeline / BacktestEngine で後から計算・上書きする)
-            df["pace_aptitude"] = _np.nan
-            df["front_pace_wr"] = _np.nan
-            df["closing_pace_wr"] = _np.nan
-
-        # Group D: コース別適性特徴量
-        with TimingContext("build_all/course_features"):
-            # プレースホルダー: TrainingPipeline / BacktestEngine で後から計算
-            df["course_wr"] = _np.nan
-            df["course_distance_wr"] = _np.nan
+        # NOTE: Group C (ペース適性特徴量) と Group D (コース別適性特徴量) は
+        # TrainingPipeline._train_submodel() で計算されるため、ここではプレースホルダーなし
+        # pace_aptitude, front_pace_wr, closing_pace_wr, course_wr, course_distance_wr
 
         # NOTE: Group E (interaction features) は HorseHistoryFeatures 後に呼ぶこと。
         # kyakusitu_cd が必要なため、build_all では実行しない。

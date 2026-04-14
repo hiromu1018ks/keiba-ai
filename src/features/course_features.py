@@ -84,6 +84,18 @@ class CourseFeatures:
         entries_hist = load_history_entries(self.store)
         races_hist = load_history_races(self.store)
 
+        # 結果列を初期化
+        result_cols = ["course_wr", "course_distance_wr"]
+        for col in result_cols:
+            df[col] = np.nan
+
+        # 空チェック (テスト環境では mock が空 DataFrame を返す)
+        # hasattr で DataFrame かどうかを確認
+        if (hasattr(entries_hist, "empty") and entries_hist.empty) or \
+           (hasattr(races_hist, "empty") and races_hist.empty) or \
+           df.empty:
+            return df[["kettonum", "race_id"] + result_cols].copy()
+
         # 必要列の結合
         race_cols = ["race_id", "trackcd", "kyori", "surface", "track_condition_code"]
         if "jyocd" in races_hist.columns:
@@ -120,8 +132,10 @@ class CourseFeatures:
             target_races = df[df["kettonum"] == kettonum]["race_id"].unique()
 
             # 該当馬の過去走を抽出 (有効な出走のみ)
+            # syussotosu を数値に変換 (テスト環境での MagicMock 対策)
+            syussotosu_numeric = pd.to_numeric(past_df["syussotosu"], errors="coerce").fillna(-1)
             horse_past = past_df[
-                (past_df["kettonum"] == kettonum) & (past_df["syussotosu"].fillna(-1) >= 8)
+                (past_df["kettonum"] == kettonum) & (syussotosu_numeric >= 8)
             ].copy()
 
             # 各対象レースの特徴量を計算

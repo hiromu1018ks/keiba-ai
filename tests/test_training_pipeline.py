@@ -266,14 +266,23 @@ class TestTrainingPipelineV5:
                                 "db.readers.load_sire_stats",
                                 return_value=pd.DataFrame(),
                             ):
-                                pipeline = TrainingPipelineV5.__new__(TrainingPipelineV5)
-                                pipeline.store = mock_store
-                                pipeline.db = None
-                                pipeline.feature_engine = FeatureEngine()
-                                pipeline.submodel_mgr = SubModelManager()
-                                pipeline.model_dir = Path("data/models")
+                                # pace_aptitude と course_features 用に空の履歴データをモック
+                                with patch(
+                                    "db.readers.load_history_entries",
+                                    return_value=pd.DataFrame(),
+                                ):
+                                    with patch(
+                                        "db.readers.load_history_races",
+                                        return_value=pd.DataFrame(),
+                                    ):
+                                        pipeline = TrainingPipelineV5.__new__(TrainingPipelineV5)
+                                        pipeline.store = mock_store
+                                        pipeline.db = None
+                                        pipeline.feature_engine = FeatureEngine()
+                                        pipeline.submodel_mgr = SubModelManager()
+                                        pipeline.model_dir = Path("data/models")
 
-                                result = pipeline.run("2020-01-01", "2023-12-31")
+                                        result = pipeline.run("2020-01-01", "2023-12-31")
 
         assert isinstance(result, TrainedModelsV5)
         assert "turf" in result.submodels or "dirt" in result.submodels
@@ -313,14 +322,23 @@ class TestTrainingPipelineV5:
                                 "db.readers.load_sire_stats",
                                 return_value=pd.DataFrame(),
                             ):
-                                pipeline = TrainingPipelineV5.__new__(TrainingPipelineV5)
-                                pipeline.store = mock_store
-                                pipeline.db = None
-                                pipeline.feature_engine = FeatureEngine()
-                                pipeline.submodel_mgr = SubModelManager()
-                                pipeline.model_dir = Path("data/models")
+                                # pace_aptitude と course_features 用に空の履歴データをモック
+                                with patch(
+                                    "db.readers.load_history_entries",
+                                    return_value=pd.DataFrame(),
+                                ):
+                                    with patch(
+                                        "db.readers.load_history_races",
+                                        return_value=pd.DataFrame(),
+                                    ):
+                                        pipeline = TrainingPipelineV5.__new__(TrainingPipelineV5)
+                                        pipeline.store = mock_store
+                                        pipeline.db = None
+                                        pipeline.feature_engine = FeatureEngine()
+                                        pipeline.submodel_mgr = SubModelManager()
+                                        pipeline.model_dir = Path("data/models")
 
-                                result = pipeline.run("2020-01-01", "2023-12-31")
+                                        result = pipeline.run("2020-01-01", "2023-12-31")
 
         assert len(result.submodels) >= 1
 
@@ -354,14 +372,23 @@ class TestTrainingPipelineV5:
                                 "db.readers.load_sire_stats",
                                 return_value=pd.DataFrame(),
                             ):
-                                pipeline = TrainingPipelineV5.__new__(TrainingPipelineV5)
-                                pipeline.store = mock_store
-                                pipeline.db = None
-                                pipeline.feature_engine = FeatureEngine()
-                                pipeline.submodel_mgr = SubModelManager()
-                                pipeline.model_dir = Path("data/models")
+                                # pace_aptitude と course_features 用に空の履歴データをモック
+                                with patch(
+                                    "db.readers.load_history_entries",
+                                    return_value=pd.DataFrame(),
+                                ):
+                                    with patch(
+                                        "db.readers.load_history_races",
+                                        return_value=pd.DataFrame(),
+                                    ):
+                                        pipeline = TrainingPipelineV5.__new__(TrainingPipelineV5)
+                                        pipeline.store = mock_store
+                                        pipeline.db = None
+                                        pipeline.feature_engine = FeatureEngine()
+                                        pipeline.submodel_mgr = SubModelManager()
+                                        pipeline.model_dir = Path("data/models")
 
-                                pipeline.run("2020-01-01", "2023-12-31")
+                                        pipeline.run("2020-01-01", "2023-12-31")
 
         mock_mlflow.start_run.assert_called_once()
 

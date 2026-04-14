@@ -100,7 +100,11 @@ class PaceAptitudeFeatures:
         for col in result_cols:
             df[col] = np.nan
 
-        if entries_hist.empty or races_hist.empty or df.empty:
+        # 空チェック (テスト環境では mock が空 DataFrame を返す)
+        # hasattr で DataFrame かどうかを確認
+        if (hasattr(entries_hist, "empty") and entries_hist.empty) or \
+           (hasattr(races_hist, "empty") and races_hist.empty) or \
+           df.empty:
             return df[["kettonum", "race_id"] + result_cols].copy()
 
         # 必要列の結合
@@ -126,7 +130,9 @@ class PaceAptitudeFeatures:
             past_df.loc[~is_turf & (dist <= 1400), "distance_bin"] = "sprint"
 
         # syussotosu >= 8 のみ有効な出走のみ対象
-        valid_mask = past_df["syussotosu"].fillna(-1) >= 8
+        # syussotosu を数値に変換 (テスト環境での MagicMock 対策)
+        syussotosu_numeric = pd.to_numeric(past_df["syussotosu"], errors="coerce").fillna(-1)
+        valid_mask = syussotosu_numeric >= 8
         past_df = past_df[valid_mask].copy()
 
         # kettonum ごとの特徴量計算

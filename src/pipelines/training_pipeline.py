@@ -284,6 +284,49 @@ class TrainingPipelineV5:
         with TimingContext(f"{surface}/add_race_transforms"):
             df = HorseHistoryFeatures.add_race_transforms(df)
 
+        # Group C: ペース適性特徴量 (HorseHistoryFeatures の直後)
+        from features.pace_aptitude_features import PaceAptitudeFeatures
+
+        with TimingContext(f"{surface}/pace_aptitude"):
+            pace_feat = PaceAptitudeFeatures(store=self.store)
+            pace_df = pace_feat.compute_batch(df)
+            # df には既に特徴量列が含まれている可能性があるため削除
+            for col in ["pace_aptitude", "front_pace_wr", "closing_pace_wr"]:
+                if col in df.columns:
+                    df.drop(columns=[col], inplace=True)
+            if not pace_df.empty:
+                df = df.merge(
+                    pace_df[["kettonum", "race_id", "pace_aptitude", "front_pace_wr", "closing_pace_wr"]],
+                    on=["kettonum", "race_id"],
+                    how="left"
+                )
+            else:
+                # 空の場合は結果列を NaN で追加
+                df["pace_aptitude"] = np.nan
+                df["front_pace_wr"] = np.nan
+                df["closing_pace_wr"] = np.nan
+
+        # Group D: コース別適性特徴量 (pace_aptitude の直後)
+        from features.course_features import CourseFeatures
+
+        with TimingContext(f"{surface}/course_features"):
+            course_feat = CourseFeatures(store=self.store)
+            course_df = course_feat.compute_batch(df)
+            # df には既に特徴量列が含まれている可能性があるため削除
+            for col in ["course_wr", "course_distance_wr"]:
+                if col in df.columns:
+                    df.drop(columns=[col], inplace=True)
+            if not course_df.empty:
+                df = df.merge(
+                    course_df[["kettonum", "race_id", "course_wr", "course_distance_wr"]],
+                    on=["kettonum", "race_id"],
+                    how="left"
+                )
+            else:
+                # 空の場合は結果列を NaN で追加
+                df["course_wr"] = np.nan
+                df["course_distance_wr"] = np.nan
+
         # 種牡馬産駒特徴量の追加 (ベクトル化)
         from features.sire_features import SireFeatures
         from db.readers import load_sire_stats, load_horses
