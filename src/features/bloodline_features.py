@@ -108,12 +108,20 @@ class BloodlineFeatures:
             return entry_df[["race_id", "umaban"]].assign(**{c: float("nan") for c in FEATURE_COLS})
 
         # entry_df と career_stats を (race_id, kettonum) で結合
+        # career 側に重複がある場合 cross-join で行数爆発するため dedup
+        # （PIT安全: cum_start 最小の行＝当日結果を含まない）
+        career = career.drop_duplicates(subset=["race_id", "kettonum"], keep="first")
         merge_keys = ["race_id", "kettonum"]
         merged = entry_df[["race_id", "umaban", "kettonum"]].merge(
             career, on=merge_keys, how="left"
         )
 
         result = merged[["race_id", "umaban"]].copy()
+
+        # cross-join 防御: merge キーで重複が発生していた場合に備え dedup
+        # （career 側 dedup でも entry 側に重複がある可能性があるため）
+        if result.duplicated(subset=["race_id", "umaban"]).any():
+            result = result.drop_duplicates(subset=["race_id", "umaban"], keep="first")
 
         # --- 総合成績勝率 ---
         result["blood_total_wr"] = np.where(

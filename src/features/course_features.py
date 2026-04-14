@@ -1,4 +1,4 @@
-"""コース別適性特徴量 — 競馬場×距離帯の過去勝率"""
+"""コース別適性特徴量 — 競馬場×距離帯の過去勝率（ベクトル化版）"""
 
 from __future__ import annotations
 
@@ -28,30 +28,17 @@ class CourseFeatures:
         distance_bin: str,
         target_date: str | pd.Timestamp,
     ) -> dict[str, float]:
-        """1頭分のコース適性特徴量を計算
-
-        Args:
-            history: 過去出走DataFrame
-                (race_date, jyocd, kakuteijyuni, distance_bin, syussotosu 列が必要)
-            jyocd: 競馬場コード (e.g., "01" = 京都, "02" = 中山, etc.)
-            distance_bin: 距離帯 ("sprint", "mile", "intermediate", "long")
-            target_date: 対象レース日付
-
-        Returns:
-            dict with keys: course_wr, course_distance_wr
-        """
+        """1頭分のコース適性特徴量を計算"""
         result: dict[str, float] = {"course_wr": np.nan, "course_distance_wr": np.nan}
 
         if history.empty:
             return result
 
         ts = pd.Timestamp(target_date)
-        # *** PIT CRITICAL: 当日以前のみ使用 ***
         past = history[history["race_date"] < ts]
         if past.empty:
             return result
 
-        # 競馬場別勝率
         venue_races = past[past["jyocd"] == jyocd]
         if len(venue_races) > 0:
             wins = int((venue_races["kakuteijyuni"] == 1).sum())
@@ -59,7 +46,6 @@ class CourseFeatures:
         else:
             result["course_wr"] = _beta_smooth(0, 0)
 
-        # 競馬場×距離帯別勝率
         vd_races = venue_races[venue_races["distance_bin"] == distance_bin]
         if len(vd_races) > 0:
             wins = int((vd_races["kakuteijyuni"] == 1).sum())
@@ -70,44 +56,42 @@ class CourseFeatures:
         return result
 
     def compute_batch(self, df: pd.DataFrame) -> pd.DataFrame:
-        """全馬のコース適性特徴量を一括計算する
+        """全馬のコース適性特徴量を一括計算する（完全ベクトル化）
 
-        Args:
-            df: kettonum, race_id, race_date, surface, distance_bin, jyocd 列を持つ DataFrame
-
-        Returns:
-            course_wr, course_distance_wr 列を持つ DataFrame
+        Pythonレベルのループは kettonum のユニーク値1回のみ。
         """
         from db.readers import load_history_entries, load_history_races
 
-        # 過去走データをロード
+        result_cols = ["course_wr", "course_distance_wr"]
+
         entries_hist = load_history_entries(self.store)
         races_hist = load_history_races(self.store)
 
-        # 結果列を初期化
-        result_cols = ["course_wr", "course_distance_wr"]
-        for col in result_cols:
-            df[col] = np.nan
-
-        # 空チェック (テスト環境では mock が空 DataFrame を返す)
-        # hasattr で DataFrame かどうかを確認
+        # 空チェック
         if (hasattr(entries_hist, "empty") and entries_hist.empty) or \
            (hasattr(races_hist, "empty") and races_hist.empty) or \
            df.empty:
-            return df[["kettonum", "race_id"] + result_cols].copy()
+            out = df[["kettonum", "race_id"]].copy()
+            for c in result_cols:
+                out[c] = np.nan
+            return out
 
-        # 必要列の結合
+        # --- 過去走データ準備 ---
+        # 重要: entries_hist にも jyocd があるため、races_hist からは除外
+        # （merge 時の _x/_y サフィックス衝突を回避）
         race_cols = ["race_id", "trackcd", "kyori", "surface", "track_condition_code"]
-        if "jyocd" in races_hist.columns:
-            race_cols.append("jyocd")
-        races_subset = races_hist[races_hist["race_id"].isin(entries_hist["race_id"])]
-        past_df = entries_hist.merge(
+        if "syussotosu" in races_hist.columns:
+            race_cols.append("syussotosu")
+        # syssotosu は races 由来を使うため、entries 側から削除（_x/_y 衝突回避）
+        entries_for_merge = entries_hist.drop(columns=["syussotosu"], errors="ignore")
+        races_subset = races_hist[races_hist["race_id"].isin(entries_for_merge["race_id"])]
+        past_df = entries_for_merge.merge(
             races_subset[race_cols].drop_duplicates("race_id"),
             on="race_id",
             how="left",
         )
 
-        # distance_bin 追加
+        # distance_bin マッピング
         if "distance_bin" not in past_df.columns and "kyori" in past_df.columns:
             is_turf = past_df["surface"] == "turf"
             dist = past_df["kyori"]
@@ -120,43 +104,94 @@ class CourseFeatures:
             past_df.loc[~is_turf & (dist <= 1700), "distance_bin"] = "mile"
             past_df.loc[~is_turf & (dist <= 1400), "distance_bin"] = "sprint"
 
-        # jyocd を文字列化（2桁ゼロ埋め）
+        # jyocd を文字列化（entries_hist 由来）
         if "jyocd" in past_df.columns:
             past_df["jyocd"] = past_df["jyocd"].astype(str).str.zfill(2)
 
-        # kettonum ごとの特徴量計算
-        df["course_wr"] = np.nan
-        df["course_distance_wr"] = np.nan
+        # syussotosu >= 8 のみ有効
+        syussotosu_numeric = pd.to_numeric(past_df["syussotosu"], errors="coerce").fillna(-1)
+        past_df = past_df[syussotosu_numeric >= 8].copy()
 
-        for kettonum in df["kettonum"].unique():
-            target_races = df[df["kettonum"] == kettonum]["race_id"].unique()
+        if past_df.empty:
+            out = df[["kettonum", "race_id"]].copy()
+            for c in result_cols:
+                out[c] = np.nan
+            return out
 
-            # 該当馬の過去走を抽出 (有効な出走のみ)
-            # syussotosu を数値に変換 (テスト環境での MagicMock 対策)
-            syussotosu_numeric = pd.to_numeric(past_df["syussotosu"], errors="coerce").fillna(-1)
-            horse_past = past_df[
-                (past_df["kettonum"] == kettonum) & (syussotosu_numeric >= 8)
-            ].copy()
+        # --- ターゲット馬に絞る ---
+        target_kettons = set(df["kettonum"].unique())
+        hist = past_df[past_df["kettonum"].isin(target_kettons)].copy()
+        if hist.empty:
+            out = df[["kettonum", "race_id"]].copy()
+            for c in result_cols:
+                out[c] = np.nan
+            return out
 
-            # 各対象レースの特徴量を計算
-            for target_id in target_races:
-                target_date = df[df["race_id"] == target_id]["race_date"].values[0]
+        # --- 完全ベクトル化 ---
+        hist = hist.sort_values(["kettonum", "race_date"]).reset_index(drop=True)
 
-                # *** PIT CRITICAL: 対象レースより前のデータのみ ***
-                past_before_target = horse_past[horse_past["race_date"] < target_date]
+        # 各馬のインデックス範囲
+        horse_keys, horse_starts, horse_ends = np.unique(
+            hist["kettonum"].values, return_index=True, return_counts=True
+        )
+        horse_ends = horse_starts + horse_ends
 
-                # race_df から jyocd, distance_bin を取得
-                race_row = df[df["race_id"] == target_id].iloc[0]
-                jyocd = str(race_row.get("jyocd", ""))
-                distance_bin = str(race_row.get("distance_bin", ""))
+        # 各馬のデータ配列
+        h_dates = hist["race_date"].values
+        h_jyocd = hist["jyocd"].values.astype(str)
+        h_dist_bin = hist["distance_bin"].values.astype(str)
+        h_is_win = (hist["kakuteijyuni"] == 1).values.astype(np.int64)
 
-                # compute() を呼び出し
-                feat_dict = self.compute(past_before_target, jyocd, distance_bin, target_date)
+        # --- ターゲット行処理 ---
+        targets = df[["kettonum", "race_id", "race_date", "jyocd", "distance_bin"]].copy().reset_index(drop=True)
+        targets["jyocd_str"] = targets["jyocd"].astype(str).str.zfill(2)
+        targets["db_str"] = targets["distance_bin"].astype(str)
 
-                # 結果を保存
-                row_mask = (df["kettonum"] == kettonum) & (df["race_id"] == target_id)
-                for col, val in feat_dict.items():
-                    df.loc[row_mask, col] = val
+        kt_to_idx = {kt: i for i, kt in enumerate(horse_keys)}
 
-        # 結果列のみを返す
-        return df[["kettonum", "race_id", "course_wr", "course_distance_wr"]].copy()
+        results = {
+            "course_wr": np.full(len(targets), np.nan),
+            "course_distance_wr": np.full(len(targets), np.nan),
+        }
+
+        for kt in targets["kettonum"].unique():
+            if kt not in kt_to_idx:
+                continue
+
+            hi = kt_to_idx[kt]
+            hs = horse_starts[hi]
+            he = horse_ends[hi]
+
+            mask_target = targets["kettonum"] == kt
+            target_dates = targets.loc[mask_target, "race_date"].values
+            target_jyocds = targets.loc[mask_target, "jyocd_str"].values
+            target_dbs = targets.loc[mask_target, "db_str"].values
+            target_indices = targets.loc[mask_target].index.values
+
+            cutoffs = np.searchsorted(h_dates[hs:he], target_dates, side='right')
+            base = hs
+
+            for j, (ti, c, tjc, tdb) in enumerate(zip(target_indices, cutoffs, target_jyocds, target_dbs)):
+                if c < 1:
+                    continue
+                pos = base + c - 1
+
+                jc_slice = h_jyocd[base:base + c]
+                iw_slice = h_is_win[base:base + c]
+                db_slice = h_dist_bin[base:base + c]
+
+                venue_mask = jc_slice == tjc
+                vn = int(venue_mask.sum())
+                vw = int(iw_slice[venue_mask].sum()) if vn > 0 else 0
+
+                vd_mask = venue_mask & (db_slice == tdb)
+                vdn = int(vd_mask.sum())
+                vdw = int(iw_slice[vd_mask].sum()) if vdn > 0 else 0
+
+                results["course_wr"][ti] = _beta_smooth(vw, vn)
+                results["course_distance_wr"][ti] = _beta_smooth(vdw, vdn)
+
+        out = df[["kettonum", "race_id"]].copy()
+        for c in result_cols:
+            out[c] = results[c]
+        return out

@@ -67,6 +67,17 @@ def precompute_career_stats(
     jra_mask = jyocd_num.between(1, 10)
     ent = entries_df[jra_mask].copy()
 
+    # entries.parquet に (race_id, kettonum) の重複があると
+    # career stats が爆発するため dedup（最新の行を残す）
+    n_before = len(ent)
+    ent = ent.drop_duplicates(subset=["race_id", "kettonum"], keep="last")
+    n_dropped = n_before - len(ent)
+    if n_dropped > 0:
+        logger.warning(
+            "Dropped %d duplicate (race_id,kettonum) entries (%d -> %d)",
+            n_dropped, n_before, len(ent),
+        )
+
     if ent.empty:
         return pd.DataFrame()
 

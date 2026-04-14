@@ -136,6 +136,7 @@ class TestCourseFeaturesComputeBatch:
                 "race_date": pd.to_datetime(["2024-01-01", "2024-02-01", "2024-03-01"]),
                 "kakuteijyuni": [1, 3, 2],
                 "syussotosu": [10, 12, 8],
+                "jyocd": ["01", "05", "02"],
             }
         )
         races = pd.DataFrame(
@@ -145,6 +146,7 @@ class TestCourseFeaturesComputeBatch:
                 "kyori": [1600, 2000, 1400],
                 "surface": ["turf", "turf", "dirt"],
                 "track_condition_code": [1, 2, 3],
+                "syussotosu": [16, 12, 8],
                 "jyocd": ["01", "05", "02"],
             }
         )
@@ -177,6 +179,7 @@ class TestCourseFeaturesComputeBatch:
                 "race_date": pd.to_datetime(["2024-01-01"]),
                 "kakuteijyuni": [1],
                 "syussotosu": [10],
+                "jyocd": ["01"],
             }
         )
         races = pd.DataFrame(
@@ -186,6 +189,7 @@ class TestCourseFeaturesComputeBatch:
                 "kyori": [1600],
                 "surface": ["turf"],
                 "track_condition_code": [1],
+                "syussotosu": [10],
                 "jyocd": ["01"],
             }
         )
@@ -218,6 +222,7 @@ class TestCourseFeaturesComputeBatch:
                 "race_date": pd.to_datetime(["2024-01-01", "2024-02-01"]),
                 "kakuteijyuni": [1, 1],
                 "syussotosu": [10, 10],
+                "jyocd": ["01", "05"],
             }
         )
         races = pd.DataFrame(
@@ -227,6 +232,7 @@ class TestCourseFeaturesComputeBatch:
                 "kyori": [1600, 1600],
                 "surface": ["turf", "turf"],
                 "track_condition_code": [1, 1],
+                "syussotosu": [10, 10],
                 "jyocd": ["01", "05"],
             }
         )
@@ -259,6 +265,7 @@ class TestCourseFeaturesComputeBatch:
                 "race_date": pd.to_datetime(["2024-05-15", "2024-07-01"]),
                 "kakuteijyuni": [1, 1],
                 "syussotosu": [10, 10],
+                "jyocd": ["01", "01"],
             }
         )
         races = pd.DataFrame(
@@ -268,6 +275,7 @@ class TestCourseFeaturesComputeBatch:
                 "kyori": [1600, 1600],
                 "surface": ["turf", "turf"],
                 "track_condition_code": [1, 1],
+                "syussotosu": [10, 10],
                 "jyocd": ["01", "01"],
             }
         )

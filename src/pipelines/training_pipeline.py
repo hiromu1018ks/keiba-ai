@@ -209,7 +209,8 @@ class TrainingPipelineV5:
                         models[surface] = future.result()
                         logger.info(f"Trained {surface} submodel (parallel)")
                     except Exception as e:
-                        logger.error(f"Failed to train {surface} submodel: {e}")
+                        import traceback as tb
+                        logger.error(f"Failed to train {surface} submodel: {e}\n{tb.format_exc()}")
                         raise
 
         # 4. feat_df の object 数値列を float64 に統一

@@ -248,7 +248,29 @@ class BacktestEngine:
                 if col in sire_result_bt.columns:
                     feat_df[col] = sire_result_bt[col].values
 
-        # 4. レースごとにシミュレーション (推論は RacePredictor に委譲)
+        # 4. PaceAptitude + CourseFeatures の事前計算 (推論パスでも必要)
+        from features.pace_aptitude_features import PaceAptitudeFeatures
+        from features.course_features import CourseFeatures
+
+        logger.info("Pre-computing PaceAptitudeFeatures...")
+        pace_feat = PaceAptitudeFeatures(store=self.store)
+        pace_df = pace_feat.compute_batch(feat_df)
+        _pace_cols = [c for c in ["pace_aptitude", "front_pace_wr", "closing_pace_wr"] if c in pace_df.columns]
+        if _pace_cols:
+            feat_df = feat_df.drop(columns=_pace_cols, errors="ignore").merge(
+                pace_df[["kettonum", "race_id"] + _pace_cols], on=["kettonum", "race_id"], how="left"
+            )
+
+        logger.info("Pre-computing CourseFeatures...")
+        course_feat = CourseFeatures(store=self.store)
+        course_df = course_feat.compute_batch(feat_df)
+        _course_cols = [c for c in ["course_wr", "course_distance_wr"] if c in course_df.columns]
+        if _course_cols:
+            feat_df = feat_df.drop(columns=_course_cols, errors="ignore").merge(
+                course_df[["kettonum", "race_id"] + _course_cols], on=["kettonum", "race_id"], how="left"
+            )
+
+        # 5. レースごとにシミュレーション (推論は RacePredictor に委譲)
         diag_logger = DiagnosticLogger()
         bankroll = self.initial_bankroll
         peak_bankroll = bankroll

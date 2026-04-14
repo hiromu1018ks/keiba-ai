@@ -336,9 +336,9 @@ class TestEveryDB2Queries:
         # 型変換は行わない — 全列 object のまま
         assert result["trackcd"].dtype == object
         assert result.iloc[0]["trackcd"] == "11"
-        # s_ テーブルが使われることを確認
+        # n_race テーブルが優先して使われることを確認
         sql_called = mock_read_sql.call_args[0][0]
-        assert "s_race" in sql_called
+        assert "n_race" in sql_called
 
     @patch("db.everydb2_queries.pd.read_sql_query")
     @patch("db.everydb2_queries.psycopg2.connect")
@@ -352,7 +352,7 @@ class TestEveryDB2Queries:
         mock_connect.return_value.__exit__ = MagicMock(return_value=False)
 
         mock_read_sql.side_effect = [
-            pd.DataFrame(),  # s_race 空
+            pd.DataFrame(),  # n_race 空
             pd.DataFrame({"year": ["2026"], "trackcd": ["11"]}),
         ]
 
@@ -362,7 +362,7 @@ class TestEveryDB2Queries:
         assert not result.empty
         assert mock_read_sql.call_count == 2
         second_sql = mock_read_sql.call_args_list[1][0][0]
-        assert "n_race" in second_sql
+        assert "s_race" in second_sql
 
     @patch("db.everydb2_queries.pd.read_sql_query")
     @patch("db.everydb2_queries.psycopg2.connect")
@@ -412,8 +412,9 @@ class TestEveryDB2Queries:
         assert not result.empty
         assert len(result) == 3
         assert result["umaban"].dtype == object
+        # n_uma_race テーブルが優先して使われることを確認
         sql_called = mock_read_sql.call_args[0][0]
-        assert "s_uma_race" in sql_called
+        assert "n_uma_race" in sql_called
 
     @patch("db.everydb2_queries.pd.read_sql_query")
     @patch("db.everydb2_queries.psycopg2.connect")
@@ -427,7 +428,7 @@ class TestEveryDB2Queries:
         mock_connect.return_value.__exit__ = MagicMock(return_value=False)
 
         mock_read_sql.side_effect = [
-            pd.DataFrame(),
+            pd.DataFrame(),  # n_uma_race 空
             pd.DataFrame({"year": ["2026"], "umaban": ["1"]}),
         ]
 
@@ -437,7 +438,7 @@ class TestEveryDB2Queries:
         assert not result.empty
         assert mock_read_sql.call_count == 2
         second_sql = mock_read_sql.call_args_list[1][0][0]
-        assert "n_uma_race" in second_sql
+        assert "s_uma_race" in second_sql
 
     @patch("db.everydb2_queries.pd.read_sql_query")
     @patch("db.everydb2_queries.psycopg2.connect")

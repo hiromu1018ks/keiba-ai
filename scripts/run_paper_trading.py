@@ -402,6 +402,43 @@ def _run_predict(
         how="left",
     )
 
+    # 種牡馬特徴量 (SireFeatures)
+    from features.sire_features import SireFeatures
+    from db.readers import load_sire_stats, load_horses
+    sire_stats_pt = load_sire_stats(store)
+    if not sire_stats_pt.empty:
+        horses_pt = load_horses(store)
+        sire_feat_pt = SireFeatures(sire_stats_pt)
+        sire_map_pt = horses_pt.set_index("kettonum")["ketto3infohansyokunum1"]
+        bms_map_pt = horses_pt.set_index("kettonum")["ketto3infohansyokunum3"]
+        feat_df["sire_id"] = feat_df["kettonum"].map(sire_map_pt)
+        feat_df["bms_id"] = feat_df["kettonum"].map(bms_map_pt)
+        sire_result_pt = sire_feat_pt.compute_batch(feat_df)
+        _sire_cols = {"sire_wr", "sire_surface_wr", "sire_distance_wr", "sire_prize_avg", "bms_wr"}
+        for sc in _sire_cols:
+            if sc in sire_result_pt.columns:
+                feat_df[sc] = sire_result_pt[sc].values
+
+    # ペース適性 + コース別適性特徴量
+    from features.pace_aptitude_features import PaceAptitudeFeatures
+    from features.course_features import CourseFeatures
+
+    pace_feat = PaceAptitudeFeatures(store=store)
+    pace_df = pace_feat.compute_batch(feat_df)
+    _pace_cols = [c for c in ["pace_aptitude", "front_pace_wr", "closing_pace_wr"] if c in pace_df.columns]
+    if _pace_cols:
+        feat_df = feat_df.drop(columns=_pace_cols, errors="ignore").merge(
+            pace_df[["kettonum", "race_id"] + _pace_cols], on=["kettonum", "race_id"], how="left"
+        )
+
+    course_feat = CourseFeatures(store=store)
+    course_df = course_feat.compute_batch(feat_df)
+    _course_cols = [c for c in ["course_wr", "course_distance_wr"] if c in course_df.columns]
+    if _course_cols:
+        feat_df = feat_df.drop(columns=_course_cols, errors="ignore").merge(
+            course_df[["kettonum", "race_id"] + _course_cols], on=["kettonum", "race_id"], how="left"
+        )
+
     # 既存予測の読み込み (重複回避)
     pred_path = config.paper_trading_dir / "predictions" / f"{ymd}.parquet"
     existing_pred_df = pd.DataFrame()
@@ -719,6 +756,40 @@ def _run_diagnose(
     jockey_all = JockeyContextFeatures(store).compute(entry_df)
     trainer_all = TrainerContextFeatures(store).compute(entry_df)
     jt_all = JockeyTrainerComboFeatures(store).compute(entry_df)
+
+    # ペース適性 + コース別適性 + 種牡馬特徴量 (予測パスで必要)
+    from features.pace_aptitude_features import PaceAptitudeFeatures
+    from features.course_features import CourseFeatures
+
+    pace_feat2 = PaceAptitudeFeatures(store=store)
+    pace_df2 = pace_feat2.compute_batch(feat_df)
+    _pace_cols2 = [c for c in ["pace_aptitude", "front_pace_wr", "closing_pace_wr"] if c in pace_df2.columns]
+    if _pace_cols2:
+        feat_df = feat_df.drop(columns=_pace_cols2, errors="ignore").merge(
+            pace_df2[["kettonum", "race_id"] + _pace_cols2], on=["kettonum", "race_id"], how="left"
+        )
+
+    course_feat2 = CourseFeatures(store=store)
+    course_df2 = course_feat2.compute_batch(feat_df)
+    _course_cols2 = [c for c in ["course_wr", "course_distance_wr"] if c in course_df2.columns]
+    if _course_cols2:
+        feat_df = feat_df.drop(columns=_course_cols2, errors="ignore").merge(
+            course_df2[["kettonum", "race_id"] + _course_cols2], on=["kettonum", "race_id"], how="left"
+        )
+
+    sire_stats_pt2 = load_sire_stats(store)
+    if not sire_stats_pt2.empty:
+        horses_pt2 = load_horses(store)
+        from features.sire_features import SireFeatures
+        sire_feat2 = SireFeatures(sire_stats_pt2)
+        sire_map2 = horses_pt2.set_index("kettonum")["ketto3infohansyokunum1"]
+        bms_map2 = horses_pt2.set_index("kettonum")["ketto3infohansyokunum3"]
+        feat_df["sire_id"] = feat_df["kettonum"].map(sire_map2)
+        feat_df["bms_id"] = feat_df["kettonum"].map(bms_map2)
+        sire_result2 = sire_feat2.compute_batch(feat_df)
+        for sc2 in {"sire_wr", "sire_surface_wr", "sire_distance_wr", "sire_prize_avg", "bms_wr"}:
+            if sc2 in sire_result2.columns:
+                feat_df[sc2] = sire_result2[sc2].values
 
     # 推論 + 診断ログ
     race_predictor = RacePredictor(models)
@@ -1133,6 +1204,42 @@ def _run_dry_run(
         on=["race_id", "umaban"],
         how="left",
     )
+
+    # 種牡馬特徴量 (SireFeatures)
+    from features.sire_features import SireFeatures
+    from db.readers import load_sire_stats, load_horses
+    sire_stats_pt3 = load_sire_stats(store)
+    if not sire_stats_pt3.empty:
+        horses_pt3 = load_horses(store)
+        sire_feat3 = SireFeatures(sire_stats_pt3)
+        sire_map3 = horses_pt3.set_index("kettonum")["ketto3infohansyokunum1"]
+        bms_map3 = horses_pt3.set_index("kettonum")["ketto3infohansyokunum3"]
+        feat_df["sire_id"] = feat_df["kettonum"].map(sire_map3)
+        feat_df["bms_id"] = feat_df["kettonum"].map(bms_map3)
+        sire_result3 = sire_feat3.compute_batch(feat_df)
+        for sc3 in {"sire_wr", "sire_surface_wr", "sire_distance_wr", "sire_prize_avg", "bms_wr"}:
+            if sc3 in sire_result3.columns:
+                feat_df[sc3] = sire_result3[sc3].values
+
+    # ペース適性 + コース別適性特徴量
+    from features.pace_aptitude_features import PaceAptitudeFeatures
+    from features.course_features import CourseFeatures
+
+    pace_feat3 = PaceAptitudeFeatures(store=store)
+    pace_df3 = pace_feat3.compute_batch(feat_df)
+    _pace_cols3 = [c for c in ["pace_aptitude", "front_pace_wr", "closing_pace_wr"] if c in pace_df3.columns]
+    if _pace_cols3:
+        feat_df = feat_df.drop(columns=_pace_cols3, errors="ignore").merge(
+            pace_df3[["kettonum", "race_id"] + _pace_cols3], on=["kettonum", "race_id"], how="left"
+        )
+
+    course_feat3 = CourseFeatures(store=store)
+    course_df3 = course_feat3.compute_batch(feat_df)
+    _course_cols3 = [c for c in ["course_wr", "course_distance_wr"] if c in course_df3.columns]
+    if _course_cols3:
+        feat_df = feat_df.drop(columns=_course_cols3, errors="ignore").merge(
+            course_df3[["kettonum", "race_id"] + _course_cols3], on=["kettonum", "race_id"], how="left"
+        )
 
     # 日次シミュレーション
     total_bets = 0

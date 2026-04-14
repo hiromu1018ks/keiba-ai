@@ -162,51 +162,62 @@ class EveryDB2Queries:
             return None
 
     def get_races(self, date_str: str) -> pd.DataFrame:
-        """当日のレース情報を取得。s_race → n_race フォールバック。
+        """当日のレース情報を取得。n_race → s_race フォールバック。
 
         戻り値は EveryDB2 生データ (全列 character varying)。型変換は呼び出し側で行う。
-        """
-        # 同一レースに複数DataKubunレコードが存在するため、
-        # 出馬表 (DataKubun=2) のみを返す（発走前の馬場状態を含む）
-        # DataKubun=1: 木曜出走馬名表（馬場状態なし）
-        # DataKubun>=3: 速報/確定成績（着順・タイム等のリーク防止のため除外）
-        sql = "SELECT * FROM s_race WHERE year || monthday = %s AND DataKubun = '2'"
-        try:
-            df = self._query(sql, (date_str,))
-            if not df.empty:
-                return df
-        except Exception:
-            logger.exception("Failed to query s_race for %s", date_str)
 
+        優先順位:
+          1. n_race (蓄積テーブル): 全レースのメタデータを保持、TCC含む、PIT安全
+          2. s_race DK=2 (速報テーブル): 当日データでn_raceに未反映の場合のフォールバック
+
+        レースメタデータ (trackcd, kyori, TCC等) は全DataKubun値で共通のため、
+        どのテーブルから取得してもPIT安全（ルックアヘッドなし）。
+        """
         sql = "SELECT * FROM n_race WHERE year || monthday = %s"
         try:
             df = self._query(sql, (date_str,))
-            return df
+            if not df.empty:
+                return df
         except Exception:
             logger.exception("Failed to query n_race for %s", date_str)
+
+        # n_race が空の場合（当日データ未反映等）は s_race DK=2 にフォールバック
+        sql = "SELECT * FROM s_race WHERE year || monthday = %s AND DataKubun = '2'"
+        try:
+            df = self._query(sql, (date_str,))
+            return df
+        except Exception:
+            logger.exception("Failed to query s_race for %s", date_str)
             return pd.DataFrame()
 
     def get_entries(self, date_str: str) -> pd.DataFrame:
-        """当日の出走馬を取得。s_uma_race → n_uma_race フォールバック。
+        """当日の出走馬を取得。n_uma_race → s_uma_race フォールバック。
 
         戻り値は EveryDB2 生データ (全列 character varying)。型変換は呼び出し側で行う。
-        DataKubun=1 は木曜出走馬名表（不完全データ）のため除外。
-        DataKubun>=3 は速報/確定成績（着順・タイム等のリーク防止のため除外）。
+
+        優先順位:
+          1. n_uma_race (蓄積テーブル): 全出走馬データを保持、PIT安全
+          2. s_uma_race DK=2 (速報テーブル): 当日データのフォールバック
+
+        出走データ (馬番, 騎手, 重量等) はDataKubun値に関わらず共通。
+        n_uma_race は確定成績 (kakuteijyuni等) を含むが、
+        特徴量エンジニアリングでは着順列は使用しないためPIT安全。
         """
-        sql = "SELECT * FROM s_uma_race WHERE year || monthday = %s AND DataKubun = '2'"
+        sql = "SELECT * FROM n_uma_race WHERE year || monthday = %s"
         try:
             df = self._query(sql, (date_str,))
             if not df.empty:
                 return df
         except Exception:
-            logger.exception("Failed to query s_uma_race for %s", date_str)
+            logger.exception("Failed to query n_uma_race for %s", date_str)
 
-        sql = "SELECT * FROM n_uma_race WHERE year || monthday = %s"
+        # n_uma_race が空の場合は s_uma_race DK=2 にフォールバック
+        sql = "SELECT * FROM s_uma_race WHERE year || monthday = %s AND DataKubun = '2'"
         try:
             df = self._query(sql, (date_str,))
             return df
         except Exception:
-            logger.exception("Failed to query n_uma_race for %s", date_str)
+            logger.exception("Failed to query s_uma_race for %s", date_str)
             return pd.DataFrame()
 
     def get_odds_snapshots(self, date_str: str) -> pd.DataFrame:
