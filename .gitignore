@@ -54,6 +54,10 @@ catboost_info/
 # Coverage
 .coverage
 
+# Backtest generated files
+backtest_result.json
+backtest_*.log
+
 # Temp scripts
 check_ts.py
 =14.0
