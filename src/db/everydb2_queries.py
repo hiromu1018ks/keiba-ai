@@ -166,7 +166,11 @@ class EveryDB2Queries:
 
         戻り値は EveryDB2 生データ (全列 character varying)。型変換は呼び出し側で行う。
         """
-        sql = "SELECT * FROM s_race WHERE year || monthday = %s"
+        # 同一レースに複数DataKubunレコードが存在するため、
+        # 出馬表 (DataKubun=2) のみを返す（発走前の馬場状態を含む）
+        # DataKubun=1: 木曜出走馬名表（馬場状態なし）
+        # DataKubun>=3: 速報/確定成績（着順・タイム等のリーク防止のため除外）
+        sql = "SELECT * FROM s_race WHERE year || monthday = %s AND DataKubun = '2'"
         try:
             df = self._query(sql, (date_str,))
             if not df.empty:
@@ -186,8 +190,10 @@ class EveryDB2Queries:
         """当日の出走馬を取得。s_uma_race → n_uma_race フォールバック。
 
         戻り値は EveryDB2 生データ (全列 character varying)。型変換は呼び出し側で行う。
+        DataKubun=1 は木曜出走馬名表（不完全データ）のため除外。
+        DataKubun>=3 は速報/確定成績（着順・タイム等のリーク防止のため除外）。
         """
-        sql = "SELECT * FROM s_uma_race WHERE year || monthday = %s"
+        sql = "SELECT * FROM s_uma_race WHERE year || monthday = %s AND DataKubun = '2'"
         try:
             df = self._query(sql, (date_str,))
             if not df.empty:
