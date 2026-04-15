@@ -1,4 +1,4 @@
-"""Edge連動ケリー + 1レース2%キャップ (Rule 6)"""
+"""Value Betting Kelly (edge-based) + 1レース2%キャップ (Rule 6)"""
 
 from __future__ import annotations
 
@@ -11,16 +11,16 @@ from domain.types import BetType
 
 class StakeCalculator:
     """
-    賭け金計算: EV下限値に連動したケリー基準。
+    賭け金計算: Value Betting edge に連動したケリー基準。
 
-    Kelly fraction = (ev_lower - 1) / (odds - 1)
+    Kelly fraction = (edge * odds) / (odds - 1)
     実際のstake = bankroll × kelly_fraction × FRACTIONAL_KELLY
     100円単位に切り捨て。
 
     Rule 6: 1レースの最大リスクは資金の2%。
     """
 
-    MIN_EV_THRESHOLD: float = 1.05  # EV下限がこれ未満ならベットしない
+    MIN_EDGE_THRESHOLD: float = 0.005  # Minimum edge to consider betting (0.5%)
     FRACTIONAL_KELLY: float = 0.5  # ハーフケリー
     KELLY_FRACTION_CAP: float = 0.25  # Kelly fraction の最大値（full Kellyの1/4）
     RACE_EXPOSURE_CAP: float = 0.02  # 1レースの最大露出率（2%）
@@ -29,49 +29,46 @@ class StakeCalculator:
 
     def calc_stake(
         self,
-        ev_lower: float,
+        edge: float,
         odds: float,
         bankroll: float,
         bet_type: BetType,
     ) -> float:
-        """
-        EV下限値からケリー基準で賭け金を計算する。
-
-        Fractional Kelly (0.5x) を適用し、有効キャップは
-        KELLY_FRACTION_CAP × FRACTIONAL_KELLY = 0.125。
+        """Calculate Kelly-optimal stake for Value Betting.
 
         Args:
-            ev_lower: EV下限値（RobustConfidenceEstimator出力）
-            odds: オッズ
-            bankroll: 現在の資金
-            bet_type: 券種
+            edge: Value Betting edge = p_model - p_market (= p_model - 1/odds)
+            odds: Decimal odds (e.g., 1.5 means 1.5x return)
+            bankroll: Current bankroll in yen
+            bet_type: Type of bet (PLACE, WIN, WIDE)
 
         Returns:
-            100円単位の賭け金(float)。EVが閾値未満なら0.0。
+            Stake in yen (multiple of 100), or 0.0 if no bet recommended.
         """
         if (
             bankroll <= 0
             or odds <= 1.0
-            or math.isnan(ev_lower)
+            or math.isnan(edge)
             or math.isnan(odds)
-            or ev_lower < self.MIN_EV_THRESHOLD
+            or edge < self.MIN_EDGE_THRESHOLD
         ):
             return 0.0
 
-        edge = ev_lower - 1.0
-        kelly_fraction = edge / (odds - 1.0)
+        # Value Betting Kelly: f* = (edge * odds) / (odds - 1)
+        kelly_fraction = (edge * odds) / (odds - 1.0)
 
-        # Fractional Kelly (0.5x) を適用
-        kelly_fraction = kelly_fraction * self.FRACTIONAL_KELLY
+        # Fractional Kelly (half-Kelly for safety)
+        kelly_fraction *= self.FRACTIONAL_KELLY
 
-        # 有効キャップ: KELLY_FRACTION_CAP × FRACTIONAL_KELLY = 0.125
-        effective_cap = self.KELLY_FRACTION_CAP * self.FRACTIONAL_KELLY
+        # Effective cap: max fraction of bankroll
+        effective_cap = self.KELLY_FRACTION_CAP * self.FRACTIONAL_KELLY  # 0.125
         kelly_fraction = min(kelly_fraction, effective_cap)
 
+        # Compute stake
         raw_stake = bankroll * kelly_fraction
-        stake = max(0, int(math.floor(raw_stake / self.MIN_STAKE)) * self.MIN_STAKE)
+        stake = max(0, math.floor(raw_stake / self.MIN_STAKE) * self.MIN_STAKE)
 
-        # MAX_STAKE でキャップ
+        # Absolute cap
         stake = min(stake, self.MAX_STAKE)
 
         return float(stake)

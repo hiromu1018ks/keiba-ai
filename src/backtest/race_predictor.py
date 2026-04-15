@@ -6,6 +6,7 @@ BacktestEngine.run() のレース別ループ (4a-4g) を抽出。
 from __future__ import annotations
 
 import logging
+import math
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
@@ -136,11 +137,8 @@ class RacePredictor:
         """Value Betting: edge = p_model - p_market >= threshold の馬を選択。
 
         閾値判定は edge_place (p_model - p_market) を使用。
-        kellyモードの賭け金計算は edge 値を使用（Task 5 完了後は
-        StakeCalculator が edge パラメータを受け取る）。
+        賭け金計算は StakeCalculator.calc_stake(edge=...) で直接 edge を渡す。
         """
-        import math
-
         regime = self.models.regime_detector.current_regime
         regime_params = self.models.regime_detector.get_strategy_params(regime)
 
@@ -161,10 +159,8 @@ class RacePredictor:
             odds_val = float(row["fukuoddslow"])
 
             if self._betting_mode == "kelly" and self.stake_calc is not None:
-                # TODO(Task 5): calc_stake(edge=...) に切り替え後、この bridge を削除
-                # 現状 StakeCalculator は ev_lower を期待するため、edge を渡す
                 stake = self.stake_calc.calc_stake(
-                    ev_lower=edge_val + 1.0,  # bridge: edge+1 -> EV形式
+                    edge=edge_val,
                     odds=odds_val,
                     bankroll=bankroll,
                     bet_type=BetType.PLACE,
