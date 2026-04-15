@@ -132,6 +132,23 @@ class TestRegimeDetector:
         assert "market_error_mean" in RegimeDetector.FEATURE_COLS
         assert "field_size_mean" in RegimeDetector.FEATURE_COLS
 
+    def test_get_strategy_params_contains_edge_threshold(self) -> None:
+        """RegimeDetector should return edge_threshold for Value Betting."""
+        detector = RegimeDetector()
+        for regime in [RegimeState.AGGRESSIVE, RegimeState.CONSERVATIVE, RegimeState.COLLAPSED]:
+            params = detector.get_strategy_params(regime)
+            assert "edge_threshold" in params
+            assert isinstance(params["edge_threshold"], float)
+            assert params["edge_threshold"] > 0
+
+    def test_edge_threshold_values_by_regime(self) -> None:
+        """Edge thresholds should increase from AGGRESSIVE to COLLAPSED."""
+        detector = RegimeDetector()
+        agg = detector.get_strategy_params(RegimeState.AGGRESSIVE)
+        con = detector.get_strategy_params(RegimeState.CONSERVATIVE)
+        col = detector.get_strategy_params(RegimeState.COLLAPSED)
+        assert agg["edge_threshold"] < con["edge_threshold"] < col["edge_threshold"]
+
     def test_train_uses_pre_race_features_for_labels(self) -> None:
         """train() の教師ラベルが PRE_RACE 指標のみで計算される"""
         detector = RegimeDetector()

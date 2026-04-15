@@ -53,6 +53,15 @@ class TestMetaSwitcher:
         assert switcher.should_retrain() is True
         switcher._regime_detector.should_retrain.assert_called_once()
 
+    def test_default_params_contains_edge_threshold(self) -> None:
+        """MetaSwitcher should mirror edge_threshold from RegimeDetector."""
+        mock_rd = MagicMock()
+        mock_rd.current_regime = RegimeState.AGGRESSIVE
+        switcher = MetaSwitcher(mock_rd)
+        params = switcher.get_strategy_params()
+        assert "edge_threshold" in params
+        assert params["edge_threshold"] == 0.03
+
     def test_description_present(self, switcher: MetaSwitcher) -> None:
         """description フィールドが存在する"""
         params = switcher.get_strategy_params()
