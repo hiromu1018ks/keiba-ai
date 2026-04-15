@@ -1,5 +1,7 @@
 """src/domain モジュールのテスト"""
 
+import pytest
+
 from domain.models import (
     Bet,
     DDState,
@@ -213,6 +215,31 @@ class TestBet:
         )
         assert bet.stake < 100
         assert bet.is_valid is False
+
+    def test_bet_has_edge_field(self):
+        """Bet dataclass should have an edge field for Value Betting."""
+        bet = Bet(
+            race_id="20240101T11R01",
+            umaban=1,
+            bet_type=BetType.PLACE,
+            odds=1.5,
+            ev_lower_corrected=0.0,
+            stake=100.0,
+            edge=0.033,
+        )
+        assert bet.edge == pytest.approx(0.033)
+
+    def test_bet_edge_defaults_to_zero(self):
+        """Bet edge should default to 0.0 for backward compatibility."""
+        bet = Bet(
+            race_id="20240101T11R01",
+            umaban=1,
+            bet_type=BetType.PLACE,
+            odds=1.5,
+            ev_lower_corrected=1.2,
+            stake=100.0,
+        )
+        assert bet.edge == 0.0
 
 
 class TestOddsSnapshot:

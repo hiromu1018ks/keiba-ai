@@ -152,6 +152,7 @@ class Bet:
     odds: float  # ベット判定に使用したオッズ（発走前 or 確定）
     ev_lower_corrected: float  # EV下限値（補正済み）
     stake: float  # 投票金額
+    edge: float = 0.0  # Value Betting edge (p_model - p_market)
     final_odds: float = 0.0  # 精算用オッズ（確定オッズ）
     result: Optional[float] = None  # 払戻金（確定後）
 
