@@ -5,7 +5,9 @@ from __future__ import annotations
 import os
 
 import lightgbm as lgb
+import numpy as np
 import pandas as pd
+from sklearn.isotonic import IsotonicRegression
 
 from domain.models import TwoStageConfig
 
@@ -244,6 +246,9 @@ class PlaceTwoStageModel:
 
     def __init__(self, cfg: TwoStageConfig | None = None) -> None:
         self.cfg = cfg or TwoStageConfig()
+        self._place_calibrator: IsotonicRegression | None = None
+        self._val_predictions: np.ndarray | None = None
+        self._val_labels: np.ndarray | None = None
 
     def _prepare_features(
         self, df: pd.DataFrame, *, use_cols: list[str] | None = None
@@ -260,13 +265,24 @@ class PlaceTwoStageModel:
         return features
 
     def train_hit_model(self, df: pd.DataFrame, *, num_threads: int = 0) -> None:
-        """P(place) の学習 (3着以内=1 / それ以外=0)"""
+        """P(place) の学習 (3着以内=1 / それ以外=0)
+
+        80/20 時系列分割で学習し、バリデーション予測を保存して
+        後続の Isotonic 校正に使用する。
+        """
         if num_threads <= 0:
             num_threads = max(1, (os.cpu_count() or 4) // 2)
         features = self._prepare_features(df, use_cols=self.HIT_FEATURE_COLS)
         y = (df["kakuteijyuni"] <= 3).astype(int)
 
-        train_data, valid_data = _train_valid_split(features, y)
+        # Inline split to capture raw validation data for calibration
+        n = len(features)
+        split = int(n * 0.8)
+        train_data = lgb.Dataset(features.iloc[:split], label=y.iloc[:split])
+        valid_data = lgb.Dataset(
+            features.iloc[split:], label=y.iloc[split:], reference=train_data
+        )
+
         self.hit_model = lgb.train(
             {
                 "objective": "binary",
@@ -283,6 +299,23 @@ class PlaceTwoStageModel:
             valid_sets=[valid_data],
             callbacks=[lgb.early_stopping(stopping_rounds=100, verbose=False)],
         )
+
+        # Store validation predictions for isotonic calibration
+        self._val_predictions = np.asarray(self.hit_model.predict(features.iloc[split:]))
+        self._val_labels = y.iloc[split:].values
+
+    def fit_calibrator(self) -> None:
+        """バリデーション予測に Isotonic 校正を適合させる。
+
+        train_hit_model() またはアンサンブル学習後に呼び出すこと。
+        サンプル数 < 1000 の場合は校正をスキップ (過学習リスク)。
+        """
+        if self._val_predictions is None or len(self._val_predictions) < 1000:
+            self._place_calibrator = None
+            return
+
+        self._place_calibrator = IsotonicRegression(out_of_bounds="clip")
+        self._place_calibrator.fit(self._val_predictions, self._val_labels)
 
     def train_return_model(self, df: pd.DataFrame, *, num_threads: int = 0) -> None:
         """E(place_odds | place) の学習 (3着以内のみ)"""
@@ -322,7 +355,10 @@ class PlaceTwoStageModel:
             )
 
     def predict_ev(self, df: pd.DataFrame) -> pd.DataFrame:
-        """EV_place = P(place) × E(place_odds | place)"""
+        """EV_place = P(place) × E(place_odds | place)
+
+        Isotonic 校正を適用後、EV を計算する。
+        """
         df = df.copy()
         hit_features = self._prepare_features(df, use_cols=self.HIT_FEATURE_COLS)
         ret_features = self._prepare_features(df, use_cols=self.RETURN_FEATURE_COLS)
@@ -331,7 +367,18 @@ class PlaceTwoStageModel:
         ret_iter = (
             self.return_model.best_iteration if self.return_model.best_iteration > 0 else None
         )
-        df["p_place_pred"] = self.hit_model.predict(hit_features, num_iteration=hit_iter)
-        df["e_return_place_pred"] = self.return_model.predict(ret_features, num_iteration=ret_iter)
+
+        # --- Isotonic calibration ---
+        raw_p = self.hit_model.predict(hit_features, num_iteration=hit_iter)
+        if self._place_calibrator is not None:
+            p_calibrated = self._place_calibrator.transform(raw_p)
+        else:
+            p_calibrated = raw_p
+        df["p_place_pred"] = p_calibrated
+
+        # --- Return model ---
+        df["e_return_place_pred"] = self.return_model.predict(
+            ret_features, num_iteration=ret_iter
+        )
         df["ev_place"] = df["p_place_pred"] * df["e_return_place_pred"]
         return df

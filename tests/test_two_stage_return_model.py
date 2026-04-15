@@ -270,6 +270,78 @@ class TestPlaceTwoStageModel:
         # Place固有特徴量が追加されている
         assert len(PlaceTwoStageModel.RETURN_FEATURE_COLS) > len(WinTwoStageModel.FEATURE_COLS)
 
+    @patch("models.two_stage_return_model.lgb")
+    def test_train_hit_model_stores_val_predictions(
+        self, mock_lgb: MagicMock, feature_df: pd.DataFrame
+    ) -> None:
+        """train_hit_model がバリデーション予測を保存すること"""
+        mock_booster = MagicMock()
+        mock_booster.best_iteration = 50
+        mock_booster.predict.return_value = np.array([0.3, 0.5])
+        mock_lgb.train.return_value = mock_booster
+        mock_lgb.Dataset.return_value = MagicMock()
+        mock_lgb.early_stopping.return_value = lambda: None
+
+        df = feature_df.copy()
+        df["kakuteijyuni"] = [1, 2, 3, 4, 5, 6, 7, 8]
+
+        model = PlaceTwoStageModel()
+        model.train_hit_model(df)
+
+        assert model._val_predictions is not None
+        assert model._val_labels is not None
+        # 8 rows * 0.8 = 6.4 → split=6, val=2 rows
+        assert len(model._val_predictions) == 2
+        assert len(model._val_labels) == 2
+        # Val labels: kakuteijyuni=7,8 → both > 3 → [0, 0]
+        np.testing.assert_array_equal(model._val_labels, [0, 0])
+
+    def test_fit_calibrator_creates_isotonic(self) -> None:
+        """fit_calibrator がサンプル >= 1000 の場合 IsotonicRegression を作成すること"""
+        from sklearn.isotonic import IsotonicRegression
+
+        model = PlaceTwoStageModel()
+        model._val_predictions = np.random.rand(1500)
+        model._val_labels = (model._val_predictions > 0.5).astype(int)
+
+        model.fit_calibrator()
+
+        assert model._place_calibrator is not None
+        assert isinstance(model._place_calibrator, IsotonicRegression)
+
+    def test_fit_calibrator_skips_below_min_samples(self) -> None:
+        """fit_calibrator がサンプル < 1000 の場合校正をスキップすること"""
+        model = PlaceTwoStageModel()
+        model._val_predictions = np.random.rand(500)
+        model._val_labels = (model._val_predictions > 0.5).astype(int)
+
+        model.fit_calibrator()
+
+        assert model._place_calibrator is None
+
+    def test_predict_ev_applies_isotonic_calibration(
+        self, feature_df: pd.DataFrame
+    ) -> None:
+        """predict_ev が _place_calibrator を適用して p_place_pred を補正すること"""
+        model = PlaceTwoStageModel()
+        model.hit_model = _make_mock_booster([0.40, 0.35, 0.30, 0.15, 0.10, 0.05, 0.03, 0.01])
+        model.return_model = _make_mock_booster([1.4, 1.7, 2.2, 3.8, 5.5, 9.0, 16.0, 32.0])
+
+        # Fit a fake calibrator that maps p → p * 0.5
+        from sklearn.isotonic import IsotonicRegression
+
+        cal = IsotonicRegression(out_of_bounds="clip")
+        cal.fit(np.array([0.01, 0.5, 0.99]), np.array([0.005, 0.25, 0.495]))
+        model._place_calibrator = cal
+
+        result = model.predict_ev(feature_df)
+
+        # Raw predictions from mock: [0.40, 0.35, 0.30, 0.15, 0.10, 0.05, 0.03, 0.01]
+        # After calibration (roughly p * 0.5): values should be approximately halved
+        raw_preds = np.array([0.40, 0.35, 0.30, 0.15, 0.10, 0.05, 0.03, 0.01])
+        expected = cal.transform(raw_preds)
+        np.testing.assert_allclose(result["p_place_pred"].values, expected, rtol=1e-6)
+
 
 class TestTrainValidSplit:
     def test_split_ratio(self) -> None:

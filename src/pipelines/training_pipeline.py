@@ -468,9 +468,14 @@ class TrainingPipelineV5:
                     num_threads=num_threads,
                 )
                 place_2s.hit_model = ensemble_place
+                # Store validation predictions for isotonic calibration
+                place_2s._val_predictions = ensemble_place.predict(features.iloc[split:])
+                place_2s._val_labels = y.iloc[split:].values
         else:
             with TimingContext(f"{surface}/place_hit"):
                 place_2s.train_hit_model(df_oof, num_threads=num_threads)
+        # Fit isotonic calibrator (both paths)
+        place_2s.fit_calibrator()
         with TimingContext(f"{surface}/place_return"):
             place_2s.train_return_model(df_oof, num_threads=num_threads)
         with TimingContext(f"{surface}/place_predict"):
