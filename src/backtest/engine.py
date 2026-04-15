@@ -59,6 +59,9 @@ class BacktestResult:
     bet_history: list[dict[str, Any]] = field(default_factory=list)
     n_pre_post_odds_bets: int = 0   # 発走前オッズでベットした件数
     n_fallback_odds_bets: int = 0   # フォールバック（確定オッズ）でベットした件数
+    avg_edge: float = 0.0           # Value Betting 平均 edge
+    min_edge: float = 0.0           # Value Betting 最小 edge
+    max_edge: float = 0.0           # Value Betting 最大 edge
 
     @property
     def profit(self) -> float:
@@ -79,6 +82,11 @@ class BacktestResult:
             fallback_pct = self.n_fallback_odds_bets / total * 100
             lines.append(
                 f"  Odds fallback: {self.n_fallback_odds_bets}/{total} ({fallback_pct:.1f}%)"
+            )
+        if self.avg_edge > 0:
+            lines.append(
+                f"  Edge: avg={self.avg_edge:.4f}, "
+                f"min={self.min_edge:.4f}, max={self.max_edge:.4f}"
             )
         return "\n".join(lines)
 
@@ -572,6 +580,9 @@ class BacktestEngine:
             bet_history=bet_history,
             n_pre_post_odds_bets=n_pre_post_odds_bets,
             n_fallback_odds_bets=n_fallback_odds_bets,
+            avg_edge=result_data.get("avg_edge", 0.0),
+            min_edge=result_data.get("min_edge", 0.0),
+            max_edge=result_data.get("max_edge", 0.0),
         )
 
     def _build_race_features(self, race_df: pd.DataFrame) -> dict[str, Any]:
