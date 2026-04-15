@@ -215,12 +215,13 @@ class TestRacePredictor:
         assert features["field_size"] == 10
 
     def test_predict_computes_edge_place(self, mock_models: MagicMock) -> None:
-        """predict() should compute edge_place = p_place_pred - 1/fukuoddslow."""
+        """predict() should compute edge using Benter combined probability (alpha=0.4)."""
         from backtest.race_predictor import RacePredictor
 
         predictor = RacePredictor(models=mock_models)
 
-        # p_place_pred=0.70, fukuoddslow=1.5 -> edge = 0.70 - 1/1.5 = 0.0333...
+        # p_place_pred=0.70, fukuoddslow=1.5 -> p_market=0.6667
+        # Benter (alpha=0.4): p_combined ≈ 0.6802, edge ≈ 0.0135
         race_df = pd.DataFrame(
             {
                 "race_id": ["20240101010101"],
@@ -241,7 +242,6 @@ class TestRacePredictor:
             }
         )
 
-        # Build a result DataFrame that includes p_place_pred (set by place.predict_ev)
         result_df = race_df.copy()
         result_df["p_place_pred"] = [0.70]
 
@@ -261,8 +261,9 @@ class TestRacePredictor:
         result = predictor.predict(race_df)
 
         assert "edge_place" in result.columns
-        expected_edge = 0.70 - 1.0 / 1.5
-        assert abs(result["edge_place"].iloc[0] - expected_edge) < 1e-10
+        assert "p_place_combined" in result.columns
+        # Benter alpha=0.4: p_combined ≈ 0.6802, edge ≈ 0.6802 - 0.6667 = 0.0135
+        assert abs(result["edge_place"].iloc[0] - 0.0135) < 0.002
 
     def test_select_bets_uses_edge_not_ev(self, mock_models: MagicMock) -> None:
         """select_bets() should filter by edge_place, not ev_place_corrected.
@@ -341,3 +342,169 @@ class TestRacePredictor:
         bets = predictor.select_bets(race_df, bankroll=100000.0)
 
         assert len(bets) == 0
+
+    def test_predict_benter_combined_probability_alpha_half(self, mock_models: MagicMock) -> None:
+        """alpha=0.5: p_combined = sigmoid(0.5*logit(p_model) + 0.5*logit(p_market))."""
+        import numpy as np
+        from backtest.race_predictor import RacePredictor
+
+        predictor = RacePredictor(models=mock_models, alpha=0.5)
+
+        race_df = pd.DataFrame(
+            {
+                "race_id": ["R1"],
+                "umaban": [1],
+                "surface": ["turf"],
+                "kyori": [1200],
+                "distance_bin": ["sprint"],
+                "popularity_rank": [3],
+                "ninki": [3],
+                "fukuoddslow": [1.5],
+                "kakuteijyuni": [2],
+                "kettonum": [1234],
+                "odds": [5.0],
+                "bataijyu": [480],
+                "field_size": [10],
+                "track_condition_code": [2],
+                "grade_code": ["C"],
+            }
+        )
+
+        result_df = race_df.copy()
+        result_df["p_place_pred"] = [0.70]
+
+        submodel = mock_models.submodels["turf"]
+        submodel.market.predict_and_calc_error.return_value = race_df.copy()
+        submodel.stage1.add_ability_probs.return_value = race_df.copy()
+        submodel.place_ability.predict.return_value = race_df.copy()
+        submodel.win.predict_ev.return_value = race_df.copy()
+        submodel.ev_corrector.correct_ev.return_value = race_df.copy()
+        submodel.place.predict_ev.return_value = result_df
+        submodel.place_ev_corrector.correct_ev.return_value = result_df.copy()
+        submodel.confidence.predict_lower_bound.return_value = (
+            result_df.copy(),
+            pd.DataFrame({"EV_lower_place": [1.5]}),
+        )
+
+        result = predictor.predict(race_df)
+
+        # Manual calculation: alpha=0.5
+        # logit(0.70) = 0.84730, logit(1/1.5) = 0.69315
+        # logit_combined = 0.5 * 0.84730 + 0.5 * 0.69315 = 0.77022
+        # p_combined = sigmoid(0.77022) ≈ 0.6834
+        p_combined = result["p_place_combined"].iloc[0]
+        assert abs(p_combined - 0.6834) < 0.002
+        edge = result["edge_place"].iloc[0]
+        assert abs(edge - (0.6834 - 1 / 1.5)) < 0.002
+
+    def test_predict_alpha_zero_uses_market_only(self, mock_models: MagicMock) -> None:
+        """alpha=0: p_combined = p_market -> edge = 0."""
+        from backtest.race_predictor import RacePredictor
+
+        predictor = RacePredictor(models=mock_models, alpha=0.0)
+
+        race_df = pd.DataFrame(
+            {
+                "race_id": ["R1"],
+                "umaban": [1],
+                "surface": ["turf"],
+                "kyori": [1200],
+                "distance_bin": ["sprint"],
+                "popularity_rank": [3],
+                "ninki": [3],
+                "fukuoddslow": [2.0],
+                "kakuteijyuni": [2],
+                "kettonum": [1234],
+                "odds": [5.0],
+                "bataijyu": [480],
+                "field_size": [10],
+                "track_condition_code": [2],
+                "grade_code": ["C"],
+            }
+        )
+
+        result_df = race_df.copy()
+        result_df["p_place_pred"] = [0.90]  # model overconfident
+
+        submodel = mock_models.submodels["turf"]
+        submodel.market.predict_and_calc_error.return_value = race_df.copy()
+        submodel.stage1.add_ability_probs.return_value = race_df.copy()
+        submodel.place_ability.predict.return_value = race_df.copy()
+        submodel.win.predict_ev.return_value = race_df.copy()
+        submodel.ev_corrector.correct_ev.return_value = race_df.copy()
+        submodel.place.predict_ev.return_value = result_df
+        submodel.place_ev_corrector.correct_ev.return_value = result_df.copy()
+        submodel.confidence.predict_lower_bound.return_value = (
+            result_df.copy(),
+            pd.DataFrame({"EV_lower_place": [1.5]}),
+        )
+
+        result = predictor.predict(race_df)
+
+        # alpha=0: p_combined = p_market = 1/2.0 = 0.5
+        p_combined = result["p_place_combined"].iloc[0]
+        assert abs(p_combined - 0.5) < 1e-10
+        edge = result["edge_place"].iloc[0]
+        assert abs(edge) < 1e-10  # edge = p_market - p_market = 0
+
+    def test_predict_alpha_one_uses_model_only(self, mock_models: MagicMock) -> None:
+        """alpha=1: p_combined = p_model -> edge = p_model - p_market (old formula)."""
+        from backtest.race_predictor import RacePredictor
+
+        predictor = RacePredictor(models=mock_models, alpha=1.0)
+
+        race_df = pd.DataFrame(
+            {
+                "race_id": ["R1"],
+                "umaban": [1],
+                "surface": ["turf"],
+                "kyori": [1200],
+                "distance_bin": ["sprint"],
+                "popularity_rank": [3],
+                "ninki": [3],
+                "fukuoddslow": [1.5],
+                "kakuteijyuni": [2],
+                "kettonum": [1234],
+                "odds": [5.0],
+                "bataijyu": [480],
+                "field_size": [10],
+                "track_condition_code": [2],
+                "grade_code": ["C"],
+            }
+        )
+
+        result_df = race_df.copy()
+        result_df["p_place_pred"] = [0.70]
+
+        submodel = mock_models.submodels["turf"]
+        submodel.market.predict_and_calc_error.return_value = race_df.copy()
+        submodel.stage1.add_ability_probs.return_value = race_df.copy()
+        submodel.place_ability.predict.return_value = race_df.copy()
+        submodel.win.predict_ev.return_value = race_df.copy()
+        submodel.ev_corrector.correct_ev.return_value = race_df.copy()
+        submodel.place.predict_ev.return_value = result_df
+        submodel.place_ev_corrector.correct_ev.return_value = result_df.copy()
+        submodel.confidence.predict_lower_bound.return_value = (
+            result_df.copy(),
+            pd.DataFrame({"EV_lower_place": [1.5]}),
+        )
+
+        result = predictor.predict(race_df)
+
+        # alpha=1: p_combined = p_model = 0.70
+        p_combined = result["p_place_combined"].iloc[0]
+        assert abs(p_combined - 0.70) < 1e-10
+        edge = result["edge_place"].iloc[0]
+        expected_edge = 0.70 - 1.0 / 1.5
+        assert abs(edge - expected_edge) < 1e-10
+
+    def test_alpha_validation_rejects_out_of_range(self, mock_models: MagicMock) -> None:
+        """alpha outside [0, 1] should raise ValueError."""
+        import pytest as _pytest
+        from backtest.race_predictor import RacePredictor
+
+        with _pytest.raises(ValueError, match="alpha must be in"):
+            RacePredictor(models=mock_models, alpha=1.5)
+
+        with _pytest.raises(ValueError, match="alpha must be in"):
+            RacePredictor(models=mock_models, alpha=-0.1)
