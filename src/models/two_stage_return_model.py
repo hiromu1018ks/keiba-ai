@@ -178,16 +178,15 @@ class PlaceTwoStageModel:
     return_leaves を少し増やせる (25)。
     """
 
-    FEATURE_COLS: list[str] = [
+    # --- Hit model (Stage A): 確率分類用 ---
+    # fukuoddslow, tanodds は含めない (確率判別力を維持するため)
+    HIT_FEATURE_COLS: list[str] = [
         # Stage1 出力
         "p_ability_win",
         "p_ability_place",             # PlaceAbilityModel 出力
         # Market Model 正規化差分
         "signed_log_error_win",
         "abs_log_error_win",
-        # 複勝・単勝オッズ
-        "fukuoddslow",                 # 複勝オッズ (return model 最重要特徴量)
-        "tanodds",                     # 単勝オッズ (win-place spread の文脈)
         # オッズ変化率
         "odds_drop_rate_60_10",
         "odds_drop_rate_30_10",
@@ -208,11 +207,49 @@ class PlaceTwoStageModel:
         "odds_skewness",
     ]
 
+    # --- Return model (Stage B): 配当回帰用 ---
+    # fukuoddslow はターゲットに近いため最も重要な特徴量
+    RETURN_FEATURE_COLS: list[str] = [
+        # Stage1 出力
+        "p_ability_win",
+        "p_ability_place",             # PlaceAbilityModel 出力
+        # Market Model 正規化差分
+        "signed_log_error_win",
+        "abs_log_error_win",
+        # 複勝・単勝オッズ (return model のみ)
+        "fukuoddslow",                 # 複勝オッズ (最重要特徴量)
+        "tanodds",                     # 単勝オッズ
+        # オッズ変化率
+        "odds_drop_rate_60_10",
+        "odds_drop_rate_30_10",
+        "odds_velocity",
+        "odds_volatility",
+        "popularity_change_30_10",
+        # 市場歪み
+        "market_entropy",
+        "popularity_rank",
+        "overround",
+        # レース条件
+        "surface",
+        "distance_bin",
+        "track_condition_code",
+        "grade_code",
+        "field_size",
+        # FLB slope
+        "odds_skewness",
+    ]
+
+    # 後方互換: FEATURE_COLS は return model のリストを返す (最も情報量が多いため)
+    FEATURE_COLS: list[str] = RETURN_FEATURE_COLS
+
     def __init__(self, cfg: TwoStageConfig | None = None) -> None:
         self.cfg = cfg or TwoStageConfig()
 
-    def _prepare_features(self, df: pd.DataFrame) -> pd.DataFrame:
-        features = df[self.FEATURE_COLS].copy()
+    def _prepare_features(
+        self, df: pd.DataFrame, *, use_cols: list[str] | None = None
+    ) -> pd.DataFrame:
+        cols = use_cols or self.FEATURE_COLS
+        features = df[cols].copy()
         # Int64 (nullable int) → float64 (LightGBMが対応する型)
         for col in features.columns:
             if pd.api.types.is_integer_dtype(features[col]):
@@ -226,7 +263,7 @@ class PlaceTwoStageModel:
         """P(place) の学習 (3着以内=1 / それ以外=0)"""
         if num_threads <= 0:
             num_threads = max(1, (os.cpu_count() or 4) // 2)
-        features = self._prepare_features(df)
+        features = self._prepare_features(df, use_cols=self.HIT_FEATURE_COLS)
         y = (df["kakuteijyuni"] <= 3).astype(int)
 
         train_data, valid_data = _train_valid_split(features, y)
@@ -253,7 +290,7 @@ class PlaceTwoStageModel:
             num_threads = max(1, (os.cpu_count() or 4) // 2)
         hit_df = df[df["kakuteijyuni"] <= 3].copy()
 
-        features = self._prepare_features(hit_df)
+        features = self._prepare_features(hit_df, use_cols=self.RETURN_FEATURE_COLS)
         y = hit_df["fukuoddslow"]
 
         params = {
@@ -287,13 +324,14 @@ class PlaceTwoStageModel:
     def predict_ev(self, df: pd.DataFrame) -> pd.DataFrame:
         """EV_place = P(place) × E(place_odds | place)"""
         df = df.copy()
-        features = self._prepare_features(df)
+        hit_features = self._prepare_features(df, use_cols=self.HIT_FEATURE_COLS)
+        ret_features = self._prepare_features(df, use_cols=self.RETURN_FEATURE_COLS)
 
         hit_iter = self.hit_model.best_iteration if self.hit_model.best_iteration > 0 else None
         ret_iter = (
             self.return_model.best_iteration if self.return_model.best_iteration > 0 else None
         )
-        df["p_place_pred"] = self.hit_model.predict(features, num_iteration=hit_iter)
-        df["e_return_place_pred"] = self.return_model.predict(features, num_iteration=ret_iter)
+        df["p_place_pred"] = self.hit_model.predict(hit_features, num_iteration=hit_iter)
+        df["e_return_place_pred"] = self.return_model.predict(ret_features, num_iteration=ret_iter)
         df["ev_place"] = df["p_place_pred"] * df["e_return_place_pred"]
         return df

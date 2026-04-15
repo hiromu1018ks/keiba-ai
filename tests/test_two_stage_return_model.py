@@ -247,16 +247,28 @@ class TestPlaceTwoStageModel:
         assert "callbacks" in call_args[1]
         mock_lgb.early_stopping.assert_called_once_with(stopping_rounds=100, verbose=False)
 
-    def test_place_feature_cols_include_place_specific(self) -> None:
-        """Place model should have place-specific features beyond win features"""
-        assert "fukuoddslow" in PlaceTwoStageModel.FEATURE_COLS
-        assert "p_ability_place" in PlaceTwoStageModel.FEATURE_COLS
-        assert "tanodds" in PlaceTwoStageModel.FEATURE_COLS
+    def test_hit_and_return_features_separated(self) -> None:
+        """Hit model と Return model で特徴量が分離されていること"""
+        # Return model のみがオッズ特徴量を持つ
+        assert "fukuoddslow" in PlaceTwoStageModel.RETURN_FEATURE_COLS
+        assert "tanodds" in PlaceTwoStageModel.RETURN_FEATURE_COLS
+        # Hit model はオッズ特徴量を持たない
+        assert "fukuoddslow" not in PlaceTwoStageModel.HIT_FEATURE_COLS
+        assert "tanodds" not in PlaceTwoStageModel.HIT_FEATURE_COLS
+        # p_ability_place は両方に含まれる
+        assert "p_ability_place" in PlaceTwoStageModel.HIT_FEATURE_COLS
+        assert "p_ability_place" in PlaceTwoStageModel.RETURN_FEATURE_COLS
+
+    def test_place_return_feature_cols_include_place_specific(self) -> None:
+        """Return model should have place-specific features beyond win features"""
+        assert "fukuoddslow" in PlaceTwoStageModel.RETURN_FEATURE_COLS
+        assert "p_ability_place" in PlaceTwoStageModel.RETURN_FEATURE_COLS
+        assert "tanodds" in PlaceTwoStageModel.RETURN_FEATURE_COLS
         # Win特徴量も全て含む
         for col in WinTwoStageModel.FEATURE_COLS:
-            assert col in PlaceTwoStageModel.FEATURE_COLS
+            assert col in PlaceTwoStageModel.RETURN_FEATURE_COLS
         # Place固有特徴量が追加されている
-        assert len(PlaceTwoStageModel.FEATURE_COLS) > len(WinTwoStageModel.FEATURE_COLS)
+        assert len(PlaceTwoStageModel.RETURN_FEATURE_COLS) > len(WinTwoStageModel.FEATURE_COLS)
 
 
 class TestTrainValidSplit:
