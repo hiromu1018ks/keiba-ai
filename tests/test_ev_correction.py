@@ -310,3 +310,122 @@ class TestEVCorrectionLargeData:
         assert winners["p_win_corrected"].median() >= winners["p_win_pred"].median(), (
             "P補正が1着馬の確率を適切に引き上げていません"
         )
+
+
+# --- PlaceEVCorrectionModel tests ---
+
+
+def _make_mock_booster(predictions: np.ndarray) -> MagicMock:
+    """Mock LightGBM booster with given predictions and best_iteration=100."""
+    mock = MagicMock()
+    mock.best_iteration = 100
+    mock.predict.return_value = predictions
+    return mock
+
+
+@pytest.fixture
+def pre_place_ev_df():
+    """PlaceEVCorrectionModel.correct_ev() の入力 DataFrame (8行)"""
+    n = 8
+    return pd.DataFrame({
+        "race_id": ["R001"] * n,
+        "umaban": list(range(1, n + 1)),
+        "kakuteijyuni": [1, 2, 3, 4, 5, 6, 7, 8],
+        "p_place_pred": [0.65, 0.55, 0.50, 0.40, 0.30, 0.25, 0.20, 0.10],
+        "e_return_place_pred": [1.5, 2.0, 2.5, 3.0, 4.0, 5.0, 6.0, 10.0],
+        "fukuoddslow": [1.3, 1.5, 1.8, 2.1, 2.5, 3.0, 3.5, 5.0],
+        "p_ability_place": [0.60, 0.52, 0.45, 0.38, 0.30, 0.22, 0.18, 0.10],
+        "signed_log_error_win": [0.1, -0.05, 0.02, -0.1, 0.15, -0.08, 0.03, -0.12],
+        "abs_log_error_win": [0.1, 0.05, 0.02, 0.1, 0.15, 0.08, 0.03, 0.12],
+        "market_entropy": [2.5] * n,
+        "popularity_rank": list(range(1, n + 1)),
+        "surface": ["turf"] * n,
+        "distance_bin": [2] * n,
+        "track_condition_code": [1] * n,
+        "field_size": [n] * n,
+        "jockey_wr_overall": [0.3] * n,
+        "jockey_wr_distance": [0.25] * n,
+        "jockey_wr_venue": [0.28] * n,
+        "jockey_prize_log": [13.0] * n,
+        "trainer_wr_overall": [0.2] * n,
+        "trainer_wr_distance": [0.18] * n,
+        "trainer_wr_venue": [0.22] * n,
+        "trainer_prize_log": [12.0] * n,
+        "jt_combo_wr": [0.15] * n,
+        "jt_combo_place_rate": [0.4] * n,
+        "jt_combo_starts": [50] * n,
+        "jt_combo_prize_log": [12.0] * n,
+        "implied_prob_hhi": [0.15] * n,
+    })
+
+
+class TestPlaceEVCorrectionModel:
+    def test_correct_ev_outputs_place_columns(self, pre_place_ev_df):
+        """correct_ev should output p_place_corrected, e_return_place_corrected, ev_place_corrected"""
+        from models.ev_correction_model import PlaceEVCorrectionModel
+
+        model = PlaceEVCorrectionModel()
+        model.p_correction_model = _make_mock_booster(np.array([0.1, -0.05, 0.02, -0.03, 0.08, -0.01, 0.04, -0.06]))
+        model.e_correction_model = _make_mock_booster(np.array([0.05, -0.02, 0.01, -0.04, 0.03, -0.01, 0.02, -0.03]))
+        model._trained = True
+
+        result = model.correct_ev(pre_place_ev_df)
+
+        assert "p_place_corrected" in result.columns
+        assert "e_return_place_corrected" in result.columns
+        assert "ev_place_corrected" in result.columns
+
+    def test_place_p_corrected_bounds(self, pre_place_ev_df):
+        """P(place) corrected should be in [0, 1]"""
+        from models.ev_correction_model import PlaceEVCorrectionModel
+
+        model = PlaceEVCorrectionModel()
+        model.p_correction_model = _make_mock_booster(np.array([2.0, -3.0, 1.0, -1.0, 1.5, -2.0, 0.5, -1.5]))
+        model.e_correction_model = _make_mock_booster(np.zeros(8))
+        model._trained = True
+
+        result = model.correct_ev(pre_place_ev_df)
+
+        assert (result["p_place_corrected"] >= 0).all()
+        assert (result["p_place_corrected"] <= 1).all()
+
+    def test_place_e_corrected_positive(self, pre_place_ev_df):
+        """E(return|place) corrected should always be positive"""
+        from models.ev_correction_model import PlaceEVCorrectionModel
+
+        model = PlaceEVCorrectionModel()
+        model.p_correction_model = _make_mock_booster(np.zeros(8))
+        model.e_correction_model = _make_mock_booster(np.array([-0.1, 0.1, -0.05, 0.05, -0.08, 0.08, -0.03, 0.03]))
+        model._trained = True
+
+        result = model.correct_ev(pre_place_ev_df)
+
+        assert (result["e_return_place_corrected"] > 0).all()
+
+    def test_place_ev_decomposition(self, pre_place_ev_df):
+        """ev_place_corrected = p_place_corrected * e_return_place_corrected"""
+        from models.ev_correction_model import PlaceEVCorrectionModel
+
+        model = PlaceEVCorrectionModel()
+        model.p_correction_model = _make_mock_booster(np.array([0.1, -0.05, 0.02, -0.03, 0.08, -0.01, 0.04, -0.06]))
+        model.e_correction_model = _make_mock_booster(np.array([0.05, -0.02, 0.01, -0.04, 0.03, -0.01, 0.02, -0.03]))
+        model._trained = True
+
+        result = model.correct_ev(pre_place_ev_df)
+
+        expected = result["p_place_corrected"] * result["e_return_place_corrected"]
+        assert np.allclose(result["ev_place_corrected"], expected, atol=1e-10)
+
+    def test_untrained_fallback_passes_through(self, pre_place_ev_df):
+        """Untrained model should pass through ev_place as ev_place_corrected"""
+        from models.ev_correction_model import PlaceEVCorrectionModel
+
+        model = PlaceEVCorrectionModel()  # _trained = False
+
+        # ev_place 列を事前に設定
+        pre_place_ev_df["ev_place"] = pre_place_ev_df["p_place_pred"] * pre_place_ev_df["e_return_place_pred"]
+        result = model.correct_ev(pre_place_ev_df)
+
+        # フォールバック: ev_place_corrected == ev_place
+        assert "ev_place_corrected" in result.columns
+        assert np.allclose(result["ev_place_corrected"], result["ev_place"])
