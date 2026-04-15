@@ -31,11 +31,13 @@ class RacePredictor:
         *,
         stake_calculator: StakeCalculator | None = None,
         dd_controller: DrawdownController | None = None,
+        alpha: float = 0.4,
     ) -> None:
         self.models = models
         self.stake_calc = stake_calculator
         self.dd_ctrl = dd_controller
         self._betting_mode = "kelly" if stake_calculator is not None else "flat"
+        self.alpha = alpha
 
     def predict(
         self,
@@ -112,15 +114,27 @@ class RacePredictor:
         if "EV_lower_place" in place_df.columns:
             df["EV_lower_place"] = place_df["EV_lower_place"].values
 
-        # --- Value Betting: edge = p_model - p_market ---
-        # p_market = 1 / fukuoddslow (market implied probability)
-        # edge > 0 means the model thinks the horse is undervalued
+        # --- Value Betting with Benter combined probability ---
+        # logit(p_combined) = alpha * logit(p_model) + (1-alpha) * logit(p_market)
+        # edge = p_combined - p_market
         p_market = np.where(
             df["fukuoddslow"] > 0,
             1.0 / df["fukuoddslow"],
             np.nan,
         )
-        df["edge_place"] = df["p_place_pred"] - p_market
+
+        # Clip to avoid logit(0) or logit(1) = ±inf
+        p_model = np.clip(df["p_place_pred"], 1e-6, 1 - 1e-6)
+        p_mkt = np.clip(p_market, 1e-6, 1 - 1e-6)
+
+        logit_model = np.log(p_model / (1 - p_model))
+        logit_market = np.log(p_mkt / (1 - p_mkt))
+
+        logit_combined = self.alpha * logit_model + (1 - self.alpha) * logit_market
+        p_combined = 1.0 / (1.0 + np.exp(-logit_combined))
+
+        df["p_place_combined"] = p_combined
+        df["edge_place"] = p_combined - p_mkt
 
         return df
 
