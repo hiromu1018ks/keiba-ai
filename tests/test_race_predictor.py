@@ -33,6 +33,7 @@ def mock_models() -> MagicMock:
     models.regime_detector.current_regime = RegimeState.CONSERVATIVE
     models.regime_detector.get_strategy_params.return_value = {
         "ev_threshold": 1.20,
+        "edge_threshold": 0.03,
         "max_bets_per_race": 3,
     }
     return models
@@ -126,8 +127,9 @@ class TestRacePredictor:
                 "ninki": [3, 5, 7],
                 "fukuoddslow": [2.4, 1.5, 5.0],
                 "ev_place_corrected": [1.5, 0.8, 1.8],
+                "edge_place": [0.08, -0.07, 0.05],  # horses 1 & 3 pass edge_threshold=0.03
                 "kakuteijyuni": [2, 1, 3],
-                "kettonum": [1234, 5678, 9012],
+                "kettonnum": [1234, 5678, 9012],
                 "odds": [5.0, 2.0, 10.0],
                 "bataijyu": [480, 470, 490],
             }
@@ -148,6 +150,7 @@ class TestRacePredictor:
                 "race_id": ["R1", "R1"],
                 "umaban": [1, 2],
                 "ev_place_corrected": [1.5, 1.3],
+                "edge_place": [0.05, 0.04],  # both pass edge_threshold=0.03
                 "fukuoddslow": [3.0, 2.5],
                 "surface": ["turf", "turf"],
             }
@@ -178,6 +181,7 @@ class TestRacePredictor:
                 "umaban": [1, 2],
                 "EV_lower_place": [1.5, 1.3],
                 "ev_place_corrected": [1.5, 1.3],
+                "edge_place": [0.05, 0.04],  # both pass edge_threshold=0.03
                 "fukuoddslow": [3.0, 2.5],
                 "surface": ["turf", "turf"],
             }
@@ -259,3 +263,81 @@ class TestRacePredictor:
         assert "edge_place" in result.columns
         expected_edge = 0.70 - 1.0 / 1.5
         assert abs(result["edge_place"].iloc[0] - expected_edge) < 1e-10
+
+    def test_select_bets_uses_edge_not_ev(self, mock_models: MagicMock) -> None:
+        """select_bets() should filter by edge_place, not ev_place_corrected.
+
+        Horse 1: high EV (1.8) but negative edge (-0.067) -> NO BET
+        Horse 2: low EV (0.9) but positive edge (+0.067) -> BET
+        Horse 3: high EV (2.0) but zero edge (0.000) -> NO BET
+
+        With AGGRESSIVE regime (edge_threshold=0.03), only horse 2 selected.
+        """
+        from backtest.race_predictor import RacePredictor
+        from domain.types import RegimeState
+
+        predictor = RacePredictor(models=mock_models)
+
+        # Override regime to AGGRESSIVE with edge_threshold=0.03
+        mock_models.regime_detector.current_regime = RegimeState.AGGRESSIVE
+        mock_models.regime_detector.get_strategy_params.return_value = {
+            "edge_threshold": 0.03,
+            "max_bets_per_race": 3,
+        }
+
+        # Horse 1: p=0.60, odds=1.5 -> p_market=0.667, edge=-0.067, ev=1.8
+        # Horse 2: p=0.40, odds=3.0 -> p_market=0.333, edge=+0.067, ev=0.9
+        # Horse 3: p=0.10, odds=10.0 -> p_market=0.100, edge=0.000, ev=2.0
+        race_df = pd.DataFrame(
+            {
+                "race_id": ["R1", "R1", "R1"],
+                "umaban": [1, 2, 3],
+                "p_place_pred": [0.60, 0.40, 0.10],
+                "fukuoddslow": [1.5, 3.0, 10.0],
+                "edge_place": [-0.06666666666666665, 0.06666666666666663, 0.0],
+                "ev_place_corrected": [1.8, 0.9, 2.0],
+                "surface": ["turf"] * 3,
+            }
+        )
+
+        bets = predictor.select_bets(race_df, bankroll=100000.0)
+
+        # Only horse 2 should be selected (positive edge >= threshold)
+        assert len(bets) == 1
+        assert bets[0].umaban == 2
+        assert bets[0].edge == pytest.approx(0.0667, abs=1e-3)
+
+    def test_select_bets_edge_threshold_respects_regime(self, mock_models: MagicMock) -> None:
+        """Horse should NOT be selected when edge < regime edge_threshold.
+
+        CONSERVATIVE regime with edge_threshold=0.05.
+        Horse has edge=0.023 which is below threshold -> no bet.
+        """
+        from backtest.race_predictor import RacePredictor
+        from domain.types import RegimeState
+
+        predictor = RacePredictor(models=mock_models)
+
+        # CONSERVATIVE regime with higher edge_threshold
+        mock_models.regime_detector.current_regime = RegimeState.CONSERVATIVE
+        mock_models.regime_detector.get_strategy_params.return_value = {
+            "edge_threshold": 0.05,
+            "max_bets_per_race": 3,
+        }
+
+        # Horse with edge=0.023 (< 0.05 threshold)
+        race_df = pd.DataFrame(
+            {
+                "race_id": ["R1"],
+                "umaban": [1],
+                "p_place_pred": [0.35],
+                "fukuoddslow": [3.0],  # p_market=0.333, edge=0.017 -- below 0.05
+                "edge_place": [0.023],
+                "ev_place_corrected": [1.5],
+                "surface": ["turf"],
+            }
+        )
+
+        bets = predictor.select_bets(race_df, bankroll=100000.0)
+
+        assert len(bets) == 0

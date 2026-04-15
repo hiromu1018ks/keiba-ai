@@ -133,58 +133,62 @@ class RacePredictor:
         race_df: pd.DataFrame,
         bankroll: float,
     ) -> list[Bet]:
-        """EV > 閾値 の馬をベット候補として抽出。flat/kelly モード対応。
+        """Value Betting: edge = p_model - p_market >= threshold の馬を選択。
 
-        閾値判定は補正済み EV (ev_place_corrected) を使用。
-        kellyモードの賭け金計算は EV_lower_place (信頼区間下限) を使用。
+        閾値判定は edge_place (p_model - p_market) を使用。
+        kellyモードの賭け金計算は edge 値を使用（Task 5 完了後は
+        StakeCalculator が edge パラメータを受け取る）。
         """
+        import math
+
         regime = self.models.regime_detector.current_regime
         regime_params = self.models.regime_detector.get_strategy_params(regime)
 
         bets: list[Bet] = []
-        ev_threshold = regime_params.get("ev_threshold", 1.10)
+        edge_threshold = regime_params.get("edge_threshold", 0.03)
         max_bets = regime_params.get("max_bets_per_race", 3)
 
-        # 閾値判定は補正済み EV (ev_place_corrected)、kellyの賭け金のみ信頼区間下限を使用
-        ev_col = "ev_place_corrected"
-        if ev_col not in race_df.columns or "fukuoddslow" not in race_df.columns:
+        # Value Betting criterion: filter by edge (not EV)
+        edge_col = "edge_place"
+        if edge_col not in race_df.columns or "fukuoddslow" not in race_df.columns:
             return bets
 
-        candidates = race_df[race_df[ev_col].fillna(0) >= ev_threshold].copy()
-        candidates = candidates.nlargest(max_bets, ev_col)
+        candidates = race_df[race_df[edge_col].fillna(0) >= edge_threshold].copy()
+        candidates = candidates.nlargest(max_bets, edge_col)
 
         for _, row in candidates.iterrows():
+            edge_val = float(row[edge_col])
+            odds_val = float(row["fukuoddslow"])
+
             if self._betting_mode == "kelly" and self.stake_calc is not None:
-                # 賭け金計算は保守的下限、なければ点推定
-                stake_ev = (
-                    float(row["EV_lower_place"])
-                    if "EV_lower_place" in race_df.columns
-                    and pd.notna(row.get("EV_lower_place"))
-                    else float(row[ev_col])
-                )
+                # TODO(Task 5): calc_stake(edge=...) に切り替え後、この bridge を削除
+                # 現状 StakeCalculator は ev_lower を期待するため、edge を渡す
                 stake = self.stake_calc.calc_stake(
-                    ev_lower=stake_ev,
-                    odds=float(row["fukuoddslow"]),
+                    ev_lower=edge_val + 1.0,  # bridge: edge+1 -> EV形式
+                    odds=odds_val,
                     bankroll=bankroll,
                     bet_type=BetType.PLACE,
                 )
                 if self.dd_ctrl is not None:
                     stake = self.dd_ctrl.adjust_stake(stake, bankroll)
+                    stake = max(0, math.floor(stake / 100) * 100)
             else:
                 stake = 100.0
-                stake_ev = float(row.get(ev_col, 0))
 
-            if bankroll >= stake:
-                bets.append(
-                    Bet(
-                        race_id=row["race_id"],
-                        umaban=int(row["umaban"]),
-                        bet_type=BetType.PLACE,
-                        odds=float(row["fukuoddslow"]),
-                        ev_lower_corrected=stake_ev,
-                        stake=stake,
-                    )
+            if stake < 100:
+                continue
+
+            bets.append(
+                Bet(
+                    race_id=row["race_id"],
+                    umaban=int(row["umaban"]),
+                    bet_type=BetType.PLACE,
+                    odds=odds_val,
+                    ev_lower_corrected=float(row.get("ev_place_corrected", 0)),
+                    stake=stake,
+                    edge=edge_val,
                 )
+            )
 
         return bets
 
