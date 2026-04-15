@@ -37,6 +37,8 @@ class RacePredictor:
         self.stake_calc = stake_calculator
         self.dd_ctrl = dd_controller
         self._betting_mode = "kelly" if stake_calculator is not None else "flat"
+        if not 0.0 <= alpha <= 1.0:
+            raise ValueError(f"alpha must be in [0, 1], got {alpha}")
         self.alpha = alpha
 
     def predict(
@@ -148,9 +150,10 @@ class RacePredictor:
         race_df: pd.DataFrame,
         bankroll: float,
     ) -> list[Bet]:
-        """Value Betting: edge = p_model - p_market >= threshold の馬を選択。
+        """Value Betting: edge = p_combined - p_market >= threshold の馬を選択。
 
-        閾値判定は edge_place (p_model - p_market) を使用。
+        p_combined は Benter combined probability:
+          logit(p_c) = alpha * logit(p_model) + (1-alpha) * logit(p_market)
         賭け金計算は StakeCalculator.calc_stake(edge=...) で直接 edge を渡す。
         """
         regime = self.models.regime_detector.current_regime
