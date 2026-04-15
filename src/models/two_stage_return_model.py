@@ -178,7 +178,35 @@ class PlaceTwoStageModel:
     return_leaves を少し増やせる (25)。
     """
 
-    FEATURE_COLS: list[str] = WinTwoStageModel.FEATURE_COLS
+    FEATURE_COLS: list[str] = [
+        # Stage1 出力
+        "p_ability_win",
+        "p_ability_place",             # PlaceAbilityModel 出力
+        # Market Model 正規化差分
+        "signed_log_error_win",
+        "abs_log_error_win",
+        # 複勝・単勝オッズ
+        "fukuoddslow",                 # 複勝オッズ (return model 最重要特徴量)
+        "tanodds",                     # 単勝オッズ (win-place spread の文脈)
+        # オッズ変化率
+        "odds_drop_rate_60_10",
+        "odds_drop_rate_30_10",
+        "odds_velocity",
+        "odds_volatility",
+        "popularity_change_30_10",
+        # 市場歪み
+        "market_entropy",
+        "popularity_rank",
+        "overround",
+        # レース条件
+        "surface",
+        "distance_bin",
+        "track_condition_code",
+        "grade_code",
+        "field_size",
+        # FLB slope
+        "odds_skewness",
+    ]
 
     def __init__(self, cfg: TwoStageConfig | None = None) -> None:
         self.cfg = cfg or TwoStageConfig()

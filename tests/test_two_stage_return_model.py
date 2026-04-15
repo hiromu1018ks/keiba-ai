@@ -39,6 +39,10 @@ def feature_df() -> pd.DataFrame:
             "field_size": [8] * 8,
             # FLB slope (市場歪みの非対称性)
             "odds_skewness": [1.5] * 8,
+            # Place固有特徴量
+            "fukuoddslow": [1.3, 1.5, 1.8, 2.1, 2.5, 3.0, 3.5, 4.0],
+            "tanodds": [2.0, 3.0, 4.0, 5.0, 6.0, 8.0, 10.0, 15.0],
+            "p_ability_place": [0.55, 0.48, 0.42, 0.38, 0.32, 0.25, 0.20, 0.15],
             "finish_pos": [1, 2, 3, 4, 5, 6, 7, 8],
             "win_odds_actual": [3.5, 5.0, 8.0, 15.0, 25.0, 40.0, 80.0, 150.0],
             "place_odds_actual": [1.3, 1.6, 2.1, 3.5, 5.0, 8.0, 15.0, 30.0],
@@ -243,8 +247,16 @@ class TestPlaceTwoStageModel:
         assert "callbacks" in call_args[1]
         mock_lgb.early_stopping.assert_called_once_with(stopping_rounds=100, verbose=False)
 
-    def test_shared_feature_cols(self) -> None:
-        assert PlaceTwoStageModel.FEATURE_COLS == WinTwoStageModel.FEATURE_COLS
+    def test_place_feature_cols_include_place_specific(self) -> None:
+        """Place model should have place-specific features beyond win features"""
+        assert "fukuoddslow" in PlaceTwoStageModel.FEATURE_COLS
+        assert "p_ability_place" in PlaceTwoStageModel.FEATURE_COLS
+        assert "tanodds" in PlaceTwoStageModel.FEATURE_COLS
+        # Win特徴量も全て含む
+        for col in WinTwoStageModel.FEATURE_COLS:
+            assert col in PlaceTwoStageModel.FEATURE_COLS
+        # Place固有特徴量が追加されている
+        assert len(PlaceTwoStageModel.FEATURE_COLS) > len(WinTwoStageModel.FEATURE_COLS)
 
 
 class TestTrainValidSplit:
