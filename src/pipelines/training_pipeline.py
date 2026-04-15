@@ -456,7 +456,7 @@ class TrainingPipelineV5:
             from models.stacked_ensemble import StackedEnsemble
 
             with TimingContext(f"{surface}/place_hit_ensemble"):
-                features = place_2s._prepare_features(df_oof)
+                features = place_2s._prepare_features(df_oof, use_cols=place_2s.HIT_FEATURE_COLS)
                 y = (df_oof["kakuteijyuni"] <= 3).astype(int)
                 split = int(len(features) * 0.8)
                 ensemble_place = StackedEnsemble(
