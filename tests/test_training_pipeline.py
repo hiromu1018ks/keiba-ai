@@ -64,6 +64,7 @@ class TestTrainedModelsV5:
             win=None,
             ev_corrector=None,
             place=None,
+            place_ev_corrector=None,
             wide=None,
             confidence=None,
         )
@@ -81,6 +82,7 @@ class TestTrainedModelsV5:
                     win=None,
                     ev_corrector=None,
                     place=None,
+                    place_ev_corrector=None,
                     wide=None,
                     confidence=None,
                 )
@@ -103,6 +105,7 @@ class TestTrainedModelsV5:
                     win="w_turf",
                     ev_corrector="e_turf",
                     place="p_turf",
+                    place_ev_corrector=None,
                     wide="wd_turf",
                     confidence="c_turf",
                 ),
@@ -113,6 +116,7 @@ class TestTrainedModelsV5:
                     win="w_dirt",
                     ev_corrector="e_dirt",
                     place="p_dirt",
+                    place_ev_corrector=None,
                     wide="wd_dirt",
                     confidence="c_dirt",
                 ),
@@ -631,6 +635,7 @@ class TestJRAFilterTraining:
             win=MagicMock(),
             ev_corrector=MagicMock(),
             place=MagicMock(),
+            place_ev_corrector=MagicMock(),
             wide=MagicMock(),
             confidence=MagicMock(),
         )

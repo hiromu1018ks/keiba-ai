@@ -102,9 +102,7 @@ class RacePredictor:
         # 6. EV補正 + Place推論
         df = submodel.ev_corrector.correct_ev(df)
         df = submodel.place.predict_ev(df)
-
-        if "ev_place_corrected" not in df.columns:
-            df["ev_place_corrected"] = df.get("ev_place", 0.0)
+        df = submodel.place_ev_corrector.correct_ev(df)
 
         # 7. 信頼区間
         win_df, place_df = submodel.confidence.predict_lower_bound(df, df)
@@ -126,7 +124,7 @@ class RacePredictor:
     ) -> list[Bet]:
         """EV > 閾値 の馬をベット候補として抽出。flat/kelly モード対応。
 
-        閾値判定は常に ev_place (点推定) を使用。
+        閾値判定は補正済み EV (ev_place_corrected) を使用。
         kellyモードの賭け金計算は EV_lower_place (信頼区間下限) を使用。
         """
         regime = self.models.regime_detector.current_regime
@@ -136,8 +134,8 @@ class RacePredictor:
         ev_threshold = regime_params.get("ev_threshold", 1.10)
         max_bets = regime_params.get("max_bets_per_race", 3)
 
-        # 閾値判定は常に点推定 (ev_place)、kellyの賭け金のみ信頼区間下限を使用
-        ev_col = "ev_place"
+        # 閾値判定は補正済み EV (ev_place_corrected)、kellyの賭け金のみ信頼区間下限を使用
+        ev_col = "ev_place_corrected"
         if ev_col not in race_df.columns or "fukuoddslow" not in race_df.columns:
             return bets
 

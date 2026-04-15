@@ -121,7 +121,7 @@ class TestRacePredictor:
                 "popularity_rank": [3, 5, 7],
                 "ninki": [3, 5, 7],
                 "fukuoddslow": [2.4, 1.5, 5.0],
-                "ev_place": [1.5, 0.8, 1.8],
+                "ev_place_corrected": [1.5, 0.8, 1.8],
                 "kakuteijyuni": [2, 1, 3],
                 "kettonum": [1234, 5678, 9012],
                 "odds": [5.0, 2.0, 10.0],
@@ -143,7 +143,7 @@ class TestRacePredictor:
             {
                 "race_id": ["R1", "R1"],
                 "umaban": [1, 2],
-                "ev_place": [1.5, 1.3],
+                "ev_place_corrected": [1.5, 1.3],
                 "fukuoddslow": [3.0, 2.5],
                 "surface": ["turf", "turf"],
             }
@@ -173,7 +173,7 @@ class TestRacePredictor:
                 "race_id": ["R1", "R1"],
                 "umaban": [1, 2],
                 "EV_lower_place": [1.5, 1.3],
-                "ev_place": [1.5, 1.3],
+                "ev_place_corrected": [1.5, 1.3],
                 "fukuoddslow": [3.0, 2.5],
                 "surface": ["turf", "turf"],
             }

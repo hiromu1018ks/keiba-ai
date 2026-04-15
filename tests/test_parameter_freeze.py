@@ -32,6 +32,7 @@ def mock_models() -> TrainedModelsV5:
                 win=mock_win,
                 ev_corrector=MagicMock(),
                 place=MagicMock(),
+                place_ev_corrector=MagicMock(),
                 wide=MagicMock(),
                 confidence=MagicMock(),
             ),
@@ -79,6 +80,7 @@ class TestParameterFreezeProtocol:
             win=MagicMock(),
             ev_corrector=MagicMock(),
             place=MagicMock(),
+            place_ev_corrector=MagicMock(),
             wide=MagicMock(),
             confidence=MagicMock(),
         )
@@ -112,6 +114,7 @@ class TestParameterFreezeProtocol:
                     win=MagicMock(),
                     ev_corrector=MagicMock(),
                     place=MagicMock(),
+                    place_ev_corrector=MagicMock(),
                     wide=MagicMock(),
                     confidence=MagicMock(),
                 )

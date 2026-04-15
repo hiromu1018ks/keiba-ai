@@ -73,7 +73,7 @@ class ModelLoader:
         artifact_uri = mlflow.get_artifact_uri(run_id)
 
         from domain.models import SubmodelSet, TrainedModelsV5
-        from models.ev_correction_model import EVCorrectionModel
+        from models.ev_correction_model import EVCorrectionModel, PlaceEVCorrectionModel
         from models.market_model import MarketModel
         from models.place_ability_model import PlaceAbilityModel
         from models.race_quality_screener import RaceQualityScreener
@@ -102,6 +102,16 @@ class ModelLoader:
             ev_corr = EVCorrectionModel()
             ev_corr.p_correction_model = self._load_lgbm(f"{artifact_uri}/ev_corrector_p_{surface}")
             ev_corr.e_correction_model = self._load_lgbm(f"{artifact_uri}/ev_corrector_e_{surface}")
+
+            # PlaceEVCorrectionModel
+            place_ev_corr = PlaceEVCorrectionModel()
+            place_ev_corr.p_correction_model = self._load_lgbm(
+                f"{artifact_uri}/place_ev_corrector_p_{surface}"
+            )
+            place_ev_corr.e_correction_model = self._load_lgbm(
+                f"{artifact_uri}/place_ev_corrector_e_{surface}"
+            )
+            place_ev_corr._trained = True
 
             # PlaceTwoStageModel
             place = PlaceTwoStageModel()
@@ -157,6 +167,7 @@ class ModelLoader:
                 win=win,
                 ev_corrector=ev_corr,
                 place=place,
+                place_ev_corrector=place_ev_corr,
                 wide=wide,
                 confidence=confidence,
             )
@@ -331,7 +342,7 @@ class ModelLoader:
     ) -> tuple[TrainedModelsV5, ModelInfo]:
         """data/models/ から全モデルをロード"""
         from domain.models import SubmodelSet, TrainedModelsV5
-        from models.ev_correction_model import EVCorrectionModel
+        from models.ev_correction_model import EVCorrectionModel, PlaceEVCorrectionModel
         from models.market_model import MarketModel
         from models.place_ability_model import PlaceAbilityModel
         from models.race_quality_screener import RaceQualityScreener
@@ -395,6 +406,20 @@ class ModelLoader:
                 str(models_dir / f"ev_corrector_e_{surface}.lgb")
             )
 
+            # PlaceEVCorrectionModel (backward compatible)
+            place_ev_corr_file = models_dir / f"place_ev_corrector_p_{surface}.lgb"
+            if place_ev_corr_file.exists():
+                place_ev_corr = PlaceEVCorrectionModel()
+                place_ev_corr.p_correction_model = self._load_lgbm(
+                    str(models_dir / f"place_ev_corrector_p_{surface}.lgb")
+                )
+                place_ev_corr.e_correction_model = self._load_lgbm(
+                    str(models_dir / f"place_ev_corrector_e_{surface}.lgb")
+                )
+                place_ev_corr._trained = True
+            else:
+                place_ev_corr = PlaceEVCorrectionModel()
+
             # PlaceTwoStageModel
             place = PlaceTwoStageModel()
             place.hit_model = self._load_hit_model(
@@ -437,6 +462,7 @@ class ModelLoader:
                 win=win,
                 ev_corrector=ev_corr,
                 place=place,
+                place_ev_corrector=place_ev_corr,
                 wide=wide,
                 confidence=confidence,
             )

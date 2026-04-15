@@ -35,7 +35,7 @@ if TYPE_CHECKING:
 
 from features.feature_engine import FeatureEngine
 from features.odds_dynamics_features import compute_roi_ema
-from models.ev_correction_model import EVCorrectionModel
+from models.ev_correction_model import EVCorrectionModel, PlaceEVCorrectionModel
 from models.market_model import MarketModel
 from models.race_quality_screener import RaceQualityScreener
 from models.regime_detector import RegimeDetector
@@ -476,6 +476,12 @@ class TrainingPipelineV5:
         with TimingContext(f"{surface}/place_predict"):
             df_oof = place_2s.predict_ev(df_oof)
 
+        # 5b. Place EV補正 (P/E decomposition)
+        with TimingContext(f"{surface}/place_ev_correction"):
+            place_ev_corrector = PlaceEVCorrectionModel()
+            place_ev_corrector.train(df_oof, num_threads=num_threads)
+            df_oof = place_ev_corrector.correct_ev(df_oof)
+
         # 6. ワイド 2段階モデル
         with TimingContext(f"{surface}/wide_pair_build"):
             pair_df = WideJointPairBuilder().build(df_oof)
@@ -497,7 +503,7 @@ class TrainingPipelineV5:
             place_calib_df["actual_ev_place"] = df_oof["fukuoddslow"] * (
                 df_oof["kakuteijyuni"] <= 3
             ).astype(int)
-            place_calib_df["ev_place_corrected"] = df_oof["ev_place"]
+            place_calib_df["ev_place_corrected"] = df_oof["ev_place_corrected"]
             conf.calibrate(win_calib_df, place_calib_df)
 
         return SubmodelSet(
@@ -507,6 +513,7 @@ class TrainingPipelineV5:
             win=win_2s,
             ev_corrector=ev_corrector,
             place=place_2s,
+            place_ev_corrector=place_ev_corrector,
             wide=wide_2s,
             confidence=conf,
             use_ensemble=use_ensemble,
@@ -716,6 +723,16 @@ class TrainingPipelineV5:
                     name=f"ev_corrector_e_{surface}",
                 )
 
+                # PlaceEVCorrectionModel
+                mlflow.lightgbm.log_model(
+                    sub.place_ev_corrector.p_correction_model,
+                    name=f"place_ev_corrector_p_{surface}",
+                )
+                mlflow.lightgbm.log_model(
+                    sub.place_ev_corrector.e_correction_model,
+                    name=f"place_ev_corrector_e_{surface}",
+                )
+
                 # PlaceTwoStageModel
                 if sub.use_ensemble:
                     _se_tmp2: str | None = None
@@ -815,6 +832,8 @@ class TrainingPipelineV5:
             saved[f"win_ret_{surface}"] = sub.win.return_model
             saved[f"ev_corrector_p_{surface}"] = sub.ev_corrector.p_correction_model
             saved[f"ev_corrector_e_{surface}"] = sub.ev_corrector.e_correction_model
+            saved[f"place_ev_corrector_p_{surface}"] = sub.place_ev_corrector.p_correction_model
+            saved[f"place_ev_corrector_e_{surface}"] = sub.place_ev_corrector.e_correction_model
             saved[f"place_hit_{surface}"] = sub.place.hit_model
             saved[f"place_ret_{surface}"] = sub.place.return_model
             saved[f"wide_hit_{surface}"] = sub.wide.hit_model

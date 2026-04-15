@@ -431,8 +431,12 @@ class TestPostRaceColumnExclusion:
         submodel.win.predict_ev.return_value = feat_df
         submodel.ev_corrector.correct_ev.return_value = feat_df
         submodel.place.predict_ev.return_value = feat_df
+        _corrected = feat_df.assign(
+            ev_place_corrected=feat_df.get("ev_place", 1.5)
+        )
+        submodel.place_ev_corrector.correct_ev.return_value = _corrected
         submodel.confidence.predict_lower_bound.return_value = (
-            feat_df,
+            _corrected,
             pd.DataFrame({"EV_lower_place": [1.5]}),
         )
 
@@ -590,8 +594,12 @@ class TestBetHistoryEnrichment:
         submodel.win.predict_ev.return_value = feat_df
         submodel.ev_corrector.correct_ev.return_value = feat_df
         submodel.place.predict_ev.return_value = feat_df
+        _corrected = feat_df.assign(
+            ev_place_corrected=feat_df.get("ev_place", 1.5)
+        )
+        submodel.place_ev_corrector.correct_ev.return_value = _corrected
         submodel.confidence.predict_lower_bound.return_value = (
-            feat_df,
+            _corrected,
             pd.DataFrame({"EV_lower_place": [1.5]}),
         )
 
@@ -907,8 +915,12 @@ class TestJRAFilterBacktest:
         submodel.win.predict_ev.return_value = feat_df
         submodel.ev_corrector.correct_ev.return_value = feat_df
         submodel.place.predict_ev.return_value = feat_df
+        _corrected = feat_df.assign(
+            ev_place_corrected=feat_df.get("ev_place", 1.5)
+        )
+        submodel.place_ev_corrector.correct_ev.return_value = _corrected
         submodel.confidence.predict_lower_bound.return_value = (
-            feat_df,
+            _corrected,
             pd.DataFrame({"EV_lower_place": [1.5]}),
         )
 
@@ -1038,8 +1050,12 @@ class TestJRAFilterBacktest:
         submodel.win.predict_ev.return_value = feat_df
         submodel.ev_corrector.correct_ev.return_value = feat_df
         submodel.place.predict_ev.return_value = feat_df
+        _corrected = feat_df.assign(
+            ev_place_corrected=feat_df.get("ev_place", 1.5)
+        )
+        submodel.place_ev_corrector.correct_ev.return_value = _corrected
         submodel.confidence.predict_lower_bound.return_value = (
-            feat_df,
+            _corrected,
             pd.DataFrame({"EV_lower_place": [1.5]}),
         )
 

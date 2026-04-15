@@ -626,10 +626,11 @@ class BacktestEngine:
         max_bets = regime_params.get("max_bets_per_race", 3)
 
         # 複勝ベット
-        if "ev_place" in race_df.columns and "fukuoddslow" in race_df.columns:
-            candidates = race_df[race_df["ev_place"].fillna(0) >= ev_threshold].copy()
-            # ev_place 降順でソートし、上位 max_bets 頭のみベット
-            candidates = candidates.nlargest(max_bets, "ev_place")
+        ev_col = "ev_place_corrected" if "ev_place_corrected" in race_df.columns else "ev_place"
+        if ev_col in race_df.columns and "fukuoddslow" in race_df.columns:
+            candidates = race_df[race_df[ev_col].fillna(0) >= ev_threshold].copy()
+            # ev_place_corrected 降順でソートし、上位 max_bets 頭のみベット
+            candidates = candidates.nlargest(max_bets, ev_col)
 
             for _, row in candidates.iterrows():
                 stake = 100.0  # 固定100円ベット (簡易版)
@@ -641,7 +642,7 @@ class BacktestEngine:
                             bet_type=BetType.PLACE,
                             odds=float(row["fukuoddslow"]),
                             final_odds=float(row["fukuoddslow"]),  # レガシー: 同一オッズ
-                            ev_lower_corrected=float(row.get("ev_place", 0)),
+                            ev_lower_corrected=float(row.get(ev_col, 0)),
                             stake=stake,
                         )
                     )

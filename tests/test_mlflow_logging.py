@@ -33,6 +33,8 @@ class TestExtendedMLflowLogging:
             mock_sub.ev_corrector.e_correction_model = MagicMock()
             mock_sub.place.hit_model = MagicMock()
             mock_sub.place.return_model = MagicMock()
+            mock_sub.place_ev_corrector.p_correction_model = MagicMock()
+            mock_sub.place_ev_corrector.e_correction_model = MagicMock()
             mock_sub.place_ability._model = MagicMock()
             mock_sub.place_ability._calibrated = MagicMock()
             mock_sub.wide.hit_model = MagicMock()
@@ -66,7 +68,7 @@ class TestExtendedMLflowLogging:
 
             # market_turf が呼ばれる
             log_model_calls = [
-                c.kwargs.get("artifact_path", c[0][1] if len(c[0]) > 1 else "")
+                c.kwargs.get("name", c.kwargs.get("artifact_path", c[0][1] if len(c[0]) > 1 else ""))
                 for c in mock_mlflow.lightgbm.log_model.call_args_list
             ]
             assert "market_turf" in log_model_calls
@@ -104,6 +106,8 @@ class TestExtendedMLflowLogging:
             mock_sub.ev_corrector.e_correction_model = MagicMock()
             mock_sub.place.hit_model = MagicMock()
             mock_sub.place.return_model = MagicMock()
+            mock_sub.place_ev_corrector.p_correction_model = MagicMock()
+            mock_sub.place_ev_corrector.e_correction_model = MagicMock()
             mock_sub.place_ability._model = MagicMock()
             mock_sub.place_ability._calibrated = MagicMock()
 

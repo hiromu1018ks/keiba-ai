@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Optional
 from domain.types import BetType, RecoveryState, Surface
 
 if TYPE_CHECKING:
-    from models.ev_correction_model import EVCorrectionModel
+    from models.ev_correction_model import EVCorrectionModel, PlaceEVCorrectionModel
     from models.market_model import MarketModel
     from models.place_ability_model import PlaceAbilityModel
     from models.race_quality_screener import RaceQualityScreener
@@ -229,6 +229,7 @@ class SubmodelSet:
     win: WinTwoStageModel
     ev_corrector: EVCorrectionModel
     place: PlaceTwoStageModel
+    place_ev_corrector: PlaceEVCorrectionModel
     wide: WideTwoStageModel
     confidence: RobustConfidenceEstimator
     use_ensemble: bool = False
