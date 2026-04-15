@@ -500,11 +500,10 @@ class TestRacePredictor:
 
     def test_alpha_validation_rejects_out_of_range(self, mock_models: MagicMock) -> None:
         """alpha outside [0, 1] should raise ValueError."""
-        import pytest as _pytest
         from backtest.race_predictor import RacePredictor
 
-        with _pytest.raises(ValueError, match="alpha must be in"):
+        with pytest.raises(ValueError, match="alpha must be in"):
             RacePredictor(models=mock_models, alpha=1.5)
 
-        with _pytest.raises(ValueError, match="alpha must be in"):
+        with pytest.raises(ValueError, match="alpha must be in"):
             RacePredictor(models=mock_models, alpha=-0.1)
