@@ -17,12 +17,17 @@ class PlaceStrategy:
 
     stake計算は StakeCalculator と同様のロジック:
       kelly_fraction = (edge * odds) / (odds - 1.0)
+      half-Kelly: kelly_fraction *= 0.5
+      cap: min(kelly_fraction, 0.125)
       raw_stake = bankroll × kelly_fraction
       stake = floor(raw_stake / 100) × 100  (100円単位)
+      stake = min(stake, 10000)
     """
 
     MIN_STAKE: int = 100  # 最低投票額
+    MAX_STAKE: int = 10000  # 最大投票額
     KELLY_FRACTION_CAP: float = 0.25  # Kelly fraction の最大値
+    FRACTIONAL_KELLY: float = 0.5  # half-Kelly
 
     def generate(
         self,
@@ -77,13 +82,16 @@ class PlaceStrategy:
         return bets
 
     def _calc_stake(self, edge: float, odds: float, bankroll: float) -> float:
-        """簡易ケリー基準で賭け金を計算する（100円単位）。"""
+        """Value Betting Kelly で賭け金を計算する（StakeCalculator と同ロジック）。"""
         if bankroll <= 0 or odds <= 1.0:
             return 0.0
 
+        # VB Kelly: f* = (edge * odds) / (odds - 1)
         kelly_fraction = (edge * odds) / (odds - 1.0)
         kelly_fraction = min(kelly_fraction, self.KELLY_FRACTION_CAP)
+        kelly_fraction *= self.FRACTIONAL_KELLY  # half-Kelly
 
         raw_stake = bankroll * kelly_fraction
         stake = max(0, int(math.floor(raw_stake / self.MIN_STAKE)) * self.MIN_STAKE)
+        stake = min(stake, self.MAX_STAKE)
         return float(stake)
