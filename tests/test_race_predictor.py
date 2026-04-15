@@ -64,15 +64,19 @@ class TestRacePredictor:
             }
         )
 
+        # place.predict_ev は p_place_pred を付与するため、mock の返り値に含める
+        result_df = race_df.copy()
+        result_df["p_place_pred"] = [0.50]
+
         submodel = mock_models.submodels["turf"]
         submodel.market.predict_and_calc_error.return_value = race_df.copy()
         submodel.stage1.add_ability_probs.return_value = race_df.copy()
         submodel.place_ability.predict.return_value = race_df.copy()
         submodel.win.predict_ev.return_value = race_df.copy()
         submodel.ev_corrector.correct_ev.return_value = race_df.copy()
-        submodel.place.predict_ev.return_value = race_df.copy()
+        submodel.place.predict_ev.return_value = result_df
         submodel.confidence.predict_lower_bound.return_value = (
-            race_df.copy(),
+            result_df.copy(),
             pd.DataFrame({"EV_lower_place": [1.5]}),
         )
 
@@ -205,3 +209,53 @@ class TestRacePredictor:
         assert isinstance(features, dict)
         assert features["surface"] == "turf"
         assert features["field_size"] == 10
+
+    def test_predict_computes_edge_place(self, mock_models: MagicMock) -> None:
+        """predict() should compute edge_place = p_place_pred - 1/fukuoddslow."""
+        from backtest.race_predictor import RacePredictor
+
+        predictor = RacePredictor(models=mock_models)
+
+        # p_place_pred=0.70, fukuoddslow=1.5 -> edge = 0.70 - 1/1.5 = 0.0333...
+        race_df = pd.DataFrame(
+            {
+                "race_id": ["20240101010101"],
+                "umaban": [1],
+                "surface": ["turf"],
+                "kyori": [1200],
+                "distance_bin": ["sprint"],
+                "popularity_rank": [3],
+                "ninki": [3],
+                "fukuoddslow": [1.5],
+                "kakuteijyuni": [2],
+                "kettonum": [1234],
+                "odds": [5.0],
+                "bataijyu": [480],
+                "field_size": [10],
+                "track_condition_code": [2],
+                "grade_code": ["C"],
+            }
+        )
+
+        # Build a result DataFrame that includes p_place_pred (set by place.predict_ev)
+        result_df = race_df.copy()
+        result_df["p_place_pred"] = [0.70]
+
+        submodel = mock_models.submodels["turf"]
+        submodel.market.predict_and_calc_error.return_value = race_df.copy()
+        submodel.stage1.add_ability_probs.return_value = race_df.copy()
+        submodel.place_ability.predict.return_value = race_df.copy()
+        submodel.win.predict_ev.return_value = race_df.copy()
+        submodel.ev_corrector.correct_ev.return_value = race_df.copy()
+        submodel.place.predict_ev.return_value = result_df
+        submodel.place_ev_corrector.correct_ev.return_value = result_df.copy()
+        submodel.confidence.predict_lower_bound.return_value = (
+            result_df.copy(),
+            pd.DataFrame({"EV_lower_place": [1.5]}),
+        )
+
+        result = predictor.predict(race_df)
+
+        assert "edge_place" in result.columns
+        expected_edge = 0.70 - 1.0 / 1.5
+        assert abs(result["edge_place"].iloc[0] - expected_edge) < 1e-10

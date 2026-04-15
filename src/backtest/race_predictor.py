@@ -8,6 +8,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
+import numpy as np
 import pandas as pd
 
 from domain.models import Bet, BetType
@@ -109,6 +110,16 @@ class RacePredictor:
         df = win_df
         if "EV_lower_place" in place_df.columns:
             df["EV_lower_place"] = place_df["EV_lower_place"].values
+
+        # --- Value Betting: edge = p_model - p_market ---
+        # p_market = 1 / fukuoddslow (market implied probability)
+        # edge > 0 means the model thinks the horse is undervalued
+        p_market = np.where(
+            df["fukuoddslow"] > 0,
+            1.0 / df["fukuoddslow"],
+            np.nan,
+        )
+        df["edge_place"] = df["p_place_pred"] - p_market
 
         return df
 
