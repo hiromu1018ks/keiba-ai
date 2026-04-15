@@ -183,6 +183,7 @@ class PaperPredictor:
                     "surface": surface,
                     "kyori": int(result_df["kyori"].iloc[0]) if "kyori" in result_df.columns else 0,
                     "ev": float(bet.ev_lower_corrected),
+                    "edge": float(bet.edge),  # Value Betting edge
                     "popularity": 0,
                     "bankroll_after": bankroll - bet.stake,
                     "race_date": race_date,

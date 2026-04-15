@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 class StakeCalculatorProtocol(Protocol):
     def calc_stake(
         self,
-        ev_lower: float,
+        edge: float,
         odds: float,
         bankroll: float,
         bet_type: BetType,
@@ -32,7 +32,7 @@ class GateKeeperProtocol(Protocol):
     def filter_bets(
         self,
         bets: list[Bet],
-        ev_threshold: float,
+        edge_threshold: float = 0.03,
     ) -> list[Bet]: ...
 
 
@@ -48,8 +48,9 @@ class BetStrategyProtocol(Protocol):
         self,
         feats: dict,
         bankroll: float,
-        ev_threshold: float,
+        ev_threshold: float = 1.10,
         max_bets: int = 3,
+        edge_threshold: float = 0.03,
     ) -> list[Bet]: ...
 
 
@@ -151,6 +152,7 @@ class BettingOrchestrator:
         # ② レジームパラメータ取得
         params = self.meta_switcher.get_strategy_params()
         ev_threshold = params["ev_threshold"]
+        edge_threshold = params.get("edge_threshold", 0.03)  # Value Betting edge閾値
         score_threshold = params["score_threshold"]
         max_bets = params["max_bets_per_race"]
         logger.info(f"Regime: {params.get('description', 'unknown')}")
@@ -172,6 +174,7 @@ class BettingOrchestrator:
             bankroll,
             ev_threshold,
             max_bets=max_bets,
+            edge_threshold=edge_threshold,
         )
         win_bets = self.win_strategy.generate(
             feats,
@@ -190,13 +193,13 @@ class BettingOrchestrator:
 
         all_bets = place_bets + wide_bets + win_bets
 
-        # GateKeeper: EV下限値で最終足切り
-        all_bets = self.gate_keeper.filter_bets(all_bets, ev_threshold)
+        # GateKeeper: edge閾値で最終足切り
+        all_bets = self.gate_keeper.filter_bets(all_bets, edge_threshold=edge_threshold)
 
         # ⑨ 賭け金計算
         for bet in all_bets:
             base_stake = self.stake_calculator.calc_stake(
-                bet.ev_lower_corrected,
+                bet.edge,
                 bet.odds,
                 bankroll,
                 bet.bet_type,

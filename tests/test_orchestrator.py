@@ -42,8 +42,8 @@ def mock_deps() -> tuple:
     dd_ctrl.update = MagicMock()
 
     gate_keeper = MagicMock()
-    gate_keeper.filter_bets.side_effect = lambda bets, ev_t: [
-        b for b in bets if b.ev_lower_corrected >= ev_t
+    gate_keeper.filter_bets.side_effect = lambda bets, edge_threshold=0.03: [
+        b for b in bets if b.edge >= edge_threshold
     ]
 
     meta_switcher = MagicMock()
@@ -57,7 +57,7 @@ def mock_deps() -> tuple:
 
     place_strategy = MagicMock()
     place_strategy.generate.return_value = [
-        Bet("R1", 1, BetType.PLACE, 3.0, 1.20, 500.0),
+        Bet("R1", 1, BetType.PLACE, 3.0, 1.20, 500.0, edge=0.10),
     ]
 
     win_strategy = MagicMock()
@@ -217,8 +217,8 @@ class TestBettingOrchestrator:
         ) = mock_deps
 
         pending = [
-            Bet("R1", 1, BetType.PLACE, 3.0, 1.20, 500.0),
-            Bet("R1", 3, BetType.PLACE, 3.0, 1.15, 300.0),
+            Bet("R1", 1, BetType.PLACE, 3.0, 1.20, 500.0, edge=0.10),
+            Bet("R1", 3, BetType.PLACE, 3.0, 1.15, 300.0, edge=0.05),
         ]
         lm.process_last_minute.return_value = (pending[:1], pending[1:])
 
@@ -276,7 +276,7 @@ class TestBettingOrchestrator:
         assert approved == []
 
     def test_process_race_applies_stake_calc(self, mock_deps: tuple) -> None:
-        """process_race が stake_calculator を呼び出す"""
+        """process_race が stake_calculator を edge で呼び出す"""
         (
             stake_calc,
             dd_ctrl,
@@ -308,7 +308,10 @@ class TestBettingOrchestrator:
             "place_odds": [2.0] * 8,
         }
         orch.process_race(race, feats, bankroll=100000, dd_ctrl=dd_ctrl)
-        stake_calc.calc_stake.assert_called()
+        stake_calc.calc_stake.assert_called_once()
+        # calc_stake の第1引数は edge (bet.edge) であることを確認
+        call_args = stake_calc.calc_stake.call_args
+        assert call_args[0][0] == 0.10  # Betのedge値
 
     def test_process_race_applies_exposure_cap(self, mock_deps: tuple) -> None:
         """process_race がレース露出キャップを適用"""
@@ -421,3 +424,54 @@ class TestBettingOrchestrator:
         }
         bets = orch.process_race(race, feats, bankroll=100000, dd_ctrl=dd_ctrl)
         assert isinstance(bets, list)
+
+    def test_process_race_propagates_edge_threshold(self, mock_deps: tuple) -> None:
+        """process_race が edge_threshold を place_strategy と gate_keeper に伝播"""
+        (
+            stake_calc,
+            dd_ctrl,
+            gk,
+            ms,
+            ps,
+            ws,
+            wids,
+            lm,
+            qs,
+        ) = mock_deps
+
+        # meta_switcher が edge_threshold を返すように設定
+        ms.get_strategy_params.return_value = {
+            "ev_threshold": 1.10,
+            "edge_threshold": 0.05,
+            "score_threshold": 0.01,
+            "max_bets_per_race": 3,
+            "description": "テスト",
+        }
+
+        orch = BettingOrchestrator(
+            stake_calculator=stake_calc,
+            gate_keeper=gk,
+            meta_switcher=ms,
+            place_strategy=ps,
+            win_strategy=ws,
+            wide_strategy=wids,
+            late_money_filter=lm,
+            quality_screener=qs,
+        )
+
+        race = _make_race()
+        feats = {
+            "race_id": ["2024032501010101"] * 8,
+            "umaban": list(range(1, 9)),
+            "ev_lower_place": [1.20, 1.05, 0.90, 0.80, 0.70, 0.60, 0.50, 0.40],
+            "place_odds": [2.0] * 8,
+        }
+        orch.process_race(race, feats, bankroll=100000, dd_ctrl=dd_ctrl)
+
+        # place_strategy.generate() に edge_threshold=0.05 が渡される
+        gen_call = ps.generate.call_args
+        assert gen_call.kwargs["edge_threshold"] == 0.05
+
+        # gate_keeper.filter_bets() に edge_threshold=0.05 が渡される
+        gk_call = gk.filter_bets.call_args
+        assert gk_call.kwargs["edge_threshold"] == 0.05
