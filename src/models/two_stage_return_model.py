@@ -185,7 +185,7 @@ class PlaceTwoStageModel:
     HIT_FEATURE_COLS: list[str] = [
         # Stage1 出力
         "p_ability_win",
-        "p_ability_place",             # PlaceAbilityModel 出力
+        "p_ability_place",  # PlaceAbilityModel 出力
         # Market Model 正規化差分
         "signed_log_error_win",
         "abs_log_error_win",
@@ -214,13 +214,13 @@ class PlaceTwoStageModel:
     RETURN_FEATURE_COLS: list[str] = [
         # Stage1 出力
         "p_ability_win",
-        "p_ability_place",             # PlaceAbilityModel 出力
+        "p_ability_place",  # PlaceAbilityModel 出力
         # Market Model 正規化差分
         "signed_log_error_win",
         "abs_log_error_win",
         # 複勝・単勝オッズ (return model のみ)
-        "fukuoddslow",                 # 複勝オッズ (最重要特徴量)
-        "tanodds",                     # 単勝オッズ
+        "fukuoddslow",  # 複勝オッズ (最重要特徴量)
+        "tanodds",  # 単勝オッズ
         # オッズ変化率
         "odds_drop_rate_60_10",
         "odds_drop_rate_30_10",
@@ -279,9 +279,7 @@ class PlaceTwoStageModel:
         n = len(features)
         split = int(n * 0.8)
         train_data = lgb.Dataset(features.iloc[:split], label=y.iloc[:split])
-        valid_data = lgb.Dataset(
-            features.iloc[split:], label=y.iloc[split:], reference=train_data
-        )
+        valid_data = lgb.Dataset(features.iloc[split:], label=y.iloc[split:], reference=train_data)
 
         self.hit_model = lgb.train(
             {
@@ -357,7 +355,7 @@ class PlaceTwoStageModel:
     def predict_ev(self, df: pd.DataFrame) -> pd.DataFrame:
         """EV_place = P(place) × E(place_odds | place)
 
-        Isotonic 校正を適用後、EV を計算する。
+        Isotonic 校正 → レース内正規化 → EV 計算のパイプライン。
         """
         df = df.copy()
         hit_features = self._prepare_features(df, use_cols=self.HIT_FEATURE_COLS)
@@ -376,9 +374,21 @@ class PlaceTwoStageModel:
             p_calibrated = raw_p
         df["p_place_pred"] = p_calibrated
 
+        # --- Race-sum normalization: sum(p_place) ~ 3.0 per race ---
+        race_sum = df.groupby("race_id")["p_place_pred"].transform("sum")
+        df["p_place_pred"] = df["p_place_pred"] * (3.0 / race_sum)
+
+        # --- Consistency constraint: p_place >= p_ability_win ---
+        if "p_ability_win" in df.columns:
+            mask = df["p_place_pred"] < df["p_ability_win"]
+            df.loc[mask, "p_place_pred"] = df.loc[mask, "p_ability_win"]
+            race_sum = df.groupby("race_id")["p_place_pred"].transform("sum")
+            df["p_place_pred"] = df["p_place_pred"] * (3.0 / race_sum)
+
+        # --- Final clip ---
+        df["p_place_pred"] = df["p_place_pred"].clip(0.01, 0.99)
+
         # --- Return model ---
-        df["e_return_place_pred"] = self.return_model.predict(
-            ret_features, num_iteration=ret_iter
-        )
+        df["e_return_place_pred"] = self.return_model.predict(ret_features, num_iteration=ret_iter)
         df["ev_place"] = df["p_place_pred"] * df["e_return_place_pred"]
         return df

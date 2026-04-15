@@ -319,9 +319,7 @@ class TestPlaceTwoStageModel:
 
         assert model._place_calibrator is None
 
-    def test_predict_ev_applies_isotonic_calibration(
-        self, feature_df: pd.DataFrame
-    ) -> None:
+    def test_predict_ev_applies_isotonic_calibration(self, feature_df: pd.DataFrame) -> None:
         """predict_ev が _place_calibrator を適用して p_place_pred を補正すること"""
         model = PlaceTwoStageModel()
         model.hit_model = _make_mock_booster([0.40, 0.35, 0.30, 0.15, 0.10, 0.05, 0.03, 0.01])
@@ -337,10 +335,46 @@ class TestPlaceTwoStageModel:
         result = model.predict_ev(feature_df)
 
         # Raw predictions from mock: [0.40, 0.35, 0.30, 0.15, 0.10, 0.05, 0.03, 0.01]
-        # After calibration (roughly p * 0.5): values should be approximately halved
+        # After calibration (roughly p * 0.5) → race-sum normalization → clip
+        # The exact values change due to normalization, but sum should be ~3.0
         raw_preds = np.array([0.40, 0.35, 0.30, 0.15, 0.10, 0.05, 0.03, 0.01])
-        expected = cal.transform(raw_preds)
-        np.testing.assert_allclose(result["p_place_pred"].values, expected, rtol=1e-6)
+        calibrated = cal.transform(raw_preds)
+        normalized = calibrated * (3.0 / calibrated.sum())
+        normalized = np.clip(normalized, 0.01, 0.99)
+        np.testing.assert_allclose(result["p_place_pred"].values, normalized, rtol=1e-6)
+
+    def test_predict_ev_race_sum_normalization(self, feature_df: pd.DataFrame) -> None:
+        """predict_ev がレース内で sum(p_place_pred) ≈ 3.0 に正規化すること"""
+        model = PlaceTwoStageModel()
+        # Raw probabilities sum > 3.0 (typical overestimation pattern)
+        model.hit_model = _make_mock_booster([0.70, 0.60, 0.55, 0.50, 0.45, 0.40, 0.35, 0.30])
+        model.return_model = _make_mock_booster([1.4, 1.7, 2.2, 3.8, 5.5, 9.0, 16.0, 32.0])
+        model._place_calibrator = None  # Skip calibration for this test
+
+        result = model.predict_ev(feature_df)
+
+        # sum(p_place_pred) should be ~ 3.0 per race
+        race_sum = result.groupby("race_id")["p_place_pred"].sum()
+        np.testing.assert_allclose(race_sum.values, 3.0, rtol=1e-6)
+
+    def test_predict_ev_consistency_constraint(self, feature_df: pd.DataFrame) -> None:
+        """p_place_pred >= p_ability_win の整合性制約が機能すること"""
+        model = PlaceTwoStageModel()
+        model.hit_model = _make_mock_booster([0.05, 0.04, 0.03, 0.02, 0.01, 0.01, 0.01, 0.01])
+        model.return_model = _make_mock_booster([1.4, 1.7, 2.2, 3.8, 5.5, 9.0, 16.0, 32.0])
+        model._place_calibrator = None
+
+        df = feature_df.copy()
+        # Set p_ability_win high for horse 0 — should enforce floor
+        df["p_ability_win"] = [0.50, 0.25, 0.20, 0.10, 0.08, 0.04, 0.02, 0.01]
+
+        result = model.predict_ev(df)
+
+        # After normalization, p_place_pred should be >= p_ability_win for all horses
+        assert (result["p_place_pred"] >= result["p_ability_win"] - 1e-10).all()
+        # Race sum should still be ~ 3.0
+        race_sum = result.groupby("race_id")["p_place_pred"].sum()
+        np.testing.assert_allclose(race_sum.values, 3.0, rtol=1e-6)
 
 
 class TestTrainValidSplit:
