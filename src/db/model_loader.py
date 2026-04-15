@@ -103,15 +103,21 @@ class ModelLoader:
             ev_corr.p_correction_model = self._load_lgbm(f"{artifact_uri}/ev_corrector_p_{surface}")
             ev_corr.e_correction_model = self._load_lgbm(f"{artifact_uri}/ev_corrector_e_{surface}")
 
-            # PlaceEVCorrectionModel
-            place_ev_corr = PlaceEVCorrectionModel()
-            place_ev_corr.p_correction_model = self._load_lgbm(
-                f"{artifact_uri}/place_ev_corrector_p_{surface}"
-            )
-            place_ev_corr.e_correction_model = self._load_lgbm(
-                f"{artifact_uri}/place_ev_corrector_e_{surface}"
-            )
-            place_ev_corr._trained = True
+            # PlaceEVCorrectionModel (backward compatible with old MLflow runs)
+            try:
+                place_ev_corr = PlaceEVCorrectionModel()
+                place_ev_corr.p_correction_model = self._load_lgbm(
+                    f"{artifact_uri}/place_ev_corrector_p_{surface}"
+                )
+                place_ev_corr.e_correction_model = self._load_lgbm(
+                    f"{artifact_uri}/place_ev_corrector_e_{surface}"
+                )
+                place_ev_corr._trained = True
+            except Exception:
+                logger.warning(
+                    "PlaceEVCorrectionModel artifacts not found for %s, using passthrough", surface
+                )
+                place_ev_corr = PlaceEVCorrectionModel()
 
             # PlaceTwoStageModel
             place = PlaceTwoStageModel()

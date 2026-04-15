@@ -629,7 +629,7 @@ class BacktestEngine:
         ev_col = "ev_place_corrected" if "ev_place_corrected" in race_df.columns else "ev_place"
         if ev_col in race_df.columns and "fukuoddslow" in race_df.columns:
             candidates = race_df[race_df[ev_col].fillna(0) >= ev_threshold].copy()
-            # ev_place_corrected 降順でソートし、上位 max_bets 頭のみベット
+            # ev_col 降順でソートし、上位 max_bets 頭のみベット
             candidates = candidates.nlargest(max_bets, ev_col)
 
             for _, row in candidates.iterrows():
