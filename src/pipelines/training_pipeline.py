@@ -770,6 +770,34 @@ class TrainingPipelineV5:
                         if _tmp_path and os.path.exists(_tmp_path):
                             os.unlink(_tmp_path)
 
+                # Place calibrator (IsotonicRegression)
+                has_cal = (
+                    hasattr(sub.place, "_place_calibrator")
+                    and sub.place._place_calibrator is not None
+                )
+                if has_cal:
+                    _cal_tmp: str | None = None
+                    try:
+                        with tempfile.NamedTemporaryFile(suffix=".joblib", delete=False) as _f_cal:
+                            _cal_tmp = _f_cal.name
+                            joblib.dump(sub.place._place_calibrator, _f_cal.name)
+                        mlflow.log_artifact(_cal_tmp, f"place_calibrator_{surface}")
+                    finally:
+                        if _cal_tmp and os.path.exists(_cal_tmp):
+                            os.unlink(_cal_tmp)
+
+                # Benter logistic regression
+                if sub.benter_lr is not None:
+                    _lr_tmp: str | None = None
+                    try:
+                        with tempfile.NamedTemporaryFile(suffix=".joblib", delete=False) as _f_lr:
+                            _lr_tmp = _f_lr.name
+                            joblib.dump(sub.benter_lr, _f_lr.name)
+                        mlflow.log_artifact(_lr_tmp, f"benter_lr_{surface}")
+                    finally:
+                        if _lr_tmp and os.path.exists(_lr_tmp):
+                            os.unlink(_lr_tmp)
+
                 # WideTwoStageModel
                 mlflow.lightgbm.log_model(sub.wide.hit_model, name=f"wide_hit_{surface}")
                 mlflow.lightgbm.log_model(
@@ -851,6 +879,24 @@ class TrainingPipelineV5:
                 joblib.dump(
                     calibrated,
                     models_dir / f"place_ability_{surface}.joblib",
+                )
+
+            # Place calibrator (IsotonicRegression)
+            has_cal = (
+                hasattr(sub.place, "_place_calibrator")
+                and sub.place._place_calibrator is not None
+            )
+            if has_cal:
+                joblib.dump(
+                    sub.place._place_calibrator,
+                    models_dir / f"place_calibrator_{surface}.joblib",
+                )
+
+            # Benter logistic regression
+            if sub.benter_lr is not None:
+                joblib.dump(
+                    sub.benter_lr,
+                    models_dir / f"benter_lr_{surface}.joblib",
                 )
 
         saved["race_quality"] = quality_screen.model

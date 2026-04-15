@@ -1,5 +1,6 @@
 """src/domain モジュールのテスト"""
 
+import numpy as np
 import pytest
 
 from domain.models import (
@@ -9,6 +10,7 @@ from domain.models import (
     OddsSnapshot,
     Race,
     RegimeConfig,
+    SubmodelSet,
     TwoStageConfig,
 )
 from domain.types import BetType, RecoveryState, RegimeState, Surface
@@ -281,3 +283,49 @@ class TestRegimeConfig:
         assert config.window == 200
         assert config.min_samples == 100
         assert config.fav_rate_aggressive == 0.28
+
+
+class TestSubmodelSet:
+    def test_submodel_set_accepts_benter_lr(self) -> None:
+        """SubmodelSet が benter_lr フィールドを受け入れること"""
+        from unittest.mock import MagicMock
+
+        from sklearn.linear_model import LogisticRegression
+
+        lr = LogisticRegression(fit_intercept=True, C=np.inf)
+        x = np.array([[0.5, -0.5], [1.0, 0.5]])
+        y = np.array([0, 1])
+        lr.fit(x, y)
+
+        sub = SubmodelSet(
+            market=MagicMock(),
+            stage1=MagicMock(),
+            place_ability=MagicMock(),
+            win=MagicMock(),
+            ev_corrector=MagicMock(),
+            place=MagicMock(),
+            place_ev_corrector=MagicMock(),
+            wide=MagicMock(),
+            confidence=MagicMock(),
+            use_ensemble=False,
+            benter_lr=lr,
+        )
+        assert sub.benter_lr is not None
+        assert sub.benter_lr is lr
+
+    def test_submodel_set_benter_lr_default_none(self) -> None:
+        """SubmodelSet の benter_lr デフォルトが None であること"""
+        from unittest.mock import MagicMock
+
+        sub = SubmodelSet(
+            market=MagicMock(),
+            stage1=MagicMock(),
+            place_ability=MagicMock(),
+            win=MagicMock(),
+            ev_corrector=MagicMock(),
+            place=MagicMock(),
+            place_ev_corrector=MagicMock(),
+            wide=MagicMock(),
+            confidence=MagicMock(),
+        )
+        assert sub.benter_lr is None

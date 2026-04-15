@@ -433,6 +433,14 @@ class ModelLoader:
             )
             place.return_model = self._load_lgbm(str(models_dir / f"place_ret_{surface}.lgb"))
 
+            # Place calibrator (IsotonicRegression)
+            calibrator_file = models_dir / f"place_calibrator_{surface}.joblib"
+            if calibrator_file.is_file():
+                try:
+                    place._place_calibrator = joblib.load(calibrator_file)
+                except Exception:
+                    logger.warning("Failed to load %s, skipping", calibrator_file)
+
             # PlaceAbilityModel (joblib)
             pa = PlaceAbilityModel()
             pa_file = models_dir / f"place_ability_{surface}.joblib"
@@ -461,6 +469,15 @@ class ModelLoader:
                 confidence._place_rolling_quantile = conf_data["place_rolling_quantile"]
                 confidence._calibrated = True
 
+            # Benter logistic regression
+            benter_lr = None
+            benter_file = models_dir / f"benter_lr_{surface}.joblib"
+            if benter_file.is_file():
+                try:
+                    benter_lr = joblib.load(benter_file)
+                except Exception:
+                    logger.warning("Failed to load %s, skipping", benter_file)
+
             submodels[surface] = SubmodelSet(
                 market=market,
                 stage1=ability,
@@ -471,6 +488,7 @@ class ModelLoader:
                 place_ev_corrector=place_ev_corr,
                 wide=wide,
                 confidence=confidence,
+                benter_lr=benter_lr,
             )
 
         # RaceQualityScreener
