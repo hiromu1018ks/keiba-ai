@@ -366,10 +366,10 @@ class BacktestEngine:
             else:
                 regime = self.models.regime_detector.current_regime
             regime_params = self.models.regime_detector.get_strategy_params(regime)
-            ev_threshold = regime_params.get("ev_threshold", 1.10)
+            edge_threshold = regime_params.get("edge_threshold", 0.03)
             n_candidates = (
-                int((result_df["ev_place"].fillna(0) >= ev_threshold).sum())
-                if "ev_place" in result_df.columns
+                int((result_df["edge_place"].fillna(0) >= edge_threshold).sum())
+                if "edge_place" in result_df.columns
                 else 0
             )
 
@@ -377,7 +377,8 @@ class BacktestEngine:
                 diag_logger.log_race(
                     race_id=race_id,
                     regime=str(regime),
-                    ev_threshold=ev_threshold,
+                    ev_threshold=regime_params.get("ev_threshold", 1.10),
+                    edge_threshold=edge_threshold,
                     quality_passed=False,
                     quality_score=0.0,
                     n_candidates=n_candidates,
@@ -415,7 +416,8 @@ class BacktestEngine:
             diag_logger.log_race(
                 race_id=race_id,
                 regime=str(regime),
-                ev_threshold=ev_threshold,
+                ev_threshold=regime_params.get("ev_threshold", 1.10),
+                edge_threshold=edge_threshold,
                 quality_passed=True,
                 quality_score=0.0,
                 n_candidates=n_candidates,
@@ -467,6 +469,7 @@ class BacktestEngine:
                             int(result_df["kyori"].iloc[0]) if "kyori" in result_df.columns else 0
                         ),
                         "ev": float(bet.ev_lower_corrected),
+                        "edge": float(bet.edge),
                         "popularity": int(pop_val) if pd.notna(pop_val) else 0,
                         "bankroll_after": round(bankroll, 2),
                         # --- 拡張フィールド ---
@@ -547,6 +550,15 @@ class BacktestEngine:
         total_return = sum(b["result"] for b in bet_history if b["result"] > 0)
         total_bets = len(bet_history)
         winning_bets = sum(1 for b in bet_history if b["result"] > 0)
+
+        # Edge statistics for Value Betting
+        result_data: dict[str, Any] = {}
+        if bet_history:
+            edges = [b["edge"] for b in bet_history if "edge" in b]
+            if edges:
+                result_data["avg_edge"] = sum(edges) / len(edges)
+                result_data["min_edge"] = min(edges)
+                result_data["max_edge"] = max(edges)
 
         return BacktestResult(
             total_bets=total_bets,

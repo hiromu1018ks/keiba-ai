@@ -19,10 +19,11 @@ class RaceDiagnostic:
     race_id: str
     regime: str
     ev_threshold: float
-    quality_passed: bool
-    quality_score: float
-    n_candidates: int
-    n_bets: int
+    edge_threshold: float = 0.0
+    quality_passed: bool = True
+    quality_score: float = 0.0
+    n_candidates: int = 0
+    n_bets: int = 0
 
 
 @dataclass
@@ -51,16 +52,18 @@ class DiagnosticLogger:
         race_id: str,
         regime: str,
         ev_threshold: float,
-        quality_passed: bool,
-        quality_score: float,
-        n_candidates: int,
-        n_bets: int,
+        edge_threshold: float = 0.0,
+        quality_passed: bool = True,
+        quality_score: float = 0.0,
+        n_candidates: int = 0,
+        n_bets: int = 0,
     ) -> None:
         self.race_records.append(
             RaceDiagnostic(
                 race_id=race_id,
                 regime=regime,
                 ev_threshold=ev_threshold,
+                edge_threshold=edge_threshold,
                 quality_passed=quality_passed,
                 quality_score=quality_score,
                 n_candidates=n_candidates,
