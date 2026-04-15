@@ -231,6 +231,8 @@ class PlaceEVCorrectionModel:
     FEATURE_COLS: list[str] = [
         # 2段階モデルの出力
         "e_return_place_pred",
+        "fukuoddslow",                 # 複勝オッズ (E-correction target context)
+        "p_ability_place",             # PlaceAbilityModel 出力
         # 市場歪み
         "signed_log_error_win",
         "abs_log_error_win",
