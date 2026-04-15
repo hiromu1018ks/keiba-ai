@@ -12,9 +12,11 @@ Backtest results (2025 test, Benter alpha=0.4) show catastrophic losses:
 |---|---|
 | ROI | 65.3% (losing 34.7% per bet) |
 | Bets | 2,772 |
-| Avg p_place_pred | 0.5118 |
-| Actual hit rate | 0.215 |
+| Avg p_place_pred (bet horses) | 0.5118 |
+| Actual hit rate (bet horses) | 0.215 |
 | **Overestimation factor** | **2.38x** |
+
+Note: The 0.5118 figure reflects selection bias (only bet horses). The full-population calibration table below shows the model is roughly calibrated at p=0.3-0.4 but systematically overestimates above p=0.4.
 
 Root cause analysis identifies three critical issues:
 
@@ -40,7 +42,7 @@ Pattern: well-calibrated around p=0.3-0.4, systematically overestimates above th
 
 - **Ali (1998)**: ALL ranking models overestimate place probability for high-probability horses across 15,000+ races. This is a structural bias, not just a calibration artifact.
 - **Walsh & Joshi (2024, University of Bath)**: Calibration-optimized models produced +34.69% ROI vs -35.17% for accuracy-optimized models in sports betting. Calibration > accuracy.
-- **Benter (1994)**: Alpha and beta should be estimated via MLE on out-of-sample data. The combined model uses `log(probability)`, not `logit(probability)`, with race-level softmax normalization.
+- **Benter (1994)**: Alpha and beta should be estimated via MLE on out-of-sample data. The combined model uses `log(probability)` with race-level softmax normalization. Note: Benter's formula is for WIN probabilities (mutually exclusive, sum=1). Our design deliberately uses `logit(probability)` in a binary logistic regression for PLACE betting (non-exclusive outcomes, sum~3), which is the correct adaptation.
 - **Benter on Harville**: "This formula is significantly biased, and should not be used for betting purposes." Proposes corrected conditional probability model (gamma=0.81, delta=0.65).
 
 ## Design
@@ -53,21 +55,34 @@ Add isotonic calibration to the hit model output using OOF (out-of-fold) predict
 
 **Training:**
 
-1. After `PlaceTwoStageModel.train()` completes the 80/20 time-based split training, collect validation set (20%) predictions from the hit model.
-2. Fit `IsotonicRegression(out_of_bounds='clip')` on validation predictions vs actual outcomes (`kakuteijyuni <= 3`).
+1. Modify `PlaceTwoStageModel.train_hit_model()` to save validation predictions after the internal 80/20 split. Currently, `train_hit_model` trains the LightGBM model and discards validation predictions. Add `self._val_predictions` and `self._val_labels` attributes.
+2. After `train_hit_model()` returns, fit `IsotonicRegression(out_of_bounds='clip')` on the stored validation predictions vs actual outcomes (`kakuteijyuni <= 3`).
 3. Save as `self._place_calibrator`.
 4. Minimum sample guard: skip calibration if validation set < 1,000 samples (overfit risk per sklearn recommendation).
+
+**Validation prediction retrieval:** The current `train_hit_model()` internally performs an 80/20 time-based split but does not return validation predictions. The required change is minimal — store the predictions before returning:
+
+```python
+# In train_hit_model(), after training and prediction on validation set:
+# (existing code already predicts on val set for early stopping)
+self._val_predictions = self.hit_model.predict(X_val)  # ADD THIS
+self._val_labels = y_val.values                         # ADD THIS
+```
+
+Then after `train_hit_model()` call:
 
 ```python
 from sklearn.isotonic import IsotonicRegression
 
-# In train(), after hit model validation predictions:
-if len(val_predictions) >= 1000:
+# After train_hit_model() returns:
+if hasattr(self, '_val_predictions') and len(self._val_predictions) >= 1000:
     self._place_calibrator = IsotonicRegression(out_of_bounds='clip')
-    self._place_calibrator.fit(val_predictions, val_labels)
+    self._place_calibrator.fit(self._val_predictions, self._val_labels)
 else:
     self._place_calibrator = None  # fallback to raw output
 ```
+
+**Ensemble mode compatibility:** When `use_ensemble=True`, `self.hit_model` is a `StackedEnsemble` instead of `lgb.Booster`. Both implement `.predict()`, so calibration works identically. The validation prediction retrieval must handle both code paths.
 
 **Inference:**
 
@@ -100,6 +115,9 @@ race_sum = df.groupby("race_id")["p_place_pred"].transform("sum")
 df["p_place_pred"] = df["p_place_pred"] * (3.0 / race_sum)
 
 # Consistency constraint: p_place >= p_ability_win
+# (p_ability_win is Stage 1 AbilityModel output; place probability must logically
+#  be >= win probability. This is a different constraint from PlaceAbilityModel's
+#  p_ability_place >= p_ability_win.)
 mask = df["p_place_pred"] < df["p_ability_win"]
 df.loc[mask, "p_place_pred"] = df.loc[mask, "p_ability_win"]
 race_sum = df.groupby("race_id")["p_place_pred"].transform("sum")
@@ -109,7 +127,7 @@ df["p_place_pred"] = df["p_place_pred"] * (3.0 / race_sum)
 df["p_place_pred"] = df["p_place_pred"].clip(0.01, 0.99)
 ```
 
-This follows the same pattern already used in `PlaceAbilityModel` (lines 190-200).
+This follows the same pattern already used in `PlaceAbilityModel` (lines 189-200). A single re-normalization step after the consistency constraint is sufficient (matches PlaceAbilityModel pattern; no convergence iteration needed).
 
 **Ali (1998) structural bias note:** The remaining overestimation for high-probability horses (p > 0.5) will be corrected by the logistic regression in Section 3, whose intercept term absorbs systematic bias.
 
@@ -126,15 +144,16 @@ Replace the fixed `alpha=0.4` Benter combination with a data-driven logistic reg
 
 **Training (in `training_pipeline.py`):**
 
-After PlaceTwoStageModel and EV correction training, fit a logistic regression on OOF data:
+After PlaceTwoStageModel (with isotonic calibration + race-norm) and EV correction training, fit a logistic regression. The input `p_place_pred` is the **already calibrated and race-normalized** output from Section 1+2.
 
 ```python
 from sklearn.linear_model import LogisticRegression
 
-# Collect OOF data (validation set predictions)
-p_model = p_place_norm.clip(1e-6, 1 - 1e-6)  # calibrated + race-normalized
-p_market = (1.0 / df["fukuoddslow"]).clip(1e-6, 1 - 1e-6)
-y = (df["kakuteijyuni"] <= 3).astype(int)
+# Use df_oof which now contains calibrated + race-normalized p_place_pred
+# (output of place_2s.predict_ev(df_oof) after Section 1+2 modifications)
+p_model = df_oof["p_place_pred"].clip(1e-6, 1 - 1e-6)
+p_market = (1.0 / df_oof["fukuoddslow"]).clip(1e-6, 1 - 1e-6)
+y = (df_oof["kakuteijyuni"] <= 3).astype(int)
 
 X = np.column_stack([
     np.log(p_model / (1 - p_model)),   # logit(p_model)
@@ -149,6 +168,8 @@ beta = benter_lr.coef_[0][1]    # market weight
 gamma = benter_lr.intercept_[0] # bias correction
 ```
 
+**Note on independence assumption:** Logistic regression treats each horse as an independent binary observation. In reality, horses within a race are correlated (exactly 3 place per race). With only 2 features (logit of model and market probabilities), parameter estimation is robust to this violation — the coefficients converge to the optimal linear combination regardless.
+
 **Inference (in `race_predictor.py`):**
 
 ```python
@@ -156,13 +177,25 @@ gamma = benter_lr.intercept_[0] # bias correction
 # logit_combined = 0.4 * logit(p_place_pred) + 0.6 * logit(p_market)
 # p_combined = sigmoid(logit_combined)
 
-# New:
-logit_m = np.log(p_place_norm.clip(1e-6, 1-1e-6) / (1 - p_place_norm.clip(1e-6, 1-1e-6)))
-logit_mk = np.log(p_market.clip(1e-6, 1-1e-6) / (1 - p_market.clip(1e-6, 1-1e-6)))
-logit_combined = alpha * logit_m + beta * logit_mk + gamma
-p_combined = 1.0 / (1.0 + np.exp(-logit_combined))
+# New: use benter_lr from SubmodelSet
+if submodel.benter_lr is not None:
+    logit_m = np.log(p_place_pred.clip(1e-6, 1-1e-6) / (1 - p_place_pred.clip(1e-6, 1-1e-6)))
+    logit_mk = np.log(p_market.clip(1e-6, 1-1e-6) / (1 - p_market.clip(1e-6, 1-1e-6)))
+    logit_combined = submodel.benter_lr.coef_[0][0] * logit_m \
+                   + submodel.benter_lr.coef_[0][1] * logit_mk \
+                   + submodel.benter_lr.intercept_[0]
+    p_combined = 1.0 / (1.0 + np.exp(-logit_combined))
+else:
+    # Fallback: fixed alpha (backward compatibility)
+    logit_combined = self.alpha * logit(p_place_pred) + (1 - self.alpha) * logit(p_market)
+    p_combined = sigmoid(logit_combined)
 edge = p_combined - p_market
 ```
+
+**Inference parameter flow:**
+1. `benter_lr` is stored in `SubmodelSet` (see Serialization section below).
+2. `RacePredictor.predict()` accesses it via `submodel.benter_lr`.
+3. `RacePredictor.__init__` keeps the `alpha` parameter as fallback when `benter_lr` is `None` (backward compatibility with old models).
 
 **Parameter interpretation:**
 - `alpha >> beta`: Model is more informative than market (strong model).
@@ -201,8 +234,14 @@ Existing steps 1-12 unchanged...
 ### Serialization
 
 The following must be saved/loaded with the submodel:
-- `self._place_calibrator` (IsotonicRegression) — pickled with PlaceTwoStageModel
-- `benter_lr` (LogisticRegression) — stored in SubModelManager, pickled separately
+
+1. **`self._place_calibrator`** (IsotonicRegression) — stored inside `PlaceTwoStageModel`, pickled together with the model via joblib (no separate handling needed).
+
+2. **`benter_lr`** (LogisticRegression) — requires the following changes:
+   - Add `benter_lr: LogisticRegression | None = None` field to `SubmodelSet` dataclass (`src/domain/models.py` line ~221).
+   - Add joblib save/load in `_save_models_local()` and `_log_to_mlflow()` in `training_pipeline.py`.
+   - Add joblib load in backtest engine model loading code.
+   - Parameter validation: if `benter_lr.coef_[0][0] < 0` (model weight negative), log a warning and fall back to `benter_lr = None` (use fixed alpha).
 
 ## Expected Impact
 
