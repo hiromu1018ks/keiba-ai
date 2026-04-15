@@ -125,9 +125,7 @@ class TrainingPipelineV5:
                 year_ts = odds_ts_df[odds_ts_df["year"] == year]
                 if year_ts.empty:
                     continue
-                pp = extract_pre_post_odds(
-                    year_ts, race_df, minutes_before=5
-                )
+                pp = extract_pre_post_odds(year_ts, race_df, minutes_before=5)
                 if not pp.empty:
                     pre_post_frames.append(pp)
             if pre_post_frames:
@@ -137,13 +135,9 @@ class TrainingPipelineV5:
                     len(odds_df),
                 )
             else:
-                logger.warning(
-                    "extract_pre_post_odds empty, using snapshots"
-                )
+                logger.warning("extract_pre_post_odds empty, using snapshots")
         else:
-            logger.warning(
-                "No time-series data or hassotime, using snapshots"
-            )
+            logger.warning("No time-series data or hassotime, using snapshots")
 
         # 2. 特徴量生成
         logger.info("Building features")
@@ -161,7 +155,9 @@ class TrainingPipelineV5:
             if after < before:
                 logger.info(
                     "JRA filter: %d -> %d entries (removed %d NAR)",
-                    before, after, before - after,
+                    before,
+                    after,
+                    before - after,
                 )
 
         # 2b. ワイドオッズを pivot して特徴量に merge
@@ -210,6 +206,7 @@ class TrainingPipelineV5:
                         logger.info(f"Trained {surface} submodel (parallel)")
                     except Exception as e:
                         import traceback as tb
+
                         logger.error(f"Failed to train {surface} submodel: {e}\n{tb.format_exc()}")
                         raise
 
@@ -297,9 +294,11 @@ class TrainingPipelineV5:
                     df.drop(columns=[col], inplace=True)
             if not pace_df.empty:
                 df = df.merge(
-                    pace_df[["kettonum", "race_id", "pace_aptitude", "front_pace_wr", "closing_pace_wr"]],
+                    pace_df[
+                        ["kettonum", "race_id", "pace_aptitude", "front_pace_wr", "closing_pace_wr"]
+                    ],
                     on=["kettonum", "race_id"],
-                    how="left"
+                    how="left",
                 )
             else:
                 # 空の場合は結果列を NaN で追加
@@ -321,7 +320,7 @@ class TrainingPipelineV5:
                 df = df.merge(
                     course_df[["kettonum", "race_id", "course_wr", "course_distance_wr"]],
                     on=["kettonum", "race_id"],
-                    how="left"
+                    how="left",
                 )
             else:
                 # 空の場合は結果列を NaN で追加
@@ -345,8 +344,13 @@ class TrainingPipelineV5:
                 # ベクトル化一括計算
                 sire_result = sire_feat.compute_batch(df)
                 # モデルで使用する5列のみを反映 (sire_place_rate は未使用のため除外)
-                _sire_cols_needed = {"sire_wr", "sire_surface_wr", "sire_distance_wr",
-                                     "sire_prize_avg", "bms_wr"}
+                _sire_cols_needed = {
+                    "sire_wr",
+                    "sire_surface_wr",
+                    "sire_distance_wr",
+                    "sire_prize_avg",
+                    "bms_wr",
+                }
                 for col in _sire_cols_needed:
                     if col in sire_result.columns:
                         df[col] = sire_result[col].values
@@ -409,8 +413,10 @@ class TrainingPipelineV5:
                 split = int(len(features) * 0.8)
                 ensemble = StackedEnsemble(cat_cols=["surface", "distance_bin", "grade_code"])
                 ensemble.train(
-                    features.iloc[:split], y.iloc[:split],
-                    features.iloc[split:], y.iloc[split:],
+                    features.iloc[:split],
+                    y.iloc[:split],
+                    features.iloc[split:],
+                    y.iloc[split:],
                     num_threads=num_threads,
                 )
                 win_2s.hit_model = ensemble
@@ -459,12 +465,12 @@ class TrainingPipelineV5:
                 features = place_2s._prepare_features(df_oof, use_cols=place_2s.HIT_FEATURE_COLS)
                 y = (df_oof["kakuteijyuni"] <= 3).astype(int)
                 split = int(len(features) * 0.8)
-                ensemble_place = StackedEnsemble(
-                    cat_cols=["surface", "distance_bin", "grade_code"]
-                )
+                ensemble_place = StackedEnsemble(cat_cols=["surface", "distance_bin", "grade_code"])
                 ensemble_place.train(
-                    features.iloc[:split], y.iloc[:split],
-                    features.iloc[split:], y.iloc[split:],
+                    features.iloc[:split],
+                    y.iloc[:split],
+                    features.iloc[split:],
+                    y.iloc[split:],
                     num_threads=num_threads,
                 )
                 place_2s.hit_model = ensemble_place
@@ -486,6 +492,59 @@ class TrainingPipelineV5:
             place_ev_corrector = PlaceEVCorrectionModel()
             place_ev_corrector.train(df_oof, num_threads=num_threads)
             df_oof = place_ev_corrector.correct_ev(df_oof)
+
+        # 5c. Benter logistic regression (data-driven model/market combination)
+        benter_lr = None
+        with TimingContext(f"{surface}/benter_lr"):
+            from sklearn.linear_model import LogisticRegression
+
+            # Guard: require valid fukuoddslow (non-NaN, positive) for Benter LR
+            valid_mask = (
+                df_oof["fukuoddslow"].notna()
+                & (df_oof["fukuoddslow"] > 0)
+                & df_oof["p_place_pred"].notna()
+            )
+            df_benter = df_oof[valid_mask].copy()
+
+            if len(df_benter) >= 1000:
+                p_m = df_benter["p_place_pred"].clip(1e-6, 1 - 1e-6)
+                p_mk = (1.0 / df_benter["fukuoddslow"]).clip(1e-6, 1 - 1e-6)
+                y_place = (df_benter["kakuteijyuni"] <= 3).astype(int)
+
+                x_benter = np.column_stack(
+                    [
+                        np.log(p_m / (1 - p_m)),
+                        np.log(p_mk / (1 - p_mk)),
+                    ]
+                )
+
+                lr = LogisticRegression(fit_intercept=True, C=np.inf)
+                lr.fit(x_benter, y_place)
+
+                alpha_lr = lr.coef_[0][0]
+                beta_lr = lr.coef_[0][1]
+
+                # Parameter validation: both weights should be positive
+                if alpha_lr < 0 or beta_lr < 0:
+                    logger.warning(
+                        "Benter LR has unexpected coefficients: alpha=%.4f, beta=%.4f. "
+                        "Falling back to fixed alpha.",
+                        alpha_lr,
+                        beta_lr,
+                    )
+                else:
+                    benter_lr = lr
+                    logger.info(
+                        "Benter LR: alpha=%.4f, beta=%.4f, gamma=%.4f",
+                        alpha_lr,
+                        beta_lr,
+                        lr.intercept_[0],
+                    )
+            else:
+                logger.warning(
+                    "Insufficient valid samples for Benter LR: %d (need 1000)",
+                    len(df_benter),
+                )
 
         # 6. ワイド 2段階モデル
         with TimingContext(f"{surface}/wide_pair_build"):
@@ -522,6 +581,7 @@ class TrainingPipelineV5:
             wide=wide_2s,
             confidence=conf,
             use_ensemble=use_ensemble,
+            benter_lr=benter_lr,
         )
 
     def _build_race_level_features(self, feat_df: pd.DataFrame) -> pd.DataFrame:
@@ -609,9 +669,12 @@ class TrainingPipelineV5:
 
         # v5.6: EMA 平滑化市場指標 (horse-level feat_df から計算し race-level に展開)
         if "tanodds" in feat_df.columns:
-            ema_df = compute_roi_ema(feat_df[["race_id", "tanodds", "popularity_rank"] + (
-                ["race_date"] if "race_date" in feat_df.columns else []
-            )])
+            ema_df = compute_roi_ema(
+                feat_df[
+                    ["race_id", "tanodds", "popularity_rank"]
+                    + (["race_date"] if "race_date" in feat_df.columns else [])
+                ]
+            )
             # race_id 単位で EMA 値を race_feat にマージ
             for ema_col in ["overround_ema", "entropy_ema"]:
                 if ema_col in ema_df.columns:
@@ -656,9 +719,7 @@ class TrainingPipelineV5:
 
         # favorite_implied_prob_rolling: 1番人気オッズの逆数 (レース毎生値)
         if all(c in feat_df.columns for c in ["race_id", "tanodds", "popularity_rank"]):
-            fav_df = (
-                feat_df[feat_df["popularity_rank"] == 1][["race_id", "tanodds"]].copy()
-            )
+            fav_df = feat_df[feat_df["popularity_rank"] == 1][["race_id", "tanodds"]].copy()
             fav_df["fav_implied"] = 1.0 / fav_df["tanodds"].replace(0, np.nan)
             race_fav_implied = fav_df.groupby("race_id")["fav_implied"].first()
             stats["favorite_implied_prob_rolling"] = (
@@ -750,12 +811,8 @@ class TrainingPipelineV5:
                         if _se_tmp2 and os.path.exists(_se_tmp2):
                             os.unlink(_se_tmp2)
                 else:
-                    mlflow.lightgbm.log_model(
-                        sub.place.hit_model, name=f"place_hit_{surface}"
-                    )
-                mlflow.lightgbm.log_model(
-                    sub.place.return_model, name=f"place_ret_{surface}"
-                )
+                    mlflow.lightgbm.log_model(sub.place.hit_model, name=f"place_hit_{surface}")
+                mlflow.lightgbm.log_model(sub.place.return_model, name=f"place_ret_{surface}")
 
                 # PlaceAbilityModel (sklearn CalibratedClassifierCV → joblib)
                 calibrated = sub.place_ability._calibrated or sub.place_ability._model
@@ -800,9 +857,7 @@ class TrainingPipelineV5:
 
                 # WideTwoStageModel
                 mlflow.lightgbm.log_model(sub.wide.hit_model, name=f"wide_hit_{surface}")
-                mlflow.lightgbm.log_model(
-                    sub.wide.return_model, name=f"wide_ret_{surface}"
-                )
+                mlflow.lightgbm.log_model(sub.wide.return_model, name=f"wide_ret_{surface}")
 
             # RaceQualityScreener
             mlflow.lightgbm.log_model(quality_screen.model, name="race_quality")
@@ -883,8 +938,7 @@ class TrainingPipelineV5:
 
             # Place calibrator (IsotonicRegression)
             has_cal = (
-                hasattr(sub.place, "_place_calibrator")
-                and sub.place._place_calibrator is not None
+                hasattr(sub.place, "_place_calibrator") and sub.place._place_calibrator is not None
             )
             if has_cal:
                 joblib.dump(

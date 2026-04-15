@@ -434,3 +434,67 @@ class TestTrainValidSplit:
         source = inspect.getsource(_train_valid_split)
         assert "permutation" not in source, "Still using random permutation!"
         assert "RandomState" not in source, "Still using RandomState!"
+
+
+class TestBenterLRTraining:
+    """Tests for Benter logistic regression training approach."""
+
+    def test_benter_lr_training_produces_valid_coefficients(self) -> None:
+        """Benter LR 学習が logit(p_model), logit(p_market) 特徴量で行われること"""
+        from sklearn.linear_model import LogisticRegression
+
+        # Simulate training data
+        n = 2000
+        rng = np.random.default_rng(42)
+        p_model = rng.uniform(0.05, 0.95, n)
+        p_market = rng.uniform(0.05, 0.95, n)
+        y = (rng.random(n) < (0.5 * p_model + 0.5 * p_market)).astype(int)
+
+        p_m = np.clip(p_model, 1e-6, 1 - 1e-6)
+        p_mk = np.clip(p_market, 1e-6, 1 - 1e-6)
+
+        x_feat = np.column_stack(
+            [
+                np.log(p_m / (1 - p_m)),
+                np.log(p_mk / (1 - p_mk)),
+            ]
+        )
+
+        lr = LogisticRegression(fit_intercept=True, C=np.inf)
+        lr.fit(x_feat, y)
+
+        # Both coefficients should be positive (more prob -> more likely to place)
+        assert lr.coef_[0][0] > 0, f"Model coef should be positive, got {lr.coef_[0][0]}"
+        assert lr.coef_[0][1] > 0, f"Market coef should be positive, got {lr.coef_[0][1]}"
+
+    def test_benter_lr_coefficients_sum_near_one(self) -> None:
+        """Benter LR の係数の和が1に近いこと (Benter 理論との整合性)"""
+        from sklearn.linear_model import LogisticRegression
+
+        n = 5000
+        rng = np.random.default_rng(123)
+        # Generate data where true relationship is alpha=0.4, beta=0.6
+        p_model = rng.uniform(0.1, 0.9, n)
+        p_market = rng.uniform(0.1, 0.9, n)
+        logit_true = 0.4 * np.log(p_model / (1 - p_model)) + 0.6 * np.log(p_market / (1 - p_market))
+        p_true = 1.0 / (1.0 + np.exp(-logit_true))
+        y = (rng.random(n) < p_true).astype(int)
+
+        p_m = np.clip(p_model, 1e-6, 1 - 1e-6)
+        p_mk = np.clip(p_market, 1e-6, 1 - 1e-6)
+        x_feat = np.column_stack(
+            [
+                np.log(p_m / (1 - p_m)),
+                np.log(p_mk / (1 - p_mk)),
+            ]
+        )
+
+        lr = LogisticRegression(fit_intercept=True, C=np.inf)
+        lr.fit(x_feat, y)
+
+        # Coefficients should be close to 0.4 and 0.6 respectively
+        alpha_lr = lr.coef_[0][0]
+        beta_lr = lr.coef_[0][1]
+        assert abs(alpha_lr - 0.4) < 0.15, f"alpha should be ~0.4, got {alpha_lr}"
+        assert abs(beta_lr - 0.6) < 0.15, f"beta should be ~0.6, got {beta_lr}"
+        assert abs(lr.intercept_[0]) < 0.3, f"intercept should be ~0, got {lr.intercept_[0]}"

@@ -2,8 +2,10 @@
 
 from unittest.mock import MagicMock
 
+import numpy as np
 import pandas as pd
 import pytest
+from sklearn.linear_model import LogisticRegression
 
 from domain.models import TrainedModelsV5
 from domain.types import RegimeState
@@ -20,6 +22,7 @@ def _make_submodel_mock() -> MagicMock:
     sm.place = MagicMock()
     sm.wide = MagicMock()
     sm.confidence = MagicMock()
+    sm.benter_lr = None
     return sm
 
 
@@ -345,7 +348,6 @@ class TestRacePredictor:
 
     def test_predict_benter_combined_probability_alpha_half(self, mock_models: MagicMock) -> None:
         """alpha=0.5: p_combined = sigmoid(0.5*logit(p_model) + 0.5*logit(p_market))."""
-        import numpy as np
         from backtest.race_predictor import RacePredictor
 
         predictor = RacePredictor(models=mock_models, alpha=0.5)
@@ -507,3 +509,127 @@ class TestRacePredictor:
 
         with pytest.raises(ValueError, match="alpha must be in"):
             RacePredictor(models=mock_models, alpha=-0.1)
+
+
+class TestRacePredictorBenterLR:
+    """Tests for learned Benter LR vs fixed alpha fallback in RacePredictor."""
+
+    def _make_race_df(self) -> pd.DataFrame:
+        return pd.DataFrame(
+            {
+                "race_id": ["R1"] * 4,
+                "umaban": [1, 2, 3, 4],
+                "surface": ["turf"] * 4,
+                "kyori": [1200] * 4,
+                "distance_bin": ["sprint"] * 4,
+                "popularity_rank": [1, 2, 3, 4],
+                "ninki": [1, 2, 3, 4],
+                "fukuoddslow": [1.5, 2.0, 3.0, 5.0],
+                "kakuteijyuni": [1, 2, 3, 4],
+                "kettonum": [100, 200, 300, 400],
+                "odds": [2.0, 3.0, 5.0, 10.0],
+                "bataijyu": [480, 470, 490, 460],
+                "field_size": [10] * 4,
+                "track_condition_code": [2] * 4,
+                "grade_code": ["C"] * 4,
+            }
+        )
+
+    def _setup_mock_chain(self, mock_models: MagicMock, race_df: pd.DataFrame) -> None:
+        """Wire up mock submodel chain to pass p_place_pred through."""
+        p_place_values = [0.6, 0.5, 0.35, 0.2]
+        result_df = race_df.copy()
+        result_df["p_place_pred"] = p_place_values
+
+        submodel = mock_models.submodels["turf"]
+        submodel.market.predict_and_calc_error.return_value = race_df.copy()
+        submodel.stage1.add_ability_probs.return_value = race_df.copy()
+        submodel.place_ability.predict.return_value = race_df.copy()
+        submodel.win.predict_ev.return_value = race_df.copy()
+        submodel.ev_corrector.correct_ev.return_value = race_df.copy()
+        submodel.place.predict_ev.return_value = result_df
+        submodel.place_ev_corrector.correct_ev.return_value = result_df.copy()
+        submodel.confidence.predict_lower_bound.return_value = (
+            result_df.copy(),
+            pd.DataFrame({"EV_lower_place": [1.5, 1.2, 1.0, 0.8]}),
+        )
+
+    def test_predict_falls_back_to_fixed_alpha_without_benter_lr(
+        self, mock_models: MagicMock
+    ) -> None:
+        """benter_lr が None の場合、固定 alpha にフォールバックすること"""
+        from backtest.race_predictor import RacePredictor
+
+        submodel = mock_models.submodels["turf"]
+        submodel.benter_lr = None
+        predictor = RacePredictor(models=mock_models, alpha=0.4)
+
+        race_df = self._make_race_df()
+        self._setup_mock_chain(mock_models, race_df)
+
+        result = predictor.predict(race_df)
+
+        assert "p_place_combined" in result.columns
+        assert "edge_place" in result.columns
+
+        # With alpha=0.4, manually compute expected:
+        p_model = np.clip(np.array([0.6, 0.5, 0.35, 0.2]), 1e-6, 1 - 1e-6)
+        p_mkt = np.clip(np.array([1 / 1.5, 1 / 2.0, 1 / 3.0, 1 / 5.0]), 1e-6, 1 - 1e-6)
+        logit_m = np.log(p_model / (1 - p_model))
+        logit_mk = np.log(p_mkt / (1 - p_mkt))
+        logit_combined = 0.4 * logit_m + 0.6 * logit_mk
+        expected = 1.0 / (1.0 + np.exp(-logit_combined))
+        np.testing.assert_allclose(result["p_place_combined"].values, expected, rtol=1e-6)
+
+    def test_predict_uses_learned_benter_lr(self, mock_models: MagicMock) -> None:
+        """benter_lr が設定されている場合、学習済み係数を使って combination を計算"""
+        from backtest.race_predictor import RacePredictor
+
+        # Create a fake LogisticRegression with known coefficients
+        lr = MagicMock(spec=LogisticRegression)
+        lr.coef_ = np.array([[0.5, 0.5]])  # alpha=0.5, beta=0.5
+        lr.intercept_ = np.array([0.0])  # gamma=0
+
+        submodel = mock_models.submodels["turf"]
+        submodel.benter_lr = lr
+        predictor = RacePredictor(models=mock_models, alpha=0.4)
+
+        race_df = self._make_race_df()
+        self._setup_mock_chain(mock_models, race_df)
+
+        result = predictor.predict(race_df)
+
+        # With learned lr: logit_combined = 0.5*logit(p_model) + 0.5*logit(p_market)
+        p_model = np.clip(np.array([0.6, 0.5, 0.35, 0.2]), 1e-6, 1 - 1e-6)
+        p_mkt = np.clip(np.array([1 / 1.5, 1 / 2.0, 1 / 3.0, 1 / 5.0]), 1e-6, 1 - 1e-6)
+        logit_m = np.log(p_model / (1 - p_model))
+        logit_mk = np.log(p_mkt / (1 - p_mkt))
+        logit_combined = 0.5 * logit_m + 0.5 * logit_mk + 0.0
+        expected = 1.0 / (1.0 + np.exp(-logit_combined))
+        np.testing.assert_allclose(result["p_place_combined"].values, expected, rtol=1e-6)
+
+    def test_predict_benter_lr_with_nonzero_intercept(self, mock_models: MagicMock) -> None:
+        """benter_lr の intercept が反映されること"""
+        from backtest.race_predictor import RacePredictor
+
+        lr = MagicMock(spec=LogisticRegression)
+        lr.coef_ = np.array([[1.0, 0.0]])  # only model weight
+        lr.intercept_ = np.array([-1.0])  # bias shift
+
+        submodel = mock_models.submodels["turf"]
+        submodel.benter_lr = lr
+        predictor = RacePredictor(models=mock_models, alpha=0.4)
+
+        race_df = self._make_race_df()
+        self._setup_mock_chain(mock_models, race_df)
+
+        result = predictor.predict(race_df)
+
+        # logit_combined = 1.0*logit(p_model) + 0.0*logit(p_market) + (-1.0)
+        p_model = np.clip(np.array([0.6, 0.5, 0.35, 0.2]), 1e-6, 1 - 1e-6)
+        p_mkt = np.clip(np.array([1 / 1.5, 1 / 2.0, 1 / 3.0, 1 / 5.0]), 1e-6, 1 - 1e-6)
+        logit_m = np.log(p_model / (1 - p_model))
+        logit_mk = np.log(p_mkt / (1 - p_mkt))
+        logit_combined = 1.0 * logit_m + 0.0 * logit_mk - 1.0
+        expected = 1.0 / (1.0 + np.exp(-logit_combined))
+        np.testing.assert_allclose(result["p_place_combined"].values, expected, rtol=1e-6)

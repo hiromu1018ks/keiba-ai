@@ -100,9 +100,7 @@ class RacePredictor:
             ]
             df = df.merge(trainer_race, on=["race_id", "umaban"], how="left")
         if jt_combo_features is not None:
-            jt_race = jt_combo_features[
-                jt_combo_features["race_id"] == race_df["race_id"].iloc[0]
-            ]
+            jt_race = jt_combo_features[jt_combo_features["race_id"] == race_df["race_id"].iloc[0]]
             df = df.merge(jt_race, on=["race_id", "umaban"], how="left")
 
         # 6. EV補正 + Place推論
@@ -118,7 +116,7 @@ class RacePredictor:
 
         # --- Value Betting with Benter combined probability ---
         # logit(p_combined) = alpha * logit(p_model) + (1-alpha) * logit(p_market)
-        # edge = p_combined - p_market
+        # OR: learned logistic regression coefficients if benter_lr available
         p_market = np.where(
             df["fukuoddslow"] > 0,
             1.0 / df["fukuoddslow"],
@@ -132,7 +130,17 @@ class RacePredictor:
         logit_model = np.log(p_model / (1 - p_model))
         logit_market = np.log(p_mkt / (1 - p_mkt))
 
-        logit_combined = self.alpha * logit_model + (1 - self.alpha) * logit_market
+        if submodel.benter_lr is not None:
+            # Learned Benter combination via logistic regression
+            logit_combined = (
+                submodel.benter_lr.coef_[0][0] * logit_model
+                + submodel.benter_lr.coef_[0][1] * logit_market
+                + submodel.benter_lr.intercept_[0]
+            )
+        else:
+            # Fallback: fixed alpha
+            logit_combined = self.alpha * logit_model + (1 - self.alpha) * logit_market
+
         p_combined = 1.0 / (1.0 + np.exp(-logit_combined))
 
         df["p_place_combined"] = p_combined

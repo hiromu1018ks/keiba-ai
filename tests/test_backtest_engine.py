@@ -424,6 +424,7 @@ class TestPostRaceColumnExclusion:
 
         # --- submodel mocks ---
         submodel = MagicMock()
+        submodel.benter_lr = None
         mock_models.submodels["turf"] = submodel
         submodel.market.predict_and_calc_error.return_value = feat_df
         submodel.stage1.add_ability_probs.return_value = feat_df
@@ -431,9 +432,7 @@ class TestPostRaceColumnExclusion:
         submodel.win.predict_ev.return_value = feat_df
         submodel.ev_corrector.correct_ev.return_value = feat_df
         submodel.place.predict_ev.return_value = feat_df
-        _corrected = feat_df.assign(
-            ev_place_corrected=feat_df.get("ev_place", 1.5)
-        )
+        _corrected = feat_df.assign(ev_place_corrected=feat_df.get("ev_place", 1.5))
         submodel.place_ev_corrector.correct_ev.return_value = _corrected
         submodel.confidence.predict_lower_bound.return_value = (
             _corrected,
@@ -587,6 +586,7 @@ class TestBetHistoryEnrichment:
 
         # --- submodel mocks (plain MagicMock — spec restricts attribute access) ---
         submodel = MagicMock()
+        submodel.benter_lr = None
         mock_models.submodels["turf"] = submodel
         submodel.market.predict_and_calc_error.return_value = feat_df
         submodel.stage1.add_ability_probs.return_value = feat_df
@@ -594,9 +594,7 @@ class TestBetHistoryEnrichment:
         submodel.win.predict_ev.return_value = feat_df
         submodel.ev_corrector.correct_ev.return_value = feat_df
         submodel.place.predict_ev.return_value = feat_df
-        _corrected = feat_df.assign(
-            ev_place_corrected=feat_df.get("ev_place", 1.5)
-        )
+        _corrected = feat_df.assign(ev_place_corrected=feat_df.get("ev_place", 1.5))
         submodel.place_ev_corrector.correct_ev.return_value = _corrected
         submodel.confidence.predict_lower_bound.return_value = (
             _corrected,
@@ -908,6 +906,7 @@ class TestJRAFilterBacktest:
         # Submodel mocks — needed so the test actually exercises the filter
         # Without these, the test passes for the wrong reason (no submodel = skip)
         submodel = MagicMock()
+        submodel.benter_lr = None
         mock_models.submodels["turf"] = submodel
         submodel.market.predict_and_calc_error.return_value = feat_df
         submodel.stage1.add_ability_probs.return_value = feat_df
@@ -915,9 +914,7 @@ class TestJRAFilterBacktest:
         submodel.win.predict_ev.return_value = feat_df
         submodel.ev_corrector.correct_ev.return_value = feat_df
         submodel.place.predict_ev.return_value = feat_df
-        _corrected = feat_df.assign(
-            ev_place_corrected=feat_df.get("ev_place", 1.5)
-        )
+        _corrected = feat_df.assign(ev_place_corrected=feat_df.get("ev_place", 1.5))
         submodel.place_ev_corrector.correct_ev.return_value = _corrected
         submodel.confidence.predict_lower_bound.return_value = (
             _corrected,
@@ -930,9 +927,7 @@ class TestJRAFilterBacktest:
         engine = BacktestEngine(models=mock_models, store=mock_store)
         result = engine.run("2024-01-01", "2024-12-31")
 
-        assert result.total_bets == 0, (
-            "NAR race (jyocd=35) should be excluded from backtest"
-        )
+        assert result.total_bets == 0, "NAR race (jyocd=35) should be excluded from backtest"
 
     @patch("db.odds_extractor.extract_pre_post_odds")
     @patch("features.trainer_context_features.TrainerContextFeatures")
@@ -1043,6 +1038,7 @@ class TestJRAFilterBacktest:
 
         # Submodel mocks for prediction
         submodel = MagicMock()
+        submodel.benter_lr = None
         mock_models.submodels["turf"] = submodel
         submodel.market.predict_and_calc_error.return_value = feat_df
         submodel.stage1.add_ability_probs.return_value = feat_df
@@ -1050,9 +1046,7 @@ class TestJRAFilterBacktest:
         submodel.win.predict_ev.return_value = feat_df
         submodel.ev_corrector.correct_ev.return_value = feat_df
         submodel.place.predict_ev.return_value = feat_df
-        _corrected = feat_df.assign(
-            ev_place_corrected=feat_df.get("ev_place", 1.5)
-        )
+        _corrected = feat_df.assign(ev_place_corrected=feat_df.get("ev_place", 1.5))
         submodel.place_ev_corrector.correct_ev.return_value = _corrected
         submodel.confidence.predict_lower_bound.return_value = (
             _corrected,
@@ -1065,6 +1059,4 @@ class TestJRAFilterBacktest:
         engine = BacktestEngine(models=mock_models, store=mock_store)
         result = engine.run("2024-01-01", "2024-12-31")
 
-        assert result.total_bets >= 1, (
-            "JRA race (jyocd=05) should be included in backtest"
-        )
+        assert result.total_bets >= 1, "JRA race (jyocd=05) should be included in backtest"
