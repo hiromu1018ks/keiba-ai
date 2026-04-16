@@ -482,6 +482,35 @@ class TrainingPipelineV5:
         with TimingContext(f"{surface}/place_predict"):
             df_oof = place_2s.predict_ev(df_oof)
 
+        # 5b. Benter Combination + Isotonic Calibration
+        benter_combo = None
+        isotonic_cal = None
+        if hasattr(place_2s, "_val_p_raw") and len(place_2s._val_p_raw) >= 500:
+            from models.benter_combination import BenterCombination
+            from sklearn.isotonic import IsotonicRegression
+
+            val_p = place_2s._val_p_raw
+            val_p_market = np.where(
+                place_2s._val_fukuoddslow > 0,
+                1.0 / place_2s._val_fukuoddslow,
+                0.5,
+            )
+            val_y = place_2s._val_y
+
+            with TimingContext(f"{surface}/benter"):
+                benter_combo = BenterCombination.fit(val_p, val_p_market, val_y)
+                logger.info(
+                    "Benter params: alpha=%.3f, beta=%.3f, gamma=%.3f",
+                    benter_combo.alpha, benter_combo.beta, benter_combo.gamma,
+                )
+
+            with TimingContext(f"{surface}/isotonic"):
+                val_p_combined = benter_combo.combine(val_p, val_p_market)
+                iso = IsotonicRegression(out_of_bounds="clip")
+                iso.fit(val_p_combined, val_y)
+                isotonic_cal = iso
+                logger.info("Isotonic calibrator fitted on %d samples", len(val_p))
+
         # 5a. Place EV補正 (P/E decomposition)
         with TimingContext(f"{surface}/place_ev_correction"):
             place_ev_corrector = PlaceEVCorrectionModel()
@@ -523,6 +552,8 @@ class TrainingPipelineV5:
             wide=wide_2s,
             confidence=conf,
             use_ensemble=use_ensemble,
+            benter_combo=benter_combo,
+            isotonic_calibrator=isotonic_cal,
         )
 
     def _build_race_level_features(self, feat_df: pd.DataFrame) -> pd.DataFrame:
@@ -847,6 +878,17 @@ class TrainingPipelineV5:
                 joblib.dump(
                     calibrated,
                     models_dir / f"place_ability_{surface}.joblib",
+                )
+
+            # Benter Combination (JSON)
+            if sub.benter_combo is not None:
+                sub.benter_combo.save(models_dir / f"benter_combo_{surface}.json")
+
+            # Isotonic Calibrator (joblib)
+            if sub.isotonic_calibrator is not None:
+                joblib.dump(
+                    sub.isotonic_calibrator,
+                    models_dir / f"isotonic_place_{surface}.joblib",
                 )
 
         saved["race_quality"] = quality_screen.model
