@@ -13,10 +13,8 @@ import argparse
 import logging
 import os
 import sys
-from datetime import datetime
 from pathlib import Path
 
-import numpy as np
 import pandas as pd
 
 # ── プロジェクトルート設定 ──
@@ -104,6 +102,111 @@ def load_payouts(start_date: str, end_date: str) -> pd.DataFrame:
     df = df[df["datakubun"] == "2"]
     logger.info("Loaded %d confirmed payouts", len(df))
     return df
+
+
+def compute_movement_features(ts_df: pd.DataFrame) -> pd.DataFrame:
+    """時系列オッズから各馬のオッズ変動特徴量をベクトル化計算
+
+    Args:
+        ts_df: jodds_tanpuku データ。必須列: race_id, umaban(str),
+               happyotime(str), tanodds(float), tanninki(Int64), race_date(datetime)
+
+    Returns:
+        各(race_id, umaban)ごとに1行のDataFrame。
+        列: race_id, umaban, early_odds, mid_odds, late_odds, final_odds,
+            early_pop, late_pop, n_points,
+            odds_drop_60_10, odds_drop_30_10, odds_drop_10_final,
+            pop_change_30_10
+    """
+    # ── 前処理 ──
+    df = ts_df.copy()
+
+    # umaban を string → int に正規化（結合用）
+    df["umaban_int"] = pd.to_numeric(df["umaban"], errors="coerce").astype("Int64")
+
+    # tanninki の NaN を -1 で埋める
+    df["tanninki"] = df["tanninki"].fillna(-1)
+
+    # 有効なオッズのみ残す（ゼロとNaN除外）
+    df = df[df["tanodds"].notna() & (df["tanodds"] > 0)]
+
+    # NAR除外 (jyocdはobject型なので数値変換して比較)
+    if "jyocd" in df.columns:
+        jyocd_num = pd.to_numeric(df["jyocd"], errors="coerce")
+        df = df[jyocd_num < 30]
+
+    # ソート: (race_id, umaban) ごとに (race_date, happyotime) で昇順
+    df = df.sort_values(["race_id", "umaban", "race_date", "happyotime"])
+
+    # ── groupby agg ──
+    def _first(series: pd.Series) -> object:
+        return series.iloc[0]
+
+    def _mid(series: pd.Series) -> object:
+        idx = len(series) // 2
+        return series.iloc[idx]
+
+    def _late(series: pd.Series) -> object:
+        idx = int(len(series) * 0.9)
+        return series.iloc[idx]
+
+    g = df.groupby(["race_id", "umaban"], sort=False)
+
+    features = g.agg(
+        early_odds=("tanodds", _first),
+        mid_odds=("tanodds", _mid),
+        late_odds=("tanodds", _late),
+        final_odds=("tanodds", "last"),
+        early_pop=("tanninki", _first),
+        mid_pop=("tanninki", _mid),
+        late_pop=("tanninki", _late),
+        n_points=("tanodds", "count"),
+    ).reset_index()
+
+    # ── 変動率計算 ──
+    features["odds_drop_60_10"] = (features["early_odds"] - features["late_odds"]) / features[
+        "early_odds"
+    ]
+    features["odds_drop_30_10"] = (features["mid_odds"] - features["late_odds"]) / features[
+        "mid_odds"
+    ]
+    features["odds_drop_10_final"] = (features["late_odds"] - features["final_odds"]) / features[
+        "late_odds"
+    ]
+    features["pop_change_30_10"] = features["mid_pop"] - features["late_pop"]
+
+    return features
+
+
+def classify_movement(
+    df: pd.DataFrame,
+    threshold: float = 0.20,
+) -> pd.DataFrame:
+    """TODO: Task 3で実装"""
+    raise NotImplementedError
+
+
+def main() -> None:
+    args = build_parser().parse_args()
+    start_year = int(args.start[:4])
+    end_year = int(args.end[:4])
+
+    logger.info("=" * 60)
+    logger.info("オッズ変動分析: %s ~ %s", args.start, args.end)
+    logger.info("=" * 60)
+
+    # 1. データ読み込み
+    ts_df = load_time_series(start_year, end_year)
+    entries_df = load_entries(args.start, args.end)  # noqa: F841
+    races_df = load_races(args.start, args.end)  # noqa: F841
+    payouts_df = load_payouts(args.start, args.end)  # noqa: F841
+
+    # 2. 特徴量計算
+    movement_df = compute_movement_features(ts_df)
+    logger.info("Computed movement features for %d horses", len(movement_df))
+
+    # TODO: 残りのステップで実装
+    logger.info("Analysis complete (placeholder).")
 
 
 if __name__ == "__main__":
