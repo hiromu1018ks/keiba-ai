@@ -44,6 +44,33 @@ POST_RACE_COLS: list[str] = [
 ]
 
 
+def build_payout_map(
+    payouts_df: pd.DataFrame,
+) -> dict[tuple[str, int], float]:
+    """payouts DataFrame から (race_id, umaban) → odds_multiplier のマップを構築。
+
+    payfukusyopay は「100円あたりの円」なので、100で割って倍率に変換する。
+    """
+    payout_map: dict[tuple[str, int], float] = {}
+    if payouts_df.empty:
+        return payout_map
+    for _, row in payouts_df.iterrows():
+        race_id = str(row.get("race_id", ""))
+        for i in range(1, 6):
+            umaban = row.get(f"payfukusyoumaban{i}")
+            pay = row.get(f"payfukusyopay{i}")
+            if pd.notna(umaban) and pd.notna(pay):
+                try:
+                    key = (race_id, int(umaban))
+                    val = float(pay) / 100.0
+                    # 同一キーが既に存在する場合は高い方を保持
+                    if key not in payout_map or val > payout_map[key]:
+                        payout_map[key] = val
+                except (ValueError, TypeError):
+                    continue
+    return payout_map
+
+
 @dataclass
 class BacktestResult:
     """バックテスト結果"""
