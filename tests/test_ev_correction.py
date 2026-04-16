@@ -429,3 +429,111 @@ class TestPlaceEVCorrectionModel:
         # フォールバック: ev_place_corrected == ev_place
         assert "ev_place_corrected" in result.columns
         assert np.allclose(result["ev_place_corrected"], result["ev_place"])
+
+
+class TestEVCorrectionTemporalSplit:
+    """EV補正モデルの時系列分割テスト (PITリーク防止)"""
+
+    def test_train_sorts_by_race_date_before_split(self):
+        """train() は race_date でソートしてから train/valid 分割すること"""
+        import lightgbm as lgb
+        from models.ev_correction_model import EVCorrectionModel
+
+        np.random.seed(42)
+        n = 100
+        # 時系列順でないデータ（race_date がランダム）
+        dates = pd.date_range("2020-01-01", periods=n).to_numpy()
+        np.random.shuffle(dates)  # 意図的にシャッフル
+
+        df = pd.DataFrame({
+            "race_id": [f"R{i:04d}" for i in range(n)],
+            "race_date": dates,
+            "kakuteijyuni": np.random.randint(1, 9, n),
+            "odds": np.random.uniform(1.1, 100, n),
+            "confirmed_odds": np.random.uniform(1.1, 100, n),
+            "p_win_pred": np.random.uniform(0.01, 0.5, n),
+            "e_return_win_pred": np.random.uniform(1.1, 100, n),
+            "ev_win": np.random.uniform(0.5, 10, n),
+            "signed_log_error_win": np.random.normal(0, 0.3, n),
+            "abs_log_error_win": np.abs(np.random.normal(0, 0.3, n)),
+            "market_entropy": np.random.uniform(2.0, 3.5, n),
+            "popularity_rank": np.random.randint(1, 10, n),
+            "implied_prob_hhi": np.random.uniform(0.05, 0.15, n),
+            "surface": np.random.choice(["turf", "dirt"], n),
+            "distance_bin": np.random.choice(["sprint", "mile", "long"], n),
+            "track_condition_code": np.random.randint(1, 4, n),
+            "field_size": np.random.randint(8, 16, n),
+            "jockey_wr_overall": np.random.uniform(0.05, 0.20, n),
+            "jockey_wr_distance": np.random.uniform(0.03, 0.18, n),
+            "jockey_wr_venue": np.random.uniform(0.04, 0.19, n),
+            "jockey_prize_log": np.random.uniform(8.0, 12.0, n),
+            "trainer_wr_overall": np.random.uniform(0.05, 0.20, n),
+            "trainer_wr_distance": np.random.uniform(0.03, 0.18, n),
+            "trainer_wr_venue": np.random.uniform(0.04, 0.19, n),
+            "trainer_prize_log": np.random.uniform(7.0, 11.5, n),
+            "jt_combo_wr": np.random.uniform(0.05, 0.20, n),
+            "jt_combo_place_rate": np.random.uniform(0.10, 0.35, n),
+            "jt_combo_starts": np.random.uniform(1, 30, n),
+            "jt_combo_prize_log": np.random.uniform(2.0, 6.0, n),
+        })
+
+        model = EVCorrectionModel()
+        model.train(df, num_threads=1)
+
+        # モデルが学習されていることを確認
+        assert hasattr(model, "p_correction_model")
+        assert hasattr(model, "e_correction_model")
+        assert model.p_correction_model is not None
+        assert model.e_correction_model is not None
+
+    def test_place_ev_train_sorts_by_race_date_before_split(self):
+        """PlaceEVCorrectionModel.train() も race_date でソートしてから分割すること"""
+        from models.ev_correction_model import PlaceEVCorrectionModel
+
+        np.random.seed(42)
+        n = 100
+        # 時系列順でないデータ（race_date がランダム）
+        dates = pd.date_range("2020-01-01", periods=n).to_numpy()
+        np.random.shuffle(dates)
+
+        df = pd.DataFrame({
+            "race_id": [f"R{i:04d}" for i in range(n)],
+            "umaban": np.random.randint(1, 10, n),
+            "race_date": dates,
+            "kakuteijyuni": np.random.randint(1, 9, n),
+            "p_place_pred": np.random.uniform(0.1, 0.7, n),
+            "e_return_place_pred": np.random.uniform(1.1, 10, n),
+            "p_ability_place": np.random.uniform(0.1, 0.7, n),
+            "fukuoddslow": np.random.uniform(1.1, 50, n),
+            "ev_place": np.random.uniform(0.5, 10, n),
+            "signed_log_error_win": np.random.normal(0, 0.3, n),
+            "abs_log_error_win": np.abs(np.random.normal(0, 0.3, n)),
+            "market_entropy": np.random.uniform(2.0, 3.5, n),
+            "popularity_rank": np.random.randint(1, 10, n),
+            "surface": np.random.choice(["turf", "dirt"], n),
+            "distance_bin": np.random.choice([1, 2, 3, 4], n),
+            "track_condition_code": np.random.randint(1, 4, n),
+            "field_size": np.random.randint(8, 16, n),
+            "jockey_wr_overall": np.random.uniform(0.05, 0.20, n),
+            "jockey_wr_distance": np.random.uniform(0.03, 0.18, n),
+            "jockey_wr_venue": np.random.uniform(0.04, 0.19, n),
+            "jockey_prize_log": np.random.uniform(8.0, 12.0, n),
+            "trainer_wr_overall": np.random.uniform(0.05, 0.20, n),
+            "trainer_wr_distance": np.random.uniform(0.03, 0.18, n),
+            "trainer_wr_venue": np.random.uniform(0.04, 0.19, n),
+            "trainer_prize_log": np.random.uniform(7.0, 11.5, n),
+            "jt_combo_wr": np.random.uniform(0.05, 0.20, n),
+            "jt_combo_place_rate": np.random.uniform(0.10, 0.35, n),
+            "jt_combo_starts": np.random.uniform(1, 30, n),
+            "jt_combo_prize_log": np.random.uniform(2.0, 6.0, n),
+            "implied_prob_hhi": np.random.uniform(0.05, 0.15, n),
+        })
+
+        model = PlaceEVCorrectionModel()
+        model.train(df, num_threads=1)
+
+        # モデルが学習されていることを確認
+        assert hasattr(model, "p_correction_model")
+        assert hasattr(model, "e_correction_model")
+        assert model.p_correction_model is not None
+        assert model.e_correction_model is not None

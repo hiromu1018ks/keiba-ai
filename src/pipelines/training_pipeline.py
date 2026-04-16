@@ -404,6 +404,9 @@ class TrainingPipelineV5:
 
         # 3. 単勝 2段階モデル
         win_2s = WinTwoStageModel()
+        # PITリーク防止: WinTwoStageModel 学習前にソート
+        if "race_date" in df_oof.columns:
+            df_oof = df_oof.sort_values("race_date").reset_index(drop=True)
         if use_ensemble:
             from models.stacked_ensemble import StackedEnsemble
 
@@ -450,6 +453,10 @@ class TrainingPipelineV5:
             jt_df = jt_combo.compute(df_oof)
             df_oof = pd.merge(df_oof, jt_df, on=["race_id", "umaban"], how="left")
 
+        # PITリーク防止: merge操作で順序が破壊された可能性があるため再ソート
+        if "race_date" in df_oof.columns:
+            df_oof = df_oof.sort_values("race_date").reset_index(drop=True)
+
         # 4. EV補正モデル (P/E分解)
         with TimingContext(f"{surface}/ev_correction"):
             ev_corrector = EVCorrectionModel()
@@ -480,6 +487,9 @@ class TrainingPipelineV5:
                 place_2s._val_y = y.iloc[split:].values
                 place_2s._val_fukuoddslow = df_oof["fukuoddslow"].iloc[split:].values
         else:
+            # PITリーク防止: PlaceTwoStageModel 学習前にソート
+            if "race_date" in df_oof.columns:
+                df_oof = df_oof.sort_values("race_date").reset_index(drop=True)
             with TimingContext(f"{surface}/place_hit"):
                 place_2s.train_hit_model(df_oof, num_threads=num_threads)
         with TimingContext(f"{surface}/place_return"):

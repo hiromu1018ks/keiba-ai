@@ -87,6 +87,10 @@ class EVCorrectionModel:
             "ev_win が必要です。先に WinTwoStageModel.predict_ev() を実行してください"
         )
 
+        # PITリーク防止: race_date でソートしてから時系列分割
+        if "race_date" in df.columns:
+            df = df.sort_values("race_date").reset_index(drop=True)
+
         df = self._add_interaction_features(df)
         features = self._prepare_features(df)
 
@@ -132,6 +136,9 @@ class EVCorrectionModel:
 
         # ── Model E: E補正 (1着馬のみ・1/√p 重み付き回帰) ──
         winners = df[df["kakuteijyuni"] == 1].copy()
+        # PITリーク防止: race_date でソートしてから時系列分割
+        if "race_date" in winners.columns:
+            winners = winners.sort_values("race_date").reset_index(drop=True)
         e_pred_clipped = np.clip(winners["e_return_win_pred"], self.E_CLIP_FLOOR, None)
         winners["log_e_correction"] = np.log(
             winners["confirmed_odds"].clip(lower=self.E_CLIP_FLOOR)
@@ -296,6 +303,10 @@ class PlaceEVCorrectionModel:
             "ev_place が必要です。先に PlaceTwoStageModel.predict_ev() を実行してください"
         )
 
+        # PITリーク防止: race_date でソートしてから時系列分割
+        if "race_date" in df.columns:
+            df = df.sort_values("race_date").reset_index(drop=True)
+
         df = self._add_interaction_features(df)
         features = self._prepare_features(df)
 
@@ -341,6 +352,9 @@ class PlaceEVCorrectionModel:
 
         # ── Model E: E補正 (複勝的中馬のみ・1/√p 重み付き回帰) ──
         placed = df[df["kakuteijyuni"] <= 3].copy()
+        # PITリーク防止: race_date でソートしてから時系列分割
+        if "race_date" in placed.columns:
+            placed = placed.sort_values("race_date").reset_index(drop=True)
         e_pred_clipped = np.clip(placed["e_return_place_pred"], self.E_CLIP_FLOOR, None)
         placed["log_e_correction"] = np.log(
             placed["fukuoddslow"].clip(lower=self.E_CLIP_FLOOR)
