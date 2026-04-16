@@ -482,44 +482,7 @@ class TrainingPipelineV5:
         with TimingContext(f"{surface}/place_predict"):
             df_oof = place_2s.predict_ev(df_oof)
 
-        # 5a. Benter合成: ファンダメンタル予測 + 市場確率 の最適重みを推定
-        with TimingContext(f"{surface}/benter_fit"):
-            from models.benter_combination import BenterCombination
-
-            benter_combo = None
-            if "fukuoddslow" in df_oof.columns:
-                p_fund = df_oof["p_place_pred"].values
-                p_market = np.where(
-                    df_oof["fukuoddslow"] > 0,
-                    1.0 / df_oof["fukuoddslow"].values,
-                    np.nan,
-                )
-                y_place = (df_oof["kakuteijyuni"] <= 3).astype(float).values
-                # NaN を除外
-                valid = np.isfinite(p_fund) & np.isfinite(p_market)
-                if valid.sum() > 1000:
-                    benter_combo = BenterCombination.fit(
-                        p_fund[valid], p_market[valid], y_place[valid]
-                    )
-                    logger.info(
-                        "Benter %s: alpha=%.3f, beta=%.3f, gamma=%.3f",
-                        surface,
-                        benter_combo.alpha,
-                        benter_combo.beta,
-                        benter_combo.gamma,
-                    )
-                else:
-                    logger.warning(
-                        "Insufficient valid data for Benter fit (%d rows), skipping %s",
-                        valid.sum(), surface,
-                    )
-            else:
-                logger.warning(
-                    "fukuoddslow not in df_oof columns, skipping Benter fit for %s",
-                    surface,
-                )
-
-        # 5b. Place EV補正 (P/E decomposition)
+        # 5a. Place EV補正 (P/E decomposition)
         with TimingContext(f"{surface}/place_ev_correction"):
             place_ev_corrector = PlaceEVCorrectionModel()
             place_ev_corrector.train(df_oof, num_threads=num_threads)
@@ -560,7 +523,6 @@ class TrainingPipelineV5:
             wide=wide_2s,
             confidence=conf,
             use_ensemble=use_ensemble,
-            benter_combo=benter_combo,
         )
 
     def _build_race_level_features(self, feat_df: pd.DataFrame) -> pd.DataFrame:
@@ -917,15 +879,6 @@ class TrainingPipelineV5:
                 # 各surfaceごとに保存 (最後のsurfaceの値が使われる)
                 with open(models_dir / "confidence_params.json", "w", encoding="utf-8") as f:
                     json.dump(conf_data, f, indent=2)
-
-        # BenterCombination を JSON で保存
-        for surface, sub in models.items():
-            if sub.benter_combo is not None:
-                benter_path = models_dir / f"benter_combo_{surface}.json"
-                sub.benter_combo.save(benter_path)
-                logger.info(
-                    "Saved benter_combo for %s: %s", surface, sub.benter_combo.to_dict()
-                )
 
         # メタ情報
         meta = {

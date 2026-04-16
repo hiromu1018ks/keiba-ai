@@ -249,10 +249,10 @@ class TestPlaceTwoStageModel:
 
     def test_hit_and_return_features_separated(self) -> None:
         """Hit model と Return model で特徴量が適切に定義されていること"""
-        # Hit model には直接オッズ特徴量を含めない (v5.7: リーク防止)
-        assert "fukuoddslow" not in PlaceTwoStageModel.HIT_FEATURE_COLS
-        assert "tanodds" not in PlaceTwoStageModel.HIT_FEATURE_COLS
-        # Return model には直接オッズ特徴量を含める
+        # Hit model は市場確率を学習するため直接オッズ特徴量を含める
+        assert "fukuoddslow" in PlaceTwoStageModel.HIT_FEATURE_COLS
+        assert "tanodds" in PlaceTwoStageModel.HIT_FEATURE_COLS
+        # Return model にも直接オッズ特徴量を含める
         assert "fukuoddslow" in PlaceTwoStageModel.RETURN_FEATURE_COLS
         assert "tanodds" in PlaceTwoStageModel.RETURN_FEATURE_COLS
         # p_ability_place は両方に含まれる
@@ -329,26 +329,5 @@ class TestTrainValidSplit:
         assert "permutation" not in source, "Still using random permutation!"
         assert "RandomState" not in source, "Still using RandomState!"
 
-
-class TestHitFeatureCols:
-    """HIT_FEATURE_COLS に直接オッズ列が含まれないことを確認"""
-
-    def test_no_direct_odds_features(self) -> None:
-        """fukuoddslow, tanodds は HIT_FEATURE_COLS に含まれない"""
-        from models.two_stage_return_model import PlaceTwoStageModel
-
-        model = PlaceTwoStageModel()
-        assert "fukuoddslow" not in model.HIT_FEATURE_COLS
-        assert "tanodds" not in model.HIT_FEATURE_COLS
-
-    def test_indirect_odds_features_present(self) -> None:
-        """オッズ動態・市場構造特徴量は残っている"""
-        from models.two_stage_return_model import PlaceTwoStageModel
-
-        model = PlaceTwoStageModel()
-        assert "odds_drop_rate_60_10" in model.HIT_FEATURE_COLS
-        assert "market_entropy" in model.HIT_FEATURE_COLS
-        assert "overround" in model.HIT_FEATURE_COLS
-        assert "signed_log_error_win" in model.HIT_FEATURE_COLS
 
 

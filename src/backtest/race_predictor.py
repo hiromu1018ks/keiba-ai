@@ -40,9 +40,6 @@ class RacePredictor:
         if not 0.0 <= alpha <= 1.0:
             raise ValueError(f"alpha must be in [0, 1], got {alpha}")
         self.alpha = alpha  # kept for backwards compatibility / fallback
-        # Benter合成レイヤー (最初のsurfaceから取得)
-        first_sub = next(iter(models.submodels.values()), None)
-        self.benter = first_sub.benter_combo if first_sub else None
 
     def predict(
         self,
@@ -117,21 +114,20 @@ class RacePredictor:
         if "EV_lower_place" in place_df.columns:
             df["EV_lower_place"] = place_df["EV_lower_place"].values
 
-        # --- Benter合成: ロジット空間でファンダメンタル + 市場確率を組み合わせ ---
+        # --- Value Betting with EV-based edge ---
+        # p_place_pred は Hit model が fukuoddslow を特徴量として含むため
+        # 市場情報を内部で統合済み。EV > 1.0 の馬にベットする。
         p_market = np.where(
             df["fukuoddslow"] > 0,
             1.0 / df["fukuoddslow"],
             np.nan,
         )
-        if self.benter is not None:
-            p_market_clipped = np.clip(p_market, 0.01, 0.99)
-            df["p_place_combined"] = self.benter.combine(
-                df["p_place_pred"].values, p_market_clipped
-            )
-        else:
-            df["p_place_combined"] = df["p_place_pred"]
+
+        # EV = p_place_pred * fukuoddslow (expected return per 1 yen bet)
+        df["ev_place_direct"] = df["p_place_pred"] * df["fukuoddslow"]
+        df["p_place_combined"] = df["p_place_pred"]
+        df["edge_place"] = df["ev_place_direct"] - 1.0
         df["p_market"] = p_market
-        df["edge_place"] = df["p_place_combined"] * df["fukuoddslow"] - 1.0
 
         return df
 

@@ -1,6 +1,5 @@
 """MLモデル群 (Phase C)"""
 
-from models.benter_combination import BenterCombination
 from models.ev_correction_model import EVCorrectionModel
 from models.market_model import MarketModel
 from models.race_quality_screener import RaceQualityScreener
@@ -13,7 +12,6 @@ from models.wide_two_stage_model import WideTwoStageModel
 
 __all__ = [
     "AbilityModel",
-    "BenterCombination",
     "EVCorrectionModel",
     "MarketModel",
     "PlaceTwoStageModel",

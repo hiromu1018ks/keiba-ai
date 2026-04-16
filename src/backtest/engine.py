@@ -15,7 +15,13 @@ import pandas as pd
 from backtest.diagnostic_logger import DiagnosticLogger
 from backtest.race_predictor import RacePredictor
 from db.parquet_store import ParquetStore
-from db.readers import load_entries, load_odds_snapshots, load_odds_time_series_range, load_races
+from db.readers import (
+    load_entries,
+    load_odds_snapshots,
+    load_odds_time_series_range,
+    load_payouts,
+    load_races,
+)
 from domain.models import Bet, BetType
 from models.regime_detector import calc_favorite_implied_prob, calc_odds_skewness
 
@@ -219,6 +225,11 @@ class BacktestEngine:
                 key = (str(r["race_id"]), int(r["umaban"]))
                 if pd.notna(r.get("fukuoddslow")):
                     final_odds_map[key] = float(r["fukuoddslow"])
+
+        # 確定配当マップを構築（精算用。実際の払戻金額を使用）
+        payouts_df = load_payouts(self.store, start, end)
+        self.payout_map = build_payout_map(payouts_df)
+        logger.info("Loaded payout map: %d entries", len(self.payout_map))
 
         feat_df = feat_engine.build_all(
             race_df, entry_df, pre_post_odds, odds_ts_df=odds_ts_df, store=self.store

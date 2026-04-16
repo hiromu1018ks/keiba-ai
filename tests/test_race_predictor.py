@@ -5,7 +5,6 @@ from unittest.mock import MagicMock
 import numpy as np
 import pandas as pd
 import pytest
-from sklearn.linear_model import LogisticRegression
 
 from domain.models import TrainedModelsV5
 from domain.types import RegimeState
@@ -22,7 +21,7 @@ def _make_submodel_mock() -> MagicMock:
     sm.place = MagicMock()
     sm.wide = MagicMock()
     sm.confidence = MagicMock()
-    sm.benter_combo = None
+    sm.benter_lr = None
     return sm
 
 
@@ -575,37 +574,3 @@ class TestRacePredictorEVEdge:
         np.testing.assert_allclose(result["p_place_combined"].values, p_pred, rtol=1e-6)
 
 
-class TestBenterEdgeCalculation:
-    """Benter合成によるエッジ計算のテスト"""
-
-    def test_predictor_has_benter_attribute(self) -> None:
-        """RacePredictor が benter 属性を持つ"""
-        from backtest.race_predictor import RacePredictor
-        from models.benter_combination import BenterCombination
-
-        models = MagicMock(spec=TrainedModelsV5)
-        benter = BenterCombination(alpha=0.5, beta=0.5, gamma=0.0)
-        sub = _make_submodel_mock()
-        sub.benter_combo = benter
-        models.submodels = {"turf": sub}
-        models.quality_screener = MagicMock()
-        models.regime_detector = MagicMock()
-        models.regime_detector.current_regime = RegimeState.CONSERVATIVE
-
-        predictor = RacePredictor(models)
-        assert predictor.benter is not None
-        assert isinstance(predictor.benter, BenterCombination)
-
-    def test_benter_none_when_no_combo(self) -> None:
-        """benter_combo が None の場合、benter も None"""
-        from backtest.race_predictor import RacePredictor
-
-        models = MagicMock(spec=TrainedModelsV5)
-        sub = _make_submodel_mock()
-        sub.benter_combo = None
-        models.submodels = {"turf": sub}
-        models.quality_screener = MagicMock()
-        models.regime_detector = MagicMock()
-
-        predictor = RacePredictor(models)
-        assert predictor.benter is None

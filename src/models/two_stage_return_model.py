@@ -180,7 +180,8 @@ class PlaceTwoStageModel:
     """
 
     # --- Hit model (Stage A): 確率分類用 ---
-    # fukuoddslow, tanodds を含める — LightGBM が市場確率の重みを直接学習する
+    # fukuoddslow, tanodds を含める — LightGBM が市場確率の重みを直接学習し、
+    # p_place_pred が市場情報を内部で統合するようにする。
     HIT_FEATURE_COLS: list[str] = [
         # Stage1 出力
         "p_ability_win",
@@ -188,6 +189,9 @@ class PlaceTwoStageModel:
         # Market Model 正規化差分
         "signed_log_error_win",
         "abs_log_error_win",
+        # 複勝・単勝オッズ (Hit model に含める — 市場確率のベース)
+        "fukuoddslow",  # 複勝オッズ (市場確率のベース)
+        "tanodds",  # 単勝オッズ
         # オッズ変化率
         "odds_drop_rate_60_10",
         "odds_drop_rate_30_10",
