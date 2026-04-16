@@ -21,7 +21,8 @@ def _make_submodel_mock() -> MagicMock:
     sm.place = MagicMock()
     sm.wide = MagicMock()
     sm.confidence = MagicMock()
-    sm.benter_lr = None
+    sm.benter_combo = None
+    sm.isotonic_calibrator = None
     return sm
 
 

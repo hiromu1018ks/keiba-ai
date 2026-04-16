@@ -114,20 +114,37 @@ class RacePredictor:
         if "EV_lower_place" in place_df.columns:
             df["EV_lower_place"] = place_df["EV_lower_place"].values
 
-        # --- Value Betting with EV-based edge ---
-        # p_place_pred は Hit model が fukuoddslow を特徴量として含むため
-        # 市場情報を内部で統合済み。EV > 1.0 の馬にベットする。
+        # --- Benter Combination + Isotonic Calibration ---
+        # p_place_pred は fundamental model 出力 (オッズ特徴量なし)
+        # Benter: logit(p_c) = alpha*logit(p_fund) + beta*logit(p_market) + gamma
         p_market = np.where(
             df["fukuoddslow"] > 0,
             1.0 / df["fukuoddslow"],
             np.nan,
         )
-
-        # EV = p_place_pred * fukuoddslow (expected return per 1 yen bet)
-        df["ev_place_direct"] = df["p_place_pred"] * df["fukuoddslow"]
-        df["p_place_combined"] = df["p_place_pred"]
-        df["edge_place"] = df["ev_place_direct"] - 1.0
         df["p_market"] = p_market
+
+        benter = submodel.benter_combo
+        if benter is not None:
+            p_market_clipped = np.clip(
+                np.where(df["fukuoddslow"] > 0, 1.0 / df["fukuoddslow"], 0.5),
+                0.01, 0.99,
+            )
+            df["p_place_combined"] = benter.combine(
+                df["p_place_pred"].values, p_market_clipped
+            )
+
+            # Isotonic calibration (optional post-processing)
+            cal = submodel.isotonic_calibrator
+            if cal is not None:
+                df["p_place_combined"] = cal.transform(df["p_place_combined"])
+        else:
+            # フォールバック: Benter なし → raw p_place_pred を使用
+            df["p_place_combined"] = df["p_place_pred"]
+
+        # Edge = p_combined * odds - 1.0
+        df["edge_place"] = df["p_place_combined"] * df["fukuoddslow"] - 1.0
+        df["ev_place_direct"] = df["p_place_combined"] * df["fukuoddslow"]
 
         return df
 
@@ -141,9 +158,10 @@ class RacePredictor:
         race_df: pd.DataFrame,
         bankroll: float,
     ) -> list[Bet]:
-        """Value Betting: EV > 1.0 (edge >= 0) の馬を選択。
+        """Benter Value Betting: edge >= threshold の馬を選択。
 
-        edge = p_place_pred * fukuoddslow - 1.0 (EV - 1)
+        edge = p_place_combined * fukuoddslow - 1.0
+        p_place_combined = Benter(p_fundamental, p_market) + isotonic calibration
         """
         regime = self.models.regime_detector.current_regime
         regime_params = self.models.regime_detector.get_strategy_params(regime)
