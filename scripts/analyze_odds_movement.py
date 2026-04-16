@@ -273,7 +273,7 @@ def join_results(
     # surface マッピング（trackcd: 10-22=芝, 23-29=ダート）
     if "trackcd" in df.columns:
 
-        def _map_surface(tc):
+        def _map_surface(tc: object) -> str:
             if pd.isna(tc):
                 return "other"
             tc_int = int(tc)
@@ -333,6 +333,7 @@ def analyze_basic_stats(df: pd.DataFrame) -> dict[str, pd.DataFrame]:
     Returns:
         dict with keys: table_a, table_b, table_c
     """
+    df = df.copy()
     stake = 100  # 100円固定
 
     # ── テーブルA: バケット別成績 ──
