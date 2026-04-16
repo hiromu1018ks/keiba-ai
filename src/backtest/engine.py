@@ -701,12 +701,6 @@ class BacktestEngine:
 
     def _settle_bet(self, bet: Bet, race_df: pd.DataFrame) -> float:
         """ベットの結果を判定"""
-        # 優先: payout_map（確定配当）から精算
-        payout_key = (bet.race_id, bet.umaban)
-        if hasattr(self, "payout_map") and payout_key in self.payout_map:
-            return float(bet.stake * self.payout_map[payout_key])
-
-        # フォールバック: 従来の finish_pos + final_odds 方式
         horse = race_df[race_df["umaban"] == bet.umaban]
         if horse.empty:
             return 0.0
