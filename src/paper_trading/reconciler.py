@@ -82,10 +82,15 @@ class PaperReconciler:
             finish_pos = int(result_row.iloc[0]["kakuteijyuni"])
             bet_type = bet_row["bet_type"]
 
-            # 複勝的中判定
+            # 複勝的中判定 — 実際の配当 (payfukusyopay) を使用
             payout = 0.0
             if bet_type == "place" and 1 <= finish_pos <= 3:
-                payout = bet_row["stake"] * bet_row["odds"]
+                # payfukusyopay があれば実際の配当を使用、なければオッズ
+                actual_payout = result_row.iloc[0].get("payfukusyopay", None)
+                if pd.notna(actual_payout) and actual_payout > 0:
+                    payout = bet_row["stake"] * float(actual_payout) / 100.0
+                else:
+                    payout = bet_row["stake"] * bet_row["odds"]
                 n_wins += 1
 
             # 払戻を更新
