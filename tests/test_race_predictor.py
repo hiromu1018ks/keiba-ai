@@ -22,7 +22,7 @@ def _make_submodel_mock() -> MagicMock:
     sm.place = MagicMock()
     sm.wide = MagicMock()
     sm.confidence = MagicMock()
-    sm.benter_lr = None
+    sm.benter_combo = None
     return sm
 
 
@@ -554,7 +554,7 @@ class TestRacePredictorEVEdge:
         )
 
     def test_predict_computes_ev_edge(self, mock_models: MagicMock) -> None:
-        """predict が EV ベースの edge を計算すること"""
+        """predict が EV ベースの edge を計算すること (benter=None フォールバック)"""
         from backtest.race_predictor import RacePredictor
 
         predictor = RacePredictor(models=mock_models, alpha=0.4)
@@ -565,9 +565,47 @@ class TestRacePredictorEVEdge:
         result = predictor.predict(race_df)
 
         assert "edge_place" in result.columns
-        assert "ev_place_direct" in result.columns
-        # edge = p_place_pred * fukuoddslow - 1.0
-        expected_ev = np.array([0.6, 0.5, 0.35, 0.2]) * np.array([1.5, 2.0, 3.0, 5.0])
-        expected_edge = expected_ev - 1.0
+        assert "p_market" in result.columns
+        assert "p_place_combined" in result.columns
+        # benter=None フォールバック: edge = p_place_pred * fukuoddslow - 1.0
+        p_pred = np.array([0.6, 0.5, 0.35, 0.2])
+        odds = np.array([1.5, 2.0, 3.0, 5.0])
+        expected_edge = p_pred * odds - 1.0
         np.testing.assert_allclose(result["edge_place"].values, expected_edge, rtol=1e-6)
-        np.testing.assert_allclose(result["ev_place_direct"].values, expected_ev, rtol=1e-6)
+        np.testing.assert_allclose(result["p_place_combined"].values, p_pred, rtol=1e-6)
+
+
+class TestBenterEdgeCalculation:
+    """Benter合成によるエッジ計算のテスト"""
+
+    def test_predictor_has_benter_attribute(self) -> None:
+        """RacePredictor が benter 属性を持つ"""
+        from backtest.race_predictor import RacePredictor
+        from models.benter_combination import BenterCombination
+
+        models = MagicMock(spec=TrainedModelsV5)
+        benter = BenterCombination(alpha=0.5, beta=0.5, gamma=0.0)
+        sub = _make_submodel_mock()
+        sub.benter_combo = benter
+        models.submodels = {"turf": sub}
+        models.quality_screener = MagicMock()
+        models.regime_detector = MagicMock()
+        models.regime_detector.current_regime = RegimeState.CONSERVATIVE
+
+        predictor = RacePredictor(models)
+        assert predictor.benter is not None
+        assert isinstance(predictor.benter, BenterCombination)
+
+    def test_benter_none_when_no_combo(self) -> None:
+        """benter_combo が None の場合、benter も None"""
+        from backtest.race_predictor import RacePredictor
+
+        models = MagicMock(spec=TrainedModelsV5)
+        sub = _make_submodel_mock()
+        sub.benter_combo = None
+        models.submodels = {"turf": sub}
+        models.quality_screener = MagicMock()
+        models.regime_detector = MagicMock()
+
+        predictor = RacePredictor(models)
+        assert predictor.benter is None

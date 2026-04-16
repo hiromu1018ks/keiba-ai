@@ -18,6 +18,7 @@ def mock_models() -> MagicMock:
     """モック TrainedModelsV5"""
     models = MagicMock(spec=TrainedModelsV5)
     models.submodels = {"turf": MagicMock(spec=SubmodelSet)}
+    models.submodels["turf"].benter_combo = None
     models.quality_screener = MagicMock()
     models.quality_screener.should_bet.return_value = True
     models.regime_detector = MagicMock()
@@ -424,7 +425,7 @@ class TestPostRaceColumnExclusion:
 
         # --- submodel mocks ---
         submodel = MagicMock()
-        submodel.benter_lr = None
+        submodel.benter_combo = None
         mock_models.submodels["turf"] = submodel
         submodel.market.predict_and_calc_error.return_value = feat_df
         submodel.stage1.add_ability_probs.return_value = feat_df
@@ -586,7 +587,7 @@ class TestBetHistoryEnrichment:
 
         # --- submodel mocks (plain MagicMock — spec restricts attribute access) ---
         submodel = MagicMock()
-        submodel.benter_lr = None
+        submodel.benter_combo = None
         mock_models.submodels["turf"] = submodel
         submodel.market.predict_and_calc_error.return_value = feat_df
         submodel.stage1.add_ability_probs.return_value = feat_df
@@ -906,7 +907,7 @@ class TestJRAFilterBacktest:
         # Submodel mocks — needed so the test actually exercises the filter
         # Without these, the test passes for the wrong reason (no submodel = skip)
         submodel = MagicMock()
-        submodel.benter_lr = None
+        submodel.benter_combo = None
         mock_models.submodels["turf"] = submodel
         submodel.market.predict_and_calc_error.return_value = feat_df
         submodel.stage1.add_ability_probs.return_value = feat_df
@@ -1038,7 +1039,7 @@ class TestJRAFilterBacktest:
 
         # Submodel mocks for prediction
         submodel = MagicMock()
-        submodel.benter_lr = None
+        submodel.benter_combo = None
         mock_models.submodels["turf"] = submodel
         submodel.market.predict_and_calc_error.return_value = feat_df
         submodel.stage1.add_ability_probs.return_value = feat_df
