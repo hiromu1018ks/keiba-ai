@@ -3,6 +3,7 @@
 ファンダメンタルモデルの予測確率と市場の暗黙確率を最適な重みで合成する。
 logit(p_combined) = alpha * logit(p_fundamental) + beta * logit(p_market) + gamma
 """
+
 from __future__ import annotations
 
 import json
@@ -36,16 +37,12 @@ class BenterCombination:
     def combine(self, p_fund: np.ndarray, p_market: np.ndarray) -> np.ndarray:
         """ロジット空間で確率を合成する。"""
         logit_combined = (
-            self.alpha * self._logit(p_fund)
-            + self.beta * self._logit(p_market)
-            + self.gamma
+            self.alpha * self._logit(p_fund) + self.beta * self._logit(p_market) + self.gamma
         )
         return self._sigmoid(logit_combined)
 
     @classmethod
-    def fit(
-        cls, p_fund: np.ndarray, p_market: np.ndarray, y: np.ndarray
-    ) -> BenterCombination:
+    def fit(cls, p_fund: np.ndarray, p_market: np.ndarray, y: np.ndarray) -> BenterCombination:
         """最尤推定で alpha, beta, gamma を推定する。"""
         logit_f = cls._logit(p_fund)
         logit_m = cls._logit(p_market)
@@ -56,9 +53,7 @@ class BenterCombination:
             logit_c = alpha * logit_f + beta * logit_m + gamma
             p_c = cls._sigmoid(logit_c)
             p_c = np.clip(p_c, 1e-10, 1 - 1e-10)
-            return float(
-                -np.sum(y * np.log(p_c) + (1 - y) * np.log(1 - p_c))
-            )
+            return float(-np.sum(y * np.log(p_c) + (1 - y) * np.log(1 - p_c)))
 
         result = minimize(
             neg_log_likelihood,

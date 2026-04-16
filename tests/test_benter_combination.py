@@ -1,7 +1,11 @@
 """BenterCombination のテスト"""
+
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
+import pytest
 
 from models.benter_combination import BenterCombination
 
@@ -135,3 +139,13 @@ class TestBenterSerialization:
         assert "alpha" in d
         assert "beta" in d
         assert "gamma" in d
+
+    def test_save_load_roundtrip(self, tmp_path: Path) -> None:
+        """save → load で同じパラメータを復元"""
+        original = BenterCombination(alpha=0.35, beta=0.65, gamma=-0.05)
+        path = tmp_path / "benter.json"
+        original.save(path)
+        loaded = BenterCombination.load(path)
+        assert loaded.alpha == original.alpha
+        assert loaded.beta == original.beta
+        assert loaded.gamma == original.gamma
