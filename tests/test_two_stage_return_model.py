@@ -17,7 +17,7 @@ from models.two_stage_return_model import (
 
 @pytest.fixture
 def feature_df() -> pd.DataFrame:
-    """WinTwoStageModel FEATURE_COLS を満たす8頭テストデータ"""
+    """WinTwoStageModel + PlaceTwoStageModel (HIT + RETURN) FEATURE_COLS を満たす8頭テストデータ"""
     return pd.DataFrame(
         {
             "race_id": ["R1"] * 8,
@@ -43,6 +43,22 @@ def feature_df() -> pd.DataFrame:
             "fukuoddslow": [1.3, 1.5, 1.8, 2.1, 2.5, 3.0, 3.5, 4.0],
             "tanodds": [2.0, 3.0, 4.0, 5.0, 6.0, 8.0, 10.0, 15.0],
             "p_ability_place": [0.55, 0.48, 0.42, 0.38, 0.32, 0.25, 0.20, 0.15],
+            # --- 馬レベル特徴量 (Place HIT model 専用) ---
+            "norm_finish_logit_avg": [0.1, 0.05, -0.1, -0.3, -0.5, -0.7, -0.9, -1.2],
+            "harontimel5_zscore": [-0.5, -0.2, 0.0, 0.3, 0.6, 1.0, 1.3, 1.8],
+            "closing_index_avg": [0.55, 0.50, 0.45, 0.35, 0.28, 0.20, 0.12, 0.05],
+            "weight_zscore": [-0.3, -0.1, 0.0, 0.2, 0.4, 0.6, 0.9, 1.2],
+            "days_since_last_race": [14, 21, 28, 35, 45, 60, 90, 120],
+            "rest_category": [0, 0, 1, 1, 2, 2, 3, 3],
+            "form_trend": [0.3, 0.1, 0.0, -0.1, -0.2, -0.3, -0.4, -0.5],
+            "form_consistency": [0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2, 0.1],
+            "blood_surface_wr": [0.18, 0.16, 0.14, 0.12, 0.10, 0.08, 0.06, 0.04],
+            "blood_distance_wr": [0.15, 0.13, 0.12, 0.10, 0.09, 0.07, 0.05, 0.03],
+            "jockey_wr_overall": [0.14, 0.13, 0.12, 0.11, 0.10, 0.09, 0.07, 0.05],
+            "trainer_wr_overall": [0.12, 0.11, 0.10, 0.09, 0.08, 0.06, 0.05, 0.03],
+            "jt_combo_place_rate": [0.32, 0.29, 0.26, 0.23, 0.19, 0.16, 0.12, 0.08],
+            "course_wr": [0.17, 0.15, 0.13, 0.11, 0.09, 0.07, 0.05, 0.03],
+            # その他
             "finish_pos": [1, 2, 3, 4, 5, 6, 7, 8],
             "win_odds_actual": [3.5, 5.0, 8.0, 15.0, 25.0, 40.0, 80.0, 150.0],
             "place_odds_actual": [1.3, 1.6, 2.1, 3.5, 5.0, 8.0, 15.0, 30.0],
@@ -248,16 +264,41 @@ class TestPlaceTwoStageModel:
         mock_lgb.early_stopping.assert_called_once_with(stopping_rounds=100, verbose=False)
 
     def test_hit_and_return_features_separated(self) -> None:
-        """Hit model と Return model で特徴量が適切に定義されていること"""
-        # Hit model は市場確率を学習するため直接オッズ特徴量を含める
-        assert "fukuoddslow" in PlaceTwoStageModel.HIT_FEATURE_COLS
-        assert "tanodds" in PlaceTwoStageModel.HIT_FEATURE_COLS
-        # Return model にも直接オッズ特徴量を含める
+        """Hit model と Return model で特徴量が適切に分離されていること
+
+        Hit model は fukuoddslow/tanodds を除外し、馬レベル特徴量を含む。
+        Return model は fukuoddslow/tanodds を保持（回帰ターゲットに近いため）。
+        """
+        # Hit model はオッズ特徴量を含まない（二重計数防止）
+        assert "fukuoddslow" not in PlaceTwoStageModel.HIT_FEATURE_COLS
+        assert "tanodds" not in PlaceTwoStageModel.HIT_FEATURE_COLS
+        # Return model にはオッズ特徴量を含める（回帰用）
         assert "fukuoddslow" in PlaceTwoStageModel.RETURN_FEATURE_COLS
         assert "tanodds" in PlaceTwoStageModel.RETURN_FEATURE_COLS
         # p_ability_place は両方に含まれる
         assert "p_ability_place" in PlaceTwoStageModel.HIT_FEATURE_COLS
         assert "p_ability_place" in PlaceTwoStageModel.RETURN_FEATURE_COLS
+        # 馬レベル特徴量が HIT に追加されている
+        horse_features = [
+            "norm_finish_logit_avg",
+            "harontimel5_zscore",
+            "closing_index_avg",
+            "weight_zscore",
+            "days_since_last_race",
+            "rest_category",
+            "form_trend",
+            "form_consistency",
+            "blood_surface_wr",
+            "blood_distance_wr",
+            "jockey_wr_overall",
+            "trainer_wr_overall",
+            "jt_combo_place_rate",
+            "course_wr",
+        ]
+        for col in horse_features:
+            assert col in PlaceTwoStageModel.HIT_FEATURE_COLS, (
+                f"{col} should be in HIT_FEATURE_COLS"
+            )
 
     def test_place_return_feature_cols_include_place_specific(self) -> None:
         """Return model should have place-specific features beyond win features"""

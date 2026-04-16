@@ -180,35 +180,44 @@ class PlaceTwoStageModel:
     """
 
     # --- Hit model (Stage A): 確率分類用 ---
-    # fukuoddslow, tanodds を含める — LightGBM が市場確率の重みを直接学習し、
-    # p_place_pred が市場情報を内部で統合するようにする。
+    # fukuoddslow, tanodds は除外 — 二重計数 (特徴量 + edge formula) を防止。
+    # 代わりに馬レベル特徴量を追加し、情報ボトルネックを解消。
     HIT_FEATURE_COLS: list[str] = [
         # Stage1 出力
         "p_ability_win",
         "p_ability_place",  # PlaceAbilityModel 出力
-        # Market Model 正規化差分
+        # Market Model 正規化差分 (間接的市場情報)
         "signed_log_error_win",
         "abs_log_error_win",
-        # 複勝・単勝オッズ (Hit model に含める — 市場確率のベース)
-        "fukuoddslow",  # 複勝オッズ (市場確率のベース)
-        "tanodds",  # 単勝オッズ
-        # オッズ変化率
+        # --- 馬レベル特徴量 (新規) ---
+        "norm_finish_logit_avg",
+        "harontimel5_zscore",
+        "closing_index_avg",
+        "weight_zscore",
+        "days_since_last_race",
+        "rest_category",
+        "form_trend",
+        "form_consistency",
+        "blood_surface_wr",
+        "blood_distance_wr",
+        "jockey_wr_overall",
+        "trainer_wr_overall",
+        "jt_combo_place_rate",
+        "course_wr",
+        # --- 間接的市場情報 (既存) ---
         "odds_drop_rate_60_10",
         "odds_drop_rate_30_10",
         "odds_velocity",
         "odds_volatility",
         "popularity_change_30_10",
-        # 市場歪み
         "market_entropy",
         "popularity_rank",
         "overround",
-        # レース条件
         "surface",
         "distance_bin",
         "track_condition_code",
         "grade_code",
         "field_size",
-        # FLB slope
         "odds_skewness",
     ]
 
@@ -288,6 +297,16 @@ class PlaceTwoStageModel:
             valid_sets=[valid_data],
             callbacks=[lgb.early_stopping(stopping_rounds=100, verbose=False)],
         )
+
+        # バリデーション予測を保存 (Benter combination + isotonic fitting 用)
+        n = len(features)
+        split = int(n * 0.8)
+        hit_iter = self.hit_model.best_iteration if self.hit_model.best_iteration > 0 else None
+        self._val_p_raw = self.hit_model.predict(
+            features.iloc[split:], num_iteration=hit_iter
+        )
+        self._val_y = y.iloc[split:].values
+        self._val_fukuoddslow = df["fukuoddslow"].iloc[split:].values
 
     def train_return_model(self, df: pd.DataFrame, *, num_threads: int = 0) -> None:
         """E(place_odds | place) の学習 (3着以内のみ)"""
