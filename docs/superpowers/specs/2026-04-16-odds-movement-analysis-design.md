@@ -21,12 +21,21 @@
 
 | Source | File | Key Columns |
 |--------|------|-------------|
-| Time series odds | `data/odds/jodds_tanpuku/` (partitioned) | race_id, umaban, tanodds, fukuoddslow, tanninki, happyotime, year, month |
-| Race results | `data/raw/entries.parquet` | race_id, umaban, kakuteijyuni, ninki, kisyucode, chokyosicode, surface, ... |
-| Place payouts | `data/raw/payouts.parquet` | race_id, payfukusyoumaban1-5, payfukusyopay1-5, datakubun |
+| Time series odds | `data/odds/jodds_tanpuku.parquet` (single file, ~451MB) | race_id, umaban(str), tanodds(float), fukuoddslow(float), tanninki(Int64), happyotime(str), year(int), monthday |
+| Race results | `data/raw/entries.parquet` | race_id, umaban(Int64), kakuteijyuni(Int64), ninki(Int64), kisyucode(str), chokyosicode(str) |
+| Race metadata | `data/raw/races.parquet` | race_id, kyori(int), syussotosu(int), trackcd(int), sibababacd/dirtbabacd(int) |
+| Place payouts | `data/raw/payouts.parquet` | race_id, payfukusyoumaban1-5(Int64), payfukusyopay1-5(float), datakubun(str) |
+
+**Column type notes:**
+- `jodds_tanpuku.umaban` is **string** (not Int64) — must cast to int when joining with entries/payouts
+- `jodds_tanpuku.tanninki` is Int64 (nullable) — fillna(-1) before numeric ops
+- `entries.umaban` is Int64 — cross-table join requires type alignment
+- `payouts.datakubun` confirmed results use value **'2'** (NOT '0')
 
 Time granularity: `happyotime` = "MMDDHHmm" (8 chars), minute-level snapshots.
 Typical range: t-60min (first point) to t-10min (last regular point), with late-money at t-3min/t-2min.
+
+**Important:** `happyotime` alone is ambiguous across dates (wraps at midnight). Always sort by `(race_date, happyotime)` within each `(race_id, umaban)` group to ensure correct temporal ordering.
 
 ## 3. Scope
 
@@ -38,12 +47,12 @@ Typical range: t-60min (first point) to t-10min (last regular point), with late-
 ## 4. Architecture
 
 ```
-┌─────────────────────┐
-│ jodds_tanpuku       │  Time series odds (partitioned parquet)
-│  year=2023..2025    │
-└─────────┬───────────┘
-          │ per (race_id, umaban): sorted by happyotime
-          ▼
+┌─────────────────────────────┐
+│ jodds_tanpuku.parquet       │  Time series odds (single file ~451MB)
+│  filter: year in [2023,2025]│
+└─────────────┬───────────────┘
+              │ per (race_id, umaban): sort by (race_date, happyotime)
+              ▼
 ┌─────────────────────────────────┐
 │ Movement Feature Computation     │
 │                                  │
@@ -53,20 +62,23 @@ Typical range: t-60min (first point) to t-10min (last regular point), with late-
 │  pop_change_30_10  = popularity rank change   │
 │                                  │
 │  Classify: steamer(>=20% drop) / stable / drifter(>=20% rise) │
-└─────────┬───────────────────────┘
-          │ LEFT JOIN
-          ├──────────────────┐
-          ▼                  ▼
-┌──────────────────┐  ┌──────────────────┐
-│ entries.parquet  │  │ payouts.parquet  │
-│ (finishing pos,  │  │ (place payout)   │
-│  jockey, trainer,│  │                   │
-│  surface, etc.)  │  │                   │
-└────────┬─────────┘  └────────┬─────────┘
-         │                    │
-         ▼                    ▼
-┌────────────────────────────────────────┐
-│ Cross-tabulation Analysis              │
+└─────────────┬───────────────────────┘
+              │ LEFT JOIN (umaban cast: str→int)
+              ├──┬───────────┬──────────┐
+              ▼           ▼           ▼
+┌──────────────────┐ ┌──────────┐ ┌──────────────────┐
+│ entries.parquet  │ │ races    │ │ payouts.parquet  │
+│ (finishing pos,  │ │ .parquet │ │ (place payout)   │
+│  jockey, trainer)│ │ (surface,│ │ datakubun='2'    │
+│                  │ │ distance,│ │                   │
+│                  │ │ field_sz,│ │                   │
+│                  │ │ cond)    │ │                   │
+└────────┬─────────┘ └────┬─────┘ └────────┬─────────┘
+         │                 │               │
+         └────────┬────────┘               │
+                  ▼                        │
+┌────────────────────────────────────────┐ │
+│ Cross-tabulation Analysis              ├─┘
 │                                         │
 │  1. Basic stats: by movement bucket     │
 │     place rate, ROI, win rate           │
@@ -170,15 +182,16 @@ Console output uses pandas display or tabulate for readable tables.
 # scripts/analyze_odds_movement.py
 
 def main()                           # CLI arg parsing -> pipeline orchestration
-def load_time_series(start, end)     # Read jodds_tanpuku via pyarrow Dataset API
+def load_time_series(start, end)     # Read jodds_tanpuku.parquet (single file + year filter)
 def load_entries()                   # Read entries.parquet
-def load_payouts()                   # Read payouts.parquet
+def load_races()                     # Read races.parquet (surface, distance, field size, track cond)
+def load_payouts()                   # Read payouts.parquet (datakubun='2' for confirmed)
 def compute_movement_features(ts_df) # Core: vectorized odds movement calculation
 def classify_movement(df)            # Bucket assignment
-def join_results(df, entries, payouts)# Merge with results and payouts
+def join_results(df, entries, races, payouts)# Merge with results and payouts (umaban: str→int cast)
 def analyze_basic_stats(df)          # Section 7-1
 def analyze_jockey_trainer(df)       # Section 7-2
-def analyze_race_conditions(df)      # Section 7-3
+def analyze_race_conditions(df)      # Section 7-3 (requires races join)
 def print_summary(results)            # Console output
 def save_csv(results, output_dir)     # CSV file output
 ```
@@ -186,14 +199,18 @@ def save_csv(results, output_dir)     # CSV file output
 ### 9-2. Key Implementation Details
 
 **Efficient time series loading:**
-Use pyarrow Dataset API with Hive partitioning predicate pushdown:
+`jodds_tanpuku.parquet` is a **single file** (~451MB), not Hive-partitioned.
+Use pandas/pyarrow with column filtering for year range:
 
 ```python
-import pyarrow.dataset as ds
-dataset = ds.dataset("data/odds/jodds_tanpuku/", partitioning="hive")
-ts_df = dataset.to_table(
-    where=(ds.field("year") >= 2023) & (ds.field("year") <= 2025)
-).to_pandas()
+import pandas as pd
+
+# Read single parquet file, filter by year columns (fast: pyarrow predicate pushdown)
+ts_df = pd.read_parquet(
+    "data/odds/jodds_tanpuku.parquet",
+    filters=[("year", ">=", 2023), ("year", "<=", 2025)],
+)
+# Alternative for memory-constrained environments: use pyarrow with row group skipping
 ```
 
 **Vectorized movement computation (no iteration):**
@@ -212,21 +229,31 @@ features = g.agg(
 
 **Place ROI from actual payouts:**
 ```python
-# Use payouts.parquet actual payment amounts
+# Use payouts.parquet actual payment amounts (datakubun='2' = confirmed)
 # Match horse number to payfukusyoumaban1-5 columns
+# NOTE: umaban in jodds_tanpuku is string; cast to int before comparison
 def get_place_payout(row, payouts):
+    umaban = int(row["umaban"]) if isinstance(row["umaban"], str) else row["umaban"]
     for i in range(1, 6):
-        if row["umaban"] == payouts[f"payfukusyoumaban{i}"]:
+        maban = payouts.get(f"payfukusyoumaban{i}")
+        if pd.notna(maban) and umaban == int(maban):
             return payouts[f"payfukusyopay{i}"]
     return 0.0
 ```
+
+**ROI calculation convention:**
+- **Stake:** 100 yen flat per bet (consistent with project backtest conventions)
+- **Odds source for ROI:** Actual `payfukusyopay` from `payouts.parquet` (pool-determined, includes JRA minimum payout guarantee of 70 yen)
+- **Place determination:** `entries.kakuteijyuni <= 3` (3着以内 = 複勝的中)
+- **Dead heat:** Ties at 3rd position both count as place (JRA rules: tied horses share the placing)
 
 ### 9-3. Data Quality Filters
 
 - Exclude NAR races: `jyocd >= 30`
 - Minimum data points: `n_points >= 5` (configurable)
-- Confirmed results only: `datakubun == '0'`
-- Exclude NaN odds values
+- Confirmed results only: `datakubun == '2'` (NOTE: payouts.parquet uses '2' for confirmed, NOT '0')
+- Exclude NaN odds values AND zero odds (`tanodds > 0`)
+- Cast `umaban` from string (jodds_tanpuku) to int before cross-table joins
 
 ### 9-4. CLI Interface
 
