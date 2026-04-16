@@ -853,9 +853,9 @@ def analyze_race_conditions(df: pd.DataFrame) -> pd.DataFrame:
     def _field_size(syussotosu):
         if pd.isna(syussotosu):
             return "unknown"
-        if syssotosu <= 8:
+        if syussotosu <= 8:
             return "8頭以下"
-        elif syssotosu <= 12:
+        elif syussotosu <= 12:
             return "9-12頭"
         else:
             return "13頭以上"
