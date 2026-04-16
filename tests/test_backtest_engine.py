@@ -1061,3 +1061,133 @@ class TestJRAFilterBacktest:
         result = engine.run("2024-01-01", "2024-12-31")
 
         assert result.total_bets >= 1, "JRA race (jyocd=05) should be included in backtest"
+
+
+class TestBuildPayoutMap:
+    """build_payout_map のテスト"""
+
+    def test_basic_payout_map(self) -> None:
+        """払戻データから正しい payout_map を構築する"""
+        payouts = pd.DataFrame(
+            {
+                "race_id": ["R001", "R001", "R002"],
+                "payfukusyoumaban1": [1, 3, 2],
+                "payfukusyopay1": [150, 150, 200],
+                "payfukusyoumaban2": [2, 5, 5],
+                "payfukusyopay2": [200, 180, 150],
+                "payfukusyoumaban3": [3, 7, 8],
+                "payfukusyopay3": [300, 250, 100],
+                "payfukusyoumaban4": [None, None, None],
+                "payfukusyopay4": [None, None, None],
+                "payfukusyoumaban5": [None, None, None],
+                "payfukusyopay5": [None, None, None],
+            }
+        )
+        from backtest.engine import build_payout_map
+
+        payout_map = build_payout_map(payouts)
+        assert payout_map[("R001", 1)] == pytest.approx(1.5)
+        assert payout_map[("R001", 2)] == pytest.approx(2.0)
+        assert payout_map[("R001", 3)] == pytest.approx(3.0)
+        assert payout_map[("R002", 2)] == pytest.approx(2.0)
+
+    def test_missing_pay_columns_skipped(self) -> None:
+        """payfukusyoumaban が NaN のエントリはスキップする"""
+        payouts = pd.DataFrame(
+            {
+                "race_id": ["R001"],
+                "payfukusyoumaban1": [1],
+                "payfukusyopay1": [150],
+                "payfukusyoumaban2": [None],
+                "payfukusyopay2": [None],
+                "payfukusyoumaban3": [None],
+                "payfukusyopay3": [None],
+                "payfukusyoumaban4": [None],
+                "payfukusyopay4": [None],
+                "payfukusyoumaban5": [None],
+                "payfukusyopay5": [None],
+            }
+        )
+        from backtest.engine import build_payout_map
+
+        payout_map = build_payout_map(payouts)
+        assert ("R001", 1) in payout_map
+        assert len(payout_map) == 1
+
+    def test_empty_payouts(self) -> None:
+        """空の DataFrame は空の map を返す"""
+        payouts = pd.DataFrame()
+        from backtest.engine import build_payout_map
+
+        payout_map = build_payout_map(payouts)
+        assert len(payout_map) == 0
+
+
+class TestPayoutSettlement:
+    """確定配当ベースの精算テスト"""
+
+    def test_settle_bet_uses_payout_map(self) -> None:
+        """_settle_bet が payout_map を使用する"""
+        from backtest.engine import BacktestEngine
+        from domain.models import Bet
+        from domain.types import BetType
+
+        bet = Bet(
+            race_id="R001",
+            umaban=3,
+            bet_type=BetType.PLACE,
+            odds=2.5,
+            ev_lower_corrected=0.0,
+            stake=100,
+            final_odds=2.5,
+        )
+        race_df = pd.DataFrame({"umaban": [3], "kakuteijyuni": [2]})
+        payout_map = {("R001", 3): 3.0}
+        engine = BacktestEngine.__new__(BacktestEngine)
+        engine.payout_map = payout_map
+        result = engine._settle_bet(bet, race_df)
+        assert result == pytest.approx(300.0)
+
+    def test_settle_bet_no_payout_entry(self) -> None:
+        """payout_map にエントリがない場合 (馬が着外) は 0 を返す"""
+        from backtest.engine import BacktestEngine
+        from domain.models import Bet
+        from domain.types import BetType
+
+        bet = Bet(
+            race_id="R001",
+            umaban=5,
+            bet_type=BetType.PLACE,
+            odds=2.0,
+            ev_lower_corrected=0.0,
+            stake=100,
+            final_odds=2.0,
+        )
+        race_df = pd.DataFrame({"umaban": [5], "kakuteijyuni": [5]})
+        payout_map = {("R001", 3): 3.0}
+        engine = BacktestEngine.__new__(BacktestEngine)
+        engine.payout_map = payout_map
+        result = engine._settle_bet(bet, race_df)
+        assert result == 0.0
+
+    def test_settle_bet_fallback_to_odds(self) -> None:
+        """payout_map にレースが存在しない場合は final_odds にフォールバック"""
+        from backtest.engine import BacktestEngine
+        from domain.models import Bet
+        from domain.types import BetType
+
+        bet = Bet(
+            race_id="R999",
+            umaban=1,
+            bet_type=BetType.PLACE,
+            odds=1.8,
+            ev_lower_corrected=0.0,
+            stake=100,
+            final_odds=1.8,
+        )
+        race_df = pd.DataFrame({"umaban": [1], "kakuteijyuni": [1]})
+        payout_map: dict[tuple[str, int], float] = {}
+        engine = BacktestEngine.__new__(BacktestEngine)
+        engine.payout_map = payout_map
+        result = engine._settle_bet(bet, race_df)
+        assert result == pytest.approx(180.0)

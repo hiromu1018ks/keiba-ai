@@ -91,6 +91,32 @@ class BacktestResult:
         return "\n".join(lines)
 
 
+def build_payout_map(
+    payouts_df: pd.DataFrame,
+) -> dict[tuple[str, int], float]:
+    """payouts DataFrame から (race_id, umaban) → odds_multiplier のマップを構築。
+
+    payfukusyopay は「100円あたりの円」なので、100で割って倍率に変換する。
+    """
+    payout_map: dict[tuple[str, int], float] = {}
+    if payouts_df.empty:
+        return payout_map
+    for _, row in payouts_df.iterrows():
+        race_id = str(row.get("race_id", ""))
+        for i in range(1, 6):
+            umaban = row.get(f"payfukusyoumaban{i}")
+            pay = row.get(f"payfukusyopay{i}")
+            if pd.notna(umaban) and pd.notna(pay):
+                try:
+                    key = (race_id, int(umaban))
+                    val = float(pay) / 100.0
+                    if key not in payout_map or val > payout_map[key]:
+                        payout_map[key] = val
+                except (ValueError, TypeError):
+                    continue
+    return payout_map
+
+
 class BacktestEngine:
     """バックテストエンジン
 
@@ -674,6 +700,11 @@ class BacktestEngine:
 
     def _settle_bet(self, bet: Bet, race_df: pd.DataFrame) -> float:
         """ベットの結果を判定"""
+        # 優先: payout_map（確定配当）から精算
+        payout_key = (bet.race_id, bet.umaban)
+        if hasattr(self, "payout_map") and payout_key in self.payout_map:
+            return float(bet.stake * self.payout_map[payout_key])
+
         horse = race_df[race_df["umaban"] == bet.umaban]
         if horse.empty:
             return 0.0

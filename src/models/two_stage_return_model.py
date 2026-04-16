@@ -188,9 +188,6 @@ class PlaceTwoStageModel:
         # Market Model 正規化差分
         "signed_log_error_win",
         "abs_log_error_win",
-        # 複勝・単勝オッズ
-        "fukuoddslow",  # 複勝オッズ (市場確率のベース)
-        "tanodds",  # 単勝オッズ
         # オッズ変化率
         "odds_drop_rate_60_10",
         "odds_drop_rate_30_10",
