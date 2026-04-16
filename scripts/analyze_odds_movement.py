@@ -35,18 +35,25 @@ DATA_DIR = Path(ROOT) / "data"
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="オッズ変動分析")
-    parser.add_argument("--start", type=str, default="20230101",
-                        help="開始日 YYYYMMDD (default: 20230101)")
-    parser.add_argument("--end", type=str, default="20251231",
-                        help="終了日 YYYYMMDD (default: 20251231)")
-    parser.add_argument("--output-dir", type=str, default=None,
-                        help="出力ディレクトリ (default: output/odds_movement_analysis_{date})")
-    parser.add_argument("--drop-threshold", type=float, default=0.20,
-                        help="分類閾値 (default: 0.20)")
-    parser.add_argument("--min-points", type=int, default=5,
-                        help="1頭あたり最低データポイント数 (default: 5)")
-    parser.add_argument("--detail", action="store_true",
-                        help="詳細レコードCSVも出力")
+    parser.add_argument(
+        "--start", type=str, default="20230101", help="開始日 YYYYMMDD (default: 20230101)"
+    )
+    parser.add_argument(
+        "--end", type=str, default="20251231", help="終了日 YYYYMMDD (default: 20251231)"
+    )
+    parser.add_argument(
+        "--output-dir",
+        type=str,
+        default=None,
+        help="出力ディレクトリ (default: output/odds_movement_analysis_{date})",
+    )
+    parser.add_argument(
+        "--drop-threshold", type=float, default=0.20, help="分類閾値 (default: 0.20)"
+    )
+    parser.add_argument(
+        "--min-points", type=int, default=5, help="1頭あたり最低データポイント数 (default: 5)"
+    )
+    parser.add_argument("--detail", action="store_true", help="詳細レコードCSVも出力")
     return parser
 
 
