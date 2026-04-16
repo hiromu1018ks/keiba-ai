@@ -13,6 +13,7 @@ import argparse
 import logging
 import os
 import sys
+from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
@@ -326,10 +327,247 @@ def join_results(
     return df
 
 
+def analyze_basic_stats(df: pd.DataFrame) -> dict[str, pd.DataFrame]:
+    """基本統計: テーブルA/B/C
+
+    Returns:
+        dict with keys: table_a, table_b, table_c
+    """
+    stake = 100  # 100円固定
+
+    # ── テーブルA: バケット別成績 ──
+    bucket_stats = (
+        df.groupby("movement_bucket")
+        .agg(
+            count=("is_place", "count"),
+            place_rate=("is_place", "mean"),
+            win_rate=("is_win", "mean"),
+            avg_final_odds=("final_odds", "mean"),
+            total_payout=("place_payout", "sum"),
+            total_bets=("is_place", "count"),
+        )
+        .reset_index()
+    )
+    bucket_stats["place_roi"] = (
+        bucket_stats["total_payout"] / (bucket_stats["total_bets"] * stake) * 100
+    )
+    bucket_stats["place_rate"] = (bucket_stats["place_rate"] * 100).round(1)
+    bucket_stats["win_rate"] = (bucket_stats["win_rate"] * 100).round(1)
+    bucket_stats["place_roi"] = bucket_stats["place_roi"].round(1)
+
+    # ── テーブルB: 人気セグメント × クラス クロス ──
+    def _pop_segment(ninki: float) -> str:
+        if pd.isna(ninki):
+            return "unknown"
+        ninki_val = float(ninki)
+        if ninki_val <= 3:
+            return "1-3番人気"
+        elif ninki_val <= 7:
+            return "4-7番人気"
+        else:
+            return "8番人気以降"
+
+    df["pop_segment"] = df["ninki"].apply(_pop_segment)
+
+    cross = (
+        df.groupby(["pop_segment", "movement_class"])
+        .agg(
+            count=("is_place", "count"),
+            place_rate=("is_place", "mean"),
+        )
+        .reset_index()
+    )
+    cross["place_rate"] = (cross["place_rate"] * 100).round(1)
+
+    # ── テーブルC: 時間枠別予測力比較 ──
+    windows = {
+        "60->10min": "odds_drop_60_10",
+        "30->10min": "odds_drop_30_10",
+        "10->final": "odds_drop_10_final",
+    }
+    window_rows = []
+    for label, col in windows.items():
+        for thresh in [0.15, 0.20, 0.25]:
+            mask = df[col] >= thresh
+            sub = df[mask]
+            if len(sub) > 0:
+                window_rows.append(
+                    {
+                        "window": label,
+                        "threshold": f"{thresh * 100:.0f}%",
+                        "count": len(sub),
+                        "place_rate": round(sub["is_place"].mean() * 100, 1),
+                        "roi": round(sub["place_payout"].sum() / (len(sub) * stake) * 100, 1),
+                    }
+                )
+    window_comparison = pd.DataFrame(window_rows)
+
+    return {
+        "table_a": bucket_stats,
+        "table_b": cross,
+        "table_c": window_comparison,
+    }
+
+
+def analyze_jockey_trainer(df: pd.DataFrame, top_n: int = 20) -> dict[str, pd.DataFrame]:
+    """騎手・調教師別の急落傾向分析
+
+    Returns:
+        dict with keys: by_jockey, by_trainer
+    """
+
+    def _analyze_group(group_col: str) -> pd.DataFrame:
+        grouped = (
+            df.groupby(group_col, dropna=False)
+            .agg(
+                rides=("is_place", "count"),
+                steam_count=(
+                    "movement_class",
+                    lambda x: (x == "steamer").sum(),  # type: ignore[no-any-return]
+                ),
+                steam_place_rate=(
+                    "is_place",
+                    lambda x: (
+                        x[df.loc[x.index, "movement_class"] == "steamer"].mean()
+                        if (df.loc[x.index, "movement_class"] == "steamer").any()
+                        else float("nan")
+                    ),
+                ),
+                stable_place_rate=(
+                    "is_place",
+                    lambda x: (
+                        x[df.loc[x.index, "movement_class"] == "stable"].mean()
+                        if (df.loc[x.index, "movement_class"] == "stable").any()
+                        else float("nan")
+                    ),
+                ),
+            )
+            .reset_index()
+        )
+
+        grouped["steam_rate"] = (grouped["steam_count"] / grouped["rides"] * 100).round(1)
+        grouped["diff"] = (grouped["steam_place_rate"] - grouped["stable_place_rate"]).round(1)
+
+        grouped = grouped[grouped["rides"] >= 10]
+        grouped = grouped.sort_values("steam_rate", ascending=False)
+        return grouped.head(top_n)
+
+    return {
+        "by_jockey": _analyze_group("kisyucode"),
+        "by_trainer": _analyze_group("chokyosicode"),
+    }
+
+
+def analyze_race_conditions(df: pd.DataFrame) -> pd.DataFrame:
+    """レース条件別のマトリックス分析 (Table E)"""
+
+    def _distance_band(kyori: float) -> str:
+        if pd.isna(kyori):
+            return "unknown"
+        kyori_val = float(kyori)
+        if kyori_val <= 1400:
+            return "短距離(<=1400m)"
+        elif kyori_val <= 2000:
+            return "中距離(1400-2000m)"
+        else:
+            return "長距離(>2000m)"
+
+    def _field_size(syussotosu: float) -> str:
+        if pd.isna(syussotosu):
+            return "unknown"
+        size_val = float(syussotosu)
+        if size_val <= 8:
+            return "8頭以下"
+        elif size_val <= 12:
+            return "9-12頭"
+        else:
+            return "13頭以上"
+
+    df_analysis = df.copy()
+    df_analysis["distance_band"] = df_analysis["kyori"].apply(_distance_band)
+    df_analysis["field_size_cat"] = df_analysis["syussotosu"].apply(_field_size)
+
+    dimensions = [
+        ("surface", "surface"),
+        ("distance_band", "distance_band"),
+        ("field_size_cat", "field_size_cat"),
+    ]
+
+    rows = []
+    for label, col in dimensions:
+        for cls in ["steamer", "stable"]:
+            sub = df_analysis[df_analysis["movement_class"] == cls]
+            grouped = sub.groupby(col, dropna=False)
+            for cat, grp in grouped:
+                if len(grp) < 5:
+                    continue
+                rows.append(
+                    {
+                        "dimension": label,
+                        "category": cat,
+                        "movement_class": cls,
+                        "count": len(grp),
+                        "place_rate": round(grp["is_place"].mean() * 100, 1),
+                        "roi": round(grp["place_payout"].sum() / (len(grp) * 100) * 100, 1),
+                    }
+                )
+
+    return pd.DataFrame(rows)
+
+
+def print_summary(results: dict, title: str = "") -> None:
+    """コンソールに分析結果を表形式で出力"""
+    if title:
+        print(f"\n{'=' * 60}")
+        print(f"  {title}")
+        print(f"{'=' * 60}")
+
+    for name, df_val in results.items():
+        if isinstance(df_val, pd.DataFrame) and len(df_val) > 0:
+            print(f"\n--- {name} ---")
+            print(df_val.to_string(index=False))
+
+
+def save_csv(results: dict, output_dir: str, detail_df: pd.DataFrame | None = None) -> None:
+    """CSVファイル群を出力"""
+    out = Path(output_dir)
+    out.mkdir(parents=True, exist_ok=True)
+
+    for name, df_val in results.items():
+        if isinstance(df_val, pd.DataFrame) and len(df_val) > 0:
+            path = out / f"{name}.csv"
+            df_val.to_csv(path, index=False)
+            logger.info("Saved: %s (%d rows)", path, len(df_val))
+
+    if detail_df is not None and len(detail_df) > 0:
+        detail_path = out / "detail_records.csv"
+        keep_cols = [
+            "race_id",
+            "umaban",
+            "movement_class",
+            "movement_bucket",
+            "odds_drop_30_10",
+            "final_odds",
+            "ninki",
+            "kakuteijyuni",
+            "is_place",
+            "place_payout",
+            "kisyucode",
+            "chokyosicode",
+            "surface",
+        ]
+        available = [c for c in keep_cols if c in detail_df.columns]
+        detail_df[available].to_csv(detail_path, index=False)
+        logger.info("Saved: %s", detail_path)
+
+
 def main() -> None:
     args = build_parser().parse_args()
     start_year = int(args.start[:4])
     end_year = int(args.end[:4])
+    output_dir = (
+        args.output_dir or f"output/odds_movement_analysis_{datetime.now().strftime('%Y%m%d')}"
+    )
 
     logger.info("=" * 60)
     logger.info("オッズ変動分析: %s ~ %s", args.start, args.end)
@@ -337,16 +575,35 @@ def main() -> None:
 
     # 1. データ読み込み
     ts_df = load_time_series(start_year, end_year)
-    entries_df = load_entries(args.start, args.end)  # noqa: F841
-    races_df = load_races(args.start, args.end)  # noqa: F841
-    payouts_df = load_payouts(args.start, args.end)  # noqa: F841
+    entries_df = load_entries(args.start, args.end)
+    races_df = load_races(args.start, args.end)
+    payouts_df = load_payouts(args.start, args.end)
 
     # 2. 特徴量計算
     movement_df = compute_movement_features(ts_df)
     logger.info("Computed movement features for %d horses", len(movement_df))
 
-    # TODO: 残りのステップで実装
-    logger.info("Analysis complete (placeholder).")
+    # 3. 分類
+    classified_df = classify_movement(movement_df, threshold=args.drop_threshold)
+    logger.info("Classified movements")
+
+    # 4. 結合
+    joined_df = join_results(
+        classified_df, entries_df, races_df, payouts_df, min_points=args.min_points
+    )
+    logger.info("Final dataset: %d records", len(joined_df))
+
+    # 5. 分析
+    basic = analyze_basic_stats(joined_df)
+    jt = analyze_jockey_trainer(joined_df)
+    rc = analyze_race_conditions(joined_df)
+
+    # 6. 出力
+    all_results = {**basic, **jt, "by_race_condition": rc}
+    print_summary(all_results, title=f"オッズ変動分析結果 ({args.start} ~ {args.end})")
+    save_csv(all_results, output_dir, detail_df=joined_df if args.detail else None)
+
+    logger.info("Done. Output saved to: %s", output_dir)
 
 
 if __name__ == "__main__":
