@@ -75,10 +75,12 @@ def _norm_finish_logit_vec(finish_pos: np.ndarray, field_size: np.ndarray) -> np
 def _compute_jockey_surprise(
     actual_wins: int,
     n_races: int,
-    expected_wins: float,  # noqa: ARG001 — signature matches spec; used by caller
+    expected_wins: float,
 ) -> float:
     """Beta事前分布でスムージングした騎手勝率のサプライズ値を返す。
 
+    actual_wins をBeta事後分布で平滑化し、expected_wins（オッズ推定期待勝利数）
+    を同様に平滑化したベースラインとの差分を返す。
     n_races < 30 の場合は NaN を返す。
     """
     if n_races < 30:
@@ -88,9 +90,13 @@ def _compute_jockey_surprise(
     beta_post = BETA_PRIOR + n_races - actual_wins
 
     smoothed_wr = alpha_post / (alpha_post + beta_post)
-    baseline_wr = ALPHA_PRIOR / (ALPHA_PRIOR + BETA_PRIOR)
 
-    return smoothed_wr - baseline_wr
+    # オッズ推定期待勝利数を同じBeta事前分布で平滑化
+    smoothed_expected_wr = (ALPHA_PRIOR + expected_wins) / (
+        ALPHA_PRIOR + BETA_PRIOR + n_races
+    )
+
+    return smoothed_wr - smoothed_expected_wr
 
 
 # ---------------------------------------------------------------------------
@@ -366,7 +372,7 @@ class HorseHistoryFeatures:
             "bataijyu",
         ]
         cols_jockey = ["race_date", "kakuteijyuni", "odds"]
-        cols_jockey_all = ["race_date", "kakuteijyuni"]
+        cols_jockey_all = ["race_date", "kakuteijyuni", "surface"]
 
         past_by_ketto_arr: dict[str, dict[str, np.ndarray]] = {}
         for k, df in past_by_ketto.items():
@@ -714,7 +720,8 @@ class HorseHistoryFeatures:
             else:
                 jockey_surprise = float("nan")
 
-            # jockey_cond_wr — uses past_by_kisyu_all (kakuteijyuni > 0 only, no odds filter)
+            # jockey_cond_wr — サーフェス条件別勝率 (hierarchical shrinkage)
+            # cond_wr: 同サーフェスでの勝率, global_wr: 全体勝率
             jockey_all_arrs = past_by_kisyu_all_arr.get(kisyu)
             if jockey_all_arrs is not None and len(jockey_all_arrs.get("race_date", [])) > 0:
                 ja_dates = jockey_all_arrs["race_date"].astype("datetime64[ns]")
@@ -722,8 +729,17 @@ class HorseHistoryFeatures:
                 idx_ja = ja_dates.searchsorted(target_date_np, side="left")
                 ja_kakuteijyuni = jockey_all_arrs["kakuteijyuni"][:idx_ja]
                 total_rides = len(ja_kakuteijyuni)
+                # 同サーフェスの騎乗のみで条件別勝率を計算
+                ja_surfaces = jockey_all_arrs.get("surface", np.array([], dtype=object))
+                if len(ja_surfaces) > 0:
+                    ja_surfaces = ja_surfaces[:idx_ja]
+                current_surface = str(row.surface) if hasattr(row, "surface") else ""
+                cond_mask = (
+                    (ja_surfaces == current_surface) if len(ja_surfaces) > 0 else np.array([], dtype=bool)
+                )
             else:
                 total_rides = 0
+                cond_mask = np.array([], dtype=bool)
 
             if total_rides > 0:
                 total_wins = int((ja_kakuteijyuni == 1).sum())
@@ -732,9 +748,15 @@ class HorseHistoryFeatures:
 
             k_smooth = 25
             if total_rides >= 10:
-                cond_wr = total_wins / max(total_rides, 1)
                 global_wr = total_wins / max(total_rides, 1)
-                w = min(total_rides / (total_rides + k_smooth), 1.0)
+                cond_rides = int(cond_mask.sum()) if len(cond_mask) > 0 else 0
+                if cond_rides >= 5:
+                    cond_wins = int((ja_kakuteijyuni[cond_mask] == 1).sum()) if len(cond_mask) > 0 else 0
+                    cond_wr = cond_wins / max(cond_rides, 1)
+                    w = min(cond_rides / (cond_rides + k_smooth), 1.0)
+                else:
+                    cond_wr = global_wr
+                    w = 0.0
                 jockey_cond_wr: float = float(w * cond_wr + (1 - w) * global_wr)
             else:
                 jockey_cond_wr = float("nan")

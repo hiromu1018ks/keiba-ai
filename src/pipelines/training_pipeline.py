@@ -474,6 +474,11 @@ class TrainingPipelineV5:
                     num_threads=num_threads,
                 )
                 place_2s.hit_model = ensemble_place
+                # バリデーション予測を保存 (Benter combination + isotonic fitting 用)
+                ensemble_val_pred = ensemble_place.predict(features.iloc[split:])
+                place_2s._val_p_raw = ensemble_val_pred
+                place_2s._val_y = y.iloc[split:].values
+                place_2s._val_fukuoddslow = df_oof["fukuoddslow"].iloc[split:].values
         else:
             with TimingContext(f"{surface}/place_hit"):
                 place_2s.train_hit_model(df_oof, num_threads=num_threads)
@@ -609,18 +614,46 @@ class TrainingPipelineV5:
         else:
             race_feat["favorite_win_rate"] = 0.3
 
-        # 結果ベース proxy (初期値) — favorite_win_rate は expanding 済み
+        # 結果ベース proxy — 人気馬の実際の結果から expanding window で計算
         race_feat["hist_hit_rate_topk"] = race_feat["favorite_win_rate"]
-        race_feat["hist_roi_topk"] = 1.0
-        race_feat["hist_positive_return_ratio"] = 0.3
+
+        # 人気馬 (popularity_rank==1) の実際の成績を race_id 単位で集計
+        if "kakuteijyuni" in feat_df.columns and "popularity_rank" in feat_df.columns and "tanodds" in feat_df.columns:
+            fav_df = feat_df[feat_df["popularity_rank"] == 1][
+                ["race_id", "kakuteijyuni", "tanodds"]
+            ].copy()
+            fav_df["fav_won"] = (fav_df["kakuteijyuni"] == 1).astype(float)
+            fav_df["fav_placed"] = (fav_df["kakuteijyuni"] <= 3).astype(float)
+            fav_df["fav_roi"] = np.where(
+                fav_df["fav_won"] == 1,
+                fav_df["tanodds"].astype(float) - 1.0,
+                -1.0,
+            )
+            fav_df["fav_positive"] = (fav_df["fav_roi"] > 0).astype(float)
+            fav_agg = fav_df[["race_id", "fav_placed", "fav_roi", "fav_positive", "fav_won"]].copy()
+            race_feat = race_feat.merge(fav_agg, on="race_id", how="left")
+            race_feat["topk_hit"] = race_feat["fav_placed"].fillna(0.0)
+            race_feat["topk_roi"] = race_feat["fav_roi"].fillna(-1.0)
+            race_feat["positive_return"] = race_feat["fav_positive"].fillna(0.0)
+            race_feat["is_winner"] = race_feat["fav_won"].fillna(0.0)
+            # expanding window で履歴統計を計算 (リーク防止: shift(1))
+            race_feat["hist_roi_topk"] = (
+                race_feat["topk_roi"].shift(1).expanding(min_periods=10).mean().fillna(1.0)
+            )
+            race_feat["hist_positive_return_ratio"] = (
+                race_feat["positive_return"].shift(1).expanding(min_periods=10).mean().fillna(0.3)
+            )
+            race_feat = race_feat.drop(
+                columns=["fav_placed", "fav_roi", "fav_positive", "fav_won"],
+                errors="ignore",
+            )
+        else:
+            race_feat["hist_roi_topk"] = 1.0
+            race_feat["hist_positive_return_ratio"] = 0.3
 
         # compute_hist_features が必要とする列を追加
         race_feat["distance_band"] = race_feat["distance_bin"]
         race_feat["market_entropy"] = race_feat["market_entropy_mean"]
-        race_feat["topk_hit"] = 0
-        race_feat["topk_roi"] = 1.0
-        race_feat["positive_return"] = 0.0
-        race_feat["is_winner"] = 0
 
         # RaceQualityScreener が必要とする列を補完
         race_feat["market_log_error_max_abs"] = race_feat["market_log_error_abs_mean"] * 2.0

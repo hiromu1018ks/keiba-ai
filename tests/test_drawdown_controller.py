@@ -24,11 +24,11 @@ class TestDrawdownController:
         mult = ctrl.get_multiplier(90000)
         assert mult < 1.0
 
-    def test_multiplier_zero_at_extreme_dd(self, ctrl: DrawdownController) -> None:
-        """DD 25%超で乗数=0（ベット停止）"""
+    def test_multiplier_minimum_at_extreme_dd(self, ctrl: DrawdownController) -> None:
+        """DD 25%超で乗数=0.05（最小ベットで回復データを蓄積）"""
         ctrl.update(70000, 0.5)  # DD=30%
         mult = ctrl.get_multiplier(70000)
-        assert mult == 0.0
+        assert mult == 0.05
 
     def test_adjust_stake_applies_multiplier(self, ctrl: DrawdownController) -> None:
         """adjust_stake が乗数を適用する"""

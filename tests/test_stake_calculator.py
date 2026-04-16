@@ -59,20 +59,21 @@ class TestStakeCalculator:
 
     def test_calc_stake_fractional_kelly_halves_stake(self, calc: StakeCalculator) -> None:
         """Fractional Kelly (0.5x) が適用される"""
-        # edge = (1.30 - 1) / 5.0 = 0.06
-        # Kelly fraction = (0.06 * 5) / (5.0 - 1) = 0.30 / 4 = 0.075
-        # After FRACTIONAL_KELLY: 0.075 * 0.5 = 0.0375
-        # raw_stake = 100000 * 0.0375 = 3750
-        # floor(3750/100)*100 = 3700
+        # edge = 0.06 (p*odds - 1), odds = 5.0
+        # Kelly fraction = 0.06 / (5.0 - 1) = 0.015
+        # After FRACTIONAL_KELLY: 0.015 * 0.5 = 0.0075
+        # cap check: min(0.0075, 0.125) = 0.0075
+        # raw_stake = 100000 * 0.0075 = 750
+        # floor(750/100)*100 = 700
         stake = calc.calc_stake(edge=0.06, odds=5.0, bankroll=100000, bet_type=BetType.PLACE)
-        assert stake == 3700.0
+        assert stake == 700.0
 
     def test_calc_stake_effective_cap(self, calc: StakeCalculator) -> None:
         """有効キャップ = KELLY_FRACTION_CAP * FRACTIONAL_KELLY = 0.125"""
-        # Very high edge: (edge*odds)/(odds-1) would exceed cap
-        # edge = (10.0 - 1) / 2.0 = 4.5
-        # kelly = (4.5 * 2) / (2.0 - 1) = 9.0
-        # After fractional: 9.0 * 0.5 = 4.5
+        # Very high edge: edge/(odds-1) would exceed cap
+        # edge = 4.5 (p*odds - 1), odds = 2.0
+        # kelly = 4.5 / (2.0 - 1) = 4.5
+        # After fractional: 4.5 * 0.5 = 2.25
         # Capped at 0.25 * 0.5 = 0.125
         # raw_stake = 100000 * 0.125 = 12500
         # floor(12500/100)*100 = 12500 -> capped at MAX_STAKE=10000
@@ -82,9 +83,9 @@ class TestStakeCalculator:
     def test_calc_stake_max_stake_cap(self, calc: StakeCalculator) -> None:
         """MAX_STAKE=10000 でキャップされる"""
         # Large bankroll + high edge -> would exceed 10K without cap
-        # edge = (3.0 - 1) / 2.0 = 1.0
+        # edge = 1.0 (p*odds - 1), odds = 2.0
         stake = calc.calc_stake(edge=1.0, odds=2.0, bankroll=1000000, bet_type=BetType.PLACE)
-        # kelly = (1.0 * 2) / 1 = 2.0, *0.5=1.0, capped at 0.125
+        # kelly = 1.0 / 1 = 1.0, *0.5=0.5, capped at 0.125
         # raw = 1000000 * 0.125 = 125000 -> capped at 10000
         assert stake <= 10000.0
 
@@ -220,13 +221,13 @@ class TestStakeCalculatorValueBetting:
     def test_calc_stake_value_betting_positive_edge(self, calc: StakeCalculator) -> None:
         """Value Betting: positive edge should produce a stake."""
         # edge=0.033, odds=1.5, bankroll=100000
-        # kelly = (0.033 * 1.5) / (1.5 - 1) = 0.0495 / 0.5 = 0.099
-        # half-kelly: 0.099 * 0.5 = 0.0495
-        # cap check: min(0.0495, 0.125) = 0.0495
-        # raw_stake = 100000 * 0.0495 = 4950
-        # rounded: 4900
+        # kelly = 0.033 / (1.5 - 1) = 0.066
+        # half-kelly: 0.066 * 0.5 = 0.033
+        # cap check: min(0.033, 0.125) = 0.033
+        # raw_stake = 100000 * 0.033 = 3300
+        # rounded: 3300
         stake = calc.calc_stake(edge=0.033, odds=1.5, bankroll=100_000, bet_type=BetType.PLACE)
-        assert stake == 4900.0
+        assert stake == 3300.0
 
     def test_calc_stake_value_betting_zero_edge(self, calc: StakeCalculator) -> None:
         """Value Betting: zero edge should return 0."""
@@ -241,16 +242,17 @@ class TestStakeCalculatorValueBetting:
     def test_calc_stake_value_betting_high_edge_respects_cap(self, calc: StakeCalculator) -> None:
         """Value Betting: high edge should still respect the Kelly cap."""
         # edge=0.20, odds=1.5, bankroll=100000
-        # kelly = (0.20 * 1.5) / 0.5 = 0.6
-        # half-kelly: 0.3, capped at 0.125
+        # kelly = 0.20 / 0.5 = 0.4
+        # half-kelly: 0.2, capped at 0.125
         # raw_stake = 100000 * 0.125 = 12500 -> capped at 10000
         stake = calc.calc_stake(edge=0.20, odds=1.5, bankroll=100_000, bet_type=BetType.PLACE)
         assert stake == 10000.0
 
     def test_calc_stake_value_betting_formula_equivalence(self, calc: StakeCalculator) -> None:
-        """Verify VB Kelly = (edge * odds) / (odds - 1) matches standard Kelly."""
-        edge = 0.70 - 1.0 / 1.5  # 0.0333...
+        """Verify VB Kelly = edge / (odds - 1) matches standard Kelly when edge = p*odds - 1."""
+        p = 0.70
         odds = 1.5
-        standard_kelly = (0.70 * (odds - 1) - (1 - 0.70)) / (odds - 1)
-        vb_kelly = (edge * odds) / (odds - 1)
+        edge = p * odds - 1  # 0.05
+        standard_kelly = (p * (odds - 1) - (1 - p)) / (odds - 1)
+        vb_kelly = edge / (odds - 1)
         assert abs(standard_kelly - vb_kelly) < 1e-10

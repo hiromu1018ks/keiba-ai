@@ -47,18 +47,25 @@ class TestJockeySurprise:
     """jockey_surprise (Beta事前分布スムージング) のテスト"""
 
     def test_zero_wins_100_races(self):
-        """100戦0勝 → surprise ≈ 0.00826 - 0.0476 ≈ -0.0394"""
+        """100戦0勝、期待勝利数8 → 負のsurprise (オッズ以上の勝利数が期待されたが0勝)"""
         from features.horse_history_features import _compute_jockey_surprise
 
         result = _compute_jockey_surprise(actual_wins=0, n_races=100, expected_wins=8.0)
-        assert -0.05 < result < -0.03
+        assert result < 0  # 期待を下回る
 
     def test_above_expectation(self):
-        """期待以上の勝率 → 正のsurprise"""
+        """期待以上の勝率 → 正のsurprise (オッズ期待8勝に対し15勝)"""
         from features.horse_history_features import _compute_jockey_surprise
 
         result = _compute_jockey_surprise(actual_wins=15, n_races=100, expected_wins=8.0)
-        assert 0.05 < result < 0.15
+        assert result > 0  # 期待を上回る
+
+    def test_at_expectation(self):
+        """期待勝利数ちょうど → surprise ≈ 0"""
+        from features.horse_history_features import _compute_jockey_surprise
+
+        result = _compute_jockey_surprise(actual_wins=8, n_races=100, expected_wins=8.0)
+        assert abs(result) < 0.01
 
     def test_payout_rate_applied(self):
         """控除率補正（0.80）が適用される"""

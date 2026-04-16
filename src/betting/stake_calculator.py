@@ -13,7 +13,9 @@ class StakeCalculator:
     """
     賭け金計算: Value Betting edge に連動したケリー基準。
 
-    Kelly fraction = (edge * odds) / (odds - 1)
+    Kelly fraction = edge / (odds - 1)
+    ただし edge = p_model * odds - 1 (期待利益/単位投資額)
+
     実際のstake = bankroll × kelly_fraction × FRACTIONAL_KELLY
     100円単位に切り捨て。
 
@@ -37,7 +39,7 @@ class StakeCalculator:
         """Calculate Kelly-optimal stake for Value Betting.
 
         Args:
-            edge: Value Betting edge = p_model - p_market (= p_model - 1/odds)
+            edge: Value Betting edge = p_model * odds - 1 (期待利益/単位投資額)
             odds: Decimal odds (e.g., 1.5 means 1.5x return)
             bankroll: Current bankroll in yen
             bet_type: Type of bet (PLACE, WIN, WIDE)
@@ -54,8 +56,9 @@ class StakeCalculator:
         ):
             return 0.0
 
-        # Value Betting Kelly: f* = (edge * odds) / (odds - 1)
-        kelly_fraction = (edge * odds) / (odds - 1.0)
+        # Value Betting Kelly: f* = edge / (odds - 1)
+        # edge = p*odds - 1 のとき、f = (p*odds - 1)/(odds-1) は標準Kelly公式
+        kelly_fraction = edge / (odds - 1.0)
 
         # Fractional Kelly (half-Kelly for safety)
         kelly_fraction *= self.FRACTIONAL_KELLY

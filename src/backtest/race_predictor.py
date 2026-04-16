@@ -104,8 +104,9 @@ class RacePredictor:
             df = df.merge(jt_race, on=["race_id", "umaban"], how="left")
 
         # 6. EV補正 + Place推論
-        df = submodel.ev_corrector.correct_ev(df)
+        df = submodel.ev_corrector.correct_ev(df)  # Win EV補正は維持
         df = submodel.place.predict_ev(df)
+        # place_ev_corrector: ベット選択には使わないが信頼区間で ev_place_corrected を参照
         df = submodel.place_ev_corrector.correct_ev(df)
 
         # 7. 信頼区間

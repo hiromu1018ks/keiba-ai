@@ -16,7 +16,8 @@ class PlaceStrategy:
     簡易ケリー基準で賭け金を算出する。
 
     stake計算は StakeCalculator と同様のロジック:
-      kelly_fraction = (edge * odds) / (odds - 1.0)
+      kelly_fraction = edge / (odds - 1.0)
+      ただし edge = p_model * odds - 1 (期待利益/単位投資額)
       half-Kelly: kelly_fraction *= 0.5
       cap: min(kelly_fraction, 0.125)
       raw_stake = bankroll × kelly_fraction
@@ -86,8 +87,9 @@ class PlaceStrategy:
         if bankroll <= 0 or odds <= 1.0:
             return 0.0
 
-        # VB Kelly: f* = (edge * odds) / (odds - 1)
-        kelly_fraction = (edge * odds) / (odds - 1.0)
+        # VB Kelly: f* = edge / (odds - 1)
+        # edge = p*odds - 1 のとき、f = (p*odds - 1)/(odds-1) は標準Kelly公式
+        kelly_fraction = edge / (odds - 1.0)
         kelly_fraction = min(kelly_fraction, self.KELLY_FRACTION_CAP)
         kelly_fraction *= self.FRACTIONAL_KELLY  # half-Kelly
 

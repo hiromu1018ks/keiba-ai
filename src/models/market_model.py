@@ -193,7 +193,7 @@ class MarketModel:
         df["_p_market_pred_win"] = oof_pred
         p_pred = oof_pred.clip(self.P_PRED_CLIP_MIN, self.P_PRED_CLIP_MAX)
         p_actual = df["p_market_win_adj"].clip(self.P_PRED_CLIP_MIN, self.P_PRED_CLIP_MAX)
-        df["signed_log_error_win"] = np.log(p_pred / p_actual)
+        df["signed_log_error_win"] = np.log(p_actual / p_pred)
         df["abs_log_error_win"] = np.abs(df["signed_log_error_win"])
 
         # 既存列も上書き (後方互換)

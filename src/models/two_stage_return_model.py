@@ -222,7 +222,8 @@ class PlaceTwoStageModel:
     ]
 
     # --- Return model (Stage B): 配当回帰用 ---
-    # fukuoddslow はターゲットに近いため最も重要な特徴量
+    # fukuoddslow はターゲットと同じため除外 (target leakage → e_return ≈ fukuoddslow に退化)
+    # 代わりに tanodds は単勝オッズとして市場規模の代理指標として使用
     RETURN_FEATURE_COLS: list[str] = [
         # Stage1 出力
         "p_ability_win",
@@ -230,9 +231,8 @@ class PlaceTwoStageModel:
         # Market Model 正規化差分
         "signed_log_error_win",
         "abs_log_error_win",
-        # 複勝・単勝オッズ (return model のみ)
-        "fukuoddslow",  # 複勝オッズ (最重要特徴量)
-        "tanodds",  # 単勝オッズ
+        # 単勝オッズ (市場規模の代理指標、複勝オッズとは異なる情報)
+        "tanodds",
         # オッズ変化率
         "odds_drop_rate_60_10",
         "odds_drop_rate_30_10",

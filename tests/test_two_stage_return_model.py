@@ -267,13 +267,13 @@ class TestPlaceTwoStageModel:
         """Hit model と Return model で特徴量が適切に分離されていること
 
         Hit model は fukuoddslow/tanodds を除外し、馬レベル特徴量を含む。
-        Return model は fukuoddslow/tanodds を保持（回帰ターゲットに近いため）。
+        Return model は tanodds のみ保持 (fukuoddslow は target と同じのため除外)。
         """
         # Hit model はオッズ特徴量を含まない（二重計数防止）
         assert "fukuoddslow" not in PlaceTwoStageModel.HIT_FEATURE_COLS
         assert "tanodds" not in PlaceTwoStageModel.HIT_FEATURE_COLS
-        # Return model にはオッズ特徴量を含める（回帰用）
-        assert "fukuoddslow" in PlaceTwoStageModel.RETURN_FEATURE_COLS
+        # Return model: tanodds は保持 (市場規模の代理指標)、fukuoddslow は除外 (target leakage)
+        assert "fukuoddslow" not in PlaceTwoStageModel.RETURN_FEATURE_COLS
         assert "tanodds" in PlaceTwoStageModel.RETURN_FEATURE_COLS
         # p_ability_place は両方に含まれる
         assert "p_ability_place" in PlaceTwoStageModel.HIT_FEATURE_COLS
@@ -302,7 +302,8 @@ class TestPlaceTwoStageModel:
 
     def test_place_return_feature_cols_include_place_specific(self) -> None:
         """Return model should have place-specific features beyond win features"""
-        assert "fukuoddslow" in PlaceTwoStageModel.RETURN_FEATURE_COLS
+        # fukuoddslow は target と同じため除外 (target leakage 防止)
+        assert "fukuoddslow" not in PlaceTwoStageModel.RETURN_FEATURE_COLS
         assert "p_ability_place" in PlaceTwoStageModel.RETURN_FEATURE_COLS
         assert "tanodds" in PlaceTwoStageModel.RETURN_FEATURE_COLS
         # Win特徴量も全て含む

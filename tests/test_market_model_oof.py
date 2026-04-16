@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
+from unittest.mock import MagicMock, patch
 
 from models.market_model import MarketModel
 
@@ -109,6 +110,58 @@ class TestPredictOofPitSafety:
         # 全てのlog_error列にNaNがない
         for col in ["signed_log_error_win", "abs_log_error_win", "market_log_error_win"]:
             assert result[col].notna().all(), f"{col} contains NaN"
+
+
+class TestPredictOofSignConsistency:
+    """predict_oof と predict_and_calc_error の符号規約が一致することを確認。
+
+    学習パイプラインでは predict_oof() → Stage2学習、推論では predict_and_calc_error()
+    が使われる。両方とも log(actual/pred) 規約でなければならない。
+    符号が逆転すると Stage2 モデルが学習時と推論時で逆の特徴量を受け取る。
+    """
+
+    def test_predict_oof_sign_matches_predict_and_calc_error(self) -> None:
+        """predict_oof の signed_log_error_win は log(actual/pred) 規約を使用する。
+
+        常に一定値 (0.5) を予測するfold model を注入し、
+        signed_log_error = log(p_actual / 0.5) であることを検証する。
+        p_actual > 0.5 → 正 (モデルが過小評価)、p_actual < 0.5 → 負 (過大評価)。
+        """
+        df = _make_sample_df(50, seed=42)
+        model = MarketModel()
+
+        with (
+            patch("sklearn.model_selection.KFold") as mock_kf_cls,
+            patch("models.market_model.lgb.train") as mock_train,
+        ):
+            mock_booster = MagicMock()
+            mock_booster.best_iteration = 100
+            mock_booster.predict.return_value = np.full(10, 0.5)  # 常に0.5を予測
+            mock_train.return_value = mock_booster
+
+            # KFold: 各foldのvalidインデックスを設定
+            kf_instance = MagicMock()
+            kf_splits = []
+            fold_size = 10
+            for i in range(5):
+                train_idx = list(range(0, i * fold_size)) + list(range((i + 1) * fold_size, 50))
+                valid_idx = list(range(i * fold_size, (i + 1) * fold_size))
+                kf_splits.append((np.array(train_idx), np.array(valid_idx)))
+            kf_instance.split.return_value = iter(kf_splits)
+            mock_kf_cls.return_value = kf_instance
+
+            result = model.predict_oof(df, n_splits=5)
+
+        # signed_log_error_win = log(p_actual / 0.5)
+        p_actual = df["p_market_win_adj"].values.clip(0.01, 0.99)
+        expected = np.log(p_actual / 0.5)
+
+        np.testing.assert_allclose(
+            result["signed_log_error_win"].values,
+            expected,
+            atol=1e-10,
+            err_msg="predict_oof should use log(actual/pred) convention",
+        )
 
 
 class TestPredictOofOutputColumns:
