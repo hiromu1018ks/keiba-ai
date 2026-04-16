@@ -114,7 +114,7 @@ def compute_movement_features(ts_df: pd.DataFrame) -> pd.DataFrame:
     Returns:
         各(race_id, umaban)ごとに1行のDataFrame。
         列: race_id, umaban, early_odds, mid_odds, late_odds, final_odds,
-            early_pop, late_pop, n_points,
+            early_pop, mid_pop, late_pop, n_points,
             odds_drop_60_10, odds_drop_30_10, odds_drop_10_final,
             pop_change_30_10
     """
