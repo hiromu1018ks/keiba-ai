@@ -474,14 +474,9 @@ class TrainingPipelineV5:
                     num_threads=num_threads,
                 )
                 place_2s.hit_model = ensemble_place
-                # Store validation predictions for isotonic calibration
-                place_2s._val_predictions = ensemble_place.predict(features.iloc[split:])
-                place_2s._val_labels = y.iloc[split:].values
         else:
             with TimingContext(f"{surface}/place_hit"):
                 place_2s.train_hit_model(df_oof, num_threads=num_threads)
-        # Fit isotonic calibrator (both paths)
-        place_2s.fit_calibrator()
         with TimingContext(f"{surface}/place_return"):
             place_2s.train_return_model(df_oof, num_threads=num_threads)
         with TimingContext(f"{surface}/place_predict"):
@@ -492,59 +487,6 @@ class TrainingPipelineV5:
             place_ev_corrector = PlaceEVCorrectionModel()
             place_ev_corrector.train(df_oof, num_threads=num_threads)
             df_oof = place_ev_corrector.correct_ev(df_oof)
-
-        # 5c. Benter logistic regression (data-driven model/market combination)
-        benter_lr = None
-        with TimingContext(f"{surface}/benter_lr"):
-            from sklearn.linear_model import LogisticRegression
-
-            # Guard: require valid fukuoddslow (non-NaN, positive) for Benter LR
-            valid_mask = (
-                df_oof["fukuoddslow"].notna()
-                & (df_oof["fukuoddslow"] > 0)
-                & df_oof["p_place_pred"].notna()
-            )
-            df_benter = df_oof[valid_mask].copy()
-
-            if len(df_benter) >= 1000:
-                p_m = df_benter["p_place_pred"].clip(1e-6, 1 - 1e-6)
-                p_mk = (1.0 / df_benter["fukuoddslow"]).clip(1e-6, 1 - 1e-6)
-                y_place = (df_benter["kakuteijyuni"] <= 3).astype(int)
-
-                x_benter = np.column_stack(
-                    [
-                        np.log(p_m / (1 - p_m)),
-                        np.log(p_mk / (1 - p_mk)),
-                    ]
-                )
-
-                lr = LogisticRegression(fit_intercept=True, C=np.inf)
-                lr.fit(x_benter, y_place)
-
-                alpha_lr = lr.coef_[0][0]
-                beta_lr = lr.coef_[0][1]
-
-                # Parameter validation: both weights should be positive
-                if alpha_lr < 0 or beta_lr < 0:
-                    logger.warning(
-                        "Benter LR has unexpected coefficients: alpha=%.4f, beta=%.4f. "
-                        "Falling back to fixed alpha.",
-                        alpha_lr,
-                        beta_lr,
-                    )
-                else:
-                    benter_lr = lr
-                    logger.info(
-                        "Benter LR: alpha=%.4f, beta=%.4f, gamma=%.4f",
-                        alpha_lr,
-                        beta_lr,
-                        lr.intercept_[0],
-                    )
-            else:
-                logger.warning(
-                    "Insufficient valid samples for Benter LR: %d (need 1000)",
-                    len(df_benter),
-                )
 
         # 6. ワイド 2段階モデル
         with TimingContext(f"{surface}/wide_pair_build"):
@@ -581,7 +523,6 @@ class TrainingPipelineV5:
             wide=wide_2s,
             confidence=conf,
             use_ensemble=use_ensemble,
-            benter_lr=benter_lr,
         )
 
     def _build_race_level_features(self, feat_df: pd.DataFrame) -> pd.DataFrame:
@@ -827,34 +768,6 @@ class TrainingPipelineV5:
                         if _tmp_path and os.path.exists(_tmp_path):
                             os.unlink(_tmp_path)
 
-                # Place calibrator (IsotonicRegression)
-                has_cal = (
-                    hasattr(sub.place, "_place_calibrator")
-                    and sub.place._place_calibrator is not None
-                )
-                if has_cal:
-                    _cal_tmp: str | None = None
-                    try:
-                        with tempfile.NamedTemporaryFile(suffix=".joblib", delete=False) as _f_cal:
-                            _cal_tmp = _f_cal.name
-                            joblib.dump(sub.place._place_calibrator, _f_cal.name)
-                        mlflow.log_artifact(_cal_tmp, f"place_calibrator_{surface}")
-                    finally:
-                        if _cal_tmp and os.path.exists(_cal_tmp):
-                            os.unlink(_cal_tmp)
-
-                # Benter logistic regression
-                if sub.benter_lr is not None:
-                    _lr_tmp: str | None = None
-                    try:
-                        with tempfile.NamedTemporaryFile(suffix=".joblib", delete=False) as _f_lr:
-                            _lr_tmp = _f_lr.name
-                            joblib.dump(sub.benter_lr, _f_lr.name)
-                        mlflow.log_artifact(_lr_tmp, f"benter_lr_{surface}")
-                    finally:
-                        if _lr_tmp and os.path.exists(_lr_tmp):
-                            os.unlink(_lr_tmp)
-
                 # WideTwoStageModel
                 mlflow.lightgbm.log_model(sub.wide.hit_model, name=f"wide_hit_{surface}")
                 mlflow.lightgbm.log_model(sub.wide.return_model, name=f"wide_ret_{surface}")
@@ -934,23 +847,6 @@ class TrainingPipelineV5:
                 joblib.dump(
                     calibrated,
                     models_dir / f"place_ability_{surface}.joblib",
-                )
-
-            # Place calibrator (IsotonicRegression)
-            has_cal = (
-                hasattr(sub.place, "_place_calibrator") and sub.place._place_calibrator is not None
-            )
-            if has_cal:
-                joblib.dump(
-                    sub.place._place_calibrator,
-                    models_dir / f"place_calibrator_{surface}.joblib",
-                )
-
-            # Benter logistic regression
-            if sub.benter_lr is not None:
-                joblib.dump(
-                    sub.benter_lr,
-                    models_dir / f"benter_lr_{surface}.joblib",
                 )
 
         saved["race_quality"] = quality_screen.model

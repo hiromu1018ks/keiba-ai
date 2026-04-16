@@ -7,7 +7,6 @@ import os
 import lightgbm as lgb
 import numpy as np
 import pandas as pd
-from sklearn.isotonic import IsotonicRegression
 
 from domain.models import TwoStageConfig
 
@@ -181,7 +180,7 @@ class PlaceTwoStageModel:
     """
 
     # --- Hit model (Stage A): 確率分類用 ---
-    # fukuoddslow, tanodds は含めない (確率判別力を維持するため)
+    # fukuoddslow, tanodds を含める — LightGBM が市場確率の重みを直接学習する
     HIT_FEATURE_COLS: list[str] = [
         # Stage1 出力
         "p_ability_win",
@@ -189,6 +188,9 @@ class PlaceTwoStageModel:
         # Market Model 正規化差分
         "signed_log_error_win",
         "abs_log_error_win",
+        # 複勝・単勝オッズ
+        "fukuoddslow",  # 複勝オッズ (市場確率のベース)
+        "tanodds",  # 単勝オッズ
         # オッズ変化率
         "odds_drop_rate_60_10",
         "odds_drop_rate_30_10",
@@ -246,9 +248,6 @@ class PlaceTwoStageModel:
 
     def __init__(self, cfg: TwoStageConfig | None = None) -> None:
         self.cfg = cfg or TwoStageConfig()
-        self._place_calibrator: IsotonicRegression | None = None
-        self._val_predictions: np.ndarray | None = None
-        self._val_labels: np.ndarray | None = None
 
     def _prepare_features(
         self, df: pd.DataFrame, *, use_cols: list[str] | None = None
@@ -265,22 +264,13 @@ class PlaceTwoStageModel:
         return features
 
     def train_hit_model(self, df: pd.DataFrame, *, num_threads: int = 0) -> None:
-        """P(place) の学習 (3着以内=1 / それ以外=0)
-
-        80/20 時系列分割で学習し、バリデーション予測を保存して
-        後続の Isotonic 校正に使用する。
-        """
+        """P(place) の学習 (3着以内=1 / それ以外=0)"""
         if num_threads <= 0:
             num_threads = max(1, (os.cpu_count() or 4) // 2)
         features = self._prepare_features(df, use_cols=self.HIT_FEATURE_COLS)
         y = (df["kakuteijyuni"] <= 3).astype(int)
 
-        # Inline split to capture raw validation data for calibration
-        n = len(features)
-        split = int(n * 0.8)
-        train_data = lgb.Dataset(features.iloc[:split], label=y.iloc[:split])
-        valid_data = lgb.Dataset(features.iloc[split:], label=y.iloc[split:], reference=train_data)
-
+        train_data, valid_data = _train_valid_split(features, y)
         self.hit_model = lgb.train(
             {
                 "objective": "binary",
@@ -297,23 +287,6 @@ class PlaceTwoStageModel:
             valid_sets=[valid_data],
             callbacks=[lgb.early_stopping(stopping_rounds=100, verbose=False)],
         )
-
-        # Store validation predictions for isotonic calibration
-        self._val_predictions = np.asarray(self.hit_model.predict(features.iloc[split:]))
-        self._val_labels = y.iloc[split:].values
-
-    def fit_calibrator(self) -> None:
-        """バリデーション予測に Isotonic 校正を適合させる。
-
-        train_hit_model() またはアンサンブル学習後に呼び出すこと。
-        サンプル数 < 1000 の場合は校正をスキップ (過学習リスク)。
-        """
-        if self._val_predictions is None or len(self._val_predictions) < 1000:
-            self._place_calibrator = None
-            return
-
-        self._place_calibrator = IsotonicRegression(out_of_bounds="clip")
-        self._place_calibrator.fit(self._val_predictions, self._val_labels)
 
     def train_return_model(self, df: pd.DataFrame, *, num_threads: int = 0) -> None:
         """E(place_odds | place) の学習 (3着以内のみ)"""
@@ -353,10 +326,7 @@ class PlaceTwoStageModel:
             )
 
     def predict_ev(self, df: pd.DataFrame) -> pd.DataFrame:
-        """EV_place = P(place) × E(place_odds | place)
-
-        Isotonic 校正 → レース内正規化 → EV 計算のパイプライン。
-        """
+        """EV_place = P(place) × E(place_odds | place)"""
         df = df.copy()
         hit_features = self._prepare_features(df, use_cols=self.HIT_FEATURE_COLS)
         ret_features = self._prepare_features(df, use_cols=self.RETURN_FEATURE_COLS)
@@ -366,29 +336,7 @@ class PlaceTwoStageModel:
             self.return_model.best_iteration if self.return_model.best_iteration > 0 else None
         )
 
-        # --- Isotonic calibration ---
-        raw_p = self.hit_model.predict(hit_features, num_iteration=hit_iter)
-        if self._place_calibrator is not None:
-            p_calibrated = self._place_calibrator.transform(raw_p)
-        else:
-            p_calibrated = raw_p
-        df["p_place_pred"] = p_calibrated
-
-        # --- Race-sum normalization: sum(p_place) ~ 3.0 per race ---
-        race_sum = df.groupby("race_id")["p_place_pred"].transform("sum")
-        df["p_place_pred"] = df["p_place_pred"] * (3.0 / race_sum)
-
-        # --- Consistency constraint: p_place >= p_ability_win ---
-        if "p_ability_win" in df.columns:
-            mask = df["p_place_pred"] < df["p_ability_win"]
-            df.loc[mask, "p_place_pred"] = df.loc[mask, "p_ability_win"]
-            race_sum = df.groupby("race_id")["p_place_pred"].transform("sum")
-            df["p_place_pred"] = df["p_place_pred"] * (3.0 / race_sum)
-
-        # --- Final clip ---
-        df["p_place_pred"] = df["p_place_pred"].clip(0.01, 0.99)
-
-        # --- Return model ---
+        df["p_place_pred"] = self.hit_model.predict(hit_features, num_iteration=hit_iter)
         df["e_return_place_pred"] = self.return_model.predict(ret_features, num_iteration=ret_iter)
         df["ev_place"] = df["p_place_pred"] * df["e_return_place_pred"]
         return df

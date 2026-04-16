@@ -114,37 +114,19 @@ class RacePredictor:
         if "EV_lower_place" in place_df.columns:
             df["EV_lower_place"] = place_df["EV_lower_place"].values
 
-        # --- Value Betting with Benter combined probability ---
-        # logit(p_combined) = alpha * logit(p_model) + (1-alpha) * logit(p_market)
-        # OR: learned logistic regression coefficients if benter_lr available
+        # --- Value Betting with EV-based edge ---
+        # p_place_pred は Hit model が fukuoddslow を特徴量として含むため
+        # 市場情報を内部で統合済み。EV > 1.0 の馬にベットする。
         p_market = np.where(
             df["fukuoddslow"] > 0,
             1.0 / df["fukuoddslow"],
             np.nan,
         )
 
-        # Clip to avoid logit(0) or logit(1) = ±inf
-        p_model = np.clip(df["p_place_pred"], 1e-6, 1 - 1e-6)
-        p_mkt = np.clip(p_market, 1e-6, 1 - 1e-6)
-
-        logit_model = np.log(p_model / (1 - p_model))
-        logit_market = np.log(p_mkt / (1 - p_mkt))
-
-        if submodel.benter_lr is not None:
-            # Learned Benter combination via logistic regression
-            logit_combined = (
-                submodel.benter_lr.coef_[0][0] * logit_model
-                + submodel.benter_lr.coef_[0][1] * logit_market
-                + submodel.benter_lr.intercept_[0]
-            )
-        else:
-            # Fallback: fixed alpha
-            logit_combined = self.alpha * logit_model + (1 - self.alpha) * logit_market
-
-        p_combined = 1.0 / (1.0 + np.exp(-logit_combined))
-
-        df["p_place_combined"] = p_combined
-        df["edge_place"] = p_combined - p_mkt
+        # EV = p_place_pred * fukuoddslow (expected return per 1 yen bet)
+        df["ev_place_direct"] = df["p_place_pred"] * df["fukuoddslow"]
+        df["p_place_combined"] = df["p_place_pred"]
+        df["edge_place"] = df["ev_place_direct"] - 1.0
 
         return df
 
@@ -158,11 +140,9 @@ class RacePredictor:
         race_df: pd.DataFrame,
         bankroll: float,
     ) -> list[Bet]:
-        """Value Betting: edge = p_combined - p_market >= threshold の馬を選択。
+        """Value Betting: EV > 1.0 (edge >= 0) の馬を選択。
 
-        p_combined は Benter combined probability:
-          logit(p_c) = alpha * logit(p_model) + (1-alpha) * logit(p_market)
-        賭け金計算は StakeCalculator.calc_stake(edge=...) で直接 edge を渡す。
+        edge = p_place_pred * fukuoddslow - 1.0 (EV - 1)
         """
         regime = self.models.regime_detector.current_regime
         regime_params = self.models.regime_detector.get_strategy_params(regime)
@@ -171,7 +151,6 @@ class RacePredictor:
         edge_threshold = regime_params.get("edge_threshold", 0.03)
         max_bets = regime_params.get("max_bets_per_race", 3)
 
-        # Value Betting criterion: filter by edge (not EV)
         edge_col = "edge_place"
         if edge_col not in race_df.columns or "fukuoddslow" not in race_df.columns:
             return bets

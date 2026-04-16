@@ -248,13 +248,11 @@ class TestPlaceTwoStageModel:
         mock_lgb.early_stopping.assert_called_once_with(stopping_rounds=100, verbose=False)
 
     def test_hit_and_return_features_separated(self) -> None:
-        """Hit model と Return model で特徴量が分離されていること"""
-        # Return model のみがオッズ特徴量を持つ
+        """Hit model と Return model で特徴量が適切に定義されていること"""
+        # 両モデルともオッズ特徴量を持つ (v5.6: Hit model にも市場情報を追加)
+        assert "fukuoddslow" in PlaceTwoStageModel.HIT_FEATURE_COLS
         assert "fukuoddslow" in PlaceTwoStageModel.RETURN_FEATURE_COLS
         assert "tanodds" in PlaceTwoStageModel.RETURN_FEATURE_COLS
-        # Hit model はオッズ特徴量を持たない
-        assert "fukuoddslow" not in PlaceTwoStageModel.HIT_FEATURE_COLS
-        assert "tanodds" not in PlaceTwoStageModel.HIT_FEATURE_COLS
         # p_ability_place は両方に含まれる
         assert "p_ability_place" in PlaceTwoStageModel.HIT_FEATURE_COLS
         assert "p_ability_place" in PlaceTwoStageModel.RETURN_FEATURE_COLS
@@ -269,112 +267,6 @@ class TestPlaceTwoStageModel:
             assert col in PlaceTwoStageModel.RETURN_FEATURE_COLS
         # Place固有特徴量が追加されている
         assert len(PlaceTwoStageModel.RETURN_FEATURE_COLS) > len(WinTwoStageModel.FEATURE_COLS)
-
-    @patch("models.two_stage_return_model.lgb")
-    def test_train_hit_model_stores_val_predictions(
-        self, mock_lgb: MagicMock, feature_df: pd.DataFrame
-    ) -> None:
-        """train_hit_model がバリデーション予測を保存すること"""
-        mock_booster = MagicMock()
-        mock_booster.best_iteration = 50
-        mock_booster.predict.return_value = np.array([0.3, 0.5])
-        mock_lgb.train.return_value = mock_booster
-        mock_lgb.Dataset.return_value = MagicMock()
-        mock_lgb.early_stopping.return_value = lambda: None
-
-        df = feature_df.copy()
-        df["kakuteijyuni"] = [1, 2, 3, 4, 5, 6, 7, 8]
-
-        model = PlaceTwoStageModel()
-        model.train_hit_model(df)
-
-        assert model._val_predictions is not None
-        assert model._val_labels is not None
-        # 8 rows * 0.8 = 6.4 → split=6, val=2 rows
-        assert len(model._val_predictions) == 2
-        assert len(model._val_labels) == 2
-        # Val labels: kakuteijyuni=7,8 → both > 3 → [0, 0]
-        np.testing.assert_array_equal(model._val_labels, [0, 0])
-
-    def test_fit_calibrator_creates_isotonic(self) -> None:
-        """fit_calibrator がサンプル >= 1000 の場合 IsotonicRegression を作成すること"""
-        from sklearn.isotonic import IsotonicRegression
-
-        model = PlaceTwoStageModel()
-        model._val_predictions = np.random.rand(1500)
-        model._val_labels = (model._val_predictions > 0.5).astype(int)
-
-        model.fit_calibrator()
-
-        assert model._place_calibrator is not None
-        assert isinstance(model._place_calibrator, IsotonicRegression)
-
-    def test_fit_calibrator_skips_below_min_samples(self) -> None:
-        """fit_calibrator がサンプル < 1000 の場合校正をスキップすること"""
-        model = PlaceTwoStageModel()
-        model._val_predictions = np.random.rand(500)
-        model._val_labels = (model._val_predictions > 0.5).astype(int)
-
-        model.fit_calibrator()
-
-        assert model._place_calibrator is None
-
-    def test_predict_ev_applies_isotonic_calibration(self, feature_df: pd.DataFrame) -> None:
-        """predict_ev が _place_calibrator を適用して p_place_pred を補正すること"""
-        model = PlaceTwoStageModel()
-        model.hit_model = _make_mock_booster([0.40, 0.35, 0.30, 0.15, 0.10, 0.05, 0.03, 0.01])
-        model.return_model = _make_mock_booster([1.4, 1.7, 2.2, 3.8, 5.5, 9.0, 16.0, 32.0])
-
-        # Fit a fake calibrator that maps p → p * 0.5
-        from sklearn.isotonic import IsotonicRegression
-
-        cal = IsotonicRegression(out_of_bounds="clip")
-        cal.fit(np.array([0.01, 0.5, 0.99]), np.array([0.005, 0.25, 0.495]))
-        model._place_calibrator = cal
-
-        result = model.predict_ev(feature_df)
-
-        # Raw predictions from mock: [0.40, 0.35, 0.30, 0.15, 0.10, 0.05, 0.03, 0.01]
-        # After calibration (roughly p * 0.5) → race-sum normalization → clip
-        # The exact values change due to normalization, but sum should be ~3.0
-        raw_preds = np.array([0.40, 0.35, 0.30, 0.15, 0.10, 0.05, 0.03, 0.01])
-        calibrated = cal.transform(raw_preds)
-        normalized = calibrated * (3.0 / calibrated.sum())
-        normalized = np.clip(normalized, 0.01, 0.99)
-        np.testing.assert_allclose(result["p_place_pred"].values, normalized, rtol=1e-6)
-
-    def test_predict_ev_race_sum_normalization(self, feature_df: pd.DataFrame) -> None:
-        """predict_ev がレース内で sum(p_place_pred) ≈ 3.0 に正規化すること"""
-        model = PlaceTwoStageModel()
-        # Raw probabilities sum > 3.0 (typical overestimation pattern)
-        model.hit_model = _make_mock_booster([0.70, 0.60, 0.55, 0.50, 0.45, 0.40, 0.35, 0.30])
-        model.return_model = _make_mock_booster([1.4, 1.7, 2.2, 3.8, 5.5, 9.0, 16.0, 32.0])
-        model._place_calibrator = None  # Skip calibration for this test
-
-        result = model.predict_ev(feature_df)
-
-        # sum(p_place_pred) should be ~ 3.0 per race
-        race_sum = result.groupby("race_id")["p_place_pred"].sum()
-        np.testing.assert_allclose(race_sum.values, 3.0, rtol=1e-6)
-
-    def test_predict_ev_consistency_constraint(self, feature_df: pd.DataFrame) -> None:
-        """p_place_pred >= p_ability_win の整合性制約が機能すること"""
-        model = PlaceTwoStageModel()
-        model.hit_model = _make_mock_booster([0.05, 0.04, 0.03, 0.02, 0.01, 0.01, 0.01, 0.01])
-        model.return_model = _make_mock_booster([1.4, 1.7, 2.2, 3.8, 5.5, 9.0, 16.0, 32.0])
-        model._place_calibrator = None
-
-        df = feature_df.copy()
-        # Set p_ability_win high for horse 0 — should enforce floor
-        df["p_ability_win"] = [0.50, 0.25, 0.20, 0.10, 0.08, 0.04, 0.02, 0.01]
-
-        result = model.predict_ev(df)
-
-        # After normalization, p_place_pred should be >= p_ability_win for all horses
-        assert (result["p_place_pred"] >= result["p_ability_win"] - 1e-10).all()
-        # Race sum should still be ~ 3.0
-        race_sum = result.groupby("race_id")["p_place_pred"].sum()
-        np.testing.assert_allclose(race_sum.values, 3.0, rtol=1e-6)
 
 
 class TestTrainValidSplit:
@@ -436,65 +328,3 @@ class TestTrainValidSplit:
         assert "RandomState" not in source, "Still using RandomState!"
 
 
-class TestBenterLRTraining:
-    """Tests for Benter logistic regression training approach."""
-
-    def test_benter_lr_training_produces_valid_coefficients(self) -> None:
-        """Benter LR 学習が logit(p_model), logit(p_market) 特徴量で行われること"""
-        from sklearn.linear_model import LogisticRegression
-
-        # Simulate training data
-        n = 2000
-        rng = np.random.default_rng(42)
-        p_model = rng.uniform(0.05, 0.95, n)
-        p_market = rng.uniform(0.05, 0.95, n)
-        y = (rng.random(n) < (0.5 * p_model + 0.5 * p_market)).astype(int)
-
-        p_m = np.clip(p_model, 1e-6, 1 - 1e-6)
-        p_mk = np.clip(p_market, 1e-6, 1 - 1e-6)
-
-        x_feat = np.column_stack(
-            [
-                np.log(p_m / (1 - p_m)),
-                np.log(p_mk / (1 - p_mk)),
-            ]
-        )
-
-        lr = LogisticRegression(fit_intercept=True, C=np.inf)
-        lr.fit(x_feat, y)
-
-        # Both coefficients should be positive (more prob -> more likely to place)
-        assert lr.coef_[0][0] > 0, f"Model coef should be positive, got {lr.coef_[0][0]}"
-        assert lr.coef_[0][1] > 0, f"Market coef should be positive, got {lr.coef_[0][1]}"
-
-    def test_benter_lr_coefficients_sum_near_one(self) -> None:
-        """Benter LR の係数の和が1に近いこと (Benter 理論との整合性)"""
-        from sklearn.linear_model import LogisticRegression
-
-        n = 5000
-        rng = np.random.default_rng(123)
-        # Generate data where true relationship is alpha=0.4, beta=0.6
-        p_model = rng.uniform(0.1, 0.9, n)
-        p_market = rng.uniform(0.1, 0.9, n)
-        logit_true = 0.4 * np.log(p_model / (1 - p_model)) + 0.6 * np.log(p_market / (1 - p_market))
-        p_true = 1.0 / (1.0 + np.exp(-logit_true))
-        y = (rng.random(n) < p_true).astype(int)
-
-        p_m = np.clip(p_model, 1e-6, 1 - 1e-6)
-        p_mk = np.clip(p_market, 1e-6, 1 - 1e-6)
-        x_feat = np.column_stack(
-            [
-                np.log(p_m / (1 - p_m)),
-                np.log(p_mk / (1 - p_mk)),
-            ]
-        )
-
-        lr = LogisticRegression(fit_intercept=True, C=np.inf)
-        lr.fit(x_feat, y)
-
-        # Coefficients should be close to 0.4 and 0.6 respectively
-        alpha_lr = lr.coef_[0][0]
-        beta_lr = lr.coef_[0][1]
-        assert abs(alpha_lr - 0.4) < 0.15, f"alpha should be ~0.4, got {alpha_lr}"
-        assert abs(beta_lr - 0.6) < 0.15, f"beta should be ~0.6, got {beta_lr}"
-        assert abs(lr.intercept_[0]) < 0.3, f"intercept should be ~0, got {lr.intercept_[0]}"

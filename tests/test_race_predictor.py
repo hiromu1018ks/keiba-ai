@@ -265,8 +265,10 @@ class TestRacePredictor:
 
         assert "edge_place" in result.columns
         assert "p_place_combined" in result.columns
-        # Benter alpha=0.4: p_combined ≈ 0.6802, edge ≈ 0.6802 - 0.6667 = 0.0135
-        assert abs(result["edge_place"].iloc[0] - 0.0135) < 0.002
+        # EV-based edge: edge = p_place_pred * fukuoddslow - 1.0
+        # = 0.70 * 1.5 - 1.0 = 0.05
+        assert abs(result["edge_place"].iloc[0] - 0.05) < 1e-10
+        assert abs(result["p_place_combined"].iloc[0] - 0.70) < 1e-10
 
     def test_select_bets_uses_edge_not_ev(self, mock_models: MagicMock) -> None:
         """select_bets() should filter by edge_place, not ev_place_corrected.
@@ -346,8 +348,8 @@ class TestRacePredictor:
 
         assert len(bets) == 0
 
-    def test_predict_benter_combined_probability_alpha_half(self, mock_models: MagicMock) -> None:
-        """alpha=0.5: p_combined = sigmoid(0.5*logit(p_model) + 0.5*logit(p_market))."""
+    def test_predict_ev_edge_formula(self, mock_models: MagicMock) -> None:
+        """edge = p_place_pred * fukuoddslow - 1.0 (EV-based edge)."""
         from backtest.race_predictor import RacePredictor
 
         predictor = RacePredictor(models=mock_models, alpha=0.5)
@@ -390,17 +392,14 @@ class TestRacePredictor:
 
         result = predictor.predict(race_df)
 
-        # Manual calculation: alpha=0.5
-        # logit(0.70) = 0.84730, logit(1/1.5) = 0.69315
-        # logit_combined = 0.5 * 0.84730 + 0.5 * 0.69315 = 0.77022
-        # p_combined = sigmoid(0.77022) ≈ 0.6834
+        # EV-based: edge = 0.70 * 1.5 - 1.0 = 0.05
         p_combined = result["p_place_combined"].iloc[0]
-        assert abs(p_combined - 0.6834) < 0.002
+        assert abs(p_combined - 0.70) < 1e-10
         edge = result["edge_place"].iloc[0]
-        assert abs(edge - (0.6834 - 1 / 1.5)) < 0.002
+        assert abs(edge - 0.05) < 1e-10
 
-    def test_predict_alpha_zero_uses_market_only(self, mock_models: MagicMock) -> None:
-        """alpha=0: p_combined = p_market -> edge = 0."""
+    def test_predict_edge_positive_when_ev_above_one(self, mock_models: MagicMock) -> None:
+        """When p_place_pred * fukuoddslow > 1.0, edge should be positive."""
         from backtest.race_predictor import RacePredictor
 
         predictor = RacePredictor(models=mock_models, alpha=0.0)
@@ -426,7 +425,7 @@ class TestRacePredictor:
         )
 
         result_df = race_df.copy()
-        result_df["p_place_pred"] = [0.90]  # model overconfident
+        result_df["p_place_pred"] = [0.90]  # high model prob
 
         submodel = mock_models.submodels["turf"]
         submodel.market.predict_and_calc_error.return_value = race_df.copy()
@@ -443,14 +442,14 @@ class TestRacePredictor:
 
         result = predictor.predict(race_df)
 
-        # alpha=0: p_combined = p_market = 1/2.0 = 0.5
+        # EV-based: edge = 0.90 * 2.0 - 1.0 = 0.80
         p_combined = result["p_place_combined"].iloc[0]
-        assert abs(p_combined - 0.5) < 1e-10
+        assert abs(p_combined - 0.90) < 1e-10
         edge = result["edge_place"].iloc[0]
-        assert abs(edge) < 1e-10  # edge = p_market - p_market = 0
+        assert abs(edge - 0.80) < 1e-10
 
-    def test_predict_alpha_one_uses_model_only(self, mock_models: MagicMock) -> None:
-        """alpha=1: p_combined = p_model -> edge = p_model - p_market (old formula)."""
+    def test_predict_edge_negative_when_ev_below_one(self, mock_models: MagicMock) -> None:
+        """When p_place_pred * fukuoddslow < 1.0, edge should be negative."""
         from backtest.race_predictor import RacePredictor
 
         predictor = RacePredictor(models=mock_models, alpha=1.0)
@@ -476,7 +475,7 @@ class TestRacePredictor:
         )
 
         result_df = race_df.copy()
-        result_df["p_place_pred"] = [0.70]
+        result_df["p_place_pred"] = [0.50]  # model prob too low for odds
 
         submodel = mock_models.submodels["turf"]
         submodel.market.predict_and_calc_error.return_value = race_df.copy()
@@ -493,11 +492,11 @@ class TestRacePredictor:
 
         result = predictor.predict(race_df)
 
-        # alpha=1: p_combined = p_model = 0.70
+        # EV-based: edge = 0.50 * 1.5 - 1.0 = -0.25 (negative)
         p_combined = result["p_place_combined"].iloc[0]
-        assert abs(p_combined - 0.70) < 1e-10
+        assert abs(p_combined - 0.50) < 1e-10
         edge = result["edge_place"].iloc[0]
-        expected_edge = 0.70 - 1.0 / 1.5
+        expected_edge = 0.50 * 1.5 - 1.0
         assert abs(edge - expected_edge) < 1e-10
 
     def test_alpha_validation_rejects_out_of_range(self, mock_models: MagicMock) -> None:
@@ -511,8 +510,8 @@ class TestRacePredictor:
             RacePredictor(models=mock_models, alpha=-0.1)
 
 
-class TestRacePredictorBenterLR:
-    """Tests for learned Benter LR vs fixed alpha fallback in RacePredictor."""
+class TestRacePredictorEVEdge:
+    """Tests for EV-based edge computation in RacePredictor."""
 
     def _make_race_df(self) -> pd.DataFrame:
         return pd.DataFrame(
@@ -554,14 +553,10 @@ class TestRacePredictorBenterLR:
             pd.DataFrame({"EV_lower_place": [1.5, 1.2, 1.0, 0.8]}),
         )
 
-    def test_predict_falls_back_to_fixed_alpha_without_benter_lr(
-        self, mock_models: MagicMock
-    ) -> None:
-        """benter_lr が None の場合、固定 alpha にフォールバックすること"""
+    def test_predict_computes_ev_edge(self, mock_models: MagicMock) -> None:
+        """predict が EV ベースの edge を計算すること"""
         from backtest.race_predictor import RacePredictor
 
-        submodel = mock_models.submodels["turf"]
-        submodel.benter_lr = None
         predictor = RacePredictor(models=mock_models, alpha=0.4)
 
         race_df = self._make_race_df()
@@ -569,67 +564,10 @@ class TestRacePredictorBenterLR:
 
         result = predictor.predict(race_df)
 
-        assert "p_place_combined" in result.columns
         assert "edge_place" in result.columns
-
-        # With alpha=0.4, manually compute expected:
-        p_model = np.clip(np.array([0.6, 0.5, 0.35, 0.2]), 1e-6, 1 - 1e-6)
-        p_mkt = np.clip(np.array([1 / 1.5, 1 / 2.0, 1 / 3.0, 1 / 5.0]), 1e-6, 1 - 1e-6)
-        logit_m = np.log(p_model / (1 - p_model))
-        logit_mk = np.log(p_mkt / (1 - p_mkt))
-        logit_combined = 0.4 * logit_m + 0.6 * logit_mk
-        expected = 1.0 / (1.0 + np.exp(-logit_combined))
-        np.testing.assert_allclose(result["p_place_combined"].values, expected, rtol=1e-6)
-
-    def test_predict_uses_learned_benter_lr(self, mock_models: MagicMock) -> None:
-        """benter_lr が設定されている場合、学習済み係数を使って combination を計算"""
-        from backtest.race_predictor import RacePredictor
-
-        # Create a fake LogisticRegression with known coefficients
-        lr = MagicMock(spec=LogisticRegression)
-        lr.coef_ = np.array([[0.5, 0.5]])  # alpha=0.5, beta=0.5
-        lr.intercept_ = np.array([0.0])  # gamma=0
-
-        submodel = mock_models.submodels["turf"]
-        submodel.benter_lr = lr
-        predictor = RacePredictor(models=mock_models, alpha=0.4)
-
-        race_df = self._make_race_df()
-        self._setup_mock_chain(mock_models, race_df)
-
-        result = predictor.predict(race_df)
-
-        # With learned lr: logit_combined = 0.5*logit(p_model) + 0.5*logit(p_market)
-        p_model = np.clip(np.array([0.6, 0.5, 0.35, 0.2]), 1e-6, 1 - 1e-6)
-        p_mkt = np.clip(np.array([1 / 1.5, 1 / 2.0, 1 / 3.0, 1 / 5.0]), 1e-6, 1 - 1e-6)
-        logit_m = np.log(p_model / (1 - p_model))
-        logit_mk = np.log(p_mkt / (1 - p_mkt))
-        logit_combined = 0.5 * logit_m + 0.5 * logit_mk + 0.0
-        expected = 1.0 / (1.0 + np.exp(-logit_combined))
-        np.testing.assert_allclose(result["p_place_combined"].values, expected, rtol=1e-6)
-
-    def test_predict_benter_lr_with_nonzero_intercept(self, mock_models: MagicMock) -> None:
-        """benter_lr の intercept が反映されること"""
-        from backtest.race_predictor import RacePredictor
-
-        lr = MagicMock(spec=LogisticRegression)
-        lr.coef_ = np.array([[1.0, 0.0]])  # only model weight
-        lr.intercept_ = np.array([-1.0])  # bias shift
-
-        submodel = mock_models.submodels["turf"]
-        submodel.benter_lr = lr
-        predictor = RacePredictor(models=mock_models, alpha=0.4)
-
-        race_df = self._make_race_df()
-        self._setup_mock_chain(mock_models, race_df)
-
-        result = predictor.predict(race_df)
-
-        # logit_combined = 1.0*logit(p_model) + 0.0*logit(p_market) + (-1.0)
-        p_model = np.clip(np.array([0.6, 0.5, 0.35, 0.2]), 1e-6, 1 - 1e-6)
-        p_mkt = np.clip(np.array([1 / 1.5, 1 / 2.0, 1 / 3.0, 1 / 5.0]), 1e-6, 1 - 1e-6)
-        logit_m = np.log(p_model / (1 - p_model))
-        logit_mk = np.log(p_mkt / (1 - p_mkt))
-        logit_combined = 1.0 * logit_m + 0.0 * logit_mk - 1.0
-        expected = 1.0 / (1.0 + np.exp(-logit_combined))
-        np.testing.assert_allclose(result["p_place_combined"].values, expected, rtol=1e-6)
+        assert "ev_place_direct" in result.columns
+        # edge = p_place_pred * fukuoddslow - 1.0
+        expected_ev = np.array([0.6, 0.5, 0.35, 0.2]) * np.array([1.5, 2.0, 3.0, 5.0])
+        expected_edge = expected_ev - 1.0
+        np.testing.assert_allclose(result["edge_place"].values, expected_edge, rtol=1e-6)
+        np.testing.assert_allclose(result["ev_place_direct"].values, expected_ev, rtol=1e-6)
