@@ -328,8 +328,8 @@ class TrainingPipelineV5:
                 df["course_distance_wr"] = np.nan
 
         # 種牡馬産駒特徴量の追加 (ベクトル化)
+        from db.readers import load_horses, load_sire_stats
         from features.sire_features import SireFeatures
-        from db.readers import load_sire_stats, load_horses
 
         with TimingContext(f"{surface}/sire_features"):
             sire_stats = load_sire_stats(self.store)
@@ -486,8 +486,9 @@ class TrainingPipelineV5:
         benter_combo = None
         isotonic_cal = None
         if hasattr(place_2s, "_val_p_raw") and len(place_2s._val_p_raw) >= 500:
-            from models.benter_combination import BenterCombination
             from sklearn.isotonic import IsotonicRegression
+
+            from models.benter_combination import BenterCombination
 
             val_p = place_2s._val_p_raw
             val_p_market = np.where(

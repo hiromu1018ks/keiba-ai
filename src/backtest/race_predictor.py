@@ -143,8 +143,10 @@ class RacePredictor:
             df["p_place_combined"] = df["p_place_pred"]
 
         # Edge = p_combined * odds - 1.0
-        df["edge_place"] = df["p_place_combined"] * df["fukuoddslow"] - 1.0
-        df["ev_place_direct"] = df["p_place_combined"] * df["fukuoddslow"]
+        p_combined = pd.to_numeric(df["p_place_combined"], errors="coerce")
+        df["p_place_combined"] = p_combined
+        df["edge_place"] = p_combined * df["fukuoddslow"] - 1.0
+        df["ev_place_direct"] = p_combined * df["fukuoddslow"]
 
         return df
 

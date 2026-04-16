@@ -5,13 +5,12 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Optional
 
-from domain.types import BetType, RecoveryState, Surface
-
 from sklearn.isotonic import IsotonicRegression
+
+from domain.types import BetType, RecoveryState, Surface
 
 if TYPE_CHECKING:
     from models.benter_combination import BenterCombination
-
     from models.ev_correction_model import EVCorrectionModel, PlaceEVCorrectionModel
     from models.market_model import MarketModel
     from models.place_ability_model import PlaceAbilityModel
