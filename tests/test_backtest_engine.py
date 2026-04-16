@@ -1124,3 +1124,83 @@ class TestBuildPayoutMap:
 
         payout_map = build_payout_map(payouts)
         assert len(payout_map) == 0
+
+
+class TestPayoutSettlement:
+    """確定配当ベースの精算テスト"""
+
+    def test_settle_bet_uses_payout_map(self) -> None:
+        """_settle_bet が payout_map を使用する"""
+        from backtest.engine import BacktestEngine
+        from domain.models import Bet
+        from domain.types import BetType
+
+        bet = Bet(
+            race_id="R001",
+            umaban=3,
+            bet_type=BetType.PLACE,
+            odds=2.5,
+            ev_lower_corrected=0.0,
+            stake=100,
+            final_odds=2.5,
+        )
+        race_df = pd.DataFrame(
+            {"umaban": [3], "kakuteijyuni": [2]}
+        )
+        # payout_map は実際の確定配当 (3.0倍) を返す
+        payout_map = {("R001", 3): 3.0}
+        engine = BacktestEngine.__new__(BacktestEngine)
+        engine.payout_map = payout_map
+
+        result = engine._settle_bet(bet, race_df)
+        assert result == pytest.approx(300.0)  # 100 * 3.0
+
+    def test_settle_bet_no_payout_entry(self) -> None:
+        """payout_map にエントリがない場合 (馬が着外) は 0 を返す"""
+        from backtest.engine import BacktestEngine
+        from domain.models import Bet
+        from domain.types import BetType
+
+        bet = Bet(
+            race_id="R001",
+            umaban=5,
+            bet_type=BetType.PLACE,
+            odds=2.0,
+            ev_lower_corrected=0.0,
+            stake=100,
+            final_odds=2.0,
+        )
+        race_df = pd.DataFrame(
+            {"umaban": [5], "kakuteijyuni": [5]}
+        )
+        payout_map = {("R001", 3): 3.0}  # umaban=5 は着外
+        engine = BacktestEngine.__new__(BacktestEngine)
+        engine.payout_map = payout_map
+
+        result = engine._settle_bet(bet, race_df)
+        assert result == 0.0
+
+    def test_settle_bet_fallback_to_odds(self) -> None:
+        """payout_map にレースが存在しない場合は final_odds にフォールバック"""
+        from backtest.engine import BacktestEngine
+        from domain.models import Bet
+        from domain.types import BetType
+
+        bet = Bet(
+            race_id="R999",
+            umaban=1,
+            bet_type=BetType.PLACE,
+            odds=1.8,
+            ev_lower_corrected=0.0,
+            stake=100,
+            final_odds=1.8,
+        )
+        race_df = pd.DataFrame(
+            {"umaban": [1], "kakuteijyuni": [1]}
+        )
+        payout_map = {}  # レース R999 のデータなし
+        engine = BacktestEngine.__new__(BacktestEngine)
+        engine.payout_map = payout_map
+
+        result = engine._settle_bet(bet, race_df)
+        assert result == pytest.approx(180.0)  # 100 * 1.8 (fallback)
