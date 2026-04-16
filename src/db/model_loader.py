@@ -469,12 +469,14 @@ class ModelLoader:
                 confidence._place_rolling_quantile = conf_data["place_rolling_quantile"]
                 confidence._calibrated = True
 
-            # Benter logistic regression
-            benter_lr = None
-            benter_file = models_dir / f"benter_lr_{surface}.joblib"
+            # Benter combination (logit-space blend)
+            benter_combo = None
+            benter_file = models_dir / f"benter_combo_{surface}.json"
             if benter_file.is_file():
                 try:
-                    benter_lr = joblib.load(benter_file)
+                    from models.benter_combination import BenterCombination
+
+                    benter_combo = BenterCombination.load(benter_file)
                 except Exception:
                     logger.warning("Failed to load %s, skipping", benter_file)
 
@@ -488,7 +490,7 @@ class ModelLoader:
                 place_ev_corrector=place_ev_corr,
                 wide=wide,
                 confidence=confidence,
-                benter_lr=benter_lr,
+                benter_combo=benter_combo,
             )
 
         # RaceQualityScreener

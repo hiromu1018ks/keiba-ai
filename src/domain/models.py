@@ -8,8 +8,7 @@ from typing import TYPE_CHECKING, Optional
 from domain.types import BetType, RecoveryState, Surface
 
 if TYPE_CHECKING:
-    from sklearn.linear_model import LogisticRegression
-
+    from models.benter_combination import BenterCombination
     from models.ev_correction_model import EVCorrectionModel, PlaceEVCorrectionModel
     from models.market_model import MarketModel
     from models.place_ability_model import PlaceAbilityModel
@@ -236,7 +235,7 @@ class SubmodelSet:
     wide: WideTwoStageModel
     confidence: RobustConfidenceEstimator
     use_ensemble: bool = False
-    benter_lr: LogisticRegression | None = None
+    benter_combo: BenterCombination | None = None
 
 
 @dataclass
