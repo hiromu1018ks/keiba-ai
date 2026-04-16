@@ -24,8 +24,9 @@
 | Modify | `src/domain/models.py:239` | Replace `benter_lr` with `benter_combo` |
 | Modify | `src/db/model_loader.py:472-492` | Load BenterCombination from JSON |
 | Modify | `src/pipelines/training_pipeline.py:459-489,804-895` | Fit + save BenterCombination |
-| Modify | `tests/test_backtest_engine.py` | Settlement tests |
-| Modify | `tests/test_race_predictor.py` | Edge calculation tests |
+| Modify | `tests/test_backtest_engine.py` | Settlement tests + `benter_lr` → `benter_combo` migration |
+| Modify | `tests/test_race_predictor.py` | Edge calculation tests + `benter_lr` → `benter_combo` migration |
+| Modify | `tests/test_domain.py` | `benter_lr` → `benter_combo` migration in SubmodelSet tests |
 
 ---
 
@@ -635,6 +636,10 @@ Remove these two lines:
 
 The updated list should have 19 features (down from 21).
 
+**Note:** `RETURN_FEATURE_COLS` (lines 216-244) is NOT modified. The return model predicts
+expected payout given a hit, so it should still see odds information. Only the hit model
+(probability of placing) is made odds-free to eliminate double-counting.
+
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `python -m pytest tests/test_two_stage_return_model.py::TestHitFeatureCols -v`
@@ -717,7 +722,10 @@ In `src/backtest/race_predictor.py`:
         self.stake_calc = stake_calculator
         self.dd_ctrl = dd_controller
         self._betting_mode = "kelly" if stake_calculator is not None else "flat"
-        # Benter合成レイヤー (最初のsurfaceから取得)
+        if not 0.0 <= alpha <= 1.0:
+            raise ValueError(f"alpha must be in [0, 1], got {alpha}")
+        self.alpha = alpha  # kept for backwards compatibility / fallback
+        # Benter合成レイヤー (最初のsurfaceから取得、benter_comboがあれば使用)
         first_sub = next(iter(models.submodels.values()), None)
         self.benter = first_sub.benter_combo if first_sub else None
 ```
@@ -764,9 +772,12 @@ git commit -m "feat: integrate BenterCombination into RacePredictor edge calcula
 ### Task 6: SubmodelSet + ModelLoader Update
 
 **Files:**
-- Modify: `src/domain/models.py:239`
+- Modify: `src/domain/models.py:239` (also remove `LogisticRegression` import in TYPE_CHECKING)
 - Modify: `src/db/model_loader.py:472-492`
 - Modify: `tests/test_model_loader.py`
+- Modify: `tests/test_domain.py` (rename `benter_lr` tests to `benter_combo`)
+- Modify: `tests/test_race_predictor.py` (update `_make_submodel_mock`)
+- Modify: `tests/test_backtest_engine.py` (update all `benter_lr = None` to `benter_combo = None`)
 
 - [ ] **Step 1: Write failing test**
 
@@ -850,15 +861,27 @@ In `src/db/model_loader.py` lines 472-492, replace the benter_lr loading section
 Run: `python -m pytest tests/test_model_loader.py -v`
 Expected: All PASS
 
-- [ ] **Step 5: Run full test suite**
+- [ ] **Step 5: Update test files for benter_lr → benter_combo migration**
+
+Search and replace across test files:
+- `tests/test_domain.py`: Rename `benter_lr` → `benter_combo` in test names and assertions.
+  Tests `test_submodel_set_accepts_benter_lr` → `test_submodel_set_accepts_benter_combo`
+  and `test_submodel_set_benter_lr_default_none` → `test_submodel_set_benter_combo_default_none`.
+  Update `LogisticRegression` mock to `BenterCombination` mock.
+- `tests/test_race_predictor.py`: In `_make_submodel_mock()`, change `sm.benter_lr = None`
+  to `sm.benter_combo = None`.
+- `tests/test_backtest_engine.py`: Replace all `submodel.benter_lr = None` (lines ~427, 589, 909, 1041)
+  with `submodel.benter_combo = None`.
+
+- [ ] **Step 6: Run full test suite**
 
 Run: `python -m pytest tests/ -v --tb=short`
-Expected: All PASS (may need to fix references to `benter_lr` in tests)
+Expected: All PASS (all benter_lr references updated)
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
-git add src/domain/models.py src/db/model_loader.py tests/test_model_loader.py
+git add src/domain/models.py src/db/model_loader.py tests/test_model_loader.py tests/test_domain.py tests/test_race_predictor.py tests/test_backtest_engine.py
 git commit -m "feat: replace benter_lr with benter_combo (BenterCombination) in SubmodelSet"
 ```
 
@@ -900,9 +923,16 @@ In `src/pipelines/training_pipeline.py`, after line 483 (`df_oof = place_2s.pred
                         benter_combo.beta,
                         benter_combo.gamma,
                     )
-```
-
-Also ensure `import numpy as np` is present (it likely is already).
+                else:
+                    logger.warning(
+                        "Insufficient valid data for Benter fit (%d rows), skipping %s",
+                        valid.sum(), surface,
+                    )
+            else:
+                logger.warning(
+                    "fukuoddslow not in df_oof columns, skipping Benter fit for %s",
+                    surface,
+                )
 
 - [ ] **Step 2: Pass benter_combo to SubmodelSet**
 

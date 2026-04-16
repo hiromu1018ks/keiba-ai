@@ -269,7 +269,7 @@ This can be toggled via config to compare with/without.
 | `src/models/benter_combination.py` | New file: BenterCombination class | ~80 |
 | `src/backtest/race_predictor.py` | Use Benter combination for edge | ~15 |
 | `src/backtest/engine.py` | Settlement via payfukusyopay | ~40 |
-| `src/db/readers.py` | Add `load_payouts_for_settlement()` helper | ~20 |
+| `src/db/readers.py` | No change — use existing `load_payouts()` directly | 0 |
 | `src/db/model_loader.py` | Load BenterCombination from model dir | ~15 |
 | `src/domain/models.py` | Add benter_alpha/beta to SubmodelSet | ~5 |
 
