@@ -182,8 +182,148 @@ def classify_movement(
     df: pd.DataFrame,
     threshold: float = 0.20,
 ) -> pd.DataFrame:
-    """TODO: Task 3で実装"""
-    raise NotImplementedError
+    """オッズ変動量に基づいて Steamer/Stable/Drifter 分類
+
+    Args:
+        df: compute_movement_features の出力
+        threshold: 分類閾値（デフォルト20%）
+
+    Returns:
+        分類列 ('movement_class', 'movement_bucket') が追加されたDataFrame
+    """
+    df = df.copy()
+    drop = df["odds_drop_30_10"]  # 主要指標: 30→10分の変動
+
+    def _bucket(x: float) -> str:
+        if x >= 0.40:
+            return "strong_drop"
+        elif x >= 0.25:
+            return "moderate_drop"
+        elif x >= threshold:
+            return "mild_drop"
+        elif x > -threshold:
+            return "stable"
+        elif x >= -0.25:
+            return "mild_rise"
+        elif x >= -0.40:
+            return "moderate_rise"
+        else:
+            return "strong_rise"
+
+    def _category(x: float) -> str:
+        if x >= threshold:
+            return "steamer"
+        elif x > -threshold:
+            return "stable"
+        else:
+            return "drifter"
+
+    df["movement_bucket"] = drop.apply(_bucket)
+    df["movement_class"] = drop.apply(_category)
+
+    return df
+
+
+def join_results(
+    movement_df: pd.DataFrame,
+    entries: pd.DataFrame,
+    races: pd.DataFrame,
+    payouts: pd.DataFrame,
+    min_points: int = 5,
+) -> pd.DataFrame:
+    """オッズ変動特徴量に着順・払戻金・レース条件を結合
+
+    Args:
+        movement_df: classify_movement 後のDataFrame
+        entries: entries.parquet 読み込み
+        races: races.parquet 読み込み
+        payouts: payouts.parquet 読み込み
+        min_points: 最低データポイント数
+
+    Returns:
+        分析用完全結合DataFrame
+    """
+    df = movement_df.copy()
+
+    # 最低ポイント数フィルタ
+    df = df[df["n_points"] >= min_points].copy()
+    logger.info("After min_points filter: %d horses", len(df))
+
+    # umaban 型合わせ: movement側はstr → int
+    df["umaban_int"] = pd.to_numeric(df["umaban"], errors="coerce").astype("Int64")
+
+    # ── entries 結合 ──
+    entry_cols = ["race_id", "umaban", "kakuteijyuni", "ninki", "kisyucode", "chokyosicode"]
+    entries_sub = entries[entry_cols].copy()
+    # 両側ともstringで結合（movement側のumabanはgroupbyからstring、entries側もobject）
+    entries_sub["umaban"] = entries_sub["umaban"].astype(str)
+    df["umaban"] = df["umaban"].astype(str)
+    df = df.merge(entries_sub, on=["race_id", "umaban"], how="left")
+
+    # ── races 結合（レース条件） ──
+    race_cols = ["race_id", "kyori", "syussotosu", "trackcd"]
+    # sibababacd / dirtbabacd があれば含める
+    available_race_cols = [
+        c for c in race_cols + ["sibababacd", "dirtbabacd"] if c in races.columns
+    ]
+    races_sub = races[available_race_cols].drop_duplicates("race_id")
+    df = df.merge(races_sub, on="race_id", how="left")
+
+    # surface マッピング（trackcd: 10-22=芝, 23-29=ダート）
+    if "trackcd" in df.columns:
+
+        def _map_surface(tc):
+            if pd.isna(tc):
+                return "other"
+            tc_int = int(tc)
+            if 10 <= tc_int <= 22:
+                return "turf"
+            elif 23 <= tc_int <= 29:
+                return "dirt"
+            return "other"
+
+        df["surface"] = df["trackcd"].apply(_map_surface)
+
+    # ── payouts 結合（複勝払戻金） ──
+    pay_cols = (
+        ["race_id"]
+        + [f"payfukusyoumaban{i}" for i in range(1, 6)]
+        + [f"payfukusyopay{i}" for i in range(1, 6)]
+    )
+    pay_available = [c for c in pay_cols if c in payouts.columns]
+    payouts_sub = payouts[pay_available].drop_duplicates("race_id")
+    df = df.merge(payouts_sub, on="race_id", how="left")
+
+    # ── 複勝判定 & 払戻金取得 ──
+    def _get_place_payout(row: pd.Series) -> float:
+        if pd.isna(row.get("kakuteijyuni")) or row["kakuteijyuni"] == 0:
+            return 0.0
+        if row["kakuteijyuni"] > 3:
+            return 0.0
+        umaban_val = row.get("umaban_int", row.get("umaban"))
+        if pd.isna(umaban_val):
+            return 0.0
+        try:
+            umaban_int = int(umaban_val)
+        except (ValueError, TypeError):
+            return 0.0
+        for i in range(1, 6):
+            maban_col = f"payfukusyoumaban{i}"
+            pay_col = f"payfukusyopay{i}"
+            if maban_col not in row.index:
+                continue
+            maban = row[maban_col]
+            if pd.notna(maban) and umaban_int == int(maban):
+                payout = row[pay_col]
+                return float(payout) if pd.notna(payout) else 0.0
+        return 0.0
+
+    df["place_payout"] = df.apply(_get_place_payout, axis=1)
+    df["is_place"] = (df["place_payout"] > 0).astype(int)
+    df["is_win"] = (df["kakuteijyuni"] == 1).astype(int)
+
+    logger.info("Joined results: %d records (%d place hits)", len(df), df["is_place"].sum())
+    return df
 
 
 def main() -> None:

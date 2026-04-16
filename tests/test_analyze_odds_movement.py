@@ -3,7 +3,7 @@
 import pandas as pd
 import pytest
 
-from scripts.analyze_odds_movement import compute_movement_features
+from scripts.analyze_odds_movement import classify_movement, compute_movement_features, join_results
 
 
 @pytest.fixture
@@ -179,3 +179,170 @@ class TestComputeMovementFeatures:
         )
         result = compute_movement_features(df)
         assert len(result) == 0
+
+
+class TestClassifyMovement:
+    def test_steamer_classification(self):
+        df = pd.DataFrame(
+            {
+                "race_id": ["r1"],
+                "umaban": ["1"],
+                "odds_drop_60_10": [0.7],
+                "odds_drop_30_10": [0.5],
+                "odds_drop_10_final": [0.2],
+                "pop_change_30_10": [3],
+                "n_points": [10],
+                "early_odds": [50.0],
+                "final_odds": [15.0],
+            }
+        )
+        result = classify_movement(df, threshold=0.20)
+        assert result.iloc[0]["movement_class"] == "steamer"
+        assert result.iloc[0]["movement_bucket"] == "strong_drop"
+
+    def test_drifter_classification(self):
+        df = pd.DataFrame(
+            {
+                "race_id": ["r1"],
+                "umaban": ["1"],
+                "odds_drop_60_10": [-0.7],
+                "odds_drop_30_10": [-0.5],
+                "odds_drop_10_final": [-0.2],
+                "pop_change_30_10": [-3],
+                "n_points": [10],
+                "early_odds": [5.0],
+                "final_odds": [15.0],
+            }
+        )
+        result = classify_movement(df, threshold=0.20)
+        assert result.iloc[0]["movement_class"] == "drifter"
+        assert result.iloc[0]["movement_bucket"] == "strong_rise"
+
+    def test_stable_classification(self):
+        df = pd.DataFrame(
+            {
+                "race_id": ["r1"],
+                "umaban": ["1"],
+                "odds_drop_60_10": [0.05],
+                "odds_drop_30_10": [0.03],
+                "odds_drop_10_final": [0.02],
+                "pop_change_30_10": [0],
+                "n_points": [10],
+                "early_odds": [5.0],
+                "final_odds": [4.9],
+            }
+        )
+        result = classify_movement(df, threshold=0.20)
+        assert result.iloc[0]["movement_class"] == "stable"
+        assert result.iloc[0]["movement_bucket"] == "stable"
+
+    def test_custom_threshold(self):
+        df = pd.DataFrame(
+            {
+                "race_id": ["r1"],
+                "umaban": ["1"],
+                "odds_drop_60_10": [0.18],
+                "odds_drop_30_10": [0.18],
+                "odds_drop_10_final": [0.05],
+                "pop_change_30_10": [1],
+                "n_points": [10],
+                "early_odds": [10.0],
+                "final_odds": [8.2],
+            }
+        )
+        # threshold=0.20 → stable
+        result_loose = classify_movement(df, threshold=0.20)
+        assert result_loose.iloc[0]["movement_class"] == "stable"
+        # threshold=0.15 → steamer
+        result_tight = classify_movement(df, threshold=0.15)
+        assert result_tight.iloc[0]["movement_class"] == "steamer"
+
+
+class TestJoinResults:
+    @pytest.fixture
+    def sample_joined_data(self):
+        """join_results 用のモックデータ"""
+        movement = pd.DataFrame(
+            {
+                "race_id": ["r1", "r1", "r2"],
+                "umaban": ["1", "2", "1"],
+                "odds_drop_30_10": [0.3, -0.1, 0.5],
+                "n_points": [10, 10, 10],
+                "final_odds": [15.0, 5.0, 8.0],
+                "movement_class": ["steamer", "stable", "steamer"],
+                "movement_bucket": ["moderate_drop", "stable", "strong_drop"],
+            }
+        )
+
+        entries = pd.DataFrame(
+            {
+                "race_id": ["r1", "r1", "r2"],
+                "umaban": [1, 2, 1],
+                "kakuteijyuni": [1, 4, 3],
+                "ninki": [1, 5, 3],
+                "kisyucode": ["00001", "00002", "00001"],
+                "chokyosicode": ["A001", "A002", "A001"],
+            }
+        )
+
+        races = pd.DataFrame(
+            {
+                "race_id": ["r1", "r2"],
+                "kyori": [1800, 1200],
+                "syussotosu": [16, 10],
+                "trackcd": [10, 23],  # 10=芝(turf), 23=ダート(dirt)
+            }
+        )
+
+        payouts = pd.DataFrame(
+            {
+                "race_id": ["r1", "r2"],
+                "payfukusyoumaban1": [1, 1],
+                "payfukusyoumaban2": [3, 2],
+                "payfukusyoumaban3": [pd.NA, pd.NA],
+                "payfukusyopay1": [120.0, 80.0],
+                "payfukusyopay2": [40.0, 30.0],
+                "payfukusyopay3": [pd.NA, pd.NA],
+            }
+        )
+
+        return movement, entries, races, payouts
+
+    def test_place_detection_win(self, sample_joined_data):
+        mov, ent, rac, pay = sample_joined_data
+        result = join_results(mov, ent, rac, pay)
+        # r1-umaban1: 1着 → 複勝的中
+        r1_h1 = result[(result["race_id"] == "r1") & (result["umaban"] == "1")].iloc[0]
+        assert r1_h1["is_place"] == 1
+        assert r1_h1["place_payout"] == 120.0
+
+    def test_place_detection_third(self, sample_joined_data):
+        mov, ent, rac, pay = sample_joined_data
+        result = join_results(mov, ent, rac, pay)
+        # r2-umaban1: 3着 → 複勝的中
+        r2_h1 = result[(result["race_id"] == "r2") & (result["umaban"] == "1")].iloc[0]
+        assert r2_h1["is_place"] == 1
+        assert r2_h1["place_payout"] == 80.0
+
+    def test_no_place_fourth(self, sample_joined_data):
+        mov, ent, rac, pay = sample_joined_data
+        result = join_results(mov, ent, rac, pay)
+        # r1-umaban2: 4着 → 複勝外
+        r1_h2 = result[(result["race_id"] == "r1") & (result["umaban"] == "2")].iloc[0]
+        assert r1_h2["is_place"] == 0
+        assert r1_h2["place_payout"] == 0.0
+
+    def test_surface_mapping(self, sample_joined_data):
+        mov, ent, rac, pay = sample_joined_data
+        result = join_results(mov, ent, rac, pay)
+        r1 = result[result["race_id"] == "r1"].iloc[0]  # trackcd=10 → turf
+        r2 = result[result["race_id"] == "r2"].iloc[0]  # trackcd=23 → dirt
+        assert r1["surface"] == "turf"
+        assert r2["surface"] == "dirt"
+
+    def test_min_points_filter(self, sample_joined_data):
+        mov, ent, rac, pay = sample_joined_data
+        # 1頭だけ n_points=3 にしてフィルタされるか確認
+        mov.loc[mov.index[0], "n_points"] = 3
+        result = join_results(mov, ent, rac, pay, min_points=5)
+        assert len(result) == 2  # 3 pointsの馬が除外
