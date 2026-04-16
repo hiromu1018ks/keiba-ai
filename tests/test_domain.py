@@ -286,13 +286,15 @@ class TestRegimeConfig:
 
 
 class TestSubmodelSet:
-    def test_submodel_set_accepts_benter_lr(self) -> None:
-        """SubmodelSet が benter_lr フィールドを受け入れること"""
+    def test_submodel_set_accepts_benter_combo(self) -> None:
+        """SubmodelSet が benter_combo + isotonic_calibrator フィールドを受け入れること"""
         from unittest.mock import MagicMock
 
-        from sklearn.linear_model import LogisticRegression
+        from models.benter_combination import BenterCombination
+        from sklearn.isotonic import IsotonicRegression
 
-        lr = LogisticRegression(fit_intercept=True, C=np.inf)
+        combo = BenterCombination(alpha=0.4, beta=0.6, gamma=-0.1)
+        calibrator = IsotonicRegression(out_of_bounds="clip")
 
         sub = SubmodelSet(
             market=MagicMock(),
@@ -305,13 +307,16 @@ class TestSubmodelSet:
             wide=MagicMock(),
             confidence=MagicMock(),
             use_ensemble=False,
-            benter_lr=lr,
+            benter_combo=combo,
+            isotonic_calibrator=calibrator,
         )
-        assert sub.benter_lr is not None
-        assert sub.benter_lr is lr
+        assert sub.benter_combo is not None
+        assert sub.benter_combo is combo
+        assert sub.isotonic_calibrator is not None
+        assert sub.isotonic_calibrator is calibrator
 
-    def test_submodel_set_benter_lr_default_none(self) -> None:
-        """SubmodelSet の benter_lr デフォルトが None であること"""
+    def test_submodel_set_benter_combo_default_none(self) -> None:
+        """SubmodelSet の benter_combo + isotonic_calibrator デフォルトが None であること"""
         from unittest.mock import MagicMock
 
         sub = SubmodelSet(
@@ -325,4 +330,5 @@ class TestSubmodelSet:
             wide=MagicMock(),
             confidence=MagicMock(),
         )
-        assert sub.benter_lr is None
+        assert sub.benter_combo is None
+        assert sub.isotonic_calibrator is None
