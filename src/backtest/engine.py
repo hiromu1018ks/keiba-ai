@@ -552,6 +552,14 @@ class BacktestEngine:
                 )
             ]
 
+            # ワイドマイル除外 (1400-1700m のワイドはROI 19.5%で最大損失セグメント)
+            bets = [
+                b for b in bets
+                if b.bet_type != BetType.WIDE or not (
+                    pd.notna(_race_dist) and 1400 <= int(_race_dist) < 1700
+                )
+            ]
+
             # Bet に確定オッズを設定（place/win のみ。wide は wide_payout_map で精算）
             updated_bets = []
             for bet in bets:
