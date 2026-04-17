@@ -571,6 +571,14 @@ class BacktestEngine:
                 )
             ]
 
+            # ワイド稍重馬場除外 (track_condition_code=2 は ROI 0.0%, 123 bets)
+            _tc = race_df_single.iloc[0].get("track_condition_code", 0)
+            _tc_int = int(_tc) if pd.notna(_tc) else 0
+            bets = [
+                b for b in bets
+                if b.bet_type != BetType.WIDE or _tc_int != 2
+            ]
+
             # Bet に確定オッズを設定（place/win のみ。wide は wide_payout_map で精算）
             updated_bets = []
             for bet in bets:
