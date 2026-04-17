@@ -164,9 +164,13 @@ class TrainingPipelineV5:
         wide_odds_df = load_wide_odds(self.store, start, end)
         if wide_odds_df is not None and not wide_odds_df.empty:
             wide_pivot = wide_odds_df.pivot_table(index="race_id", columns="kumi", values="oddslow")
-            wide_pivot.columns = [
-                f"wide_odds_{kumi.replace('-', '_')}" for kumi in wide_pivot.columns
-            ]
+            # ゼロ埋め解除: kumi "0102" → "1_2" (WideJointPairBuilder の lookup 形式に合わせる)
+            new_cols = []
+            for kumi in wide_pivot.columns:
+                lo = int(str(kumi)[:2])
+                hi = int(str(kumi)[2:])
+                new_cols.append(f"wide_odds_{lo}_{hi}")
+            wide_pivot.columns = new_cols
             wide_pivot = wide_pivot.reset_index()
             feat_df = feat_df.merge(wide_pivot, on="race_id", how="left")
 

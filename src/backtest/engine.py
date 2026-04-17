@@ -21,6 +21,7 @@ from db.readers import (
     load_odds_time_series_range,
     load_payouts,
     load_races,
+    load_wide_odds,
 )
 from domain.models import Bet, BetType
 from models.regime_detector import calc_favorite_implied_prob, calc_odds_skewness
@@ -121,6 +122,49 @@ def build_payout_map(
                 except (ValueError, TypeError):
                     continue
     return payout_map
+
+
+def build_wide_payout_map(
+    payouts_df: pd.DataFrame,
+) -> dict[tuple[str, int, int], float]:
+    """payouts DataFrame から (race_id, umaban_lo, umaban_hi) → odds_multiplier のマップを構築。
+
+    ワイド払戻は paywidekumi1-7 と paywidepay1-7 (100円あたり円) を使用。
+    kumi 形式は非ゼロ埋め: "513" = 馬5+馬13, "1113" = 馬11+馬13, "15" = 馬1+馬5。
+    """
+    wide_payout_map: dict[tuple[str, int, int], float] = {}
+    if payouts_df.empty:
+        return wide_payout_map
+
+    def _parse_kumi(kumi_str: str) -> tuple[int, int] | None:
+        """非ゼロ埋め kumi を (lo, hi) にパース。馬番は 1-18 を前提。"""
+        n = len(kumi_str)
+        if n == 4:
+            return int(kumi_str[:2]), int(kumi_str[2:])
+        elif n == 3:
+            return int(kumi_str[:1]), int(kumi_str[1:])
+        elif n == 2:
+            return int(kumi_str[:1]), int(kumi_str[1:])
+        return None
+
+    for _, row in payouts_df.iterrows():
+        race_id = str(row.get("race_id", ""))
+        for i in range(1, 8):
+            kumi = row.get(f"paywidekumi{i}")
+            pay = row.get(f"paywidepay{i}")
+            if pd.notna(kumi) and pd.notna(pay) and str(kumi).strip():
+                try:
+                    parsed = _parse_kumi(str(kumi).strip())
+                    if parsed is None:
+                        continue
+                    umaban_lo, umaban_hi = parsed
+                    val = float(pay) / 100.0
+                    key = (race_id, umaban_lo, umaban_hi)
+                    if key not in wide_payout_map or val > wide_payout_map[key]:
+                        wide_payout_map[key] = val
+                except (ValueError, TypeError):
+                    continue
+    return wide_payout_map
 
 
 class BacktestEngine:
@@ -231,10 +275,32 @@ class BacktestEngine:
         self.payout_map = build_payout_map(payouts_df)
         logger.info("Loaded payout map: %d entries", len(self.payout_map))
 
+        # ワイド払戻マップを構築（精算用）
+        self.wide_payout_map = build_wide_payout_map(payouts_df)
+        logger.info("Loaded wide payout map: %d entries", len(self.wide_payout_map))
+
         feat_df = feat_engine.build_all(
             race_df, entry_df, pre_post_odds, odds_ts_df=odds_ts_df, store=self.store
         )
         feat_df = submodel_mgr.add_distance_band_features(feat_df)
+
+        # ワイドオッズを pivot して特徴量にマージ（WideJointPairBuilder 用）
+        wide_odds_df = load_wide_odds(self.store, start, end)
+        if wide_odds_df is not None and not wide_odds_df.empty:
+            # kumi "0102" → int変換で "1_2" 形式（WideJointPairBuilder の lookup に合わせる）
+            _wide = wide_odds_df[["race_id", "kumi", "oddslow"]].dropna(subset=["oddslow"])
+            if not _wide.empty:
+                wide_pivot = _wide.pivot_table(index="race_id", columns="kumi", values="oddslow")
+                # ゼロ埋めを解除: "0102" → "1_2", "0211" → "2_11"
+                new_cols = []
+                for c in wide_pivot.columns:
+                    lo = int(c[:2])
+                    hi = int(c[2:])
+                    new_cols.append(f"wide_odds_{lo}_{hi}")
+                wide_pivot.columns = new_cols
+                wide_pivot = wide_pivot.reset_index()
+                feat_df = feat_df.merge(wide_pivot, on="race_id", how="left")
+                logger.info("Merged wide odds: %d pair-columns", len(wide_pivot.columns) - 1)
 
         # JRAフィルタ: NARレース (jyocd 30以上) を除外
         if "jyocd" in feat_df.columns:
@@ -464,31 +530,36 @@ class BacktestEngine:
             surface_key = result_df["surface"].iloc[0]
             bets = self._race_predictor.select_bets(result_df, bankroll)
 
-            # 最小edge フィルタ (edge < 0.09 の低信頼度ベットを除外)
-            bets = [b for b in bets if b.edge >= 0.09]
+            # 最小edge フィルタ (edge < 0.09 の低信頼度ベットを除外、wide は対象外)
+            bets = [b for b in bets if b.bet_type != BetType.PLACE or b.edge >= 0.09]
 
             # edge過信フィルタ (edge [0.15-0.20) と [0.65-0.70) はキャリブレーション不良)
-            bets = [b for b in bets if not (0.15 <= b.edge < 0.20 or 0.65 <= b.edge < 0.70)]
+            bets = [b for b in bets if b.bet_type != BetType.PLACE or not (
+                0.15 <= b.edge < 0.20 or 0.65 <= b.edge < 0.70
+            )]
 
             # オッズフィルタ (オッズ 2.0-3.0 の人気馬は市場が効率的でエッジが小さい)
-            bets = [b for b in bets if b.odds < 2.0 or b.odds >= 3.0]
+            bets = [b for b in bets if b.bet_type != BetType.PLACE or b.odds < 2.0 or b.odds >= 3.0]
 
             # マイル中オッズ除外 (odds [5-10) × dist [1600-1800) は予測不毛地帯)
             _race_dist = race_df_single.iloc[0].get("kyori", 0)
             bets = [
                 b for b in bets
-                if not (
+                if b.bet_type != BetType.PLACE or not (
                     5.0 <= b.odds < 10.0
                     and pd.notna(_race_dist)
                     and 1600 <= int(_race_dist) < 1800
                 )
             ]
 
-            # Bet に確定オッズを設定
+            # Bet に確定オッズを設定（place/win のみ。wide は wide_payout_map で精算）
             updated_bets = []
             for bet in bets:
-                fo = final_odds_map.get((bet.race_id, bet.umaban), bet.odds)
-                updated_bets.append(replace(bet, final_odds=fo))
+                if bet.bet_type == BetType.WIDE:
+                    updated_bets.append(bet)
+                else:
+                    fo = final_odds_map.get((bet.race_id, bet.umaban), bet.odds)
+                    updated_bets.append(replace(bet, final_odds=fo))
             bets = updated_bets
 
             # メトリクス集計 (全ベットが発走前オッズ)
@@ -590,6 +661,7 @@ class BacktestEngine:
                             else 0.0
                         ),
                         "top3_finishers": _top3,
+                        "umaban_b": getattr(bet, "umaban_b", None),
                     }
                 )
 
@@ -749,7 +821,27 @@ class BacktestEngine:
 
     def _settle_bet(self, bet: Bet, race_df: pd.DataFrame) -> float:
         """ベットの結果を判定"""
-        # 優先: payout_map（確定配当）から精算
+        # ワイド: wide_payout_map（確定配当）から精算
+        if bet.bet_type == BetType.WIDE:
+            pair_b = getattr(bet, "umaban_b", None)
+            if pair_b is not None and hasattr(self, "wide_payout_map"):
+                lo, hi = min(bet.umaban, pair_b), max(bet.umaban, pair_b)
+                wide_key = (bet.race_id, lo, hi)
+                if wide_key in self.wide_payout_map:
+                    return float(bet.stake * self.wide_payout_map[wide_key])
+            # フォールバック: 着順ベースの簡易精算
+            horse = race_df[race_df["umaban"] == bet.umaban]
+            if horse.empty:
+                return 0.0
+            finish_pos = int(horse.iloc[0]["kakuteijyuni"])
+            if 1 <= finish_pos <= 3 and pair_b is not None:
+                pair_horse = race_df[race_df["umaban"] == pair_b]
+                if not pair_horse.empty and int(pair_horse.iloc[0]["kakuteijyuni"]) <= 3:
+                    settle_odds = bet.final_odds if bet.final_odds > 0 else bet.odds
+                    return float(bet.stake * settle_odds)
+            return 0.0
+
+        # 複勝/単勝: payout_map（確定配当）から精算
         payout_key = (bet.race_id, bet.umaban)
         if hasattr(self, "payout_map") and payout_key in self.payout_map:
             return float(bet.stake * self.payout_map[payout_key])
@@ -767,12 +859,5 @@ class BacktestEngine:
         elif bet.bet_type == BetType.WIN:
             if finish_pos == 1:
                 return float(bet.stake * settle_odds)
-        elif bet.bet_type == BetType.WIDE:
-            if 1 <= finish_pos <= 3:
-                pair_b = getattr(bet, "umaban_b", None)
-                if pair_b is not None:
-                    pair_horse = race_df[race_df["umaban"] == pair_b]
-                    if not pair_horse.empty and int(pair_horse.iloc[0]["kakuteijyuni"]) <= 3:
-                        return float(bet.stake * settle_odds)
 
         return 0.0

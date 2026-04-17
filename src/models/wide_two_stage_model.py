@@ -208,7 +208,6 @@ class WideTwoStageModel:
             (scored["ev_wide"] >= ev_threshold)
             & (scored["wide_score_adj"] >= score_threshold)
             & (scored["popularity_sum"] >= 6)
-            & (scored["kyakusitukubun_cd_combo"] != 0)
             & (scored["p_hit"] >= 0.05)
             & (scored["e_return_given_hit"] >= 2.0)
         ]

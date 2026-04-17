@@ -158,6 +158,7 @@ class Bet:
     edge: float = 0.0  # Value Betting edge (p_model - p_market)
     final_odds: float = 0.0  # 精算用オッズ（確定オッズ）
     result: Optional[float] = None  # 払戻金（確定後）
+    umaban_b: Optional[int] = None  # ワイドペア相手の馬番（place/win では None）
 
     @property
     def is_valid(self) -> bool:

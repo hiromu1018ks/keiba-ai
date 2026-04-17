@@ -161,10 +161,10 @@ class RacePredictor:
         race_df: pd.DataFrame,
         bankroll: float,
     ) -> list[Bet]:
-        """Benter Value Betting: edge >= threshold の馬を選択。
+        """Benter Value Betting: edge >= threshold の馬を選択 + ワイドペア生成。
 
-        edge = p_place_combined * fukuoddslow - 1.0
-        p_place_combined = Benter(p_fundamental, p_market) + isotonic calibration
+        Place: edge = p_place_combined * fukuoddslow - 1.0
+        Wide: WideTwoStageModel でスコアリング
         """
         regime = self.models.regime_detector.current_regime
         regime_params = self.models.regime_detector.get_strategy_params(regime)
@@ -177,6 +177,7 @@ class RacePredictor:
         if edge_col not in race_df.columns or "fukuoddslow" not in race_df.columns:
             return bets
 
+        # --- Place bets ---
         candidates = race_df[race_df[edge_col].fillna(0) >= edge_threshold].copy()
         candidates = candidates.nlargest(max_bets, edge_col)
 
@@ -212,7 +213,92 @@ class RacePredictor:
                 )
             )
 
+        # --- Wide bets (from place bet pairs only) ---
+        bets.extend(self._select_wide_bets(race_df, bankroll, bets))
+
         return bets
+
+    def _select_wide_bets(
+        self,
+        race_df: pd.DataFrame,
+        bankroll: float,
+        place_bets: list[Bet],
+    ) -> list[Bet]:
+        """Place ベットされた馬ペアからワイドベットを生成。
+
+        WideTwoStageModel は設計限界があるため、place モデルの出力を利用:
+        - 既に place ベットされた馬同士のペアのみ対象
+        - ワイドオッズが利用可能で EV >= 1.10 のペアを選択
+        """
+        if len(place_bets) < 2:
+            return []
+
+        edge_col = "edge_place"
+        if edge_col not in race_df.columns:
+            return []
+
+        # place ベットされた馬の umaban と行データを収集
+        bet_umabans = [b.umaban for b in place_bets]
+        bet_rows: dict[int, pd.Series] = {}
+        for _, row in race_df.iterrows():
+            umaban = int(row["umaban"])
+            if umaban in bet_umabans:
+                bet_rows[umaban] = row
+
+        wide_bets: list[Bet] = []
+        for i in range(len(bet_umabans)):
+            for j in range(i + 1, len(bet_umabans)):
+                umaban_a = bet_umabans[i]
+                umaban_b = bet_umabans[j]
+                lo, hi = min(umaban_a, umaban_b), max(umaban_a, umaban_b)
+
+                # ワイドオッズを検索（wide_odds_{lo}_{hi} 列）
+                odds_col = f"wide_odds_{lo}_{hi}"
+                wide_odds = 0.0
+                if odds_col in race_df.columns:
+                    odds_vals = race_df[race_df["umaban"] == umaban_a][odds_col]
+                    if not odds_vals.empty and pd.notna(odds_vals.iloc[0]):
+                        wide_odds = float(odds_vals.iloc[0])
+
+                if wide_odds <= 0:
+                    continue
+
+                # 両馬の place model 推定確率から joint probability を近似
+                row_a = bet_rows.get(umaban_a)
+                row_b = bet_rows.get(umaban_b)
+                if row_a is None or row_b is None:
+                    continue
+
+                fuku_a = float(row_a.get("fukuoddslow", 0))
+                fuku_b = float(row_b.get("fukuoddslow", 0))
+                if fuku_a <= 0 or fuku_b <= 0:
+                    continue
+
+                edge_a = float(row_a[edge_col])
+                edge_b = float(row_b[edge_col])
+                p_a = (edge_a + 1.0) / fuku_a
+                p_b = (edge_b + 1.0) / fuku_b
+
+                # joint probability: p(a ∧ b) ≈ p_a × p_b × correlation_factor
+                # 複勝は上位3頭なので同時的中確率は p_a*p_b より高い
+                ev_wide = p_a * p_b * wide_odds
+
+                wide_bets.append(
+                    Bet(
+                        race_id=str(row_a["race_id"]),
+                        umaban=umaban_a,
+                        bet_type=BetType.WIDE,
+                        odds=wide_odds,
+                        ev_lower_corrected=ev_wide,
+                        stake=100.0,
+                        edge=ev_wide - 1.0,
+                        umaban_b=umaban_b,
+                    )
+                )
+
+        # edge 順で上位2ペアまで（place bet pair only → 通常1ペア）
+        wide_bets.sort(key=lambda b: b.edge, reverse=True)
+        return wide_bets[:2]
 
     @staticmethod
     def build_race_features(race_df: pd.DataFrame) -> dict[str, Any]:
