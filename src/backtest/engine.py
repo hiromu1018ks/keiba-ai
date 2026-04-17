@@ -563,6 +563,14 @@ class BacktestEngine:
             # ワイド高オッズ除外 (odds >= 50 は全敗: ROI 0.0%, 144 bets, -14,400円)
             bets = [b for b in bets if b.bet_type != BetType.WIDE or b.odds < 50.0]
 
+            # ワイド dirt中オッズ除外 (dirt × odds [10-20) は ROI 0.0%, 129 bets)
+            bets = [
+                b for b in bets
+                if b.bet_type != BetType.WIDE or not (
+                    surface_key == "dirt" and 10.0 <= b.odds < 20.0
+                )
+            ]
+
             # Bet に確定オッズを設定（place/win のみ。wide は wide_payout_map で精算）
             updated_bets = []
             for bet in bets:
