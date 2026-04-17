@@ -333,6 +333,23 @@ class BacktestEngine:
             if race_df_single.empty:
                 continue
 
+            # 短距離レース除外 (<1400m, JRA「短距離」分類)
+            _race_distance = race_df_single.iloc[0].get("kyori", 0)
+            if pd.notna(_race_distance) and int(_race_distance) < 1400:
+                continue
+
+            # 重馬場除外 (track_condition_code >= 3: 重/不良)
+            _tc_raw = race_df_single.iloc[0].get("track_condition_code", 0)
+            _track_cond = int(_tc_raw) if pd.notna(_tc_raw) else 0
+            if _track_cond >= 3:
+                continue
+
+            # G1レース除外 (grade_code='A': 最強馬が揃い予測困難)
+            _grade_raw = race_df_single.iloc[0].get("grade_code", "_")
+            _grade_code = str(_grade_raw) if pd.notna(_grade_raw) else "_"
+            if _grade_code == "A":
+                continue
+
             # --- レースメタデータ抽出 (bet_history拡張用) ---
             race_row = race_df_single.iloc[0]
             race_date_str = (
@@ -446,6 +463,26 @@ class BacktestEngine:
             # Bet generation
             surface_key = result_df["surface"].iloc[0]
             bets = self._race_predictor.select_bets(result_df, bankroll)
+
+            # 最小edge フィルタ (edge < 0.09 の低信頼度ベットを除外)
+            bets = [b for b in bets if b.edge >= 0.09]
+
+            # edge過信フィルタ (edge [0.15-0.20) と [0.65-0.70) はキャリブレーション不良)
+            bets = [b for b in bets if not (0.15 <= b.edge < 0.20 or 0.65 <= b.edge < 0.70)]
+
+            # オッズフィルタ (オッズ 2.0-3.0 の人気馬は市場が効率的でエッジが小さい)
+            bets = [b for b in bets if b.odds < 2.0 or b.odds >= 3.0]
+
+            # マイル中オッズ除外 (odds [5-10) × dist [1600-1800) は予測不毛地帯)
+            _race_dist = race_df_single.iloc[0].get("kyori", 0)
+            bets = [
+                b for b in bets
+                if not (
+                    5.0 <= b.odds < 10.0
+                    and pd.notna(_race_dist)
+                    and 1600 <= int(_race_dist) < 1800
+                )
+            ]
 
             # Bet に確定オッズを設定
             updated_bets = []

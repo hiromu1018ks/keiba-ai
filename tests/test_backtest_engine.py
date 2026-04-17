@@ -366,7 +366,7 @@ class TestPostRaceColumnExclusion:
             {"race_id": ["20240101010101"], "umaban": [1], "odds": [5.0]}
         )
         mock_extract_odds.return_value = pd.DataFrame(
-            {"race_id": ["20240101010101"], "umaban": [1], "fukuoddslow": [2.4]}
+            {"race_id": ["20240101010101"], "umaban": [1], "fukuoddslow": [4.0]}
         )
 
         # --- feat_df with POST_RACE columns present ---
@@ -375,12 +375,12 @@ class TestPostRaceColumnExclusion:
                 "race_id": ["20240101010101"],
                 "umaban": [1],
                 "surface": ["turf"],
-                "kyori": [1200],
-                "distance_bin": ["sprint"],
+                "kyori": [1600],
+                "distance_bin": ["mile"],
                 "popularity_rank": [3],
                 "ninki": [3],
                 "ev_place": [1.5],
-                "fukuoddslow": [2.4],
+                "fukuoddslow": [4.0],
                 "kakuteijyuni": [2],  # POST_RACE — must be excluded from predict
                 "confirmed_odds": [1.8],  # POST_RACE — must be excluded from predict
                 "kettonum": [1234],
@@ -529,7 +529,7 @@ class TestBetHistoryEnrichment:
             {"race_id": ["20240101010101"], "umaban": [1], "odds": [5.0]}
         )
         mock_extract_odds.return_value = pd.DataFrame(
-            {"race_id": ["20240101010101"], "umaban": [1], "fukuoddslow": [2.4]}
+            {"race_id": ["20240101010101"], "umaban": [1], "fukuoddslow": [4.0]}
         )
 
         # --- feat_df (complete columns for pipeline) ---
@@ -538,12 +538,12 @@ class TestBetHistoryEnrichment:
                 "race_id": ["20240101010101"],
                 "umaban": [1],
                 "surface": ["turf"],
-                "kyori": [1200],
-                "distance_bin": ["sprint"],
+                "kyori": [1600],
+                "distance_bin": ["mile"],
                 "popularity_rank": [3],
                 "ninki": [3],
                 "ev_place": [1.5],
-                "fukuoddslow": [2.4],
+                "fukuoddslow": [4.0],
                 "kakuteijyuni": [2],
                 "kettonum": [1234],
                 "odds": [5.0],
@@ -620,14 +620,14 @@ class TestBetHistoryEnrichment:
         assert "surface" in bet
         assert bet["surface"] == "turf"
         assert "kyori" in bet
-        assert bet["kyori"] == 1200
+        assert bet["kyori"] == 1600
         assert "ev" in bet
         assert bet["ev"] == 1.5
         assert "popularity" in bet
         assert bet["popularity"] == 3
         assert "bankroll_after" in bet
         assert isinstance(bet["bankroll_after"], float)
-        assert bet["bankroll_after"] == 100140.0
+        assert bet["bankroll_after"] == 100300.0
 
         # --- 拡張フィールドの検証 ---
         assert "race_date" in bet
@@ -854,7 +854,7 @@ class TestJRAFilterBacktest:
             {"race_id": ["20240101010101"], "umaban": [1], "odds": [5.0]}
         )
         mock_extract_odds.return_value = pd.DataFrame(
-            {"race_id": ["20240101010101"], "umaban": [1], "fukuoddslow": [2.4]}
+            {"race_id": ["20240101010101"], "umaban": [1], "fukuoddslow": [4.0]}
         )
 
         feat_df = pd.DataFrame(
@@ -862,12 +862,12 @@ class TestJRAFilterBacktest:
                 "race_id": ["20240101010101"],
                 "umaban": [1],
                 "surface": ["turf"],  # turf にして submodel が存在する状態にする
-                "kyori": [1200],
-                "distance_bin": ["sprint"],
+                "kyori": [1600],
+                "distance_bin": ["mile"],
                 "popularity_rank": [3],
                 "ninki": [3],
                 "ev_place": [1.5],
-                "fukuoddslow": [2.4],
+                "fukuoddslow": [4.0],
                 "kakuteijyuni": [2],
                 "kettonum": [1234],
                 "odds": [5.0],
@@ -988,7 +988,7 @@ class TestJRAFilterBacktest:
             {"race_id": ["20240101010101"], "umaban": [1], "odds": [5.0]}
         )
         mock_extract_odds.return_value = pd.DataFrame(
-            {"race_id": ["20240101010101"], "umaban": [1], "fukuoddslow": [2.4]}
+            {"race_id": ["20240101010101"], "umaban": [1], "fukuoddslow": [4.0]}
         )
 
         feat_df = pd.DataFrame(
@@ -996,12 +996,12 @@ class TestJRAFilterBacktest:
                 "race_id": ["20240101010101"],
                 "umaban": [1],
                 "surface": ["turf"],
-                "kyori": [1200],
-                "distance_bin": ["sprint"],
+                "kyori": [1600],
+                "distance_bin": ["mile"],
                 "popularity_rank": [3],
                 "ninki": [3],
                 "ev_place": [1.5],
-                "fukuoddslow": [2.4],
+                "fukuoddslow": [4.0],
                 "kakuteijyuni": [2],
                 "kettonum": [1234],
                 "odds": [5.0],

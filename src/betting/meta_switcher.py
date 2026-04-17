@@ -43,24 +43,24 @@ class MetaSwitcher:
         """レジームに応じたデフォルトパラメータ"""
         if regime == RegimeState.AGGRESSIVE:
             return {
-                "ev_threshold": 1.10,
-                "edge_threshold": 0.03,  # 3% edge — Value Betting
+                "ev_threshold": 1.15,  # raised from 1.10
+                "edge_threshold": 0.04,  # 4% edge (raised from 3%)
                 "score_threshold": 0.010,
                 "max_bets_per_race": 3,
                 "description": "歪み強い → 攻める",
             }
         elif regime == RegimeState.CONSERVATIVE:
             return {
-                "ev_threshold": 1.30,
-                "edge_threshold": 0.05,  # 5% edge — more selective
+                "ev_threshold": 1.35,  # raised from 1.30
+                "edge_threshold": 0.06,  # 6% edge (raised from 5%)
                 "score_threshold": 0.020,
                 "max_bets_per_race": 2,
                 "description": "効率的 → 絞る",
             }
         else:  # COLLAPSED
             return {
-                "ev_threshold": 1.50,
-                "edge_threshold": 0.08,  # 8% edge — near halt
+                "ev_threshold": 1.55,  # raised from 1.50
+                "edge_threshold": 0.09,  # 9% edge (raised from 8%)
                 "score_threshold": 0.050,
                 "max_bets_per_race": 1,
                 "description": "崩壊 → ほぼ停止",

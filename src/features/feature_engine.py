@@ -11,6 +11,7 @@
 
 from __future__ import annotations
 
+import numpy as np
 import pandas as pd
 
 from domain.models import Entry, Race
@@ -281,5 +282,19 @@ class FeatureEngine:
             df["weight_change_zone"] = zone.astype(float)
         else:
             df["weight_change_zone"] = float("nan")
+
+        # A3: weight_change_ratio — 体重変化率 (zogen_sa / bataijyu)
+        if "zogen_sa" in df.columns and "bataijyu" in df.columns:
+            weight = df["bataijyu"].astype(float)
+            zogen = df["zogen_sa"].astype(float)
+            # 変化率 = 増減差 / 馬体重（パーセンテージ）
+            # 馬体重が0またはNaNの場合はNaNにする
+            df["weight_change_ratio"] = np.where(
+                (weight > 0) & weight.notna(),
+                zogen / weight * 100,  # パーセンテージに変換
+                float("nan")
+            )
+        else:
+            df["weight_change_ratio"] = float("nan")
 
         return df

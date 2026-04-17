@@ -60,7 +60,7 @@ class TestMetaSwitcher:
         switcher = MetaSwitcher(mock_rd)
         params = switcher.get_strategy_params()
         assert "edge_threshold" in params
-        assert params["edge_threshold"] == 0.03
+        assert params["edge_threshold"] == 0.04
 
     def test_description_present(self, switcher: MetaSwitcher) -> None:
         """description フィールドが存在する"""

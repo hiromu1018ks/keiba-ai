@@ -162,6 +162,11 @@ class BettingOrchestrator:
             logger.warning("COLLAPSED状態が連続 → 再学習をトリガー")
             self._trigger_retrain()
 
+        # ⑥-b 短距離レース除外 (<1200m)
+        if race.distance < 1200:
+            logger.info(f"Skipping short-distance race: {race.race_id} (distance={race.distance}m)")
+            return []
+
         # ⑦ RaceQualityScreener（レースレベル特徴量を抽出）
         race_features = self._build_race_features(feats)
         if not self.quality_screener.should_bet(race_features):
