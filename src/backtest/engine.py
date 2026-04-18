@@ -579,6 +579,23 @@ class BacktestEngine:
                 if b.bet_type != BetType.WIDE or _tc_int != 2
             ]
 
+            # ワイド grade E 除外 (ROI 53.5%, 142 bets, -6,597円)
+            bets = [
+                b for b in bets
+                if b.bet_type != BetType.WIDE or _grade_code != "E"
+            ]
+
+            # ワイド長距離除外 (distance >= 2800m, 51 bets, -3,570円)
+            bets = [
+                b for b in bets
+                if b.bet_type != BetType.WIDE or not (
+                    pd.notna(_race_dist) and int(_race_dist) >= 2800
+                )
+            ]
+
+            # ワイド高オッズ拡張除外 (odds >= 30 は全敗: ROI 0.0%, 49 bets, -4,900円)
+            bets = [b for b in bets if b.bet_type != BetType.WIDE or b.odds < 30.0]
+
             # Bet に確定オッズを設定（place/win のみ。wide は wide_payout_map で精算）
             updated_bets = []
             for bet in bets:

@@ -80,11 +80,18 @@ def build_parser() -> argparse.ArgumentParser:
         help="ベット額計算モード (flat=100円固定, kelly=Fractional Kelly)",
     )
     parser.add_argument("--ensemble", action="store_true", help="アンサンブル (B1) を有効化")
+    parser.add_argument(
+        "--skip-train",
+        action="store_true",
+        help="学習をスキップし、キャッシュ済みモデルをロードしてテストのみ実行",
+    )
     return parser
 
 
 def validate_args(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:
     """引数の排他バリデーション"""
+    if args.skip_train and not args.ensemble:
+        parser.error("--skip-train requires --ensemble (キャッシュモデルはensemble前提)")
     if args.years:
         return  # マルチ年度モード — OK
     single_year_args = [args.train_start, args.train_end, args.test_start, args.test_end]
@@ -92,6 +99,49 @@ def validate_args(parser: argparse.ArgumentParser, args: argparse.Namespace) -> 
         return  # 単一年度モード — OK
     parser.error(
         "単一年度モードには --train-start, --train-end, --test-start, --test-end が必要です"
+    )
+
+
+def _load_cached_models(model_dir: Path) -> Any:
+    """キャッシュ済みモデルをディレクトリからロードする。
+
+    Args:
+        model_dir: meta.json が含まれるディレクトリ (例: data/models-backtest/ または
+                   data/models-backtest/2025/)
+
+    Returns:
+        TrainedModelsV5
+    """
+    from db.model_loader import ModelLoader
+
+    loader = ModelLoader()
+    models, info = loader._load_from_local(model_dir, use_ensemble_override=True)
+    logger.info(
+        "キャッシュモデルをロード: %s (学習期間: %s ~ %s)",
+        model_dir,
+        info.train_start,
+        info.train_end,
+    )
+    return models
+
+
+def _get_model_dir(base_dir: Path, test_year: int | None = None) -> Path:
+    """年度別モデルディレクトリを解決。
+
+    優先順位:
+    1. {base_dir}/{year}/ (年度別サブディレクトリ)
+    2. {base_dir}/ (フラット構成 — 従来互換)
+    """
+    if test_year is not None:
+        year_dir = base_dir / str(test_year)
+        if (year_dir / "meta.json").is_file():
+            return year_dir
+    if (base_dir / "meta.json").is_file():
+        return base_dir
+    raise FileNotFoundError(
+        f"キャッシュモデルが見つかりません: {base_dir} "
+        f"(test_year={test_year} の meta.json が存在しません。"
+        f"先に --skip-train なしで実行してください。)"
     )
 
 
@@ -222,24 +272,35 @@ def _run_single_year(args: argparse.Namespace) -> None:
         logger.error("Parquetデータが見つかりません。先に run_etl.py を実行してください。")
         sys.exit(1)
 
-    # 学習
-    logger.info("=" * 50)
-    logger.info("  学習期間: %s ~ %s", train_start, train_end)
-    logger.info("=" * 50)
+    # 学習 または キャッシュロード
     t0 = time.time()
+    model_dir = Path("data/models-backtest")
 
-    pipeline = TrainingPipelineV5(store=store, model_dir=Path("data/models-backtest"))
-    try:
-        models = pipeline.run(train_start, train_end, use_ensemble=args.ensemble)
-    except KeyboardInterrupt:
-        logger.warning("学習が中断されました")
-        sys.exit(1)
-    except Exception as e:
-        logger.error("学習失敗: %s", e)
-        sys.exit(1)
+    if args.skip_train:
+        logger.info("学習スキップ (--skip-train)")
+        try:
+            models = _load_cached_models(model_dir)
+        except FileNotFoundError as e:
+            logger.error("%s", e)
+            sys.exit(1)
+        elapsed_train = 0.0
+    else:
+        logger.info("=" * 50)
+        logger.info("  学習期間: %s ~ %s", train_start, train_end)
+        logger.info("=" * 50)
 
-    elapsed_train = time.time() - t0
-    logger.info("学習完了 (%.0f秒)", elapsed_train)
+        pipeline = TrainingPipelineV5(store=store, model_dir=model_dir)
+        try:
+            models = pipeline.run(train_start, train_end, use_ensemble=args.ensemble)
+        except KeyboardInterrupt:
+            logger.warning("学習が中断されました")
+            sys.exit(1)
+        except Exception as e:
+            logger.error("学習失敗: %s", e)
+            sys.exit(1)
+
+        elapsed_train = time.time() - t0
+        logger.info("学習完了 (%.0f秒)", elapsed_train)
 
     # バックテスト
     logger.info("=" * 50)
@@ -315,6 +376,7 @@ def _run_multi_year(args: argparse.Namespace) -> None:
 
     all_results: dict[int, Any] = {}
     all_metadata: dict[int, dict[str, str]] = {}
+    base_model_dir = Path("data/models-backtest")
 
     for test_year in args.years:
         train_start = f"{test_year - args.train_window}-01-01"
@@ -327,20 +389,35 @@ def _run_multi_year(args: argparse.Namespace) -> None:
         print(f"  {test_year}年 (学習: {train_start[:4]}-{train_end[:4]})")
         print("=" * 50)
 
-        # 学習
+        # 学習 または キャッシュロード
         t0 = time.time()
-        try:
-            from pipelines.training_pipeline import TrainingPipelineV5
 
-            pipeline = TrainingPipelineV5(store=store, model_dir=Path("data/models-backtest"))
-            models = pipeline.run(train_start, train_end, use_ensemble=args.ensemble)
-        except KeyboardInterrupt:
-            logger.warning("中断されました")
-            sys.exit(1)
-        except Exception as e:
-            logger.error("%d年 学習失敗: %s — スキップ", test_year, e)
-            continue
-        elapsed_train = time.time() - t0
+        if args.skip_train:
+            logger.info("%d年: 学習スキップ (--skip-train)", test_year)
+            try:
+                models = _load_cached_models(
+                    _get_model_dir(base_model_dir, test_year)
+                )
+            except FileNotFoundError as e:
+                logger.error("%s — スキップ", e)
+                continue
+            elapsed_train = 0.0
+        else:
+            # 年度別サブディレクトリに保存 (マルチ年度で各年度のモデルを保持)
+            year_model_dir = base_model_dir / str(test_year)
+            year_model_dir.mkdir(parents=True, exist_ok=True)
+            try:
+                from pipelines.training_pipeline import TrainingPipelineV5
+
+                pipeline = TrainingPipelineV5(store=store, model_dir=year_model_dir)
+                models = pipeline.run(train_start, train_end, use_ensemble=args.ensemble)
+            except KeyboardInterrupt:
+                logger.warning("中断されました")
+                sys.exit(1)
+            except Exception as e:
+                logger.error("%d年 学習失敗: %s — スキップ", test_year, e)
+                continue
+            elapsed_train = time.time() - t0
 
         # バックテスト
         t1 = time.time()
