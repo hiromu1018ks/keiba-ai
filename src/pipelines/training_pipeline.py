@@ -501,13 +501,14 @@ class TrainingPipelineV5:
         with TimingContext(f"{surface}/place_predict"):
             df_oof = place_2s.predict_ev(df_oof)
 
-        # 5b. Benter Combination + Isotonic Calibration
+        # 5b. Benter Combination + Isotonic Calibration + Temperature Scaling
         benter_combo = None
         isotonic_cal = None
+        temp_scaler = None
         if hasattr(place_2s, "_val_p_raw") and len(place_2s._val_p_raw) >= 500:
             from sklearn.isotonic import IsotonicRegression
 
-            from models.benter_combination import BenterCombination
+            from models.benter_combination import BenterCombination, TemperatureScaling
 
             val_p = place_2s._val_p_raw
             val_p_market = np.where(
@@ -530,6 +531,14 @@ class TrainingPipelineV5:
                 iso.fit(val_p_combined, val_y)
                 isotonic_cal = iso
                 logger.info("Isotonic calibrator fitted on %d samples", len(val_p))
+
+            # v5: Temperature Scaling — Isotonic後の過信/過少評価を補正
+            with TimingContext(f"{surface}/temperature"):
+                val_p_isotonic = isotonic_cal.transform(val_p_combined)
+                temp_scaler = TemperatureScaling.fit(val_p_isotonic, val_y)
+                logger.info(
+                    "Temperature Scaling: T=%.4f", temp_scaler.temperature
+                )
 
         # 5a. Place EV補正 (P/E decomposition)
         with TimingContext(f"{surface}/place_ev_correction"):
@@ -574,6 +583,7 @@ class TrainingPipelineV5:
             use_ensemble=use_ensemble,
             benter_combo=benter_combo,
             isotonic_calibrator=isotonic_cal,
+            temperature_scaler=temp_scaler,
         )
 
     def _build_race_level_features(self, feat_df: pd.DataFrame) -> pd.DataFrame:
@@ -938,6 +948,10 @@ class TrainingPipelineV5:
                     sub.isotonic_calibrator,
                     models_dir / f"isotonic_place_{surface}.joblib",
                 )
+
+            # v5: Temperature Scaler (JSON)
+            if sub.temperature_scaler is not None:
+                sub.temperature_scaler.save(models_dir / f"temp_scale_{surface}.json")
 
         saved["race_quality"] = quality_screen.model
         saved["regime_detector"] = regime_det.model

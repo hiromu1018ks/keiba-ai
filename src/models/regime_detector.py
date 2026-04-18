@@ -182,9 +182,9 @@ class RegimeDetector:
         if regime == RegimeState.AGGRESSIVE:
             return {
                 "ev_threshold": 1.10,
-                "edge_threshold": 0.03,  # 3% edge — Value Betting
+                "edge_threshold": 0.04,  # v5: 0.05→0.04 ベット数確保
                 "score_threshold": 0.010,
-                "max_bets_per_race": 3,
+                "max_bets_per_race": 2,  # v5: 3→2 過剰ベット抑制
                 "description": "歪み強い -> 攻める",
             }
         elif regime == RegimeState.CONSERVATIVE:

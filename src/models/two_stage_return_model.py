@@ -219,6 +219,12 @@ class PlaceTwoStageModel:
         "grade_code",
         "field_size",
         "odds_skewness",
+        # --- v5: レースコンテキスト特徴量 ---
+        "race_mean_fuku_odds",
+        "race_std_fuku_odds",
+        "odds_gap_fav12",
+        "odds_popularity_gap",
+        "surface_track_interaction",
     ]
 
     # --- Return model (Stage B): 配当回帰用 ---
@@ -263,7 +269,9 @@ class PlaceTwoStageModel:
         self, df: pd.DataFrame, *, use_cols: list[str] | None = None
     ) -> pd.DataFrame:
         cols = use_cols or self.FEATURE_COLS
-        features = df[cols].copy()
+        # v5: 新規特徴量はテストデータに存在しない場合があるため、存在する列のみ使用
+        available_cols = [c for c in cols if c in df.columns]
+        features = df[available_cols].copy()
         # Int64 (nullable int) → float64 (LightGBMが対応する型)
         for col in features.columns:
             if pd.api.types.is_integer_dtype(features[col]):

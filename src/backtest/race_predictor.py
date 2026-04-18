@@ -139,6 +139,11 @@ class RacePredictor:
             cal = submodel.isotonic_calibrator
             if cal is not None:
                 df["p_place_combined"] = cal.transform(df["p_place_combined"])
+
+            # v5: Temperature Scaling (optional post-isotonic)
+            temp = submodel.temperature_scaler
+            if temp is not None:
+                df["p_place_combined"] = temp.transform(df["p_place_combined"])
         else:
             # フォールバック: Benter なし → raw p_place_pred を使用
             df["p_place_combined"] = df["p_place_pred"]
@@ -167,7 +172,9 @@ class RacePredictor:
     ) -> list[Bet]:
         """Benter Value Betting: edge >= threshold の馬を選択 + ワイドペア生成。
 
-        Place: edge = p_place_combined * fukuoddslow - 1.0
+        v5: edge_place_corrected (PlaceEVCorrectionModel出力) を優先使用。
+        補正済みedgeは生のedgeよりキャリブレーションが良く、過信を抑制する。
+        Place: edge = ev_place_corrected - 1.0 (or p_combined * odds - 1.0)
         Wide: WideTwoStageModel でスコアリング
         """
         regime = self.models.regime_detector.current_regime
@@ -177,7 +184,8 @@ class RacePredictor:
         edge_threshold = regime_params.get("edge_threshold", 0.03)
         max_bets = regime_params.get("max_bets_per_race", 3)
 
-        # Use raw edge for place bet selection (better calibrated)
+        # v5: 補正済みedgeは過剰ベットを招くため、生のedgeを使用
+        # (edge_place_corrected は wide 選択でのみ使用)
         edge_col = "edge_place"
         if edge_col not in race_df.columns or "fukuoddslow" not in race_df.columns:
             return bets

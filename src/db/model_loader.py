@@ -488,6 +488,16 @@ class ModelLoader:
                 except Exception:
                     logger.warning("Failed to load %s, skipping", iso_file)
 
+            # v5: Temperature Scaler (JSON)
+            temperature_scaler = None
+            temp_file = models_dir / f"temp_scale_{surface}.json"
+            if temp_file.is_file():
+                try:
+                    from models.benter_combination import TemperatureScaling
+                    temperature_scaler = TemperatureScaling.load(temp_file)
+                except Exception:
+                    logger.warning("Failed to load %s, skipping", temp_file)
+
             submodels[surface] = SubmodelSet(
                 market=market,
                 stage1=ability,
@@ -500,6 +510,7 @@ class ModelLoader:
                 confidence=confidence,
                 benter_combo=benter_combo,
                 isotonic_calibrator=isotonic_calibrator,
+                temperature_scaler=temperature_scaler,
             )
 
         # RaceQualityScreener

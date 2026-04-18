@@ -272,7 +272,7 @@ class TestTwoStageConfig:
     def test_defaults(self):
         config = TwoStageConfig()
         assert config.hit_metric == "auc"
-        assert config.hit_rounds == 500
+        assert config.hit_rounds == 300  # v5: 500→300
         assert config.return_rounds == 300
         assert config.min_hit_samples == 200
 

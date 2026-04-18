@@ -399,23 +399,6 @@ class BacktestEngine:
             if race_df_single.empty:
                 continue
 
-            # 短距離レース除外 (<1400m, JRA「短距離」分類)
-            _race_distance = race_df_single.iloc[0].get("kyori", 0)
-            if pd.notna(_race_distance) and int(_race_distance) < 1400:
-                continue
-
-            # 重馬場除外 (track_condition_code >= 3: 重/不良)
-            _tc_raw = race_df_single.iloc[0].get("track_condition_code", 0)
-            _track_cond = int(_tc_raw) if pd.notna(_tc_raw) else 0
-            if _track_cond >= 3:
-                continue
-
-            # G1レース除外 (grade_code='A': 最強馬が揃い予測困難)
-            _grade_raw = race_df_single.iloc[0].get("grade_code", "_")
-            _grade_code = str(_grade_raw) if pd.notna(_grade_raw) else "_"
-            if _grade_code == "A":
-                continue
-
             # --- レースメタデータ抽出 (bet_history拡張用) ---
             race_row = race_df_single.iloc[0]
             race_date_str = (
@@ -530,71 +513,8 @@ class BacktestEngine:
             surface_key = result_df["surface"].iloc[0]
             bets = self._race_predictor.select_bets(result_df, bankroll)
 
-            # 最小edge フィルタ (edge < 0.09 の低信頼度ベットを除外、wide は対象外)
-            bets = [b for b in bets if b.bet_type != BetType.PLACE or b.edge >= 0.09]
-
-            # edge過信フィルタ (edge [0.15-0.20) と [0.65-0.70) はキャリブレーション不良)
-            bets = [b for b in bets if b.bet_type != BetType.PLACE or not (
-                0.15 <= b.edge < 0.20 or 0.65 <= b.edge < 0.70
-            )]
-
-            # オッズフィルタ (オッズ 2.0-3.0 の人気馬は市場が効率的でエッジが小さい)
-            bets = [b for b in bets if b.bet_type != BetType.PLACE or b.odds < 2.0 or b.odds >= 3.0]
-
-            # マイル中オッズ除外 (odds [5-10) × dist [1600-1800) は予測不毛地帯)
-            _race_dist = race_df_single.iloc[0].get("kyori", 0)
-            bets = [
-                b for b in bets
-                if b.bet_type != BetType.PLACE or not (
-                    5.0 <= b.odds < 10.0
-                    and pd.notna(_race_dist)
-                    and 1600 <= int(_race_dist) < 1800
-                )
-            ]
-
-            # ワイドマイル除外 (1400-1700m のワイドはROI 19.5%で最大損失セグメント)
-            bets = [
-                b for b in bets
-                if b.bet_type != BetType.WIDE or not (
-                    pd.notna(_race_dist) and 1400 <= int(_race_dist) < 1700
-                )
-            ]
-
-            # ワイド高オッズ除外 (odds >= 50 は全敗: ROI 0.0%, 144 bets, -14,400円)
-            bets = [b for b in bets if b.bet_type != BetType.WIDE or b.odds < 50.0]
-
-            # ワイド dirt中オッズ除外 (dirt × odds [10-20) は ROI 0.0%, 129 bets)
-            bets = [
-                b for b in bets
-                if b.bet_type != BetType.WIDE or not (
-                    surface_key == "dirt" and 10.0 <= b.odds < 20.0
-                )
-            ]
-
-            # ワイド稍重馬場除外 (track_condition_code=2 は ROI 0.0%, 123 bets)
-            _tc = race_df_single.iloc[0].get("track_condition_code", 0)
-            _tc_int = int(_tc) if pd.notna(_tc) else 0
-            bets = [
-                b for b in bets
-                if b.bet_type != BetType.WIDE or _tc_int != 2
-            ]
-
-            # ワイド grade E 除外 (ROI 53.5%, 142 bets, -6,597円)
-            bets = [
-                b for b in bets
-                if b.bet_type != BetType.WIDE or _grade_code != "E"
-            ]
-
-            # ワイド長距離除外 (distance >= 2800m, 51 bets, -3,570円)
-            bets = [
-                b for b in bets
-                if b.bet_type != BetType.WIDE or not (
-                    pd.notna(_race_dist) and int(_race_dist) >= 2800
-                )
-            ]
-
-            # ワイド高オッズ拡張除外 (odds >= 30 は全敗: ROI 0.0%, 49 bets, -4,900円)
-            bets = [b for b in bets if b.bet_type != BetType.WIDE or b.odds < 30.0]
+            # v5: セグメント除外フィルタ全削除 — モデル自身がedgeを低く見積もるように改善する
+            # (旧v4の14個の除外フィルタは全て削除)
 
             # Bet に確定オッズを設定（place/win のみ。wide は wide_payout_map で精算）
             updated_bets = []

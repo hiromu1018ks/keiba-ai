@@ -15,7 +15,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-TEMPERATURE: float = 0.7  # <1 で分布を尖らせる
+TEMPERATURE: float = 1.0  # v5: 1.0 (no scaling) — T<1 causes overconfidence
 
 
 class PlaceAbilityModel:
@@ -85,6 +85,11 @@ class PlaceAbilityModel:
         # コース適性 (2)
         "course_wr",
         "course_distance_wr",
+        # v5: レースコンテキスト特徴量
+        "race_mean_fuku_odds",
+        "race_std_fuku_odds",
+        "odds_popularity_gap",
+        "surface_track_interaction",
     ]
 
     def __init__(self) -> None:
@@ -100,7 +105,9 @@ class PlaceAbilityModel:
 
         df = df.copy()
         y = (df["kakuteijyuni"] <= 3).astype(int)
-        X = df[self.FEATURE_COLS].copy()  # noqa: N806
+        # v5: 新規特徴量はテストデータに存在しない場合があるため、存在する列のみ使用
+        available_cols = [c for c in self.FEATURE_COLS if c in df.columns]
+        X = df[available_cols].copy()  # noqa: N806
         for col in [
             "surface",
             "distance_bin",
@@ -129,13 +136,13 @@ class PlaceAbilityModel:
         self._model = lgb.LGBMClassifier(
             objective="binary",
             scale_pos_weight=scale_pos_weight,
-            num_leaves=31,
+            num_leaves=15,  # v5: 31→15 過学習抑制
             max_depth=-1,
-            min_data_in_leaf=100,
+            min_data_in_leaf=200,  # v5: 100→200 過学習抑制
             feature_fraction=0.7,
-            reg_lambda=1.0,
+            reg_lambda=2.0,  # v5: 1.0→2.0 正則化強化
             learning_rate=0.03,
-            n_estimators=500,
+            n_estimators=300,  # v5: 500→300 過学習抑制
             n_jobs=n_jobs,
             verbose=-1,
         )
@@ -157,7 +164,8 @@ class PlaceAbilityModel:
     def predict(self, df: pd.DataFrame) -> pd.DataFrame:
         """p_ability_place を設定して df を返す"""
         df = df.copy()
-        X = df[self.FEATURE_COLS].copy()  # noqa: N806
+        available_cols = [c for c in self.FEATURE_COLS if c in df.columns]
+        X = df[available_cols].copy()  # noqa: N806
         for col in [
             "surface",
             "distance_bin",

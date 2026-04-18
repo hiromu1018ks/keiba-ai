@@ -10,7 +10,7 @@ from sklearn.isotonic import IsotonicRegression
 from domain.types import BetType, RecoveryState, Surface
 
 if TYPE_CHECKING:
-    from models.benter_combination import BenterCombination
+    from models.benter_combination import BenterCombination, TemperatureScaling
     from models.ev_correction_model import EVCorrectionModel, PlaceEVCorrectionModel
     from models.market_model import MarketModel
     from models.place_ability_model import PlaceAbilityModel
@@ -208,12 +208,15 @@ class RegimeConfig:
 
 @dataclass
 class TwoStageConfig:
-    """2段階モデルハイパーパラメータ（§2）"""
+    """2段階モデルハイパーパラメータ（§2）
+
+    v5: hit_leaves 31→15, hit_rounds 500→300 — 過学習抑制
+    """
 
     hit_metric: str = "auc"
-    hit_leaves: int = 31
+    hit_leaves: int = 15
     hit_lr: float = 0.03
-    hit_rounds: int = 500
+    hit_rounds: int = 300
     return_metric: str = "mae"
     return_leaves: int = 15
     return_lr: float = 0.03
@@ -240,6 +243,7 @@ class SubmodelSet:
     use_ensemble: bool = False
     benter_combo: BenterCombination | None = None
     isotonic_calibrator: IsotonicRegression | None = None
+    temperature_scaler: TemperatureScaling | None = None
 
 
 @dataclass
