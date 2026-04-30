@@ -136,9 +136,11 @@ class RacePredictor:
             )
 
             # Isotonic calibration (optional post-processing)
-            cal = submodel.isotonic_calibrator
-            if cal is not None:
-                df["p_place_combined"] = cal.transform(df["p_place_combined"])
+            # v5.6: Isotonic post-Benter is too aggressive (pushes mean 0.224 vs true ~0.375).
+            # Benter combination already calibrates; skip additional isotonic correction.
+            # cal = submodel.isotonic_calibrator
+            # if cal is not None:
+            #     df["p_place_combined"] = cal.transform(df["p_place_combined"])
 
             # v5: Temperature Scaling (optional post-isotonic)
             temp = submodel.temperature_scaler
