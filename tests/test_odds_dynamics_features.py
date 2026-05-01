@@ -88,10 +88,9 @@ class TestOddsDynamicsFeatures:
     def test_odds_velocity(self, base_df: pd.DataFrame, odds_ts_df: pd.DataFrame):
         """オッズ変化速度（線形回帰の傾き）を計算"""
         result = compute_odds_dynamics(base_df, odds_ts_df)
-        # umaban=1: 傾き=0.5 (等間隔で+0.5ずつ)
-        assert abs(result.iloc[0]["odds_velocity"] - 0.5) < 1e-10
-        # umaban=2: 傾き=-1.0
-        assert abs(result.iloc[1]["odds_velocity"] - (-1.0)) < 1e-10
+        # 10分間隔なので、1分あたりの傾き
+        assert abs(result.iloc[0]["odds_velocity"] - 0.05) < 1e-10
+        assert abs(result.iloc[1]["odds_velocity"] - (-0.1)) < 1e-10
         # umaban=3: 傾き=0.0
         assert abs(result.iloc[2]["odds_velocity"] - 0.0) < 1e-10
 
@@ -185,6 +184,21 @@ class TestOddsDynamicsFeatures:
         result = compute_odds_dynamics(base_df, odds_ts_df)
         assert "race_id" in result.columns
         assert "umaban" in result.columns
+
+    def test_irregular_timestamps_use_actual_time(self, base_df: pd.DataFrame) -> None:
+        """30→10 は中点ではなく実時刻に最も近いスナップショットを使う"""
+        odds_ts = pd.DataFrame(
+            {
+                "race_id": ["R1", "R1", "R1"],
+                "happyotime": ["03241000", "03241027", "03241050"],
+                "umaban": [1, 1, 1],
+                "tanodds": [6.0, 4.0, 3.0],
+                "ninki": [5, 3, 2],
+            }
+        )
+        result = compute_odds_dynamics(base_df.iloc[:1], odds_ts)
+        assert result["odds_drop_rate_30_10"].iloc[0] == pytest.approx((4.0 - 3.0) / 4.0)
+        assert result["popularity_change_30_10"].iloc[0] == 1
 
 
 class TestComputeRollingVolatility:

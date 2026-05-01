@@ -62,10 +62,9 @@ def precompute_career_stats(
             cum_turf_good_starts/wins, cum_turf_heavy_starts/wins,
             cum_dirt_good_starts/wins, cum_dirt_heavy_starts/wins
     """
-    # JRA レースのみ (jyocd 1-10)
-    jyocd_num = pd.to_numeric(entries_df["jyocd"], errors="coerce")
-    jra_mask = jyocd_num.between(1, 10)
-    ent = entries_df[jra_mask].copy()
+    # JRA/NAR を区別せず全履歴を保持する。
+    # 地方→中央の転入馬で履歴を欠落させないため、ここでは除外しない。
+    ent = entries_df.copy()
 
     # entries.parquet に (race_id, kettonum) の重複があると
     # career stats が爆発するため dedup（最新の行を残す）

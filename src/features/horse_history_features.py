@@ -39,6 +39,33 @@ CLIP_HI: float = 0.95
 ALPHA_PRIOR: float = 1.0
 BETA_PRIOR: float = 20.0
 
+_CLASS_LEVEL_MAP: dict[str, float] = {
+    "A": 8.0,
+    "B": 7.0,
+    "C": 6.0,
+    "D": 5.0,
+    "E": 4.0,
+}
+
+
+def _coerce_float(value: object) -> float:
+    numeric = pd.to_numeric(pd.Series([value]), errors="coerce").iloc[0]
+    return float(numeric) if pd.notna(numeric) else float("nan")
+
+
+def _class_level_from_values(grade_code: object, jyoken_code: object) -> float:
+    grade = str(grade_code).strip() if pd.notna(grade_code) else ""
+    if grade in _CLASS_LEVEL_MAP:
+        return _CLASS_LEVEL_MAP[grade]
+    return _coerce_float(jyoken_code)
+
+
+def _blinker_flag(value: object) -> float:
+    flag = _coerce_float(value)
+    if np.isnan(flag):
+        return float("nan")
+    return 1.0 if flag > 0 else 0.0
+
 # ---------------------------------------------------------------------------
 # Helper: normalised finish-logit
 # ---------------------------------------------------------------------------
@@ -230,6 +257,12 @@ class HorseHistoryFeatures:
         "form_trend",
         "form_consistency",
         "form_peak_flag",
+        # 追加改善特徴量
+        "class_move",
+        "blinker_change",
+        "is_nar_transfer",
+        "nar_recent_ratio",
+        "track_condition_delta",
     ]
 
     def __init__(self, store: ParquetStore, *, n_past: int = 5) -> None:
@@ -262,12 +295,26 @@ class HorseHistoryFeatures:
             entry_df = entry_df[entry_df["race_id"].isin(target_race_ids)]
 
         # 対象レースの馬・騎手リスト
-        horses = entry_df[["race_id", "umaban", "kettonum", "kisyucode"]].copy()
+        base_cols = ["race_id", "umaban", "kettonum", "kisyucode"]
+        optional_entry_cols = [c for c in ["blinker", "jyocd"] if c in entry_df.columns]
+        horses = entry_df[base_cols + optional_entry_cols].copy()
         # datakubun違いで同一(race_id, umaban)が複数行存在する場合は先頭を保持
         horses = horses.drop_duplicates(subset=["race_id", "umaban"], keep="first")
-        if "race_date" not in horses.columns:
-            date_map = race_df.set_index("race_id")["race_date"]
-            horses["race_date"] = horses["race_id"].map(date_map)
+        race_context_cols = [
+            c
+            for c in [
+                "race_id",
+                "race_date",
+                "surface",
+                "track_condition_code",
+                "gradecd",
+                "jyokencd1",
+            ]
+            if c in race_df.columns
+        ]
+        if race_context_cols:
+            race_context = race_df[race_context_cols].drop_duplicates(subset=["race_id"])
+            horses = horses.merge(race_context, on="race_id", how="left")
 
         unique_ketto = horses["kettonum"].unique().tolist()
         unique_kisyu = horses["kisyucode"].unique().tolist()
@@ -298,6 +345,8 @@ class HorseHistoryFeatures:
             "kyori",
             "surface",
             "track_condition_code",
+            "gradecd",
+            "jyokencd1",
         ]
         races_subset = races_hist[races_hist["race_id"].isin(entries_filtered["race_id"].unique())]
         race_cols = [c for c in race_cols_all if c in races_subset.columns]
@@ -370,6 +419,11 @@ class HorseHistoryFeatures:
             "jyuni4c",
             "kyakusitukubun",
             "bataijyu",
+            "track_condition_code",
+            "gradecd",
+            "jyokencd1",
+            "blinker",
+            "jyocd",
         ]
         cols_jockey = ["race_date", "kakuteijyuni", "odds"]
         cols_jockey_all = ["race_date", "kakuteijyuni", "surface"]
@@ -510,11 +564,11 @@ class HorseHistoryFeatures:
 
             # --- Horse features: O(1) lookup + O(log m) searchsorted ---
             horse_arrs = past_by_ketto_arr.get(ketto)
+            target_date_np = np.datetime64(race_date, "ns")
             if horse_arrs is not None and len(horse_arrs.get("race_date", [])) > 0:
+                dates_all = horse_arrs["race_date"].astype("datetime64[ns]")
                 valid_mask = horse_arrs["_valid_mask"]
                 if valid_mask.any():
-                    dates_all = horse_arrs["race_date"].astype("datetime64[ns]")
-                    target_date_np = np.datetime64(race_date, "ns")
                     # searchsorted on valid dates only
                     valid_dates = dates_all[valid_mask]
                     idx = valid_dates.searchsorted(target_date_np, side="left")
@@ -527,6 +581,20 @@ class HorseHistoryFeatures:
                     n_past = 0
             else:
                 n_past = 0
+
+            history_mask = (
+                (horse_arrs["kakuteijyuni"] > 0)
+                if horse_arrs is not None and "kakuteijyuni" in horse_arrs
+                else np.array([], dtype=bool)
+            )
+            has_history = horse_arrs is not None and len(horse_arrs.get("race_date", [])) > 0
+            if has_history and history_mask.any():
+                history_dates = dates_all[history_mask]
+                hist_idx = history_dates.searchsorted(target_date_np, side="left")
+                hist_start = max(0, hist_idx - self._n_past)
+            else:
+                hist_idx = 0
+                hist_start = 0
 
             # A3: days_since_last_race + rest_category
             if n_past > 0:
@@ -735,7 +803,9 @@ class HorseHistoryFeatures:
                     ja_surfaces = ja_surfaces[:idx_ja]
                 current_surface = str(row.surface) if hasattr(row, "surface") else ""
                 cond_mask = (
-                    (ja_surfaces == current_surface) if len(ja_surfaces) > 0 else np.array([], dtype=bool)
+                    (ja_surfaces == current_surface)
+                    if len(ja_surfaces) > 0
+                    else np.array([], dtype=bool)
                 )
             else:
                 total_rides = 0
@@ -751,7 +821,11 @@ class HorseHistoryFeatures:
                 global_wr = total_wins / max(total_rides, 1)
                 cond_rides = int(cond_mask.sum()) if len(cond_mask) > 0 else 0
                 if cond_rides >= 5:
-                    cond_wins = int((ja_kakuteijyuni[cond_mask] == 1).sum()) if len(cond_mask) > 0 else 0
+                    cond_wins = (
+                        int((ja_kakuteijyuni[cond_mask] == 1).sum())
+                        if len(cond_mask) > 0
+                        else 0
+                    )
                     cond_wr = cond_wins / max(cond_rides, 1)
                     w = min(cond_rides / (cond_rides + k_smooth), 1.0)
                 else:
@@ -798,6 +872,97 @@ class HorseHistoryFeatures:
                 form_consistency = float("nan")
                 form_peak_flag = float("nan")
 
+            # class_move: 現在クラス - 前走クラス (正=昇級, 負=降級)
+            current_class_level = _class_level_from_values(
+                getattr(row, "gradecd", float("nan")),
+                getattr(row, "jyokencd1", float("nan")),
+            )
+            if hist_idx > 0 and horse_arrs is not None:
+                last_grade = (
+                    horse_arrs["gradecd"][history_mask][hist_start:hist_idx][-1]
+                    if "gradecd" in horse_arrs
+                    else float("nan")
+                )
+                last_jyoken = (
+                    horse_arrs["jyokencd1"][history_mask][hist_start:hist_idx][-1]
+                    if "jyokencd1" in horse_arrs
+                    else float("nan")
+                )
+                last_class_level = _class_level_from_values(last_grade, last_jyoken)
+                class_move = (
+                    current_class_level - last_class_level
+                    if not np.isnan(current_class_level) and not np.isnan(last_class_level)
+                    else float("nan")
+                )
+            else:
+                class_move = float("nan")
+
+            # equipment / transfer / track-condition deltas
+            current_blinker = _blinker_flag(getattr(row, "blinker", float("nan")))
+            current_jyocd = _coerce_float(getattr(row, "jyocd", float("nan")))
+            current_track_condition = _coerce_float(
+                getattr(row, "track_condition_code", float("nan"))
+            )
+            if hist_idx > 0 and horse_arrs is not None:
+                last_blinker = (
+                    _blinker_flag(horse_arrs["blinker"][history_mask][hist_start:hist_idx][-1])
+                    if "blinker" in horse_arrs
+                    else float("nan")
+                )
+                blinker_change = (
+                    current_blinker - last_blinker
+                    if not np.isnan(current_blinker) and not np.isnan(last_blinker)
+                    else float("nan")
+                )
+
+                last_jyocd = (
+                    _coerce_float(horse_arrs["jyocd"][history_mask][hist_start:hist_idx][-1])
+                    if "jyocd" in horse_arrs
+                    else float("nan")
+                )
+                is_nar_transfer = (
+                    1.0
+                    if not np.isnan(current_jyocd)
+                    and not np.isnan(last_jyocd)
+                    and current_jyocd <= 10
+                    and last_jyocd > 10
+                    else 0.0
+                    if not np.isnan(current_jyocd) and not np.isnan(last_jyocd)
+                    else float("nan")
+                )
+
+                recent_jyocd = (
+                    pd.to_numeric(
+                        pd.Series(horse_arrs["jyocd"][history_mask][hist_start:hist_idx]),
+                        errors="coerce",
+                    )
+                    if "jyocd" in horse_arrs
+                    else pd.Series(dtype=float)
+                )
+                nar_recent_ratio = (
+                    float((recent_jyocd > 10).mean())
+                    if not recent_jyocd.empty and recent_jyocd.notna().any()
+                    else float("nan")
+                )
+
+                last_track_condition = (
+                    _coerce_float(
+                        horse_arrs["track_condition_code"][history_mask][hist_start:hist_idx][-1]
+                    )
+                    if "track_condition_code" in horse_arrs
+                    else float("nan")
+                )
+                track_condition_delta = (
+                    current_track_condition - last_track_condition
+                    if not np.isnan(current_track_condition) and not np.isnan(last_track_condition)
+                    else float("nan")
+                )
+            else:
+                blinker_change = float("nan")
+                is_nar_transfer = float("nan")
+                nar_recent_ratio = float("nan")
+                track_condition_delta = float("nan")
+
             results.append(
                 {
                     "race_id": row.race_id,
@@ -820,6 +985,11 @@ class HorseHistoryFeatures:
                     "form_trend": form_trend,
                     "form_consistency": form_consistency,
                     "form_peak_flag": form_peak_flag,
+                    "class_move": class_move,
+                    "blinker_change": blinker_change,
+                    "is_nar_transfer": is_nar_transfer,
+                    "nar_recent_ratio": nar_recent_ratio,
+                    "track_condition_delta": track_condition_delta,
                 }
             )
 

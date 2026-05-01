@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+import logging
+
 import numpy as np
 import pandas as pd
+
+logger = logging.getLogger(__name__)
 
 
 class RobustConfidenceEstimator:
@@ -47,20 +51,34 @@ class RobustConfidenceEstimator:
             win_df: ev_win_corrected, actual_ev_win を含む
             place_df: ev_place_corrected, actual_ev_place を含む
         """
+        win_pred = pd.to_numeric(win_df["ev_win_corrected"], errors="coerce")
+        win_actual = pd.to_numeric(win_df["actual_ev_win"], errors="coerce")
+        win_mask = win_pred.notna() & win_actual.notna()
+
         # Win CP: 非適合スコア = |actual - predicted|
-        win_residuals = (win_df["actual_ev_win"] - win_df["ev_win_corrected"]).abs()
-        self._win_cp_quantile = float(np.quantile(win_residuals.values, 1 - self.alpha))
+        win_residuals = (win_actual[win_mask] - win_pred[win_mask]).abs()
+        if win_residuals.empty:
+            logger.warning("No valid win residuals for confidence calibration")
+            self._win_cp_quantile = 0.0
+            self._win_rolling_quantile = 0.0
+        else:
+            self._win_cp_quantile = float(np.quantile(win_residuals.values, 1 - self.alpha))
+            self._win_rolling_quantile = float(np.std(win_residuals.values) * 1.5)
 
         # Place CP
-        place_residuals = (place_df["actual_ev_place"] - place_df["ev_place_corrected"]).abs()
-        self._place_cp_quantile = float(np.quantile(place_residuals.values, 1 - self.alpha))
-
-        # Rolling Quantile: 残差の標準偏差ベース
-        # キャリブレーション時は全体のstdを使用し、推論時はrollingに切り替え
-        self._win_rolling_quantile = float(
-            np.std(win_residuals.values) * 1.5  # 1.5σ を保守的境界
-        )
-        self._place_rolling_quantile = float(np.std(place_residuals.values) * 1.5)
+        place_pred = pd.to_numeric(place_df["ev_place_corrected"], errors="coerce")
+        place_actual = pd.to_numeric(place_df["actual_ev_place"], errors="coerce")
+        place_mask = place_pred.notna() & place_actual.notna()
+        place_residuals = (place_actual[place_mask] - place_pred[place_mask]).abs()
+        if place_residuals.empty:
+            logger.warning("No valid place residuals for confidence calibration")
+            self._place_cp_quantile = 0.0
+            self._place_rolling_quantile = 0.0
+        else:
+            self._place_cp_quantile = float(np.quantile(place_residuals.values, 1 - self.alpha))
+            # Rolling Quantile: 残差の標準偏差ベース
+            # キャリブレーション時は全体のstdを使用し、推論時はrollingに切り替え
+            self._place_rolling_quantile = float(np.std(place_residuals.values) * 1.5)
 
         self._calibrated = True
 
@@ -75,11 +93,7 @@ class RobustConfidenceEstimator:
         """
         if not self._calibrated:
             # 未キャリブレーション時: EVをそのまま下限として使用 (保守的)
-            import logging
-
-            logging.getLogger(__name__).warning(
-                "RobustConfidenceEstimator not calibrated, using EV as lower bound"
-            )
+            logger.warning("RobustConfidenceEstimator not calibrated, using EV as lower bound")
             win_df = win_df.copy()
             place_df = place_df.copy()
             win_df["EV_lower_win_corrected"] = win_df.get("ev_win_corrected", 0.0)
@@ -88,18 +102,20 @@ class RobustConfidenceEstimator:
 
         win_df = win_df.copy()
         place_df = place_df.copy()
+        win_ev = pd.to_numeric(win_df["ev_win_corrected"], errors="coerce").fillna(0.0)
+        place_ev = pd.to_numeric(place_df["ev_place_corrected"], errors="coerce").fillna(0.0)
 
         # Win lower bound
-        cp_lower_win = win_df["ev_win_corrected"] - self._win_cp_quantile
-        rolling_lower_win = win_df["ev_win_corrected"] - self._win_rolling_quantile
+        cp_lower_win = win_ev - self._win_cp_quantile
+        rolling_lower_win = win_ev - self._win_rolling_quantile
         win_df["EV_lower_win_corrected"] = np.maximum(
             np.minimum(cp_lower_win, rolling_lower_win),
             0.0,
         )
 
         # Place lower bound
-        cp_lower_place = place_df["ev_place_corrected"] - self._place_cp_quantile
-        rolling_lower_place = place_df["ev_place_corrected"] - self._place_rolling_quantile
+        cp_lower_place = place_ev - self._place_cp_quantile
+        rolling_lower_place = place_ev - self._place_rolling_quantile
         place_df["EV_lower_place"] = np.maximum(
             np.minimum(cp_lower_place, rolling_lower_place),
             0.0,

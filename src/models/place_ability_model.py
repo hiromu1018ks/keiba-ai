@@ -85,6 +85,15 @@ class PlaceAbilityModel:
         # コース適性 (2)
         "course_wr",
         "course_distance_wr",
+        # 追加改善特徴量
+        "draw_ratio",
+        "class_move",
+        "blinker_change",
+        "is_nar_transfer",
+        "nar_recent_ratio",
+        "track_condition_delta",
+        "pace_pressure",
+        "pace_scenario_fit",
         # v5: レースコンテキスト特徴量
         "race_mean_fuku_odds",
         "race_std_fuku_odds",

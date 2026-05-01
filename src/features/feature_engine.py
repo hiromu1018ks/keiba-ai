@@ -17,6 +17,59 @@ import pandas as pd
 from domain.models import Entry, Race
 from utils.timing import TimingContext
 
+_GRADE_LEVEL_MAP: dict[str, float] = {
+    "A": 8.0,
+    "B": 7.0,
+    "C": 6.0,
+    "D": 5.0,
+    "E": 4.0,
+}
+
+
+def _compute_class_level(
+    grade_code: pd.Series | None,
+    jyoken_code: pd.Series | None,
+) -> pd.Series:
+    if grade_code is None and jyoken_code is None:
+        return pd.Series(dtype=float)
+
+    if grade_code is not None:
+        grade_series = grade_code.fillna("").astype(str).str.strip()
+        grade_level = grade_series.map(_GRADE_LEVEL_MAP)
+    else:
+        index = jyoken_code.index if jyoken_code is not None else None
+        grade_level = pd.Series(np.nan, index=index)
+
+    if jyoken_code is not None:
+        jyoken_level = pd.to_numeric(jyoken_code, errors="coerce")
+    else:
+        jyoken_level = pd.Series(np.nan, index=grade_level.index)
+
+    return grade_level.fillna(jyoken_level)
+
+
+def _compute_popularity_rank_from_tanodds(df: pd.DataFrame) -> pd.Series:
+    if "tanodds" not in df.columns:
+        return pd.Series(np.nan, index=df.index, dtype=float)
+
+    tanodds = pd.to_numeric(df["tanodds"], errors="coerce")
+    valid_mask = tanodds.notna() & (tanodds > 0)
+    popularity_rank = pd.Series(np.nan, index=df.index, dtype=float)
+    if not valid_mask.any():
+        return popularity_rank
+
+    if "race_id" in df.columns:
+        popularity_rank.loc[valid_mask] = tanodds.loc[valid_mask].groupby(
+            df.loc[valid_mask, "race_id"],
+            observed=True,
+        ).rank(method="first", ascending=True)
+    else:
+        popularity_rank.loc[valid_mask] = tanodds.loc[valid_mask].rank(
+            method="first",
+            ascending=True,
+        )
+    return popularity_rank
+
 
 class FeatureEngine:
     """特徴量エンジンのメインオーケストレータ
@@ -241,6 +294,11 @@ class FeatureEngine:
         # grade_code: gradecd → grade_code コピー
         if "gradecd" in df.columns and "grade_code" not in df.columns:
             df["grade_code"] = df["gradecd"].replace("", "X")  # X=未格付け
+        if "class_level_current" not in df.columns:
+            df["class_level_current"] = _compute_class_level(
+                df["grade_code"] if "grade_code" in df.columns else df.get("gradecd"),
+                df["jyokencd1"] if "jyokencd1" in df.columns else None,
+            )
 
         # field_size: syussotosu → field_size コピー
         # 未発走レースでは syussotosu=0 のため、race_id ごとの行数で補完
@@ -252,24 +310,74 @@ class FeatureEngine:
                     df["race_id"].map(actual).fillna(df["field_size"]).astype("Int64")
                 )
 
-        # LEAK修正: popularity_rank は発走前情報 (tanninki) のみ使用
-        # ninki (確定人気) はフォールバックにも使用しない
+        # popularity_rank は pre-post tanodds から再計算して train/test の定義を揃える。
+        # tanodds が欠損した馬のみ tanninki、最後に ninki へフォールバックする。
         if "popularity_rank" not in df.columns:
-            if "tanninki" in df.columns:
-                df["popularity_rank"] = df["tanninki"]
-                invalid_mask = (df["popularity_rank"] == 0) | df["popularity_rank"].isna()
-                n_invalid = int(invalid_mask.sum())
-                if n_invalid > 0:
-                    import logging
+            df["popularity_rank_fallback_used"] = 0.0
+            df["popularity_rank"] = _compute_popularity_rank_from_tanodds(df)
+            invalid_mask = (df["popularity_rank"] == 0) | df["popularity_rank"].isna()
+            if invalid_mask.any():
+                import logging
 
-                    logging.getLogger(__name__).warning(
-                        "popularity_rank is NaN for %d horses (tanninki=0/NaN, no ninki fallback)",
-                        n_invalid,
+                fallback_mask = invalid_mask.copy()
+                if "tanninki" in df.columns:
+                    tanninki_values = pd.to_numeric(df["tanninki"], errors="coerce")
+                    usable_tanninki = (
+                        fallback_mask & tanninki_values.notna() & (tanninki_values > 0)
                     )
-                    # tanninki=0/NaN を NaN に変換 (ninki フォールバックなし)
-                    df.loc[invalid_mask, "popularity_rank"] = float("nan")
-            elif "ninki" in df.columns:
-                df["popularity_rank"] = df["ninki"]
+                    df.loc[usable_tanninki, "popularity_rank"] = tanninki_values.loc[
+                        usable_tanninki
+                    ]
+                    fallback_mask = fallback_mask & ~usable_tanninki
+                if "ninki" in df.columns:
+                    fallback_values = pd.to_numeric(df["ninki"], errors="coerce")
+                    usable_fallback = (
+                        fallback_mask
+                        & fallback_values.notna()
+                        & (fallback_values > 0)
+                    )
+                    if usable_fallback.any():
+                        logging.getLogger(__name__).warning(
+                            "popularity_rank fell back to ninki for %d horses",
+                            int(usable_fallback.sum()),
+                        )
+                    df.loc[usable_fallback, "popularity_rank"] = fallback_values.loc[
+                        usable_fallback
+                    ]
+                    df.loc[usable_fallback, "popularity_rank_fallback_used"] = 1.0
+                    fallback_mask = fallback_mask & ~usable_fallback
+                if fallback_mask.any():
+                    logging.getLogger(__name__).warning(
+                        "popularity_rank missing for %d horses after "
+                        "tanodds/tanninki/ninki fallback",
+                        int(fallback_mask.sum()),
+                    )
+                    df.loc[fallback_mask, "popularity_rank"] = float("nan")
+        elif "popularity_rank_fallback_used" not in df.columns:
+            df["popularity_rank_fallback_used"] = 0.0
+
+        # draw / post-position 特徴量
+        if "umaban" in df.columns and "field_size" in df.columns:
+            field_size = pd.to_numeric(df["field_size"], errors="coerce")
+            umaban = pd.to_numeric(df["umaban"], errors="coerce")
+            df["draw_ratio"] = np.where(
+                field_size > 1,
+                (umaban - 1.0) / (field_size - 1.0),
+                float("nan"),
+            )
+        else:
+            df["draw_ratio"] = float("nan")
+
+        if "wakuban" in df.columns:
+            df["frame_number"] = pd.to_numeric(df["wakuban"], errors="coerce")
+        else:
+            df["frame_number"] = float("nan")
+
+        if "blinker" in df.columns:
+            blinker = pd.to_numeric(df["blinker"], errors="coerce")
+            df["blinker_on"] = np.where(blinker.fillna(0) > 0, 1.0, 0.0)
+        else:
+            df["blinker_on"] = float("nan")
 
         # A2: weight_change_zone — 体重変化カテゴリ (zogen_sa ベース、数値エンコード)
         if "zogen_sa" in df.columns:

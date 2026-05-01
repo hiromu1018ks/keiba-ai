@@ -74,6 +74,15 @@ def _make_train_df(n_races: int = 20, field_size: int = 8):
                     # コース適性 (2)
                     "course_wr": np.random.uniform(0.05, 0.3),
                     "course_distance_wr": np.random.uniform(0.05, 0.3),
+                    # 追加改善特徴量
+                    "draw_ratio": np.random.uniform(0.0, 1.0),
+                    "class_move": np.random.uniform(-5.0, 5.0),
+                    "blinker_change": float(np.random.choice([-1, 0, 1])),
+                    "is_nar_transfer": float(np.random.choice([0, 1])),
+                    "nar_recent_ratio": np.random.uniform(0.0, 1.0),
+                    "track_condition_delta": np.random.uniform(-3.0, 3.0),
+                    "pace_pressure": np.random.uniform(0.0, 1.0),
+                    "pace_scenario_fit": np.random.uniform(-1.0, 1.0),
                     "kakuteijyuni": h + 1,
                     "p_ability_win": 1.0 / field_size,
                 }

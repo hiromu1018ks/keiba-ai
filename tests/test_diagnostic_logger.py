@@ -42,12 +42,17 @@ class TestDiagnosticLogger:
             ev_place=1.575,
             fukuoddslow=4.2,
             is_bet=True,
+            p_place_corrected=0.31,
+            ev_place_corrected=1.42,
+            ev_lower_place=1.18,
         )
         assert len(logger.horse_records) == 1
         rec = logger.horse_records[0]
         assert rec.umaban == 5
         assert rec.ev_place == pytest.approx(1.575)
         assert rec.is_bet is True
+        assert rec.p_place_corrected == pytest.approx(0.31)
+        assert rec.ev_lower_place == pytest.approx(1.18)
 
     def test_save_creates_two_csv_files(self):
         logger = DiagnosticLogger()
@@ -72,6 +77,7 @@ class TestDiagnosticLogger:
             assert len(horse_df) == 1
             assert "p_place_pred" in horse_df.columns
             assert "ev_place" in horse_df.columns
+            assert "ev_lower_place" in horse_df.columns
 
     def test_save_empty_logger_creates_no_files(self):
         logger = DiagnosticLogger()

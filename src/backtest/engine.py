@@ -340,8 +340,8 @@ class BacktestEngine:
         jt_df_all = jt_combo.compute(entry_df)
 
         # 種牡馬産駒特徴量の追加 (推論パス — 学習と同一ロジック)
+        from db.readers import load_horses, load_sire_stats
         from features.sire_features import SireFeatures
-        from db.readers import load_sire_stats, load_horses
 
         logger.info("Computing SireFeatures for backtest inference...")
         sire_stats_bt = load_sire_stats(self.store)
@@ -353,23 +353,34 @@ class BacktestEngine:
             bms_map_bt = horses_bt.set_index("kettonum")["ketto3infohansyokunum3"]
             feat_df["bms_id"] = feat_df["kettonum"].map(bms_map_bt)
             sire_result_bt = sire_feat_bt.compute_batch(feat_df)
-            _sire_cols_needed = {"sire_wr", "sire_surface_wr", "sire_distance_wr",
-                                 "sire_prize_avg", "bms_wr"}
+            _sire_cols_needed = {
+                "sire_wr",
+                "sire_surface_wr",
+                "sire_distance_wr",
+                "sire_prize_avg",
+                "bms_wr",
+            }
             for col in _sire_cols_needed:
                 if col in sire_result_bt.columns:
                     feat_df[col] = sire_result_bt[col].values
 
         # 4. PaceAptitude + CourseFeatures の事前計算 (推論パスでも必要)
-        from features.pace_aptitude_features import PaceAptitudeFeatures
         from features.course_features import CourseFeatures
+        from features.pace_aptitude_features import PaceAptitudeFeatures
 
         logger.info("Pre-computing PaceAptitudeFeatures...")
         pace_feat = PaceAptitudeFeatures(store=self.store)
         pace_df = pace_feat.compute_batch(feat_df)
-        _pace_cols = [c for c in ["pace_aptitude", "front_pace_wr", "closing_pace_wr"] if c in pace_df.columns]
+        _pace_cols = [
+            c
+            for c in ["pace_aptitude", "front_pace_wr", "closing_pace_wr"]
+            if c in pace_df.columns
+        ]
         if _pace_cols:
             feat_df = feat_df.drop(columns=_pace_cols, errors="ignore").merge(
-                pace_df[["kettonum", "race_id"] + _pace_cols], on=["kettonum", "race_id"], how="left"
+                pace_df[["kettonum", "race_id"] + _pace_cols],
+                on=["kettonum", "race_id"],
+                how="left",
             )
 
         logger.info("Pre-computing CourseFeatures...")
@@ -378,7 +389,9 @@ class BacktestEngine:
         _course_cols = [c for c in ["course_wr", "course_distance_wr"] if c in course_df.columns]
         if _course_cols:
             feat_df = feat_df.drop(columns=_course_cols, errors="ignore").merge(
-                course_df[["kettonum", "race_id"] + _course_cols], on=["kettonum", "race_id"], how="left"
+                course_df[["kettonum", "race_id"] + _course_cols],
+                on=["kettonum", "race_id"],
+                how="left",
             )
 
         # 5. レースごとにシミュレーション (推論は RacePredictor に委譲)
@@ -478,10 +491,11 @@ class BacktestEngine:
                 regime = self.models.regime_detector.current_regime
             regime_params = self.models.regime_detector.get_strategy_params(regime)
             edge_threshold = regime_params.get("edge_threshold", 0.03)
-            n_candidates = (
-                int((result_df["edge_place"].fillna(0) >= edge_threshold).sum())
-                if "edge_place" in result_df.columns
-                else 0
+            n_candidates = len(
+                self._race_predictor.get_place_candidates(
+                    result_df,
+                    regime_params=regime_params,
+                )
             )
 
             if not self._race_predictor.should_bet(result_df):
@@ -551,6 +565,22 @@ class BacktestEngine:
                         ev_place=float(hr.get("ev_place", 0)),
                         fukuoddslow=float(hr.get("fukuoddslow", 0)),
                         is_bet=int(hr["umaban"]) in bet_umabans,
+                        p_place_corrected=float(hr.get("p_place_corrected", float("nan"))),
+                        e_return_place_corrected=float(
+                            hr.get("e_return_place_corrected", float("nan"))
+                        ),
+                        ev_place_corrected=float(hr.get("ev_place_corrected", float("nan"))),
+                        ev_lower_place=float(hr.get("EV_lower_place", float("nan"))),
+                        place_selection_ev=float(hr.get("place_selection_ev", float("nan"))),
+                        place_selection_edge=float(
+                            hr.get("place_selection_edge", float("nan"))
+                        ),
+                        place_selection_prob=float(
+                            hr.get("place_selection_prob", float("nan"))
+                        ),
+                        place_bucket_multiplier=float(
+                            hr.get("place_bucket_multiplier", float("nan"))
+                        ),
                     )
                     diag_logger.log_horse_features(hr.to_dict())
 

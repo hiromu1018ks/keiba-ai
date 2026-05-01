@@ -85,11 +85,39 @@ class AbilityModel:
         # コース適性 (2)
         "course_wr",
         "course_distance_wr",
+        # 追加改善特徴量
+        "draw_ratio",
+        "class_move",
+        "blinker_change",
+        "is_nar_transfer",
+        "nar_recent_ratio",
+        "track_condition_delta",
+        "pace_pressure",
+        "pace_scenario_fit",
     ]
 
     def __init__(self) -> None:
         self.models: dict[str, lgb.Booster] = {}
         self._submodel_mgr = SubModelManager()
+
+    def _prepare_features(self, df: pd.DataFrame) -> pd.DataFrame:
+        available_cols = [c for c in self.FEATURE_COLS if c in df.columns]
+        features = df[available_cols].copy()
+        for col in features.columns:
+            if pd.api.types.is_integer_dtype(features[col]):
+                features[col] = features[col].astype(float)
+        for col in [
+            "surface",
+            "distance_bin",
+            "grade_code",
+            "kyakusitukubun_cd",
+            "blood_keito_cd",
+            "kyakusitu_x_distance",
+            "kyakusitu_x_surface",
+        ]:
+            if col in features.columns:
+                features[col] = features[col].astype("category")
+        return features
 
     def train(
         self, df: pd.DataFrame, *, early_stopping: bool = False, num_threads: int = 0
@@ -119,21 +147,7 @@ class AbilityModel:
         for key in surfaces_in_data:
             key_df = df[df["surface"] == key].copy()
             key_df = key_df.sort_values("race_id")
-            features = key_df[self.FEATURE_COLS].copy()
-            for col in features.columns:
-                if pd.api.types.is_integer_dtype(features[col]):
-                    features[col] = features[col].astype(float)
-            for col in [
-                "surface",
-                "distance_bin",
-                "grade_code",
-                "kyakusitukubun_cd",
-                "blood_keito_cd",
-                "kyakusitu_x_distance",
-                "kyakusitu_x_surface",
-            ]:
-                if col in features.columns:
-                    features[col] = features[col].astype("category")
+            features = self._prepare_features(key_df)
 
             # ラベル: 1着=3, 2着=2, 3着=1, 4着以降=0
             y = key_df["kakuteijyuni"].apply(lambda x: max(0, 4 - x) if x > 0 else 0)
@@ -198,18 +212,7 @@ class AbilityModel:
             if not mask.any():
                 continue
 
-            features = df.loc[mask, self.FEATURE_COLS].copy()
-            for col in [
-                "surface",
-                "distance_bin",
-                "grade_code",
-                "kyakusitukubun_cd",
-                "blood_keito_cd",
-                "kyakusitu_x_distance",
-                "kyakusitu_x_surface",
-            ]:
-                if col in features.columns:
-                    features[col] = features[col].astype("category")
+            features = self._prepare_features(df.loc[mask])
 
             booster = self.models[key]
             best_iter = booster.best_iteration

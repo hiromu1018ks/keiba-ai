@@ -37,6 +37,14 @@ class HorseDiagnostic:
     ev_place: float
     fukuoddslow: float
     is_bet: bool
+    p_place_corrected: float | None = None
+    e_return_place_corrected: float | None = None
+    ev_place_corrected: float | None = None
+    ev_lower_place: float | None = None
+    place_selection_ev: float | None = None
+    place_selection_edge: float | None = None
+    place_selection_prob: float | None = None
+    place_bucket_multiplier: float | None = None
 
 
 class DiagnosticLogger:
@@ -80,6 +88,14 @@ class DiagnosticLogger:
         ev_place: float,
         fukuoddslow: float,
         is_bet: bool,
+        p_place_corrected: float | None = None,
+        e_return_place_corrected: float | None = None,
+        ev_place_corrected: float | None = None,
+        ev_lower_place: float | None = None,
+        place_selection_ev: float | None = None,
+        place_selection_edge: float | None = None,
+        place_selection_prob: float | None = None,
+        place_bucket_multiplier: float | None = None,
     ) -> None:
         self.horse_records.append(
             HorseDiagnostic(
@@ -90,6 +106,14 @@ class DiagnosticLogger:
                 ev_place=ev_place,
                 fukuoddslow=fukuoddslow,
                 is_bet=is_bet,
+                p_place_corrected=p_place_corrected,
+                e_return_place_corrected=e_return_place_corrected,
+                ev_place_corrected=ev_place_corrected,
+                ev_lower_place=ev_lower_place,
+                place_selection_ev=place_selection_ev,
+                place_selection_edge=place_selection_edge,
+                place_selection_prob=place_selection_prob,
+                place_bucket_multiplier=place_bucket_multiplier,
             )
         )
 

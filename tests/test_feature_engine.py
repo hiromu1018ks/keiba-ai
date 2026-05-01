@@ -440,41 +440,50 @@ class TestLeakPrevention:
             }
         )
 
-    def test_popularity_rank_uses_tanninki_not_ninki(self) -> None:
-        """tanninki と ninki が異なる場合、popularity_rank は tanninki を使用"""
+    def test_popularity_rank_uses_tanodds_rank_first(self) -> None:
+        """tanodds がある場合、popularity_rank は tanodds から再計算される"""
         engine = FeatureEngine()
         race_df = self._make_race_df()
-        # ninki は確定人気 (1,2,3) — リーク源
         entry_df = self._make_entry_df(odds=[3.0, 5.0, 8.0], ninki=[1, 2, 3])
-        # tanninki は発走前人気 (3,1,2) — 正しい値
+        # tanninki が不正でも tanodds の順位を優先する
         odds_df = self._make_odds_df(tanodds=[3.0, 5.0, 8.0], tanninki=[3, 1, 2])
 
         result = engine.build_all(race_df, entry_df, odds_df)
-        assert result["popularity_rank"].tolist() == [3, 1, 2]
+        assert result["popularity_rank"].tolist() == [1.0, 2.0, 3.0]
 
-    def test_popularity_rank_fallback_when_tanninki_zero(self) -> None:
-        """tanninki が全て 0 の場合、popularity_rank は NaN のまま (ninki フォールバックなし)"""
+    def test_popularity_rank_falls_back_to_tanninki_when_tanodds_missing(self) -> None:
+        """tanodds が使えない場合は tanninki を利用する"""
         engine = FeatureEngine()
         race_df = self._make_race_df()
         entry_df = self._make_entry_df(odds=[3.0, 5.0, 8.0], ninki=[1, 2, 3])
-        odds_df = self._make_odds_df(tanodds=[3.0, 5.0, 8.0], tanninki=[0, 0, 0])
+        odds_df = self._make_odds_df(tanodds=[0.0, float("nan"), 0.0], tanninki=[3, 1, 2])
 
         result = engine.build_all(race_df, entry_df, odds_df)
-        # tanninki=0 → NaN のまま (ninki フォールバックを削除)
-        assert result["popularity_rank"].isna().all()
+        assert result["popularity_rank"].tolist() == [3.0, 1.0, 2.0]
 
-    def test_popularity_rank_warns_on_zero_tanninki(self, caplog: object) -> None:
-        """tanninki が 0/NaN の場合に警告ログを出力する"""
+    def test_popularity_rank_fallback_when_tanninki_zero(self) -> None:
+        """tanodds/tanninki が使えない場合、ninki にフォールバックする"""
+        engine = FeatureEngine()
+        race_df = self._make_race_df()
+        entry_df = self._make_entry_df(odds=[3.0, 5.0, 8.0], ninki=[1, 2, 3])
+        odds_df = self._make_odds_df(tanodds=[0.0, float("nan"), 0.0], tanninki=[0, 0, 0])
+
+        result = engine.build_all(race_df, entry_df, odds_df)
+        assert result["popularity_rank"].tolist() == [1, 2, 3]
+        assert (result["popularity_rank_fallback_used"] == 1.0).all()
+
+    def test_popularity_rank_warns_on_ninki_fallback(self, caplog: object) -> None:
+        """tanodds/tanninki が使えない場合に ninki fallback 警告ログを出力する"""
         import logging
 
         engine = FeatureEngine()
         race_df = self._make_race_df()
         entry_df = self._make_entry_df(odds=[3.0, 5.0, 8.0], ninki=[1, 2, 3])
-        odds_df = self._make_odds_df(tanodds=[3.0, 5.0, 8.0], tanninki=[0, 0, 0])
+        odds_df = self._make_odds_df(tanodds=[0.0, float("nan"), 0.0], tanninki=[0, 0, 0])
         with caplog.at_level(logging.WARNING, logger="features.feature_engine"):  # type: ignore[attr-defined]
             result = engine.build_all(race_df, entry_df, odds_df)  # noqa: F841
         assert any(
-            "popularity_rank" in rec.message and ("NaN" in rec.message or "tanninki" in rec.message)
+            "popularity_rank" in rec.message and "fell back" in rec.message
             for rec in caplog.records  # type: ignore[attr-defined]
         )
 

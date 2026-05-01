@@ -9,6 +9,114 @@ import numpy as np
 import pandas as pd
 
 
+def _best_iteration(booster: lgb.Booster | None) -> int | None:
+    if booster is None:
+        return None
+    return booster.best_iteration if booster.best_iteration > 0 else None
+
+
+def _sigmoid(logits: np.ndarray) -> np.ndarray:
+    clipped = np.clip(logits, -30.0, 30.0)
+    return 1.0 / (1.0 + np.exp(-clipped))
+
+
+def _normalize_probability_array(
+    values: np.ndarray,
+    *,
+    target_sum: float,
+    cap: float = 1.0,
+) -> np.ndarray:
+    probs = np.nan_to_num(values.astype(float), nan=0.0, posinf=0.0, neginf=0.0)
+    probs = np.clip(probs, 0.0, cap)
+    if len(probs) == 0:
+        return probs
+
+    target = min(float(target_sum), cap * len(probs))
+    if target <= 0:
+        return np.zeros_like(probs)
+
+    total = probs.sum()
+    if total <= 0:
+        return np.full_like(probs, target / len(probs))
+
+    result = np.zeros_like(probs)
+    weights = probs.copy()
+    active = np.ones(len(probs), dtype=bool)
+    remaining = target
+    tol = 1e-9
+
+    while active.any() and remaining > tol:
+        active_idx = np.flatnonzero(active)
+        active_weights = weights[active]
+        active_total = float(active_weights.sum())
+        if active_total <= tol:
+            result[active] = remaining / len(active_idx)
+            break
+
+        scaled = active_weights * (remaining / active_total)
+        over_mask = scaled > (cap + tol)
+        if not over_mask.any():
+            result[active] = scaled
+            break
+
+        capped_idx = active_idx[over_mask]
+        result[capped_idx] = cap
+        remaining -= cap * len(capped_idx)
+        active[capped_idx] = False
+        weights[capped_idx] = 0.0
+
+    return np.clip(result, 0.0, cap)
+
+
+def _normalize_probability_by_race(
+    df: pd.DataFrame,
+    source_col: str,
+    *,
+    target_sum: float,
+) -> pd.Series:
+    if source_col not in df.columns:
+        return pd.Series(np.nan, index=df.index, dtype=float)
+
+    if "race_id" not in df.columns:
+        normalized = _normalize_probability_array(df[source_col].to_numpy(), target_sum=target_sum)
+        return pd.Series(normalized, index=df.index, dtype=float)
+
+    return (
+        df.groupby("race_id", observed=True)[source_col]
+        .transform(
+            lambda s: pd.Series(
+                _normalize_probability_array(s.to_numpy(), target_sum=target_sum),
+                index=s.index,
+            )
+        )
+        .astype(float)
+    )
+
+
+def _build_place_bucket_multiplier(df: pd.DataFrame, prob_col: str) -> pd.Series:
+    odds = pd.to_numeric(df.get("fukuoddslow"), errors="coerce")
+    popularity = pd.to_numeric(df.get("popularity_rank"), errors="coerce")
+    probability = pd.to_numeric(df.get(prob_col), errors="coerce")
+
+    odds_mult = pd.Series(1.0, index=df.index, dtype=float)
+    odds_mult = odds_mult.mask(odds >= 15.0, 0.95)
+    odds_mult = odds_mult.mask(odds >= 22.0, 0.85)
+    odds_mult = odds_mult.mask(odds >= 30.0, 0.7)
+
+    pop_mult = pd.Series(1.0, index=df.index, dtype=float)
+    pop_mult = pop_mult.mask(popularity >= 12.0, 0.95)
+    pop_mult = pop_mult.mask(popularity >= 15.0, 0.85)
+    pop_mult = pop_mult.mask(popularity >= 18.0, 0.75)
+
+    prob_mult = pd.Series(1.0, index=df.index, dtype=float)
+    prob_mult = prob_mult.mask(probability < 0.10, 0.9)
+    prob_mult = prob_mult.mask(probability < 0.08, 0.8)
+    prob_mult = prob_mult.mask(probability < 0.06, 0.7)
+
+    multiplier = pd.concat([odds_mult, pop_mult, prob_mult], axis=1).min(axis=1)
+    return multiplier.fillna(1.0).astype(float)
+
+
 class EVCorrectionModel:
     """
     2段階モデルの「独立性破綻」を補正するモデル。
@@ -185,7 +293,7 @@ class EVCorrectionModel:
     def correct_ev(self, df: pd.DataFrame) -> pd.DataFrame:
         """
         全馬のEVをP補正×E補正で補正する。
-        P_corrected = sigmoid(logit(P_pred) + correction_logit)  ← [0,1] に制約
+        P_corrected = sigmoid(logit(P_pred) + correction_margin) を race 内で再正規化
         E_corrected = e_return_win_pred × exp(log_e_correction)
         EV_corrected = P_corrected × E_corrected
         """
@@ -193,30 +301,32 @@ class EVCorrectionModel:
         df = self._add_interaction_features(df)
         features = self._prepare_features(df)
 
-        # P補正の適用 (binary出力 → sigmoid で [0,1] に制約)
+        # P補正の適用:
+        # LightGBM binary booster の predict() は probability を返すため、
+        # init_score に加算する補正量は raw_score=True の margin を使う。
         p_pred_clipped = np.clip(df["p_win_pred"], 1e-4, 1 - 1e-4)
         init_score = np.log(p_pred_clipped / (1 - p_pred_clipped))
-        p_best = (
-            self.p_correction_model.best_iteration
-            if self.p_correction_model.best_iteration > 0
-            else None
+        p_best = _best_iteration(self.p_correction_model)
+        raw_margin = self.p_correction_model.predict(  # type: ignore[union-attr]
+            features,
+            num_iteration=p_best,
+            raw_score=True,
         )
-        p_correction_logit = (
-            self.p_correction_model.predict(features, num_iteration=p_best) + init_score
+        df["_p_win_corrected_raw"] = _sigmoid(raw_margin + init_score)
+        df["p_win_corrected"] = _normalize_probability_by_race(
+            df,
+            "_p_win_corrected_raw",
+            target_sum=1.0,
         )
-        df["p_win_corrected"] = 1.0 / (1.0 + np.exp(-p_correction_logit))
 
         # E補正の適用
-        e_best = (
-            self.e_correction_model.best_iteration
-            if self.e_correction_model.best_iteration > 0
-            else None
-        )
-        log_e_corr = self.e_correction_model.predict(features, num_iteration=e_best)
+        e_best = _best_iteration(self.e_correction_model)
+        log_e_corr = self.e_correction_model.predict(features, num_iteration=e_best)  # type: ignore[union-attr]
         df["e_return_win_corrected"] = df["e_return_win_pred"] * np.exp(log_e_corr)
 
         # 最終補正EV
         df["ev_win_corrected"] = df["p_win_corrected"] * df["e_return_win_corrected"]
+        df = df.drop(columns=["_p_win_corrected_raw"], errors="ignore")
         return df
 
 
@@ -408,46 +518,57 @@ class PlaceEVCorrectionModel:
     def correct_ev(self, df: pd.DataFrame) -> pd.DataFrame:
         """
         全馬の複勝EVをP補正×E補正で補正する。
-        P_corrected = sigmoid(logit(P_pred) + correction_logit)  ← [0,1] に制約
+        P_corrected = sigmoid(logit(P_pred) + correction_margin) を race 内で再正規化
         E_corrected = e_return_place_pred × exp(log_e_correction)
         EV_corrected = P_corrected × E_corrected
 
-        未学習時 (_trained=False): ev_place をそのまま ev_place_corrected として出力。
+        未学習時 (_trained=False): 元予測を補正済み列へ写像する。
         """
         if not self._trained:
             df = df.copy()
-            if "ev_place" not in df.columns:
-                df["ev_place"] = df["p_place_pred"] * df["e_return_place_pred"]
-            df["ev_place_corrected"] = df["ev_place"]
+            df["p_place_corrected"] = _normalize_probability_by_race(
+                df,
+                "p_place_pred",
+                target_sum=3.0,
+            )
+            df["place_bucket_multiplier"] = _build_place_bucket_multiplier(df, "p_place_corrected")
+            df["e_return_place_corrected"] = (
+                df["e_return_place_pred"] * df["place_bucket_multiplier"]
+            )
+            df["ev_place_corrected"] = df["p_place_corrected"] * df["e_return_place_corrected"]
             return df
 
         df = df.copy()
         df = self._add_interaction_features(df)
         features = self._prepare_features(df)
 
-        # P補正の適用 (binary出力 → sigmoid で [0,1] に制約)
+        # P補正の適用:
+        # binary booster の probability 出力ではなく、raw margin を init_score に加算する。
         p_pred_clipped = np.clip(df["p_place_pred"], 1e-4, 1 - 1e-4)
         init_score = np.log(p_pred_clipped / (1 - p_pred_clipped))
-        p_best = (
-            self.p_correction_model.best_iteration  # type: ignore[union-attr]
-            if self.p_correction_model is not None and self.p_correction_model.best_iteration > 0
-            else None
+        p_best = _best_iteration(self.p_correction_model)
+        raw_margin = self.p_correction_model.predict(  # type: ignore[union-attr]
+            features,
+            num_iteration=p_best,
+            raw_score=True,
         )
-        p_correction_logit = (
-            self.p_correction_model.predict(features, num_iteration=p_best)  # type: ignore[union-attr]
-            + init_score
+        df["_p_place_corrected_raw"] = _sigmoid(raw_margin + init_score)
+        df["p_place_corrected"] = _normalize_probability_by_race(
+            df,
+            "_p_place_corrected_raw",
+            target_sum=3.0,
         )
-        df["p_place_corrected"] = 1.0 / (1.0 + np.exp(-p_correction_logit))
 
         # E補正の適用
-        e_best = (
-            self.e_correction_model.best_iteration  # type: ignore[union-attr]
-            if self.e_correction_model is not None and self.e_correction_model.best_iteration > 0
-            else None
-        )
+        e_best = _best_iteration(self.e_correction_model)
         log_e_corr = self.e_correction_model.predict(features, num_iteration=e_best)  # type: ignore[union-attr]
         df["e_return_place_corrected"] = df["e_return_place_pred"] * np.exp(log_e_corr)
+        df["place_bucket_multiplier"] = _build_place_bucket_multiplier(df, "p_place_corrected")
+        df["e_return_place_corrected"] = (
+            df["e_return_place_corrected"] * df["place_bucket_multiplier"]
+        )
 
         # 最終補正EV
         df["ev_place_corrected"] = df["p_place_corrected"] * df["e_return_place_corrected"]
+        df = df.drop(columns=["_p_place_corrected_raw"], errors="ignore")
         return df

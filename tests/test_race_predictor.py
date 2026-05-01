@@ -129,6 +129,7 @@ class TestRacePredictor:
                 "popularity_rank": [3, 5, 7],
                 "ninki": [3, 5, 7],
                 "fukuoddslow": [2.4, 1.5, 5.0],
+                "EV_lower_place": [1.5, 0.8, 1.8],
                 "ev_place_corrected": [1.5, 0.8, 1.8],
                 "edge_place": [0.08, -0.07, 0.05],  # horses 1 & 3 pass edge_threshold=0.03
                 "kakuteijyuni": [2, 1, 3],
@@ -152,6 +153,7 @@ class TestRacePredictor:
             {
                 "race_id": ["R1", "R1"],
                 "umaban": [1, 2],
+                "EV_lower_place": [1.5, 1.3],
                 "ev_place_corrected": [1.5, 1.3],
                 "edge_place": [0.05, 0.04],  # both pass edge_threshold=0.03
                 "fukuoddslow": [3.0, 2.5],
@@ -270,15 +272,11 @@ class TestRacePredictor:
         assert abs(result["edge_place"].iloc[0] - 0.05) < 1e-10
         assert abs(result["p_place_combined"].iloc[0] - 0.70) < 1e-10
 
-    def test_select_bets_uses_edge_not_ev(self, mock_models: MagicMock) -> None:
-        """select_bets() should filter by edge_place, not ev_place_corrected.
-
-        Horse 1: high EV (1.8) but negative edge (-0.067) -> NO BET
-        Horse 2: low EV (0.9) but positive edge (+0.067) -> BET
-        Horse 3: high EV (2.0) but zero edge (0.000) -> NO BET
-
-        With AGGRESSIVE regime (edge_threshold=0.03), only horse 2 selected.
-        """
+    def test_select_bets_uses_safety_floor_without_reviving_low_ev_horses(
+        self,
+        mock_models: MagicMock,
+    ) -> None:
+        """Safety floor should not turn sub-threshold corrected EV into bets."""
         from backtest.race_predictor import RacePredictor
         from domain.types import RegimeState
 
@@ -287,13 +285,14 @@ class TestRacePredictor:
         # Override regime to AGGRESSIVE with edge_threshold=0.03
         mock_models.regime_detector.current_regime = RegimeState.AGGRESSIVE
         mock_models.regime_detector.get_strategy_params.return_value = {
+            "ev_threshold": 1.05,
             "edge_threshold": 0.03,
+            "min_place_prob": 0.0,
+            "max_place_odds": 99.0,
+            "wide_enabled": False,
             "max_bets_per_race": 3,
         }
 
-        # Horse 1: p=0.60, odds=1.5 -> p_market=0.667, edge=-0.067, ev=1.8
-        # Horse 2: p=0.40, odds=3.0 -> p_market=0.333, edge=+0.067, ev=0.9
-        # Horse 3: p=0.10, odds=10.0 -> p_market=0.100, edge=0.000, ev=2.0
         race_df = pd.DataFrame(
             {
                 "race_id": ["R1", "R1", "R1"],
@@ -301,17 +300,63 @@ class TestRacePredictor:
                 "p_place_pred": [0.60, 0.40, 0.10],
                 "fukuoddslow": [1.5, 3.0, 10.0],
                 "edge_place": [-0.06666666666666665, 0.06666666666666663, 0.0],
-                "ev_place_corrected": [1.8, 0.9, 2.0],
+                "ev_place_corrected": [1.0, 0.9, 1.0],
+                "EV_lower_place": [0.95, 1.08, 1.01],
                 "surface": ["turf"] * 3,
             }
         )
 
         bets = predictor.select_bets(race_df, bankroll=100000.0)
 
-        # Only horse 2 should be selected (positive edge >= threshold)
+        # Only horse 2 should be selected.
         assert len(bets) == 1
         assert bets[0].umaban == 2
-        assert bets[0].edge == pytest.approx(0.0667, abs=1e-3)
+        assert bets[0].edge == pytest.approx(0.08, abs=1e-3)
+
+    def test_select_bets_applies_probability_and_odds_safety(self, mock_models: MagicMock) -> None:
+        from backtest.race_predictor import RacePredictor
+        from domain.types import RegimeState
+
+        predictor = RacePredictor(models=mock_models)
+        mock_models.regime_detector.current_regime = RegimeState.AGGRESSIVE
+        mock_models.regime_detector.get_strategy_params.return_value = {
+            "ev_threshold": 1.05,
+            "edge_threshold": 0.03,
+            "min_place_prob": 0.12,
+            "max_place_odds": 18.0,
+            "wide_enabled": False,
+            "max_bets_per_race": 3,
+        }
+
+        race_df = pd.DataFrame(
+            {
+                "race_id": ["R1", "R1", "R1"],
+                "umaban": [1, 2, 3],
+                "p_place_corrected": [0.09, 0.13, 0.16],
+                "EV_lower_place": [1.40, 1.25, 1.30],
+                "fukuoddslow": [14.0, 22.0, 12.0],
+                "surface": ["turf"] * 3,
+            }
+        )
+
+        bets = predictor.select_bets(race_df, bankroll=100000.0)
+
+        assert [bet.umaban for bet in bets] == [3]
+
+    def test_place_selection_ev_keeps_corrected_ev_floor(self, mock_models: MagicMock) -> None:
+        from backtest.race_predictor import RacePredictor
+
+        predictor = RacePredictor(models=mock_models)
+        race_df = pd.DataFrame(
+            {
+                "EV_lower_place": [0.20],
+                "ev_place_corrected": [1.50],
+            }
+        )
+
+        selection_ev = predictor._build_place_selection_ev(race_df)
+
+        assert selection_ev.iloc[0] == pytest.approx(1.275)
 
     def test_select_bets_edge_threshold_respects_regime(self, mock_models: MagicMock) -> None:
         """Horse should NOT be selected when edge < regime edge_threshold.
@@ -337,9 +382,10 @@ class TestRacePredictor:
                 "race_id": ["R1"],
                 "umaban": [1],
                 "p_place_pred": [0.35],
+                "EV_lower_place": [1.023],
                 "fukuoddslow": [3.0],  # p_market=0.333, edge=0.017 -- below 0.05
                 "edge_place": [0.023],
-                "ev_place_corrected": [1.5],
+                "ev_place_corrected": [1.02],
                 "surface": ["turf"],
             }
         )

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import numpy as np
 import pandas as pd
 
 
@@ -40,6 +41,7 @@ def compute_interaction_features(df: pd.DataFrame) -> pd.DataFrame:
 
     # --- v5: レースコンテキスト特徴量 ---
     _add_race_context_features(df)
+    _add_pace_projection_features(df)
 
     return df
 
@@ -80,3 +82,26 @@ def _add_race_context_features(df: pd.DataFrame) -> None:
     if "surface" in df.columns and "track_condition_code" in df.columns:
         surface_code = df["surface"].map({"turf": 1, "dirt": 2}).fillna(0)
         df["surface_track_interaction"] = surface_code * df["track_condition_code"].fillna(0)
+
+
+def _add_pace_projection_features(df: pd.DataFrame) -> None:
+    """履歴脚質から当日レースのペース投影特徴量を追加。"""
+    if "race_id" not in df.columns or "kyakusitukubun_cd" not in df.columns:
+        return
+
+    style = pd.to_numeric(df["kyakusitukubun_cd"], errors="coerce")
+    if "field_size" in df.columns:
+        field_size = pd.to_numeric(df["field_size"], errors="coerce")
+    else:
+        field_size = pd.Series(np.nan, index=df.index, dtype=float)
+    if field_size.isna().all():
+        field_size = df.groupby("race_id")["race_id"].transform("size").astype(float)
+
+    field_size = field_size.clip(lower=1)
+    front_share = style.isin([1, 2]).groupby(df["race_id"]).transform("sum") / field_size
+    closer_share = style.isin([3, 4]).groupby(df["race_id"]).transform("sum") / field_size
+    style_fit = style.map({1: -1.0, 2: -0.5, 3: 0.5, 4: 1.0}).fillna(0.0)
+
+    df["pace_pressure"] = front_share.astype(float)
+    df["closer_share"] = closer_share.astype(float)
+    df["pace_scenario_fit"] = (style_fit * df["pace_pressure"]).astype(float)

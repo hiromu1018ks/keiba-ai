@@ -91,3 +91,22 @@ def test_missing_columns():
     result = compute_interaction_features(df)
     assert "kyakusitu_x_distance" not in result.columns
     assert "weight_x_distance" not in result.columns
+
+
+def test_pace_projection_features():
+    """履歴脚質から race-level のペース投影特徴量を生成する"""
+    df = pd.DataFrame(
+        {
+            "race_id": ["R1"] * 4,
+            "field_size": [4] * 4,
+            "kyakusitukubun_cd": [1, 2, 3, 4],
+        }
+    )
+    result = compute_interaction_features(df)
+    assert "pace_pressure" in result.columns
+    assert "closer_share" in result.columns
+    assert "pace_scenario_fit" in result.columns
+    assert result["pace_pressure"].iloc[0] == 0.5
+    assert result["closer_share"].iloc[0] == 0.5
+    assert result["pace_scenario_fit"].iloc[0] < 0  # 逃げ先行はハイペース不利
+    assert result["pace_scenario_fit"].iloc[-1] > 0  # 差し追込はハイペース有利

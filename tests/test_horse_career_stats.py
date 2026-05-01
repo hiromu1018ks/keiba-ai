@@ -185,3 +185,27 @@ def test_output_columns(sample_data):
     ]
     for col in expected_cols:
         assert col in result.columns, f"Missing column: {col}"
+
+
+def test_non_jra_history_is_retained():
+    """地方履歴も保持し、転入馬のキャリア統計を欠落させない"""
+    entries = pd.DataFrame(
+        {
+            "race_id": ["N1", "J1"],
+            "kettonum": ["H100", "H100"],
+            "kakuteijyuni": [2, 1],
+            "honsyokin": [1000, 2000],
+            "race_date": pd.to_datetime(["2024-01-01", "2024-02-01"]),
+            "jyocd": [12, 5],
+        }
+    )
+    races = pd.DataFrame(
+        {
+            "race_id": ["N1", "J1"],
+            "trackcd": [24, 24],
+            "kyori": [1400, 1400],
+        }
+    )
+    result = precompute_career_stats(entries, races).sort_values("race_date").reset_index(drop=True)
+    assert len(result) == 2
+    assert result.loc[1, "cum_starts"] == 1

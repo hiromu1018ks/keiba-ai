@@ -183,22 +183,31 @@ class RegimeDetector:
             return {
                 "ev_threshold": 1.10,
                 "edge_threshold": 0.04,  # v5: 0.05→0.04 ベット数確保
+                "min_place_prob": 0.08,
+                "max_place_odds": 18.0,
+                "wide_enabled": False,
                 "score_threshold": 0.010,
-                "max_bets_per_race": 2,  # v5: 3→2 過剰ベット抑制
+                "max_bets_per_race": 1,
                 "description": "歪み強い -> 攻める",
             }
         elif regime == RegimeState.CONSERVATIVE:
             return {
                 "ev_threshold": 1.30,
                 "edge_threshold": 0.05,  # 5% edge — more selective
+                "min_place_prob": 0.09,
+                "max_place_odds": 18.0,
+                "wide_enabled": False,
                 "score_threshold": 0.020,
-                "max_bets_per_race": 2,
+                "max_bets_per_race": 1,
                 "description": "効率的 -> 絞る",
             }
         else:  # COLLAPSED
             return {
                 "ev_threshold": 1.50,
                 "edge_threshold": 0.08,  # 8% edge — near halt
+                "min_place_prob": 0.10,
+                "max_place_odds": 16.0,
+                "wide_enabled": False,
                 "score_threshold": 0.050,
                 "max_bets_per_race": 1,
                 "description": "崩壊 -> ほぼ停止",

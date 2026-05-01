@@ -361,12 +361,16 @@ def pre_place_ev_df():
 
 class TestPlaceEVCorrectionModel:
     def test_correct_ev_outputs_place_columns(self, pre_place_ev_df):
-        """correct_ev should output p_place_corrected, e_return_place_corrected, ev_place_corrected"""
+        """correct_ev should output corrected place probability, return, and EV columns"""
         from models.ev_correction_model import PlaceEVCorrectionModel
 
         model = PlaceEVCorrectionModel()
-        model.p_correction_model = _make_mock_booster(np.array([0.1, -0.05, 0.02, -0.03, 0.08, -0.01, 0.04, -0.06]))
-        model.e_correction_model = _make_mock_booster(np.array([0.05, -0.02, 0.01, -0.04, 0.03, -0.01, 0.02, -0.03]))
+        model.p_correction_model = _make_mock_booster(
+            np.array([0.1, -0.05, 0.02, -0.03, 0.08, -0.01, 0.04, -0.06])
+        )
+        model.e_correction_model = _make_mock_booster(
+            np.array([0.05, -0.02, 0.01, -0.04, 0.03, -0.01, 0.02, -0.03])
+        )
         model._trained = True
 
         result = model.correct_ev(pre_place_ev_df)
@@ -380,7 +384,9 @@ class TestPlaceEVCorrectionModel:
         from models.ev_correction_model import PlaceEVCorrectionModel
 
         model = PlaceEVCorrectionModel()
-        model.p_correction_model = _make_mock_booster(np.array([2.0, -3.0, 1.0, -1.0, 1.5, -2.0, 0.5, -1.5]))
+        model.p_correction_model = _make_mock_booster(
+            np.array([2.0, -3.0, 1.0, -1.0, 1.5, -2.0, 0.5, -1.5])
+        )
         model.e_correction_model = _make_mock_booster(np.zeros(8))
         model._trained = True
 
@@ -395,7 +401,9 @@ class TestPlaceEVCorrectionModel:
 
         model = PlaceEVCorrectionModel()
         model.p_correction_model = _make_mock_booster(np.zeros(8))
-        model.e_correction_model = _make_mock_booster(np.array([-0.1, 0.1, -0.05, 0.05, -0.08, 0.08, -0.03, 0.03]))
+        model.e_correction_model = _make_mock_booster(
+            np.array([-0.1, 0.1, -0.05, 0.05, -0.08, 0.08, -0.03, 0.03])
+        )
         model._trained = True
 
         result = model.correct_ev(pre_place_ev_df)
@@ -407,8 +415,12 @@ class TestPlaceEVCorrectionModel:
         from models.ev_correction_model import PlaceEVCorrectionModel
 
         model = PlaceEVCorrectionModel()
-        model.p_correction_model = _make_mock_booster(np.array([0.1, -0.05, 0.02, -0.03, 0.08, -0.01, 0.04, -0.06]))
-        model.e_correction_model = _make_mock_booster(np.array([0.05, -0.02, 0.01, -0.04, 0.03, -0.01, 0.02, -0.03]))
+        model.p_correction_model = _make_mock_booster(
+            np.array([0.1, -0.05, 0.02, -0.03, 0.08, -0.01, 0.04, -0.06])
+        )
+        model.e_correction_model = _make_mock_booster(
+            np.array([0.05, -0.02, 0.01, -0.04, 0.03, -0.01, 0.02, -0.03])
+        )
         model._trained = True
 
         result = model.correct_ev(pre_place_ev_df)
@@ -417,18 +429,43 @@ class TestPlaceEVCorrectionModel:
         assert np.allclose(result["ev_place_corrected"], expected, atol=1e-10)
 
     def test_untrained_fallback_passes_through(self, pre_place_ev_df):
-        """Untrained model should pass through ev_place as ev_place_corrected"""
+        """Untrained model should expose probability-sane corrected columns"""
         from models.ev_correction_model import PlaceEVCorrectionModel
 
         model = PlaceEVCorrectionModel()  # _trained = False
 
         # ev_place 列を事前に設定
-        pre_place_ev_df["ev_place"] = pre_place_ev_df["p_place_pred"] * pre_place_ev_df["e_return_place_pred"]
+        pre_place_ev_df["ev_place"] = (
+            pre_place_ev_df["p_place_pred"] * pre_place_ev_df["e_return_place_pred"]
+        )
         result = model.correct_ev(pre_place_ev_df)
 
-        # フォールバック: ev_place_corrected == ev_place
         assert "ev_place_corrected" in result.columns
-        assert np.allclose(result["ev_place_corrected"], result["ev_place"])
+        assert "p_place_corrected" in result.columns
+        assert "e_return_place_corrected" in result.columns
+        assert np.allclose(
+            result["ev_place_corrected"],
+            result["p_place_corrected"] * result["e_return_place_corrected"],
+        )
+        assert result.groupby("race_id")["p_place_corrected"].sum().iloc[0] == pytest.approx(3.0)
+
+    def test_place_bucket_multiplier_shrinks_longshots(self, pre_place_ev_df):
+        """High-odds low-probability runners should receive a stronger EV haircut."""
+        from models.ev_correction_model import PlaceEVCorrectionModel
+
+        model = PlaceEVCorrectionModel()
+        pre_place_ev_df = pre_place_ev_df.copy()
+        cols = ["fukuoddslow", "popularity_rank", "p_place_pred"]
+        pre_place_ev_df.loc[0, cols] = [4.0, 2.0, 0.25]
+        pre_place_ev_df.loc[7, cols] = [35.0, 18.0, 0.05]
+        result = model.correct_ev(pre_place_ev_df)
+
+        longshot = result.sort_values("fukuoddslow", ascending=False).iloc[0]
+        favorite = result.sort_values("fukuoddslow", ascending=True).iloc[0]
+
+        assert "place_bucket_multiplier" in result.columns
+        assert longshot["place_bucket_multiplier"] < favorite["place_bucket_multiplier"]
+        assert longshot["e_return_place_corrected"] < longshot["e_return_place_pred"]
 
 
 class TestEVCorrectionTemporalSplit:
@@ -436,7 +473,6 @@ class TestEVCorrectionTemporalSplit:
 
     def test_train_sorts_by_race_date_before_split(self):
         """train() は race_date でソートしてから train/valid 分割すること"""
-        import lightgbm as lgb
         from models.ev_correction_model import EVCorrectionModel
 
         np.random.seed(42)

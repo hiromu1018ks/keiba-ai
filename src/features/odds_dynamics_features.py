@@ -19,6 +19,96 @@ import numpy as np
 import pandas as pd
 
 
+def _build_snapshot_datetimes(ts: pd.DataFrame) -> pd.Series:
+    if "race_date" in ts.columns:
+        race_date = pd.to_datetime(ts["race_date"], errors="coerce")
+    else:
+        race_date = pd.Series(pd.NaT, index=ts.index)
+    if race_date.notna().any():
+        year_str = (
+            race_date.dt.year.astype("Int64").astype(str).str.replace("<NA>", "", regex=False)
+        )
+    else:
+        year_from_race = ts["race_id"].astype(str).str[:4]
+        year_str = np.where(year_from_race.str.fullmatch(r"\d{4}"), year_from_race, "2000")
+        year_str = pd.Series(year_str, index=ts.index)
+
+    ht_raw = ts["happyotime"].astype(str).str.zfill(8)
+    parsed = pd.to_datetime(year_str + ht_raw, format="%Y%m%d%H%M", errors="coerce")
+    if parsed.notna().any():
+        return parsed
+
+    order = ts.groupby(["race_id", "umaban"]).cumcount()
+    base = pd.Timestamp("2000-01-01")
+    return pd.Series(base + pd.to_timedelta(order, unit="m"), index=ts.index)
+
+
+def _build_post_time_map(df: pd.DataFrame) -> pd.Series:
+    if "race_id" not in df.columns or "hassotime" not in df.columns:
+        return pd.Series(dtype="datetime64[ns]")
+
+    race_info = df[["race_id", "hassotime"]].drop_duplicates(subset=["race_id"]).copy()
+    if "race_date" in df.columns:
+        race_date_map = (
+            df[["race_id", "race_date"]]
+            .drop_duplicates(subset=["race_id"])
+            .set_index("race_id")["race_date"]
+        )
+        race_date = pd.to_datetime(
+            race_date_map,
+            errors="coerce",
+        )
+        race_info["race_date"] = race_info["race_id"].map(race_date)
+    else:
+        race_info["race_date"] = pd.to_datetime(
+            race_info["race_id"].astype(str).str[:8],
+            format="%Y%m%d",
+            errors="coerce",
+        )
+
+    valid = (
+        race_info["race_date"].notna()
+        & race_info["hassotime"].notna()
+        & (race_info["hassotime"] != 0)
+    )
+    if not valid.any():
+        return pd.Series(dtype="datetime64[ns]")
+
+    ht = race_info.loc[valid, "hassotime"].astype(int).astype(str).str.zfill(4)
+    date_str = race_info.loc[valid, "race_date"].dt.strftime("%Y%m%d")
+    post_time = pd.to_datetime(date_str + ht, format="%Y%m%d%H%M", errors="coerce")
+    post_time.index = race_info.loc[valid, "race_id"]
+    return post_time
+
+
+def _pick_target_snapshot(
+    ts: pd.DataFrame,
+    value_col: str,
+    *,
+    target_minutes: float,
+    tolerance_minutes: float,
+) -> pd.Series:
+    if value_col not in ts.columns:
+        return pd.Series(dtype=float)
+
+    diff = (ts["_mins_before_anchor"] - target_minutes).abs()
+    valid = diff.notna() & ts[value_col].notna()
+    if not valid.any():
+        return pd.Series(dtype=float)
+
+    subset = ts.loc[valid, ["race_id", "umaban", "_ts_datetime", value_col]].copy()
+    subset["_diff"] = diff.loc[valid].values
+    preferred = subset["_diff"] <= tolerance_minutes
+    if preferred.any():
+        subset = subset.loc[preferred]
+    subset = subset.sort_values(
+        ["race_id", "umaban", "_diff", "_ts_datetime"],
+        ascending=[True, True, True, False],
+    )
+    picked = subset.drop_duplicates(subset=["race_id", "umaban"], keep="first")
+    return picked.set_index(["race_id", "umaban"])[value_col]
+
+
 def compute_odds_dynamics(
     df: pd.DataFrame,
     odds_ts: pd.DataFrame | None,
@@ -63,38 +153,48 @@ def compute_odds_dynamics(
     # 各(race_id, umaban)につき直近MAX_POINTSのみ保持 (PT/BT 一致のため無条件)
     max_points = 60
     ts = ts.groupby(["race_id", "umaban"], as_index=False).tail(max_points)
+    ts["_ts_datetime"] = _build_snapshot_datetimes(ts)
 
     grouped = ts.groupby(["race_id", "umaban"])
 
-    # --- 変化率: (early_odds - late_odds) / early_odds ---
-    first_odds = grouped["tanodds"].first()
-    last_odds = grouped["tanodds"].last()
+    post_time_map = _build_post_time_map(df)
+    if not post_time_map.empty:
+        ts["post_datetime"] = ts["race_id"].map(post_time_map)
+    else:
+        ts["post_datetime"] = pd.NaT
+    fallback_post = grouped["_ts_datetime"].transform("max") + pd.Timedelta(minutes=10)
+    ts["post_datetime"] = ts["post_datetime"].fillna(fallback_post)
+    ts["_mins_before_anchor"] = (
+        (ts["post_datetime"] - ts["_ts_datetime"]) / pd.Timedelta(minutes=1)
+    ).astype(float)
 
-    # 60→10: 先頭(=t-60) → 末尾(=t-10)
-    drop_60_10 = (first_odds - last_odds) / first_odds.replace(0, np.nan)
+    odds_10 = _pick_target_snapshot(ts, "tanodds", target_minutes=10.0, tolerance_minutes=15.0)
+    odds_30 = _pick_target_snapshot(ts, "tanodds", target_minutes=30.0, tolerance_minutes=15.0)
+    odds_60 = _pick_target_snapshot(ts, "tanodds", target_minutes=60.0, tolerance_minutes=20.0)
+    base_index = pd.MultiIndex.from_frame(df[["race_id", "umaban"]])
+    odds_10 = odds_10.reindex(base_index)
+    odds_30 = odds_30.reindex(base_index)
+    odds_60 = odds_60.reindex(base_index)
+
+    # --- 変化率: (early_odds - late_odds) / early_odds ---
+    drop_60_10 = (odds_60 - odds_10) / odds_60.replace(0, np.nan)
     drop_60_10.name = "odds_drop_rate_60_10"
 
-    # --- 中間位置特定の準備 (cumcount + group size) ---
-    ts["_pos"] = ts.groupby(["race_id", "umaban"]).cumcount()
-    ts["_size"] = ts.groupby(["race_id", "umaban"])["_pos"].transform("max") + 1
-    ts["_mid_idx"] = ts["_size"] // 2
-    mid_mask = ts["_pos"] == ts["_mid_idx"]
-
-    # 30→10: 中間(=t-30) → 末尾(=t-10)
-    # グループサイズ >= 3 の中間行のみ抽出
-    mid_ts = ts[mid_mask & (ts["_size"] >= 3)]
-    mid_odds = mid_ts.set_index(["race_id", "umaban"])["tanodds"]
-    mid_odds.name = "_mid_odds"
-    drop_30_10 = (mid_odds - last_odds) / mid_odds.replace(0, np.nan)
+    drop_30_10 = (odds_30 - odds_10) / odds_30.replace(0, np.nan)
     drop_30_10.name = "odds_drop_rate_30_10"
 
     # --- 速度: 線形回帰の傾き (ベクトル化) ---
     # slope = (n*sum_xy - sum_x*sum_y) / (n*sum_x2 - sum_x^2)
-    ts["_xy"] = ts["_pos"] * ts["tanodds"]
-    ts["_x2"] = ts["_pos"] ** 2
-    vel_stats = ts.groupby(["race_id", "umaban"]).agg(
+    vel_ts = ts[ts["tanodds"].notna()].copy()
+    first_time = vel_ts.groupby(["race_id", "umaban"])["_ts_datetime"].transform("min")
+    vel_ts["_elapsed_minutes"] = (
+        (vel_ts["_ts_datetime"] - first_time) / pd.Timedelta(minutes=1)
+    ).astype(float)
+    vel_ts["_xy"] = vel_ts["_elapsed_minutes"] * vel_ts["tanodds"]
+    vel_ts["_x2"] = vel_ts["_elapsed_minutes"] ** 2
+    vel_stats = vel_ts.groupby(["race_id", "umaban"]).agg(
         n=("tanodds", "count"),
-        sum_x=("_pos", "sum"),
+        sum_x=("_elapsed_minutes", "sum"),
         sum_y=("tanodds", "sum"),
         sum_xy=("_xy", "sum"),
         sum_x2=("_x2", "sum"),
@@ -122,9 +222,11 @@ def compute_odds_dynamics(
 
     # --- 人気変化: t-30 → t-10 (ベクトル化) ---
     if "ninki" in ts.columns:
-        mid_ninki = mid_ts.set_index(["race_id", "umaban"])["ninki"]
-        mid_ninki.name = "_mid_ninki"
-        pop_change = mid_ninki - grouped["ninki"].last()
+        ninki_10 = _pick_target_snapshot(ts, "ninki", target_minutes=10.0, tolerance_minutes=15.0)
+        ninki_30 = _pick_target_snapshot(ts, "ninki", target_minutes=30.0, tolerance_minutes=15.0)
+        ninki_10 = ninki_10.reindex(base_index)
+        ninki_30 = ninki_30.reindex(base_index)
+        pop_change = ninki_30 - ninki_10
         pop_change.name = "popularity_change_30_10"
     else:
         pop_change = pd.Series(np.nan, index=df.index, name="popularity_change_30_10")

@@ -41,6 +41,32 @@ class RacePredictor:
             raise ValueError(f"alpha must be in [0, 1], got {alpha}")
         self.alpha = alpha  # kept for backwards compatibility / fallback
 
+    @staticmethod
+    def _build_place_selection_ev(df: pd.DataFrame) -> pd.Series:
+        lower_ev = (
+            pd.to_numeric(df["EV_lower_place"], errors="coerce")
+            if "EV_lower_place" in df.columns
+            else pd.Series(np.nan, index=df.index, dtype=float)
+        )
+        corrected_ev = (
+            pd.to_numeric(df["ev_place_corrected"], errors="coerce")
+            if "ev_place_corrected" in df.columns
+            else pd.Series(np.nan, index=df.index, dtype=float)
+        )
+        direct_ev = (
+            pd.to_numeric(df["ev_place_direct"], errors="coerce")
+            if "ev_place_direct" in df.columns
+            else pd.Series(np.nan, index=df.index, dtype=float)
+        )
+
+        if corrected_ev.notna().any():
+            selection_ev = lower_ev.where(lower_ev.notna(), corrected_ev)
+            safety_floor = corrected_ev * 0.85
+            return pd.concat([selection_ev, safety_floor], axis=1).max(axis=1).astype(float)
+        if lower_ev.notna().any():
+            return lower_ev.astype(float)
+        return direct_ev.astype(float)
+
     def predict(
         self,
         race_df: pd.DataFrame,
@@ -106,7 +132,7 @@ class RacePredictor:
         # 6. EV補正 + Place推論
         df = submodel.ev_corrector.correct_ev(df)  # Win EV補正は維持
         df = submodel.place.predict_ev(df)
-        # place_ev_corrector: ベット選択には使わないが信頼区間で ev_place_corrected を参照
+        # place_ev_corrector: 補正EVと下限EVの両方をベット選択に使う
         df = submodel.place_ev_corrector.correct_ev(df)
 
         # 7. 信頼区間
@@ -159,8 +185,89 @@ class RacePredictor:
         # Corrected edge from PlaceEVCorrectionModel (if available)
         if "ev_place_corrected" in df.columns:
             df["edge_place_corrected"] = df["ev_place_corrected"] - 1.0
+        if "EV_lower_place" in df.columns:
+            df["edge_place_lower"] = pd.to_numeric(df["EV_lower_place"], errors="coerce") - 1.0
+
+        selection_ev = self._build_place_selection_ev(df)
+        df["place_selection_ev"] = selection_ev
+        df["place_selection_edge"] = selection_ev - 1.0
+        if "p_place_corrected" in df.columns:
+            selection_prob = pd.to_numeric(df["p_place_corrected"], errors="coerce")
+        elif "p_place_combined" in df.columns:
+            selection_prob = pd.to_numeric(df["p_place_combined"], errors="coerce")
+        else:
+            selection_prob = pd.to_numeric(df.get("p_place_pred"), errors="coerce")
+        df["place_selection_prob"] = selection_prob
 
         return df
+
+    @staticmethod
+    def _ensure_place_selection_columns(race_df: pd.DataFrame) -> pd.DataFrame:
+        edge_col = "place_selection_edge"
+        ev_col = "place_selection_ev"
+        prob_col = "place_selection_prob"
+        if (
+            edge_col in race_df.columns
+            and ev_col in race_df.columns
+            and prob_col in race_df.columns
+        ):
+            return race_df
+
+        race_df = race_df.copy()
+        if edge_col not in race_df.columns or ev_col not in race_df.columns:
+            if "EV_lower_place" in race_df.columns or "ev_place_corrected" in race_df.columns:
+                race_df[ev_col] = RacePredictor._build_place_selection_ev(race_df)
+                race_df[edge_col] = race_df[ev_col] - 1.0
+            elif "edge_place" in race_df.columns:
+                race_df[edge_col] = pd.to_numeric(race_df["edge_place"], errors="coerce")
+                race_df[ev_col] = race_df[edge_col] + 1.0
+        if prob_col not in race_df.columns:
+            if "p_place_corrected" in race_df.columns:
+                race_df[prob_col] = pd.to_numeric(race_df["p_place_corrected"], errors="coerce")
+            elif "p_place_combined" in race_df.columns:
+                race_df[prob_col] = pd.to_numeric(race_df["p_place_combined"], errors="coerce")
+            else:
+                race_df[prob_col] = pd.to_numeric(race_df.get("p_place_pred"), errors="coerce")
+        return race_df
+
+    def get_place_candidates(
+        self,
+        race_df: pd.DataFrame,
+        *,
+        regime_params: dict[str, Any] | None = None,
+    ) -> pd.DataFrame:
+        if regime_params is None:
+            regime = self.models.regime_detector.current_regime
+            regime_params = self.models.regime_detector.get_strategy_params(regime)
+
+        prepared = self._ensure_place_selection_columns(race_df)
+        edge_col = "place_selection_edge"
+        ev_col = "place_selection_ev"
+        prob_col = "place_selection_prob"
+        if edge_col not in prepared.columns or "fukuoddslow" not in prepared.columns:
+            return prepared.iloc[0:0].copy()
+
+        edge_threshold = float(regime_params.get("edge_threshold", 0.03))
+        min_place_prob = float(regime_params.get("min_place_prob", 0.0))
+        max_place_odds = float(regime_params.get("max_place_odds", float("inf")))
+
+        selection_prob = pd.to_numeric(prepared[prob_col], errors="coerce")
+        odds = pd.to_numeric(prepared["fukuoddslow"], errors="coerce")
+        selection_edge = pd.to_numeric(prepared[edge_col], errors="coerce")
+
+        mask = selection_edge.fillna(0.0) >= edge_threshold
+        mask &= selection_prob.fillna(0.0) >= min_place_prob
+        mask &= odds.notna() & (odds > 0) & (odds <= max_place_odds)
+
+        candidates = prepared.loc[mask].copy()
+        if "place_selection_prob" in candidates.columns:
+            candidates = candidates.sort_values(
+                [edge_col, ev_col, prob_col],
+                ascending=[False, False, False],
+            )
+        else:
+            candidates = candidates.sort_values([edge_col, ev_col], ascending=[False, False])
+        return candidates
 
     def should_bet(self, race_df: pd.DataFrame) -> bool:
         """RaceQualityScreener でベット対象か判定"""
@@ -174,30 +281,25 @@ class RacePredictor:
     ) -> list[Bet]:
         """Benter Value Betting: edge >= threshold の馬を選択 + ワイドペア生成。
 
-        v5: edge_place_corrected (PlaceEVCorrectionModel出力) を優先使用。
-        補正済みedgeは生のedgeよりキャリブレーションが良く、過信を抑制する。
-        Place: edge = ev_place_corrected - 1.0 (or p_combined * odds - 1.0)
+        v5: 下限EV (EV_lower_place) を最優先し、未利用時のみ補正EVへフォールバック。
+        Place: edge = selection_ev - 1.0
         Wide: WideTwoStageModel でスコアリング
         """
         regime = self.models.regime_detector.current_regime
         regime_params = self.models.regime_detector.get_strategy_params(regime)
 
         bets: list[Bet] = []
-        edge_threshold = regime_params.get("edge_threshold", 0.03)
         max_bets = regime_params.get("max_bets_per_race", 3)
-
-        # v5: 補正済みedgeは過剰ベットを招くため、生のedgeを使用
-        # (edge_place_corrected は wide 選択でのみ使用)
-        edge_col = "edge_place"
-        if edge_col not in race_df.columns or "fukuoddslow" not in race_df.columns:
+        ev_col = "place_selection_ev"
+        candidates = self.get_place_candidates(race_df, regime_params=regime_params)
+        if candidates.empty:
             return bets
 
         # --- Place bets ---
-        candidates = race_df[race_df[edge_col].fillna(0) >= edge_threshold].copy()
-        candidates = candidates.nlargest(max_bets, edge_col)
+        candidates = candidates.head(max_bets)
 
         for _, row in candidates.iterrows():
-            edge_val = float(row[edge_col])
+            edge_val = float(row["place_selection_edge"])
             odds_val = float(row["fukuoddslow"])
 
             if self._betting_mode == "kelly" and self.stake_calc is not None:
@@ -222,14 +324,14 @@ class RacePredictor:
                     umaban=int(row["umaban"]),
                     bet_type=BetType.PLACE,
                     odds=odds_val,
-                    ev_lower_corrected=float(row.get("ev_place_corrected", 0)),
-                    stake=stake,
-                    edge=edge_val,
+                    ev_lower_corrected=float(row.get(ev_col, row.get("ev_place_corrected", 0))),
+                        stake=stake,
+                        edge=edge_val,
+                    )
                 )
-            )
 
-        # --- Wide bets (from place bet pairs only) ---
-        bets.extend(self._select_wide_bets(race_df, bankroll, bets))
+        if bool(regime_params.get("wide_enabled", False)):
+            bets.extend(self._select_wide_bets(race_df, bankroll, bets))
 
         return bets
 
@@ -244,18 +346,21 @@ class RacePredictor:
         Place ベット対象馬を中心に、corrected edge >= 0.03 の馬も候補に含める。
         ペアの少なくとも1頭は place ベット対象馬であること。
         """
-        edge_col = "edge_place"
+        edge_col = "place_selection_edge"
         if edge_col not in race_df.columns:
-            return []
+            if "edge_place" in race_df.columns:
+                race_df = race_df.copy()
+                race_df[edge_col] = pd.to_numeric(race_df["edge_place"], errors="coerce")
+            else:
+                return []
 
         # Place ベット対象馬
         place_umabans = {b.umaban for b in place_bets if b.bet_type == BetType.PLACE}
         if not place_umabans:
             return []
 
-        # 候補馬: place ベット馬 + corrected edge >= 0.03 の馬
-        # corrected edge は EV correction model の出力を利用
-        wide_edge_col = "edge_place_corrected" if "edge_place_corrected" in race_df.columns else edge_col
+        # 候補馬: place ベット馬 + 下限/補正EVで十分な馬
+        wide_edge_col = edge_col
         min_wide_edge = 0.04
         candidate_df = race_df[race_df[wide_edge_col].fillna(0) >= min_wide_edge].copy()
         candidate_umabans = set(int(u) for u in candidate_df["umaban"])

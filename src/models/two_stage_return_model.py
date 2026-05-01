@@ -5,7 +5,6 @@ from __future__ import annotations
 import os
 
 import lightgbm as lgb
-import numpy as np
 import pandas as pd
 
 from domain.models import TwoStageConfig
@@ -66,13 +65,23 @@ class WinTwoStageModel:
         "field_size",
         # FLB slope (市場歪みの非対称性)
         "odds_skewness",
+        # 追加改善特徴量
+        "draw_ratio",
+        "class_move",
+        "blinker_change",
+        "is_nar_transfer",
+        "nar_recent_ratio",
+        "track_condition_delta",
+        "pace_pressure",
+        "pace_scenario_fit",
     ]
 
     def __init__(self, cfg: TwoStageConfig | None = None) -> None:
         self.cfg = cfg or TwoStageConfig()
 
     def _prepare_features(self, df: pd.DataFrame) -> pd.DataFrame:
-        features = df[self.FEATURE_COLS].copy()
+        available_cols = [c for c in self.FEATURE_COLS if c in df.columns]
+        features = df[available_cols].copy()
         # Int64 (nullable int) → float64 (LightGBMが対応する型)
         for col in features.columns:
             if pd.api.types.is_integer_dtype(features[col]):
@@ -204,6 +213,14 @@ class PlaceTwoStageModel:
         "trainer_wr_overall",
         "jt_combo_place_rate",
         "course_wr",
+        "draw_ratio",
+        "class_move",
+        "blinker_change",
+        "is_nar_transfer",
+        "nar_recent_ratio",
+        "track_condition_delta",
+        "pace_pressure",
+        "pace_scenario_fit",
         # --- 間接的市場情報 (既存) ---
         "odds_drop_rate_60_10",
         "odds_drop_rate_30_10",
@@ -257,6 +274,15 @@ class PlaceTwoStageModel:
         "field_size",
         # FLB slope
         "odds_skewness",
+        # 追加改善特徴量
+        "draw_ratio",
+        "class_move",
+        "blinker_change",
+        "is_nar_transfer",
+        "nar_recent_ratio",
+        "track_condition_delta",
+        "pace_pressure",
+        "pace_scenario_fit",
     ]
 
     # 後方互換: FEATURE_COLS は return model のリストを返す (最も情報量が多いため)
