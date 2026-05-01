@@ -231,6 +231,13 @@ class BacktestEngine:
             logger.warning(f"No races found in {test_start} ~ {test_end}")
             return BacktestResult(final_bankroll=self.initial_bankroll)
 
+        if "jyocd" in race_df.columns:
+            jyocd_int = pd.to_numeric(race_df["jyocd"], errors="coerce")
+            jra_race_ids = race_df.loc[jyocd_int.between(1, 10), "race_id"].drop_duplicates()
+            race_df = race_df[race_df["race_id"].isin(jra_race_ids)].copy()
+            entry_df = entry_df[entry_df["race_id"].isin(jra_race_ids)].copy()
+            final_odds_df = final_odds_df[final_odds_df["race_id"].isin(jra_race_ids)].copy()
+
         # 2. 特徴量生成
         from db.odds_extractor import extract_pre_post_odds
         from features.feature_engine import FeatureEngine
@@ -239,6 +246,8 @@ class BacktestEngine:
         feat_engine = FeatureEngine()
         submodel_mgr = SubModelManager()
         odds_ts_df = load_odds_time_series_range(self.store, start, end)
+        if not odds_ts_df.empty:
+            odds_ts_df = odds_ts_df[odds_ts_df["race_id"].isin(race_df["race_id"])].copy()
 
         # 発走前オッズの抽出（フォールバックなし: 時系列オッズがない場合は全レーススキップ）
         if odds_ts_df.empty:
@@ -581,6 +590,8 @@ class BacktestEngine:
                         place_bucket_multiplier=float(
                             hr.get("place_bucket_multiplier", float("nan"))
                         ),
+                        place_gate_score=float(hr.get("place_gate_score", float("nan"))),
+                        place_gate_pass=bool(hr.get("place_gate_pass", False)),
                     )
                     diag_logger.log_horse_features(hr.to_dict())
 

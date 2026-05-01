@@ -13,6 +13,7 @@ import numpy as np
 import pandas as pd
 
 from domain.models import Bet, BetType
+from models.place_selection_gate import build_place_selection_ev, ensure_place_selection_columns
 
 if TYPE_CHECKING:
     from betting.drawdown_controller import DrawdownController
@@ -43,29 +44,7 @@ class RacePredictor:
 
     @staticmethod
     def _build_place_selection_ev(df: pd.DataFrame) -> pd.Series:
-        lower_ev = (
-            pd.to_numeric(df["EV_lower_place"], errors="coerce")
-            if "EV_lower_place" in df.columns
-            else pd.Series(np.nan, index=df.index, dtype=float)
-        )
-        corrected_ev = (
-            pd.to_numeric(df["ev_place_corrected"], errors="coerce")
-            if "ev_place_corrected" in df.columns
-            else pd.Series(np.nan, index=df.index, dtype=float)
-        )
-        direct_ev = (
-            pd.to_numeric(df["ev_place_direct"], errors="coerce")
-            if "ev_place_direct" in df.columns
-            else pd.Series(np.nan, index=df.index, dtype=float)
-        )
-
-        if corrected_ev.notna().any():
-            selection_ev = lower_ev.where(lower_ev.notna(), corrected_ev)
-            safety_floor = corrected_ev * 0.85
-            return pd.concat([selection_ev, safety_floor], axis=1).max(axis=1).astype(float)
-        if lower_ev.notna().any():
-            return lower_ev.astype(float)
-        return direct_ev.astype(float)
+        return build_place_selection_ev(df)
 
     def predict(
         self,
@@ -198,37 +177,18 @@ class RacePredictor:
         else:
             selection_prob = pd.to_numeric(df.get("p_place_pred"), errors="coerce")
         df["place_selection_prob"] = selection_prob
+        gate_model = getattr(submodel, "place_selection_gate", None)
+        gate_enabled = bool(
+            gate_model is not None and getattr(gate_model, "is_trained", False) is True
+        )
+        if gate_enabled:
+            df = gate_model.score(df)
 
         return df
 
     @staticmethod
     def _ensure_place_selection_columns(race_df: pd.DataFrame) -> pd.DataFrame:
-        edge_col = "place_selection_edge"
-        ev_col = "place_selection_ev"
-        prob_col = "place_selection_prob"
-        if (
-            edge_col in race_df.columns
-            and ev_col in race_df.columns
-            and prob_col in race_df.columns
-        ):
-            return race_df
-
-        race_df = race_df.copy()
-        if edge_col not in race_df.columns or ev_col not in race_df.columns:
-            if "EV_lower_place" in race_df.columns or "ev_place_corrected" in race_df.columns:
-                race_df[ev_col] = RacePredictor._build_place_selection_ev(race_df)
-                race_df[edge_col] = race_df[ev_col] - 1.0
-            elif "edge_place" in race_df.columns:
-                race_df[edge_col] = pd.to_numeric(race_df["edge_place"], errors="coerce")
-                race_df[ev_col] = race_df[edge_col] + 1.0
-        if prob_col not in race_df.columns:
-            if "p_place_corrected" in race_df.columns:
-                race_df[prob_col] = pd.to_numeric(race_df["p_place_corrected"], errors="coerce")
-            elif "p_place_combined" in race_df.columns:
-                race_df[prob_col] = pd.to_numeric(race_df["p_place_combined"], errors="coerce")
-            else:
-                race_df[prob_col] = pd.to_numeric(race_df.get("p_place_pred"), errors="coerce")
-        return race_df
+        return ensure_place_selection_columns(race_df)
 
     def get_place_candidates(
         self,
@@ -254,13 +214,34 @@ class RacePredictor:
         selection_prob = pd.to_numeric(prepared[prob_col], errors="coerce")
         odds = pd.to_numeric(prepared["fukuoddslow"], errors="coerce")
         selection_edge = pd.to_numeric(prepared[edge_col], errors="coerce")
-
-        mask = selection_edge.fillna(0.0) >= edge_threshold
-        mask &= selection_prob.fillna(0.0) >= min_place_prob
-        mask &= odds.notna() & (odds > 0) & (odds <= max_place_odds)
+        surface_key = (
+            prepared["surface"].iloc[0]
+            if "surface" in prepared.columns and not prepared.empty
+            else None
+        )
+        submodel = self.models.submodels.get(surface_key) if surface_key is not None else None
+        gate_model = getattr(submodel, "place_selection_gate", None)
+        gate_enabled = bool(
+            gate_model is not None and getattr(gate_model, "is_trained", False) is True
+        )
+        if gate_enabled:
+            prepared = gate_model.score(prepared)
+            mask = prepared["place_gate_pass"].fillna(False).astype(bool)
+            mask &= selection_edge.fillna(float("-inf")) >= 0.0
+            mask &= selection_prob.fillna(0.0) >= min_place_prob
+            mask &= odds.notna() & (odds > 0) & (odds <= max_place_odds)
+        else:
+            mask = selection_edge.fillna(0.0) >= edge_threshold
+            mask &= selection_prob.fillna(0.0) >= min_place_prob
+            mask &= odds.notna() & (odds > 0) & (odds <= max_place_odds)
 
         candidates = prepared.loc[mask].copy()
-        if "place_selection_prob" in candidates.columns:
+        if gate_enabled and "place_gate_score" in candidates.columns:
+            candidates = candidates.sort_values(
+                ["place_gate_score", edge_col, ev_col, prob_col],
+                ascending=[False, False, False, False],
+            )
+        elif "place_selection_prob" in candidates.columns:
             candidates = candidates.sort_values(
                 [edge_col, ev_col, prob_col],
                 ascending=[False, False, False],

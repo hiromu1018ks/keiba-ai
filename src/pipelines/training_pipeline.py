@@ -37,6 +37,7 @@ from features.feature_engine import FeatureEngine
 from features.odds_dynamics_features import compute_roi_ema
 from models.ev_correction_model import EVCorrectionModel, PlaceEVCorrectionModel
 from models.market_model import MarketModel
+from models.place_selection_gate import PlaceSelectionGateModel, ensure_place_selection_columns
 from models.race_quality_screener import RaceQualityScreener
 from models.regime_detector import RegimeDetector
 from models.robust_confidence_estimator import RobustConfidenceEstimator
@@ -107,11 +108,21 @@ class TrainingPipelineV5:
         entry_df = entry_df.drop_duplicates(subset=["race_id", "umaban"], keep="first")
         odds_df = load_odds_snapshots(self.store, start, end)  # フォールバック用
 
+        # JRA 学習対象に絞ってからオッズ抽出/特徴量生成へ進む。
+        if "jyocd" in race_df.columns:
+            jyocd_int = pd.to_numeric(race_df["jyocd"], errors="coerce")
+            jra_race_ids = race_df.loc[jyocd_int.between(1, 10), "race_id"].drop_duplicates()
+            race_df = race_df[race_df["race_id"].isin(jra_race_ids)].copy()
+            entry_df = entry_df[entry_df["race_id"].isin(jra_race_ids)].copy()
+            odds_df = odds_df[odds_df["race_id"].isin(jra_race_ids)].copy()
+
         # NEW: _train_submodel 内で HorseHistoryFeatures が使用するため保存
         self._race_df = race_df
         self._entry_df = entry_df
         # オッズ時系列データ — Stage2 (WinTwoStageModel) のオッズ動的特徴量に必須
         odds_ts_df = load_odds_time_series_range(self.store, start, end)
+        if not odds_ts_df.empty:
+            odds_ts_df = odds_ts_df[odds_ts_df["race_id"].isin(race_df["race_id"])].copy()
 
         # 発走5分前オッズの抽出 (本番と同じ時点のデータを使用)
         # 年ごとに処理してメモリ使用量を抑制
@@ -570,6 +581,15 @@ class TrainingPipelineV5:
             place_calib_df["ev_place_corrected"] = df_oof["ev_place_corrected"]
             conf.calibrate(win_calib_df, place_calib_df)
 
+        with TimingContext(f"{surface}/place_selection_gate"):
+            gate_train_df = df_oof.copy()
+            _, gate_place_df = conf.predict_lower_bound(df_oof.copy(), df_oof.copy())
+            if "EV_lower_place" in gate_place_df.columns:
+                gate_train_df["EV_lower_place"] = gate_place_df["EV_lower_place"].values
+            gate_train_df = ensure_place_selection_columns(gate_train_df)
+            place_selection_gate = PlaceSelectionGateModel()
+            place_selection_gate.train(gate_train_df)
+
         return SubmodelSet(
             market=market,
             stage1=stage1,
@@ -580,6 +600,7 @@ class TrainingPipelineV5:
             place_ev_corrector=place_ev_corrector,
             wide=wide_2s,
             confidence=conf,
+            place_selection_gate=place_selection_gate,
             use_ensemble=use_ensemble,
             benter_combo=benter_combo,
             isotonic_calibrator=isotonic_cal,
@@ -642,7 +663,11 @@ class TrainingPipelineV5:
         race_feat["hist_hit_rate_topk"] = race_feat["favorite_win_rate"]
 
         # 人気馬 (popularity_rank==1) の実際の成績を race_id 単位で集計
-        if "kakuteijyuni" in feat_df.columns and "popularity_rank" in feat_df.columns and "tanodds" in feat_df.columns:
+        if (
+            "kakuteijyuni" in feat_df.columns
+            and "popularity_rank" in feat_df.columns
+            and "tanodds" in feat_df.columns
+        ):
             fav_df = feat_df[feat_df["popularity_rank"] == 1][
                 ["race_id", "kakuteijyuni", "tanodds"]
             ].copy()
@@ -828,6 +853,22 @@ class TrainingPipelineV5:
                     sub.place_ev_corrector.e_correction_model,
                     name=f"place_ev_corrector_e_{surface}",
                 )
+                if (
+                    sub.place_selection_gate is not None
+                    and sub.place_selection_gate.is_trained
+                ):
+                    gate_tmp: str | None = None
+                    try:
+                        with tempfile.NamedTemporaryFile(
+                            suffix=".joblib",
+                            delete=False,
+                        ) as gate_file:
+                            gate_tmp = gate_file.name
+                        sub.place_selection_gate.save(Path(gate_tmp))
+                        mlflow.log_artifact(gate_tmp, f"place_selection_gate_{surface}")
+                    finally:
+                        if gate_tmp and os.path.exists(gate_tmp):
+                            os.unlink(gate_tmp)
 
                 # PlaceTwoStageModel
                 if sub.use_ensemble:
@@ -936,6 +977,10 @@ class TrainingPipelineV5:
                 joblib.dump(
                     calibrated,
                     models_dir / f"place_ability_{surface}.joblib",
+                )
+            if sub.place_selection_gate is not None and sub.place_selection_gate.is_trained:
+                sub.place_selection_gate.save(
+                    models_dir / f"place_selection_gate_{surface}.joblib"
                 )
 
             # Benter Combination (JSON)

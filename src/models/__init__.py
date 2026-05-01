@@ -2,6 +2,7 @@
 
 from models.ev_correction_model import EVCorrectionModel
 from models.market_model import MarketModel
+from models.place_selection_gate import PlaceSelectionGateModel
 from models.race_quality_screener import RaceQualityScreener
 from models.regime_detector import RegimeDetector
 from models.robust_confidence_estimator import RobustConfidenceEstimator
@@ -14,6 +15,7 @@ __all__ = [
     "AbilityModel",
     "EVCorrectionModel",
     "MarketModel",
+    "PlaceSelectionGateModel",
     "PlaceTwoStageModel",
     "RaceQualityScreener",
     "RegimeDetector",

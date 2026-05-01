@@ -21,6 +21,7 @@ def _make_submodel_mock() -> MagicMock:
     sm.place = MagicMock()
     sm.wide = MagicMock()
     sm.confidence = MagicMock()
+    sm.place_selection_gate = None
     sm.benter_combo = None
     sm.isotonic_calibrator = None
     return sm
@@ -342,6 +343,84 @@ class TestRacePredictor:
         bets = predictor.select_bets(race_df, bankroll=100000.0)
 
         assert [bet.umaban for bet in bets] == [3]
+
+    def test_select_bets_prefers_learned_gate_when_available(self, mock_models: MagicMock) -> None:
+        from backtest.race_predictor import RacePredictor
+        from domain.types import RegimeState
+
+        class StubGate:
+            is_trained = True
+
+            def score(self, df: pd.DataFrame) -> pd.DataFrame:
+                scored = df.copy()
+                scored["place_gate_score"] = [0.2, 1.3, 0.1]
+                scored["place_gate_pass"] = [False, True, False]
+                return scored
+
+        predictor = RacePredictor(models=mock_models)
+        mock_models.submodels["turf"].place_selection_gate = StubGate()
+        mock_models.regime_detector.current_regime = RegimeState.CONSERVATIVE
+        mock_models.regime_detector.get_strategy_params.return_value = {
+            "edge_threshold": 0.50,
+            "min_place_prob": 0.50,
+            "max_place_odds": 3.0,
+            "max_bets_per_race": 1,
+        }
+
+        race_df = pd.DataFrame(
+            {
+                "race_id": ["R1", "R1", "R1"],
+                "umaban": [1, 2, 3],
+                "surface": ["turf", "turf", "turf"],
+                "place_selection_prob": [0.60, 0.55, 0.15],
+                "place_selection_edge": [0.55, 0.04, 0.03],
+                "place_selection_ev": [1.55, 1.04, 1.03],
+                "fukuoddslow": [2.0, 2.8, 12.0],
+            }
+        )
+
+        bets = predictor.select_bets(race_df, bankroll=100000.0)
+
+        assert [bet.umaban for bet in bets] == [2]
+
+    def test_learned_gate_still_blocks_negative_edge_horses(self, mock_models: MagicMock) -> None:
+        from backtest.race_predictor import RacePredictor
+        from domain.types import RegimeState
+
+        class StubGate:
+            is_trained = True
+
+            def score(self, df: pd.DataFrame) -> pd.DataFrame:
+                scored = df.copy()
+                scored["place_gate_score"] = [1.4]
+                scored["place_gate_pass"] = [True]
+                return scored
+
+        predictor = RacePredictor(models=mock_models)
+        mock_models.submodels["turf"].place_selection_gate = StubGate()
+        mock_models.regime_detector.current_regime = RegimeState.CONSERVATIVE
+        mock_models.regime_detector.get_strategy_params.return_value = {
+            "edge_threshold": 0.05,
+            "min_place_prob": 0.10,
+            "max_place_odds": 18.0,
+            "max_bets_per_race": 1,
+        }
+
+        race_df = pd.DataFrame(
+            {
+                "race_id": ["R1"],
+                "umaban": [1],
+                "surface": ["turf"],
+                "place_selection_prob": [0.45],
+                "place_selection_edge": [-0.01],
+                "place_selection_ev": [0.99],
+                "fukuoddslow": [3.2],
+            }
+        )
+
+        bets = predictor.select_bets(race_df, bankroll=100000.0)
+
+        assert bets == []
 
     def test_place_selection_ev_keeps_corrected_ev_floor(self, mock_models: MagicMock) -> None:
         from backtest.race_predictor import RacePredictor

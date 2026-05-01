@@ -45,6 +45,8 @@ class HorseDiagnostic:
     place_selection_edge: float | None = None
     place_selection_prob: float | None = None
     place_bucket_multiplier: float | None = None
+    place_gate_score: float | None = None
+    place_gate_pass: bool | None = None
 
 
 class DiagnosticLogger:
@@ -96,6 +98,8 @@ class DiagnosticLogger:
         place_selection_edge: float | None = None,
         place_selection_prob: float | None = None,
         place_bucket_multiplier: float | None = None,
+        place_gate_score: float | None = None,
+        place_gate_pass: bool | None = None,
     ) -> None:
         self.horse_records.append(
             HorseDiagnostic(
@@ -114,6 +118,8 @@ class DiagnosticLogger:
                 place_selection_edge=place_selection_edge,
                 place_selection_prob=place_selection_prob,
                 place_bucket_multiplier=place_bucket_multiplier,
+                place_gate_score=place_gate_score,
+                place_gate_pass=place_gate_pass,
             )
         )
 

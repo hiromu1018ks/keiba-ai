@@ -76,6 +76,7 @@ class ModelLoader:
         from models.ev_correction_model import EVCorrectionModel, PlaceEVCorrectionModel
         from models.market_model import MarketModel
         from models.place_ability_model import PlaceAbilityModel
+        from models.place_selection_gate import PlaceSelectionGateModel
         from models.race_quality_screener import RaceQualityScreener
         from models.regime_detector import RegimeDetector
         from models.robust_confidence_estimator import RobustConfidenceEstimator
@@ -123,6 +124,24 @@ class ModelLoader:
             place = PlaceTwoStageModel()
             place.hit_model = self._load_lgbm(f"{artifact_uri}/place_hit_{surface}")
             place.return_model = self._load_lgbm(f"{artifact_uri}/place_ret_{surface}")
+
+            place_selection_gate = None
+            try:
+                gate_dir = mlflow.artifacts.download_artifacts(
+                    f"runs:/{run_id}/place_selection_gate_{surface}"
+                )
+            except Exception:
+                try:
+                    gate_dir = self._find_artifact_dir(run_id, f"place_selection_gate_{surface}")
+                except Exception:
+                    gate_dir = None
+            if gate_dir is not None:
+                gate_files = list(Path(gate_dir).glob("*.joblib"))
+                if gate_files:
+                    try:
+                        place_selection_gate = PlaceSelectionGateModel.load(gate_files[0])
+                    except Exception:
+                        logger.warning("Failed to load PlaceSelectionGateModel for %s", surface)
 
             # PlaceAbilityModel (joblib artifact)
             pa = PlaceAbilityModel()
@@ -176,6 +195,7 @@ class ModelLoader:
                 place_ev_corrector=place_ev_corr,
                 wide=wide,
                 confidence=confidence,
+                place_selection_gate=place_selection_gate,
             )
 
         # RaceQualityScreener
@@ -229,7 +249,6 @@ class ModelLoader:
     @staticmethod
     def _find_latest_run_from_fs() -> str:
         """mlruns/ ディレクトリから最新のrunを直接検索 (MLflowトラッキング不使用)"""
-        import os
 
         mlruns_dir = Path("mlruns")
         if not mlruns_dir.exists():
@@ -351,6 +370,7 @@ class ModelLoader:
         from models.ev_correction_model import EVCorrectionModel, PlaceEVCorrectionModel
         from models.market_model import MarketModel
         from models.place_ability_model import PlaceAbilityModel
+        from models.place_selection_gate import PlaceSelectionGateModel
         from models.race_quality_screener import RaceQualityScreener
         from models.regime_detector import RegimeDetector
         from models.robust_confidence_estimator import RobustConfidenceEstimator
@@ -366,7 +386,9 @@ class ModelLoader:
 
         # 整合性チェック: meta.json の use_ensemble と .joblib の有無が矛盾していないか
         meta_ensemble = meta.get("use_ensemble", False)
-        has_joblib_hit = any((models_dir / f"win_hit_{s}.joblib").is_file() for s in meta.get("surfaces", []))
+        has_joblib_hit = any(
+            (models_dir / f"win_hit_{s}.joblib").is_file() for s in meta.get("surfaces", [])
+        )
         if meta_ensemble and not has_joblib_hit:
             raise ValueError(
                 "Model file inconsistency: meta.json says use_ensemble=true "
@@ -441,6 +463,14 @@ class ModelLoader:
                 except Exception:
                     logger.warning("Failed to load %s, skipping", calibrator_file)
 
+            place_selection_gate = None
+            gate_file = models_dir / f"place_selection_gate_{surface}.joblib"
+            if gate_file.is_file():
+                try:
+                    place_selection_gate = PlaceSelectionGateModel.load(gate_file)
+                except Exception:
+                    logger.warning("Failed to load %s, skipping", gate_file)
+
             # PlaceAbilityModel (joblib)
             pa = PlaceAbilityModel()
             pa_file = models_dir / f"place_ability_{surface}.joblib"
@@ -508,6 +538,7 @@ class ModelLoader:
                 place_ev_corrector=place_ev_corr,
                 wide=wide,
                 confidence=confidence,
+                place_selection_gate=place_selection_gate,
                 benter_combo=benter_combo,
                 isotonic_calibrator=isotonic_calibrator,
                 temperature_scaler=temperature_scaler,

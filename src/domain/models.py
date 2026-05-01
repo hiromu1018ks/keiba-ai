@@ -14,6 +14,7 @@ if TYPE_CHECKING:
     from models.ev_correction_model import EVCorrectionModel, PlaceEVCorrectionModel
     from models.market_model import MarketModel
     from models.place_ability_model import PlaceAbilityModel
+    from models.place_selection_gate import PlaceSelectionGateModel
     from models.race_quality_screener import RaceQualityScreener
     from models.regime_detector import RegimeDetector
     from models.robust_confidence_estimator import RobustConfidenceEstimator
@@ -240,6 +241,7 @@ class SubmodelSet:
     place_ev_corrector: PlaceEVCorrectionModel
     wide: WideTwoStageModel
     confidence: RobustConfidenceEstimator
+    place_selection_gate: PlaceSelectionGateModel | None = None
     use_ensemble: bool = False
     benter_combo: BenterCombination | None = None
     isotonic_calibrator: IsotonicRegression | None = None
