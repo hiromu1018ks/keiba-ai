@@ -524,22 +524,20 @@ if win_benter_file.is_file():
 | A4 | BenterCombination.fit() can be refactored to accept custom x0 without breaking Place | Architecture Patterns | Need to test Place Benter still works after refactoring |
 | A5 | `betacal.BetaCalibration` .transform() method name (sklearn-compatible API) | Code Examples | If API differs, wrapper needed |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **betacal compatibility with numpy 2.x**
    - What we know: betacal v1.1.0 on PyPI, depends on numpy and scikit-learn. numpy 2.4.3 is installed.
    - What's unclear: Whether betacal v1.1.0 works with numpy 2.x (released after betacal last update).
-   - Recommendation: Install and test `import betacal; bc = BetaCalibration(); bc.fit(np.array([0.1,0.5,0.9]), np.array([0,1,1])); bc.transform(np.array([0.5]))` before implementation. If incompatible, implement Beta calibration manually using scipy.optimize.
+   - RESOLVED: Plan 02 Task 1 Step 1 includes explicit fallback — try betacal, if ImportError or failure, use manual BetaCalibrationManual via scipy.optimize. No risk either way.
 
 2. **OOF generation computational cost**
    - What we know: KFold with n_splits=5 means retraining hit_model 5 times per surface. LightGBM hit_model trains in ~1-2 minutes per fold.
-   - What's unclear: Total training time impact.
-   - Recommendation: Add TimingContext wrapper around OOF generation; estimate ~5-10 min additional training time per surface.
+   - RESOLVED: Claude's discretion — TimingContext wrapper included in Plan 01 Task 2 Part A. Estimated ~5-10 min additional per surface, acceptable per user's "品質優先" policy.
 
 3. **Grid search granularity for D-13**
    - What we know: Claude's discretion on grid range/granularity. Current bounds: alpha [0.01, 5.0], beta [0.20, 5.0], gamma [-5.0, 5.0].
-   - What's unclear: Optimal grid density (4x4x3 = 48 combinations proposed in Pattern 4 example).
-   - Recommendation: Start with coarse grid (48 combinations), refine around best region if needed.
+   - RESOLVED: Claude's discretion — coarse grid (4x4x3 = 48 combinations) specified in Plan 01 Task 2 Part A. Refinement around best region is optional future work.
 
 ## Environment Availability
 
