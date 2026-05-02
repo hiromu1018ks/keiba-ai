@@ -169,10 +169,6 @@ class ModelLoader:
                 conf_path = mlflow.artifacts.download_artifacts(
                     f"runs:/{run_id}/confidence_params.json"
                 )
-            except Exception:
-                # Fallback: ファイルシステムから直接読み込み
-                conf_dir = self._find_artifact_dir(run_id, "confidence_params.json")
-                conf_path = str(conf_dir / "confidence_params.json")
                 with open(conf_path) as f:
                     conf_data = json.load(f)
                 confidence.alpha = conf_data["alpha"]
@@ -183,7 +179,91 @@ class ModelLoader:
                 confidence._place_rolling_quantile = conf_data["place_rolling_quantile"]
                 confidence._calibrated = True
             except Exception:
-                logger.warning("RobustConfidenceEstimator params not found, using defaults")
+                # Fallback: ファイルシステムから直接読み込み
+                try:
+                    conf_dir = self._find_artifact_dir(
+                        run_id, "confidence_params.json"
+                    )
+                    conf_path = str(conf_dir / "confidence_params.json")
+                    with open(conf_path) as f:
+                        conf_data = json.load(f)
+                    confidence.alpha = conf_data["alpha"]
+                    confidence.rolling_window = conf_data["rolling_window"]
+                    confidence._win_cp_quantile = conf_data["win_cp_quantile"]
+                    confidence._place_cp_quantile = conf_data["place_cp_quantile"]
+                    confidence._win_rolling_quantile = conf_data["win_rolling_quantile"]
+                    confidence._place_rolling_quantile = conf_data[
+                        "place_rolling_quantile"
+                    ]
+                    confidence._calibrated = True
+                except Exception:
+                    logger.warning(
+                        "RobustConfidenceEstimator params not found, using defaults"
+                    )
+
+            # Benter Combination (Place)
+            benter_combo = None
+            try:
+                bent_path = mlflow.artifacts.download_artifacts(
+                    f"runs:/{run_id}/benter_combo_{surface}.json"
+                )
+                from models.benter_combination import BenterCombination
+                benter_combo = BenterCombination.load(Path(bent_path))
+            except Exception:
+                pass
+
+            # Isotonic Calibrator (Place)
+            isotonic_calibrator = None
+            try:
+                iso_path = mlflow.artifacts.download_artifacts(
+                    f"runs:/{run_id}/isotonic_place_{surface}.joblib"
+                )
+                isotonic_calibrator = joblib.load(iso_path)
+            except Exception:
+                pass
+
+            # Temperature Scaler (Place)
+            temperature_scaler = None
+            try:
+                temp_path = mlflow.artifacts.download_artifacts(
+                    f"runs:/{run_id}/temp_scale_{surface}.json"
+                )
+                from models.benter_combination import TemperatureScaling
+                temperature_scaler = TemperatureScaling.load(Path(temp_path))
+            except Exception:
+                pass
+
+            # Win Benter Combination
+            win_benter = None
+            try:
+                wb_path = mlflow.artifacts.download_artifacts(
+                    f"runs:/{run_id}/benter_combo_win_{surface}.json"
+                )
+                from models.benter_combination import BenterCombination
+                win_benter = BenterCombination.load(Path(wb_path))
+            except Exception:
+                pass
+
+            # Win Calibrator (Beta or Isotonic)
+            win_isotonic_calibrator = None
+            try:
+                wiso_path = mlflow.artifacts.download_artifacts(
+                    f"runs:/{run_id}/isotonic_win_{surface}.joblib"
+                )
+                win_isotonic_calibrator = joblib.load(wiso_path)
+            except Exception:
+                pass
+
+            # Win Temperature Scaler
+            win_temperature_scaler = None
+            try:
+                wtemp_path = mlflow.artifacts.download_artifacts(
+                    f"runs:/{run_id}/temp_scale_win_{surface}.json"
+                )
+                from models.benter_combination import TemperatureScaling
+                win_temperature_scaler = TemperatureScaling.load(Path(wtemp_path))
+            except Exception:
+                pass
 
             submodels[surface] = SubmodelSet(
                 market=market,
@@ -196,6 +276,12 @@ class ModelLoader:
                 wide=wide,
                 confidence=confidence,
                 place_selection_gate=place_selection_gate,
+                benter_combo=benter_combo,
+                isotonic_calibrator=isotonic_calibrator,
+                temperature_scaler=temperature_scaler,
+                win_benter=win_benter,
+                win_isotonic_calibrator=win_isotonic_calibrator,
+                win_temperature_scaler=win_temperature_scaler,
             )
 
         # RaceQualityScreener
