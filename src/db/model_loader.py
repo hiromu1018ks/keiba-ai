@@ -528,6 +528,35 @@ class ModelLoader:
                 except Exception:
                     logger.warning("Failed to load %s, skipping", temp_file)
 
+            # Win Benter Combination (JSON)
+            win_benter = None
+            win_benter_file = models_dir / f"benter_combo_win_{surface}.json"
+            if win_benter_file.is_file():
+                try:
+                    from models.benter_combination import BenterCombination
+                    win_benter = BenterCombination.load(win_benter_file)
+                except Exception:
+                    logger.warning("Failed to load %s, skipping", win_benter_file)
+
+            # Win Isotonic Calibrator (joblib)
+            win_isotonic_calibrator = None
+            win_iso_file = models_dir / f"isotonic_win_{surface}.joblib"
+            if win_iso_file.is_file():
+                try:
+                    win_isotonic_calibrator = joblib.load(win_iso_file)
+                except Exception:
+                    logger.warning("Failed to load %s, skipping", win_iso_file)
+
+            # Win Temperature Scaler (JSON)
+            win_temperature_scaler = None
+            win_temp_file = models_dir / f"temp_scale_win_{surface}.json"
+            if win_temp_file.is_file():
+                try:
+                    from models.benter_combination import TemperatureScaling
+                    win_temperature_scaler = TemperatureScaling.load(win_temp_file)
+                except Exception:
+                    logger.warning("Failed to load %s, skipping", win_temp_file)
+
             submodels[surface] = SubmodelSet(
                 market=market,
                 stage1=ability,
@@ -542,6 +571,9 @@ class ModelLoader:
                 benter_combo=benter_combo,
                 isotonic_calibrator=isotonic_calibrator,
                 temperature_scaler=temperature_scaler,
+                win_benter=win_benter,
+                win_isotonic_calibrator=win_isotonic_calibrator,
+                win_temperature_scaler=win_temperature_scaler,
             )
 
         # RaceQualityScreener
