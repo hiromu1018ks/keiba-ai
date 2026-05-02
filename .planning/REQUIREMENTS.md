@@ -29,7 +29,7 @@
 ### Validation
 
 - [ ] **VALI-01**: Walk-forward交差検証で過学習を検出・防止する
-- [ ] **VALI-02**: 複数年度(2023-2024)のバックテストでROI > 100%を確認する
+- [ ] **VALI-02**: 複数年度(2024-2025)のバックテストでROI > 100%を確認する
 
 ## v2 Requirements
 
@@ -58,23 +58,23 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| FEAT-01 | — | Pending |
-| FEAT-02 | — | Pending |
-| FEAT-03 | — | Pending |
-| BENT-01 | — | Pending |
-| BENT-02 | — | Pending |
-| BENT-03 | — | Pending |
-| SELC-01 | — | Pending |
-| SELC-02 | — | Pending |
-| BETT-01 | — | Pending |
-| VALI-01 | — | Pending |
-| VALI-02 | — | Pending |
+| FEAT-01 | Phase 1 | Pending |
+| FEAT-02 | Phase 1 | Pending |
+| FEAT-03 | Phase 1 | Pending |
+| BENT-01 | Phase 2 | Pending |
+| BENT-02 | Phase 2 | Pending |
+| BENT-03 | Phase 2 | Pending |
+| SELC-01 | Phase 3 | Pending |
+| SELC-02 | Phase 3 | Pending |
+| BETT-01 | Phase 3 | Pending |
+| VALI-01 | Phase 4 | Pending |
+| VALI-02 | Phase 4 | Pending |
 
 **Coverage:**
 - v1 requirements: 11 total
-- Mapped to phases: 0
-- Unmapped: 11 ⚠️
+- Mapped to phases: 11
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-05-02*
-*Last updated: 2026-05-02 after initial definition*
+*Last updated: 2026-05-02 after roadmap creation*
