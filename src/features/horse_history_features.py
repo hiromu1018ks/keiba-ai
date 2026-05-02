@@ -616,7 +616,13 @@ class HorseHistoryFeatures:
                 n_past = 0
 
             history_mask = (
-                (horse_arrs["kakuteijyuni"] > 0)
+                (
+                    (horse_arrs["kakuteijyuni"] > 0)
+                    & (
+                        horse_arrs.get("valid_field", np.ones(len(horse_arrs["kakuteijyuni"]), dtype=int))
+                        == 1
+                    )
+                )
                 if horse_arrs is not None and "kakuteijyuni" in horse_arrs
                 else np.array([], dtype=bool)
             )
