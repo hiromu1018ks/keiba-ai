@@ -91,11 +91,32 @@ class WinTwoStageModel:
         self.cfg = cfg or TwoStageConfig()
 
     @classmethod
+    def get_filtered_feature_cols(cls, noise_features: list[str]) -> list[str]:
+        """ノイズ特徴量を除外した特徴量リストを返す (クラス変数を変更しない)。
+
+        並列学習 (ThreadPoolExecutor) 内で安全に使用できる。
+        remove_noise_features() とは異なり、クラス変数を変更しないため
+        スレッドセーフである。
+
+        Args:
+            noise_features: 除外する特徴量名のリスト
+
+        Returns:
+            フィルタ済み特徴量リスト (新規リスト)
+        """
+        return [f for f in cls.FEATURE_COLS if f not in noise_features]
+
+    @classmethod
     def remove_noise_features(cls, noise_features: list[str]) -> None:
         """FEATURE_COLSからノイズ特徴量を除外。
 
         SHAP/gain分析で特定されたノイズ特徴量をFEATURE_COLSから削除する。
         validate_noise_removal()でlogloss/AUCへの影響を検証した後に呼び出すこと。
+
+        .. warning::
+            このメソッドはクラス変数を変更するため、ThreadPoolExecutor等の
+            並列処理内での使用は安全ではない。並列コンテキストでは
+            get_filtered_feature_cols() を使用すること。
 
         Args:
             noise_features: 除外する特徴量名のリスト
