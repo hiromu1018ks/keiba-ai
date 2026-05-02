@@ -15,6 +15,7 @@ import pandas as pd
 from domain.models import Bet, BetType
 from domain.types import RegimeState
 from models.place_selection_gate import build_place_selection_ev, ensure_place_selection_columns
+from models.win_selection_gate import build_win_selection_ev, ensure_win_selection_columns
 
 if TYPE_CHECKING:
     from betting.drawdown_controller import DrawdownController
@@ -122,6 +123,21 @@ class RacePredictor:
                 temp_scaler=getattr(submodel, "win_temperature_scaler", None),
             )
             df = win_gate.apply(df)
+
+        # --- WinSelectionGate (SELC-01, D-14: after Benter, before Place) ---
+        df_winsel = ensure_win_selection_columns(df)
+        if "win_selection_ev" not in df.columns:
+            df = df_winsel
+        win_gate_model = getattr(submodel, "win_selection_gate", None)
+        win_gate_enabled = bool(
+            win_gate_model is not None and getattr(win_gate_model, "is_trained", False) is True
+        )
+        if win_gate_enabled:
+            assert win_gate_model is not None
+            df = win_gate_model.score(df)
+            win_annotate = getattr(win_gate_model, "annotate_race_context", None)
+            if callable(win_annotate):
+                df = win_annotate(df)
 
         df = submodel.place.predict_ev(df)
         # place_ev_corrector: 補正EVと下限EVの両方をベット選択に使う

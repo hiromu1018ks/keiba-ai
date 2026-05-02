@@ -83,6 +83,7 @@ class ModelLoader:
         from models.stage1_ability_model import AbilityModel
         from models.two_stage_return_model import PlaceTwoStageModel, WinTwoStageModel
         from models.wide_two_stage_model import WideTwoStageModel
+        from models.win_selection_gate import WinSelectionGateModel
 
         submodels: dict[str, SubmodelSet] = {}
         for surface in surfaces:
@@ -142,6 +143,25 @@ class ModelLoader:
                         place_selection_gate = PlaceSelectionGateModel.load(gate_files[0])
                     except Exception:
                         logger.warning("Failed to load PlaceSelectionGateModel for %s", surface)
+
+            # --- WinSelectionGate (MLflow) ---
+            win_selection_gate = None
+            try:
+                wsg_dir = mlflow.artifacts.download_artifacts(
+                    f"runs:/{run_id}/win_selection_gate_{surface}"
+                )
+            except Exception:
+                try:
+                    wsg_dir = self._find_artifact_dir(run_id, f"win_selection_gate_{surface}")
+                except Exception:
+                    wsg_dir = None
+            if wsg_dir is not None:
+                wsg_files = list(Path(wsg_dir).glob("*.joblib"))
+                if wsg_files:
+                    try:
+                        win_selection_gate = WinSelectionGateModel.load(wsg_files[0])
+                    except Exception:
+                        logger.warning("Failed to load WinSelectionGateModel for %s", surface)
 
             # PlaceAbilityModel (joblib artifact)
             pa = PlaceAbilityModel()
@@ -282,6 +302,7 @@ class ModelLoader:
                 win_benter=win_benter,
                 win_isotonic_calibrator=win_isotonic_calibrator,
                 win_temperature_scaler=win_temperature_scaler,
+                win_selection_gate=win_selection_gate,
             )
 
         # RaceQualityScreener
@@ -463,6 +484,7 @@ class ModelLoader:
         from models.stage1_ability_model import AbilityModel
         from models.two_stage_return_model import PlaceTwoStageModel, WinTwoStageModel
         from models.wide_two_stage_model import WideTwoStageModel
+        from models.win_selection_gate import WinSelectionGateModel
 
         # メタ情報読み込み
         with open(models_dir / "meta.json", encoding="utf-8") as f:
@@ -556,6 +578,15 @@ class ModelLoader:
                     place_selection_gate = PlaceSelectionGateModel.load(gate_file)
                 except Exception:
                     logger.warning("Failed to load %s, skipping", gate_file)
+
+            # --- WinSelectionGate (local) ---
+            win_selection_gate = None
+            wsg_file = models_dir / f"win_selection_gate_{surface}.joblib"
+            if wsg_file.is_file():
+                try:
+                    win_selection_gate = WinSelectionGateModel.load(wsg_file)
+                except Exception:
+                    logger.warning("Failed to load %s, skipping", wsg_file)
 
             # PlaceAbilityModel (joblib)
             pa = PlaceAbilityModel()
@@ -660,6 +691,7 @@ class ModelLoader:
                 win_benter=win_benter,
                 win_isotonic_calibrator=win_isotonic_calibrator,
                 win_temperature_scaler=win_temperature_scaler,
+                win_selection_gate=win_selection_gate,
             )
 
         # RaceQualityScreener

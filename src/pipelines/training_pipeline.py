@@ -39,6 +39,7 @@ from models.ev_correction_model import EVCorrectionModel, PlaceEVCorrectionModel
 from models.market_model import MarketModel
 from models.place_selection_gate import PlaceSelectionGateModel, ensure_place_selection_columns
 from models.race_quality_screener import RaceQualityScreener
+from models.win_selection_gate import WinSelectionGateModel, ensure_win_selection_columns
 from models.regime_detector import RegimeDetector
 from models.robust_confidence_estimator import RobustConfidenceEstimator
 from models.stage1_ability_model import AbilityModel
@@ -766,6 +767,16 @@ class TrainingPipelineV5:
             place_selection_gate = PlaceSelectionGateModel()
             place_selection_gate.train(gate_train_df)
 
+        # --- WinSelectionGate training (SELC-01, D-01) ---
+        with TimingContext(f"{surface}/win_selection_gate"):
+            wsg_train_df = df_oof.copy()
+            wsg_win_df, _ = conf.predict_lower_bound(df_oof.copy(), df_oof.copy())
+            if "EV_lower_win_corrected" in wsg_win_df.columns:
+                wsg_train_df["EV_lower_win_corrected"] = wsg_win_df["EV_lower_win_corrected"].values
+            wsg_train_df = ensure_win_selection_columns(wsg_train_df)
+            win_selection_gate = WinSelectionGateModel()
+            win_selection_gate.train(wsg_train_df)
+
         return SubmodelSet(
             market=market,
             stage1=stage1,
@@ -784,6 +795,7 @@ class TrainingPipelineV5:
             win_benter=win_benter,
             win_isotonic_calibrator=win_isotonic_cal,
             win_temperature_scaler=win_temp_scaler,
+            win_selection_gate=win_selection_gate,
         )
 
     def _build_race_level_features(self, feat_df: pd.DataFrame) -> pd.DataFrame:
@@ -1049,6 +1061,21 @@ class TrainingPipelineV5:
                         if gate_tmp and os.path.exists(gate_tmp):
                             os.unlink(gate_tmp)
 
+                # --- WinSelectionGate (MLflow) ---
+                if (
+                    sub.win_selection_gate is not None
+                    and sub.win_selection_gate.is_trained
+                ):
+                    wsg_tmp: str | None = None
+                    try:
+                        with tempfile.NamedTemporaryFile(suffix=".joblib", delete=False) as wsg_file:
+                            wsg_tmp = wsg_file.name
+                        sub.win_selection_gate.save(Path(wsg_tmp))
+                        mlflow.log_artifact(wsg_tmp, f"win_selection_gate_{surface}")
+                    finally:
+                        if wsg_tmp and os.path.exists(wsg_tmp):
+                            os.unlink(wsg_tmp)
+
                 # PlaceTwoStageModel
                 if sub.use_ensemble:
                     _se_tmp2: str | None = None
@@ -1160,6 +1187,12 @@ class TrainingPipelineV5:
             if sub.place_selection_gate is not None and sub.place_selection_gate.is_trained:
                 sub.place_selection_gate.save(
                     models_dir / f"place_selection_gate_{surface}.joblib"
+                )
+
+            # --- WinSelectionGate (local) ---
+            if sub.win_selection_gate is not None and sub.win_selection_gate.is_trained:
+                sub.win_selection_gate.save(
+                    models_dir / f"win_selection_gate_{surface}.joblib"
                 )
 
             # Benter Combination (JSON)

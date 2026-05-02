@@ -27,6 +27,7 @@ def _make_submodel_mock() -> MagicMock:
     sm.win_benter = None
     sm.win_isotonic_calibrator = None
     sm.win_temperature_scaler = None
+    sm.win_selection_gate = None
     return sm
 
 

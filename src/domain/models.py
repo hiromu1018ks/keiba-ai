@@ -16,6 +16,7 @@ if TYPE_CHECKING:
     from models.place_ability_model import PlaceAbilityModel
     from models.place_selection_gate import PlaceSelectionGateModel
     from models.race_quality_screener import RaceQualityScreener
+    from models.win_selection_gate import WinSelectionGateModel
     from models.regime_detector import RegimeDetector
     from models.robust_confidence_estimator import RobustConfidenceEstimator
     from models.stage1_ability_model import AbilityModel
@@ -250,6 +251,8 @@ class SubmodelSet:
     win_benter: BenterCombination | None = None
     win_isotonic_calibrator: IsotonicRegression | None = None
     win_temperature_scaler: TemperatureScaling | None = None
+    # Win Selection Gate (Phase 3, SELC-01)
+    win_selection_gate: WinSelectionGateModel | None = None
 
 
 @dataclass
