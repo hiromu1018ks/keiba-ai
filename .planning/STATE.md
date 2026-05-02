@@ -5,16 +5,16 @@
 See: .planning/PROJECT.md (updated 2026-05-02)
 
 **Core value:** 単勝モデルのバックテストROIを100%超えにすること
-**Current focus:** Phase 3: Selection Gate, Confidence & Betting
+**Current focus:** Phase 4: Walk-Forward Validation
 
 ## Current Position
 
-Phase: 3 of 4 (Selection Gate, Confidence & Betting)
-Plan: 2 of 2 in current phase
-Status: Phase 3 complete
-Last activity: 2026-05-02 — Phase 3 Plan 02 completed (JRA控除率考慮edge_threshold更新)
+Phase: 4 of 4 (Walk-Forward Validation)
+Plan: 0 of TBD in current phase
+Status: Context gathered — ready for planning
+Last activity: 2026-05-03 — Phase 4 context gathered
 
-Progress: [███████░░░] 70%
+Progress: [████████░░] 80%
 
 ## Performance Metrics
 
@@ -67,6 +67,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-05-02
-Stopped at: Phase 3 complete (2/2 plans) — ready for Phase 4
-Resume file: .planning/phases/03-selection-gate-confidence-betting/03-02-SUMMARY.md
+Last session: 2026-05-03
+Stopped at: Phase 4 context gathered — ready for planning
+Resume file: .planning/phases/04-walk-forward-validation/04-CONTEXT.md
