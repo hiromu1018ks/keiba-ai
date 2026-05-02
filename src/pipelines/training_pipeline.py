@@ -655,6 +655,78 @@ class TrainingPipelineV5:
         else:
             logger.info("tanodds not in df_oof or df too small, skipping Win Benter")
 
+        # 5d. Win Calibration Comparison (D-05, D-07, D-08)
+        if win_benter is not None and len(oof_p_fund) >= 500:
+            from models.win_benter_gate import compare_calibrations, generate_reliability_data
+
+            # Get Benter-combined probabilities for calibration
+            oof_p_combined = win_benter.combine(oof_p_fund, oof_p_market)
+
+            with TimingContext(f"{surface}/win_calibration"):
+                cal_result = compare_calibrations(oof_p_combined, oof_y, train_ratio=0.8)
+
+            # Log reliability diagram data
+            reliability = generate_reliability_data(oof_y, oof_p_combined, n_bins=10)
+            logger.info(
+                "Win Reliability: bins=%s, positives=%s",
+                [f"{v:.3f}" for v in reliability["mean_predicted_value"]],
+                [f"{v:.3f}" for v in reliability["fraction_of_positives"]],
+            )
+
+            # Select calibrator based on comparison
+            winner = cal_result["winner"]
+            if winner == "beta":
+                win_isotonic_cal = cal_result["beta_calibrator"]
+                logger.info("Win calibration: Beta selected (Brier=%.6f)", cal_result["beta_brier"])
+            elif winner == "isotonic":
+                win_isotonic_cal = cal_result["iso_calibrator"]
+                logger.info(
+                    "Win calibration: Isotonic selected (Brier=%.6f)", cal_result["iso_brier"]
+                )
+            else:
+                win_isotonic_cal = None
+                logger.info("Win calibration: none selected (insufficient data)")
+
+            # Temperature scaling (D-06: optional, apply only if it improves Brier Score)
+            if win_isotonic_cal is not None:
+                from sklearn.metrics import brier_score_loss
+
+                from models.benter_combination import TemperatureScaling
+
+                # Get calibrated probabilities on full OOF data
+                oof_p_calibrated = np.asarray(
+                    win_isotonic_cal.transform(oof_p_combined), dtype=float
+                )
+                brier_before_temp = float(
+                    brier_score_loss(oof_y, np.clip(oof_p_calibrated, 1e-10, 1 - 1e-10))
+                )
+
+                try:
+                    win_temp_scaler = TemperatureScaling.fit(oof_p_calibrated, oof_y)
+                    oof_p_temp = win_temp_scaler.transform(oof_p_calibrated)
+                    brier_after_temp = float(
+                        brier_score_loss(oof_y, np.clip(oof_p_temp, 1e-10, 1 - 1e-10))
+                    )
+
+                    # Only keep TempScale if it improves Brier Score (D-06)
+                    if brier_after_temp >= brier_before_temp:
+                        logger.info(
+                            "Win TempScale: no improvement (%.6f -> %.6f), skipping",
+                            brier_before_temp,
+                            brier_after_temp,
+                        )
+                        win_temp_scaler = None
+                    else:
+                        logger.info(
+                            "Win TempScale: T=%.4f improved Brier (%.6f -> %.6f)",
+                            win_temp_scaler.temperature,
+                            brier_before_temp,
+                            brier_after_temp,
+                        )
+                except Exception:
+                    logger.warning("Win TempScale failed, skipping")
+                    win_temp_scaler = None
+
         # 5a. Place EV補正 (P/E decomposition)
         with TimingContext(f"{surface}/place_ev_correction"):
             place_ev_corrector = PlaceEVCorrectionModel()
