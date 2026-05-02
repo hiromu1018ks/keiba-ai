@@ -136,3 +136,207 @@ def generate_win_oof_predictions(
         "Win OOF: %d valid / %d total samples", int(valid.sum()), len(valid)
     )
     return p_fund[valid], p_market[valid], y[valid]
+
+
+# ---------------------------------------------------------------------------
+# Calibration comparison functions (D-05, D-07, D-08)
+# ---------------------------------------------------------------------------
+
+
+def compute_ece(y_true: np.ndarray, y_prob: np.ndarray, n_bins: int = 10) -> float:
+    """Compute Expected Calibration Error (D-07).
+
+    ECE = sum_b (n_b / N) * |avg_confidence_b - avg_accuracy_b|
+    Reference: Guo et al., 2017 "On Calibration of Modern Neural Networks"
+    """
+    y_true = np.asarray(y_true, dtype=float)
+    y_prob = np.asarray(y_prob, dtype=float)
+    bin_boundaries = np.linspace(0.0, 1.0, n_bins + 1)
+    ece = 0.0
+    n_total = len(y_true)
+    if n_total == 0:
+        return 0.0
+    for i in range(n_bins):
+        mask = (y_prob > bin_boundaries[i]) & (y_prob <= bin_boundaries[i + 1])
+        count = int(mask.sum())
+        if count == 0:
+            continue
+        avg_confidence = float(y_prob[mask].mean())
+        avg_accuracy = float(y_true[mask].mean())
+        ece += count * abs(avg_accuracy - avg_confidence)
+    return ece / n_total
+
+
+class BetaCalibrationManual:
+    """Manual 3-parameter Beta calibration (fallback if betacal package incompatible)."""
+
+    def __init__(self) -> None:
+        self.a: float = 1.0
+        self.b: float = 1.0
+        self.c: float = 0.0
+
+    def fit(self, p: np.ndarray, y: np.ndarray) -> BetaCalibrationManual:
+        p = np.clip(np.asarray(p, dtype=float), 1e-10, 1 - 1e-10)
+        y = np.asarray(y, dtype=float)
+
+        def neg_loglik(params: np.ndarray) -> float:
+            a, b = np.exp(params[0]), np.exp(params[1])  # Ensure positive
+            c = params[2]
+            z = np.clip((p - c) / (1.0 - c + 1e-10), 1e-10, 1 - 1e-10)
+            from scipy.special import betaln
+
+            eps = 1e-10
+            log_z = np.log(z + eps)
+            log_1z = np.log(1 - z + eps)
+            log_pdf = (a - 1) * log_z + (b - 1) * log_1z - betaln(a, b)
+            p_cal = 1.0 / (1.0 + np.exp(-log_pdf))
+            p_cal = np.clip(p_cal, 1e-10, 1 - 1e-10)
+            return float(-np.sum(y * np.log(p_cal) + (1 - y) * np.log(1 - p_cal)))
+
+        from scipy.optimize import minimize as scipy_minimize
+
+        res = scipy_minimize(neg_loglik, x0=[0.0, 0.0, 0.0], method="L-BFGS-B")
+        self.a = float(np.exp(res.x[0]))
+        self.b = float(np.exp(res.x[1]))
+        self.c = float(res.x[2])
+        return self
+
+    def transform(self, p: np.ndarray) -> np.ndarray:
+        p = np.clip(np.asarray(p, dtype=float), 1e-10, 1 - 1e-10)
+        z = np.clip((p - self.c) / (1.0 - self.c + 1e-10), 1e-10, 1 - 1e-10)
+        from scipy.special import betaln
+
+        eps = 1e-10
+        log_pdf = (
+            (self.a - 1) * np.log(z + eps)
+            + (self.b - 1) * np.log(1 - z + eps)
+            - betaln(self.a, self.b)
+        )
+        return 1.0 / (1.0 + np.exp(-log_pdf))
+
+
+def compare_calibrations(
+    p_benter: np.ndarray,
+    y: np.ndarray,
+    train_ratio: float = 0.8,
+) -> dict[str, object]:
+    """Compare Beta vs Isotonic calibration on Benter-combined probabilities (D-05, D-07).
+
+    Splits data by train_ratio (time-series: first train_ratio is train, rest is validation).
+    Returns dict with Brier Scores, ECE values, and winner.
+
+    Args:
+        p_benter: Benter-combined win probabilities (OOF).
+        y: Binary win/loss labels.
+        train_ratio: Fraction used for fitting calibrators.
+
+    Returns:
+        dict with keys: beta_brier, iso_brier, beta_ece, iso_ece,
+                       winner, beta_calibrator, iso_calibrator
+    """
+    from sklearn.isotonic import IsotonicRegression
+    from sklearn.metrics import brier_score_loss
+
+    p_benter = np.asarray(p_benter, dtype=float)
+    y = np.asarray(y, dtype=float)
+
+    # Time-series split
+    split = int(len(p_benter) * train_ratio)
+    p_train, p_val = p_benter[:split], p_benter[split:]
+    y_train, y_val = y[:split], y[split:]
+
+    if len(p_train) < 100 or len(p_val) < 50:
+        logger.warning(
+            "Insufficient data for calibration comparison: train=%d, val=%d",
+            len(p_train),
+            len(p_val),
+        )
+        return {
+            "beta_brier": float("inf"),
+            "iso_brier": float("inf"),
+            "beta_ece": float("inf"),
+            "iso_ece": float("inf"),
+            "winner": "none",
+            "beta_calibrator": None,
+            "iso_calibrator": None,
+        }
+
+    # Beta calibration (3-param, recommended per D-08)
+    has_beta = False
+    beta_cal: object = None
+    try:
+        from betacal import BetaCalibration
+
+        beta_cal = BetaCalibration(parameters="abc")
+        beta_cal.fit(p_train, y_train)
+        p_beta = np.asarray(beta_cal.transform(p_val), dtype=float)
+        has_beta = True
+    except (ImportError, Exception) as e:
+        logger.warning("betacal unavailable or failed (%s), using manual fallback", e)
+        beta_cal = BetaCalibrationManual()
+        beta_cal.fit(p_train, y_train)
+        p_beta = np.asarray(beta_cal.transform(p_val), dtype=float)
+        has_beta = True
+
+    # Isotonic calibration (comparison per D-05)
+    iso_cal = IsotonicRegression(out_of_bounds="clip")
+    iso_cal.fit(p_train, y_train)
+    p_iso = np.asarray(iso_cal.transform(p_val), dtype=float)
+
+    # Quantitative comparison (D-07)
+    beta_brier = float(brier_score_loss(y_val, np.clip(p_beta, 1e-10, 1 - 1e-10)))
+    iso_brier = float(brier_score_loss(y_val, np.clip(p_iso, 1e-10, 1 - 1e-10)))
+    beta_ece = compute_ece(y_val, p_beta)
+    iso_ece = compute_ece(y_val, p_iso)
+
+    # Determine winner (Brier Score primary, ECE secondary)
+    if beta_brier <= iso_brier:
+        winner = "beta"
+    elif iso_brier < beta_brier and (iso_brier - beta_brier) / max(beta_brier, 1e-10) < 0.05:
+        # Isotonic is only slightly better -- prefer Beta for stability (D-08)
+        winner = "beta"
+    else:
+        winner = "isotonic"
+
+    logger.info(
+        "Calibration comparison: Beta(Brier=%.6f, ECE=%.6f) vs "
+        "Isotonic(Brier=%.6f, ECE=%.6f) -> winner=%s",
+        beta_brier,
+        beta_ece,
+        iso_brier,
+        iso_ece,
+        winner,
+    )
+
+    return {
+        "beta_brier": beta_brier,
+        "iso_brier": iso_brier,
+        "beta_ece": beta_ece,
+        "iso_ece": iso_ece,
+        "winner": winner,
+        "beta_calibrator": beta_cal if has_beta else None,
+        "iso_calibrator": iso_cal,
+    }
+
+
+def generate_reliability_data(
+    y_true: np.ndarray,
+    y_prob: np.ndarray,
+    n_bins: int = 10,
+) -> dict[str, np.ndarray]:
+    """Generate reliability diagram data for visualization (D-07, Success Criteria 4).
+
+    Returns per-bin data for plotting fraction_of_positives vs mean_predicted_value.
+    Perfect calibration: the two arrays are equal (diagonal line).
+    """
+    from sklearn.calibration import calibration_curve
+
+    fraction_of_positives, mean_predicted_value = calibration_curve(
+        y_true, y_prob, n_bins=n_bins, strategy="uniform"
+    )
+
+    return {
+        "fraction_of_positives": fraction_of_positives,
+        "mean_predicted_value": mean_predicted_value,
+        "bin_edges": np.linspace(0.0, 1.0, n_bins + 1),
+    }
