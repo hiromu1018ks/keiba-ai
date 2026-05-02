@@ -61,8 +61,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 03-01-PLAN.md — WinSelectionGate実装・Conformal信頼性拡張・パイプライン統合 (SELC-01, SELC-02)
-- [ ] 03-02-PLAN.md — JRA控除率考慮edge_threshold更新・ベッティング戦略調整 (BETT-01)
+- [ ] 03-01-PLAN.md — WinSelectionGate実装・Conformal信頼性拡張・パイプライン統合 (SELC-01, SELC-02) (Wave 1)
+- [ ] 03-02-PLAN.md — JRA控除率考慮edge_threshold更新・ベッティング戦略調整 (BETT-01) (Wave 2 *(blocked on Wave 1 completion)*)
 
 ### Phase 4: Walk-Forward Validation
 **Goal**: 複数年度のウォークフォワード検証で過学習を検出し、ROI>100%が単年度の偶然でないことを証明する
@@ -72,7 +72,7 @@ Plans:
   1. 2024-2025のウォークフォワード交差検証が実行され、各テスト年度のROIが個別に確認できる
   2. 訓練期間とテスト期間のROIギャップが分析され、過学習の兆候が評価されている
   3. 複数年度の加重平均ROIが100%を超えている
-**Plans**: 2 plans
+**Plans**: TBD
 
 Plans:
 - [ ] 04-01: Walk-forward CV implementation and multi-year validation
