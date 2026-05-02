@@ -46,7 +46,7 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 02-01-PLAN.md — WinBenterGate実装・OOF予測生成・レース正規化・パイプライン統合(BENT-01, BENT-03)
+- [x] 02-01-PLAN.md — WinBenterGate実装・OOF予測生成・レース正規化・パイプライン統合(BENT-01, BENT-03) ✓ 2026-05-02
 - [ ] 02-02-PLAN.md — Beta/Isotonicキャリブレーション比較・ECE評価・信頼性ダイアグラム(BENT-02)
 
 ### Phase 3: Selection Gate, Confidence & Betting
@@ -85,6 +85,6 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Feature Analysis & Enhancement | 2/2 | Complete | 2026-05-02 |
-| 2. Win Benter Combination & Calibration | 0/2 | Not started | - |
+| 2. Win Benter Combination & Calibration | 1/2 | In Progress | - |
 | 3. Selection Gate, Confidence & Betting | 0/2 | Not started | - |
 | 4. Walk-Forward Validation | 0/1 | Not started | - |
