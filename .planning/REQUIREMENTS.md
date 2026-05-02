@@ -28,8 +28,8 @@
 
 ### Validation
 
-- [ ] **VALI-01**: Walk-forward交差検証で過学習を検出・防止する
-- [ ] **VALI-02**: 複数年度(2024-2025)のバックテストでROI > 100%を確認する
+- [x] **VALI-01**: Walk-forward交差検証で過学習を検出・防止する
+- [x] **VALI-02**: 複数年度(2024-2025)のバックテストでROI > 100%を確認する
 
 ## v2 Requirements
 
@@ -67,8 +67,8 @@
 | SELC-01 | Phase 3 | Pending |
 | SELC-02 | Phase 3 | Pending |
 | BETT-01 | Phase 3 | Pending |
-| VALI-01 | Phase 4 | Pending |
-| VALI-02 | Phase 4 | Pending |
+| VALI-01 | Phase 4 | Complete (04-01) |
+| VALI-02 | Phase 4 | Complete (04-01) |
 
 **Coverage:**
 - v1 requirements: 11 total
@@ -77,4 +77,4 @@
 
 ---
 *Requirements defined: 2026-05-02*
-*Last updated: 2026-05-02 after roadmap creation*
+*Last updated: 2026-05-03 after Phase 4 completion*

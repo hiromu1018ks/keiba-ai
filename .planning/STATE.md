@@ -10,18 +10,18 @@ See: .planning/PROJECT.md (updated 2026-05-02)
 ## Current Position
 
 Phase: 4 of 4 (Walk-Forward Validation)
-Plan: 0 of TBD in current phase
-Status: Context gathered — ready for planning
-Last activity: 2026-05-03 — Phase 4 context gathered
+Plan: 1 of 1 in current phase (COMPLETE)
+Status: Phase 4 complete
+Last activity: 2026-05-03 — Plan 04-01 executed (WFValidationResult + run_wf_validation.py)
 
-Progress: [████████░░] 80%
+Progress: [██████████] 100%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 5
-- Average duration: ~10min
-- Total execution time: ~50min
+- Total plans completed: 6
+- Average duration: ~9min
+- Total execution time: ~55min
 
 **By Phase:**
 
@@ -29,9 +29,10 @@ Progress: [████████░░] 80%
 |-------|-------|-------|----------|
 | 1. Feature Analysis & Enhancement | 2 | 29min | ~15min |
 | 3. Selection Gate, Confidence & Betting | 2 | ~25min | ~12min |
+| 4. Walk-Forward Validation | 1 | ~5min | ~5min |
 
 **Recent Trend:**
-- Last 5 plans: 01-01 (9m), 01-02 (20m), 03-01 (~20m), 03-02 (5m)
+- Last 6 plans: 01-01 (9m), 01-02 (20m), 03-01 (~20m), 03-02 (5m), 04-01 (5m)
 - Trend: Healthy
 
 *Updated after each plan completion*
@@ -48,6 +49,8 @@ Recent decisions affecting current work:
 - Phase 3: edge_threshold+0.01微小引き上げでJRA控除率25%マージン確保、ベット数激減リスク回避
 - Phase 3: MetaSwitcher閾値差維持 (AGGRESSIVE=同値, CONSERVATIVE=+0.01, COLLAPSED=+0.01)
 - Phase 3: Kelly計算は不変更 (WinStrategyは賭け金のみ、ベット可否はGate担当)
+- Phase 4: AbilityModel.models(dict)を反復処理してfeature importance統合(単一model属性なし)
+- Phase 4: LightGBM feature_namesはDatasetコンストラクタで設定(lgb.trainには渡せない)
 
 ### Pending Todos
 
@@ -68,5 +71,5 @@ Items acknowledged and carried forward from previous milestone close:
 ## Session Continuity
 
 Last session: 2026-05-03
-Stopped at: Phase 4 context gathered — ready for planning
-Resume file: .planning/phases/04-walk-forward-validation/04-CONTEXT.md
+Stopped at: Phase 4 complete — all plans executed
+Resume file: None

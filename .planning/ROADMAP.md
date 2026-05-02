@@ -15,7 +15,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 1: Feature Analysis & Enhancement** - 既存特徴量の単勝寄与分析と新特徴量追加 ✓ 2026-05-02
 - [x] **Phase 2: Win Benter Combination & Calibration** - 市場確率ブレンドとキャリブレーション実装 ✓ 2026-05-02
 - [x] **Phase 3: Selection Gate, Confidence & Betting** - 関連性推定・ベッティング戦略統合 ✓ 2026-05-02
-- [ ] **Phase 4: Walk-Forward Validation** - 多年度時系列検証でROI>100%を確認
+- [x] **Phase 4: Walk-Forward Validation** - 多年度時系列検証でROI>100%を確認 ✓ 2026-05-03
 
 ## Phase Details
 
@@ -75,7 +75,7 @@ Plans:
 **Plans**: 1 plan
 
 Plans:
-- [ ] 04-01-PLAN.md — WFValidationResultデータクラス + 過学習検出ユーティリティ + run_wf_validation.py CLIスクリプト (VALI-01, VALI-02)
+- [x] 04-01-PLAN.md — WFValidationResultデータクラス + 過学習検出ユーティリティ + run_wf_validation.py CLIスクリプト (VALI-01, VALI-02) ✓ 2026-05-03
 
 ## Progress
 
@@ -87,4 +87,4 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4
 | 1. Feature Analysis & Enhancement | 2/2 | Complete | 2026-05-02 |
 | 2. Win Benter Combination & Calibration | 2/2 | Complete | 2026-05-02 |
 | 3. Selection Gate, Confidence & Betting | 2/2 | Complete | 2026-05-02 |
-| 4. Walk-Forward Validation | 0/1 | Not started | - |
+| 4. Walk-Forward Validation | 1/1 | Complete | 2026-05-03 |
