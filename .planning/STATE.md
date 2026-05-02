@@ -64,5 +64,5 @@ Items acknowledged and carried forward from previous milestone close:
 ## Session Continuity
 
 Last session: 2026-05-02
-Stopped at: Phase 1 complete (2/2 plans, human_needed). Phase 2 ready for discuss/plan.
-Resume file: None
+Stopped at: Phase 2 context gathered — ready for plan-phase
+Resume file: .planning/phases/02-win-benter-combination-calibration/02-CONTEXT.md
