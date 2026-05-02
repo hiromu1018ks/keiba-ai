@@ -1126,6 +1126,7 @@ class TrainingPipelineV5:
                     "place_cp_quantile": conf._place_cp_quantile,
                     "win_rolling_quantile": conf._win_rolling_quantile,
                     "place_rolling_quantile": conf._place_rolling_quantile,
+                    "win_cp_quantile_by_condition": conf._win_cp_quantile_by_condition,
                 }
                 mlflow.log_dict(conf_params, "confidence_params.json")
 
@@ -1253,6 +1254,7 @@ class TrainingPipelineV5:
                     "place_cp_quantile": conf._place_cp_quantile,
                     "win_rolling_quantile": conf._win_rolling_quantile,
                     "place_rolling_quantile": conf._place_rolling_quantile,
+                    "win_cp_quantile_by_condition": conf._win_cp_quantile_by_condition,
                 }
                 # 各surfaceごとに保存 (最後のsurfaceの値が使われる)
                 with open(models_dir / "confidence_params.json", "w", encoding="utf-8") as f:

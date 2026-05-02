@@ -197,6 +197,7 @@ class ModelLoader:
                 confidence._place_cp_quantile = conf_data["place_cp_quantile"]
                 confidence._win_rolling_quantile = conf_data["win_rolling_quantile"]
                 confidence._place_rolling_quantile = conf_data["place_rolling_quantile"]
+                confidence._win_cp_quantile_by_condition = conf_data.get("win_cp_quantile_by_condition", {})
                 confidence._calibrated = True
             except Exception:
                 # Fallback: ファイルシステムから直接読み込み
@@ -215,6 +216,7 @@ class ModelLoader:
                     confidence._place_rolling_quantile = conf_data[
                         "place_rolling_quantile"
                     ]
+                    confidence._win_cp_quantile_by_condition = conf_data.get("win_cp_quantile_by_condition", {})
                     confidence._calibrated = True
                 except Exception:
                     logger.warning(
@@ -614,6 +616,7 @@ class ModelLoader:
                 confidence._place_cp_quantile = conf_data["place_cp_quantile"]
                 confidence._win_rolling_quantile = conf_data["win_rolling_quantile"]
                 confidence._place_rolling_quantile = conf_data["place_rolling_quantile"]
+                confidence._win_cp_quantile_by_condition = conf_data.get("win_cp_quantile_by_condition", {})
                 confidence._calibrated = True
 
             # Benter Combination (JSON)
