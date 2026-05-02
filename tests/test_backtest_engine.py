@@ -428,6 +428,7 @@ class TestPostRaceColumnExclusion:
         submodel = MagicMock()
         submodel.benter_combo = None
         submodel.isotonic_calibrator = None
+        submodel.win_benter = None
         mock_models.submodels["turf"] = submodel
         submodel.market.predict_and_calc_error.return_value = feat_df
         submodel.stage1.add_ability_probs.return_value = feat_df
@@ -591,6 +592,7 @@ class TestBetHistoryEnrichment:
         submodel = MagicMock()
         submodel.benter_combo = None
         submodel.isotonic_calibrator = None
+        submodel.win_benter = None
         mock_models.submodels["turf"] = submodel
         submodel.market.predict_and_calc_error.return_value = feat_df
         submodel.stage1.add_ability_probs.return_value = feat_df
@@ -912,6 +914,7 @@ class TestJRAFilterBacktest:
         submodel = MagicMock()
         submodel.benter_combo = None
         submodel.isotonic_calibrator = None
+        submodel.win_benter = None
         mock_models.submodels["turf"] = submodel
         submodel.market.predict_and_calc_error.return_value = feat_df
         submodel.stage1.add_ability_probs.return_value = feat_df
@@ -1045,6 +1048,7 @@ class TestJRAFilterBacktest:
         submodel = MagicMock()
         submodel.benter_combo = None
         submodel.isotonic_calibrator = None
+        submodel.win_benter = None
         mock_models.submodels["turf"] = submodel
         submodel.market.predict_and_calc_error.return_value = feat_df
         submodel.stage1.add_ability_probs.return_value = feat_df

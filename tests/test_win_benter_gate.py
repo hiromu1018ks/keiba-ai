@@ -161,9 +161,11 @@ class TestGenerateWinOofPredictions:
         # Mock WinTwoStageModel
         mock_model_cls = MagicMock()
         mock_instance = MagicMock()
-        mock_instance.predict_ev.side_effect = lambda d: d.assign(
-            p_win_pred=d.get("p_win_pred", np.random.uniform(0.05, 0.4, len(d)))
-        )
+        mock_hit_model = MagicMock()
+        mock_hit_model.best_iteration = 100
+        mock_hit_model.predict.return_value = np.random.uniform(0.05, 0.4, 20)
+        mock_instance.hit_model = mock_hit_model
+        mock_instance._prepare_features.side_effect = lambda d: d
         mock_instance.train_hit_model.return_value = None
         mock_model_cls.return_value = mock_instance
 

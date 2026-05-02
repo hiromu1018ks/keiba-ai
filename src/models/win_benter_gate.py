@@ -114,8 +114,16 @@ def generate_win_oof_predictions(
         fold_train = df.iloc[train_idx]
         fold_model.train_hit_model(fold_train, num_threads=num_threads)
         fold_val = df.iloc[val_idx].copy()
-        fold_val = fold_model.predict_ev(fold_val)
-        oof_preds[val_idx] = fold_val["p_win_pred"].values
+        # Only need hit probability for Benter fitting, not full EV decomposition
+        features = fold_model._prepare_features(fold_val)
+        hit_iter = (
+            fold_model.hit_model.best_iteration
+            if fold_model.hit_model.best_iteration > 0
+            else None
+        )
+        oof_preds[val_idx] = fold_model.hit_model.predict(
+            features, num_iteration=hit_iter
+        )
 
     # Apply EV correction to OOF predictions for consistency with D-01
     df = df.copy()
