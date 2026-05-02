@@ -72,10 +72,10 @@ Plans:
   1. 2024-2025のウォークフォワード交差検証が実行され、各テスト年度のROIが個別に確認できる
   2. 訓練期間とテスト期間のROIギャップが分析され、過学習の兆候が評価されている
   3. 複数年度の加重平均ROIが100%を超えている
-**Plans**: TBD
+**Plans**: 1 plan
 
 Plans:
-- [ ] 04-01: Walk-forward CV implementation and multi-year validation
+- [ ] 04-01-PLAN.md — WFValidationResultデータクラス + 過学習検出ユーティリティ + run_wf_validation.py CLIスクリプト (VALI-01, VALI-02)
 
 ## Progress
 
