@@ -173,10 +173,12 @@ def _load_features_for_analysis(model: "lgb.Booster") -> "pd.DataFrame | None":
     except Exception as e:
         logger.warning("ParquetStoreからの特徴量読み込み失敗: %s", e)
 
-    # フォールバック: モデル特徴量名で空DataFrame
-    logger.info("ダミー特徴量を生成します (実データはParquetStoreから取得してください)")
-    feature_names = model.feature_name()
-    return pd.DataFrame(0.0, index=range(100), columns=feature_names)
+    # 実データが読み込めない場合、ゼロ埋めデータでのSHAP分析は無意味なため終了
+    logger.error(
+        "実データの読み込みに失敗しました。ダミーデータでの分析は無意味です。"
+        "ParquetStoreに特徴量データが存在することを確認してください。"
+    )
+    sys.exit(1)
 
 
 def _auto_exclude_and_validate(
