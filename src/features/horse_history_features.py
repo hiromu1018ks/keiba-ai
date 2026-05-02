@@ -1061,7 +1061,9 @@ class HorseHistoryFeatures:
                         float(np.mean(valid_sizes)) if len(valid_sizes) > 0 else float("nan")
                     )
                 else:
-                    win_dominance = 0.0
+                    # 走歴はあるが勝利なし -- NaNで「勝利情報なし」を表現
+                    # (no-history case と同じNaNなので、LightGBMが同一扱い可能)
+                    win_dominance = float("nan")
             else:
                 win_dominance = float("nan")
 
