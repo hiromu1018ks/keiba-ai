@@ -66,6 +66,31 @@ def _blinker_flag(value: object) -> float:
         return float("nan")
     return 1.0 if flag > 0 else 0.0
 
+
+def _compute_distance_bin(kyori: object, surface: object) -> str:
+    """kyori と surface から distance_bin を計算する"""
+    try:
+        dist = float(kyori)
+    except (ValueError, TypeError):
+        return "unknown"
+    is_turf = str(surface).strip().lower() == "turf"
+    if is_turf:
+        if dist > 2100:
+            return "long"
+        elif dist <= 1400:
+            return "sprint"
+        elif dist <= 1700:
+            return "mile"
+        else:
+            return "intermediate"
+    else:
+        if dist > 1700:
+            return "intermediate"
+        elif dist <= 1400:
+            return "sprint"
+        else:
+            return "mile"
+
 # ---------------------------------------------------------------------------
 # Helper: normalised finish-logit
 # ---------------------------------------------------------------------------
@@ -263,6 +288,12 @@ class HorseHistoryFeatures:
         "is_nar_transfer",
         "nar_recent_ratio",
         "track_condition_delta",
+        # FEAT-02: 単勝特化新特徴量
+        "distance_change",
+        "surface_change",
+        "class_drop_bounce",
+        "win_dominance",
+        "freshness_score",
     ]
 
     def __init__(self, store: ParquetStore, *, n_past: int = 5) -> None:
@@ -309,6 +340,8 @@ class HorseHistoryFeatures:
                 "track_condition_code",
                 "gradecd",
                 "jyokencd1",
+                "distance_bin",
+                "kyori",
             ]
             if c in race_df.columns
         ]
@@ -963,6 +996,90 @@ class HorseHistoryFeatures:
                 nar_recent_ratio = float("nan")
                 track_condition_delta = float("nan")
 
+            # -----------------------------------------------------------------
+            # FEAT-02: 単勝特化新特徴量 (5 features)
+            # -----------------------------------------------------------------
+
+            # distance_change: 距離変更要検知 (current distance_bin != last race distance_bin)
+            if hist_idx > 0 and horse_arrs is not None and "distance_bin" in horse_arrs:
+                # row.distance_bin があれば使用、なければ kyori+surface から計算
+                if hasattr(row, "distance_bin") and not pd.isna(getattr(row, "distance_bin", None)):
+                    current_db = str(getattr(row, "distance_bin"))
+                else:
+                    current_db = _compute_distance_bin(
+                        getattr(row, "kyori", None), getattr(row, "surface", "")
+                    )
+                last_db = str(horse_arrs["distance_bin"][history_mask][hist_start:hist_idx][-1])
+                distance_change: float = 1.0 if current_db != last_db else 0.0
+            else:
+                distance_change = float("nan")
+
+            # surface_change: 芝ダート変更要検知 (current surface != last race surface)
+            if hist_idx > 0 and horse_arrs is not None and "surface" in horse_arrs:
+                current_surf = str(getattr(row, "surface", ""))
+                last_surf = str(horse_arrs["surface"][history_mask][hist_start:hist_idx][-1])
+                surface_change: float = 1.0 if current_surf != last_surf else 0.0
+            else:
+                surface_change = float("nan")
+
+            # class_drop_bounce: クラス落リバウンド (降級かつ直近成績悪化時に高い値)
+            if hist_idx >= 2 and not np.isnan(class_move) and class_move < -0.5:
+                recent_kj_b = hp_kakuteijyuni[-2:].astype(float)
+                recent_ss_b = hp_syussotosu[-2:].astype(float)
+                valid_recent_b = recent_ss_b > 1
+                if valid_recent_b.any():
+                    norm_recent_b = (recent_kj_b[valid_recent_b] - 1) / (recent_ss_b[valid_recent_b] - 1)
+                    avg_recent_b = float(np.nanmean(norm_recent_b))
+                    class_drop_bounce: float = (
+                        min(float(abs(class_move)) * avg_recent_b, 10.0)
+                        if avg_recent_b > 0.5
+                        else 0.0
+                    )
+                else:
+                    class_drop_bounce = float("nan")
+            elif not np.isnan(class_move):
+                class_drop_bounce = 0.0
+            else:
+                class_drop_bounce = float("nan")
+
+            # win_dominance: 勝利dominance (勝利時の平均フィールドサイズ)
+            if n_past > 0:
+                win_mask = hp_kakuteijyuni == 1
+                if win_mask.any():
+                    win_sizes = hp_syussotosu[win_mask].astype(float)
+                    valid_sizes = win_sizes[~np.isnan(win_sizes) & (win_sizes > 0)]
+                    win_dominance: float = (
+                        float(np.mean(valid_sizes)) if len(valid_sizes) > 0 else float("nan")
+                    )
+                else:
+                    win_dominance = 0.0
+            else:
+                win_dominance = float("nan")
+
+            # freshness_score: フレッシュネス (休息品質 x 直近フォーム品質)
+            if not np.isnan(days_since) and n_past >= 3:
+                if days_since <= 7:
+                    rest_score = 0.3
+                elif days_since <= 30:
+                    rest_score = 0.7
+                elif days_since <= 60:
+                    rest_score = 1.0
+                elif days_since <= 90:
+                    rest_score = 0.8
+                else:
+                    rest_score = 0.4
+                recent_kj_f = hp_kakuteijyuni[-3:].astype(float)
+                recent_ss_f = hp_syussotosu[-3:].astype(float)
+                valid_recent_f = recent_ss_f > 1
+                if valid_recent_f.any():
+                    norm_pos = (recent_kj_f[valid_recent_f] - 1) / (recent_ss_f[valid_recent_f] - 1)
+                    form_score = 1.0 - float(np.nanmean(norm_pos))
+                    freshness_score: float = max(rest_score * max(form_score, 0.0), 0.0)
+                else:
+                    freshness_score = float("nan")
+            else:
+                freshness_score = float("nan")
+
             results.append(
                 {
                     "race_id": row.race_id,
@@ -990,6 +1107,12 @@ class HorseHistoryFeatures:
                     "is_nar_transfer": is_nar_transfer,
                     "nar_recent_ratio": nar_recent_ratio,
                     "track_condition_delta": track_condition_delta,
+                    # FEAT-02: 単勝特化新特徴量
+                    "distance_change": distance_change,
+                    "surface_change": surface_change,
+                    "class_drop_bounce": class_drop_bounce,
+                    "win_dominance": win_dominance,
+                    "freshness_score": freshness_score,
                 }
             )
 
