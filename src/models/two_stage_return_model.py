@@ -347,6 +347,17 @@ class PlaceTwoStageModel:
         self, df: pd.DataFrame, *, use_cols: list[str] | None = None
     ) -> pd.DataFrame:
         cols = use_cols or self.FEATURE_COLS
+        # FEAT-02: 推論時にodds_to_ability_ratioが未計算ならここで計算する
+        # 訓練時は_train_submodel()で既に計算済みなのでスキップされる
+        if (
+            "odds_to_ability_ratio" in cols
+            and "odds_to_ability_ratio" not in df.columns
+        ):
+            if "p_market_win_adj" in df.columns and "p_ability_win" in df.columns:
+                df = df.copy()
+                p_market = df["p_market_win_adj"].clip(lower=1e-6)
+                p_ability = df["p_ability_win"].clip(lower=1e-6)
+                df["odds_to_ability_ratio"] = (p_market / p_ability).clip(0.1, 10.0)
         # v5: 新規特徴量はテストデータに存在しない場合があるため、存在する列のみ使用
         available_cols = [c for c in cols if c in df.columns]
         features = df[available_cols].copy()
