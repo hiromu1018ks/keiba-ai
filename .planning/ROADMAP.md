@@ -58,11 +58,11 @@ Plans:
   2. Conformal predictionに基づく信頼性推定が実装され、低信頼度レースがベット対象から除外される
   3. JRA控除率25%を考慮したエッジ閾値が設定され、fair oddsに対する真のエッジが計算される
   4. 統合後のバックテストで、ベット数が適切にフィルタリングされROIの改善が確認される
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 03-01: WinSelectionGate and confidence estimation implementation
-- [ ] 03-02: Betting strategy tuning with JRA takeout-adjusted thresholds
+- [ ] 03-01-PLAN.md — WinSelectionGate実装・Conformal信頼性拡張・パイプライン統合 (SELC-01, SELC-02)
+- [ ] 03-02-PLAN.md — JRA控除率考慮edge_threshold更新・ベッティング戦略調整 (BETT-01)
 
 ### Phase 4: Walk-Forward Validation
 **Goal**: 複数年度のウォークフォワード検証で過学習を検出し、ROI>100%が単年度の偶然でないことを証明する
@@ -72,7 +72,7 @@ Plans:
   1. 2024-2025のウォークフォワード交差検証が実行され、各テスト年度のROIが個別に確認できる
   2. 訓練期間とテスト期間のROIギャップが分析され、過学習の兆候が評価されている
   3. 複数年度の加重平均ROIが100%を超えている
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
 - [ ] 04-01: Walk-forward CV implementation and multi-year validation
