@@ -103,12 +103,14 @@ def test_build_win_selection_ev() -> None:
         }
     )
     ev = build_win_selection_ev(df)
-    # Row 0: lower_ev=0.20, corrected_ev=1.50 -> selection_ev=max(0.20, 1.50)=1.50, safety=1.50*0.85=1.275
-    # result = max(1.50, 1.275) = 1.50
-    assert ev.iloc[0] == pytest.approx(1.50)  # type: ignore[name-defined]
-    # Row 1: lower_ev=1.50, corrected_ev=0.80 -> selection_ev=max(1.50, 0.80)=1.50, safety=0.80*0.85=0.68
+    # Row 0: lower_ev=0.20 (notna), corrected_ev=1.50 -> selection_ev=0.20 (keep lower since notna)
+    # safety_floor = 1.50 * 0.85 = 1.275
+    # result = max(0.20, 1.275) = 1.275
+    assert ev.iloc[0] == pytest.approx(1.275)
+    # Row 1: lower_ev=1.50 (notna), corrected_ev=0.80 -> selection_ev=1.50 (keep lower since notna)
+    # safety_floor = 0.80 * 0.85 = 0.68
     # result = max(1.50, 0.68) = 1.50
-    assert ev.iloc[1] == pytest.approx(1.50)  # type: ignore[name-defined]
+    assert ev.iloc[1] == pytest.approx(1.50)
 
 
 def test_win_selection_gate_hit_condition() -> None:
