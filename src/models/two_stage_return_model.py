@@ -77,6 +77,14 @@ class WinTwoStageModel:
         "track_condition_delta",
         "pace_pressure",
         "pace_scenario_fit",
+        # FEAT-02: 単勝特化新特徴量 (5 from HorseHistoryFeatures + 1 late-stage)
+        "distance_change",
+        "surface_change",
+        "class_drop_bounce",
+        "win_dominance",
+        "freshness_score",
+        # FEAT-02: 市場確率/能力確率比 (値 > 1.0 = 過小評価, < 1.0 = 過大評価)
+        "odds_to_ability_ratio",
     ]
 
     def __init__(self, cfg: TwoStageConfig | None = None) -> None:
@@ -105,6 +113,18 @@ class WinTwoStageModel:
             logger.info("No features removed (none of %s found in FEATURE_COLS)", noise_features)
 
     def _prepare_features(self, df: pd.DataFrame) -> pd.DataFrame:
+        # FEAT-02: 推論時にodds_to_ability_ratioが未計算ならここで計算する
+        # 訓練時は_train_submodel()で既に計算済みなのでスキップされる
+        if (
+            "odds_to_ability_ratio" in self.FEATURE_COLS
+            and "odds_to_ability_ratio" not in df.columns
+        ):
+            if "p_market_win_adj" in df.columns and "p_ability_win" in df.columns:
+                df = df.copy()
+                p_market = df["p_market_win_adj"].clip(lower=1e-6)
+                p_ability = df["p_ability_win"].clip(lower=1e-6)
+                df["odds_to_ability_ratio"] = (p_market / p_ability).clip(0.1, 10.0)
+
         available_cols = [c for c in self.FEATURE_COLS if c in df.columns]
         features = df[available_cols].copy()
         # Int64 (nullable int) → float64 (LightGBMが対応する型)
@@ -308,6 +328,13 @@ class PlaceTwoStageModel:
         "track_condition_delta",
         "pace_pressure",
         "pace_scenario_fit",
+        # FEAT-02: 単勝特化新特徴量 (WinTwoStageModelと共有)
+        "distance_change",
+        "surface_change",
+        "class_drop_bounce",
+        "win_dominance",
+        "freshness_score",
+        "odds_to_ability_ratio",
     ]
 
     # 後方互換: FEATURE_COLS は return model のリストを返す (最も情報量が多いため)

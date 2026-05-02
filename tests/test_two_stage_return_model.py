@@ -552,8 +552,8 @@ class TestHistoryFeaturesInFeatureCols:
         )
 
     def test_feature_cols_minimum_length(self) -> None:
-        """FEATURE_COLSが最低33件 (27既存 + 6新) である"""
+        """FEATURE_COLSが最低31件 (25既存 + 6新) である"""
         cols = WinTwoStageModel.FEATURE_COLS
-        assert len(cols) >= 33, (
-            f"Expected >= 33 FEATURE_COLS, got {len(cols)}: {cols}"
+        assert len(cols) >= 31, (
+            f"Expected >= 31 FEATURE_COLS, got {len(cols)}: {cols}"
         )

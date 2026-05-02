@@ -408,6 +408,14 @@ class TrainingPipelineV5:
         oof_mask = df["p_ability_win"].notna()
         df_oof = df[oof_mask].copy()
 
+        # FEAT-02: odds_to_ability_ratio -- 市場確率と能力確率の比
+        # p_market_win_adj は FeatureEngine.build_all() -> compute_market_bias() で生成済み
+        # p_ability_win は直上の AbilityModel.train_oof() で生成済み
+        if "p_market_win_adj" in df_oof.columns and "p_ability_win" in df_oof.columns:
+            p_market = df_oof["p_market_win_adj"].clip(lower=1e-6)
+            p_ability = df_oof["p_ability_win"].clip(lower=1e-6)
+            df_oof["odds_to_ability_ratio"] = (p_market / p_ability).clip(0.1, 10.0)
+
         # NEW: PlaceAbilityModel
         from models.place_ability_model import PlaceAbilityModel
 

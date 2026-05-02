@@ -177,9 +177,9 @@ class TestRemoveNoiseFeatures:
         WinTwoStageModel.FEATURE_COLS = original
 
     def test_remaining_features_are_subset_of_original(self) -> None:
-        """除外後のFEATURE_COLSは元の27特徴量の部分集合であること"""
-        # 元の完全リスト (Plan reference)
-        original_27 = [
+        """除外後のFEATURE_COLSは元の特徴量の部分集合であること"""
+        # 元の完全リスト (Plan 01の27 + Plan 02の6 = 33)
+        original_all = [
             "p_ability_win",
             "signed_log_error_win", "abs_log_error_win",
             "odds_drop_rate_60_10", "odds_drop_rate_30_10",
@@ -193,11 +193,15 @@ class TestRemoveNoiseFeatures:
             "is_nar_transfer", "nar_recent_ratio",
             "track_condition_delta",
             "pace_pressure", "pace_scenario_fit",
+            # FEAT-02: Plan 02追加特徴量
+            "distance_change", "surface_change", "class_drop_bounce",
+            "win_dominance", "freshness_score",
+            "odds_to_ability_ratio",
         ]
         original = list(WinTwoStageModel.FEATURE_COLS)
-        # FEATURE_COLSは元の27の部分集合 (または等価) であること
+        # FEATURE_COLSは元の特徴量の部分集合であること
         for feat in WinTwoStageModel.FEATURE_COLS:
-            assert feat in original_27, f"FEATURE_COLS contains unexpected feature: {feat}"
+            assert feat in original_all, f"FEATURE_COLS contains unexpected feature: {feat}"
 
     def test_feature_cols_length_at_least_20(self) -> None:
         """FEATURE_COLSは最低20特徴量を維持していること (27 - 合理的なノイズ上限)"""
