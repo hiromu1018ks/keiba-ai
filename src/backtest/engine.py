@@ -10,6 +10,7 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+import numpy as np
 import pandas as pd
 
 from backtest.diagnostic_logger import DiagnosticLogger
@@ -500,11 +501,28 @@ class BacktestEngine:
                 regime = self.models.regime_detector.current_regime
             regime_params = self.models.regime_detector.get_strategy_params(regime)
             edge_threshold = regime_params.get("edge_threshold", 0.03)
-            n_candidates = len(
-                self._race_predictor.get_place_candidates(
-                    result_df,
-                    regime_params=regime_params,
-                )
+            candidate_df = self._race_predictor.get_place_candidates(
+                result_df,
+                regime_params=regime_params,
+            )
+            n_candidates = len(candidate_df)
+            candidate_reason_df = candidate_df[
+                ["race_id", "umaban", "place_selection_reason"]
+            ].copy()
+            candidate_reason_df["umaban"] = candidate_reason_df["umaban"].astype(
+                result_df["umaban"].dtype
+            )
+            result_df = result_df.merge(
+                candidate_reason_df.drop_duplicates(subset=["race_id", "umaban"]),
+                on=["race_id", "umaban"],
+                how="left",
+            )
+            race_aggressive_strength = float(
+                result_df.get("aggressive_strength", pd.Series([np.nan])).iloc[0]
+            )
+            race_aggressive_tier = result_df.get("aggressive_tier", pd.Series([None])).iloc[0]
+            race_market_condition = float(
+                result_df.get("market_condition_score", pd.Series([np.nan])).iloc[0]
             )
 
             if not self._race_predictor.should_bet(result_df):
@@ -517,6 +535,11 @@ class BacktestEngine:
                     quality_score=0.0,
                     n_candidates=n_candidates,
                     n_bets=0,
+                    aggressive_strength=race_aggressive_strength,
+                    aggressive_tier=(
+                        str(race_aggressive_tier) if pd.notna(race_aggressive_tier) else None
+                    ),
+                    market_condition_score=race_market_condition,
                 )
                 if "ev_place" in result_df.columns:
                     for _, hr in result_df.iterrows():
@@ -528,13 +551,49 @@ class BacktestEngine:
                             ev_place=float(hr.get("ev_place", 0)),
                             fukuoddslow=float(hr.get("fukuoddslow", 0)),
                             is_bet=False,
+                            p_place_corrected=float(hr.get("p_place_corrected", float("nan"))),
+                            e_return_place_corrected=float(
+                                hr.get("e_return_place_corrected", float("nan"))
+                            ),
+                            ev_place_corrected=float(hr.get("ev_place_corrected", float("nan"))),
+                            ev_lower_place=float(hr.get("EV_lower_place", float("nan"))),
+                            place_selection_ev=float(hr.get("place_selection_ev", float("nan"))),
+                            place_selection_edge=float(
+                                hr.get("place_selection_edge", float("nan"))
+                            ),
+                            place_selection_prob=float(
+                                hr.get("place_selection_prob", float("nan"))
+                            ),
+                            place_bucket_multiplier=float(
+                                hr.get("place_bucket_multiplier", float("nan"))
+                            ),
+                            place_gate_score=float(hr.get("place_gate_score", float("nan"))),
+                            place_gate_pass=bool(hr.get("place_gate_pass", False)),
+                            place_gate_rank=float(hr.get("place_gate_rank", float("nan"))),
+                            place_gate_score_gap=float(
+                                hr.get("place_gate_score_gap", float("nan"))
+                            ),
+                            market_condition_score=float(
+                                hr.get("market_condition_score", float("nan"))
+                            ),
+                            aggressive_strength=float(hr.get("aggressive_strength", float("nan"))),
+                            aggressive_tier=(
+                                str(hr.get("aggressive_tier"))
+                                if pd.notna(hr.get("aggressive_tier"))
+                                else None
+                            ),
+                            place_selection_reason=(
+                                str(hr.get("place_selection_reason"))
+                                if pd.notna(hr.get("place_selection_reason"))
+                                else None
+                            ),
                         )
                         diag_logger.log_horse_features(hr.to_dict())
                 continue
 
             # Bet generation
             surface_key = result_df["surface"].iloc[0]
-            bets = self._race_predictor.select_bets(result_df, bankroll)
+            bets = self._race_predictor.select_bets(result_df, bankroll, candidates=candidate_df)
 
             # v5: セグメント除外フィルタ全削除 — モデル自身がedgeを低く見積もるように改善する
             # (旧v4の14個の除外フィルタは全て削除)
@@ -562,6 +621,11 @@ class BacktestEngine:
                 quality_score=0.0,
                 n_candidates=n_candidates,
                 n_bets=len(bets),
+                aggressive_strength=race_aggressive_strength,
+                aggressive_tier=(
+                    str(race_aggressive_tier) if pd.notna(race_aggressive_tier) else None
+                ),
+                market_condition_score=race_market_condition,
             )
             if "ev_place" in result_df.columns:
                 bet_umabans = {b.umaban for b in bets}
@@ -592,6 +656,24 @@ class BacktestEngine:
                         ),
                         place_gate_score=float(hr.get("place_gate_score", float("nan"))),
                         place_gate_pass=bool(hr.get("place_gate_pass", False)),
+                        place_gate_rank=float(hr.get("place_gate_rank", float("nan"))),
+                        place_gate_score_gap=float(
+                            hr.get("place_gate_score_gap", float("nan"))
+                        ),
+                        market_condition_score=float(
+                            hr.get("market_condition_score", float("nan"))
+                        ),
+                        aggressive_strength=float(hr.get("aggressive_strength", float("nan"))),
+                        aggressive_tier=(
+                            str(hr.get("aggressive_tier"))
+                            if pd.notna(hr.get("aggressive_tier"))
+                            else None
+                        ),
+                        place_selection_reason=(
+                            str(hr.get("place_selection_reason"))
+                            if pd.notna(hr.get("place_selection_reason"))
+                            else None
+                        ),
                     )
                     diag_logger.log_horse_features(hr.to_dict())
 

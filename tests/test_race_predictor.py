@@ -422,6 +422,501 @@ class TestRacePredictor:
 
         assert bets == []
 
+    def test_select_bets_softens_learned_gate_on_no_pass_races(
+        self,
+        mock_models: MagicMock,
+    ) -> None:
+        from backtest.race_predictor import RacePredictor
+        from domain.types import RegimeState
+
+        class StubGate:
+            is_trained = True
+
+            def score(self, df: pd.DataFrame) -> pd.DataFrame:
+                scored = df.copy()
+                scored["place_gate_score"] = [1.2, 0.9]
+                scored["place_gate_pass"] = [False, False]
+                return scored
+
+            def soft_pass_mask(
+                self,
+                df: pd.DataFrame,
+                *,
+                edge_floor: float = 0.0,
+                min_prob: float = 0.0,
+                max_odds: float = float("inf"),
+                max_per_race: int = 1,
+            ) -> pd.Series:
+                return pd.Series([True, False], index=df.index, dtype=bool)
+
+        predictor = RacePredictor(models=mock_models)
+        mock_models.submodels["turf"].place_selection_gate = StubGate()
+        mock_models.regime_detector.current_regime = RegimeState.AGGRESSIVE
+        mock_models.regime_detector.get_strategy_params.return_value = {
+            "edge_threshold": 0.04,
+            "min_place_prob": 0.08,
+            "max_place_odds": 18.0,
+            "max_bets_per_race": 1,
+        }
+
+        race_df = pd.DataFrame(
+            {
+                "race_id": ["R1", "R1"],
+                "umaban": [1, 2],
+                "surface": ["turf", "turf"],
+                "place_selection_prob": [0.37, 0.30],
+                "place_selection_edge": [0.03, 0.06],
+                "place_selection_ev": [1.03, 1.06],
+                "fukuoddslow": [8.5, 7.0],
+            }
+        )
+
+        bets = predictor.select_bets(race_df, bankroll=100000.0)
+
+        assert [bet.umaban for bet in bets] == [1]
+
+    def test_select_bets_allows_second_runner_when_gate_margin_is_small(
+        self,
+        mock_models: MagicMock,
+    ) -> None:
+        from backtest.race_predictor import RacePredictor
+        from domain.types import RegimeState
+
+        class StubGate:
+            is_trained = True
+
+            def score(self, df: pd.DataFrame) -> pd.DataFrame:
+                scored = df.copy()
+                scored["place_gate_score"] = [1.20, 0.82, 0.10]
+                scored["place_gate_pass"] = [True, True, False]
+                return scored
+
+        predictor = RacePredictor(models=mock_models)
+        mock_models.submodels["turf"].place_selection_gate = StubGate()
+        mock_models.regime_detector.current_regime = RegimeState.AGGRESSIVE
+        mock_models.regime_detector.get_strategy_params.return_value = {
+            "edge_threshold": 0.04,
+            "min_place_prob": 0.08,
+            "max_place_odds": 18.0,
+            "max_bets_per_race": 1,
+            "soft_gate_second_margin": 0.50,
+            "soft_gate_second_min_edge": 0.03,
+        }
+
+        race_df = pd.DataFrame(
+            {
+                "race_id": ["R1", "R1", "R1"],
+                "umaban": [1, 2, 3],
+                "surface": ["turf", "turf", "turf"],
+                "place_selection_prob": [0.40, 0.36, 0.12],
+                "place_selection_edge": [0.05, 0.04, 0.02],
+                "place_selection_ev": [1.05, 1.04, 1.02],
+                "fukuoddslow": [4.0, 5.0, 10.0],
+            }
+        )
+
+        bets = predictor.select_bets(race_df, bankroll=100000.0)
+
+        assert [bet.umaban for bet in bets] == [1, 2]
+
+    def test_select_bets_allows_quality_second_runner_in_aggressive_regime(
+        self,
+        mock_models: MagicMock,
+    ) -> None:
+        from backtest.race_predictor import RacePredictor
+        from domain.types import RegimeState
+
+        class StubGate:
+            is_trained = True
+
+            def score(self, df: pd.DataFrame) -> pd.DataFrame:
+                scored = df.copy()
+                scored["place_gate_score"] = [2.0, 1.15]
+                scored["place_gate_pass"] = [True, False]
+                return scored
+
+        predictor = RacePredictor(models=mock_models)
+        mock_models.submodels["turf"].place_selection_gate = StubGate()
+        mock_models.regime_detector.current_regime = RegimeState.AGGRESSIVE
+        mock_models.regime_detector.get_strategy_params.return_value = {
+            "edge_threshold": 0.04,
+            "min_place_prob": 0.08,
+            "max_place_odds": 18.0,
+            "max_bets_per_race": 1,
+            "soft_gate_second_margin": 0.50,
+            "soft_gate_second_min_edge": 0.03,
+            "quality_second_margin": 1.00,
+            "quality_second_min_edge": 0.06,
+            "quality_second_min_prob": 0.25,
+        }
+
+        race_df = pd.DataFrame(
+            {
+                "race_id": ["R1", "R1"],
+                "umaban": [1, 2],
+                "surface": ["turf", "turf"],
+                "place_selection_prob": [0.42, 0.30],
+                "place_selection_edge": [0.09, 0.07],
+                "place_selection_ev": [1.09, 1.07],
+                "fukuoddslow": [3.5, 4.8],
+            }
+        )
+
+        bets = predictor.select_bets(race_df, bankroll=100000.0)
+
+        assert [bet.umaban for bet in bets] == [1, 2]
+
+    def test_select_bets_rescues_runner_up_on_aggressive_no_bet_race(
+        self,
+        mock_models: MagicMock,
+    ) -> None:
+        from backtest.race_predictor import RacePredictor
+        from domain.types import RegimeState
+
+        class StubGate:
+            is_trained = True
+
+            def score(self, df: pd.DataFrame) -> pd.DataFrame:
+                scored = df.copy()
+                scored["place_gate_score"] = [1.20, 1.00, 0.40]
+                scored["place_gate_pass"] = [False, False, False]
+                return scored
+
+        predictor = RacePredictor(models=mock_models)
+        mock_models.submodels["turf"].place_selection_gate = StubGate()
+        mock_models.regime_detector.current_regime = RegimeState.AGGRESSIVE
+        mock_models.regime_detector.get_strategy_params.return_value = {
+            "edge_threshold": 0.04,
+            "min_place_prob": 0.08,
+            "max_place_odds": 18.0,
+            "max_bets_per_race": 1,
+            "runner_up_rescue_margin": 0.25,
+            "runner_up_rescue_min_edge": 0.04,
+            "runner_up_rescue_min_prob": 0.25,
+        }
+
+        race_df = pd.DataFrame(
+            {
+                "race_id": ["R1", "R1", "R1"],
+                "umaban": [1, 2, 3],
+                "surface": ["turf", "turf", "turf"],
+                "place_selection_prob": [0.18, 0.28, 0.12],
+                "place_selection_edge": [0.12, 0.05, 0.01],
+                "place_selection_ev": [1.12, 1.05, 1.01],
+                "fukuoddslow": [7.0, 6.0, 12.0],
+            }
+        )
+
+        bets = predictor.select_bets(race_df, bankroll=100000.0)
+
+        assert [bet.umaban for bet in bets] == [2]
+
+    def test_select_bets_rescues_rank2_with_aggressive_rerank_band(
+        self,
+        mock_models: MagicMock,
+    ) -> None:
+        from backtest.race_predictor import RacePredictor
+        from domain.types import RegimeState
+
+        class StubGate:
+            is_trained = True
+
+            def score(self, df: pd.DataFrame) -> pd.DataFrame:
+                scored = df.copy()
+                scored["place_gate_score"] = [2.8, 1.1, 0.2]
+                scored["place_gate_pass"] = [False, False, False]
+                return scored
+
+        predictor = RacePredictor(models=mock_models)
+        mock_models.submodels["turf"].place_selection_gate = StubGate()
+        mock_models.regime_detector.current_regime = RegimeState.AGGRESSIVE
+        mock_models.regime_detector.get_strategy_params.return_value = {
+            "edge_threshold": 0.04,
+            "min_place_prob": 0.08,
+            "max_place_odds": 18.0,
+            "max_bets_per_race": 1,
+            "runner_up_rescue_margin": 0.25,
+            "runner_up_rescue_min_edge": 0.04,
+            "runner_up_rescue_min_prob": 0.25,
+            "runner_up_rerank_market_condition_max": 0.20,
+            "runner_up_rerank_entropy_min": 1.80,
+            "runner_up_rerank_entropy_max": 2.30,
+            "runner_up_rerank_min_edge": 0.01,
+            "runner_up_rerank_min_prob": 0.10,
+            "runner_up_rerank_max_odds": 12.0,
+        }
+
+        race_df = pd.DataFrame(
+            {
+                "race_id": ["R1", "R1", "R1"],
+                "umaban": [1, 2, 3],
+                "surface": ["turf", "turf", "turf"],
+                "popularity_rank": [1, 4, 7],
+                "odds": [6.0, 10.0, 18.0],
+                "overround": [0.22, 0.22, 0.22],
+                "market_entropy": [2.05, 2.05, 2.05],
+                "place_selection_prob": [0.07, 0.12, 0.08],
+                "place_selection_edge": [-0.02, 0.02, 0.01],
+                "place_selection_ev": [0.98, 1.02, 1.01],
+                "fukuoddslow": [3.2, 6.0, 11.0],
+            }
+        )
+
+        bets = predictor.select_bets(race_df, bankroll=100000.0)
+
+        assert [bet.umaban for bet in bets] == [2]
+
+    def test_select_bets_does_not_rescue_rank2_outside_aggressive_rerank_band(
+        self,
+        mock_models: MagicMock,
+    ) -> None:
+        from backtest.race_predictor import RacePredictor
+        from domain.types import RegimeState
+
+        class StubGate:
+            is_trained = True
+
+            def score(self, df: pd.DataFrame) -> pd.DataFrame:
+                scored = df.copy()
+                scored["place_gate_score"] = [2.8, 1.1, 0.2]
+                scored["place_gate_pass"] = [False, False, False]
+                return scored
+
+        predictor = RacePredictor(models=mock_models)
+        mock_models.submodels["turf"].place_selection_gate = StubGate()
+        mock_models.regime_detector.current_regime = RegimeState.AGGRESSIVE
+        mock_models.regime_detector.get_strategy_params.return_value = {
+            "edge_threshold": 0.04,
+            "min_place_prob": 0.08,
+            "max_place_odds": 18.0,
+            "max_bets_per_race": 1,
+            "runner_up_rescue_margin": 0.25,
+            "runner_up_rescue_min_edge": 0.04,
+            "runner_up_rescue_min_prob": 0.25,
+            "runner_up_rerank_market_condition_max": 0.20,
+            "runner_up_rerank_entropy_min": 1.80,
+            "runner_up_rerank_entropy_max": 2.30,
+            "runner_up_rerank_min_edge": 0.01,
+            "runner_up_rerank_min_prob": 0.10,
+            "runner_up_rerank_max_odds": 12.0,
+        }
+
+        race_df = pd.DataFrame(
+            {
+                "race_id": ["R1", "R1", "R1"],
+                "umaban": [1, 2, 3],
+                "surface": ["turf", "turf", "turf"],
+                "popularity_rank": [1, 4, 7],
+                "odds": [2.4, 10.0, 18.0],
+                "overround": [0.22, 0.22, 0.22],
+                "market_entropy": [2.05, 2.05, 2.05],
+                "place_selection_prob": [0.07, 0.12, 0.08],
+                "place_selection_edge": [-0.02, 0.02, 0.01],
+                "place_selection_ev": [0.98, 1.02, 1.01],
+                "fukuoddslow": [3.2, 6.0, 11.0],
+            }
+        )
+
+        bets = predictor.select_bets(race_df, bankroll=100000.0)
+
+        assert bets == []
+
+    def test_select_bets_does_not_add_second_outside_aggressive_regime(
+        self,
+        mock_models: MagicMock,
+    ) -> None:
+        from backtest.race_predictor import RacePredictor
+        from domain.types import RegimeState
+
+        class StubGate:
+            is_trained = True
+
+            def score(self, df: pd.DataFrame) -> pd.DataFrame:
+                scored = df.copy()
+                scored["place_gate_score"] = [1.4, 1.2]
+                scored["place_gate_pass"] = [True, False]
+                return scored
+
+            def annotate_race_context(self, df: pd.DataFrame) -> pd.DataFrame:
+                annotated = df.copy()
+                annotated["aggressive_tier"] = ["strong", "strong"]
+                return annotated
+
+            def runner_up_candidate_reason(
+                self,
+                df: pd.DataFrame,
+                *,
+                selected_races: pd.Series,
+                max_odds: float,
+            ) -> pd.Series:
+                return pd.Series(["", "add_second"], index=df.index, dtype=object)
+
+        predictor = RacePredictor(models=mock_models)
+        mock_models.submodels["turf"].place_selection_gate = StubGate()
+        mock_models.regime_detector.current_regime = RegimeState.CONSERVATIVE
+        mock_models.regime_detector.get_strategy_params.return_value = {
+            "edge_threshold": 0.04,
+            "min_place_prob": 0.08,
+            "max_place_odds": 18.0,
+            "max_bets_per_race": 1,
+        }
+
+        race_df = pd.DataFrame(
+            {
+                "race_id": ["R1", "R1"],
+                "umaban": [1, 2],
+                "surface": ["turf", "turf"],
+                "place_selection_prob": [0.40, 0.30],
+                "place_selection_edge": [0.12, 0.15],
+                "place_selection_ev": [1.12, 1.15],
+                "fukuoddslow": [4.0, 5.0],
+            }
+        )
+
+        bets = predictor.select_bets(race_df, bankroll=100000.0)
+
+        assert [bet.umaban for bet in bets] == [1]
+
+    def test_get_place_candidates_prunes_weak_high_prob_candidates(
+        self,
+        mock_models: MagicMock,
+    ) -> None:
+        from backtest.race_predictor import RacePredictor
+        from domain.types import RegimeState
+
+        class StubGate:
+            is_trained = True
+
+            def score(self, df: pd.DataFrame) -> pd.DataFrame:
+                scored = df.copy()
+                scored["place_gate_score"] = [1.5, 1.3]
+                scored["place_gate_pass"] = [True, True]
+                return scored
+
+            def annotate_race_context(self, df: pd.DataFrame) -> pd.DataFrame:
+                annotated = df.copy()
+                annotated["aggressive_tier"] = ["weak", "strong"]
+                return annotated
+
+        predictor = RacePredictor(models=mock_models)
+        mock_models.submodels["turf"].place_selection_gate = StubGate()
+        mock_models.regime_detector.current_regime = RegimeState.AGGRESSIVE
+        mock_models.regime_detector.get_strategy_params.return_value = {
+            "edge_threshold": 0.04,
+            "min_place_prob": 0.08,
+            "max_place_odds": 18.0,
+            "max_bets_per_race": 2,
+            "weak_prob_prune_threshold": 0.35,
+        }
+
+        race_df = pd.DataFrame(
+            {
+                "race_id": ["R1", "R1"],
+                "umaban": [1, 2],
+                "surface": ["turf", "turf"],
+                "place_selection_prob": [0.42, 0.30],
+                "place_selection_edge": [0.09, 0.08],
+                "place_selection_ev": [1.09, 1.08],
+                "fukuoddslow": [4.0, 5.0],
+            }
+        )
+
+        candidates = predictor.get_place_candidates(race_df)
+
+        assert candidates["umaban"].tolist() == [2]
+        assert candidates["place_prune_reason"].isna().all()
+
+    def test_select_bets_prunes_conservative_turf_candidates(
+        self,
+        mock_models: MagicMock,
+    ) -> None:
+        from backtest.race_predictor import RacePredictor
+        from domain.types import RegimeState
+
+        predictor = RacePredictor(models=mock_models)
+        mock_models.regime_detector.current_regime = RegimeState.CONSERVATIVE
+        mock_models.regime_detector.get_strategy_params.return_value = {
+            "edge_threshold": 0.04,
+            "min_place_prob": 0.08,
+            "max_place_odds": 18.0,
+            "max_bets_per_race": 1,
+            "prune_turf_candidates": True,
+        }
+
+        race_df = pd.DataFrame(
+            {
+                "race_id": ["R1"],
+                "umaban": [1],
+                "surface": ["turf"],
+                "place_selection_prob": [0.30],
+                "place_selection_edge": [0.10],
+                "place_selection_ev": [1.10],
+                "fukuoddslow": [4.0],
+            }
+        )
+
+        bets = predictor.select_bets(race_df, bankroll=100000.0)
+
+        assert bets == []
+
+    def test_select_bets_prunes_add_second_outside_kept_edge_band(
+        self,
+        mock_models: MagicMock,
+    ) -> None:
+        from backtest.race_predictor import RacePredictor
+        from domain.types import RegimeState
+
+        class StubGate:
+            is_trained = True
+
+            def score(self, df: pd.DataFrame) -> pd.DataFrame:
+                scored = df.copy()
+                scored["place_gate_score"] = [1.6, 1.4]
+                scored["place_gate_pass"] = [True, False]
+                return scored
+
+            def annotate_race_context(self, df: pd.DataFrame) -> pd.DataFrame:
+                annotated = df.copy()
+                annotated["aggressive_tier"] = ["strong", "strong"]
+                return annotated
+
+            def runner_up_candidate_reason(
+                self,
+                df: pd.DataFrame,
+                *,
+                selected_races: pd.Series,
+                max_odds: float,
+            ) -> pd.Series:
+                return pd.Series(["", "add_second"], index=df.index, dtype=object)
+
+        predictor = RacePredictor(models=mock_models)
+        mock_models.submodels["turf"].place_selection_gate = StubGate()
+        mock_models.regime_detector.current_regime = RegimeState.AGGRESSIVE
+        mock_models.regime_detector.get_strategy_params.return_value = {
+            "edge_threshold": 0.04,
+            "min_place_prob": 0.08,
+            "max_place_odds": 18.0,
+            "max_bets_per_race": 1,
+            "add_second_keep_min_edge": 0.10,
+            "add_second_keep_max_edge": 0.20,
+        }
+
+        race_df = pd.DataFrame(
+            {
+                "race_id": ["R1", "R1"],
+                "umaban": [1, 2],
+                "surface": ["turf", "turf"],
+                "place_selection_prob": [0.35, 0.28],
+                "place_selection_edge": [0.11, 0.04],
+                "place_selection_ev": [1.11, 1.04],
+                "fukuoddslow": [4.0, 5.0],
+            }
+        )
+
+        bets = predictor.select_bets(race_df, bankroll=100000.0)
+
+        assert [bet.umaban for bet in bets] == [1]
+
     def test_place_selection_ev_keeps_corrected_ev_floor(self, mock_models: MagicMock) -> None:
         from backtest.race_predictor import RacePredictor
 
@@ -698,5 +1193,3 @@ class TestRacePredictorEVEdge:
         expected_edge = p_pred * odds - 1.0
         np.testing.assert_allclose(result["edge_place"].values, expected_edge, rtol=1e-6)
         np.testing.assert_allclose(result["p_place_combined"].values, p_pred, rtol=1e-6)
-
-

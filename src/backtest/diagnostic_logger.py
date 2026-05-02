@@ -24,6 +24,9 @@ class RaceDiagnostic:
     quality_score: float = 0.0
     n_candidates: int = 0
     n_bets: int = 0
+    aggressive_strength: float | None = None
+    aggressive_tier: str | None = None
+    market_condition_score: float | None = None
 
 
 @dataclass
@@ -47,6 +50,12 @@ class HorseDiagnostic:
     place_bucket_multiplier: float | None = None
     place_gate_score: float | None = None
     place_gate_pass: bool | None = None
+    place_gate_rank: float | None = None
+    place_gate_score_gap: float | None = None
+    market_condition_score: float | None = None
+    aggressive_strength: float | None = None
+    aggressive_tier: str | None = None
+    place_selection_reason: str | None = None
 
 
 class DiagnosticLogger:
@@ -67,6 +76,9 @@ class DiagnosticLogger:
         quality_score: float = 0.0,
         n_candidates: int = 0,
         n_bets: int = 0,
+        aggressive_strength: float | None = None,
+        aggressive_tier: str | None = None,
+        market_condition_score: float | None = None,
     ) -> None:
         self.race_records.append(
             RaceDiagnostic(
@@ -78,6 +90,9 @@ class DiagnosticLogger:
                 quality_score=quality_score,
                 n_candidates=n_candidates,
                 n_bets=n_bets,
+                aggressive_strength=aggressive_strength,
+                aggressive_tier=aggressive_tier,
+                market_condition_score=market_condition_score,
             )
         )
 
@@ -100,6 +115,12 @@ class DiagnosticLogger:
         place_bucket_multiplier: float | None = None,
         place_gate_score: float | None = None,
         place_gate_pass: bool | None = None,
+        place_gate_rank: float | None = None,
+        place_gate_score_gap: float | None = None,
+        market_condition_score: float | None = None,
+        aggressive_strength: float | None = None,
+        aggressive_tier: str | None = None,
+        place_selection_reason: str | None = None,
     ) -> None:
         self.horse_records.append(
             HorseDiagnostic(
@@ -120,6 +141,12 @@ class DiagnosticLogger:
                 place_bucket_multiplier=place_bucket_multiplier,
                 place_gate_score=place_gate_score,
                 place_gate_pass=place_gate_pass,
+                place_gate_rank=place_gate_rank,
+                place_gate_score_gap=place_gate_score_gap,
+                market_condition_score=market_condition_score,
+                aggressive_strength=aggressive_strength,
+                aggressive_tier=aggressive_tier,
+                place_selection_reason=place_selection_reason,
             )
         )
 

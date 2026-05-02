@@ -52,3 +52,35 @@ def test_place_selection_gate_trains_and_scores() -> None:
     assert "place_gate_pass" in scored.columns
     assert scored.loc[0, "place_gate_score"] > scored.loc[1, "place_gate_score"]
 
+
+def test_place_selection_gate_soft_pass_rescues_top_ranked_near_threshold_runner() -> None:
+    from models.place_selection_gate import PlaceSelectionGateModel
+
+    model = PlaceSelectionGateModel()
+    model.min_prob = 0.38
+    model.min_edge = 0.05
+    model.max_odds = 10.0
+    model._trained = True
+
+    scored = pd.DataFrame(
+        {
+            "race_id": ["R1", "R1", "R2", "R2"],
+            "umaban": [1, 2, 1, 2],
+            "fukuoddslow": [9.8, 8.0, 5.0, 8.5],
+            "place_selection_prob": [0.375, 0.31, 0.42, 0.375],
+            "place_selection_edge": [0.035, 0.08, 0.07, 0.04],
+            "place_gate_score": [1.4, 1.0, 1.2, 1.1],
+            "place_gate_pass": [False, False, True, False],
+        }
+    )
+
+    mask = model.soft_pass_mask(
+        scored,
+        edge_floor=0.0,
+        min_prob=0.08,
+        max_odds=18.0,
+        max_per_race=1,
+    )
+
+    assert mask.tolist() == [True, False, False, False]
+

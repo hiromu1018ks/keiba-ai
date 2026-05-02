@@ -74,13 +74,17 @@ class TestRegimeDetector:
         detector = RegimeDetector()
         params = detector.get_strategy_params(RegimeState.AGGRESSIVE)
         assert params["ev_threshold"] < 1.20
-        assert params["max_bets_per_race"] >= 2  # v5: 3→2, so >=2
+        assert params["max_bets_per_race"] == 1
+        assert params["quality_second_margin"] > params["soft_gate_second_margin"]
+        assert params["runner_up_rescue_min_prob"] >= 0.25
+        assert params["runner_up_rerank_market_condition_max"] <= 0.20
+        assert params["runner_up_rerank_entropy_min"] < params["runner_up_rerank_entropy_max"]
 
     def test_get_strategy_params_conservative(self) -> None:
         detector = RegimeDetector()
         params = detector.get_strategy_params(RegimeState.CONSERVATIVE)
         assert params["ev_threshold"] > 1.20
-        assert params["max_bets_per_race"] == 2
+        assert params["max_bets_per_race"] == 1
 
     def test_get_strategy_params_collapsed(self) -> None:
         detector = RegimeDetector()

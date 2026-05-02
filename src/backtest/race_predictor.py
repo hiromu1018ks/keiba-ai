@@ -13,6 +13,7 @@ import numpy as np
 import pandas as pd
 
 from domain.models import Bet, BetType
+from domain.types import RegimeState
 from models.place_selection_gate import build_place_selection_ev, ensure_place_selection_columns
 
 if TYPE_CHECKING:
@@ -134,11 +135,10 @@ class RacePredictor:
         if benter is not None:
             p_market_clipped = np.clip(
                 np.where(df["fukuoddslow"] > 0, 1.0 / df["fukuoddslow"], 0.5),
-                0.01, 0.99,
+                0.01,
+                0.99,
             )
-            df["p_place_combined"] = benter.combine(
-                df["p_place_pred"].values, p_market_clipped
-            )
+            df["p_place_combined"] = benter.combine(df["p_place_pred"].values, p_market_clipped)
 
             # Isotonic calibration (optional post-processing)
             # v5.6: Isotonic post-Benter is too aggressive (pushes mean 0.224 vs true ~0.375).
@@ -182,13 +182,197 @@ class RacePredictor:
             gate_model is not None and getattr(gate_model, "is_trained", False) is True
         )
         if gate_enabled:
+            assert gate_model is not None
             df = gate_model.score(df)
+            annotate_race_context = getattr(gate_model, "annotate_race_context", None)
+            if callable(annotate_race_context):
+                df = annotate_race_context(df)
 
         return df
 
     @staticmethod
     def _ensure_place_selection_columns(race_df: pd.DataFrame) -> pd.DataFrame:
         return ensure_place_selection_columns(race_df)
+
+    @staticmethod
+    def _gate_rank_metrics(
+        race_df: pd.DataFrame,
+    ) -> tuple[pd.Series, pd.Series]:
+        gate_scores = pd.to_numeric(race_df["place_gate_score"], errors="coerce")
+        score_rank = gate_scores.groupby(race_df["race_id"]).rank(
+            method="first",
+            ascending=False,
+        )
+        score_gap = gate_scores.groupby(race_df["race_id"]).transform("max") - gate_scores
+        return score_rank, score_gap
+
+    @staticmethod
+    def _race_first_numeric(race_df: pd.DataFrame, column: str) -> pd.Series:
+        if column not in race_df.columns:
+            return pd.Series(np.nan, index=race_df.index, dtype=float)
+        values = pd.to_numeric(race_df[column], errors="coerce")
+        return values.groupby(race_df["race_id"]).transform("first")
+
+    @staticmethod
+    def _favorite_implied_prob(race_df: pd.DataFrame) -> pd.Series:
+        if "race_id" not in race_df.columns:
+            return pd.Series(np.nan, index=race_df.index, dtype=float)
+        if "popularity_rank" not in race_df.columns or "odds" not in race_df.columns:
+            return pd.Series(np.nan, index=race_df.index, dtype=float)
+        popularity_rank = pd.to_numeric(race_df["popularity_rank"], errors="coerce")
+        odds = pd.to_numeric(race_df["odds"], errors="coerce")
+        favorite_odds = odds.where(popularity_rank.eq(1))
+        favorite_odds = favorite_odds.groupby(race_df["race_id"]).transform("min")
+        favorite_prob = pd.Series(np.nan, index=race_df.index, dtype=float)
+        valid_favorite = favorite_odds.notna() & favorite_odds.gt(0.0)
+        favorite_prob.loc[valid_favorite] = 1.0 / favorite_odds.loc[valid_favorite]
+        return favorite_prob
+
+    @staticmethod
+    def _market_condition_score(race_df: pd.DataFrame) -> pd.Series:
+        favorite_prob = RacePredictor._favorite_implied_prob(race_df)
+        overround = RacePredictor._race_first_numeric(race_df, "overround")
+        overround_adj = 1.0 - np.clip(overround - 0.20, 0.0, 0.15) / 0.15
+        return favorite_prob * overround_adj
+
+    @staticmethod
+    def _aggressive_runner_up_mask(
+        race_df: pd.DataFrame,
+        *,
+        current_mask: pd.Series,
+        selection_edge: pd.Series,
+        selection_prob: pd.Series,
+        odds: pd.Series,
+        max_place_odds: float,
+        regime_params: dict[str, Any],
+    ) -> pd.Series:
+        if "place_gate_score" not in race_df.columns or "race_id" not in race_df.columns:
+            return pd.Series(False, index=race_df.index, dtype=bool)
+
+        score_rank, score_gap = RacePredictor._gate_rank_metrics(race_df)
+        valid_odds = odds.notna() & (odds > 0) & (odds <= max_place_odds)
+        selected_races = race_df["race_id"].isin(race_df.loc[current_mask, "race_id"])
+        second_rank_mask = score_rank.eq(2)
+        extra_mask = pd.Series(False, index=race_df.index, dtype=bool)
+
+        quality_second_margin = regime_params.get("quality_second_margin")
+        if isinstance(quality_second_margin, (int, float)):
+            quality_second_min_edge = float(
+                regime_params.get(
+                    "quality_second_min_edge",
+                    regime_params.get("edge_threshold", 0.0),
+                )
+            )
+            quality_second_min_prob = float(regime_params.get("quality_second_min_prob", 0.0))
+            extra_mask |= (
+                selected_races
+                & second_rank_mask
+                & score_gap.le(float(quality_second_margin))
+                & selection_edge.ge(quality_second_min_edge)
+                & selection_prob.ge(quality_second_min_prob)
+                & valid_odds
+            )
+
+        runner_up_rescue_margin = regime_params.get("runner_up_rescue_margin")
+        if isinstance(runner_up_rescue_margin, (int, float)):
+            runner_up_rescue_min_edge = float(regime_params.get("runner_up_rescue_min_edge", 0.0))
+            runner_up_rescue_min_prob = float(regime_params.get("runner_up_rescue_min_prob", 0.0))
+            extra_mask |= (
+                ~selected_races
+                & second_rank_mask
+                & score_gap.le(float(runner_up_rescue_margin))
+                & selection_edge.ge(runner_up_rescue_min_edge)
+                & selection_prob.ge(runner_up_rescue_min_prob)
+                & valid_odds
+            )
+
+        rerank_market_condition_max = regime_params.get("runner_up_rerank_market_condition_max")
+        rerank_entropy_min = regime_params.get("runner_up_rerank_entropy_min")
+        rerank_entropy_max = regime_params.get("runner_up_rerank_entropy_max")
+        if (
+            isinstance(rerank_market_condition_max, (int, float))
+            and isinstance(rerank_entropy_min, (int, float))
+            and isinstance(rerank_entropy_max, (int, float))
+        ):
+            rerank_min_edge = float(regime_params.get("runner_up_rerank_min_edge", 0.0))
+            rerank_min_prob = float(regime_params.get("runner_up_rerank_min_prob", 0.0))
+            rerank_max_odds = float(
+                regime_params.get("runner_up_rerank_max_odds", max_place_odds)
+            )
+            market_condition_score = RacePredictor._market_condition_score(race_df)
+            market_entropy = RacePredictor._race_first_numeric(race_df, "market_entropy")
+            rerank_valid_odds = (
+                odds.notna()
+                & odds.gt(0.0)
+                & odds.le(min(max_place_odds, rerank_max_odds))
+            )
+            extra_mask |= (
+                ~selected_races
+                & second_rank_mask
+                & market_condition_score.le(float(rerank_market_condition_max))
+                & market_entropy.ge(float(rerank_entropy_min))
+                & market_entropy.le(float(rerank_entropy_max))
+                & selection_edge.ge(rerank_min_edge)
+                & selection_prob.ge(rerank_min_prob)
+                & rerank_valid_odds
+            )
+
+        return extra_mask
+
+    @staticmethod
+    def _prune_place_candidates(
+        candidates: pd.DataFrame,
+        *,
+        regime: RegimeState,
+        regime_params: dict[str, Any],
+    ) -> pd.DataFrame:
+        if candidates.empty:
+            return candidates
+
+        prepared = candidates.copy()
+        prune_reason = pd.Series("", index=prepared.index, dtype=object)
+        selection_reason = prepared.get(
+            "place_selection_reason",
+            pd.Series("", index=prepared.index, dtype=object),
+        ).astype(str)
+        selection_prob = pd.to_numeric(prepared.get("place_selection_prob"), errors="coerce")
+        selection_edge = pd.to_numeric(prepared.get("place_selection_edge"), errors="coerce")
+        aggressive_tier = prepared.get(
+            "aggressive_tier",
+            pd.Series("weak", index=prepared.index, dtype=object),
+        ).astype(str)
+        surface = prepared.get(
+            "surface",
+            pd.Series("", index=prepared.index, dtype=object),
+        ).astype(str)
+
+        weak_prob_prune_threshold = regime_params.get("weak_prob_prune_threshold")
+        if isinstance(weak_prob_prune_threshold, (int, float)):
+            weak_prob_mask = aggressive_tier.eq("weak") & selection_prob.ge(
+                float(weak_prob_prune_threshold)
+            )
+            prune_reason.loc[weak_prob_mask] = "weak_high_prob"
+
+        if regime == RegimeState.CONSERVATIVE and bool(
+            regime_params.get("prune_turf_candidates", False)
+        ):
+            conservative_turf_mask = surface.eq("turf")
+            prune_reason.loc[conservative_turf_mask & prune_reason.eq("")] = "conservative_turf"
+
+        add_second_keep_min_edge = regime_params.get("add_second_keep_min_edge")
+        add_second_keep_max_edge = regime_params.get("add_second_keep_max_edge")
+        if isinstance(add_second_keep_min_edge, (int, float)) and isinstance(
+            add_second_keep_max_edge,
+            (int, float),
+        ):
+            keep_add_second_mask = selection_edge.ge(float(add_second_keep_min_edge)) & (
+                selection_edge.lt(float(add_second_keep_max_edge))
+            )
+            add_second_prune_mask = selection_reason.eq("add_second") & ~keep_add_second_mask
+            prune_reason.loc[add_second_prune_mask & prune_reason.eq("")] = "add_second_band"
+
+        prepared["place_prune_reason"] = prune_reason.replace("", pd.NA)
+        return prepared.loc[prune_reason.eq("")].copy()
 
     def get_place_candidates(
         self,
@@ -199,6 +383,8 @@ class RacePredictor:
         if regime_params is None:
             regime = self.models.regime_detector.current_regime
             regime_params = self.models.regime_detector.get_strategy_params(regime)
+        else:
+            regime = self.models.regime_detector.current_regime
 
         prepared = self._ensure_place_selection_columns(race_df)
         edge_col = "place_selection_edge"
@@ -225,17 +411,74 @@ class RacePredictor:
             gate_model is not None and getattr(gate_model, "is_trained", False) is True
         )
         if gate_enabled:
+            assert gate_model is not None
             prepared = gate_model.score(prepared)
-            mask = prepared["place_gate_pass"].fillna(False).astype(bool)
-            mask &= selection_edge.fillna(float("-inf")) >= 0.0
-            mask &= selection_prob.fillna(0.0) >= min_place_prob
-            mask &= odds.notna() & (odds > 0) & (odds <= max_place_odds)
+            annotate_race_context = getattr(gate_model, "annotate_race_context", None)
+            if callable(annotate_race_context):
+                prepared = annotate_race_context(prepared)
+            prepared["place_selection_reason"] = "rejected"
+            hard_mask = prepared["place_gate_pass"].fillna(False).astype(bool)
+            hard_mask &= selection_edge.fillna(float("-inf")) >= 0.0
+            hard_mask &= selection_prob.fillna(0.0) >= min_place_prob
+            hard_mask &= odds.notna() & (odds > 0) & (odds <= max_place_odds)
+            soft_mask = pd.Series(False, index=prepared.index, dtype=bool)
+            soft_pass_mask = getattr(gate_model, "soft_pass_mask", None)
+            if callable(soft_pass_mask):
+                soft_mask = soft_pass_mask(
+                    prepared,
+                    edge_floor=0.0,
+                    min_prob=min_place_prob,
+                    max_odds=max_place_odds,
+                    max_per_race=1,
+                )
+            base_mask = hard_mask | soft_mask
+            selected_races = prepared["race_id"].isin(prepared.loc[base_mask, "race_id"])
+
+            runner_up_reason = pd.Series("", index=prepared.index, dtype=object)
+            runner_up_candidate_reason = getattr(gate_model, "runner_up_candidate_reason", None)
+            if callable(runner_up_candidate_reason) and regime == RegimeState.AGGRESSIVE:
+                runner_up_reason = runner_up_candidate_reason(
+                    prepared,
+                    selected_races=selected_races,
+                    max_odds=max_place_odds,
+                )
+            elif regime == RegimeState.AGGRESSIVE:
+                fallback_mask = self._aggressive_runner_up_mask(
+                    prepared,
+                    current_mask=base_mask,
+                    selection_edge=selection_edge.fillna(float("-inf")),
+                    selection_prob=selection_prob.fillna(0.0),
+                    odds=odds,
+                    max_place_odds=max_place_odds,
+                    regime_params=regime_params,
+                )
+                runner_up_reason.loc[fallback_mask & selected_races] = "add_second"
+                runner_up_reason.loc[fallback_mask & ~selected_races] = "rescue"
+
+            mask = base_mask | runner_up_reason.ne("")
+            prepared.loc[hard_mask, "place_selection_reason"] = "hard_gate"
+            prepared.loc[soft_mask & ~hard_mask, "place_selection_reason"] = "soft_gate"
+            prepared.loc[
+                runner_up_reason.eq("add_second"),
+                "place_selection_reason",
+            ] = "add_second"
+            prepared.loc[runner_up_reason.eq("rescue"), "place_selection_reason"] = "rescue"
+            prepared["place_selection_reason"] = prepared["place_selection_reason"].fillna(
+                "rejected"
+            )
         else:
+            prepared["place_selection_reason"] = "rejected"
             mask = selection_edge.fillna(0.0) >= edge_threshold
             mask &= selection_prob.fillna(0.0) >= min_place_prob
             mask &= odds.notna() & (odds > 0) & (odds <= max_place_odds)
+            prepared.loc[mask, "place_selection_reason"] = "threshold"
 
         candidates = prepared.loc[mask].copy()
+        candidates = self._prune_place_candidates(
+            candidates,
+            regime=regime,
+            regime_params=regime_params,
+        )
         if gate_enabled and "place_gate_score" in candidates.columns:
             candidates = candidates.sort_values(
                 ["place_gate_score", edge_col, ev_col, prob_col],
@@ -259,6 +502,8 @@ class RacePredictor:
         self,
         race_df: pd.DataFrame,
         bankroll: float,
+        *,
+        candidates: pd.DataFrame | None = None,
     ) -> list[Bet]:
         """Benter Value Betting: edge >= threshold の馬を選択 + ワイドペア生成。
 
@@ -272,11 +517,60 @@ class RacePredictor:
         bets: list[Bet] = []
         max_bets = regime_params.get("max_bets_per_race", 3)
         ev_col = "place_selection_ev"
-        candidates = self.get_place_candidates(race_df, regime_params=regime_params)
+        if candidates is None:
+            candidates = self.get_place_candidates(race_df, regime_params=regime_params)
         if candidates.empty:
             return bets
 
         # --- Place bets ---
+        if max_bets < 2 and "place_selection_reason" in candidates.columns:
+            has_add_second = candidates["place_selection_reason"].eq("add_second").any()
+            if has_add_second:
+                max_bets = 2
+        if max_bets < 2 and "aggressive_tier" not in candidates.columns:
+            soft_second_margin = regime_params.get("soft_gate_second_margin")
+            soft_second_min_edge = float(
+                regime_params.get(
+                    "soft_gate_second_min_edge",
+                    regime_params.get("edge_threshold", 0.03),
+                )
+            )
+            quality_second_margin = regime_params.get("quality_second_margin")
+            quality_second_min_edge = float(
+                regime_params.get("quality_second_min_edge", soft_second_min_edge)
+            )
+            quality_second_min_prob = float(regime_params.get("quality_second_min_prob", 0.0))
+            if (
+                isinstance(soft_second_margin, (int, float))
+                and len(candidates) >= 2
+                and "place_gate_score" in candidates.columns
+            ):
+                gate_scores = pd.to_numeric(candidates["place_gate_score"], errors="coerce")
+                top_score = gate_scores.iloc[0]
+                second_score = gate_scores.iloc[1]
+                second_edge = float(candidates["place_selection_edge"].iloc[1])
+                second_prob = float(candidates["place_selection_prob"].iloc[1])
+                score_gap = (
+                    float(top_score) - float(second_score)
+                    if pd.notna(top_score) and pd.notna(second_score)
+                    else float("inf")
+                )
+                margin_rule = (
+                    pd.notna(top_score)
+                    and pd.notna(second_score)
+                    and score_gap <= float(soft_second_margin)
+                    and second_edge >= soft_second_min_edge
+                )
+                quality_rule = (
+                    isinstance(quality_second_margin, (int, float))
+                    and pd.notna(top_score)
+                    and pd.notna(second_score)
+                    and score_gap <= float(quality_second_margin)
+                    and second_edge >= quality_second_min_edge
+                    and second_prob >= quality_second_min_prob
+                )
+                if margin_rule or quality_rule:
+                    max_bets = 2
         candidates = candidates.head(max_bets)
 
         for _, row in candidates.iterrows():
@@ -306,10 +600,10 @@ class RacePredictor:
                     bet_type=BetType.PLACE,
                     odds=odds_val,
                     ev_lower_corrected=float(row.get(ev_col, row.get("ev_place_corrected", 0))),
-                        stake=stake,
-                        edge=edge_val,
-                    )
+                    stake=stake,
+                    edge=edge_val,
                 )
+            )
 
         if bool(regime_params.get("wide_enabled", False)):
             bets.extend(self._select_wide_bets(race_df, bankroll, bets))

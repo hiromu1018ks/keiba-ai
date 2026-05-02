@@ -89,9 +89,7 @@ class RegimeDetector:
         entropy = df_race["entropy_rolling"]
 
         # 市場状態スコア: 1番人気の implied prob が高い + overround 低い = 効率的
-        market_condition_score = favorite_implied * (
-            1 - np.clip(overround - 0.20, 0, 0.15) / 0.15
-        )
+        market_condition_score = favorite_implied * (1 - np.clip(overround - 0.20, 0, 0.15) / 0.15)
 
         y = np.where(
             (market_condition_score < 0.28) & (entropy > np.median(entropy)),
@@ -188,6 +186,23 @@ class RegimeDetector:
                 "wide_enabled": False,
                 "score_threshold": 0.010,
                 "max_bets_per_race": 1,
+                "soft_gate_second_margin": 0.50,
+                "soft_gate_second_min_edge": 0.03,
+                "quality_second_margin": 1.00,
+                "quality_second_min_edge": 0.06,
+                "quality_second_min_prob": 0.25,
+                "runner_up_rescue_margin": 0.25,
+                "runner_up_rescue_min_edge": 0.04,
+                "runner_up_rescue_min_prob": 0.25,
+                "runner_up_rerank_market_condition_max": 0.20,
+                "runner_up_rerank_entropy_min": 1.80,
+                "runner_up_rerank_entropy_max": 2.30,
+                "runner_up_rerank_min_edge": 0.01,
+                "runner_up_rerank_min_prob": 0.10,
+                "runner_up_rerank_max_odds": 12.0,
+                "add_second_keep_min_edge": 0.10,
+                "add_second_keep_max_edge": 0.20,
+                "weak_prob_prune_threshold": 0.35,
                 "description": "歪み強い -> 攻める",
             }
         elif regime == RegimeState.CONSERVATIVE:
@@ -199,6 +214,8 @@ class RegimeDetector:
                 "wide_enabled": False,
                 "score_threshold": 0.020,
                 "max_bets_per_race": 1,
+                "prune_turf_candidates": True,
+                "weak_prob_prune_threshold": 0.35,
                 "description": "効率的 -> 絞る",
             }
         else:  # COLLAPSED
@@ -210,6 +227,7 @@ class RegimeDetector:
                 "wide_enabled": False,
                 "score_threshold": 0.050,
                 "max_bets_per_race": 1,
+                "weak_prob_prune_threshold": 0.35,
                 "description": "崩壊 -> ほぼ停止",
             }
 
