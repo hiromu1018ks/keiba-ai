@@ -197,6 +197,24 @@ class TestWinTwoStageModel:
         """p_market_pred が特徴量に含まれない (Rule 11)"""
         assert "p_market_pred_win" not in WinTwoStageModel.FEATURE_COLS
 
+    def test_get_filtered_feature_cols_returns_new_list(self) -> None:
+        """get_filtered_feature_cols がクラス変数を変更せずに新リストを返す"""
+        original = list(WinTwoStageModel.FEATURE_COLS)
+        noise = ["odds_skewness", "popularity_rank"]
+        filtered = WinTwoStageModel.get_filtered_feature_cols(noise)
+        # 戻り値はノイズ特徴量を含まない
+        assert "odds_skewness" not in filtered
+        assert "popularity_rank" not in filtered
+        # クラス変数は変更されていない
+        assert WinTwoStageModel.FEATURE_COLS == original
+        assert len(filtered) == len(original) - len(noise)
+
+    def test_get_filtered_feature_cols_with_nonexistent(self) -> None:
+        """存在しない特徴量名を指定してもエラーにならない"""
+        original = list(WinTwoStageModel.FEATURE_COLS)
+        filtered = WinTwoStageModel.get_filtered_feature_cols(["nonexistent_feature"])
+        assert filtered == original
+
 
 class TestPlaceTwoStageModel:
     @pytest.fixture

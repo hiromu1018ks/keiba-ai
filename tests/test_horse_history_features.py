@@ -1661,8 +1661,8 @@ class TestWinDominance:
         # p1 (1着/16頭) + p3 (1着/12頭) → avg = 14.0
         assert abs(val - 14.0) < 0.01, f"Expected ~14.0, got {val}"
 
-    def test_returns_zero_when_no_wins(self) -> None:
-        """勝利なし (履歴あり) → 0.0"""
+    def test_returns_nan_when_no_wins(self) -> None:
+        """勝利なし (履歴あり) → NaN"""
         entries_hist = pd.DataFrame({
             "race_id": ["p1", "p2"],
             "race_date": pd.to_datetime(["2024-01-01", "2024-02-01"]),
@@ -1697,7 +1697,7 @@ class TestWinDominance:
         })
         result = _compute_hist(entries_hist, races_hist, race_df, entry_df)
         val = result["win_dominance"].iloc[0]
-        assert val == 0.0, f"Expected 0.0 for no wins with history, got {val}"
+        assert pd.isna(val), f"Expected NaN for no wins with history, got {val}"
 
     def test_returns_nan_when_no_history(self) -> None:
         """履歴なし → NaN"""

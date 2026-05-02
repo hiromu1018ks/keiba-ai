@@ -63,11 +63,17 @@ def main() -> None:
         action="store_true",
         help="指定時、ノイズ特徴量を自動でFEATURE_COLSから除外して再学習検証を実行",
     )
+    parser.add_argument(
+        "--surface",
+        choices=["turf", "dirt"],
+        default="turf",
+        help="解析対象のサーフェス (default: turf)",
+    )
     args = parser.parse_args()
 
     # モデル読み込み
     model_dir = args.model_dir.rstrip("/")
-    model_path = _find_model_file(model_dir)
+    model_path = _find_model_file(model_dir, preferred_surface=args.surface)
     if model_path is None:
         logger.error(
             "モデルファイルが見つかりません: %s/win_hit_*.lgb を確認してください",
@@ -125,12 +131,16 @@ def main() -> None:
     print("\n完了")
 
 
-def _find_model_file(model_dir: str) -> str | None:
+def _find_model_file(model_dir: str, *, preferred_surface: str = "turf") -> str | None:
     """モデルディレクトリからwin_hitモデルファイルを検索。"""
     import glob
 
-    # turf/dirt の両方を試す (turf優先)
-    for surface in ["turf", "dirt"]:
+    # 指定サーフェスを優先、次に他のサーフェスを試す
+    seen: set[str] = set()
+    for surface in [preferred_surface, "turf", "dirt"]:
+        if surface in seen:
+            continue
+        seen.add(surface)
         pattern = os.path.join(model_dir, f"win_hit_{surface}.lgb")
         matches = glob.glob(pattern)
         if matches:
@@ -173,10 +183,12 @@ def _load_features_for_analysis(model: "lgb.Booster") -> "pd.DataFrame | None":
     except Exception as e:
         logger.warning("ParquetStoreからの特徴量読み込み失敗: %s", e)
 
-    # フォールバック: モデル特徴量名で空DataFrame
-    logger.info("ダミー特徴量を生成します (実データはParquetStoreから取得してください)")
-    feature_names = model.feature_name()
-    return pd.DataFrame(0.0, index=range(100), columns=feature_names)
+    # 実データが読み込めない場合、ゼロ埋めデータでのSHAP分析は無意味なため終了
+    logger.error(
+        "実データの読み込みに失敗しました。ダミーデータでの分析は無意味です。"
+        "ParquetStoreに特徴量データが存在することを確認してください。"
+    )
+    sys.exit(1)
 
 
 def _auto_exclude_and_validate(

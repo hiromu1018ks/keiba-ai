@@ -91,11 +91,32 @@ class WinTwoStageModel:
         self.cfg = cfg or TwoStageConfig()
 
     @classmethod
+    def get_filtered_feature_cols(cls, noise_features: list[str]) -> list[str]:
+        """ノイズ特徴量を除外した特徴量リストを返す (クラス変数を変更しない)。
+
+        並列学習 (ThreadPoolExecutor) 内で安全に使用できる。
+        remove_noise_features() とは異なり、クラス変数を変更しないため
+        スレッドセーフである。
+
+        Args:
+            noise_features: 除外する特徴量名のリスト
+
+        Returns:
+            フィルタ済み特徴量リスト (新規リスト)
+        """
+        return [f for f in cls.FEATURE_COLS if f not in noise_features]
+
+    @classmethod
     def remove_noise_features(cls, noise_features: list[str]) -> None:
         """FEATURE_COLSからノイズ特徴量を除外。
 
         SHAP/gain分析で特定されたノイズ特徴量をFEATURE_COLSから削除する。
         validate_noise_removal()でlogloss/AUCへの影響を検証した後に呼び出すこと。
+
+        .. warning::
+            このメソッドはクラス変数を変更するため、ThreadPoolExecutor等の
+            並列処理内での使用は安全ではない。並列コンテキストでは
+            get_filtered_feature_cols() を使用すること。
 
         Args:
             noise_features: 除外する特徴量名のリスト
@@ -347,6 +368,17 @@ class PlaceTwoStageModel:
         self, df: pd.DataFrame, *, use_cols: list[str] | None = None
     ) -> pd.DataFrame:
         cols = use_cols or self.FEATURE_COLS
+        # FEAT-02: 推論時にodds_to_ability_ratioが未計算ならここで計算する
+        # 訓練時は_train_submodel()で既に計算済みなのでスキップされる
+        if (
+            "odds_to_ability_ratio" in cols
+            and "odds_to_ability_ratio" not in df.columns
+        ):
+            if "p_market_win_adj" in df.columns and "p_ability_win" in df.columns:
+                df = df.copy()
+                p_market = df["p_market_win_adj"].clip(lower=1e-6)
+                p_ability = df["p_ability_win"].clip(lower=1e-6)
+                df["odds_to_ability_ratio"] = (p_market / p_ability).clip(0.1, 10.0)
         # v5: 新規特徴量はテストデータに存在しない場合があるため、存在する列のみ使用
         available_cols = [c for c in cols if c in df.columns]
         features = df[available_cols].copy()

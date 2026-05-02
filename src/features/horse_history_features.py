@@ -616,7 +616,13 @@ class HorseHistoryFeatures:
                 n_past = 0
 
             history_mask = (
-                (horse_arrs["kakuteijyuni"] > 0)
+                (
+                    (horse_arrs["kakuteijyuni"] > 0)
+                    & (
+                        horse_arrs.get("valid_field", np.ones(len(horse_arrs["kakuteijyuni"]), dtype=int))
+                        == 1
+                    )
+                )
                 if horse_arrs is not None and "kakuteijyuni" in horse_arrs
                 else np.array([], dtype=bool)
             )
@@ -1023,6 +1029,9 @@ class HorseHistoryFeatures:
                 surface_change = float("nan")
 
             # class_drop_bounce: クラス落リバウンド (降級かつ直近成績悪化時に高い値)
+            # norm_recent_b = (kj - 1) / (ss - 1): 0=1着, 1=最下位 の正規化着順
+            # avg_recent_b > 0.5 は直近レースで後半着順 (悪いフォーム) を意味する
+            # avg が高いほどフォームが悪く、バウンスシグナルが強い
             if hist_idx >= 2 and not np.isnan(class_move) and class_move < -0.5:
                 recent_kj_b = hp_kakuteijyuni[-2:].astype(float)
                 recent_ss_b = hp_syussotosu[-2:].astype(float)
@@ -1052,7 +1061,9 @@ class HorseHistoryFeatures:
                         float(np.mean(valid_sizes)) if len(valid_sizes) > 0 else float("nan")
                     )
                 else:
-                    win_dominance = 0.0
+                    # 走歴はあるが勝利なし -- NaNで「勝利情報なし」を表現
+                    # (no-history case と同じNaNなので、LightGBMが同一扱い可能)
+                    win_dominance = float("nan")
             else:
                 win_dominance = float("nan")
 

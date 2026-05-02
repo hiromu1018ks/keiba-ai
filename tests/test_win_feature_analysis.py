@@ -258,19 +258,22 @@ class TestValidateNoiseRemoval:
         """logloss悪化時に警告がログ出力されること (閾値0.5%超)"""
         mock_original_model = MagicMock()
         mock_original_model.feature_name.return_value = ["feat_a", "feat_b"]
-        # 元モデル予測: 完璧 (logloss低い) -- 2行分
-        mock_original_model.predict.return_value = np.array([0.01, 0.99])
+        n = 10
+        # 元モデル予測: 完璧 (logloss低い) -- n行分
+        orig_preds = np.array([0.01, 0.99] * (n // 2))
+        mock_original_model.predict.return_value = orig_preds
 
         df = pd.DataFrame({
-            "feat_a": [1.0, 2.0],
-            "feat_b": [3.0, 4.0],
-            "kakuteijyuni": [0, 1],
+            "feat_a": [float(i) for i in range(n)],
+            "feat_b": [float(i + 10) for i in range(n)],
+            "kakuteijyuni": [0, 1] * (n // 2),
         })
 
         with pytest.MonkeyPatch.context() as m:
             mock_new_model = MagicMock()
-            # 新モデル予測: ランダム (logloss高い) -- 2行分
-            mock_new_model.predict.return_value = np.array([0.5, 0.5])
+            # 新モデル予測: ランダム (logloss高い) -- valid行数分
+            valid_n = n - int(n * 0.8)
+            mock_new_model.predict.return_value = np.array([0.5] * valid_n)
             m.setattr("features.win_feature_analysis.lgb.train", lambda *a, **kw: mock_new_model)
             m.setattr("features.win_feature_analysis.lgb.Dataset", MagicMock)
 

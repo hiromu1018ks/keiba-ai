@@ -411,6 +411,11 @@ class TrainingPipelineV5:
         # FEAT-02: odds_to_ability_ratio -- 市場確率と能力確率の比
         # p_market_win_adj は FeatureEngine.build_all() -> compute_market_bias() で生成済み
         # p_ability_win は直上の AbilityModel.train_oof() で生成済み
+        #
+        # 【依存順序の意図】この計算は PlaceAbilityModel.train() の前に実行する必要がある。
+        # odds_to_ability_ratio は p_ability_win (単勝能力確率) のみに依存し、
+        # p_ability_place (複勝能力確率) には依存しない。もし将来 place 確率に依存する
+        # ように変更する場合は、PlaceAbilityModel.predict() の後に移動すること。
         if "p_market_win_adj" in df_oof.columns and "p_ability_win" in df_oof.columns:
             p_market = df_oof["p_market_win_adj"].clip(lower=1e-6)
             p_ability = df_oof["p_ability_win"].clip(lower=1e-6)

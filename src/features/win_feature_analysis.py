@@ -44,10 +44,14 @@ def analyze_feature_importance(
     # 2. SHAP values via pred_contrib
     # IMPORTANT: shape [n_samples, n_features + 1] -- 最後の列はexpected value (base value)
     shap_matrix = model.predict(features_df, pred_contrib=True)
-    assert shap_matrix.shape[1] == len(feature_names) + 1, (
-        f"pred_contrib returned {shap_matrix.shape[1]} columns, "
-        f"expected {len(feature_names) + 1} (n_features + 1)"
-    )
+    shap_cols = shap_matrix.shape[1]
+    expected_cols = len(feature_names) + 1
+    if shap_cols != expected_cols:
+        raise ValueError(
+            f"pred_contrib returned {shap_cols} columns, "
+            f"expected {expected_cols} (n_features + 1 for base value). "
+            f"Model features: {len(feature_names)}"
+        )
 
     # 期待値列を除外
     shap_values = shap_matrix[:, :-1]
@@ -99,12 +103,13 @@ def validate_noise_removal(
 ) -> dict[str, float]:
     """ノイズ特徴量除外前後のlogloss/AUCを比較。
 
-    元モデルと同じデータでノイズ特徴量を除外した新モデルを学習し、
-    logloss/AUCを比較する。
+    時系列順にtrain/valid (80/20) に分割し、
+    両モデルのメトリクスをvalidデータで評価する。
+    同一データでの学習・評価によるバイアスを防ぐ。
 
     Args:
         original_model: 元の学習済み lgb.Booster
-        df: 特徴量 + ターゲット列を含むDataFrame
+        df: 特徴量 + ターゲット列を含むDataFrame (race_date順にソート済みであること)
         noise_features: 除外する特徴量名のリスト
         target_col: ターゲット列名 (default: kakuteijyuni)
         num_threads: LightGBM スレッド数
@@ -118,12 +123,18 @@ def validate_noise_removal(
     # ターゲット (1着 = 1, それ以外 = 0)
     y = (df[target_col] == 1).astype(int).values
 
-    # 元モデルの予測
+    # 時系列順にtrain/valid (80/20) に分割 -- look-ahead bias防止
+    n = len(df)
+    split = int(n * 0.8)
+
+    # 元モデルの予測 (validデータのみで評価)
     orig_features = df[feature_names]
     orig_pred = original_model.predict(orig_features)
+    orig_pred_valid = orig_pred[split:]
+    y_valid = y[split:]
 
     # logloss/AUC の計算 (NaNを含む場合はフィルタ)
-    valid_mask = ~(np.isnan(orig_pred) | np.isnan(y.astype(float)))
+    valid_mask = ~(np.isnan(orig_pred_valid) | np.isnan(y_valid.astype(float)))
     if valid_mask.sum() < 2:
         logger.warning("Too few valid predictions for comparison")
         return {
@@ -133,12 +144,17 @@ def validate_noise_removal(
             "new_auc": float("nan"),
         }
 
-    original_logloss = float(log_loss(y[valid_mask], orig_pred[valid_mask]))
-    original_auc = float(roc_auc_score(y[valid_mask], orig_pred[valid_mask]))
+    original_logloss = float(log_loss(y_valid[valid_mask], orig_pred_valid[valid_mask]))
+    original_auc = float(roc_auc_score(y_valid[valid_mask], orig_pred_valid[valid_mask]))
 
-    # 新モデルをノイズ除外特徴量で学習
+    # 新モデルをノイズ除外特徴量で学習 (trainデータのみ)
     new_features_df = df[remaining_features]
-    train_data = lgb.Dataset(new_features_df, label=y)
+    train_features = new_features_df.iloc[:split]
+    train_y = y[:split]
+    valid_features = new_features_df.iloc[split:]
+    valid_y = y[split:]
+
+    train_data = lgb.Dataset(train_features, label=train_y)
 
     new_model = lgb.train(
         {
@@ -152,11 +168,11 @@ def validate_noise_removal(
         num_boost_round=100,
     )
 
-    new_pred = new_model.predict(new_features_df)
-    valid_mask_new = ~(np.isnan(new_pred) | np.isnan(y.astype(float)))
+    new_pred_valid = new_model.predict(valid_features)
+    valid_mask_new = ~(np.isnan(new_pred_valid) | np.isnan(valid_y.astype(float)))
 
-    new_logloss = float(log_loss(y[valid_mask_new], new_pred[valid_mask_new]))
-    new_auc = float(roc_auc_score(y[valid_mask_new], new_pred[valid_mask_new]))
+    new_logloss = float(log_loss(valid_y[valid_mask_new], new_pred_valid[valid_mask_new]))
+    new_auc = float(roc_auc_score(valid_y[valid_mask_new], new_pred_valid[valid_mask_new]))
 
     # logloss悪化が0.5%超の場合に警告
     if original_logloss > 0 and (new_logloss - original_logloss) / original_logloss > 0.005:
