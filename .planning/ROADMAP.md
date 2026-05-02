@@ -43,11 +43,11 @@ Plans:
   2. Beta calibrationとIsotonic calibrationが比較評価され、単勝に最適な手法が採用されている
   3. Benter組み合わせ後の確率がレース単位で正規化され、各レースのP合計が1.0になる
   4. 信頼性ダイアグラム（reliability diagram）により、キャリブレーション品質がオッズバケット毎に視覚的に確認できる
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 02-01: WinBenterGate implementation and race-level normalization
-- [ ] 02-02: Calibration pipeline implementation and comparison
+- [ ] 02-01-PLAN.md — WinBenterGate実装・OOF予測生成・レース正規化・パイプライン統合(BENT-01, BENT-03)
+- [ ] 02-02-PLAN.md — Beta/Isotonicキャリブレーション比較・ECE評価・信頼性ダイアグラム(BENT-02)
 
 ### Phase 3: Selection Gate, Confidence & Betting
 **Goal**: 学習済みゲートで低信頼レースを除外し、JRA控除率25%を考慮した最適ベッティング戦略を統合する
