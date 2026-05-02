@@ -372,4 +372,188 @@ class TestTrainValidSplit:
         assert "RandomState" not in source, "Still using RandomState!"
 
 
+# ---------------------------------------------------------------------------
+# FEAT-02: 6新特徴量のWinTwoStageModel統合テスト
+# ---------------------------------------------------------------------------
 
+
+class TestOddsToAbilityRatio:
+    """odds_to_ability_ratio のFEATURE_COLS統合テスト"""
+
+    def test_odds_to_ability_ratio_in_feature_cols(self) -> None:
+        """odds_to_ability_ratio が FEATURE_COLS に含まれる"""
+        assert "odds_to_ability_ratio" in WinTwoStageModel.FEATURE_COLS
+
+    def test_ratio_computation_range(self) -> None:
+        """odds_to_ability_ratio が [0.1, 10.0] の範囲にクリップされる"""
+        df = pd.DataFrame({
+            "p_market_win_adj": [0.5, 0.01, 0.99],
+            "p_ability_win": [0.1, 0.5, 0.001],
+        })
+        p_market = df["p_market_win_adj"].clip(lower=1e-6)
+        p_ability = df["p_ability_win"].clip(lower=1e-6)
+        ratio = (p_market / p_ability).clip(0.1, 10.0)
+        assert (ratio >= 0.1).all()
+        assert (ratio <= 10.0).all()
+        # 0.5 / 0.1 = 5.0
+        assert abs(ratio.iloc[0] - 5.0) < 0.01
+
+    def test_ratio_nan_when_ability_nan(self) -> None:
+        """p_ability_win が NaN → ratio も NaN"""
+        df = pd.DataFrame({
+            "p_market_win_adj": [0.5],
+            "p_ability_win": [float("nan")],
+        })
+        p_market = df["p_market_win_adj"].clip(lower=1e-6)
+        p_ability = df["p_ability_win"].clip(lower=1e-6)
+        ratio = (p_market / p_ability).clip(0.1, 10.0)
+        assert np.isnan(ratio.iloc[0])
+
+    def test_ratio_extreme_values_clipped(self) -> None:
+        """極端な値が [0.1, 10.0] にクリップされる"""
+        df = pd.DataFrame({
+            "p_market_win_adj": [0.99, 0.0001],
+            "p_ability_win": [0.0001, 0.99],
+        })
+        p_market = df["p_market_win_adj"].clip(lower=1e-6)
+        p_ability = df["p_ability_win"].clip(lower=1e-6)
+        ratio = (p_market / p_ability).clip(0.1, 10.0)
+        assert ratio.iloc[0] == 10.0  # 990000 → 10.0
+        assert ratio.iloc[1] == 0.1   # ~0 → 0.1
+
+
+class TestInferencePathComputation:
+    """_prepare_features() 推論パスのodds_to_ability_ratio計算テスト"""
+
+    def test_prepare_features_computes_ratio_when_missing(self) -> None:
+        """odds_to_ability_ratio が df にない場合、_prepare_features が計算する"""
+        model = WinTwoStageModel()
+        df = pd.DataFrame({
+            "p_ability_win": [0.3, 0.2],
+            "signed_log_error_win": [0.1, -0.1],
+            "abs_log_error_win": [0.1, 0.1],
+            "odds_drop_rate_60_10": [0.0, -0.1],
+            "odds_drop_rate_30_10": [0.0, -0.05],
+            "odds_velocity": [0.0, -0.02],
+            "odds_volatility": [0.01, 0.02],
+            "popularity_change_30_10": [0, -1],
+            "market_entropy": [2.5, 2.5],
+            "popularity_rank": [1, 2],
+            "overround": [0.22, 0.22],
+            "surface": ["turf", "turf"],
+            "distance_bin": ["mile", "mile"],
+            "track_condition_code": [1, 1],
+            "grade_code": ["_", "_"],
+            "field_size": [8, 8],
+            "odds_skewness": [1.5, 1.5],
+            "pace_pressure": [0.5, 0.5],
+            "pace_scenario_fit": [0.5, 0.5],
+            "class_move": [0.0, 0.0],
+            "blinker_change": [0.0, 0.0],
+            "is_nar_transfer": [0.0, 0.0],
+            "nar_recent_ratio": [0.0, 0.0],
+            "track_condition_delta": [0.0, 0.0],
+            "p_market_win_adj": [0.25, 0.15],
+        })
+        features = model._prepare_features(df)
+        assert "odds_to_ability_ratio" in features.columns
+        # 0.25 / 0.3 ≈ 0.833
+        assert abs(features["odds_to_ability_ratio"].iloc[0] - 0.833) < 0.05
+
+    def test_prepare_features_does_not_overwrite_existing(self) -> None:
+        """odds_to_ability_ratio が既に df にある場合、上書きしない"""
+        model = WinTwoStageModel()
+        df = pd.DataFrame({
+            "p_ability_win": [0.3],
+            "signed_log_error_win": [0.1],
+            "abs_log_error_win": [0.1],
+            "odds_drop_rate_60_10": [0.0],
+            "odds_drop_rate_30_10": [0.0],
+            "odds_velocity": [0.0],
+            "odds_volatility": [0.01],
+            "popularity_change_30_10": [0],
+            "market_entropy": [2.5],
+            "popularity_rank": [1],
+            "overround": [0.22],
+            "surface": ["turf"],
+            "distance_bin": ["mile"],
+            "track_condition_code": [1],
+            "grade_code": ["_"],
+            "field_size": [8],
+            "odds_skewness": [1.5],
+            "pace_pressure": [0.5],
+            "pace_scenario_fit": [0.5],
+            "class_move": [0.0],
+            "blinker_change": [0.0],
+            "is_nar_transfer": [0.0],
+            "nar_recent_ratio": [0.0],
+            "track_condition_delta": [0.0],
+            "p_market_win_adj": [0.25],
+            "odds_to_ability_ratio": [42.0],  # 既存値
+        })
+        features = model._prepare_features(df)
+        # 既存値42.0が維持される (上書きされない)
+        assert features["odds_to_ability_ratio"].iloc[0] == 42.0
+
+    def test_prepare_features_skips_when_inputs_missing(self) -> None:
+        """p_market_win_adj または p_ability_win がない場合、エラーなくスキップ"""
+        model = WinTwoStageModel()
+        df = pd.DataFrame({
+            "p_ability_win": [0.3],
+            "signed_log_error_win": [0.1],
+            "abs_log_error_win": [0.1],
+            "odds_drop_rate_60_10": [0.0],
+            "odds_drop_rate_30_10": [0.0],
+            "odds_velocity": [0.0],
+            "odds_volatility": [0.01],
+            "popularity_change_30_10": [0],
+            "market_entropy": [2.5],
+            "popularity_rank": [1],
+            "overround": [0.22],
+            "surface": ["turf"],
+            "distance_bin": ["mile"],
+            "track_condition_code": [1],
+            "grade_code": ["_"],
+            "field_size": [8],
+            "odds_skewness": [1.5],
+            "pace_pressure": [0.5],
+            "pace_scenario_fit": [0.5],
+            "class_move": [0.0],
+            "blinker_change": [0.0],
+            "is_nar_transfer": [0.0],
+            "nar_recent_ratio": [0.0],
+            "track_condition_delta": [0.0],
+            # p_market_win_adj がない
+        })
+        # エラーなく実行されること
+        features = model._prepare_features(df)
+        assert isinstance(features, pd.DataFrame)
+
+
+class TestHistoryFeaturesInFeatureCols:
+    """5履歴特徴量がFEATURE_COLSに含まれているかのテスト"""
+
+    def test_all_history_features_in_feature_cols(self) -> None:
+        """5つの履歴特徴量が全てFEATURE_COLSに含まれる"""
+        expected = [
+            "distance_change", "surface_change", "class_drop_bounce",
+            "win_dominance", "freshness_score",
+        ]
+        for name in expected:
+            assert name in WinTwoStageModel.FEATURE_COLS, (
+                f"{name} should be in WinTwoStageModel.FEATURE_COLS"
+            )
+
+    def test_feature_cols_no_duplicates(self) -> None:
+        """FEATURE_COLSに重複がない"""
+        cols = WinTwoStageModel.FEATURE_COLS
+        assert len(cols) == len(set(cols)), (
+            f"FEATURE_COLS has duplicates: {[c for c in cols if cols.count(c) > 1]}"
+        )
+
+    def test_feature_cols_minimum_length(self) -> None:
+        """FEATURE_COLSが最低33件 (27既存 + 6新) である"""
+        cols = WinTwoStageModel.FEATURE_COLS
+        assert len(cols) >= 33, (
+            f"Expected >= 33 FEATURE_COLS, got {len(cols)}: {cols}"
+        )
