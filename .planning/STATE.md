@@ -9,12 +9,12 @@ See: .planning/PROJECT.md (updated 2026-05-02)
 
 ## Current Position
 
-Phase: 2 of 4 (Win Benter Combination & Calibration)
-Plan: 2 of 2 in current phase
-Status: Execution complete — pending verification
-Last activity: 2026-05-02 — Plan 02-02 complete (calibration comparison + pipeline integration)
+Phase: 3 of 4 (Selection Gate, Confidence & Betting)
+Plan: 0 of 2 in current phase
+Status: Ready to plan
+Last activity: 2026-05-02 — Phase 2 complete (Win Benter + Calibration)
 
-Progress: [████░░░░░░] 40%
+Progress: [██████░░░░] 60%
 
 ## Performance Metrics
 
