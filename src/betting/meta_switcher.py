@@ -44,7 +44,7 @@ class MetaSwitcher:
         if regime == RegimeState.AGGRESSIVE:
             return {
                 "ev_threshold": 1.15,  # raised from 1.10
-                "edge_threshold": 0.04,  # 4% edge (raised from 3%)
+                "edge_threshold": 0.05,  # 5% edge — JRA控除率25%考慮 (Phase 3)
                 "score_threshold": 0.010,
                 "max_bets_per_race": 3,
                 "description": "歪み強い → 攻める",
@@ -52,7 +52,7 @@ class MetaSwitcher:
         elif regime == RegimeState.CONSERVATIVE:
             return {
                 "ev_threshold": 1.35,  # raised from 1.30
-                "edge_threshold": 0.06,  # 6% edge (raised from 5%)
+                "edge_threshold": 0.07,  # 7% edge — JRA控除率25%考慮 (Phase 3)
                 "score_threshold": 0.020,
                 "max_bets_per_race": 2,
                 "description": "効率的 → 絞る",
@@ -60,7 +60,7 @@ class MetaSwitcher:
         else:  # COLLAPSED
             return {
                 "ev_threshold": 1.55,  # raised from 1.50
-                "edge_threshold": 0.09,  # 9% edge (raised from 8%)
+                "edge_threshold": 0.10,  # 10% edge — JRA控除率25%考慮 (Phase 3)
                 "score_threshold": 0.050,
                 "max_bets_per_race": 1,
                 "description": "崩壊 → ほぼ停止",

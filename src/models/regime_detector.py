@@ -180,7 +180,7 @@ class RegimeDetector:
         if regime == RegimeState.AGGRESSIVE:
             return {
                 "ev_threshold": 1.10,
-                "edge_threshold": 0.04,  # v5: 0.05→0.04 ベット数確保
+                "edge_threshold": 0.05,  # Phase 3: JRA控除率25%考慮 +0.01
                 "min_place_prob": 0.08,
                 "max_place_odds": 18.0,
                 "wide_enabled": False,
@@ -208,7 +208,7 @@ class RegimeDetector:
         elif regime == RegimeState.CONSERVATIVE:
             return {
                 "ev_threshold": 1.30,
-                "edge_threshold": 0.05,  # 5% edge — more selective
+                "edge_threshold": 0.06,  # 6% edge — JRA控除率考慮 (Phase 3)
                 "min_place_prob": 0.09,
                 "max_place_odds": 18.0,
                 "wide_enabled": False,
@@ -221,7 +221,7 @@ class RegimeDetector:
         else:  # COLLAPSED
             return {
                 "ev_threshold": 1.50,
-                "edge_threshold": 0.08,  # 8% edge — near halt
+                "edge_threshold": 0.09,  # 9% edge — JRA控除率考慮 (Phase 3)
                 "min_place_prob": 0.10,
                 "max_place_odds": 16.0,
                 "wide_enabled": False,
