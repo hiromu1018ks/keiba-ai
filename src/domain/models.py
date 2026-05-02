@@ -246,6 +246,10 @@ class SubmodelSet:
     benter_combo: BenterCombination | None = None
     isotonic_calibrator: IsotonicRegression | None = None
     temperature_scaler: TemperatureScaling | None = None
+    # Win Benter fields (D-12)
+    win_benter: BenterCombination | None = None
+    win_isotonic_calibrator: IsotonicRegression | None = None
+    win_temperature_scaler: TemperatureScaling | None = None
 
 
 @dataclass
