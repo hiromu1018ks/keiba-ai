@@ -12,7 +12,7 @@
 
 Decimal phases appear between their surrounding integers in numeric order.
 
-- [ ] **Phase 1: Feature Analysis & Enhancement** - 既存特徴量の単勝寄与分析と新特徴量追加
+- [x] **Phase 1: Feature Analysis & Enhancement** - 既存特徴量の単勝寄与分析と新特徴量追加 ✓ 2026-05-02
 - [ ] **Phase 2: Win Benter Combination & Calibration** - 市場確率ブレンドとキャリブレーション実装
 - [ ] **Phase 3: Selection Gate, Confidence & Betting** - 関連性推定・ベッティング戦略統合
 - [ ] **Phase 4: Walk-Forward Validation** - 多年度時系列検証でROI>100%を確認
@@ -31,8 +31,8 @@ Decimal phases appear between their surrounding integers in numeric order.
 **Plans**: 2 plans
 
 Plans:
-- [ ] 01-01-PLAN.md — SHAP/gain特徴量重要度分析モジュールとノイズ特定・除外(FEAT-01, FEAT-03)
-- [ ] 01-02-PLAN.md — 単勝特化新特徴量6つの実装・統合(FEAT-02)
+- [x] 01-01-PLAN.md — SHAP/gain特徴量重要度分析モジュールとノイズ特定・除外(FEAT-01, FEAT-03) ✓ 2026-05-02
+- [x] 01-02-PLAN.md — 単勝特化新特徴量6つの実装・統合(FEAT-02) ✓ 2026-05-02
 
 ### Phase 2: Win Benter Combination & Calibration
 **Goal**: 単勝予測に市場効率信号を組み込み、確率を正規化・キャリブレーションすることでEV推定精度を飛躍的に向上させる
@@ -84,7 +84,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Feature Analysis & Enhancement | 0/2 | Planning complete | - |
+| 1. Feature Analysis & Enhancement | 2/2 | Complete | 2026-05-02 |
 | 2. Win Benter Combination & Calibration | 0/2 | Not started | - |
 | 3. Selection Gate, Confidence & Betting | 0/2 | Not started | - |
 | 4. Walk-Forward Validation | 0/1 | Not started | - |
