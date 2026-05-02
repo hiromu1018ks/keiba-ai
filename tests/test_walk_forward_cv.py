@@ -317,3 +317,176 @@ class TestAddYearsDt:
         dt = datetime(2020, 6, 15)
         result = _add_years_dt(dt, 0)
         assert result == dt
+
+
+# ---------------------------------------------------------------------------
+# Phase 4: Walk-Forward Validation Infrastructure Tests
+# ---------------------------------------------------------------------------
+
+
+class TestFoldResult:
+    """FoldResult データクラスのテスト"""
+
+    def test_fold_result_defaults(self) -> None:
+        from models.walk_forward_cv import FoldResult
+
+        fr = FoldResult(
+            fold_idx=0, train_start="2020-01-01", train_end="2023-12-31",
+            test_start="2024-01-01", test_end="2024-12-31",
+        )
+        assert fr.train_roi == 0.0
+        assert fr.top_features == []
+        assert fr.feature_ranking == {}
+
+    def test_fold_result_roi_gap(self) -> None:
+        from models.walk_forward_cv import FoldResult
+
+        fr = FoldResult(
+            fold_idx=0, train_start="2020-01-01", train_end="2023-12-31",
+            test_start="2024-01-01", test_end="2024-12-31",
+            train_roi=1.30, test_roi=1.05, roi_gap=0.25,
+        )
+        assert fr.roi_gap == 0.25
+
+
+class TestWFValidationResult:
+    """WFValidationResult データクラスのテスト"""
+
+    def test_defaults(self) -> None:
+        from models.walk_forward_cv import WFValidationResult
+
+        r = WFValidationResult()
+        assert r.folds == []
+        assert r.pool_roi == 0.0
+        assert r.overall_verdict == "PASS"
+
+
+class TestExtractFeatureRanking:
+    """extract_feature_ranking のテスト"""
+
+    def test_returns_top_features(self) -> None:
+        from models.walk_forward_cv import extract_feature_ranking
+
+        import lightgbm as lgb
+        import numpy as np
+
+        data = np.random.rand(100, 5)
+        ds = lgb.Dataset(
+            data, label=np.random.randint(0, 2, 100),
+            feature_name=["f1", "f2", "f3", "f4", "f5"],
+        )
+        model = lgb.train(
+            {"objective": "binary", "verbose": -1, "num_leaves": 4},
+            ds, num_boost_round=10,
+        )
+        ranking, top = extract_feature_ranking(model, top_n=3)
+        assert len(top) == 3
+        assert len(ranking) == 3
+        assert all(f in ranking for f in top)
+
+
+class TestComputeFeatureStability:
+    """compute_feature_stability のテスト"""
+
+    def test_identical_rankings(self) -> None:
+        from models.walk_forward_cv import compute_feature_stability
+
+        r1 = {"a": 0, "b": 1, "c": 2, "d": 3}
+        r2 = {"a": 0, "b": 1, "c": 2, "d": 3}
+        rho = compute_feature_stability([r1, r2])
+        assert rho == 1.0
+
+    def test_reversed_rankings(self) -> None:
+        from models.walk_forward_cv import compute_feature_stability
+
+        r1 = {"a": 0, "b": 1, "c": 2, "d": 3}
+        r2 = {"a": 3, "b": 2, "c": 1, "d": 0}
+        rho = compute_feature_stability([r1, r2])
+        assert rho == -1.0
+
+    def test_single_ranking_returns_nan(self) -> None:
+        import math
+
+        from models.walk_forward_cv import compute_feature_stability
+
+        rho = compute_feature_stability([{"a": 0, "b": 1}])
+        assert math.isnan(rho)
+
+
+class TestJudgeOverfitting:
+    """judge_overfitting のテスト (Per D-08, D-13)"""
+
+    def _make_result(
+        self, train_roi: float = 1.2, test_roi: float = 1.1, spearman_rho: float = 0.8,
+    ) -> "WFValidationResult":
+        from models.walk_forward_cv import FoldResult, WFValidationResult
+
+        return WFValidationResult(
+            folds=[
+                FoldResult(
+                    fold_idx=0, train_start="2020-01-01", train_end="2023-12-31",
+                    test_start="2024-01-01", test_end="2024-12-31",
+                    train_roi=train_roi, test_roi=test_roi,
+                    roi_gap=train_roi - test_roi,
+                ),
+                FoldResult(
+                    fold_idx=1, train_start="2021-01-01", train_end="2024-12-31",
+                    test_start="2025-01-01", test_end="2025-12-31",
+                    train_roi=train_roi, test_roi=test_roi,
+                    roi_gap=train_roi - test_roi,
+                ),
+            ],
+            spearman_rho=spearman_rho,
+        )
+
+    def test_all_pass(self) -> None:
+        from models.walk_forward_cv import judge_overfitting
+
+        r = self._make_result(train_roi=1.15, test_roi=1.10, spearman_rho=0.8)
+        judge_overfitting(r)
+        assert r.overall_verdict == "PASS"
+
+    def test_roi_gap_warning(self) -> None:
+        """D-08: ROI gap 20-30% -> WARNING"""
+        from models.walk_forward_cv import judge_overfitting
+
+        r = self._make_result(train_roi=1.35, test_roi=1.10, spearman_rho=0.8)
+        judge_overfitting(r)
+        assert r.roi_gap_verdict == "WARNING"
+
+    def test_roi_gap_fail(self) -> None:
+        """D-08: ROI gap > 30% -> FAIL"""
+        from models.walk_forward_cv import judge_overfitting
+
+        r = self._make_result(train_roi=1.50, test_roi=1.10, spearman_rho=0.8)
+        judge_overfitting(r)
+        assert r.roi_gap_verdict == "FAIL"
+        assert r.overall_verdict == "FAIL"
+
+    def test_consistency_warning(self) -> None:
+        """D-07: 一方のみ>100% -> WARNING"""
+        from models.walk_forward_cv import FoldResult, WFValidationResult, judge_overfitting
+
+        r = WFValidationResult(
+            folds=[
+                FoldResult(
+                    fold_idx=0, train_start="", train_end="", test_start="", test_end="",
+                    train_roi=1.1, test_roi=1.05, roi_gap=0.05,
+                ),
+                FoldResult(
+                    fold_idx=1, train_start="", train_end="", test_start="", test_end="",
+                    train_roi=1.1, test_roi=0.95, roi_gap=0.15,
+                ),
+            ],
+            spearman_rho=0.8,
+        )
+        judge_overfitting(r)
+        assert r.consistency_verdict == "WARNING"
+
+    def test_stability_warning(self) -> None:
+        """D-09: rho < 0.5 -> WARNING"""
+        from models.walk_forward_cv import judge_overfitting
+
+        r = self._make_result(train_roi=1.15, test_roi=1.10, spearman_rho=0.3)
+        judge_overfitting(r)
+        assert r.stability_verdict == "WARNING"

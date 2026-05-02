@@ -11,6 +11,8 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any, Callable
 
+import numpy as np
+
 if TYPE_CHECKING:
     from backtest.engine import BacktestEngine
     from domain.models import TrainedModelsV5
@@ -179,8 +181,6 @@ class WalkForwardCV:
 
         # 3. 集計
         if rois:
-            import numpy as np
-
             result.mean_roi = float(np.mean(rois))
             result.std_roi = float(np.std(rois))
 
@@ -191,3 +191,161 @@ class WalkForwardCV:
 def _add_years_dt(dt: datetime, years: int) -> datetime:
     """datetime に年を加算 (簡易: 365.25日/年)"""
     return dt + timedelta(days=int(365.25 * years))
+
+
+# ---------------------------------------------------------------------------
+# Phase 4: Walk-Forward Validation Infrastructure
+# ---------------------------------------------------------------------------
+
+import lightgbm as lgb  # noqa: E402
+from scipy.stats import spearmanr  # noqa: E402
+
+
+@dataclass
+class FoldResult:
+    """単一フォールドのWF検証結果"""
+
+    fold_idx: int
+    train_start: str
+    train_end: str
+    test_start: str
+    test_end: str
+    train_roi: float = 0.0
+    test_roi: float = 0.0
+    roi_gap: float = 0.0
+    train_bets: int = 0
+    test_bets: int = 0
+    train_stake: float = 0.0
+    test_stake: float = 0.0
+    train_return: float = 0.0
+    test_return: float = 0.0
+    top_features: list[str] = field(default_factory=list)
+    feature_ranking: dict[str, int] = field(default_factory=dict)
+
+
+@dataclass
+class WFValidationResult:
+    """Walk-forward検証の全体結果"""
+
+    folds: list[FoldResult] = field(default_factory=list)
+    pool_roi: float = 0.0
+    weighted_roi: float = 0.0
+    total_stake: float = 0.0
+    total_return: float = 0.0
+    total_bets: int = 0
+    roi_gap_verdict: str = "PASS"
+    consistency_verdict: str = "PASS"
+    stability_verdict: str = "PASS"
+    overall_verdict: str = "PASS"
+    spearman_rho: float = 0.0
+    roi_gap_max: float = 0.0
+    git_hash: str = ""
+
+
+def extract_feature_ranking(
+    model: lgb.Booster, top_n: int = 10,
+) -> tuple[dict[str, int], list[str]]:
+    """LightGBMモデルからtop-N特徴量の順位を取得
+
+    Args:
+        model: 学習済みlgb.Booster
+        top_n: 上位特徴量数
+
+    Returns:
+        (ranking_dict, top_features_list)
+        ranking_dict: {feature_name: rank} (0=top, 1=2nd, ...)
+        top_features_list: top-N特徴量名のリスト(順位順)
+    """
+    feature_names = model.feature_name()
+    gain = model.feature_importance(importance_type="gain")
+    sorted_features = sorted(zip(feature_names, gain), key=lambda x: -x[1])
+    top_features = [f for f, _ in sorted_features[:top_n]]
+    ranking = {f: rank for rank, (f, _) in enumerate(sorted_features[:top_n])}
+    return ranking, top_features
+
+
+def compute_feature_stability(
+    rankings: list[dict[str, int]], top_n: int = 10,
+) -> float:
+    """複数フォールド間の特徴量順位相関(平均)を計算
+
+    共通特徴量が3未満の場合はNaNを返す。
+    """
+    if len(rankings) < 2:
+        return float("nan")
+
+    all_features: set[str] = set()
+    for r in rankings:
+        top = sorted(r, key=r.get)[:top_n]  # type: ignore[arg-type]
+        all_features.update(top)
+
+    if len(all_features) < 3:
+        return float("nan")
+
+    rhos: list[float] = []
+    for i in range(len(rankings) - 1):
+        r1 = rankings[i]
+        r2 = rankings[i + 1]
+        common = [f for f in all_features if f in r1 and f in r2]
+        if len(common) < 3:
+            continue
+        ranks1 = [r1[f] for f in common]
+        ranks2 = [r2[f] for f in common]
+        rho, _ = spearmanr(ranks1, ranks2)
+        rhos.append(float(rho))
+
+    return float(np.mean(rhos)) if rhos else float("nan")
+
+
+def judge_overfitting(
+    result: WFValidationResult,
+    warning_gap: float = 0.20,
+    fail_gap: float = 0.30,
+    min_rho: float = 0.5,
+) -> None:
+    """3基準の自動判定を実行し、結果をresultに反映
+
+    基準1 ROI gap (train - test の最大値):
+      < 20% -> PASS, 20-30% -> WARNING, > 30% -> FAIL
+    基準2 両年度ROI一貫性:
+      全年度test_roi > 100% -> PASS, 一方のみ -> WARNING, 全<100% -> FAIL
+    基準3 Feature importance安定性:
+      rho >= 0.5 -> PASS, rho < 0.5 -> WARNING
+    全PASS -> overall PASS, 一つでもFAIL -> overall FAIL, WARNINGのみ -> overall WARNING
+    """
+    # 基準1: ROI gap
+    gaps = [f.roi_gap for f in result.folds]
+    max_gap = max(gaps) if gaps else 0.0
+    result.roi_gap_max = max_gap
+    if max_gap > fail_gap:
+        result.roi_gap_verdict = "FAIL"
+    elif max_gap > warning_gap:
+        result.roi_gap_verdict = "WARNING"
+    else:
+        result.roi_gap_verdict = "PASS"
+
+    # 基準2: 一貫性
+    test_rois = [f.test_roi for f in result.folds]
+    above_100 = sum(1 for r in test_rois if r > 1.0)
+    if len(test_rois) > 0 and above_100 == len(test_rois):
+        result.consistency_verdict = "PASS"
+    elif above_100 > 0:
+        result.consistency_verdict = "WARNING"
+    else:
+        result.consistency_verdict = "FAIL"
+
+    # 基準3: 安定性
+    if not np.isnan(result.spearman_rho):
+        if result.spearman_rho >= min_rho:
+            result.stability_verdict = "PASS"
+        else:
+            result.stability_verdict = "WARNING"
+
+    # 総合判定
+    verdicts = [result.roi_gap_verdict, result.consistency_verdict, result.stability_verdict]
+    if "FAIL" in verdicts:
+        result.overall_verdict = "FAIL"
+    elif "WARNING" in verdicts:
+        result.overall_verdict = "WARNING"
+    else:
+        result.overall_verdict = "PASS"
