@@ -21,15 +21,15 @@
 - ✓ Betting system: Strategy/Orchestrator/StakeCalculator/DDController — existing
 - ✓ MLflow experiment tracking — existing
 - ✓ Paper trading: ライブ推論パイプライン — existing
+- ✓ 既存特徴量の単勝に対する有効性を分析・特定 — Phase 1
+- ✓ 単勝特化の特徴量を設計・実装(レース展開、勝ち癖等) — Phase 1
+- ✓ モデル構造の最適化(キャリブレーション、アンサンブル、EV補正) — Phase 2
+- ✓ 単勝ベッティング戦略の最適化(Kelly基準、レジーム適応) — Phase 3
+- ✓ 単勝モデルの品質検証(時系列交差検証、過学習チェック) — Phase 4
 
 ### Active
 
-- [ ] 単勝モデルのバックテストROI > 100%を達成
-- [ ] 既存特徴量の単勝に対する有効性を分析・特定
-- [ ] 単勝特化の特徴量を設計・実装(レース展開、勝ち癖等)
-- [ ] モデル構造の最適化(キャリブレーション、アンサンブル、EV補正)
-- [ ] 単勝ベッティング戦略の最適化(Kelly基準、レジーム適応)
-- [ ] 単勝モデルの品質検証(時系列交差検証、過学習チェック)
+- [ ] 単勝モデルのバックテストROI > 100%を達成 (WF検証スクリプト実行待ち)
 
 ### Out of Scope
 
