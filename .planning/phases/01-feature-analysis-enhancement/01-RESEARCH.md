@@ -456,27 +456,31 @@ FEATURE_COLS: list[str] = [
 | A4 | Removing noise features from `WinTwoStageModel.FEATURE_COLS` will not affect the EVCorrectionModel, which has its own separate `FEATURE_COLS` list (30 features, different set). [VERIFIED: ev_correction_model.py line 135-168] | Common Pitfalls | If wrong, EVCorrectionModel features may also need pruning. |
 | A5 | The freshness_score feature can be derived from `days_since_last_race` and recent finish positions, both already computed in HorseHistoryFeatures. No additional data columns needed. [VERIFIED: horse_history_features.py has both available in compute() loop] | FEAT-02 | Low risk. |
 
-## Open Questions
+## Open Questions (All Resolved)
 
 1. **Odds-to-ability computation location**
    - What we know: p_ability_win is computed by AbilityModel in _train_submodel(), p_market_win_adj is computed by FeatureEngine.build_all() -> compute_market_bias().
    - What's unclear: Whether p_market_win_adj persists in df through the HorseHistoryFeatures merge and AbilityModel steps without being dropped.
    - Recommendation: Add odds_to_ability_ratio computation inside `_train_submodel()` after AbilityModel.train_oof() (line 407) and verify both columns exist with an assertion.
+   - **RESOLVED**: Compute in _train_submodel() for training path (Plan 01-02 Task 2). For inference path, compute in WinTwoStageModel._prepare_features() when the column is missing but p_market_win_adj and p_ability_win are present (confirmed available in race_predictor.py lines 89-97). Dual-path approach adopted.
 
 2. **SHAP analysis scope -- which models to analyze**
    - What we know: WinTwoStageModel has hit_model (P(win)) and return_model (E(odds|win)). EVCorrectionModel has p_correction_model and e_correction_model.
    - What's unclear: Whether FEAT-01 should analyze all win-related models or just the hit_model.
    - Recommendation: Focus on WinTwoStageModel.hit_model as primary. The return_model has too few samples (~7% winners) for reliable SHAP. EVCorrectionModel features are secondary corrections.
+   - **RESOLVED**: FEAT-01 analyzes WinTwoStageModel.hit_model only. Return_model and EVCorrectionModel excluded from SHAP scope per anti-pattern guidance in research.
 
 3. **Win dominance definition**
    - What we know: FEAT-02 mentions "win dominance" and the research summary says it should measure "how decisively the horse wins when it wins."
    - What's unclear: Whether win dominance should be based on (a) field size of winning races, (b) timediff (margin) in winning races, or (c) some other metric.
    - Recommendation: Use average field size of recent winning races as primary metric (proxy for win quality -- winning in larger fields is harder). Timediff is often NaN (from pitfall: harontimel3/harontime columns have high NaN rates). Document the definition choice for planner.
+   - **RESOLVED**: Definition = average field size (syussotosu) of past winning races. Non-winners with history get 0.0 (meaningful signal). No history = NaN. Timediff avoided due to high NaN rate.
 
 4. **Feature importance stability across surface submodels**
    - What we know: Turf and dirt models are trained independently; feature importance may differ.
    - What's unclear: Whether noise features are consistent across both surface models.
    - Recommendation: WinTwoStageModel is NOT split by surface (unlike AbilityModel). The hit_model uses all data. Analyze the single model. If planner wants surface-specific analysis, that would be a separate step.
+   - **RESOLVED**: Single combined model analysis only. WinTwoStageModel.hit_model trains on all surfaces together. Surface-specific analysis not needed for this phase.
 
 ## Environment Availability
 
