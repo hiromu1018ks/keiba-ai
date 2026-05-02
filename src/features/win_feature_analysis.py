@@ -9,9 +9,14 @@ LightGBM 4.6 の pred_contrib=True でネイティブ TreeSHAP 値を取得。
 
 from __future__ import annotations
 
+import logging
+
 import numpy as np
 import pandas as pd
 import lightgbm as lgb
+from sklearn.metrics import log_loss, roc_auc_score
+
+logger = logging.getLogger(__name__)
 
 
 def analyze_feature_importance(
@@ -83,3 +88,88 @@ def identify_noise_features(
         importance_df["gain"] <= gain_threshold
     )
     return importance_df.loc[noise_mask, "feature"].tolist()
+
+
+def validate_noise_removal(
+    original_model: lgb.Booster,
+    df: pd.DataFrame,
+    noise_features: list[str],
+    target_col: str = "kakuteijyuni",
+    num_threads: int = 0,
+) -> dict[str, float]:
+    """ノイズ特徴量除外前後のlogloss/AUCを比較。
+
+    元モデルと同じデータでノイズ特徴量を除外した新モデルを学習し、
+    logloss/AUCを比較する。
+
+    Args:
+        original_model: 元の学習済み lgb.Booster
+        df: 特徴量 + ターゲット列を含むDataFrame
+        noise_features: 除外する特徴量名のリスト
+        target_col: ターゲット列名 (default: kakuteijyuni)
+        num_threads: LightGBM スレッド数
+
+    Returns:
+        dict with keys: original_logloss, new_logloss, original_auc, new_auc
+    """
+    feature_names = original_model.feature_name()
+    remaining_features = [f for f in feature_names if f not in noise_features]
+
+    # ターゲット (1着 = 1, それ以外 = 0)
+    y = (df[target_col] == 1).astype(int).values
+
+    # 元モデルの予測
+    orig_features = df[feature_names]
+    orig_pred = original_model.predict(orig_features)
+
+    # logloss/AUC の計算 (NaNを含む場合はフィルタ)
+    valid_mask = ~(np.isnan(orig_pred) | np.isnan(y.astype(float)))
+    if valid_mask.sum() < 2:
+        logger.warning("Too few valid predictions for comparison")
+        return {
+            "original_logloss": float("nan"),
+            "new_logloss": float("nan"),
+            "original_auc": float("nan"),
+            "new_auc": float("nan"),
+        }
+
+    original_logloss = float(log_loss(y[valid_mask], orig_pred[valid_mask]))
+    original_auc = float(roc_auc_score(y[valid_mask], orig_pred[valid_mask]))
+
+    # 新モデルをノイズ除外特徴量で学習
+    new_features_df = df[remaining_features]
+    train_data = lgb.Dataset(new_features_df, label=y)
+
+    new_model = lgb.train(
+        {
+            "objective": "binary",
+            "metric": "binary_logloss",
+            "num_threads": num_threads,
+            "verbose": -1,
+            "num_leaves": 31,
+        },
+        train_data,
+        num_boost_round=100,
+    )
+
+    new_pred = new_model.predict(new_features_df)
+    valid_mask_new = ~(np.isnan(new_pred) | np.isnan(y.astype(float)))
+
+    new_logloss = float(log_loss(y[valid_mask_new], new_pred[valid_mask_new]))
+    new_auc = float(roc_auc_score(y[valid_mask_new], new_pred[valid_mask_new]))
+
+    # logloss悪化が0.5%超の場合に警告
+    if original_logloss > 0 and (new_logloss - original_logloss) / original_logloss > 0.005:
+        logger.warning(
+            "Noise removal degraded logloss by %.2f%%: %.6f -> %.6f",
+            (new_logloss - original_logloss) / original_logloss * 100,
+            original_logloss,
+            new_logloss,
+        )
+
+    return {
+        "original_logloss": original_logloss,
+        "new_logloss": new_logloss,
+        "original_auc": original_auc,
+        "new_auc": new_auc,
+    }

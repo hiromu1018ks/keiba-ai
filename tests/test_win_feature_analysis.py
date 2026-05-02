@@ -227,7 +227,8 @@ class TestValidateNoiseRemoval:
         # lgb.Booster のモックを作成
         mock_original_model = MagicMock()
         mock_original_model.feature_name.return_value = ["feat_a", "feat_b", "feat_c"]
-        mock_original_model.predict.return_value = np.array([0.3, 0.7, 0.2, 0.8, 0.5, 0.5])
+        # predictはdfの行数分の予測値を返す必要がある (2行)
+        mock_original_model.predict.return_value = np.array([0.3, 0.7])
 
         df = pd.DataFrame({
             "feat_a": [1.0, 2.0],
@@ -253,8 +254,8 @@ class TestValidateNoiseRemoval:
         """logloss悪化時に警告がログ出力されること (閾値0.5%超)"""
         mock_original_model = MagicMock()
         mock_original_model.feature_name.return_value = ["feat_a", "feat_b"]
-        # 元モデル予測: 完璧 (logloss低い)
-        mock_original_model.predict.return_value = np.array([0.01, 0.99, 0.01, 0.99])
+        # 元モデル予測: 完璧 (logloss低い) -- 2行分
+        mock_original_model.predict.return_value = np.array([0.01, 0.99])
 
         df = pd.DataFrame({
             "feat_a": [1.0, 2.0],
@@ -264,19 +265,16 @@ class TestValidateNoiseRemoval:
 
         with pytest.MonkeyPatch.context() as m:
             mock_new_model = MagicMock()
-            # 新モデル予測: ランダム (logloss高い)
+            # 新モデル予測: ランダム (logloss高い) -- 2行分
             mock_new_model.predict.return_value = np.array([0.5, 0.5])
             m.setattr("features.win_feature_analysis.lgb.train", lambda *a, **kw: mock_new_model)
             m.setattr("features.win_feature_analysis.lgb.Dataset", MagicMock)
 
-            import logging
-            with pytest.MonkeyPatch.context() as m2:
-                # capture log warnings
-                result = validate_noise_removal(
-                    mock_original_model, df, noise_features=["feat_b"],
-                )
-                # 悪化していれば new_logloss > original_logloss
-                assert result["new_logloss"] > 0
+            result = validate_noise_removal(
+                mock_original_model, df, noise_features=["feat_b"],
+            )
+            # 悪化していれば new_logloss > original_logloss
+            assert result["new_logloss"] > 0
 
 
 class TestCSVReportIsNoise:
@@ -294,5 +292,5 @@ class TestCSVReportIsNoise:
         )
         importance_df["is_noise"] = importance_df["feature"].isin(noise_features)
         assert importance_df["is_noise"].dtype == bool
-        assert importance_df.loc[importance_df["feature"] == "feat_c", "is_noise"].iloc[0] is True
-        assert importance_df.loc[importance_df["feature"] == "feat_a", "is_noise"].iloc[0] is False
+        assert importance_df.loc[importance_df["feature"] == "feat_c", "is_noise"].iloc[0] == True  # noqa: E712
+        assert importance_df.loc[importance_df["feature"] == "feat_a", "is_noise"].iloc[0] == False  # noqa: E712

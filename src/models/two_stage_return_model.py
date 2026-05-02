@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import logging
 import os
 
 import lightgbm as lgb
 import pandas as pd
 
 from domain.models import TwoStageConfig
+
+logger = logging.getLogger(__name__)
 
 
 def _train_valid_split(
@@ -78,6 +81,28 @@ class WinTwoStageModel:
 
     def __init__(self, cfg: TwoStageConfig | None = None) -> None:
         self.cfg = cfg or TwoStageConfig()
+
+    @classmethod
+    def remove_noise_features(cls, noise_features: list[str]) -> None:
+        """FEATURE_COLSからノイズ特徴量を除外。
+
+        SHAP/gain分析で特定されたノイズ特徴量をFEATURE_COLSから削除する。
+        validate_noise_removal()でlogloss/AUCへの影響を検証した後に呼び出すこと。
+
+        Args:
+            noise_features: 除外する特徴量名のリスト
+        """
+        before = len(cls.FEATURE_COLS)
+        removed = [f for f in noise_features if f in cls.FEATURE_COLS]
+        cls.FEATURE_COLS = [f for f in cls.FEATURE_COLS if f not in noise_features]
+        after = len(cls.FEATURE_COLS)
+        if removed:
+            logger.info(
+                "Removed %d noise features from FEATURE_COLS (%d -> %d): %s",
+                len(removed), before, after, removed,
+            )
+        else:
+            logger.info("No features removed (none of %s found in FEATURE_COLS)", noise_features)
 
     def _prepare_features(self, df: pd.DataFrame) -> pd.DataFrame:
         available_cols = [c for c in self.FEATURE_COLS if c in df.columns]
