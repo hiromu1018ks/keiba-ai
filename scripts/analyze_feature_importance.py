@@ -63,11 +63,17 @@ def main() -> None:
         action="store_true",
         help="指定時、ノイズ特徴量を自動でFEATURE_COLSから除外して再学習検証を実行",
     )
+    parser.add_argument(
+        "--surface",
+        choices=["turf", "dirt"],
+        default="turf",
+        help="解析対象のサーフェス (default: turf)",
+    )
     args = parser.parse_args()
 
     # モデル読み込み
     model_dir = args.model_dir.rstrip("/")
-    model_path = _find_model_file(model_dir)
+    model_path = _find_model_file(model_dir, preferred_surface=args.surface)
     if model_path is None:
         logger.error(
             "モデルファイルが見つかりません: %s/win_hit_*.lgb を確認してください",
@@ -125,12 +131,16 @@ def main() -> None:
     print("\n完了")
 
 
-def _find_model_file(model_dir: str) -> str | None:
+def _find_model_file(model_dir: str, *, preferred_surface: str = "turf") -> str | None:
     """モデルディレクトリからwin_hitモデルファイルを検索。"""
     import glob
 
-    # turf/dirt の両方を試す (turf優先)
-    for surface in ["turf", "dirt"]:
+    # 指定サーフェスを優先、次に他のサーフェスを試す
+    seen: set[str] = set()
+    for surface in [preferred_surface, "turf", "dirt"]:
+        if surface in seen:
+            continue
+        seen.add(surface)
         pattern = os.path.join(model_dir, f"win_hit_{surface}.lgb")
         matches = glob.glob(pattern)
         if matches:
