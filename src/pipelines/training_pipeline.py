@@ -564,6 +564,97 @@ class TrainingPipelineV5:
                     "Temperature Scaling: T=%.4f", temp_scaler.temperature
                 )
 
+        # 5c. Win Benter Combination (D-11, D-04, D-13)
+        win_benter = None
+        win_isotonic_cal = None
+        win_temp_scaler = None
+        if "tanodds" in df_oof.columns and len(df_oof) >= 500:
+            from models.benter_combination import BenterCombination
+            from models.win_benter_gate import generate_win_oof_predictions
+
+            with TimingContext(f"{surface}/win_oof"):
+                oof_p_fund, oof_p_market, oof_y = generate_win_oof_predictions(
+                    df_oof,
+                    win_model_cls=WinTwoStageModel,
+                    ev_corrector=ev_corrector,
+                    n_splits=5,
+                    num_threads=num_threads,
+                )
+
+            if len(oof_p_fund) >= 500:
+                from itertools import product as iter_product
+
+                from scipy.optimize import minimize as scipy_minimize
+
+                # Grid search for initial parameters (D-13)
+                best_nll = float("inf")
+                best_benter = None
+                alpha_grid = [0.3, 0.5, 0.7, 1.0]
+                beta_grid = [0.3, 0.5, 0.7, 1.0]
+                gamma_grid = [-1.0, 0.0, 1.0]
+
+                for a0, b0, g0 in iter_product(alpha_grid, beta_grid, gamma_grid):
+                    try:
+                        logit_f = BenterCombination._logit(oof_p_fund)
+                        logit_m = BenterCombination._logit(oof_p_market)
+                        y_arr = oof_y.astype(float)
+
+                        def _nll(params: np.ndarray) -> float:
+                            alpha, beta, gamma = params
+                            logit_c = alpha * logit_f + beta * logit_m + gamma
+                            p_c = 1.0 / (1.0 + np.exp(-logit_c))
+                            p_c = np.clip(p_c, 1e-10, 1 - 1e-10)
+                            return float(
+                                -np.sum(
+                                    y_arr * np.log(p_c)
+                                    + (1 - y_arr) * np.log(1 - p_c)
+                                )
+                            )
+
+                        res = scipy_minimize(
+                            _nll,
+                            x0=[a0, b0, g0],
+                            method="L-BFGS-B",
+                            bounds=[(0.01, 5.0), (0.20, 5.0), (-5.0, 5.0)],
+                        )
+                        if res.fun < best_nll:
+                            best_nll = res.fun
+                            best_benter = BenterCombination(
+                                alpha=float(res.x[0]),
+                                beta=float(res.x[1]),
+                                gamma=float(res.x[2]),
+                            )
+                    except Exception:
+                        continue
+
+                if best_benter is not None:
+                    win_benter = best_benter
+                    logger.info(
+                        "Win Benter (grid): alpha=%.3f, beta=%.3f, gamma=%.3f, NLL=%.2f",
+                        win_benter.alpha,
+                        win_benter.beta,
+                        win_benter.gamma,
+                        best_nll,
+                    )
+                else:
+                    # Fallback to standard fit
+                    with TimingContext(f"{surface}/win_benter"):
+                        win_benter = BenterCombination.fit(
+                            oof_p_fund, oof_p_market, oof_y
+                        )
+                    logger.info(
+                        "Win Benter (fallback): alpha=%.3f, beta=%.3f, gamma=%.3f",
+                        win_benter.alpha,
+                        win_benter.beta,
+                        win_benter.gamma,
+                    )
+            else:
+                logger.warning(
+                    "Win OOF samples < 500 (%d), skipping Win Benter", len(oof_p_fund)
+                )
+        else:
+            logger.info("tanodds not in df_oof or df too small, skipping Win Benter")
+
         # 5a. Place EV補正 (P/E decomposition)
         with TimingContext(f"{surface}/place_ev_correction"):
             place_ev_corrector = PlaceEVCorrectionModel()
@@ -618,6 +709,9 @@ class TrainingPipelineV5:
             benter_combo=benter_combo,
             isotonic_calibrator=isotonic_cal,
             temperature_scaler=temp_scaler,
+            win_benter=win_benter,
+            win_isotonic_calibrator=win_isotonic_cal,
+            win_temperature_scaler=win_temp_scaler,
         )
 
     def _build_race_level_features(self, feat_df: pd.DataFrame) -> pd.DataFrame:
@@ -1010,6 +1104,23 @@ class TrainingPipelineV5:
             # v5: Temperature Scaler (JSON)
             if sub.temperature_scaler is not None:
                 sub.temperature_scaler.save(models_dir / f"temp_scale_{surface}.json")
+
+            # Win Benter Combination (JSON)
+            if sub.win_benter is not None:
+                sub.win_benter.save(models_dir / f"benter_combo_win_{surface}.json")
+
+            # Win Isotonic Calibrator (joblib)
+            if sub.win_isotonic_calibrator is not None:
+                joblib.dump(
+                    sub.win_isotonic_calibrator,
+                    models_dir / f"isotonic_win_{surface}.joblib",
+                )
+
+            # Win Temperature Scaler (JSON)
+            if sub.win_temperature_scaler is not None:
+                sub.win_temperature_scaler.save(
+                    models_dir / f"temp_scale_win_{surface}.json"
+                )
 
         saved["race_quality"] = quality_screen.model
         saved["regime_detector"] = regime_det.model

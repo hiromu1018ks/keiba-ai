@@ -111,6 +111,18 @@ class RacePredictor:
 
         # 6. EV補正 + Place推論
         df = submodel.ev_corrector.correct_ev(df)  # Win EV補正は維持
+
+        # --- Win Benter Combination + Race Normalization (D-11) ---
+        if getattr(submodel, "win_benter", None) is not None:
+            from models.win_benter_gate import WinBenterGate
+
+            win_gate = WinBenterGate(
+                benter=submodel.win_benter,
+                calibrator=getattr(submodel, "win_isotonic_calibrator", None),
+                temp_scaler=getattr(submodel, "win_temperature_scaler", None),
+            )
+            df = win_gate.apply(df)
+
         df = submodel.place.predict_ev(df)
         # place_ev_corrector: 補正EVと下限EVの両方をベット選択に使う
         df = submodel.place_ev_corrector.correct_ev(df)
