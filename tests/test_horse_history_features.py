@@ -1211,3 +1211,636 @@ class TestHaronTimeL5AndLateTrend:
         assert "harontimel5_zscore" in cols
         assert "harontime_late_tate_trend" not in cols  # typo guard
         assert "harontime_late_trend" in cols
+
+
+# ---------------------------------------------------------------------------
+# FEAT-02: 新特徴量 (distance_change, surface_change, class_drop_bounce,
+#           win_dominance, freshness_score) のテスト
+# ---------------------------------------------------------------------------
+
+
+def _make_hist_store(
+    entries_hist: pd.DataFrame,
+    races_hist: pd.DataFrame,
+) -> MagicMock:
+    """テスト用の ParquetStore モックを生成する"""
+    store = MagicMock(spec=ParquetStore)
+
+    def mock_read(category: str, name: str, **kwargs: object) -> pd.DataFrame:
+        if name == "entries":
+            return entries_hist
+        elif name == "races":
+            return races_hist
+        return pd.DataFrame()
+
+    store.read = MagicMock(side_effect=mock_read)
+    return store
+
+
+def _compute_hist(entries_hist: pd.DataFrame, races_hist: pd.DataFrame,
+                  race_df: pd.DataFrame, entry_df: pd.DataFrame) -> pd.DataFrame:
+    """HorseHistoryFeatures.compute() のショートカット"""
+    from features.horse_history_features import HorseHistoryFeatures
+
+    store = _make_hist_store(entries_hist, races_hist)
+    hhf = HorseHistoryFeatures(store=store, n_past=5)
+    return hhf.compute(race_df, entry_df)
+
+
+class TestDistanceChange:
+    """distance_change (距離変更要検知) のテスト"""
+
+    def test_returns_1_when_distance_bin_differs(self) -> None:
+        """現在のdistance_bin != 前走distance_bin → 1.0"""
+        entries_hist = pd.DataFrame({
+            "race_id": ["p1", "p2"],
+            "race_date": pd.to_datetime(["2024-01-01", "2024-03-01"]),
+            "kettonum": ["K1", "K1"],
+            "kisyucode": ["J1", "J1"],
+            "umaban": [1, 1],
+            "kakuteijyuni": [3, 5],
+            "odds": [5.0, 8.0],
+            "harontimel3": [34.5, 35.0],
+            "distance_bin": ["mile", "sprint"],  # sprint → mile (変更あり)
+            "surface": ["turf", "turf"],
+            "track_condition_code": [1, 2],
+            "timediff": [0.3, -0.2],
+            "jyuni1c": [5, 8],
+            "jyuni4c": [4, 6],
+            "kyakusitukubun": [2, 2],
+            "bataijyu": [480.0, 482.0],
+            "gradecd": ["C", "C"],
+            "jyokencd1": [5.0, 5.0],
+        })
+        races_hist = pd.DataFrame({
+            "race_id": ["p1", "p2"],
+            "syussotosu": [10, 12],
+            "race_date": pd.to_datetime(["2024-01-01", "2024-03-01"]),
+            "trackcd": [11, 11],
+            "kyori": [1200, 1600],
+            "surface": ["turf", "turf"],
+            "track_condition_code": [1, 2],
+        })
+        race_df = pd.DataFrame({
+            "race_id": ["R1"],
+            "race_date": pd.to_datetime(["2024-06-01"]),
+            "surface": ["turf"],
+            "kyori": [1600],
+        })
+        entry_df = pd.DataFrame({
+            "race_id": ["R1"], "umaban": [1], "kettonum": ["K1"],
+            "kisyucode": ["J1"], "bataijyu": [490.0],
+        })
+        result = _compute_hist(entries_hist, races_hist, race_df, entry_df)
+        assert "distance_change" in result.columns
+        # p2=sprint → R1=mile (computed from kyori+surface) = 変更あり → 1.0
+        val = result["distance_change"].iloc[0]
+        assert val == 1.0, f"Expected 1.0 for different distance_bin, got {val}"
+
+    def test_returns_0_when_distance_bin_same(self) -> None:
+        """現在のdistance_bin == 前走distance_bin → 0.0"""
+        entries_hist = pd.DataFrame({
+            "race_id": ["p1"],
+            "race_date": pd.to_datetime(["2024-03-01"]),
+            "kettonum": ["K1"],
+            "kisyucode": ["J1"],
+            "umaban": [1],
+            "kakuteijyuni": [3],
+            "odds": [5.0],
+            "harontimel3": [34.5],
+            "distance_bin": ["mile"],
+            "surface": ["turf"],
+            "track_condition_code": [1],
+            "timediff": [0.3],
+            "jyuni1c": [5],
+            "jyuni4c": [4],
+            "kyakusitukubun": [2],
+            "bataijyu": [480.0],
+            "gradecd": ["C"],
+            "jyokencd1": [5.0],
+        })
+        races_hist = pd.DataFrame({
+            "race_id": ["p1"],
+            "syussotosu": [10],
+            "race_date": pd.to_datetime(["2024-03-01"]),
+            "trackcd": [11],
+            "kyori": [1600],
+            "surface": ["turf"],
+            "track_condition_code": [1],
+        })
+        race_df = pd.DataFrame({
+            "race_id": ["R1"],
+            "race_date": pd.to_datetime(["2024-06-01"]),
+            "surface": ["turf"],
+            "kyori": [1600],
+        })
+        entry_df = pd.DataFrame({
+            "race_id": ["R1"], "umaban": [1], "kettonum": ["K1"],
+            "kisyucode": ["J1"], "bataijyu": [490.0],
+        })
+        result = _compute_hist(entries_hist, races_hist, race_df, entry_df)
+        val = result["distance_change"].iloc[0]
+        assert val == 0.0, f"Expected 0.0 for same distance_bin, got {val}"
+
+    def test_returns_nan_when_no_history(self) -> None:
+        """履歴なし → NaN"""
+        entries_hist = pd.DataFrame(columns=["race_id", "race_date", "kettonum", "kisyucode",
+                                              "umaban", "kakuteijyuni", "odds"])
+        races_hist = pd.DataFrame(columns=["race_id", "syussotosu", "race_date"])
+        race_df = pd.DataFrame({
+            "race_id": ["R1"],
+            "race_date": pd.to_datetime(["2024-06-01"]),
+        })
+        entry_df = pd.DataFrame({
+            "race_id": ["R1"], "umaban": [1], "kettonum": ["K_NEW"],
+            "kisyucode": ["J1"], "bataijyu": [490.0],
+        })
+        result = _compute_hist(entries_hist, races_hist, race_df, entry_df)
+        if "distance_change" in result.columns and len(result) > 0:
+            assert np.isnan(result["distance_change"].iloc[0])
+
+
+class TestSurfaceChange:
+    """surface_change (芝ダート変更要検知) のテスト"""
+
+    def test_returns_1_when_surface_differs(self) -> None:
+        """現在のsurface != 前走surface → 1.0"""
+        entries_hist = pd.DataFrame({
+            "race_id": ["p1"],
+            "race_date": pd.to_datetime(["2024-03-01"]),
+            "kettonum": ["K1"],
+            "kisyucode": ["J1"],
+            "umaban": [1],
+            "kakuteijyuni": [3],
+            "odds": [5.0],
+            "harontimel3": [34.5],
+            "distance_bin": ["mile"],
+            "surface": ["dirt"],  # 前走はダート
+            "track_condition_code": [1],
+            "timediff": [0.3],
+            "jyuni1c": [5],
+            "jyuni4c": [4],
+            "kyakusitukubun": [2],
+            "bataijyu": [480.0],
+            "gradecd": ["C"],
+            "jyokencd1": [5.0],
+        })
+        races_hist = pd.DataFrame({
+            "race_id": ["p1"],
+            "syussotosu": [10],
+            "race_date": pd.to_datetime(["2024-03-01"]),
+            "trackcd": [11],
+            "kyori": [1600],
+            "surface": ["dirt"],
+            "track_condition_code": [1],
+        })
+        race_df = pd.DataFrame({
+            "race_id": ["R1"],
+            "race_date": pd.to_datetime(["2024-06-01"]),
+            "surface": ["turf"],  # 現在は芝 (変更あり)
+            "kyori": [1600],
+        })
+        entry_df = pd.DataFrame({
+            "race_id": ["R1"], "umaban": [1], "kettonum": ["K1"],
+            "kisyucode": ["J1"], "bataijyu": [490.0],
+        })
+        result = _compute_hist(entries_hist, races_hist, race_df, entry_df)
+        assert "surface_change" in result.columns
+        val = result["surface_change"].iloc[0]
+        assert val == 1.0, f"Expected 1.0 for different surface, got {val}"
+
+    def test_returns_0_when_surface_same(self) -> None:
+        """現在のsurface == 前走surface → 0.0"""
+        entries_hist = pd.DataFrame({
+            "race_id": ["p1"],
+            "race_date": pd.to_datetime(["2024-03-01"]),
+            "kettonum": ["K1"],
+            "kisyucode": ["J1"],
+            "umaban": [1],
+            "kakuteijyuni": [3],
+            "odds": [5.0],
+            "harontimel3": [34.5],
+            "distance_bin": ["mile"],
+            "surface": ["turf"],
+            "track_condition_code": [1],
+            "timediff": [0.3],
+            "jyuni1c": [5],
+            "jyuni4c": [4],
+            "kyakusitukubun": [2],
+            "bataijyu": [480.0],
+            "gradecd": ["C"],
+            "jyokencd1": [5.0],
+        })
+        races_hist = pd.DataFrame({
+            "race_id": ["p1"],
+            "syussotosu": [10],
+            "race_date": pd.to_datetime(["2024-03-01"]),
+            "trackcd": [11],
+            "kyori": [1600],
+            "surface": ["turf"],
+            "track_condition_code": [1],
+        })
+        race_df = pd.DataFrame({
+            "race_id": ["R1"],
+            "race_date": pd.to_datetime(["2024-06-01"]),
+            "surface": ["turf"],
+            "kyori": [1600],
+        })
+        entry_df = pd.DataFrame({
+            "race_id": ["R1"], "umaban": [1], "kettonum": ["K1"],
+            "kisyucode": ["J1"], "bataijyu": [490.0],
+        })
+        result = _compute_hist(entries_hist, races_hist, race_df, entry_df)
+        val = result["surface_change"].iloc[0]
+        assert val == 0.0, f"Expected 0.0 for same surface, got {val}"
+
+    def test_returns_nan_when_no_history(self) -> None:
+        """履歴なし → NaN"""
+        entries_hist = pd.DataFrame(columns=["race_id", "race_date", "kettonum", "kisyucode",
+                                              "umaban", "kakuteijyuni", "odds"])
+        races_hist = pd.DataFrame(columns=["race_id", "syussotosu", "race_date"])
+        race_df = pd.DataFrame({
+            "race_id": ["R1"],
+            "race_date": pd.to_datetime(["2024-06-01"]),
+        })
+        entry_df = pd.DataFrame({
+            "race_id": ["R1"], "umaban": [1], "kettonum": ["K_NEW"],
+            "kisyucode": ["J1"], "bataijyu": [490.0],
+        })
+        result = _compute_hist(entries_hist, races_hist, race_df, entry_df)
+        if "surface_change" in result.columns and len(result) > 0:
+            assert np.isnan(result["surface_change"].iloc[0])
+
+
+class TestClassDropBounce:
+    """class_drop_bounce (クラス降級後リバウンド期待値) のテスト"""
+
+    def test_positive_when_class_drop_and_poor_form(self) -> None:
+        """降級 + 直近成績悪化 → 正の値"""
+        entries_hist = pd.DataFrame({
+            "race_id": ["p1", "p2", "p3"],
+            "race_date": pd.to_datetime(["2024-01-01", "2024-02-01", "2024-03-01"]),
+            "kettonum": ["K1", "K1", "K1"],
+            "kisyucode": ["J1", "J1", "J1"],
+            "umaban": [1, 1, 1],
+            "kakuteijyuni": [8, 10, 7],  # 直近成績悪化 (高着順)
+            "odds": [20.0, 30.0, 15.0],
+            "harontimel3": [36.0, 37.0, 35.5],
+            "distance_bin": ["mile", "mile", "mile"],
+            "surface": ["turf", "turf", "turf"],
+            "track_condition_code": [1, 2, 1],
+            "timediff": [0.5, 0.8, 0.3],
+            "jyuni1c": [10, 12, 8],
+            "jyuni4c": [10, 11, 7],
+            "kyakusitukubun": [3, 3, 3],
+            "bataijyu": [480.0, 482.0, 484.0],
+            "gradecd": ["A", "A", "A"],  # 前走はA級
+            "jyokencd1": [8.0, 8.0, 8.0],
+        })
+        races_hist = pd.DataFrame({
+            "race_id": ["p1", "p2", "p3"],
+            "syussotosu": [16, 16, 16],
+            "race_date": pd.to_datetime(["2024-01-01", "2024-02-01", "2024-03-01"]),
+            "trackcd": [11, 11, 11],
+            "kyori": [1600, 1600, 1600],
+            "surface": ["turf", "turf", "turf"],
+            "track_condition_code": [1, 2, 1],
+        })
+        race_df = pd.DataFrame({
+            "race_id": ["R1"],
+            "race_date": pd.to_datetime(["2024-06-01"]),
+            "surface": ["turf"],
+            "kyori": [1600],
+            "gradecd": ["C"],  # C級に降級 (A→C)
+            "jyokencd1": [4.0],
+        })
+        entry_df = pd.DataFrame({
+            "race_id": ["R1"], "umaban": [1], "kettonum": ["K1"],
+            "kisyucode": ["J1"], "bataijyu": [490.0],
+        })
+        result = _compute_hist(entries_hist, races_hist, race_df, entry_df)
+        assert "class_drop_bounce" in result.columns
+        val = result["class_drop_bounce"].iloc[0]
+        assert val > 0, f"Expected positive bounce for class drop + poor form, got {val}"
+
+    def test_zero_when_not_class_drop(self) -> None:
+        """昇級または同級 → 0.0"""
+        entries_hist = pd.DataFrame({
+            "race_id": ["p1", "p2"],
+            "race_date": pd.to_datetime(["2024-02-01", "2024-03-01"]),
+            "kettonum": ["K1", "K1"],
+            "kisyucode": ["J1", "J1"],
+            "umaban": [1, 1],
+            "kakuteijyuni": [3, 5],
+            "odds": [5.0, 8.0],
+            "harontimel3": [34.5, 35.0],
+            "distance_bin": ["mile", "mile"],
+            "surface": ["turf", "turf"],
+            "track_condition_code": [1, 2],
+            "timediff": [0.3, -0.2],
+            "jyuni1c": [5, 8],
+            "jyuni4c": [4, 6],
+            "kyakusitukubun": [2, 2],
+            "bataijyu": [480.0, 482.0],
+            "gradecd": ["C", "C"],  # 前走もC級
+            "jyokencd1": [5.0, 5.0],
+        })
+        races_hist = pd.DataFrame({
+            "race_id": ["p1", "p2"],
+            "syussotosu": [10, 12],
+            "race_date": pd.to_datetime(["2024-02-01", "2024-03-01"]),
+            "trackcd": [11, 11],
+            "kyori": [1600, 1600],
+            "surface": ["turf", "turf"],
+            "track_condition_code": [1, 2],
+        })
+        race_df = pd.DataFrame({
+            "race_id": ["R1"],
+            "race_date": pd.to_datetime(["2024-06-01"]),
+            "surface": ["turf"],
+            "kyori": [1600],
+            "gradecd": ["C"],  # 同級 (降級なし)
+            "jyokencd1": [5.0],
+        })
+        entry_df = pd.DataFrame({
+            "race_id": ["R1"], "umaban": [1], "kettonum": ["K1"],
+            "kisyucode": ["J1"], "bataijyu": [490.0],
+        })
+        result = _compute_hist(entries_hist, races_hist, race_df, entry_df)
+        val = result["class_drop_bounce"].iloc[0]
+        assert val == 0.0, f"Expected 0.0 for non-drop, got {val}"
+
+    def test_nan_when_insufficient_history(self) -> None:
+        """2走未満の履歴 → NaN"""
+        entries_hist = pd.DataFrame(columns=["race_id", "race_date", "kettonum", "kisyucode",
+                                              "umaban", "kakuteijyuni", "odds"])
+        races_hist = pd.DataFrame(columns=["race_id", "syussotosu", "race_date"])
+        race_df = pd.DataFrame({
+            "race_id": ["R1"],
+            "race_date": pd.to_datetime(["2024-06-01"]),
+        })
+        entry_df = pd.DataFrame({
+            "race_id": ["R1"], "umaban": [1], "kettonum": ["K_NEW"],
+            "kisyucode": ["J1"], "bataijyu": [490.0],
+        })
+        result = _compute_hist(entries_hist, races_hist, race_df, entry_df)
+        if "class_drop_bounce" in result.columns and len(result) > 0:
+            assert np.isnan(result["class_drop_bounce"].iloc[0])
+
+
+class TestWinDominance:
+    """win_dominance (勝利dominance = 勝利時の平均フィールドサイズ) のテスト"""
+
+    def test_returns_field_size_avg_for_winners(self) -> None:
+        """勝利経験あり → 勝利時の平均フィールドサイズ"""
+        entries_hist = pd.DataFrame({
+            "race_id": ["p1", "p2", "p3"],
+            "race_date": pd.to_datetime(["2024-01-01", "2024-02-01", "2024-03-01"]),
+            "kettonum": ["K1", "K1", "K1"],
+            "kisyucode": ["J1", "J1", "J1"],
+            "umaban": [1, 1, 1],
+            "kakuteijyuni": [1, 5, 1],  # 2勝 (p1=16頭, p3=12頭)
+            "odds": [5.0, 8.0, 3.0],
+            "harontimel3": [34.5, 35.0, 34.0],
+            "distance_bin": ["mile", "mile", "mile"],
+            "surface": ["turf", "turf", "turf"],
+            "track_condition_code": [1, 2, 1],
+            "timediff": [0.3, -0.2, 0.5],
+            "jyuni1c": [5, 8, 3],
+            "jyuni4c": [4, 6, 2],
+            "kyakusitukubun": [2, 2, 1],
+            "bataijyu": [480.0, 482.0, 484.0],
+        })
+        races_hist = pd.DataFrame({
+            "race_id": ["p1", "p2", "p3"],
+            "syussotosu": [16, 10, 12],  # p1=16, p3=12 → avg=14
+            "race_date": pd.to_datetime(["2024-01-01", "2024-02-01", "2024-03-01"]),
+            "trackcd": [11, 11, 11],
+            "kyori": [1600, 1600, 1600],
+            "surface": ["turf", "turf", "turf"],
+            "track_condition_code": [1, 2, 1],
+        })
+        race_df = pd.DataFrame({
+            "race_id": ["R1"],
+            "race_date": pd.to_datetime(["2024-06-01"]),
+        })
+        entry_df = pd.DataFrame({
+            "race_id": ["R1"], "umaban": [1], "kettonum": ["K1"],
+            "kisyucode": ["J1"], "bataijyu": [490.0],
+        })
+        result = _compute_hist(entries_hist, races_hist, race_df, entry_df)
+        assert "win_dominance" in result.columns
+        val = result["win_dominance"].iloc[0]
+        # p1 (1着/16頭) + p3 (1着/12頭) → avg = 14.0
+        assert abs(val - 14.0) < 0.01, f"Expected ~14.0, got {val}"
+
+    def test_returns_zero_when_no_wins(self) -> None:
+        """勝利なし (履歴あり) → 0.0"""
+        entries_hist = pd.DataFrame({
+            "race_id": ["p1", "p2"],
+            "race_date": pd.to_datetime(["2024-01-01", "2024-02-01"]),
+            "kettonum": ["K1", "K1"],
+            "kisyucode": ["J1", "J1"],
+            "umaban": [1, 1],
+            "kakuteijyuni": [3, 5],  # 勝利なし
+            "odds": [5.0, 8.0],
+            "harontimel3": [34.5, 35.0],
+            "distance_bin": ["mile", "mile"],
+            "surface": ["turf", "turf"],
+            "track_condition_code": [1, 2],
+            "timediff": [0.3, -0.2],
+            "jyuni1c": [5, 8],
+            "jyuni4c": [4, 6],
+            "kyakusitukubun": [2, 2],
+            "bataijyu": [480.0, 482.0],
+        })
+        races_hist = pd.DataFrame({
+            "race_id": ["p1", "p2"],
+            "syussotosu": [10, 12],
+            "race_date": pd.to_datetime(["2024-01-01", "2024-02-01"]),
+            "trackcd": [11, 11],
+            "kyori": [1600, 1600],
+            "surface": ["turf", "turf"],
+            "track_condition_code": [1, 2],
+        })
+        race_df = pd.DataFrame({
+            "race_id": ["R1"],
+            "race_date": pd.to_datetime(["2024-06-01"]),
+        })
+        entry_df = pd.DataFrame({
+            "race_id": ["R1"], "umaban": [1], "kettonum": ["K1"],
+            "kisyucode": ["J1"], "bataijyu": [490.0],
+        })
+        result = _compute_hist(entries_hist, races_hist, race_df, entry_df)
+        val = result["win_dominance"].iloc[0]
+        assert val == 0.0, f"Expected 0.0 for no wins with history, got {val}"
+
+    def test_returns_nan_when_no_history(self) -> None:
+        """履歴なし → NaN"""
+        entries_hist = pd.DataFrame(columns=["race_id", "race_date", "kettonum", "kisyucode",
+                                              "umaban", "kakuteijyuni", "odds"])
+        races_hist = pd.DataFrame(columns=["race_id", "syussotosu", "race_date"])
+        race_df = pd.DataFrame({
+            "race_id": ["R1"],
+            "race_date": pd.to_datetime(["2024-06-01"]),
+        })
+        entry_df = pd.DataFrame({
+            "race_id": ["R1"], "umaban": [1], "kettonum": ["K_NEW"],
+            "kisyucode": ["J1"], "bataijyu": [490.0],
+        })
+        result = _compute_hist(entries_hist, races_hist, race_df, entry_df)
+        if "win_dominance" in result.columns and len(result) > 0:
+            assert np.isnan(result["win_dominance"].iloc[0])
+
+
+class TestFreshnessScore:
+    """freshness_score (休息品質 x 直近フォーム品質) のテスト"""
+
+    def test_value_in_range_for_valid_history(self) -> None:
+        """3走以上の履歴 + 有効なdays_since → [0.0, 1.0]の値"""
+        entries_hist = pd.DataFrame({
+            "race_id": ["p1", "p2", "p3", "p4"],
+            "race_date": pd.to_datetime(["2024-01-01", "2024-02-01", "2024-03-01", "2024-04-01"]),
+            "kettonum": ["K1", "K1", "K1", "K1"],
+            "kisyucode": ["J1", "J1", "J1", "J1"],
+            "umaban": [1, 1, 1, 1],
+            "kakuteijyuni": [3, 2, 4, 1],
+            "odds": [5.0, 3.0, 8.0, 2.0],
+            "harontimel3": [34.5, 34.0, 35.0, 33.5],
+            "distance_bin": ["mile", "mile", "mile", "mile"],
+            "surface": ["turf", "turf", "turf", "turf"],
+            "track_condition_code": [1, 1, 2, 1],
+            "timediff": [0.3, -0.1, 0.5, -0.3],
+            "jyuni1c": [5, 3, 8, 1],
+            "jyuni4c": [4, 2, 7, 1],
+            "kyakusitukubun": [2, 1, 3, 1],
+            "bataijyu": [480.0, 482.0, 484.0, 486.0],
+        })
+        races_hist = pd.DataFrame({
+            "race_id": ["p1", "p2", "p3", "p4"],
+            "syussotosu": [16, 16, 16, 16],
+            "race_date": pd.to_datetime(["2024-01-01", "2024-02-01", "2024-03-01", "2024-04-01"]),
+            "trackcd": [11, 11, 11, 11],
+            "kyori": [1600, 1600, 1600, 1600],
+            "surface": ["turf", "turf", "turf", "turf"],
+            "track_condition_code": [1, 1, 2, 1],
+        })
+        race_df = pd.DataFrame({
+            "race_id": ["R1"],
+            "race_date": pd.to_datetime(["2024-06-01"]),  # 60日後 (最適休息)
+        })
+        entry_df = pd.DataFrame({
+            "race_id": ["R1"], "umaban": [1], "kettonum": ["K1"],
+            "kisyucode": ["J1"], "bataijyu": [490.0],
+        })
+        result = _compute_hist(entries_hist, races_hist, race_df, entry_df)
+        assert "freshness_score" in result.columns
+        val = result["freshness_score"].iloc[0]
+        assert 0.0 <= val <= 1.0, f"Expected value in [0, 1], got {val}"
+
+    def test_nan_when_fewer_than_3_races(self) -> None:
+        """3走未満 → NaN"""
+        entries_hist = pd.DataFrame({
+            "race_id": ["p1"],
+            "race_date": pd.to_datetime(["2024-03-01"]),
+            "kettonum": ["K1"],
+            "kisyucode": ["J1"],
+            "umaban": [1],
+            "kakuteijyuni": [3],
+            "odds": [5.0],
+            "harontimel3": [34.5],
+            "distance_bin": ["mile"],
+            "surface": ["turf"],
+            "track_condition_code": [1],
+            "timediff": [0.3],
+            "jyuni1c": [5],
+            "jyuni4c": [4],
+            "kyakusitukubun": [2],
+            "bataijyu": [480.0],
+        })
+        races_hist = pd.DataFrame({
+            "race_id": ["p1"],
+            "syussotosu": [10],
+            "race_date": pd.to_datetime(["2024-03-01"]),
+            "trackcd": [11],
+            "kyori": [1600],
+            "surface": ["turf"],
+            "track_condition_code": [1],
+        })
+        race_df = pd.DataFrame({
+            "race_id": ["R1"],
+            "race_date": pd.to_datetime(["2024-06-01"]),
+        })
+        entry_df = pd.DataFrame({
+            "race_id": ["R1"], "umaban": [1], "kettonum": ["K1"],
+            "kisyucode": ["J1"], "bataijyu": [490.0],
+        })
+        result = _compute_hist(entries_hist, races_hist, race_df, entry_df)
+        if "freshness_score" in result.columns and len(result) > 0:
+            assert np.isnan(result["freshness_score"].iloc[0])
+
+    def test_optimal_rest_30_to_60_days(self) -> None:
+        """30-60日休息 → rest_score=1.0"""
+        entries_hist = pd.DataFrame({
+            "race_id": ["p1", "p2", "p3"],
+            "race_date": pd.to_datetime(["2024-01-01", "2024-02-01", "2024-03-01"]),
+            "kettonum": ["K1", "K1", "K1"],
+            "kisyucode": ["J1", "J1", "J1"],
+            "umaban": [1, 1, 1],
+            "kakuteijyuni": [1, 1, 1],  # 好成績
+            "odds": [3.0, 2.0, 4.0],
+            "harontimel3": [34.0, 33.5, 34.2],
+            "distance_bin": ["mile", "mile", "mile"],
+            "surface": ["turf", "turf", "turf"],
+            "track_condition_code": [1, 1, 1],
+            "timediff": [-0.1, -0.3, 0.0],
+            "jyuni1c": [2, 1, 3],
+            "jyuni4c": [1, 1, 2],
+            "kyakusitukubun": [1, 1, 1],
+            "bataijyu": [480.0, 482.0, 484.0],
+        })
+        races_hist = pd.DataFrame({
+            "race_id": ["p1", "p2", "p3"],
+            "syussotosu": [16, 16, 16],
+            "race_date": pd.to_datetime(["2024-01-01", "2024-02-01", "2024-03-01"]),
+            "trackcd": [11, 11, 11],
+            "kyori": [1600, 1600, 1600],
+            "surface": ["turf", "turf", "turf"],
+            "track_condition_code": [1, 1, 1],
+        })
+        race_df = pd.DataFrame({
+            "race_id": ["R1"],
+            "race_date": pd.to_datetime(["2024-04-15"]),  # 45日後 (最適休息30-60日)
+        })
+        entry_df = pd.DataFrame({
+            "race_id": ["R1"], "umaban": [1], "kettonum": ["K1"],
+            "kisyucode": ["J1"], "bataijyu": [490.0],
+        })
+        result = _compute_hist(entries_hist, races_hist, race_df, entry_df)
+        val = result["freshness_score"].iloc[0]
+        # rest_score=1.0 (45日) × form_score (1着連発なので高い) → 高い値
+        assert val >= 0.5, f"Expected high freshness with optimal rest and good form, got {val}"
+
+
+class TestNewFeaturesInBaseCols:
+    """5新特徴量がBASE_COLSに含まれているかのテスト"""
+
+    def test_all_5_new_features_in_base_cols(self) -> None:
+        """5新特徴量が全てBASE_COLSに含まれる"""
+        from features.horse_history_features import HorseHistoryFeatures
+
+        expected = ["distance_change", "surface_change", "class_drop_bounce",
+                     "win_dominance", "freshness_score"]
+        for name in expected:
+            assert name in HorseHistoryFeatures.BASE_COLS, (
+                f"{name} should be in BASE_COLS"
+            )
+
+    def test_base_cols_count(self) -> None:
+        """BASE_COLSが28件 (23既存 + 5新) である"""
+        from features.horse_history_features import HorseHistoryFeatures
+
+        assert len(HorseHistoryFeatures.BASE_COLS) == 28, (
+            f"Expected 28 BASE_COLS, got {len(HorseHistoryFeatures.BASE_COLS)}: "
+            f"{HorseHistoryFeatures.BASE_COLS}"
+        )
