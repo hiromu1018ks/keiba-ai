@@ -44,10 +44,14 @@ def analyze_feature_importance(
     # 2. SHAP values via pred_contrib
     # IMPORTANT: shape [n_samples, n_features + 1] -- 最後の列はexpected value (base value)
     shap_matrix = model.predict(features_df, pred_contrib=True)
-    assert shap_matrix.shape[1] == len(feature_names) + 1, (
-        f"pred_contrib returned {shap_matrix.shape[1]} columns, "
-        f"expected {len(feature_names) + 1} (n_features + 1)"
-    )
+    shap_cols = shap_matrix.shape[1]
+    expected_cols = len(feature_names) + 1
+    if shap_cols != expected_cols:
+        raise ValueError(
+            f"pred_contrib returned {shap_cols} columns, "
+            f"expected {expected_cols} (n_features + 1 for base value). "
+            f"Model features: {len(feature_names)}"
+        )
 
     # 期待値列を除外
     shap_values = shap_matrix[:, :-1]
