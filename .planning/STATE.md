@@ -5,14 +5,14 @@
 See: .planning/PROJECT.md (updated 2026-05-02)
 
 **Core value:** 単勝モデルのバックテストROIを100%超えにすること
-**Current focus:** Phase 2: Win Benter Combination & Calibration
+**Current focus:** Phase 3: Selection Gate, Confidence & Betting
 
 ## Current Position
 
 Phase: 3 of 4 (Selection Gate, Confidence & Betting)
 Plan: 0 of 2 in current phase
 Status: Ready to plan
-Last activity: 2026-05-02 — Phase 2 complete (Win Benter + Calibration)
+Last activity: 2026-05-02 — Phase 3 context gathered
 
 Progress: [██████░░░░] 60%
 
@@ -64,5 +64,5 @@ Items acknowledged and carried forward from previous milestone close:
 ## Session Continuity
 
 Last session: 2026-05-02
-Stopped at: Phase 2 planned — ready for execute-phase
-Resume file: .planning/phases/02-win-benter-combination-calibration/02-01-PLAN.md
+Stopped at: Phase 3 context gathered — ready for planning
+Resume file: .planning/phases/03-selection-gate-confidence-betting/03-CONTEXT.md
