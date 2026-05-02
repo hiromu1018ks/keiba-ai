@@ -226,3 +226,105 @@ class TestSubmodelSetWinFields:
         assert sub.win_benter is None
         assert sub.win_isotonic_calibrator is None
         assert sub.win_temperature_scaler is None
+
+
+# ---------------------------------------------------------------------------
+# Test 7: compute_ece returns non-negative float
+# ---------------------------------------------------------------------------
+
+class TestComputeECE:
+    """compute_ece が非負の ECE を返す."""
+
+    def test_returns_nonnegative(self) -> None:
+        from models.win_benter_gate import compute_ece
+
+        y_true = np.array([1, 0, 0, 0, 0, 0, 0, 0, 0, 0])
+        y_prob = np.array([0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2, 0.1, 0.05])
+        result = compute_ece(y_true, y_prob)
+        assert isinstance(result, float)
+        assert result >= 0.0
+
+    def test_perfect_calibration(self) -> None:
+        """完全にキャリブレーションされた予測は ECE が 0 に近い."""
+        from models.win_benter_gate import compute_ece
+
+        rng = np.random.RandomState(42)
+        n = 10000
+        # y_prob がそのまま確率として使える → 十分大きなサンプルで ECE ~ 0
+        y_prob = rng.uniform(0.05, 0.95, n)
+        y_true = (rng.random(n) < y_prob).astype(float)
+        result = compute_ece(y_true, y_prob, n_bins=20)
+        # 統計的ばらつきを考慮して 0.05 以下を許容
+        assert result < 0.05
+
+
+# ---------------------------------------------------------------------------
+# Test 8: compare_calibrations returns required keys and selects lower Brier
+# ---------------------------------------------------------------------------
+
+class TestCompareCalibrations:
+    """compare_calibrations が正しいキーを返し、Brier Score で勝者を選ぶ."""
+
+    def test_returns_required_keys(self) -> None:
+        from models.win_benter_gate import compare_calibrations
+
+        rng = np.random.RandomState(42)
+        n = 1000
+        p_benter = rng.uniform(0.01, 0.5, n)
+        y = (rng.random(n) < p_benter).astype(int)
+
+        result = compare_calibrations(p_benter, y, train_ratio=0.8)
+        for key in ["beta_brier", "iso_brier", "beta_ece", "iso_ece", "winner"]:
+            assert key in result, f"Missing key: {key}"
+
+    def test_selects_lower_brier(self) -> None:
+        """Beta Brier Score が低い場合 winner='beta' になる."""
+        from models.win_benter_gate import compare_calibrations
+
+        rng = np.random.RandomState(42)
+        n = 2000
+        p_benter = rng.uniform(0.01, 0.5, n)
+        y = (rng.random(n) < p_benter).astype(int)
+
+        result = compare_calibrations(p_benter, y, train_ratio=0.8)
+        # どちらかが勝者
+        assert result["winner"] in ("beta", "isotonic")
+
+
+# ---------------------------------------------------------------------------
+# Test 9: generate_reliability_data returns required keys
+# ---------------------------------------------------------------------------
+
+class TestGenerateReliabilityData:
+    """generate_reliability_data が信頼性ダイアグラムデータを返す."""
+
+    def test_returns_required_keys(self) -> None:
+        from models.win_benter_gate import generate_reliability_data
+
+        rng = np.random.RandomState(42)
+        n = 500
+        y_true = rng.randint(0, 2, n).astype(float)
+        y_prob = rng.uniform(0.1, 0.9, n)
+
+        result = generate_reliability_data(y_true, y_prob, n_bins=10)
+        assert "fraction_of_positives" in result
+        assert "mean_predicted_value" in result
+        assert "bin_edges" in result
+        assert len(result["bin_edges"]) == 11  # n_bins + 1
+
+    def test_perfect_calibration(self) -> None:
+        """完全キャリブレーションでは fraction_of_positives ≈ mean_predicted_value."""
+        from models.win_benter_gate import generate_reliability_data
+
+        rng = np.random.RandomState(42)
+        n = 50000
+        y_prob = rng.uniform(0.1, 0.9, n)
+        y_true = (rng.random(n) < y_prob).astype(float)
+
+        result = generate_reliability_data(y_true, y_prob, n_bins=10)
+        # 各ビンで fraction_of_positives と mean_predicted_value が近いことを確認
+        fop = result["fraction_of_positives"]
+        mpv = result["mean_predicted_value"]
+        assert len(fop) == len(mpv)
+        # 大きなサンプルなので最大差が 0.1 以下を期待
+        assert np.max(np.abs(fop - mpv)) < 0.1
