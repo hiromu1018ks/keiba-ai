@@ -24,10 +24,10 @@ class GateKeeper:
         Returns:
             True: ベット可, False: 却下
         """
-        # edge >= 0.03 デフォルト閾値で判定（ev_threshold は無視）
-        return bet.edge >= 0.03
+        # edge >= 0.04 デフォルト閾値 (Phase 3: JRA控除率考慮)
+        return bet.edge >= 0.04
 
-    def filter_bets(self, bets: list[Bet], edge_threshold: float = 0.03) -> list[Bet]:
+    def filter_bets(self, bets: list[Bet], edge_threshold: float = 0.04) -> list[Bet]:
         """
         ベットリストからedge閾値未満を除外する。
 

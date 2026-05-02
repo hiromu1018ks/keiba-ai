@@ -74,7 +74,7 @@ class TestGateKeeper:
             odds=3.0,
             ev_lower_corrected=1.10,
             stake=500.0,
-            edge=0.03,
+            edge=0.04,  # Phase 3: デフォルト閾値0.04に更新
         )
         assert gk.should_bet(bet) is True
 
