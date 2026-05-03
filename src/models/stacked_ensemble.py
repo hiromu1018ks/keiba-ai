@@ -125,10 +125,17 @@ class StackedEnsemble:
         return np.clip(self.meta_model.predict(stacked), 0, 1)
 
     def _encode_cats(self, X: pd.DataFrame) -> pd.DataFrame:
-        """カテゴリ列を数値コードに変換 (XGBoost/CatBoost 用)。"""
+        """カテゴリ列を数値コードに変換 (XGBoost/CatBoost 用)。
+
+        _cat_codesが利用可能な場合は学習時のマッピングを使用し、
+        未知カテゴリを-1として扱う。そうでなければcat.codesにフォールバック。
+        """
         X_out = X.copy()
         for col in self.cat_cols:
-            if col in X_out.columns and X_out[col].dtype.name == "category":
+            if col in X_out.columns and col in self._cat_codes:
+                codes = self._cat_codes[col]
+                X_out[col] = X_out[col].map(codes).fillna(-1).astype(float)
+            elif col in X_out.columns and X_out[col].dtype.name == "category":
                 X_out[col] = X_out[col].cat.codes.astype(float)
         return X_out
 
