@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: ROI Advanced Model
 status: in_progress
-last_updated: "2026-05-03T07:43:17Z"
-last_activity: 2026-05-03 — Plan 05-02 completed (ODTS-01~02 odds dynamics features)
+last_updated: "2026-05-03T08:50:00Z"
+last_activity: 2026-05-03 — Phase 6 context gathered (Odds Deviation EV)
 progress:
   total_phases: 3
   completed_phases: 1
@@ -20,16 +20,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-05-03)
 
 **Core value:** 単勝モデルのバックテストROIを100%超えにすること
-**Current focus:** Phase 5 — Foundation Features
+**Current focus:** Phase 6 — Odds Deviation EV
 
 ## Current Position
 
-Phase: 5 of 7 (Foundation Features)
-Plan: 1 of 2 in current phase
-Status: In progress — Plan 05-02 complete
-Last activity: 2026-05-03 — Plan 05-02 completed (ODTS odds dynamics features)
+Phase: 6 of 7 (Odds Deviation EV)
+Plan: 0 of 1 in current phase
+Status: Context gathered — ready for planning
+Last activity: 2026-05-03 — Phase 6 context gathered
 
-Progress: [====░░░░░░] 50%
+Progress: [=====░░░░░] 55%
 
 ## Performance Metrics
 
@@ -64,8 +64,8 @@ Recent decisions affecting current work:
 - Roadmap: Ensemble last — highest risk isolated, feature improvements safe even if stacking underperforms
 - Phase 3 (v1.0): edge_threshold+0.01微小引き上げでJRA控除率25%マージン確保
 - Phase 4 (v1.0): LightGBM feature_namesはDatasetコンストラクタで設定(lgb.trainには渡せない)
-- Plan 05-01: EMA halflife=3採用 (金融時系列標準)、class_adj_formetric式、z-score trend最低3走、PACE 3サブ特徴量分割
 - Plan 05-02: odds_acceleration 3点差分(vel_late-vel_early)、direction_consistency halflife=n/4+最小5点要件
+- Phase 6 context: deviation_rank+z-score追加、conformal EV区間2段階(80%/90%)、三層テスト戦略
 
 ### Pending Todos
 
@@ -88,5 +88,5 @@ Items acknowledged and carried forward from previous milestone close:
 ## Session Continuity
 
 Last session: 2026-05-03
-Stopped at: Plan 05-02 completed, Phase 5 complete. Next is Phase 6 (Odds Deviation EV)
-Resume file: .planning/phases/06-odds-deviation/06-01-PLAN.md
+Stopped at: Phase 6 context gathered. Next is Phase 6 planning.
+Resume file: .planning/phases/06-odds-deviation/06-CONTEXT.md
