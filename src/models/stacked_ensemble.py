@@ -10,6 +10,7 @@ best_iteration=0 + predict(X) → ndarray を返すことで互換。
 
 from __future__ import annotations
 
+import logging
 import os
 from typing import Any
 
@@ -17,6 +18,8 @@ import lightgbm as lgb
 import numpy as np
 import pandas as pd
 from sklearn.linear_model import Ridge
+
+logger = logging.getLogger(__name__)
 
 
 class StackedEnsemble:
@@ -29,14 +32,21 @@ class StackedEnsemble:
 
     best_iteration: int = 0
 
-    def __init__(self, cat_cols: list[str] | None = None, n_folds: int = 3) -> None:
+    def __init__(
+        self,
+        cat_cols: list[str] | None = None,
+        n_folds: int = 3,
+        n_trials: int = 30,
+    ) -> None:
         self.cat_cols = cat_cols or []
         self.n_folds = n_folds
+        self.n_trials = n_trials
         self._cat_codes: dict[str, dict[str, int]] = {}
         self.lgbm_model: lgb.Booster | None = None
         self.xgb_model = None
         self.cat_model = None
         self.meta_model: Ridge | None = None
+        self.best_params: dict[str, dict[str, Any]] = {}
 
     def train(
         self,
@@ -50,6 +60,9 @@ class StackedEnsemble:
         """K-fold OOF でメタラーナーを学習後、全データでベースモデルを再学習。"""
         if num_threads <= 0:
             num_threads = max(1, (os.cpu_count() or 4) // 2)
+
+        # --- Optuna HP Tuning Phase ---
+        self.best_params = self._tune_hyperparams(X_train, y_train, num_threads)
 
         # --- Level 1: K-fold OOF 予測生成 ---
         n = len(X_train)
@@ -65,9 +78,15 @@ class StackedEnsemble:
             X_tr, y_tr = X_train.iloc[:val_start], y_train.iloc[:val_start]
             X_va = X_train.iloc[val_start:val_end]
 
-            oof_preds[val_start:val_end, 0] = self._train_lgbm_fold(X_tr, y_tr, X_va, num_threads)
-            oof_preds[val_start:val_end, 1] = self._train_xgb_fold(X_tr, y_tr, X_va, num_threads)
-            oof_preds[val_start:val_end, 2] = self._train_cat_fold(X_tr, y_tr, X_va, num_threads)
+            oof_preds[val_start:val_end, 0] = self._train_lgbm_fold(
+                X_tr, y_tr, X_va, num_threads, self.best_params["lgbm"],
+            )
+            oof_preds[val_start:val_end, 1] = self._train_xgb_fold(
+                X_tr, y_tr, X_va, num_threads, self.best_params["xgb"],
+            )
+            oof_preds[val_start:val_end, 2] = self._train_cat_fold(
+                X_tr, y_tr, X_va, num_threads, self.best_params["cat"],
+            )
 
         # --- Level 2: Ridge メタラーナー ---
         # NaNが残る行 (OOF対象外) を除外して学習
@@ -79,9 +98,9 @@ class StackedEnsemble:
         X_all = pd.concat([X_train, X_valid], ignore_index=True)
         y_all = pd.concat([y_train, y_valid], ignore_index=True)
 
-        self.lgbm_model = self._train_lgbm_full(X_all, y_all, num_threads)
-        self.xgb_model = self._train_xgb_full(X_all, y_all, num_threads)
-        self.cat_model = self._train_cat_full(X_all, y_all, num_threads)
+        self.lgbm_model = self._train_lgbm_full(X_all, y_all, num_threads, self.best_params["lgbm"])
+        self.xgb_model = self._train_xgb_full(X_all, y_all, num_threads, self.best_params["xgb"])
+        self.cat_model = self._train_cat_full(X_all, y_all, num_threads, self.best_params["cat"])
 
     def predict(self, X: pd.DataFrame, num_iteration: int | None = None) -> np.ndarray:
         """アンサンブル予測。Ridge で3モデルの予測を統合。"""
@@ -111,67 +130,364 @@ class StackedEnsemble:
             if col in X.columns and X[col].dtype.name == "category":
                 self._cat_codes[col] = {cat: code for code, cat in enumerate(X[col].cat.categories)}
 
-    # --- LightGBM helpers ---
-    def _train_lgbm_fold(
-        self, X_tr: pd.DataFrame, y_tr: pd.Series, X_va: pd.DataFrame, nt: int
-    ) -> np.ndarray:
+    # --- Optuna suggest functions (exploration space separation) ---
+
+    def _suggest_lgbm_params(self, trial: Any) -> dict[str, Any]:
+        """LightGBM: 浅い木 + 中程度のlr"""
+        return {
+            "lgb_num_leaves": trial.suggest_int("lgb_num_leaves", 31, 63),
+            "lgb_lr": trial.suggest_float("lgb_lr", 0.01, 0.05, log=True),
+            "lgb_feat_frac": trial.suggest_float("lgb_feat_frac", 0.3, 0.9),
+        }
+
+    def _suggest_xgb_params(self, trial: Any) -> dict[str, Any]:
+        """XGBoost: 中程度の深さ + 高めのlr"""
+        return {
+            "xgb_max_depth": trial.suggest_int("xgb_max_depth", 4, 8),
+            "xgb_lr": trial.suggest_float("xgb_lr", 0.03, 0.1, log=True),
+            "xgb_col_sample": trial.suggest_float("xgb_col_sample", 0.3, 0.9),
+        }
+
+    def _suggest_cat_params(self, trial: Any) -> dict[str, Any]:
+        """CatBoost: 深い木 + 低めのlr"""
+        return {
+            "cat_depth": trial.suggest_int("cat_depth", 6, 10),
+            "cat_lr": trial.suggest_float("cat_lr", 0.005, 0.03, log=True),
+            "cat_rsm": trial.suggest_float("cat_rsm", 0.3, 0.9),
+        }
+
+    # --- Optuna tuning ---
+
+    def _tune_hyperparams(
+        self, X_train: pd.DataFrame, y_train: pd.Series, num_threads: int,
+    ) -> dict[str, dict[str, Any]]:
+        """Optunaで各モデルのHPを個別最適化"""
+        import optuna
+        optuna.logging.set_verbosity(optuna.logging.WARNING)
+
+        n = len(X_train)
+        split = int(n * 0.8)
+        X_t, y_t = X_train.iloc[:split], y_train.iloc[:split]
+        X_v, y_v = X_train.iloc[split:], y_train.iloc[split:]
+
+        best_params: dict[str, dict[str, Any]] = {}
+        for model_name, suggest_fn, eval_fn in [
+            ("lgbm", self._suggest_lgbm_params, self._eval_lgbm),
+            ("xgb", self._suggest_xgb_params, self._eval_xgb),
+            ("cat", self._suggest_cat_params, self._eval_cat),
+        ]:
+            study = optuna.create_study(direction="maximize")
+            study.optimize(
+                lambda trial, fn=suggest_fn, tf=eval_fn: tf(
+                    trial, fn, X_t, y_t, X_v, y_v, num_threads,
+                ),
+                n_trials=self.n_trials,
+            )
+            best_params[model_name] = study.best_params
+        return best_params
+
+    def _eval_lgbm(
+        self,
+        trial: Any,
+        suggest_fn: Any,
+        X_t: pd.DataFrame,
+        y_t: pd.Series,
+        X_v: pd.DataFrame,
+        y_v: pd.Series,
+        num_threads: int,
+    ) -> float:
+        """LightGBM Optuna objective"""
+        from sklearn.metrics import roc_auc_score
+
+        params = suggest_fn(trial)
+        train_data = lgb.Dataset(X_t, label=y_t)
+        valid_data = lgb.Dataset(X_v, label=y_v, reference=train_data)
         m = lgb.train(
-            {"objective": "binary", "metric": "auc", "learning_rate": 0.03,
-             "num_leaves": 31, "verbose": -1, "num_threads": nt},
-            lgb.Dataset(X_tr, label=y_tr), num_boost_round=300,
+            {
+                "objective": "binary", "metric": "auc",
+                "num_leaves": params["lgb_num_leaves"],
+                "learning_rate": params["lgb_lr"],
+                "feature_fraction": params["lgb_feat_frac"],
+                "verbose": -1, "num_threads": num_threads,
+            },
+            train_data, num_boost_round=500,
+            valid_sets=[valid_data],
+            callbacks=[lgb.early_stopping(stopping_rounds=100, verbose=False)],
+        )
+        preds = m.predict(X_v)
+        return float(roc_auc_score(y_v, preds))
+
+    def _eval_xgb(
+        self,
+        trial: Any,
+        suggest_fn: Any,
+        X_t: pd.DataFrame,
+        y_t: pd.Series,
+        X_v: pd.DataFrame,
+        y_v: pd.Series,
+        num_threads: int,
+    ) -> float:
+        """XGBoost Optuna objective"""
+        import xgboost as xgb
+        from sklearn.metrics import roc_auc_score
+
+        params = suggest_fn(trial)
+        X_t_num = self._encode_cats(X_t)
+        X_v_num = self._encode_cats(X_v)
+        dtrain = xgb.DMatrix(X_t_num, label=y_t)
+        dvalid = xgb.DMatrix(X_v_num, label=y_v)
+        m = xgb.train(
+            {
+                "objective": "binary:logistic", "eval_metric": "auc",
+                "max_depth": params["xgb_max_depth"],
+                "learning_rate": params["xgb_lr"],
+                "colsample_bytree": params["xgb_col_sample"],
+                "nthread": num_threads,
+            },
+            dtrain, num_boost_round=500,
+            evals=[(dvalid, "valid")],
+            early_stopping_rounds=100,
+            verbose_eval=False,
+        )
+        preds = m.predict(dvalid)
+        return float(roc_auc_score(y_v, preds))
+
+    def _eval_cat(
+        self,
+        trial: Any,
+        suggest_fn: Any,
+        X_t: pd.DataFrame,
+        y_t: pd.Series,
+        X_v: pd.DataFrame,
+        y_v: pd.Series,
+        num_threads: int,
+    ) -> float:
+        """CatBoost Optuna objective"""
+        from catboost import CatBoostClassifier
+        from sklearn.metrics import roc_auc_score
+
+        params = suggest_fn(trial)
+        X_t_num = self._encode_cats(X_t)
+        X_v_num = self._encode_cats(X_v)
+        m = CatBoostClassifier(
+            iterations=500,
+            learning_rate=params["cat_lr"],
+            depth=params["cat_depth"],
+            rsm=params["cat_rsm"],
+            thread_count=num_threads,
+            verbose=0,
+            early_stopping_rounds=100,
+            eval_metric="AUC",
+        )
+        m.fit(X_t_num, y_t, eval_set=(X_v_num, y_v))
+        preds = m.predict_proba(X_v_num)[:, 1]
+        return float(roc_auc_score(y_v, preds))
+
+    # --- LightGBM helpers ---
+
+    def _train_lgbm_fold(
+        self,
+        X_tr: pd.DataFrame,
+        y_tr: pd.Series,
+        X_va: pd.DataFrame,
+        nt: int,
+        params: dict[str, Any] | None = None,
+    ) -> np.ndarray:
+        lr = params["lgb_lr"] if params else 0.03
+        num_leaves = params["lgb_num_leaves"] if params else 31
+        feat_frac = params["lgb_feat_frac"] if params else 1.0
+
+        # K-fold train部を80/20に分割 (D-05)
+        n_tr = len(X_tr)
+        es_split = int(n_tr * 0.8)
+        X_t, y_t = X_tr.iloc[:es_split], y_tr.iloc[:es_split]
+        X_v, y_v = X_tr.iloc[es_split:], y_tr.iloc[es_split:]
+
+        train_data = lgb.Dataset(X_t, label=y_t)
+        valid_data = lgb.Dataset(X_v, label=y_v, reference=train_data)
+
+        m = lgb.train(
+            {
+                "objective": "binary", "metric": "auc",
+                "learning_rate": lr, "num_leaves": num_leaves,
+                "feature_fraction": feat_frac,
+                "verbose": -1, "num_threads": nt,
+            },
+            train_data, num_boost_round=500,
+            valid_sets=[valid_data],
+            callbacks=[lgb.early_stopping(stopping_rounds=100, verbose=False)],
         )
         return m.predict(X_va)
 
-    def _train_lgbm_full(self, X: pd.DataFrame, y: pd.Series, nt: int) -> lgb.Booster:
+    def _train_lgbm_full(
+        self,
+        X: pd.DataFrame,
+        y: pd.Series,
+        nt: int,
+        params: dict[str, Any] | None = None,
+    ) -> lgb.Booster:
+        lr = params["lgb_lr"] if params else 0.03
+        num_leaves = params["lgb_num_leaves"] if params else 31
+        feat_frac = params["lgb_feat_frac"] if params else 1.0
+
+        # 80/20 split for validation
+        n = len(X)
+        es_split = int(n * 0.8)
+        X_t, y_t = X.iloc[:es_split], y.iloc[:es_split]
+        X_v, y_v = X.iloc[es_split:], y.iloc[es_split:]
+
+        train_data = lgb.Dataset(X_t, label=y_t)
+        valid_data = lgb.Dataset(X_v, label=y_v, reference=train_data)
+
         return lgb.train(
-            {"objective": "binary", "metric": "auc", "learning_rate": 0.03,
-             "num_leaves": 31, "verbose": -1, "num_threads": nt},
-            lgb.Dataset(X, label=y), num_boost_round=300,
+            {
+                "objective": "binary", "metric": "auc",
+                "learning_rate": lr, "num_leaves": num_leaves,
+                "feature_fraction": feat_frac,
+                "verbose": -1, "num_threads": nt,
+            },
+            train_data, num_boost_round=500,
+            valid_sets=[valid_data],
+            callbacks=[lgb.early_stopping(stopping_rounds=100, verbose=False)],
         )
 
     # --- XGBoost helpers ---
+
     def _train_xgb_fold(
-        self, X_tr: pd.DataFrame, y_tr: pd.Series, X_va: pd.DataFrame, nt: int
+        self,
+        X_tr: pd.DataFrame,
+        y_tr: pd.Series,
+        X_va: pd.DataFrame,
+        nt: int,
+        params: dict[str, Any] | None = None,
     ) -> np.ndarray:
         import xgboost as xgb
         X_tr_num = self._encode_cats(X_tr)
         X_va_num = self._encode_cats(X_va)
+
+        max_depth = params["xgb_max_depth"] if params else 6
+        lr = params["xgb_lr"] if params else 0.03
+        col_sample = params["xgb_col_sample"] if params else 1.0
+
+        # K-fold train部を80/20に分割 (D-05)
+        n_tr = len(X_tr_num)
+        es_split = int(n_tr * 0.8)
+        dtrain = xgb.DMatrix(X_tr_num.iloc[:es_split], label=y_tr.iloc[:es_split])
+        dvalid = xgb.DMatrix(X_tr_num.iloc[es_split:], label=y_tr.iloc[es_split:])
+
         m = xgb.train(
-            {"objective": "binary:logistic", "learning_rate": 0.03,
-             "max_depth": 6, "nthread": nt},
-            xgb.DMatrix(X_tr_num, label=y_tr), num_boost_round=300,
+            {
+                "objective": "binary:logistic", "eval_metric": "auc",
+                "max_depth": max_depth, "learning_rate": lr,
+                "colsample_bytree": col_sample, "nthread": nt,
+            },
+            dtrain, num_boost_round=500,
+            evals=[(dvalid, "valid")],
+            early_stopping_rounds=100,
+            verbose_eval=False,
         )
         return m.predict(xgb.DMatrix(X_va_num))
 
-    def _train_xgb_full(self, X: pd.DataFrame, y: pd.Series, nt: int) -> Any:
+    def _train_xgb_full(
+        self,
+        X: pd.DataFrame,
+        y: pd.Series,
+        nt: int,
+        params: dict[str, Any] | None = None,
+    ) -> Any:
         import xgboost as xgb
         X_num = self._encode_cats(X)
+
+        max_depth = params["xgb_max_depth"] if params else 6
+        lr = params["xgb_lr"] if params else 0.03
+        col_sample = params["xgb_col_sample"] if params else 1.0
+
+        # 80/20 split for validation
+        n = len(X_num)
+        es_split = int(n * 0.8)
+        dtrain = xgb.DMatrix(X_num.iloc[:es_split], label=y.iloc[:es_split])
+        dvalid = xgb.DMatrix(X_num.iloc[es_split:], label=y.iloc[es_split:])
+
         return xgb.train(
-            {"objective": "binary:logistic", "learning_rate": 0.03,
-             "max_depth": 6, "nthread": nt},
-            xgb.DMatrix(X_num, label=y), num_boost_round=300,
+            {
+                "objective": "binary:logistic", "eval_metric": "auc",
+                "max_depth": max_depth, "learning_rate": lr,
+                "colsample_bytree": col_sample, "nthread": nt,
+            },
+            dtrain, num_boost_round=500,
+            evals=[(dvalid, "valid")],
+            early_stopping_rounds=100,
+            verbose_eval=False,
         )
 
     # --- CatBoost helpers ---
+
     def _train_cat_fold(
-        self, X_tr: pd.DataFrame, y_tr: pd.Series, X_va: pd.DataFrame, nt: int
+        self,
+        X_tr: pd.DataFrame,
+        y_tr: pd.Series,
+        X_va: pd.DataFrame,
+        nt: int,
+        params: dict[str, Any] | None = None,
     ) -> np.ndarray:
         from catboost import CatBoostClassifier
         X_tr_num = self._encode_cats(X_tr)
         X_va_num = self._encode_cats(X_va)
+
+        depth = params["cat_depth"] if params else 6
+        lr = params["cat_lr"] if params else 0.03
+        rsm = params["cat_rsm"] if params else 1.0
+
+        # K-fold train部を80/20に分割 (D-05)
+        n_tr = len(X_tr_num)
+        es_split = int(n_tr * 0.8)
+
         m = CatBoostClassifier(
-            iterations=300, learning_rate=0.03, depth=6,
-            thread_count=nt, verbose=0,
+            iterations=500,
+            learning_rate=lr,
+            depth=depth,
+            rsm=rsm,
+            thread_count=nt,
+            verbose=0,
+            early_stopping_rounds=100,
+            eval_metric="AUC",
         )
-        m.fit(X_tr_num, y_tr)
+        m.fit(
+            X_tr_num.iloc[:es_split], y_tr.iloc[:es_split],
+            eval_set=(X_tr_num.iloc[es_split:], y_tr.iloc[es_split:]),
+        )
         return m.predict_proba(X_va_num)[:, 1]
 
-    def _train_cat_full(self, X: pd.DataFrame, y: pd.Series, nt: int) -> Any:
+    def _train_cat_full(
+        self,
+        X: pd.DataFrame,
+        y: pd.Series,
+        nt: int,
+        params: dict[str, Any] | None = None,
+    ) -> Any:
         from catboost import CatBoostClassifier
         X_num = self._encode_cats(X)
+
+        depth = params["cat_depth"] if params else 6
+        lr = params["cat_lr"] if params else 0.03
+        rsm = params["cat_rsm"] if params else 1.0
+
+        # 80/20 split for validation
+        n = len(X_num)
+        es_split = int(n * 0.8)
+
         m = CatBoostClassifier(
-            iterations=300, learning_rate=0.03, depth=6,
-            thread_count=nt, verbose=0,
+            iterations=500,
+            learning_rate=lr,
+            depth=depth,
+            rsm=rsm,
+            thread_count=nt,
+            verbose=0,
+            early_stopping_rounds=100,
+            eval_metric="AUC",
         )
-        m.fit(X_num, y)
+        m.fit(
+            X_num.iloc[:es_split], y.iloc[:es_split],
+            eval_set=(X_num.iloc[es_split:], y.iloc[es_split:]),
+        )
         return m

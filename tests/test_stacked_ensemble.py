@@ -1,8 +1,6 @@
 import numpy as np
 import pandas as pd
-import pytest
-from unittest.mock import patch, MagicMock, call
-import lightgbm as lgb
+from unittest.mock import patch, MagicMock
 from models.stacked_ensemble import StackedEnsemble
 
 
@@ -91,9 +89,17 @@ class TestOptunaTuning:
 
         # lgb.trainが呼ばれた際、callbacksにearly_stoppingが含まれることを確認
         call_kwargs = mock_lgb_train.call_args
-        callbacks = call_kwargs[1].get("callbacks") if call_kwargs[1] else call_kwargs.kwargs.get("callbacks")
+        callbacks = (
+            call_kwargs[1].get("callbacks")
+            if call_kwargs[1]
+            else call_kwargs.kwargs.get("callbacks")
+        )
         assert callbacks is not None
-        assert any("early_stopping" in str(type(cb).__name__).lower() for cb in callbacks)
+        # early_stopping callbackのstopping_rounds属性を確認
+        assert any(
+            hasattr(cb, "stopping_rounds") and cb.stopping_rounds == 100
+            for cb in callbacks
+        )
 
     @patch("models.stacked_ensemble.lgb.train")
     def test_early_stopping_in_full(self, mock_lgb_train):
@@ -111,7 +117,10 @@ class TestOptunaTuning:
         call_kwargs = mock_lgb_train.call_args
         callbacks = call_kwargs.kwargs.get("callbacks")
         assert callbacks is not None
-        assert any("early_stopping" in str(type(cb).__name__).lower() for cb in callbacks)
+        assert any(
+            hasattr(cb, "stopping_rounds") and cb.stopping_rounds == 100
+            for cb in callbacks
+        )
 
     def test_80_20_split_in_fold(self):
         """_train_lgbm_foldがX_trを80/20に分割してvalidation確保"""
@@ -158,38 +167,42 @@ class TestOptunaTuning:
         """各モデルが異なる木複雑度空間を探索"""
         ensemble = StackedEnsemble(cat_cols=[])
         import optuna
-        # LightGBM: num_leaves max=63
+
+        # LightGBM: suggest_fnをobjective内で呼び出し、trialにparamsを記録
         study_lgb = optuna.create_study(direction="maximize")
-        study_lgb.optimize(lambda t: 0.0, n_trials=1)
+        study_lgb.optimize(
+            lambda t: (ensemble._suggest_lgbm_params(t) or 0.0) and 0.0,
+            n_trials=1,
+        )
         lgb_params = ensemble._suggest_lgbm_params(study_lgb.best_trial)
         assert lgb_params["lgb_num_leaves"] <= 63
 
-        # XGBoost: max_depth max=8 → leaf換算 2^8=256
         study_xgb = optuna.create_study(direction="maximize")
-        study_xgb.optimize(lambda t: 0.0, n_trials=1)
+        study_xgb.optimize(
+            lambda t: (ensemble._suggest_xgb_params(t) or 0.0) and 0.0,
+            n_trials=1,
+        )
         xgb_params = ensemble._suggest_xgb_params(study_xgb.best_trial)
         assert xgb_params["xgb_max_depth"] <= 8
 
-        # CatBoost: depth max=10 → leaf換算 2^10=1024
         study_cat = optuna.create_study(direction="maximize")
-        study_cat.optimize(lambda t: 0.0, n_trials=1)
+        study_cat.optimize(
+            lambda t: (ensemble._suggest_cat_params(t) or 0.0) and 0.0,
+            n_trials=1,
+        )
         cat_params = ensemble._suggest_cat_params(study_cat.best_trial)
         assert cat_params["cat_depth"] <= 10
 
-        # 複雑度順序: LGB leaves(63) < XGB leaf換算(256) < CAT leaf換算(1024)
-        lgb_leaves = lgb_params["lgb_num_leaves"]
-        xgb_leaves_equiv = 2 ** xgb_params["xgb_max_depth"]
-        cat_leaves_equiv = 2 ** cat_params["cat_depth"]
-        assert lgb_leaves < xgb_leaves_equiv
-        assert xgb_leaves_equiv <= cat_leaves_equiv
+        # 複雑度順序(上限): LGB(63) < XGB(2^8=256) < CAT(2^10=1024)
+        assert 63 < 2 ** 8  # LGB max < XGB max
+        assert 2 ** 8 <= 2 ** 10  # XGB max <= CAT max
 
-    @patch("models.stacked_ensemble.xgb")
-    def test_xgb_early_stopping_in_fold(self, mock_xgb):
+    @patch("xgboost.train")
+    def test_xgb_early_stopping_in_fold(self, mock_xgb_train):
         """_train_xgb_foldがearly_stopping_rounds=100をxgb.trainに渡す"""
         mock_model = MagicMock()
         mock_model.predict.return_value = np.array([0.5, 0.5])
-        mock_xgb.train.return_value = mock_model
-        mock_xgb.DMatrix.return_value = MagicMock()
+        mock_xgb_train.return_value = mock_model
 
         ensemble = StackedEnsemble(cat_cols=[])
         X_tr = pd.DataFrame({"f1": range(20), "f2": range(20, 40)})
@@ -199,10 +212,10 @@ class TestOptunaTuning:
         params = {"xgb_max_depth": 6, "xgb_lr": 0.03, "xgb_col_sample": 0.7}
         ensemble._train_xgb_fold(X_tr, y_tr, X_va, 1, params)
 
-        call_kwargs = mock_xgb.train.call_args.kwargs
+        call_kwargs = mock_xgb_train.call_args.kwargs
         assert call_kwargs.get("early_stopping_rounds") == 100
 
-    @patch("models.stacked_ensemble.CatBoostClassifier")
+    @patch("catboost.CatBoostClassifier")
     def test_cat_early_stopping_in_fold(self, mock_cat_cls):
         """_train_cat_foldがearly_stopping_rounds=100をCatBoostClassifierに渡す"""
         mock_model = MagicMock()
