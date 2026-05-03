@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+import warnings
 
 import lightgbm as lgb
 import pandas as pd
@@ -134,6 +135,13 @@ class WinTwoStageModel:
         Args:
             noise_features: 除外する特徴量名のリスト
         """
+        warnings.warn(
+            "remove_noise_features() mutates class-level state and is not thread-safe. "
+            "Use get_filtered_feature_cols() instead, which returns a new list. "
+            "remove_noise_features() will be removed in a future version.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         before = len(cls.FEATURE_COLS)
         removed = [f for f in noise_features if f in cls.FEATURE_COLS]
         cls.FEATURE_COLS = [f for f in cls.FEATURE_COLS if f not in noise_features]
