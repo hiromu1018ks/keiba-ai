@@ -171,30 +171,32 @@ class TestOptunaTuning:
         ensemble = StackedEnsemble(cat_cols=[])
         import optuna
 
-        # LightGBM: suggest_fnをobjective内で呼び出し、trialにparamsを記録
+        # LightGBM: objective内でsuggest結果をキャプチャ
+        captured_lgb: dict = {}
+        def obj_lgb(t):
+            captured_lgb.update(ensemble._suggest_lgbm_params(t))
+            return 0.0
         study_lgb = optuna.create_study(direction="maximize")
-        study_lgb.optimize(
-            lambda t: (ensemble._suggest_lgbm_params(t) or 0.0) and 0.0,
-            n_trials=1,
-        )
-        lgb_params = ensemble._suggest_lgbm_params(study_lgb.best_trial)
-        assert lgb_params["lgb_num_leaves"] <= 63
+        study_lgb.optimize(obj_lgb, n_trials=1)
+        assert captured_lgb["lgb_num_leaves"] <= 63
 
+        # XGBoost
+        captured_xgb: dict = {}
+        def obj_xgb(t):
+            captured_xgb.update(ensemble._suggest_xgb_params(t))
+            return 0.0
         study_xgb = optuna.create_study(direction="maximize")
-        study_xgb.optimize(
-            lambda t: (ensemble._suggest_xgb_params(t) or 0.0) and 0.0,
-            n_trials=1,
-        )
-        xgb_params = ensemble._suggest_xgb_params(study_xgb.best_trial)
-        assert xgb_params["xgb_max_depth"] <= 8
+        study_xgb.optimize(obj_xgb, n_trials=1)
+        assert captured_xgb["xgb_max_depth"] <= 8
 
+        # CatBoost
+        captured_cat: dict = {}
+        def obj_cat(t):
+            captured_cat.update(ensemble._suggest_cat_params(t))
+            return 0.0
         study_cat = optuna.create_study(direction="maximize")
-        study_cat.optimize(
-            lambda t: (ensemble._suggest_cat_params(t) or 0.0) and 0.0,
-            n_trials=1,
-        )
-        cat_params = ensemble._suggest_cat_params(study_cat.best_trial)
-        assert cat_params["cat_depth"] <= 10
+        study_cat.optimize(obj_cat, n_trials=1)
+        assert captured_cat["cat_depth"] <= 10
 
         # 複雑度順序(上限): LGB(63) < XGB(2^8=256) < CAT(2^10=1024)
         assert 63 < 2 ** 8  # LGB max < XGB max
