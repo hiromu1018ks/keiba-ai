@@ -169,7 +169,7 @@ class RobustConfidenceEstimator:
 
         cp_upper = win_ev + primary_cp_quantile
         rolling_upper = win_ev + primary_rolling_quantile
-        upper = np.maximum(cp_upper, rolling_upper)
+        upper = np.minimum(cp_upper, rolling_upper)  # conservative: narrower interval
 
         win_df["EV_lower_win_corrected"] = lower
         win_df["EV_upper_win_corrected"] = upper
@@ -219,7 +219,7 @@ class RobustConfidenceEstimator:
         )
         cp_upper_place = place_ev + self._place_cp_quantile
         rolling_upper_place = place_ev + self._place_rolling_quantile
-        place_df["EV_upper_place"] = np.maximum(cp_upper_place, rolling_upper_place)
+        place_df["EV_upper_place"] = np.minimum(cp_upper_place, rolling_upper_place)  # conservative
 
         return win_df, place_df
 
