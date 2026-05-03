@@ -65,25 +65,25 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| ENS-01 | — | Pending |
-| ENS-02 | — | Pending |
-| ENS-03 | — | Pending |
-| ODDS-01 | — | Pending |
-| ODDS-02 | — | Pending |
-| ODDS-03 | — | Pending |
-| ODTS-01 | — | Pending |
-| ODTS-02 | — | Pending |
-| TSER-01 | — | Pending |
-| TSER-02 | — | Pending |
-| TSER-03 | — | Pending |
-| PACE-01 | — | Pending |
-| PACE-02 | — | Pending |
+| ENS-01 | Phase 7 | Pending |
+| ENS-02 | Phase 7 | Pending |
+| ENS-03 | Phase 7 | Pending |
+| ODDS-01 | Phase 6 | Pending |
+| ODDS-02 | Phase 6 | Pending |
+| ODDS-03 | Phase 6 | Pending |
+| ODTS-01 | Phase 5 | Pending |
+| ODTS-02 | Phase 5 | Pending |
+| TSER-01 | Phase 5 | Pending |
+| TSER-02 | Phase 5 | Pending |
+| TSER-03 | Phase 5 | Pending |
+| PACE-01 | Phase 5 | Pending |
+| PACE-02 | Phase 5 | Pending |
 
 **Coverage:**
 - v1.1 requirements: 13 total
-- Mapped to phases: 0
-- Unmapped: 13
+- Mapped to phases: 13
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-05-03*
-*Last updated: 2026-05-03 after v1.1 requirements definition*
+*Last updated: 2026-05-03 after v1.1 roadmap creation*

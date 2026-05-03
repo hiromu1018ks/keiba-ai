@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: ROI Advanced Model
 status: planning
-last_updated: "2026-05-03T05:00:00.000Z"
-last_activity: 2026-05-03 — Milestone v1.1 started
+last_updated: "2026-05-03T06:00:00.000Z"
+last_activity: 2026-05-03 — Roadmap created for v1.1 (Phases 5-7)
 progress:
-  total_phases: 0
+  total_phases: 3
   completed_phases: 0
-  total_plans: 0
+  total_plans: 4
   completed_plans: 0
   percent: 0
 ---
@@ -20,19 +20,20 @@ progress:
 See: .planning/PROJECT.md (updated 2026-05-03)
 
 **Core value:** 単勝モデルのバックテストROIを100%超えにすること
-**Current focus:** v1.1 ROI Advanced Model — defining requirements
+**Current focus:** Phase 5 — Foundation Features
 
 ## Current Position
 
-Phase: Not started (defining requirements)
-Plan: —
-Status: Defining requirements
-Last activity: 2026-05-03 — Milestone v1.1 started
+Phase: 5 of 7 (Foundation Features)
+Plan: 0 of 2 in current phase
+Status: Ready to plan
+Last activity: 2026-05-03 — Roadmap created for v1.1 milestone (3 phases, 4 plans)
+
+Progress: [░░░░░░░░░░] 0%
 
 ## Performance Metrics
 
 **Velocity:**
-
 - Total plans completed: 7 (v1.0)
 - Average duration: ~9min
 - Total execution time: ~55min
@@ -43,10 +44,9 @@ Last activity: 2026-05-03 — Milestone v1.1 started
 |-------|-------|-------|----------|
 | 1. Feature Analysis & Enhancement | 2 | 29min | ~15min |
 | 3. Selection Gate, Confidence & Betting | 2 | ~25min | ~12min |
-| 4. Walk-Forward Validation | 1 | ~5min | ~5min |
+| 4. Walk-Forward Validation | 1 | ~5min | 5min |
 
 **Recent Trend:**
-
 - Last 6 plans: 01-01 (9m), 01-02 (20m), 03-01 (~20m), 03-02 (5m), 04-01 (5m)
 - Trend: Healthy
 
@@ -59,13 +59,11 @@ Last activity: 2026-05-03 — Milestone v1.1 started
 Decisions are logged in PROJECT.md Key Decisions table.
 Recent decisions affecting current work:
 
-- Roadmap: Coarse granularity (4 phases) chosen to deliver fast, each phase produces measurable ROI change
-- Roadmap: Benter combination identified as single highest-impact change (exists for place, missing for win)
-- Phase 3: edge_threshold+0.01微小引き上げでJRA控除率25%マージン確保、ベット数激減リスク回避
-- Phase 3: MetaSwitcher閾値差維持 (AGGRESSIVE=同値, CONSERVATIVE=+0.01, COLLAPSED=+0.01)
-- Phase 3: Kelly計算は不変更 (WinStrategyは賭け金のみ、ベット可否はGate担当)
-- Phase 4: AbilityModel.models(dict)を反復処理してfeature importance統合(単一model属性なし)
-- Phase 4: LightGBM feature_namesはDatasetコンストラクタで設定(lgb.trainには渡せない)
+- Roadmap: Feature-first build order — features before odds deviation before ensemble
+- Roadmap: Coarse granularity — TSER+PACE+ODTS combined into Phase 5 (foundation features)
+- Roadmap: Ensemble last — highest risk isolated, feature improvements safe even if stacking underperforms
+- Phase 3 (v1.0): edge_threshold+0.01微小引き上げでJRA控除率25%マージン確保
+- Phase 4 (v1.0): LightGBM feature_namesはDatasetコンストラクタで設定(lgb.trainには渡せない)
 
 ### Pending Todos
 
@@ -73,7 +71,8 @@ None yet.
 
 ### Blockers/Concerns
 
-None yet.
+- Research flag: Base model prediction correlation unknown — must measure during Phase 7 before committing to stacking
+- Research flag: Odds snapshot granularity unverified — check during Phase 6 whether sub-10-minute snapshots exist
 
 ## Deferred Items
 
@@ -87,5 +86,5 @@ Items acknowledged and carried forward from previous milestone close:
 ## Session Continuity
 
 Last session: 2026-05-03
-Stopped at: N/A
+Stopped at: Roadmap created, ready to plan Phase 5
 Resume file: None
