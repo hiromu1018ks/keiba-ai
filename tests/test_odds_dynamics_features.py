@@ -200,6 +200,140 @@ class TestOddsDynamicsFeatures:
         assert result["odds_drop_rate_30_10"].iloc[0] == pytest.approx((4.0 - 3.0) / 4.0)
         assert result["popularity_change_30_10"].iloc[0] == 1
 
+    # --- ODTS-01: odds_acceleration (2次微分) ---
+
+    def test_odds_acceleration_positive_steam_move(self) -> None:
+        """ODTS-01: オッズが加速的に低下する場合、加速度が正 (steam move)"""
+        # odds_60=10.0, odds_30=7.0, odds_10=3.0
+        # vel_early = (7-10)/30 = -0.1, vel_late = (3-7)/20 = -0.2
+        # acceleration = -0.2 - (-0.1) = -0.1 (負 = 低下加速 = steam move)
+        df = pd.DataFrame({"race_id": ["R1"], "umaban": [1]})
+        odds_ts = pd.DataFrame(
+            {
+                "race_id": ["R1"] * 6,
+                "happyotime": [
+                    "03241000", "03241010", "03241020",
+                    "03241030", "03241040", "03241050",
+                ],
+                "umaban": [1] * 6,
+                "tanodds": [10.0, 9.5, 8.0, 7.0, 4.5, 3.0],
+                "ninki": [5, 5, 4, 4, 3, 2],
+            }
+        )
+        result = compute_odds_dynamics(df, odds_ts)
+        acc = result.iloc[0]["odds_acceleration"]
+        # 負 = オッズ低下が加速 = steam move
+        assert acc < 0, f"Expected negative (steam move), got {acc}"
+
+    def test_odds_acceleration_negative_reversal(self) -> None:
+        """ODTS-01: オッズが加速的に上昇する場合、加速度が正"""
+        # odds_60=3.0, odds_30=5.0, odds_10=10.0
+        # vel_early = (5-3)/30 = 0.0667, vel_late = (10-5)/20 = 0.25
+        # acceleration = 0.25 - 0.0667 = 0.1833 (正 = 上昇加速)
+        df = pd.DataFrame({"race_id": ["R1"], "umaban": [1]})
+        odds_ts = pd.DataFrame(
+            {
+                "race_id": ["R1"] * 6,
+                "happyotime": [
+                    "03241000", "03241010", "03241020",
+                    "03241030", "03241040", "03241050",
+                ],
+                "umaban": [1] * 6,
+                "tanodds": [3.0, 3.5, 4.0, 5.0, 7.5, 10.0],
+                "ninki": [2, 2, 3, 4, 5, 6],
+            }
+        )
+        result = compute_odds_dynamics(df, odds_ts)
+        acc = result.iloc[0]["odds_acceleration"]
+        # 正 = オッズ上昇が加速
+        assert acc > 0, f"Expected positive (odds rising accelerating), got {acc}"
+
+    def test_odds_acceleration_nan_with_insufficient_snapshots(self) -> None:
+        """ODTS-01: スナップショット不足(<3点)でNaNになる"""
+        df = pd.DataFrame({"race_id": ["R1"], "umaban": [1]})
+        # スナップショットが2点のみ — t-10とt-50付近
+        odds_ts = pd.DataFrame(
+            {
+                "race_id": ["R1", "R1"],
+                "happyotime": ["03241000", "03241050"],
+                "umaban": [1, 1],
+                "tanodds": [10.0, 5.0],
+            }
+        )
+        result = compute_odds_dynamics(df, odds_ts)
+        # t-30とt-60のスナップショットがないので、odds_30/odds_60がNaN
+        # よって odds_acceleration もNaN
+        assert pd.isna(result.iloc[0]["odds_acceleration"])
+
+    def test_odds_acceleration_none_ts(self) -> None:
+        """ODTS-01: odds_ts=None の場合、odds_acceleration はNaN"""
+        df = pd.DataFrame({"race_id": ["R1"], "umaban": [1]})
+        result = compute_odds_dynamics(df, None)
+        assert result["odds_acceleration"].isna().all()
+
+    # --- ODTS-02: odds_direction_consistency (方向一貫性) ---
+
+    def test_odds_direction_consistency_full_consistency(self) -> None:
+        """ODTS-02: 全て同方向の変動の場合、consistencyが≈1.0"""
+        # umaban=2: オッズが全て低下 (10→9→8→7→6→5) — 全て同じ方向
+        df = pd.DataFrame({"race_id": ["R1"], "umaban": [2]})
+        odds_ts = pd.DataFrame(
+            {
+                "race_id": ["R1"] * 6,
+                "happyotime": [
+                    "03241000", "03241010", "03241020",
+                    "03241030", "03241040", "03241050",
+                ],
+                "umaban": [2] * 6,
+                "tanodds": [10.0, 9.0, 8.0, 7.0, 6.0, 5.0],
+            }
+        )
+        result = compute_odds_dynamics(df, odds_ts)
+        consistency = result.iloc[0]["odds_direction_consistency"]
+        # 全て同方向 (低下 = -1) なので consistency ≈ 1.0
+        assert consistency > 0.9, f"Expected ≈1.0, got {consistency}"
+
+    def test_odds_direction_consistency_mixed_directions(self) -> None:
+        """ODTS-02: 交互方向の変動の場合、consistencyが低い (<1.0)"""
+        df = pd.DataFrame({"race_id": ["R1"], "umaban": [1]})
+        odds_ts = pd.DataFrame(
+            {
+                "race_id": ["R1"] * 6,
+                "happyotime": [
+                    "03241000", "03241010", "03241020",
+                    "03241030", "03241040", "03241050",
+                ],
+                "umaban": [1] * 6,
+                # 交互に上下: +0.5, -0.5, +0.5, -0.5, +0.5
+                "tanodds": [5.0, 5.5, 5.0, 5.5, 5.0, 5.5],
+            }
+        )
+        result = compute_odds_dynamics(df, odds_ts)
+        consistency = result.iloc[0]["odds_direction_consistency"]
+        # 方向が交互 (+1, -1, +1, -1, +1) なので consistency は 1.0 よりかなり低い
+        assert consistency < 0.7, f"Expected < 0.7 for alternating directions, got {consistency}"
+
+    def test_odds_direction_consistency_nan_insufficient_snapshots(self) -> None:
+        """ODTS-02: スナップショット<5点でNaNになる"""
+        df = pd.DataFrame({"race_id": ["R1"], "umaban": [1]})
+        # 4スナップショットのみ (< 5 minimum)
+        odds_ts = pd.DataFrame(
+            {
+                "race_id": ["R1"] * 4,
+                "happyotime": ["03241000", "03241010", "03241020", "03241030"],
+                "umaban": [1] * 4,
+                "tanodds": [5.0, 4.5, 4.0, 3.5],
+            }
+        )
+        result = compute_odds_dynamics(df, odds_ts)
+        assert pd.isna(result.iloc[0]["odds_direction_consistency"])
+
+    def test_odds_direction_consistency_none_ts(self) -> None:
+        """ODTS-02: odds_ts=None の場合、odds_direction_consistency はNaN"""
+        df = pd.DataFrame({"race_id": ["R1"], "umaban": [1]})
+        result = compute_odds_dynamics(df, None)
+        assert result["odds_direction_consistency"].isna().all()
+
 
 class TestComputeRollingVolatility:
     def test_returns_series(self) -> None:
