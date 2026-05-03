@@ -1,97 +1,78 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.1
-milestone_name: ROI Advanced Model
-status: milestone_complete
-last_updated: "2026-05-03T23:30:00Z"
-last_activity: 2026-05-03 — Milestone v1.1 ROI Advanced Model complete
+milestone: v1.2
+milestone_name: TBD
+status: between_milestones
+last_updated: "2026-05-04T00:00:00Z"
+last_activity: 2026-05-04 — Milestone v1.1 archived, awaiting next milestone
 progress:
-  total_phases: 3
-  completed_phases: 3
-  total_plans: 5
-  completed_plans: 4
-  percent: 100
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-05-03)
+See: .planning/PROJECT.md (updated 2026-05-04)
 
 **Core value:** 単勝モデルのバックテストROIを100%超えにすること
-**Current focus:** Milestone v1.1 complete — all phases shipped
+**Current focus:** Milestone v1.1 archived — planning next milestone
 
 ## Current Position
 
-Phase: 7 of 7 (Ensemble Enhancement) — COMPLETE
-Plan: 1 of 1 in current phase (COMPLETE)
-Status: Milestone v1.1 ROI Advanced Model complete — all 3 phases shipped
-Last activity: 2026-05-03 — Milestone complete
+Phase: Between milestones
+Status: v1.1 ROI Advanced Model archived 2026-05-04
+Last activity: 2026-05-04 — Milestone archival complete
 
-Progress: [==========] 100%
+Progress: [          ] 0% (next milestone not started)
 
 ## Performance Metrics
 
-**Velocity:**
-- Total plans completed: 8 (v1.0 + v1.1)
-- Average duration: ~10min
-- Total execution time: ~81min
+**Velocity (historical):**
+- v1.0: 4 phases, 7 plans, ~3 sessions
+- v1.1: 3 phases, 5 plans, ~2 sessions
+- Total plans completed: 12 (v1.0 + v1.1)
+- Average duration: ~12min/plan
 
-**By Phase (v1.0):**
-
-| Phase | Plans | Total | Avg/Plan |
-|-------|-------|-------|----------|
-| 1. Feature Analysis & Enhancement | 2 | 29min | ~15min |
-| 3. Selection Gate, Confidence & Betting | 2 | ~25min | ~12min |
-| 4. Walk-Forward Validation | 1 | ~5min | 5min |
-| 5. Foundation Features | 2 | ~10min | ~5min |
-| 6. Odds Deviation | 1 | ~5min | 5min |
-| 7. Ensemble Enhancement | 1 | 26min | 26min |
-
-**Recent Trend:**
-- Last 6 plans: 01-01 (9m), 01-02 (20m), 03-01 (~20m), 03-02 (5m), 04-01 (5m), 07-01 (26m)
-- Trend: Healthy
-
-*Updated after each plan completion*
+**Cumulative:**
+- LOC (src/): ~20,773
+- Tests: 1,113
+- Total features implemented: 15+ new features across 2 milestones
 
 ## Accumulated Context
 
 ### Decisions
 
 Decisions are logged in PROJECT.md Key Decisions table.
-Recent decisions affecting current work:
-
-- Roadmap: Feature-first build order — features before odds deviation before ensemble
-- Roadmap: Coarse granularity — TSER+PACE+ODTS combined into Phase 5 (foundation features)
-- Roadmap: Ensemble last — highest risk isolated, feature improvements safe even if stacking underperforms
-- Phase 3 (v1.0): edge_threshold+0.01微小引き上げでJRA控除率25%マージン確保
-- Phase 4 (v1.0): LightGBM feature_namesはDatasetコンストラクタで設定(lgb.trainには渡せない)
-- Plan 05-02: odds_acceleration 3点差分(vel_late-vel_early)、direction_consistency halflife=n/4+最小5点要件
-- Phase 6 context: deviation_rank+z-score追加、conformal EV区間2段階(80%/90%)、三層テスト戦略
-- Phase 7 context: Optuna個別最適化+探索空間分離、全フェーズearly stopping、Optuna最適化feature_fraction、OOF相関+importance相関の多角多様性検証
-- Plan 07-01: Optuna探索空間分離(LGB浅い木/XGB中深さ/CAT深い木)+80/20分割+early_stopping(stopping_rounds=100)+多様性検証(_check_diversity)
+Historical decisions archived in:
+- .planning/milestones/v1.0-ROADMAP.md
+- .planning/milestones/v1.1-ROADMAP.md
 
 ### Pending Todos
 
-None yet.
+- バックテストROI検証(run_backtest.py実行、PostgreSQL環境必要)
 
 ### Blockers/Concerns
 
-- Research flag: Base model prediction correlation unknown — must measure during Phase 7 before committing to stacking
-- Research flag: Odds snapshot granularity unverified — check during Phase 6 whether sub-10-minute snapshots exist
+- PostgreSQL環境が必要な検証が複数残存(WF検証、バックテスト)
+- Optunaチューニングによる学習時間増加(推定2-3倍)
 
 ## Deferred Items
 
-Items acknowledged and carried forward from previous milestone close:
+Items acknowledged and deferred at milestone close on 2026-05-04:
 
 | Category | Item | Status | Deferred At |
 |----------|------|--------|-------------|
 | Validation | WF検証スクリプトの実際の実行(PostgreSQL環境必要、~4時間) | Pending | v1.0 close |
-| UAT | Human UAT 2項目(04-HUMAN-UAT.md) | Pending | v1.0 close |
+| UAT | Human UAT 3項目(01-HUMAN-UAT, 04-HUMAN-UAT, 07-UAT) | Pending | v1.1 close |
+| Validation | バックテストROI検証(run_backtest.py実行) | Pending | v1.1 close |
 
 ## Session Continuity
 
-Last session: 2026-05-03
-Stopped at: Phase 7 Plan 01 completed. All phases done for v1.1 milestone.
-Resume file: .planning/phases/07-ensemble-enhancement/07-01-SUMMARY.md
+Last session: 2026-05-04
+Stopped at: Milestone v1.1 archival complete. Ready for /gsd-new-milestone.
+Resume file: .planning/RETROSPECTIVE.md

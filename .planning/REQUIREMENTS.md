@@ -13,9 +13,9 @@
 
 ### Odds Deviation EV (ODDS)
 
-- [ ] **ODDS-01**: p_market/p_ability の比率をStage2特徴量カラムとして追加し、ROIに直結するエッジ信号をモデルに学習させることができる
-- [ ] **ODDS-02**: スタッキング出力がBenterGate→WinSelectionGateに正しく流れることを検証し、EV計算パイプラインの整合性を確保できる
-- [ ] **ODDS-03**: Conformal予測区間をEV区間に変換し、エッジの信頼性に基づいてベット選択を最適化できる
+- [x] **ODDS-01**: p_market/p_ability の比率をStage2特徴量カラムとして追加し、ROIに直結するエッジ信号をモデルに学習させることができる
+- [x] **ODDS-02**: スタッキング出力がBenterGate→WinSelectionGateに正しく流れることを検証し、EV計算パイプラインの整合性を確保できる
+- [x] **ODDS-03**: Conformal予測区間をEV区間に変換し、エッジの信頼性に基づいてベット選択を最適化できる
 
 ### Odds Time-Series (ODTS)
 
@@ -68,16 +68,16 @@
 | ENS-01 | Phase 7 | Complete |
 | ENS-02 | Phase 7 | Complete |
 | ENS-03 | Phase 7 | Complete |
-| ODDS-01 | Phase 6 | Pending |
-| ODDS-02 | Phase 6 | Pending |
-| ODDS-03 | Phase 6 | Pending |
+| ODDS-01 | Phase 6 | Complete |
+| ODDS-02 | Phase 6 | Complete |
+| ODDS-03 | Phase 6 | Complete |
 | ODTS-01 | Phase 5 | Complete |
 | ODTS-02 | Phase 5 | Complete |
-| TSER-01 | Phase 5 | Pending |
-| TSER-02 | Phase 5 | Pending |
-| TSER-03 | Phase 5 | Pending |
-| PACE-01 | Phase 5 | Pending |
-| PACE-02 | Phase 5 | Pending |
+| TSER-01 | Phase 5 | Complete |
+| TSER-02 | Phase 5 | Complete |
+| TSER-03 | Phase 5 | Complete |
+| PACE-01 | Phase 5 | Complete |
+| PACE-02 | Phase 5 | Complete |
 
 **Coverage:**
 - v1.1 requirements: 13 total

@@ -2,7 +2,9 @@
 
 ## What This Is
 
-競馬AI予測システムの単勝モデル改善プロジェクト。既存のLightGBM 2段階モデル(P(hit) × E(odds|hit))をベースに、3モデルスタッキング・オッズ活用・特徴量改良で単勝ベッティングのバックテストROIを100%超えに引き上げる。Python 3.11 + LightGBM + XGBoost + CatBoost、PostgreSQL(EveryDB2)データソース、Parquetベースのデータパイプライン。
+競馬AI予測システム v5.5 — 統計的 horse racing prediction system (単勝/複勝/ワイド)。
+LightGBM + XGBoost + CatBoost 3モデルスタッキング、Optuna個別HP最適化、Conformal EV区間による信頼性評価、9新特徴量(EMA時系列・ペースフィグア・オッズ変動・オッズ乖離)を搭載。
+MLflow で実験管理。PostgreSQL (EveryDB2/JRA-VAN DataLab) をデータソースとする。
 
 ## Core Value
 
@@ -21,81 +23,81 @@
 - ✓ Betting system: Strategy/Orchestrator/StakeCalculator/DDController — existing
 - ✓ MLflow experiment tracking — existing
 - ✓ Paper trading: ライブ推論パイプライン — existing
-- ✓ 既存特徴量の単勝に対する有効性を分析・特定 — Phase 1
-- ✓ 単勝特化の特徴量を設計・実装(レース展開、勝ち癖等) — Phase 1
-- ✓ モデル構造の最適化(キャリブレーション、アンサンブル、EV補正) — Phase 2
-- ✓ 単勝ベッティング戦略の最適化(Kelly基準、レジーム適応) — Phase 3
-- ✓ 単勝モデルの品質検証(時系列交差検証、過学習チェック) — Phase 4
+- ✓ 既存特徴量の単勝に対する有効性を分析・特定 — v1.0
+- ✓ 単勝特化の特徴量を設計・実装(レース展開、勝ち癖等) — v1.0
+- ✓ モデル構造の最適化(キャリブレーション、アンサンブル、EV補正) — v1.0
+- ✓ 単勝ベッティング戦略の最適化(Kelly基準、レジーム適応) — v1.0
+- ✓ 単勝モデルの品質検証(時系列交差検証、過学習チェック) — v1.0
+- ✓ EMA重み付け時系列特徴量(TSER-01~03)とペースフィグア(PACE-01~02) — v1.1
+- ✓ オッズ変動特徴量(acceleration + direction_consistency) — v1.1
+- ✓ オッズ乖離EV特徴量(deviation_rank/zscore) + Conformal EV区間 — v1.1
+- ✓ 3モデルスタッキング多様性強制(Optuna + early stopping + feature subset) — v1.1
 
 ### Active
 
-- [ ] 3モデルスタッキング (LightGBM + XGBoost + CatBoost) で予測精度向上
-- [ ] オッズ乖離EV活用 (市場オッズとモデル予測の乖離をEV計算に直接活用)
-- [ ] オッズ変動特徴量 (直前オッズの変動パターンを特徴量化)
-- [ ] 時系列特徴量 (過去走のタイム推移・上がり変化)
-- [ ] 展開予測特徴量 (レースペース・展開予測の組み込み)
-- [ ] 単勝モデルのバックテストROI > 100%を達成
-
-## Current Milestone: v1.1 ROI Advanced Model
-
-**Goal:** 単勝バックテストROI 100%超えに向けて、アンサンブル・オッズ活用・特徴量改良の3本柱でモデル精度を大幅向上させる
-
-**Target features:**
-- 3モデルスタッキング (LightGBM + XGBoost + CatBoost)
-- オッズ乖離EV活用 (市場オッズとモデル予測の乖離をEV計算に直接活用)
-- オッズ変動特徴量 (直前オッズの変動パターンを特徴量化)
-- 時系列特徴量 (過去走のタイム推移・上がり変化)
-- 展開予測特徴量 (レースペース・展開予測の組み込み)
+(None — next milestone to be defined)
 
 ### Out of Scope
 
-- 複勝/ワイドモデルの変更 — 単勝に集中するため
-- 新データ源の導入 — 既存EveryDB2データで十分と判断
-- 実馬券購入機能 — ペーパートレードまで
-- Web UI — CLIベースで十分
-- リアルタイムオッズ収集の改善 — 既存機能をそのまま使用
-- ベッティング戦略の高度化(Kelly基準, RegimeDetector精緻化) — v1.2以降で検討
+| Feature | Reason |
+|---------|--------|
+| 複勝/ワイドモデルの変更 | 単勝に集中するため |
+| 新データ源の導入 | 既存EveryDB2データで十分 |
+| 実馬券購入機能 | ペーパートレードまで |
+| Web UI | CLIベースで十分 |
+| リアルタイムオッズ収集の改善 | 既存機能をそのまま使用 |
+| LSTM/Transformer時系列モデリング | 過去5-15走では過学習リスク高 |
+| 複雑メタラーナー(GBM/NN) | 特徴量3個ではRidgeが最適 |
+| sklearn StackingClassifier | ネイティブブースティングAPIとPIT安全フォールドに非対応 |
+
+## Current Milestone: TBD (Next milestone to be planned)
+
+**Goal:** TBA
 
 ## Context
 
 ### 現状の課題
 
-- 複勝中心に改善を進めてきたがROI 89%で赤字、100%の壁を超えられない
-- 2024年テストデータ: ベット数9,074 / 投資額907,400円 / 払戻額807,400円
-- 学習期間: 2020-2023 / テスト期間: 2024
+- v1.1で3本柱(特徴量9追加・オッズ乖離EV・3モデルスタッキング)を実装完了
+- バックテストROI検証が未実施(PostgreSQL環境必要)
+- 学習時間がOptunaチューニングにより推定2-3倍に増加
 
 ### 技術背景
 
+- 3モデルGBMスタッキング: LightGBM + XGBoost + CatBoost (Optuna個別HP最適化)
+- Conformal EV区間: 80%/90% 2レベルalpha信頼区間 + confidence_score
 - Parquetベースのデータパイプライン(PostgreSQLはETL専用)
-- LightGBM Ranker(能力推定) + Binary(hit/EV補正)
 - RegimeDetector: 3状態(aggressive/conservative/collapsed)
-- BenterCombination: scipy最適化による確率統合
-- WinStrategy: 既存の単勝ベッティングロジック
+- WinStrategy: Conformal信頼性スコア付きベッティング
 
 ### 検討すべき改善方向
 
-1. **アンサンブル拡張**: LightGBM + XGBoost + CatBoost の3モデルスタッキングで予測精度向上
-2. **オッズ活用**: 市場オッズとモデル予測の乖離をEV計算に直接活用 + オッズ変動パターンの特徴量化
-3. **特徴量改良**: 過去走の時系列特徴量(タイム推移・上がり変化) + 展開予測(ペース・位置取り)
-4. **ベッティング**: Kelly基準による最適賭け金、マーケットレジーム判定の精緻化 (v1.2以降)
+1. **バックテストROI検証**: 実際のバックテストでROI>100%を確認 — 最優先
+2. **ベッティング戦略精緻化**: Kelly基準・RegimeDetector精緻化 — v1.2候補
+3. **Stage1 Rankerスタッキング**: 3Ranker→メタRanker構成 — 複雑度高
+4. **Late money特徴量**: オッズスナップショット粒度検証が必要
 
 ## Constraints
 
-- **Tech stack**: Python 3.11, LightGBM, scikit-learn, pandas, pyarrow — 既存技術スタックを維持
+- **Tech stack**: Python 3.11, LightGBM, XGBoost, CatBoost, Optuna, pandas, pyarrow
 - **Data**: EveryDB2 (2015-2025) — 新データ源は追加しない
-- **Testing**: 全テスト mock使用(DB不要) — 既存テスト方針を維持
-- **Code style**: Ruff (py311, line-length=100), mypy (strict) — 既存規約を維持
+- **Testing**: 全テスト mock使用(DB不要) — 1,113テスト
+- **Code style**: Ruff (py311, line-length=100), mypy (strict)
 - **No external services**: ローカル実行のみ、クラウドサービス不使用
 
 ## Key Decisions
 
 | Decision | Rationale | Outcome |
 |----------|-----------|---------|
-| 単勝に集中 | 複勝で100%超え困難、単勝は中穴でエッジが出やすい | — Pending |
+| 単勝に集中 | 複勝で100%超え困難、単勝は中穴でエッジが出やすい | — Pending (backtest未実行) |
 | 既存データ活用 | EveryDB2のデータ量(2015-2025)で十分な学習データがある | — Pending |
 | 2段階モデル維持 | P×E分解は理論的に正当、改善は精度面で行う | — Pending |
 | 特徴量分析から開始 | モデル改善の前に、どの特徴量が効いているか把握が必要 | ✓ Good (v1.0) |
-| 3モデルスタッキング | 単一モデルより精度向上が期待できる、XGBoost/CatBoostは既存依存関係にあり | — Pending |
+| 3モデルスタッキング | 単一モデルより精度向上が期待できる | ✓ Good (v1.1) |
+| EMA halflife=3 | 金融時系列解析の標準値。3走前の重みは直近の50% | ✓ Good (v1.1) |
+| ペース3サブ特徴量分解 | LightGBMが非線形組み合わせを自動学習 | ✓ Good (v1.1) |
+| Optuna探索空間分離 | 各モデルに異なる木複雑度で多様性強制 | ✓ Good (v1.1) |
+| confidenceをpair_scoresのみ | 組合せ爆発(4次元目)を回避 | ✓ Good (v1.1) |
 | ベッティング戦略は後回し | モデル精度を先に最大化し、戦略は精度が十分になってから調整 | — Pending |
 
 ## Evolution
@@ -116,4 +118,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-03 after v1.1 milestone start*
+*Last updated: 2026-05-04 after v1.1 milestone completion*

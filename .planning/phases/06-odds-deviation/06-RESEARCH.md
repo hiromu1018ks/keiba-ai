@@ -365,22 +365,19 @@ df = submodel.win.predict_ev(df)  # line 98 (existing)
 | A3 | deviation_rankのascending=False(過小評価=高いrank)が最適な順序 | Code Examples | 逆順が良い場合、LightGBMが自動学習するため影響は限定的 |
 | A4 | キャリブレーションデータの非適合スコアを80%区間に再利用可能 | Architecture Patterns | 分布変化がある場合、80%区間の精度が低下する可能性 |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **deviation特徴量の配置先ファイル**
+1. **deviation特徴量の配置先ファイル** — RESOLVED: 新規ファイル `src/features/odds_deviation_features.py`
    - What we know: D-02でstandalone関数と決定。MarketModelのパターンに倣う
-   - What's unclear: 既存モジュール(odds_dynamics_features.py)に追加するか、新規ファイルにするか
-   - Recommendation: 新規ファイル`src/features/odds_deviation_features.py`が最適。odds_dynamics_featuresはraw data特徴量(オッズ時系列)であり、deviationはモデル出力依存特徴量のため。責務が異なる
+   - Resolution: Plan 06-01 Task 1 で新規ファイル `src/features/odds_deviation_features.py` に配置
 
-2. **conformal_confidence_scoreの合成式の詳細**
+2. **conformal_confidence_scoreの合成式の詳細** — RESOLVED: `score = EV_lower_80 * (1 - normalized_width_90)`
    - What we know: D-06でEV下限と区間幅の合成と決定。D-08でquantile-binに統合
-   - What's unclear: 具体的な重み付け
-   - Recommendation: 初期実装は`score = EV_lower_80 * (1 - normalized_width_90)`。ただしWinSelectionGateのwalk-forward OOF学習が最適な重みを自動発見するため、初期値は大雑把でよい
+   - Resolution: Plan 06-01 Task 2 で `EV_lower_80 * (1 - normalized_width_90)` を実装。walk-forward OOF学習が最適重みを自動発見
 
-3. **WinSelectionGateの次元拡張戦略**
+3. **WinSelectionGateの次元拡張戦略** — RESOLVED: pair_scores アプローチ
    - What we know: D-08で新次元として追加
-   - What's unclear: combo_scores(4次元)にするか、pair_scoresにconformalペアを追加するか
-   - Recommendation: pair_scoresに("confidence_prob", confidence_bin, prob_bin)等のペアを追加。combo_scoresの4次元は組み合わせ爆発リスク。ただし、この判断は実装時のデータ量に依存するため、Plannerの裁量に委ねる
+   - Resolution: Plan 06-01 Task 2 で pair_scores に conformal ペアを追加。combo_scores 4次元の組み合わせ爆発を回避
 
 ## Environment Availability
 
