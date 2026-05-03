@@ -57,7 +57,7 @@ Plans:
 
 **Milestone Goal:** 単勝バックテストROI 100%超えに向けて、アンサンブル・オッズ活用・特徴量改良の3本柱でモデル精度を大幅向上させる
 
-- [ ] **Phase 5: Foundation Features** - 時系列・ペース・オッズ変動の3系統の新特徴量を追加し、モデル入力の情報量を最大化する
+- [x] **Phase 5: Foundation Features** - 時系列・ペース・オッズ変動の3系統の新特徴量を追加し、モデル入力の情報量を最大化する
 - [ ] **Phase 6: Odds Deviation EV** - 市場オッズとモデル予測の乖離をEV計算に直接活用し、ベッティングエッジを定量化する
 - [ ] **Phase 7: Ensemble Enhancement** - 3モデルスタッキングの多様性を強制し、予測精度の向上と過学習防止を両立する
 
@@ -76,7 +76,7 @@ Plans:
 
 Plans:
 - [x] 05-01: Time-series and pace features (TSER-01, TSER-02, TSER-03, PACE-01, PACE-02)
-- [ ] 05-02: Odds time-series features (ODTS-01, ODTS-02)
+- [x] 05-02: Odds time-series features (ODTS-01, ODTS-02)
 
 ### Phase 6: Odds Deviation EV
 **Goal**: モデル予測確率と市場オッズの乖離をEV信号としてモデルに直接組み込み、Conformal予測区間でベット選択の信頼性を最適化する
@@ -115,6 +115,6 @@ Phases execute in numeric order: 5 → 6 → 7
 | 2. Win Benter Combination & Calibration | v1.0 | 2/2 | Complete | 2026-05-02 |
 | 3. Selection Gate, Confidence & Betting | v1.0 | 2/2 | Complete | 2026-05-02 |
 | 4. Walk-Forward Validation | v1.0 | 1/1 | Complete | 2026-05-03 |
-| 5. Foundation Features | v1.1 | 1/2 | In progress | - |
+| 5. Foundation Features | v1.1 | 2/2 | Complete | 2026-05-03 |
 | 6. Odds Deviation EV | v1.1 | 0/1 | Not started | - |
 | 7. Ensemble Enhancement | v1.1 | 0/1 | Not started | - |

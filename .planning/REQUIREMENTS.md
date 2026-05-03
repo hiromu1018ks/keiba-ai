@@ -19,8 +19,8 @@
 
 ### Odds Time-Series (ODTS)
 
-- [ ] **ODTS-01**: オッズ変動の2次微分(加速度)を計算し、steam moveの強さを特徴量として追加できる
-- [ ] **ODTS-02**: オッズ変動方向の一貫性を測定する特徴量を追加し、持続的スマートマネーの流入を検出できる
+- [x] **ODTS-01**: オッズ変動の2次微分(加速度)を計算し、steam moveの強さを特徴量として追加できる
+- [x] **ODTS-02**: オッズ変動方向の一貫性を測定する特徴量を追加し、持続的スマートマネーの流入を検出できる
 
 ### Time-Series Features (TSER)
 
@@ -71,8 +71,8 @@
 | ODDS-01 | Phase 6 | Pending |
 | ODDS-02 | Phase 6 | Pending |
 | ODDS-03 | Phase 6 | Pending |
-| ODTS-01 | Phase 5 | Pending |
-| ODTS-02 | Phase 5 | Pending |
+| ODTS-01 | Phase 5 | Complete |
+| ODTS-02 | Phase 5 | Complete |
 | TSER-01 | Phase 5 | Pending |
 | TSER-02 | Phase 5 | Pending |
 | TSER-03 | Phase 5 | Pending |
