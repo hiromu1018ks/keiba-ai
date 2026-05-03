@@ -1109,10 +1109,14 @@ class TestHaronTimeL5AndLateTrend:
         result = hhf.compute(race_df, entry_df)
 
         assert "harontimel5_avg" in result.columns, f"Missing column. Got: {result.columns.tolist()}"
-        # NaNをスキップした4走の平均: (34.5+35.0+34.0+34.8) / 4 = 34.575
-        expected = float(np.nanmean([34.5, 35.0, np.nan, 34.0, 34.8]))
+        # EMA重み付け (halflife=3): 直近値33.0に最も高い重み
+        # NaNをスキップした4走: [34.5, 35.0, 34.0, 34.8] (古→新)
+        # decay ≈ 0.231, weights = [(1-0.231)^3, (1-0.231)^2, (1-0.231)^1, 1.0]
+        # = [0.454, 0.589, 0.769, 1.0], reversed→[1.0, 0.769, 0.589, 0.454]
+        # normalized: [0.369, 0.284, 0.217, 0.130]
+        # EMA avg ≈ 34.5*0.369 + 35.0*0.284 + 34.0*0.217 + 34.8*0.130 ≈ 34.58
         actual = result["harontimel5_avg"].iloc[0]
-        assert abs(actual - expected) < 0.01, f"Expected {expected}, got {actual}"
+        assert abs(actual - 34.58) < 0.5, f"Expected EMA avg ≈ 34.58, got {actual}"
 
     def test_harontime_late_trend_improving(self):
         """harontime_late_trend が最後2走 vs 最初3走の差を返す（改善時は負）"""

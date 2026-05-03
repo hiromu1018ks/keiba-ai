@@ -94,6 +94,10 @@ class AbilityModel:
         "track_condition_delta",
         "pace_pressure",
         "pace_scenario_fit",
+        # TSER-02: クラス調整フォーメトリック
+        "class_adj_formetric",
+        # TSER-03: z-score改善トラジェクトリ
+        "haron_zscore_trend",
     ]
 
     def __init__(self) -> None:

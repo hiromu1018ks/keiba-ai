@@ -264,7 +264,7 @@ class HorseHistoryFeatures:
 
     BASE_COLS: list[str] = [
         "norm_finish_logit_avg",
-        "harontimel5_avg",  # 直近5走ハロンタイム平均
+        "harontimel5_avg",  # EMA重み付けハロンタイム平均 (halflife=3)
         "harontimel5_zscore",  # 直近5走z-score
         "harontime_late_trend",  # 最後2走 vs 最初3走 (負=改善)
         "timediff_avg",
@@ -294,6 +294,10 @@ class HorseHistoryFeatures:
         "class_drop_bounce",
         "win_dominance",
         "freshness_score",
+        # TSER-02: クラス調整フォーメトリック
+        "class_adj_formetric",
+        # TSER-03: z-score改善トラジェクトリ
+        "haron_zscore_trend",
     ]
 
     def __init__(self, store: ParquetStore, *, n_past: int = 5) -> None:
@@ -670,19 +674,59 @@ class HorseHistoryFeatures:
             else:
                 norm_finish_logit_avg = float("nan")
 
-            # harontimel5_avg (直近5走のハロンタイム平均)
+            # harontimel5_avg (EMA重み付けハロンタイム平均, halflife=3)
             if _has_harontimel3 and n_past > 0:
                 ht_raw = horse_arrs["harontimel3"][valid_mask][start:idx].astype(float)
                 ht_valid = ht_raw[~np.isnan(ht_raw)]
                 if len(ht_valid) > 0:
-                    # tail(5) → last 5 non-NaN values
-                    harontimel5_avg: float = float(ht_valid[-self._n_past:].mean())
+                    # TSER-01: EMA重み付け (D-02: halflife=3, D-03: 全過去走使用)
+                    halflife = 3
+                    decay = np.log(2) / halflife  # ≈ 0.231
+                    n_ht = len(ht_valid)
+                    # w[i] = (1-decay)^i where i=0 is oldest, i=n-1 is newest
+                    weights = (1 - decay) ** np.arange(n_ht)
+                    # Reverse so index 0 = newest (highest weight)
+                    weights = weights[::-1]
+                    weights = weights / weights.sum()
+                    harontimel5_avg: float = float(np.sum(ht_valid * weights))
                 else:
                     harontimel5_avg = float("nan")
             else:
                 harontimel5_avg = float("nan")
 
+            # TSER-02: class_adj_formetric — クラス調整フォーメトリック (D-04, D-05, D-06)
+            if n_past > 0:
+                _ca_kj = hp_kakuteijyuni.astype(float)
+                _ca_ss = hp_syussotosu.astype(float)
+                _ca_valid_ss = _ca_ss > 1
+                if _ca_valid_ss.any():
+                    _ca_norm_finish = (_ca_kj[_ca_valid_ss] - 1) / (_ca_ss[_ca_valid_ss] - 1)
+                    _ca_grade = horse_arrs.get("gradecd", np.array([], dtype=object))
+                    _ca_jyoken = horse_arrs.get("jyokencd1", np.array([], dtype=object))
+                    if len(_ca_grade) > 0 and len(_ca_jyoken) > 0:
+                        _ca_grade_v = _ca_grade[valid_mask][start:idx][_ca_valid_ss]
+                        _ca_jyoken_v = _ca_jyoken[valid_mask][start:idx][_ca_valid_ss]
+                        _ca_levels = np.array([
+                            _class_level_from_values(g, j)
+                            for g, j in zip(_ca_grade_v, _ca_jyoken_v)
+                        ])
+                        _ca_valid = ~np.isnan(_ca_levels) & ~np.isnan(_ca_norm_finish)
+                        if _ca_valid.any():
+                            cl = _ca_levels[_ca_valid]
+                            nf = _ca_norm_finish[_ca_valid]
+                            class_adj_formetric: float = float(np.sum(nf * cl) / np.sum(cl))
+                        else:
+                            class_adj_formetric = float("nan")
+                    else:
+                        class_adj_formetric = float("nan")
+                else:
+                    class_adj_formetric = float("nan")
+            else:
+                class_adj_formetric = float("nan")
+
             # harontimel5_zscore — expanding hierarchical fallback z-score (no leak)
+            # Also computes haron_zscore_trend (TSER-03)
+            haron_zscore_trend: float = float("nan")
             if _has_harontimel3 and _has_distance_bin and n_past > 0 and expanding_stats:
                 ht_raw = horse_arrs["harontimel3"][valid_mask][start:idx].astype(float)
                 db_raw = horse_arrs["distance_bin"][valid_mask][start:idx]
@@ -727,6 +771,11 @@ class HorseHistoryFeatures:
                         harontimel5_zscore: float = float(
                             pd.Series(z_arr).tail(self._n_past).mean()
                         )
+                        # TSER-03: z-score改善トラジェクトリ (D-07, D-09)
+                        valid_z = z_arr[~np.isnan(z_arr)]
+                        if len(valid_z) >= 3:
+                            x = np.arange(len(valid_z), dtype=float)
+                            haron_zscore_trend = float(np.polyfit(x, valid_z, 1)[0])
                     else:
                         harontimel5_zscore = float("nan")
                 else:
@@ -1124,6 +1173,10 @@ class HorseHistoryFeatures:
                     "class_drop_bounce": class_drop_bounce,
                     "win_dominance": win_dominance,
                     "freshness_score": freshness_score,
+                    # TSER-02: クラス調整フォーメトリック
+                    "class_adj_formetric": class_adj_formetric,
+                    # TSER-03: z-score改善トラジェクトリ
+                    "haron_zscore_trend": haron_zscore_trend,
                 }
             )
 

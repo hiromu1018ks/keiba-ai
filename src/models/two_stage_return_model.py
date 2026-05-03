@@ -85,6 +85,10 @@ class WinTwoStageModel:
         "freshness_score",
         # FEAT-02: 市場確率/能力確率比 (値 > 1.0 = 過小評価, < 1.0 = 過大評価)
         "odds_to_ability_ratio",
+        # TSER-02: クラス調整フォーメトリック
+        "class_adj_formetric",
+        # TSER-03: z-score改善トラジェクトリ
+        "haron_zscore_trend",
     ]
 
     def __init__(self, cfg: TwoStageConfig | None = None) -> None:
