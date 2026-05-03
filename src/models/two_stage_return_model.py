@@ -55,6 +55,10 @@ class WinTwoStageModel:
         "odds_drop_rate_30_10",
         "odds_velocity",
         "odds_volatility",
+        # ODTS-01: オッズ加速度 (2次微分)
+        "odds_acceleration",
+        # ODTS-02: オッズ方向一貫性
+        "odds_direction_consistency",
         "popularity_change_30_10",
         # 市場歪み
         "market_entropy",

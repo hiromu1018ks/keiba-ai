@@ -132,6 +132,8 @@ def compute_odds_dynamics(
         "odds_velocity",
         "odds_volatility",
         "popularity_change_30_10",
+        "odds_acceleration",
+        "odds_direction_consistency",
     ]
 
     if odds_ts is None or odds_ts.empty:
@@ -175,6 +177,14 @@ def compute_odds_dynamics(
     odds_10 = odds_10.reindex(base_index)
     odds_30 = odds_30.reindex(base_index)
     odds_60 = odds_60.reindex(base_index)
+
+    # --- ODTS-01: オッズ加速度 (2次微分) ---
+    # 3点差分: velocity_early (t-60→t-30) と velocity_late (t-30→t-10) の差分
+    # 正 = オッズ上昇加速, 負 = オッズ低下加速 (steam move)
+    vel_early = (odds_30 - odds_60) / 30.0
+    vel_late = (odds_10 - odds_30) / 20.0
+    odds_acceleration = vel_late - vel_early
+    odds_acceleration.name = "odds_acceleration"
 
     # --- 変化率: (early_odds - late_odds) / early_odds ---
     drop_60_10 = (odds_60 - odds_10) / odds_60.replace(0, np.nan)
@@ -220,6 +230,31 @@ def compute_odds_dynamics(
     volatility[sizes < 2] = np.nan
     volatility.name = "odds_volatility"
 
+    # --- ODTS-02: オッズ方向一貫性 ---
+    ts["_odds_dir"] = np.sign(ts["_odds_diff"])
+
+    def _compute_direction_consistency(group: pd.DataFrame) -> float:
+        n = len(group)
+        if n < 5:
+            return np.nan  # 最小5点要件
+        halflife_snaps = max(n / 4, 1)
+        decay_rate = np.log(2) / halflife_snaps
+        dirs = group.sort_values("_ts_datetime", ascending=False)["_odds_dir"].dropna().values
+        if len(dirs) < 5:
+            return np.nan
+        weights = np.array([(1 - decay_rate) ** i for i in range(len(dirs))])
+        weights = weights / weights.sum()
+        consistency = float(abs(np.sum(weights * dirs)) / np.sum(weights))
+        return consistency
+
+    direction_consistency = (
+        ts[ts["_odds_dir"].notna()]
+        .groupby(["race_id", "umaban"])
+        .apply(_compute_direction_consistency, include_groups=False)
+    )
+    direction_consistency.name = "odds_direction_consistency"
+    direction_consistency = direction_consistency.reindex(base_index)
+
     # --- 人気変化: t-30 → t-10 (ベクトル化) ---
     if "ninki" in ts.columns:
         ninki_10 = _pick_target_snapshot(ts, "ninki", target_minutes=10.0, tolerance_minutes=15.0)
@@ -233,7 +268,10 @@ def compute_odds_dynamics(
 
     # groupby 結果を1つのDataFrameにまとめてから df にマージ (1回のmerge)
     agg_df = pd.concat(
-        [s.reset_index() for s in [drop_60_10, drop_30_10, velocity, volatility, pop_change]],
+        [s.reset_index() for s in [
+            drop_60_10, drop_30_10, velocity, volatility, pop_change,
+            odds_acceleration, direction_consistency,
+        ]],
         axis=1,
     )
     # reset_index() で重複した race_id/umaban 列を削除
