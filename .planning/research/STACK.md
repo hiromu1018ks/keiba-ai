@@ -1,8 +1,9 @@
-# Technology Stack -- v1.1 ROI Advanced Model
+# Technology Stack: Win Backtest Fix & Pipeline Optimization
 
-**Project:** keiba-ai v1.1 milestone -- multi-model stacking, odds deviation EV, time-series features
-**Researched:** 2026-05-03
-**Scope:** Stack additions/changes for the 5 new features (stacking, odds deviation, odds time-series, past-run time-series, pace prediction)
+**Project:** keiba-ai v1.2 Win Backtest Validation
+**Researched:** 2026-05-04
+**Scope:** Backtest mode switching (place to win) + pipeline performance optimization
+**Supersedes:** v1.1 STACK.md (stacking/odds deviation stack -- all still current)
 
 ## Current Installed Stack
 
@@ -20,239 +21,188 @@
 | mlflow | 3.10.1 | >=2.12 | Up to date |
 | optuna | 4.8.0 | >=3.5 | Up to date |
 
-**Key finding:** ALL required libraries are already installed at current stable versions. No new package installations are needed for this milestone.
+## Recommended Stack
 
-## Recommended Stack (No Changes Needed)
+### Production Dependencies: Zero New Additions
 
-### Core Gradient Boosting (Already Installed)
+| Technology | Version | Purpose | Why No Change |
+|------------|---------|---------|----------------|
+| pandas | >=2.2 | Vectorization | Replace `iterrows()` with `.where()`, `.groupby().transform()`, numpy broadcasting. No new library needed. |
+| numpy | >=1.26 | Vectorized ops | `np.where()`, dict comprehension from `zip()` for payout map construction. |
+| LightGBM | >=4.3 | Batch inference | `booster.predict(df)` already supports batch. Restructure calling code to accumulate predictions. |
+| pyarrow | >=14.0 | Parquet I/O | Already used; pyarrow compute kernels available for additional speed if needed. |
+| cProfile | stdlib | Initial profiling | Built-in, zero-install. Use for quick bottleneck identification before pyinstrument. |
 
-| Technology | Version | Purpose | Why This Choice |
-|------------|---------|---------|-----------------|
-| LightGBM | 4.6.0 | Stage1 ranker + primary binary model | Native categorical support, fastest training, leaf-wise growth. Already used as `lgb.Booster` via `lgb.train()` native API. LambdaRank objective for Stage1, binary objective for Stage2. |
-| XGBoost | 3.2.0 | Secondary base model in stack | Complementary tree growth (depth-wise/level-wise vs LightGBM's leaf-wise). Different regularization defaults. Uses `xgb.train()` with `DMatrix` in existing code -- correct choice for low-level control. |
-| CatBoost | 1.2.10 | Tertiary base model in stack | Symmetric tree growth creates fundamentally different decision boundaries. Best default performance with minimal tuning. Native categorical handling via `CatBoostClassifier`. Ordered boosting reduces overfitting on small datasets. |
+### Dev-Only Addition
 
-**Confidence: HIGH** -- All three are installed, the existing `StackedEnsemble` class already demonstrates the integration pattern.
+| Technology | Version | Purpose | Why |
+|------------|---------|---------|-----|
+| pyinstrument | >=4.6 | Statistical profiler | ~1-5% overhead vs cProfile's 20-50%. Produces readable call-tree. Ideal for profiling the ~57-minute backtest run without distorting timings. Dev dependency only. |
 
-### Meta-Learner (Already Installed)
+### NOT Recommended
 
-| Technology | Version | Purpose | Why This Choice |
-|------------|---------|---------|-----------------|
-| scikit-learn `Ridge` | 1.8.0 | Level-2 stacking meta-learner | L2 regularization prevents overfitting on correlated base model outputs. Alpha=1.0 default is appropriate. Lightweight and fast. Alternative: LogisticRegression with L2 penalty, but Ridge on raw probabilities is simpler and works equally well for stacking regression. |
+| Technology | Why Not |
+|------------|---------|
+| scalene | Adds GPU profiling overhead irrelevant to this CPU-bound pandas/LightGBM workload. pyinstrument is lighter and sufficient. |
+| line_profiler | Requires `@profile` decorators -- too intrusive for codebase with strict mypy and 1113 tests. |
+| memory_profiler | Memory is not the bottleneck; Parquet pipeline is already memory-efficient. |
+| polars | Would require rewriting entire feature engine (14 modules, 100+ features). Negative ROI for an optimization milestone. |
+| Cython / numba | Only 2-3 hot functions would benefit; main gains come from eliminating iterrows() and batch-ifying LightGBM predict. |
+| ray / dask | Distributed computing is overkill for single-machine backtests on ~5000 races. |
+| py-spy | May require elevated permissions; pyinstrument is pip-install-clean and equally capable for offline profiling. |
 
-**Confidence: HIGH** -- Already in use in `StackedEnsemble`. Do NOT replace with a more complex meta-learner (neural net, GBM meta) -- the base model predictions are highly correlated and a simple regularized linear model is theoretically optimal for this scenario.
+## Alternatives Considered
 
-### Feature Engineering (Already Installed)
+| Category | Recommended | Alternative | Why Not |
+|----------|-------------|-------------|---------|
+| Profiler | pyinstrument | scalene | Overkill for CPU-only workload; pyinstrument is lighter |
+| Profiler | pyinstrument | cProfile | Higher overhead distorts timing; less readable output |
+| Profiler | pyinstrument | py-spy | May require elevated permissions on Windows |
+| Vectorization | native pandas/numpy | polars | Would require rewriting 14 feature modules |
+| Parallelism | ThreadPoolExecutor (existing) | multiprocessing | LightGBM uses OpenMP threads; GIL limits Python parallelism |
+| Build optimization | N/A | Cython/Numba | Only 2-3 functions benefit; not worth build complexity |
 
-| Technology | Version | Purpose | Why This Choice |
-|------------|---------|---------|-----------------|
-| pandas | 2.3.3 | Time-series feature computation | Rolling windows, expanding stats, groupby operations. All new odds/time-series features can be built with pandas alone. |
-| numpy | 2.4.3 | Vectorized computation | `searchsorted` for PIT-safe expanding stats (already pattern in `HorseHistoryFeatures`). Linear algebra for velocity/regression features. |
-| scipy | 1.17.1 | Statistical functions | `scipy.special.softmax` if needed for race-level normalization. `scipy.stats` for z-score and percentile calculations. |
+## Backtest Mode Switch: No New Stack Required
 
-**Confidence: HIGH** -- All new feature engineering is pandas/numpy operations. No specialized time-series library needed.
+The switch from place (fukushou) to win (tanshou) verification is a **code refactoring task** requiring no new dependencies. Analysis of the codebase confirms:
 
-## What NOT to Add
+**Win model infrastructure already exists:**
+- `WinTwoStageModel` trains and predicts `p_win`, `ev_win`, `ev_win_corrected`
+- `WinSelectionGateModel` scores and gates win candidates with `win_gate_score`, `win_gate_pass`
+- `WinBenterGate` applies Benter combination for win probability calibration
+- `ensure_win_selection_columns()` computes `win_selection_ev`, `win_selection_edge`, `win_selection_prob`
+- `_settle_bet()` already handles `BetType.WIN` with `finish_pos == 1` check
 
-| Rejected Library | Why Rejected | What to Use Instead |
-|------------------|-------------|-------------------|
-| `sktime` / `tsfresh` / `darts` | Overkill for the time-series patterns needed. Horse racing time-series are short (5-10 past runs per horse, ~60 odds snapshots per race). These libraries target longer sequences. Adding them introduces 50+ transitive dependencies. | Direct pandas rolling/expanding operations (already the project pattern in `HorseHistoryFeatures` and `PaceAptitudeFeatures`). |
-| `sklearn.ensemble.StackingClassifier` | Requires sklearn-compatible estimators (`fit/predict/get_params`). The project uses native APIs: `lgb.Booster`, `xgb.Booster`, `CatBoostClassifier`. Converting to sklearn wrappers (`LGBMClassifier`, `XGBClassifier`) loses control over `Dataset`/`DMatrix` construction and group handling for ranking. The existing custom `StackedEnsemble` class is the right approach. | Existing `StackedEnsemble` class in `src/models/stacked_ensemble.py` with manual OOF + Ridge meta-learner. |
-| `XGBRanker` / `CatBoostRanker` for Stage1 | The Stage1 ability model uses LightGBM LambdaRank (`lambdarank` objective) which is the industry standard for learning-to-rank. Adding XGBoost/CatBoost rankers at Stage1 would triple the Stage1 training time for marginal gain. The diversity benefit comes from using different boosting algorithms at Stage2 (binary classification), where the label space is simpler. | Keep LightGBM Ranker at Stage1. Use multi-model stacking only at Stage2 (binary hit prediction). |
-| `optuna-integration` / `optuna-xgboost` | The existing `optuna` 4.8.0 has built-in XGBoost/CatBoost integration via `optuna.integration`. No extra packages needed. | `optuna.integration.XGBoostPruningCallback`, `optuna.integration.LightGBMPruningCallback`. |
-| `polars` | Faster than pandas for some operations, but the entire codebase is pandas-based. Introducing polars would create dual-Df confusion, require conversion layers, and break the established pattern. | pandas (existing). Performance for the data sizes involved (~100K rows) is adequate. |
-| `statsmodels` | Has SARIMAX and other time-series models, but the project does not need forecasting models. The time-series features are descriptive statistics (trends, velocities, volatility), not predictive time-series models. | numpy/pandas descriptive statistics. |
+**The gap is orchestration only:** BacktestEngine and RacePredictor hardcode place-oriented logic in candidate selection and payout settlement. The `BetType.WIN` enum is defined but never used in the backtest path.
 
-## Integration Points with Existing Pipeline
+**Payout data source:** The payouts DataFrame (from `load_payouts()`) contains win payout columns `paytansyoushowumaban{1}`, `paytansyoushowpay{1}` alongside the place columns `payfukusyoumaban{1-5}`, `payfukusyopay{1-5}` already in use. A vectorized `build_win_payout_map()` reads these columns.
 
-### Stacked Ensemble Integration
+## Pipeline Optimization: Bottleneck Analysis
 
-The existing `StackedEnsemble` class (`src/models/stacked_ensemble.py`) is the foundation. Key integration points:
+### Current Timing (from CLAUDE.md)
 
-**1. Where stacking plugs in:** The `StackedEnsemble` is designed as a drop-in replacement for `lgb.Booster` (it has `best_iteration=0` and `predict(X)` returning ndarray). It currently integrates into `WinTwoStageModel.hit_model`.
+| Pipeline | Duration | In Scope? |
+|----------|----------|-----------|
+| ETL (run_etl.py) | ~10 min | No |
+| Training (run_train.py) | ~44 min | Partially (feature computation) |
+| Backtest per year | ~57 min | Yes -- primary target |
 
-**2. What needs improvement in the existing code:**
+### Identified Bottleneck Patterns
 
-| Current Code | Issue | Fix Needed |
-|-------------|-------|------------|
-| `_train_xgb_fold()` uses `xgb.train()` with `DMatrix` | Correct low-level API usage. No issue. | Consider adding `early_stopping_rounds` for fold models. |
-| `_train_cat_fold()` uses `CatBoostClassifier` | Correct. But uses hardcoded `iterations=300`. | Make iterations/depth/learning_rate configurable. |
-| `_encode_cats()` converts categoricals to integer codes | Works but loses CatBoost's native categorical advantage. | Consider passing `cat_features` parameter to CatBoost Pool for native handling. |
-| OOF fold split uses expanding window | Correct for time-series. But `n_folds=3` is too few. | Increase to 5 folds for better meta-learner generalization. |
-| No hyperparameter tuning | All three models use hardcoded params (lr=0.03, leaves/depth=31/6, rounds=300). | Add Optuna tuning per model. |
-| Ridge `alpha=1.0` is hardcoded | May not be optimal. | Tune alpha with cross-validation on OOF predictions. |
+**Bottleneck 1: 18+ iterrows() call sites in backtest path**
 
-**3. API compatibility concern with XGBoost 3.x:**
+| Location | What It Does | Vectorizable? |
+|----------|-------------|---------------|
+| `engine.py:112` | Build payout map | YES -- df.melt() + dict comprehension |
+| `engine.py:151` | Build wide payout map | YES -- vectorize with numpy |
+| `engine.py:278` | Build final_odds_map | YES -- dict(zip()) |
+| `engine.py:451` | Extract top3 finishers | YES -- .nsmallest() + to_dict |
+| `engine.py:892` | Bet generation | YES -- vectorize stake calc |
+| `race_predictor.py:607` | Create Bet objects | Partial -- Kelly logic per-row |
+| `race_predictor.py:681` | Wide pair selection | YES -- numpy cross-product |
 
-XGBoost 3.0 introduced breaking changes. The existing code uses:
+**Bottleneck 2: Per-race sequential loop (engine.py:420)**
+
 ```python
-xgb.train(params, xgb.DMatrix(X, label=y), num_boost_round=300)
-```
-This native API is unchanged in 3.x and is the correct approach. The sklearn API (`XGBClassifier.fit()`) had the data parameter renamed from `data` to `X`, but the code does not use the sklearn API for XGBoost. **No migration needed.**
-
-### Odds Time-Series Feature Integration
-
-**Data source:** `data/odds/time_series/` (year/month partitioned Parquet) contains `jodds_tanpuku` with columns including `race_id`, `umaban`, `happyotime`, `tanodds`, `tanninki`.
-
-**Existing feature module:** `src/features/odds_dynamics_features.py` already computes:
-- `odds_drop_rate_60_10`, `odds_drop_rate_30_10`
-- `odds_velocity` (linear regression slope)
-- `odds_volatility` (std of consecutive diffs)
-- `popularity_change_30_10`
-
-**New features to add (same module or new module):**
-
-| Feature | Computation | Required Stack |
-|---------|-------------|----------------|
-| Odds curvature (acceleration) | Second derivative of odds over time | numpy polynomial fit or manual finite differences |
-| Late money indicator | Binary: odds drop > threshold in last 10 min | pandas comparison |
-| Odds regime (3-class) | KMeans or rule-based on velocity+volatility | numpy or `sklearn.cluster.KMeans` (already available) |
-| Deviation from closing odds | `model_prob * odds - 1` as EV proxy | numpy arithmetic |
-
-All computable with existing pandas/numpy/scikit-learn. No new packages.
-
-### Past-Run Time-Series Feature Integration
-
-**Data source:** `data/raw/races.parquet` + `data/raw/entries.parquet` via `ParquetStore` -> `HorseHistoryFeatures`.
-
-**Existing pattern:** `HorseHistoryFeatures` already processes past runs with PIT-safe `searchsorted` on `race_date`. The `expanding_stats` dictionary pattern (pre-computed cumulative mean/std per group) is the proven approach for leak-free z-scores.
-
-**New features to add:**
-
-| Feature | Computation | Required Stack |
-|---------|-------------|----------------|
-| Time progression trend | Linear regression of `harontimel3` over last 5 runs | numpy `polyfit` or manual slope |
-| Late surge change | Delta of `closing_index` between recent 3 vs earlier 3 runs | numpy subtraction |
-| Speed figure trend | `timediff` regression slope | numpy `polyfit` |
-| Position pattern stability | Std of `jyuni1c` over last 5 runs | numpy `std` |
-| Form cycle phase | Already exists as `form_trend`, `form_consistency`, `form_peak_flag` | existing |
-
-All computable with existing numpy/pandas. The `searchsorted` + cumulative sum pattern from `PaceAptitudeFeatures.compute_batch()` is the reference implementation for vectorized computation.
-
-### Pace Prediction Feature Integration
-
-**Existing module:** `src/features/pace_aptitude_features.py` computes `pace_aptitude`, `front_pace_wr`, `closing_pace_wr`.
-
-**New features to add:**
-
-| Feature | Computation | Required Stack |
-|---------|-------------|----------------|
-| Predicted pace scenario | `sum(1/jyuni1c_avg)` across race entries as proxy for pace pressure | pandas groupby + numpy |
-| Pace-pressure-fit | Interaction: horse's `closing_pace_wr` * predicted pace speed | numpy multiplication |
-| Position prediction | Expected running position from `jyuni1c_avg` normalized by field | numpy arithmetic |
-| Pace volatility | Std of position changes across past runs | numpy `std` |
-
-All computable with existing stack. No new packages.
-
-## Version Pinning Recommendations
-
-The installed versions are all current and stable. Recommend updating `pyproject.toml` minimums:
-
-```toml
-# CURRENT pyproject.toml            # RECOMMENDED update
-"lightgbm>=4.3",     -->    "lightgbm>=4.6",
-"xgboost>=2.0",      -->    "xgboost>=3.0",
-"catboost>=1.2",     -->    "catboost>=1.2.5",
-"scikit-learn>=1.4",  -->    "scikit-learn>=1.6",
-"optuna>=3.5",        -->    "optuna>=4.0",
+for race_id in race_ids:  # ~5000 races, each ~14 horses
 ```
 
-**Rationale:**
-- XGBoost >=3.0: The existing code uses native `xgb.train()` API which is stable across 3.x. Pinning to >=3.0 ensures access to XGBRanker improvements and `lambdarank_num_pair_per_sample` parameter.
-- LightGBM >=4.6: CVE-2024-43598 (RCE vulnerability) fix. Improved categorical handling.
-- CatBoost >=1.2.5: Bug fixes, stability improvements. 1.2.10 is current.
-- scikit-learn >=1.6: `FrozenEstimator` for clean prefit model wrapping. `Array API` support.
-- optuna >=4.0: API stability, improved samplers for hyperparameter tuning of ensemble.
+Each iteration: DataFrame filtering, RacePredictor.predict() (7 model inference calls), candidate selection, bet settlement. Bankroll dependency prevents trivial parallelism, but per-iteration cost can be reduced.
 
-**Do NOT bump Python.** Pin at 3.11 via `mise.toml`. All dependencies are compatible.
+**Bottleneck 3: Redundant DataFrame copies**
 
-## Installation (Minimal)
+`RacePredictor.predict()` calls `df = race_df.copy()` then multiple `.merge()` operations, creating 5-6 intermediate DataFrames per race (~14 rows x ~100 cols each). Over 5000 races this is significant Python object allocation overhead.
+
+### Optimization Techniques (All Native pandas/numpy)
+
+**Technique 1: Vectorized payout map (replace iterrows at engine.py:112)**
+
+Replace the row-by-row loop with DataFrame melt + groupby:
+
+```python
+def build_payout_map_vectorized(payouts_df: pd.DataFrame) -> dict[tuple[str, int], float]:
+    frames = []
+    for i in range(1, 6):
+        col_umaban = f"payfukusyoumaban{i}"
+        col_pay = f"payfukusyopay{i}"
+        if col_umaban in payouts_df.columns and col_pay in payouts_df.columns:
+            sub = payouts_df[["race_id", col_umaban, col_pay]].dropna()
+            sub = sub.rename(columns={col_umaban: "umaban", col_pay: "pay"})
+            frames.append(sub)
+    if not frames:
+        return {}
+    melted = pd.concat(frames, ignore_index=True)
+    melted["umaban"] = pd.to_numeric(melted["umaban"], errors="coerce")
+    melted["pay"] = pd.to_numeric(melted["pay"], errors="coerce")
+    melted = melted.dropna()
+    return dict(zip(
+        zip(melted["race_id"].astype(str), melted["umaban"].astype(int)),
+        melted["pay"] / 100.0
+    ))
+```
+
+**Technique 2: Dict comprehension for final_odds_map (replace iterrows at engine.py:278)**
+
+```python
+valid = final_odds_df[final_odds_df["fukuoddslow"].notna()]
+final_odds_map = dict(zip(
+    zip(valid["race_id"].astype(str), valid["umaban"].astype(int)),
+    valid["fukuoddslow"].astype(float)
+))
+```
+
+**Technique 3: Batch predict across races where feasible**
+
+The current per-race predict chain calls 7 models sequentially for ~14 horses. If the feature preprocessing (hist, jockey, trainer features) is batched (it already is in BacktestEngine lines 329-405), the model prediction could also be batched by accumulating all race DataFrames and running predict once.
+
+**Technique 4: Gate diagnostic logging behind flag**
+
+`diag_logger.log_horse()` calls `hr.to_dict()` for every horse in every race (lines 591, 678). This dict construction is expensive. Gate behind `--report` flag or a `--diag` flag.
+
+### Profiling Strategy
+
+**Step 1: Instrument with pyinstrument**
 
 ```bash
-# No new packages needed -- all dependencies already installed
-# Only update pyproject.toml minimums if desired
-
-# Optional: verify all packages at correct versions
-pip install -e ".[dev]"
+pip install pyinstrument
+pyinstrument scripts/run_backtest.py \
+  --train-start 20200101 --train-end 20231231 \
+  --test-start 20240101 --test-end 20241231 \
+  --skip-train --ensemble
 ```
 
-## Key Design Decision: Custom Stacking vs sklearn StackingClassifier
+This produces a call-tree showing exactly where the ~57 minutes are spent.
 
-**Decision: Keep custom `StackedEnsemble` (manual OOF + Ridge). Do NOT switch to `sklearn.ensemble.StackingClassifier`.**
+**Step 2: Validate with existing TimingContext**
 
-**Rationale:**
+The `utils/timing.py` TimingContext already measures feature computation steps. Extend it to measure the backtest loop body.
 
-1. **Ranker incompatibility:** The project uses `lgb.Booster` (from `lgb.train()`, not `LGBMClassifier`). The native API gives control over `lgb.Dataset` construction, group specification for LambdaRank, and `init_score` for the binary P-correction model. Switching to sklearn wrappers (`LGBMClassifier`) would lose this control.
+**Step 3: Expected top consumers (based on code analysis)**
 
-2. **Time-series OOF:** The existing code uses expanding-window folds (time-ordered, not random). `StackingClassifier` uses `KFold` or `StratifiedKFold` by default, which would violate the PIT (point-in-time) principle and introduce look-ahead bias.
+| Component | Estimated % | Optimization |
+|-----------|-------------|-------------|
+| Feature pre-computation (HorseHistory, Jockey, Trainer) | ~40% | Already batched; minor gains |
+| Per-race predict chain (7 model calls x 5000 races) | ~35% | Batch predict where possible |
+| Bet selection + settlement (get_place_candidates, _settle_bet) | ~15% | Vectorize payout lookup |
+| Diagnostic logging + DataFrame copies | ~10% | Gate behind flag, reduce copies |
 
-3. **XGBoost native API:** The existing code uses `xgb.train()` with `DMatrix`, which is more memory-efficient and gives access to all parameters. The sklearn `XGBClassifier` wrapper would require converting the data format.
+## Installation
 
-4. **CatBoost native categorical handling:** `CatBoostClassifier` already follows sklearn API, so it could technically work with `StackingClassifier`. But for consistency across the three models, keeping the custom stacking is simpler.
+```bash
+# Dev-only profiling tool
+pip install pyinstrument
 
-5. **Proven pattern:** The existing `StackedEnsemble` class is already tested and follows the Benter (1994) approach: OOF predictions as Level-2 features, Ridge regression as meta-learner. This is the standard approach in horse racing prediction literature.
+# Or add to pyproject.toml [project.optional-dependencies] dev:
+# "pyinstrument>=4.6"
 
-## Stacking Architecture Detail
-
+# No production dependencies needed
 ```
-                    Feature Matrix X
-                         |
-            +------------+------------+
-            |            |            |
-       LightGBM      XGBoost     CatBoost
-       (binary)      (binary)    (binary)
-            |            |            |
-       p_lgbm        p_xgb       p_cat
-            |            |            |
-            +------------+------------+
-                         |
-                    Ridge(alpha)
-                         |
-                   p_stacked
-```
-
-**Training flow (existing, with improvements noted):**
-
-1. K-fold expanding window (change from 3 to 5 folds)
-2. Each fold: train 3 models, predict on validation fold -> OOF predictions
-3. Stack OOF predictions: `[p_lgbm, p_xgb, p_cat]` as 3-column matrix
-4. Train Ridge on OOF predictions
-5. Retrain all 3 base models on full data (train + valid combined)
-6. At inference: 3 base models predict -> Ridge combines -> final probability
-
-**Per-model feature handling:**
-
-| Model | Categorical Handling | Training API | Key Params to Tune |
-|-------|---------------------|-------------|-------------------|
-| LightGBM | Native `category` dtype | `lgb.train()` with `lgb.Dataset` | `num_leaves`, `feature_fraction`, `min_data_in_leaf` |
-| XGBoost | Manual integer encoding via `_encode_cats()` | `xgb.train()` with `xgb.DMatrix` | `max_depth`, `subsample`, `colsample_bytree` |
-| CatBoost | `cat_features` param to Pool (currently NOT used -- improvement opportunity) | `CatBoostClassifier.fit()` | `depth`, `l2_leaf_reg`, `random_strength` |
-
-## Odds Deviation EV Calculation
-
-No new library needed. The calculation is:
-
-```python
-# Model probability vs market implied probability
-p_model = p_stacked  # from ensemble
-p_market = 1.0 / tanodds  # implied probability
-ev_deviation = (p_model * tanodds - 1.0)  # expected value from deviation
-
-# Or equivalently:
-ev_deviation = p_model / p_market - 1.0  # edge ratio
-```
-
-This is pure numpy arithmetic. The `MarketModel` already computes `market_log_error_win` which captures a similar signal from a different angle. The odds deviation EV adds a direct EV measure rather than an error signal.
 
 ## Sources
 
-- [XGBoost 3.2.0 Release Notes](https://github.com/dmlc/xgboost/releases) -- latest stable, API changes from 3.0
-- [CatBoost 1.2.8 Release](https://github.com/catboost/catboost/releases) -- latest stable (1.2.10 on PyPI)
-- [LightGBM 4.6.0](https://pypi.org/project/lightgbm/) -- latest stable, CVE fix
-- [scikit-learn 1.8.0 StackingClassifier](https://scikit-learn.org/stable/modules/generated/sklearn.ensemble.StackingClassifier.html) -- why NOT to use it for this project
-- [XGBoost Learning to Rank](https://xgboost.readthedocs.io/en/latest/tutorials/learning_to_rank.html) -- XGBRanker API with qid/group
-- [CatBoost CatBoostRanker](https://catboost.ai/docs/en/concepts/python-reference_catboostranker) -- why NOT to use for Stage1
-- [Stacking Ensembles: XGBoost, LightGBM, CatBoost (Medium)](https://medium.com/@stevechesa/stacking-ensembles-combining-xgboost-lightgbm-and-catboost-to-improve-model-performance-d4247d092c2e) -- stacking best practices
-- [Ensemble caution: soft voting can degrade performance (PMC/NIH)](https://pmc.ncbi.nlm.nih.gov/articles/PMC13075335/) -- validation that stacking needs careful tuning
-- [Horse Racing Prediction with Ensemble ML (Medium)](https://medium.com/@cagdasgul/high-precision-prediction-of-horse-racing-durations-using-ensemble-machine-learning-models-a-d6af16a1ebf1) -- XGBoost+LightGBM best trade-off for horse racing
-- [stackgbm: Model Stacking for Boosted Trees](https://nanx.me/stackgbm/articles/stackgbm.html) -- per-model categorical encoding best practices
+- [pyinstrument GitHub](https://github.com/joerick/pyinstrument) -- statistical profiler for Python
+- [Pandas performance hierarchy](https://python.plainenglish.io/optimization-of-pandas-performance-on-large-data-c4cbe6b1b064) -- vectorization > itertuples > apply > iterrows
+- [LightGBM batch prediction](https://letsdatascience.com/blog/lightgbm-the-definitive-guide-to-speed-and-efficiency) -- vectorized batch predict vs sequential
+- [Beyond cProfile](https://pythonspeed.com/articles/beyond-cprofile/) -- profiling tool comparison
+- [700x Speedup with vectorization](https://www.linkedin.com/pulse/tutorial-basic-vectorization-pandas-iterrows-apply-duc-lai-trung-minh-75d4c) -- iterrows vs vectorized benchmarks
+- Code analysis: `src/backtest/engine.py`, `src/backtest/race_predictor.py`, `src/domain/models.py`, `src/pipelines/training_pipeline.py`, `scripts/run_backtest.py`, `scripts/run_wf_validation.py`, `src/models/win_selection_gate.py`

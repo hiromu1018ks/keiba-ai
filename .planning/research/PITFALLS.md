@@ -1,355 +1,411 @@
-# Domain Pitfalls: Adding Ensemble Stacking, Odds Features, and Time-Series Features
+# Domain Pitfalls: Win Backtest Validation & Pipeline Optimization
 
-**Domain:** Parimutuel horse racing win (tansho) prediction -- JRA Japan
-**Context:** Incremental additions to an existing working LightGBM pipeline (keiba-ai v5.5)
-**Researched:** 2026-05-03
-**Confidence:** HIGH (cross-validated with codebase analysis, academic sources, and domain literature)
+**Domain:** Switching backtest/WF validation from place (fukusho) to win (tansho) + ML pipeline performance optimization
+**Context:** keiba-ai v1.2 milestone -- existing v1.1 pipeline produces place bets, needs win bet generation, win payout settlement, and faster training/backtest cycles
+**Researched:** 2026-05-04
+**Confidence:** HIGH (cross-validated with full codebase analysis of backtest engine, race predictor, training pipeline, and payout settlement logic)
 
 ---
 
 ## Critical Pitfalls
 
-Mistakes that cause systematic negative ROI, silent model degradation, or require major rewrites when adding new features to the existing system.
+Mistakes that cause systematically wrong ROI numbers, silent mis-settlement, or require major rewrites.
 
-### Pitfall 1: Stacking Meta-Learner Overfitting from Correlated Base Models
+### Pitfall 1: Payout Map Uses Place Payouts (`payfukusyo*`) For Win Settlement
 
-**What goes wrong:** The `StackedEnsemble` trains LightGBM, XGBoost, and CatBoost on the same features with the same objective. Since all three are gradient-boosted decision trees, their predictions are highly correlated (typically Pearson r > 0.90). The Ridge meta-learner then overfits to small differences between correlated predictions, learning noise rather than genuine complementary signal. The ensemble performs worse than the best single model out-of-sample.
+**What goes wrong:** `build_payout_map()` in `engine.py:102-125` reads `payfukusyoumaban1-5` and `payfukusyopay1-5` (place payout columns). When switching to win bets, the settlement still uses place payouts. This produces systematically wrong ROI numbers: place payouts pay for top-3 finishers, but win bets should only pay for 1st place. The ROI will be inflated because more bets "win" against place payout odds than actually win at win odds.
 
-**Why it happens:** All three GBDT variants learn similar tree structures from the same tabular features. LightGBM and XGBoost in particular, with the current hardcoded hyperparameters (lr=0.03, 300 rounds), produce nearly identical splits on this data. CatBoost adds ordered boosting but on structured racing data with few categorical interactions, its advantage is marginal. The Ridge meta-learner has only 3 input features (the 3 predictions) -- with high multicollinearity, the coefficients become unstable. On OOF data the fit looks good; on truly unseen data the coefficient assignments flip and performance degrades.
-
-**Current codebase status:** `StackedEnsemble` in `src/models/stacked_ensemble.py` uses 3-fold expanding-window OOF (lines 59-70) and Ridge(alpha=1.0) meta-learner (line 75). The base models all use `num_boost_round=300`, `learning_rate=0.03`. No diversity enforcement exists -- no different feature subsets, no different objectives, no different tree structures across base models. Hyperparameters are hardcoded rather than tuned.
-
-**Consequences:** The ensemble may show marginal improvement on the OOF validation used during training (because Ridge fits the noise in OOF differences), but the improvement does not generalize to backtest. Worse, the ensemble adds ~3x training time and inference latency for no gain, or even a loss.
-
-**Prevention:**
-- Force diversity across base models: use different `num_leaves` (15/31/63), different `feature_fraction` (0.5/0.7/0.9), and different learning rates. Give each model a different inductive bias rather than identical configurations.
-- Add the original features as meta-learner inputs alongside the 3 base predictions. Currently only 3 columns feed the meta-learner. Adding 5-10 key features (e.g., `popularity_rank`, `overround`, `surface`) gives the meta-learner signal beyond correlated predictions.
-- Use a higher Ridge alpha (e.g., 10.0) to aggressively regularize the meta-learner when base predictions are correlated. Lower alpha allows overfitting.
-- Validate the ensemble against the single best base model (not against the average). If the ensemble does not beat the single best model by at least 1% AUC on a held-out year, it is not worth the complexity.
-
-**Detection:**
-- Compute pairwise correlation between the 3 base model predictions on validation data. If all r > 0.90, stacking will add minimal value regardless of meta-learner choice.
-- Compare OOF meta-learner R^2 vs. out-of-sample (next year) R^2. A large drop (>50% relative) indicates meta-learner overfitting.
-- Compare ensemble backtest ROI against single-model (LightGBM-only) backtest ROI. If ensemble is worse, the meta-learner is overfitting.
-
-**Phase:** Must be addressed during the stacking implementation phase, before any production use.
-
-**Sources:**
-- [StackExchange: Stacking with Cross-Validation](https://stats.stackexchange.com/questions/239445/how-to-properly-do-stacking-meta-ensembling-with-cross-validation) -- meta-learner must train on separate data from base models
-- [ResearchGate: Stacking with XGBoost, LightGBM, CatBoost](https://www.researchgate.net/publication/397047638_Stacking_Ensemble_Learning_Combining_XGBoost_LightGBM_CatBoost_and_AdaBoost_with_Random_Forest_Meta_Model) -- correlated base models reduce stacking benefit
-- [ML4Devs: Ensemble Methods](https://www.ml4devs.com/what-is/ensemble-learning-bagging-boosting-stacking/) -- meta-learner overfitting risk with expressive models
-- HIGH confidence: Directly observable in `stacked_ensemble.py` code + standard ensemble theory
-
----
-
-### Pitfall 2: Meta-Learner Temporal Leakage in OOF Generation
-
-**What goes wrong:** The `StackedEnsemble` generates OOF predictions using expanding-window folds (lines 62-70). However, the final base models are then retrained on ALL data including the validation portion (lines 79-84). When the meta-learner is used to predict on backtest data, the base models have already seen the patterns in the test period. This creates a subtle form of temporal leakage: the meta-learner learned on OOF predictions, but the production base models are stronger than the OOF base models because they trained on more data.
-
-**Why it happens:** The standard stacking implementation retrains base models on full data after meta-learner fitting to maximize base model quality. This is correct for i.i.d. data but problematic for time-series data where the "future" folds contain information about market regime changes, jockey form changes, and other temporal patterns that should not leak into the base models.
-
-**Current codebase status:** `StackedEnsemble.train()` lines 79-84:
+**Why it happens:** The function was written for the place-only era. It builds `payout_map: dict[(race_id, umaban), odds_multiplier]` from place payout columns. The `_settle_bet()` method at line 931-934 uses this map for both place AND win bets:
 ```python
-X_all = pd.concat([X_train, X_valid], ignore_index=True)
-y_all = pd.concat([y_train, y_valid], ignore_index=True)
-self.lgbm_model = self._train_lgbm_full(X_all, y_all, num_threads)
-self.xgb_model = self._train_xgb_full(X_all, y_all, num_threads)
-self.cat_model = self._train_cat_full(X_all, y_all, num_threads)
+# line 931-934: applies to BOTH win and place
+if hasattr(self, "payout_map") and payout_key in self.payout_map:
+    return float(bet.stake * self.payout_map[payout_key])
 ```
-The OOF meta-learner was trained on predictions from models that only saw `X_train`, but the production models see `X_train + X_valid`. This means the production base models will make systematically different (better) predictions than the OOF base models. The meta-learner's learned coefficients are calibrated for weaker predictions but applied to stronger ones.
+Since the map contains place multipliers (which include top-3 finishers), a win bet that finished 2nd would incorrectly receive a payout.
 
-**Consequences:** The meta-learner systematically misweights the base model predictions in production/backtest. If the meta-learned that "LightGBM is more accurate than XGBoost" based on OOF, but the full-data LightGBM is now 10% better while the full-data XGBoost is only 2% better, the meta-learner's coefficient ratio is wrong. This can cause the ensemble to underperform a simple average.
+**Consequences:** Backtest ROI is completely unreliable. You cannot validate the win model because the settlement logic is wrong. This is the single highest-priority fix.
 
 **Prevention:**
-- **Option A (safer):** Do NOT retrain base models on full data. Use the OOF-trained base models directly. The meta-learner coefficients will be correctly calibrated. The cost is slightly weaker base models (trained on ~80% instead of ~100% of data), but the meta-learner coefficients are honest.
-- **Option B (current approach, needs validation):** Keep full-data retraining, but add a calibration step: compare meta-learner predictions on a small held-out set using OOF base models vs. full base models. If the predictions differ by more than a tolerance (e.g., 5% of predicted probability), the meta-learner needs recalibration.
-- **Option C (hybrid):** Use the fold-1 base models (trained on least data) as the production models, and use folds 2-3 as validation for the meta-learner. This ensures the meta-learner sees predictions from models with similar data access to the production models.
+- Create a new `build_win_payout_map()` that reads `paytansyoumaban1` and `paytansyopay1` (win payout columns that exist in the ETL schema at `etl.py:112-113`).
+- The win payout map should map `(race_id, umaban) -> win_odds_multiplier` using ONLY the single win payout entry (1st place only).
+- In `_settle_bet()`, dispatch to the correct payout map based on `bet.bet_type`: win bets use `win_payout_map`, place bets use `payout_map`.
+- If `win_payout_map` lookup fails, fall back to `confirmed_odds` (line 941-948 already handles this for WIN via `finish_pos == 1`).
 
 **Detection:**
-- Compare ensemble predictions on 2024 data using (a) OOF base models vs. (b) full-data base models. If the mean absolute difference in predictions exceeds 2%, the meta-learner is miscalibrated for the production models.
-- Check if the meta-learner's Ridge coefficients are heavily weighted toward one model (e.g., [0.8, 0.1, 0.1]). This suggests one model dominates, and the meta-learner is fitting noise in the remaining weights.
+- After the switch, verify that no win bet with `kakuteijyuni != 1` receives a non-zero payout. Count should be zero.
+- Cross-check total payout sum against manually computed `sum(stake * confirmed_odds)` for 1st-place finishers only.
 
-**Phase:** Must be addressed during stacking implementation.
+**Phase:** Must be fixed FIRST, before any other win validation work. Phase 1.
 
 **Sources:**
-- [Kaggle: Questions About Stacking](https://www.kaggle.com/general/24748) -- practical discussion of OOF vs full-data retraining
-- [Cross Validated: Stacking with CV](https://stats.stackexchange.com/questions/239445/how-to-properly-do-stacking-meta-ensembling-with-cross-validation) -- golden rule of meta-learner separation
-- HIGH confidence: Directly observable in code + standard stacking theory
+- Codebase analysis: `engine.py:102-125` (build_payout_map), `engine.py:931-948` (_settle_bet), `etl.py:112-113` (payout columns in schema)
+- HIGH confidence: Directly observable mismatch between payout columns and bet type
 
 ---
 
-### Pitfall 3: Odds Deviation Features Using Post-Time or Near-Post Odds (Look-Ahead Bias)
+### Pitfall 2: `final_odds_map` Uses `fukuoddslow` (Place Odds) For Win Bet Settlement
 
-**What goes wrong:** The odds deviation feature (`odds_to_ability_ratio = p_market / p_ability`) and the odds dynamics features (`odds_drop_rate_*`, `odds_velocity`, `odds_volatility`) use market odds that may reflect information available only at or after post time. In backtesting, the model uses these "final" odds to make predictions, but in live operation, the odds are still moving. The model appears profitable in backtest but loses money in paper trading.
+**What goes wrong:** At `engine.py:276-281`, the final odds map is built from `fukuoddslow` (place odds):
+```python
+final_odds_map: dict[tuple[str, int], float] = {}
+if not final_odds_df.empty:
+    for _, r in final_odds_df.iterrows():
+        key = (str(r["race_id"]), int(r["umaban"]))
+        if pd.notna(r.get("fukuoddslow")):
+            final_odds_map[key] = float(r["fukuoddslow"])
+```
+When win bets are generated, `final_odds_map` provides place odds for the `bet.final_odds` field, which is used for settlement when payout map lookup fails. Win odds are much higher than place odds, so using place odds understates settlement and deflates ROI.
 
-**Why it happens:** The JRA odds market is highly dynamic in the final 10 minutes before post time. Large bets from professional players ("smart money") arrive in the last 5 minutes, significantly moving odds. The `OddsExtractor` extracts pre-post odds at `minutes_before=5`, but:
-1. The feature engine also uses `confirmed_odds` (kakutei odds) as a fallback when snapshot odds are missing (`feature_engine.py:137-143`).
-2. The `odds_dynamics_features.py` uses `_mins_before_anchor` calculated relative to `post_datetime` (line 167-169). If `post_datetime` is estimated from `hassotime` and the snapshot timing is approximate, some "t-10min" snapshots may actually be closer to post time.
-3. In backtest, `confirmed_odds` is used for settlement (correct) but if it leaks into features through any fallback path, the model has access to post-race information.
+**Why it happens:** The map was built exclusively for the place betting system. The `load_odds_snapshots()` reader returns both `tanodds` and `fukuoddslow`, but only `fukuoddslow` is used for the final odds map.
 
-**Current codebase status:**
-- `odds_extractor.py` extracts at `minutes_before=5` with `max_staleness_minutes=60`.
-- `odds_dynamics_features.py` uses `_pick_target_snapshot()` with `target_minutes=10.0, tolerance_minutes=15.0` -- this means a snapshot at t-0 (post time) could match the "t-10" target if no closer snapshot exists, because the tolerance is wider than the gap.
-- The `_build_post_time_map()` function falls back to `grouped["_ts_datetime"].transform("max") + pd.Timedelta(minutes=10)` when `hassotime` is missing (line 165-166). This fallback estimates post time as 10 minutes after the last snapshot, which is guesswork.
-- The `odds_to_ability_ratio` depends on `p_market_win_adj` from `compute_market_bias()`, which uses `tanodds` from the snapshot. If the snapshot is too close to post time, this ratio contains information from the efficient closing market.
-
-**Consequences:** The model learns that "odds that moved a lot in the last 10 minutes predict outcomes" -- but this information is not available when placing bets 10+ minutes before post. The backtest overstates ROI by incorporating late odds movements that contain genuine predictive signal (smart money).
+**Consequences:** Win bets settled via `final_odds_map` fallback receive place odds, dramatically understating ROI. This makes it impossible to assess the true win model performance.
 
 **Prevention:**
-- Use a stricter cutoff: only use snapshots from t-15min or earlier for feature computation in both training and backtest. The current `tolerance_minutes=15.0` for t-10 target is too loose.
-- Never fall back to `confirmed_odds` for feature computation. If the pre-race snapshot is missing for a horse, fill the odds features with NaN rather than using post-race odds.
-- Validate the timing: for each race in the training set, log the actual timestamp of the latest snapshot used in feature computation and verify it is at least 10 minutes before post time.
-- In `odds_dynamics_features.py`, tighten `_pick_target_snapshot` tolerance to 5 minutes maximum, not 15.
+- Build separate `final_win_odds_map` using `tanodds` column (confirmed win odds) instead of `fukuoddslow`.
+- When updating bet final odds at line 607, dispatch based on `bet.bet_type`: use `final_win_odds_map` for WIN, `final_odds_map` for PLACE.
+- Alternatively, build a unified map keyed by `(race_id, umaban, bet_type)` to avoid parallel map confusion.
 
 **Detection:**
-- Compare the model's predictive accuracy using (a) t-10min odds features vs. (b) t-30min odds features vs. (c) confirmed_odds features. If accuracy improves monotonically as you get closer to post time, the model is exploiting look-ahead information. A genuine model should show similar accuracy with t-30 and t-10 features.
-- Run the backtest twice: once with the standard pipeline and once with all odds features set to NaN. If ROI drops significantly (e.g., from 100% to 80%), the model is heavily dependent on odds features, which increases look-ahead risk.
+- Log the final_odds value for each settled bet. If win bets show odds < 5.0 for mid-range popularity horses, the map is using place odds.
+- Compare `final_odds` in bet_history against `tanodds` column for a sample of races.
 
-**Phase:** Must be addressed before trusting any odds-based feature results. This is a data-integrity issue.
+**Phase:** Must be fixed alongside Pitfall 1, before any backtest execution.
 
 **Sources:**
-- [Look-Ahead Bias in Backtests (Michael Harris)](https://mikeharrisny.medium.com/look-ahead-bias-in-backtests-and-how-to-detect-it-ad5e42d97879) -- general principle of temporal information leakage
-- [Horse Racing Prediction (CUHK)](https://www.cse.cuhk.edu.hk/lyu/_media/thesis/report-1805-1.pdf) -- using final odds creates optimistic bias
-- Codebase analysis: `odds_dynamics_features.py:167-169`, `odds_extractor.py:15-22`
-- HIGH confidence: Directly observable tolerance values in code
+- Codebase analysis: `engine.py:276-281`, `engine.py:601-608`
+- HIGH confidence: Column name directly observable
 
 ---
 
-### Pitfall 4: Time-Series Horse Performance Features Use Future Race Data (Temporal Leakage)
+### Pitfall 3: Bet Generation Hardcodes `BetType.PLACE` And Place Odds Columns
 
-**What goes wrong:** When computing time-series features from past races (e.g., `harontime_late_trend`, `timediff_avg`, `closing_index_avg`), the `searchsorted` cutoff must strictly exclude the current race. If the cutoff uses `side='right'` instead of `side='left'`, or if dates are compared with `<=` instead of `<`, the current race's results leak into the "past performance" features.
+**What goes wrong:** `RacePredictor.select_bets()` at `race_predictor.py:532-642` always generates `BetType.PLACE` bets using `fukuoddslow` as the odds source. The candidate selection calls `get_place_candidates()` which uses place-specific columns (`place_selection_ev`, `place_selection_edge`, `place_selection_prob`, `fukuoddslow`). When switching to win validation, there is no corresponding `get_win_candidates()` or win-based bet generation path.
 
-**Why it happens:** The feature computation sorts by `race_date` and uses `np.searchsorted` to find the cutoff point. In `pace_aptitude_features.py:218`, the cutoff correctly uses `side='left'` to exclude the current date. But in `horse_history_features.py`, the cutoff logic uses cumulative arrays that must be carefully aligned. A single off-by-one error (e.g., including the race at the boundary) leaks the current race's finishing position, time, and pace data into features that supposedly represent "past" performance.
+**Why it happens:** The entire `select_bets()` method was designed for place betting. The method:
+1. Gets candidates from `get_place_candidates()` (line 552)
+2. Uses `place_selection_ev` and `place_selection_edge` columns (line 608-609)
+3. Uses `fukuoddslow` for odds (line 609)
+4. Creates `BetType.PLACE` (line 631)
 
-**Current codebase status:** `pace_aptitude_features.py:218` uses `side='left'` which is correct. `horse_history_features.py` uses sorted arrays and cumulative sums -- the implementation needs a line-by-line audit to confirm the boundary is correct for every feature. The existing `leakage_validators.py` validates expanding-window features but does not cover horse-history or pace features.
+The win model DOES compute `win_selection_ev`, `ev_win_corrected`, `EV_lower_win_corrected` (via `WinSelectionGate` at `race_predictor.py:131-143`), but no code path uses these for bet generation.
 
-**Consequences:** If the current race leaks into past-performance features, the model can infer "this horse finished 1st" from a feature that supposedly only contains past data. The model appears to predict well in training but cannot replicate this in production (because the current race result is not yet known). This is the most devastating form of leakage -- it can turn a losing model into an apparently profitable one.
+**Consequences:** Without implementing win bet generation, the backtest will continue to generate place bets even if the rest of the pipeline is "switched" to win mode. The validation will test the wrong thing.
 
 **Prevention:**
-- For every time-series feature computed from past races, add an explicit assertion or test: for each (horse, current_race_date), verify that no feature value was computed from data on or after `current_race_date`.
-- Extend `leakage_validators.py` to cover horse history features (`norm_finish_logit_avg`, `harontimel5_avg`, `timediff_avg`, etc.) and pace features (`pace_aptitude`, `front_pace_wr`).
-- Add a canary test: for a specific horse with known race dates, compute features at a specific date and verify that only prior race data is included.
+- Create `get_win_candidates()` analogous to `get_place_candidates()`, using `win_selection_ev`, `win_selection_edge`, and `tanodds` instead of place equivalents.
+- Create `select_win_bets()` (or add a mode parameter to `select_bets()`) that generates `BetType.WIN` bets using `tanodds` and win EV columns.
+- The `WinSelectionGate` already scores candidates with `win_gate_score`, `win_gate_pass`, etc. Use these for candidate filtering.
+- Add a `betting_target` parameter to `BacktestEngine.__init__()` to control whether to generate win or place bets.
 
 **Detection:**
-- Check if model performance drops dramatically when using strict `race_date < current_date` vs. `race_date <= current_date` for feature computation. If performance is identical, the boundary is correct. If `<=` is much better, there is leakage.
-- Check feature importance: if the top-3 features are all time-series features from past races, and the model's AUC drops by >10% when these features are shuffled, the model may be relying on leaked information.
+- After implementation, verify that generated bets have `bet_type == "win"` (not `"place"`).
+- Check that bet odds come from `tanodds` (typically 1.1-100+) not `fukuoddslow` (typically 1.0-10.0).
 
-**Phase:** Data validation phase, before any new time-series features are trusted.
+**Phase:** Core implementation work, Phase 1 alongside payout fixes.
 
 **Sources:**
-- [ResearchGate: Ensemble Learning for Horse Racing with Temporal Integrity](https://www.researchgate.net/publication/385301910_Optimizing_Horse_Racing_Predictions_through_Ensemble_Learning_and_Automated_Betting_Systems) -- time-series CV prevents leakage
-- Codebase analysis: `pace_aptitude_features.py:218`, `horse_history_features.py`
-- HIGH confidence: Boundary condition verification from code
+- Codebase analysis: `race_predictor.py:408-642`, `win_selection_gate.py`, `engine.py:504-596`
+- HIGH confidence: All place-specific column references directly observable
 
 ---
 
-### Pitfall 5: Pace Prediction Features Require Knowing Race Outcome (Circular Reasoning)
+### Pitfall 4: Diagnostics Log Place-Specific Columns, Breaking Win Analysis
 
-**What goes wrong:** Pace prediction features (e.g., `pace_pressure`, `pace_scenario_fit`) attempt to predict the pace scenario of the upcoming race. However, computing these features requires knowing the running style and early speed of every horse in the race -- which itself requires knowing how each horse performed in previous races under different pace scenarios. If the pace feature uses the current race's actual pace (derived from actual sectional times or running positions), it is using the outcome to predict the outcome.
+**What goes wrong:** The `DiagnosticLogger.log_horse()` calls in `engine.py:545-591` and `engine.py:632-678` log place-specific diagnostic fields: `p_place_pred`, `e_return_place_pred`, `ev_place`, `p_place_corrected`, `e_return_place_corrected`, `ev_place_corrected`, `EV_lower_place`, `place_selection_ev`, `place_selection_edge`, `place_selection_prob`, `place_bucket_multiplier`, `place_gate_score`, `place_gate_pass`, `place_gate_rank`, `place_gate_score_gap`. For win validation, these are the wrong metrics. The diagnostic data will show place model performance when you need win model performance.
 
-**Why it happens:** "Pace pressure" requires estimating how many horses will vie for the lead. The estimation uses each horse's past `jyuni1c` (1st corner position) as a proxy for their likely early position. But `jyuni1c` in the current race is post-race data. The model must use ONLY past `jyuni1c` values (from previous races) to estimate the pace scenario. If the pace computation inadvertently includes the current race's `jyuni1c`, the model "knows" how fast the pace actually was before predicting the winner.
+**Why it happens:** The `if "ev_place" in result_df.columns:` guard (line 544, 630) means diagnostics are only logged when place EV columns exist. For win-focused validation, `ev_place` may still exist (both models run), but the diagnostic focus should shift to `ev_win`, `p_win_pred`, `ev_win_corrected`, `EV_lower_win_corrected`, `win_selection_ev`, etc.
 
-**Current codebase status:** `pace_aptitude_features.py` uses `history[history["race_date"] < ts]` (line 36) to filter past races, which is correct. But `pace_pressure` and `pace_scenario_fit` in `interaction_features.py` compute pace estimates from the current race's entrant characteristics. If these computations use any column that is populated post-race (e.g., `kyakusitukubun_cd` which is the running style classification assigned after the race), the feature is contaminated.
-
-**Consequences:** The model learns "horses that ran on the front in a slow-paced race win more" -- but the "slow-paced race" determination uses the actual race outcome. The model appears to predict pace scenarios accurately, but cannot do so before the race starts. Backtest ROI is inflated.
+**Consequences:** Post-backtest analysis of horse diagnostics CSV will show place metrics, making it impossible to diagnose why specific win bets were or were not placed.
 
 **Prevention:**
-- Audit every pace-related feature to confirm it uses ONLY pre-race data. The source of `kyakusitukubun_cd` must be the horse's TYPICAL running style from past races, not the current race's assigned style.
-- Compute `pace_pressure` from the PREDICTED running styles of entrants (based on their historical jyuni1c/jyuni4c averages), not from actual current-race positions.
-- Add a feature provenance test: for each pace feature, trace back to the source columns and verify none are in `POST_RACE_COLS`.
+- Add parallel diagnostic logging for win-specific columns when they exist.
+- At minimum, log `p_win_pred`, `ev_win`, `ev_win_corrected`, `EV_lower_win_corrected`, `win_selection_ev`, `win_selection_edge`, `win_gate_score`, `win_gate_pass`, `tanodds`.
+- Consider making the diagnostic logger mode-aware (place vs. win) to control which columns are logged in detail.
 
 **Detection:**
-- Run the model with pace features set to NaN. If performance barely changes, pace features were not adding signal (or were adding leaked signal). If performance drops significantly, determine whether the drop comes from genuine pre-race pace prediction or from leaked post-race information.
-- Compare `pace_pressure` values computed from pre-race estimates vs. from actual race results. If they correlate at r > 0.7, the pre-race estimates are close to reality (good). If they correlate at r < 0.3, the pre-race estimates are unreliable (the feature is noise unless it is leaking).
+- After backtest, check `bt_*_horse_diagnostics.csv` columns. If they only contain place metrics, the diagnostics are incomplete for win analysis.
 
-**Phase:** Feature engineering phase, specifically when adding new pace features.
+**Phase:** Should be fixed alongside bet generation. Phase 1-2.
 
 **Sources:**
-- [Geegeez: Pace Bias Analysis](https://www.geegeez.co.uk/running-well-against-a-pace-bias-part-1/) -- difficulty of pace assessment without outcome knowledge
-- [Sage Journals: Hindsight Bias in Predictions](https://journals.sagepub.com/doi/10.1177/17456916231204579) -- retrospective judgments contaminated by outcome knowledge
-- Codebase analysis: `interaction_features.py`, `pace_aptitude_features.py`
-- MEDIUM confidence: Requires line-by-line audit of pace feature computation to confirm
+- Codebase analysis: `engine.py:544-591, 630-678`
+- HIGH confidence: Column names directly observable
 
 ---
 
-### Pitfall 6: Adding Stacking to hit_model But Not return_model Breaks EV Decomposition
+### Pitfall 5: WF Validation Uses Place Backtest For Overfitting Detection
 
-**What goes wrong:** The `StackedEnsemble` is only applied to `hit_model` (P(win) classification), not to `return_model` (E(odds|win) regression). The EV calculation is `p_win_corrected * e_return_win_corrected`. If P(win) becomes more accurate through stacking but E(odds|win) remains the same, the EV estimates become miscalibrated because the two components were jointly calibrated under the old P(win).
+**What goes wrong:** `run_wf_validation.py` at lines 171-195 creates `BacktestEngine` instances and runs backtests for both test and train periods. The engine uses the default behavior, which generates place bets. The WF validation then compares `train_roi` vs `test_roi` to detect overfitting (via `judge_overfitting()` at `walk_forward_cv.py:300-351`). But the ROI being compared is PLACE ROI, not WIN ROI. The overfitting detection is testing the wrong model's performance.
 
-**Why it happens:** The current stacking implementation only wraps the binary classification model (`WinTwoStageModel.hit_model`). The return model (`WinTwoStageModel.return_model`) remains a single LightGBM regression model. The EV correction model (`EVCorrectionModel`) was trained on predictions from the non-stacked hit model. When the stacked hit model produces different probability estimates (e.g., systematically higher for some horses), the correction model's learned biases no longer apply correctly.
+**Why it happens:** `BacktestEngine` has no parameter to switch between place and win mode. `run_wf_validation.py` has no mode flag. The WF validation script was designed before win model became the priority.
 
-**Current codebase status:** In `training_pipeline.py:439-454`, stacking is conditionally applied only to `win_2s.hit_model`. The return model is always single LightGBM (line 458-459). The EV correction model trains on the combined PxE output (line 461) which will differ depending on whether stacking was used.
-
-**Consequences:** The EV estimates from the stacked model are not directly comparable to the non-stacked model. If the stacking push P(win) up by 2% on average, the EV correction model may overcorrect or undercorrect because it was calibrated for different P(win) distributions. The net effect could be worse calibrated EV estimates despite better P(win) accuracy.
+**Consequences:** WF validation may report "PASS" for overfitting on place metrics while the win model is heavily overfit. Or it may report "FAIL" on place metrics when the win model is fine. Either way, the overfitting verdict is unreliable for the win model.
 
 **Prevention:**
-- Always retrain the full pipeline (hit model -> return model -> EV correction) when changing the hit model architecture. Never swap only the hit model and keep downstream models unchanged.
-- The `EVCorrectionModel` must be retrained AFTER the new hit model produces predictions, because its P-correction uses `init_score = logit(p_pred)` from the hit model.
-- Consider stacking the return model as well, using regression variants (XGBRegressor, CatBoostRegressor, LGBMRegressor). Even if the return model stacking does not improve, the consistency ensures the EV decomposition is calibrated.
-- Add a calibration check after stacking: compare the reliability diagram of EV estimates before and after stacking. If the diagram gets worse despite better P(win) accuracy, the EV decomposition is misaligned.
+- Add a `betting_target` parameter (or similar) to `BacktestEngine.__init__()` and propagate it through `RacePredictor`.
+- Add a `--betting-target win|place` flag to `run_wf_validation.py` (or change the default to `win`).
+- The WF validation feature ranking extraction (`_extract_all_feature_rankings`) already correctly pulls from `sub.win.hit_model` (line 92-98), so feature stability analysis is already win-focused. Only the ROI comparison needs fixing.
 
 **Detection:**
-- Compute `ev_win` predictions with and without stacking on the same data. If the mean or median `ev_win` shifts by more than 5%, the downstream correction is miscalibrated.
-- Check the EV correction model's P-correction `raw_margin` distribution. If the distribution changes significantly after stacking (different mean, wider spread), the correction model needs retraining.
+- If WF validation report shows `total_bets` count similar to the place-only era (~9000 bets/year), it is still generating place bets. Win bets should be fewer (~1000-3000 bets/year depending on edge thresholds).
 
-**Phase:** Integration testing phase, after stacking is implemented and before any backtest results are trusted.
+**Phase:** Phase 1, alongside engine changes.
 
 **Sources:**
-- Codebase analysis: `training_pipeline.py:439-459`, `ev_correction_model.py:189-291`
-- HIGH confidence: Architectural dependency chain directly observable in code
+- Codebase analysis: `run_wf_validation.py:171-195`, `walk_forward_cv.py:300-351`
+- HIGH confidence: BacktestEngine constructor and WF script directly observable
+
+---
+
+### Pitfall 6: `_settle_bet()` Fallback Uses `finish_pos == 1` For Win But Settlement Odds Are Wrong
+
+**What goes wrong:** The `_settle_bet()` fallback path at `engine.py:940-949` correctly checks `finish_pos == 1` for win bets. However, `settle_odds` is set to `bet.final_odds` which, as identified in Pitfall 2, currently contains place odds. The settlement will pay `stake * fukuoddslow` for a win, which understates the actual return.
+
+**Why it happens:** The fallback is architecturally correct (use `final_odds` for settlement when payout map lookup fails) but the data flowing into `final_odds` is wrong.
+
+**Consequences:** Even after fixing the payout map (Pitfall 1), if any race's win payout data is missing from the payout map, the fallback will underpay. This creates inconsistency: most bets settle correctly but some settle incorrectly, making the aggregate ROI unreliable.
+
+**Prevention:**
+- Fix Pitfall 2 (final_odds_map uses tanodds) first. Then the fallback path will work correctly.
+- Add logging when fallback settlement is used: `logger.warning("Win payout map miss for %s/%d, using final_odds=%.1f", race_id, umaban, settle_odds)`.
+- Track `n_fallback_settlements` in `BacktestResult` and alert if > 5% of bets use fallback.
+
+**Detection:**
+- After backtest, check fallback settlement count. If high, the win payout data has gaps.
+
+**Phase:** Phase 1, alongside Pitfalls 1 and 2.
+
+**Sources:**
+- Codebase analysis: `engine.py:940-949`
+- HIGH confidence: Fallback logic directly observable
 
 ---
 
 ## Moderate Pitfalls
 
-### Pitfall 7: Feature Dimension Explosion From Adding Time-Series and Odds Features
+### Pitfall 7: `run_backtest.py` `before_roi` Reference Is Place-Specific
 
-**What goes wrong:** Adding 10-20 new time-series features (harontime trends, sectional time deltas, pace features) plus 5-10 new odds features (deviation features, volatility features, rolling market statistics) to the existing 100+ feature set creates a high-dimensional feature space. With ~50,000 training samples (4 years of JRA data), the feature-to-sample ratio becomes unfavorable for tree-based models. The model overfits to noise in the new features, especially the ones with high missingness.
-
-**Why it happens:** LightGBM's `feature_fraction=0.7` (used in `WinTwoStageModel`) means each tree sees 70% of features. With 120+ features, many trees will see several noisy new features. If the new features are correlated with existing features (e.g., `harontime_late_trend` correlates with `form_trend`), they add noise without adding signal. The model wastes capacity on redundant features.
-
-**Current codebase status:** `WinTwoStageModel.FEATURE_COLS` has ~30 features. `AbilityModel.FEATURE_COLS` has ~35 features. Adding 15-20 more features would push the total to ~50 per model. This is not catastrophic but combined with the 300-500 training samples per feature ratio, it increases overfitting risk.
+**What goes wrong:** `display_single_year_result()` at `run_backtest.py:233` compares against a hardcoded `before_roi = 0.638` (63.8% place ROI). When switching to win mode, this baseline is meaningless because win ROI has a different distribution (fewer winning bets, higher payouts per win). The comparison will be misleading.
 
 **Prevention:**
-- Run feature importance analysis AFTER adding new features and BEFORE training the production model. Drop any new feature with importance < 1% of the top feature's importance.
-- Use `feature_fraction=0.5` (more aggressive column sampling) when feature count exceeds 40 to increase tree diversity.
-- Group new features by source (time-series vs. odds vs. pace) and test each group independently. Only add groups that improve validation AUC by at least 0.5%.
-- Apply mutual information filtering before training: compute MI between each new feature and the target, drop features with MI below a threshold.
+- Replace `before_roi` with the win-model baseline from the v1.1 backtest (or remove the comparison entirely until a win baseline is established).
+- Add a comment explaining what the baseline represents.
 
-**Detection:**
-- Track validation AUC as features are added one by one. If AUC plateaus or declines after the Nth feature, stop adding.
-- Monitor the gap between training AUC and validation AUC. If the gap widens significantly after adding features, overfitting is occurring.
-
-**Phase:** Feature engineering phase, specifically during the addition of new feature groups.
-
-**Sources:**
-- Codebase analysis: `WinTwoStageModel.FEATURE_COLS`, `AbilityModel.FEATURE_COLS`
-- HIGH confidence: Standard ML practice for tabular data with limited samples
+**Phase:** Phase 2 (analysis).
 
 ---
 
-### Pitfall 8: Training Time Explosion With 3x Model Training Per Submodel
+### Pitfall 8: Edge Thresholds Calibrated For Place, Not Win
 
-**What goes wrong:** The current training pipeline takes ~44 minutes for 4 years of data with single LightGBM models. Stacking adds 3x training for the hit model (3 base models x K folds for OOF + 3 base models for full training). For 3-fold OOF with 2 surfaces, the stacking adds approximately 18 additional model training runs (3 models x 3 folds x 2 surfaces). Total training time could increase to 2-3 hours.
+**What goes wrong:** The `RegimeDetector` strategy parameters (`edge_threshold`, `ev_threshold`, `min_place_prob`, `max_place_odds`) in `config/settings.yaml` or hardcoded defaults are calibrated for place betting. Place edge distribution is different from win edge distribution: place edges are smaller and more frequent (p_place ~0.3 for average horse, odds ~1.5-3.0) while win edges are larger but rarer (p_win ~0.08 for average horse, odds ~5.0-50.0).
 
-**Why it happens:** The pipeline already runs turf and dirt submodels in parallel (`ThreadPoolExecutor`, `training_pipeline.py:208`). But within each submodel, the stacking adds sequential K-fold training. The OOF generation is inherently sequential (each fold depends on the previous fold's training).
+**Why it happens:** The regime detector was trained on place ROI and place edge statistics. Win edge distribution has heavier tails and higher variance.
 
-**Current codebase status:** `StackedEnsemble.train()` runs the 3 base models sequentially within each fold (lines 68-70). This could be parallelized but is not currently.
-
-**Consequences:** Slower iteration cycles make it harder to experiment with different feature sets and hyperparameters. Developers may be tempted to skip retraining the ensemble after feature changes, leading to stale models.
+**Consequences:** Using place-calibrated edge thresholds for win bet selection may either (a) generate too many bets (threshold too low for win edge scale) causing overbetting, or (b) generate too few bets (threshold too high) causing missed opportunities.
 
 **Prevention:**
-- Parallelize the 3 base models within each OOF fold (train LightGBM, XGBoost, CatBoost simultaneously).
-- Use fewer OOF folds (2 instead of 3) if data size permits. With time-series data, 2 folds already capture temporal variation.
-- Pre-train base models once and only retrain the meta-learner when features change (if base model features are unchanged). This is a partial optimization but reduces iteration time.
-- Consider training the stacking only for the final production model, not during development iterations. Use single LightGBM for development and switch to stacking for the final model.
+- Add win-specific strategy parameters to the regime detector config: `win_edge_threshold`, `win_ev_threshold`, `min_win_prob`, `max_win_odds`.
+- Calibrate these from the win model's edge distribution on validation data.
+- In `get_win_candidates()`, use the win-specific parameters instead of place parameters.
 
 **Detection:**
-- Track training time per phase. If the stacking phase exceeds 30 minutes per surface, optimization is needed.
+- Plot the distribution of `win_selection_edge` values. If the 95th percentile is much higher than `edge_threshold=0.03`, the threshold is too low. If it is lower, the threshold is too high.
 
-**Phase:** Infrastructure phase, during stacking integration.
+**Phase:** Phase 2 (after win bet generation works).
 
 **Sources:**
-- Codebase analysis: `stacked_ensemble.py:59-84`, `training_pipeline.py:208-226`
-- HIGH confidence: Training time is directly observable
+- Codebase analysis: `regime_detector.py`, `race_predictor.py:427-429`
+- MEDIUM confidence: Threshold values are configurable, exact calibration needs empirical data
 
 ---
 
-### Pitfall 9: Odds Time-Series Features Unavailable at Inference Time
+### Pitfall 9: Race-Level Per-Race Loop Is The Dominant Performance Bottleneck
 
-**What goes wrong:** New odds time-series features (e.g., `odds_velocity`, `odds_volatility`) are computed from historical odds snapshots during training. At inference time (paper trading or live betting), the same time-series data may not be available in the same format or granularity. The features become NaN during inference, causing the model to default to a degraded prediction path.
+**What goes wrong:** The backtest engine iterates over individual races in a Python for-loop (`engine.py:420: for race_id in race_ids:`). For each race, it:
+1. Filters the full feature DataFrame for that race (line 421)
+2. Merges pre-computed features (hist_df, jockey_df, trainer_df, jt_df) for that race (lines 466-469)
+3. Drops POST_RACE columns (line 472-475)
+4. Calls `RacePredictor.predict()` which itself does multiple DataFrame operations per race
+5. Iterates over `result_df` rows to log diagnostics (lines 545-591, 632-678) using `.iterrows()`
 
-**Why it happens:** Training uses bulk historical odds data loaded from Parquet files (`load_odds_time_series_range`). Paper trading uses `OddsCollector` which may capture odds at different intervals or with different timing. The `_pick_target_snapshot` function in `odds_dynamics_features.py` requires specific snapshots at t-10, t-30, t-60 minutes before post. If the paper trading system does not capture snapshots at these exact times, the features cannot be computed.
+For a year of ~5000 races, this is 5000 iterations of DataFrame filtering, merging, and row-level iteration. The per-race overhead compounds.
 
-**Current codebase status:** `odds_dynamics_features.py` returns NaN for all features when `odds_ts` is None or empty (lines 137-139). The `FeatureEngine.build_features()` method (for inference) may not have access to the same odds time-series data as `build_all()` (for training).
-
-**Consequences:** The model was trained expecting odds velocity and volatility features. During inference, these are NaN. LightGBM handles NaN by sending samples down the default branch, which was learned for training samples with NaN features (which are rare in training because historical data is complete). The inference path is effectively different from the training path, causing unpredictable performance degradation.
+**Why it happens:** The original design processes races one-by-one because bet settlement needs sequential bankroll tracking. But the feature engineering and model inference could be batched.
 
 **Prevention:**
-- Ensure the inference path (`build_features`) receives the same odds time-series data format as the training path (`build_all`). The `OddsCollector` must capture snapshots at intervals compatible with `_pick_target_snapshot`'s target times.
-- Add a feature availability check: before inference, verify that all features used in training have non-NaN values. If critical features are NaN, log a warning and fall back to a simplified model that does not require those features.
-- During training, intentionally mask some features as NaN in a portion of the training data to make the model robust to missing features at inference time.
+- Batch model inference: instead of calling `predict()` per race, call it once on the full `feat_df` with a `race_id` groupby. LightGBM/XGBoost inference is much faster in batch mode.
+- Pre-compute and cache `predict()` results for all races before entering the settlement loop.
+- The settlement loop (bankroll tracking) must remain sequential but should be lightweight (just arithmetic, no DataFrame operations).
+- Replace `.iterrows()` in diagnostic logging with vectorized column extraction.
+- Replace the `for _, row in payouts_df.iterrows()` in `build_payout_map()` with vectorized `zip()` and list comprehension.
 
 **Detection:**
-- Compare feature NaN rates between training data and inference data. If a feature has 0% NaN in training but 50% NaN in inference, the model will behave unpredictably.
-- Run inference with and without odds time-series features. If predictions differ significantly, the model depends on features that may not be reliably available.
+- Profile `engine.py` run time. If per-race processing exceeds 0.1 seconds (500+ seconds total for 5000 races), the loop overhead is significant.
+- Check if `predict()` call dominates the per-race time (it likely does due to DataFrame copies and merges).
 
-**Phase:** Integration testing phase, when connecting new features to the inference pipeline.
+**Phase:** Phase 3 (pipeline optimization).
 
 **Sources:**
-- Codebase analysis: `odds_dynamics_features.py:137-139`, `feature_engine.py`
-- HIGH confidence: Directly observable data availability gap
+- Codebase analysis: `engine.py:420-785`, `race_predictor.py:51-222`
+- HIGH confidence: Per-race loop pattern is directly observable; ~5000 iterations with DataFrame operations per iteration
 
 ---
 
-### Pitfall 10: Regime Detector Not Retrained After Model Architecture Changes
+### Pitfall 10: `build_payout_map()` Uses `iterrows()` Over Full Payouts DataFrame
 
-**What goes wrong:** The `RegimeDetector` classifies market conditions into 3 states (aggressive/conservative/collapsed) using features derived from model predictions (e.g., `rolling_roi`, `market_error`). When the model architecture changes (e.g., adding stacking changes the prediction distribution), the regime detector's learned boundaries become invalid. It may classify a "good" regime as "collapsed" because the model's error distribution shifted.
+**What goes wrong:** `build_payout_map()` at `engine.py:112` iterates row-by-row with `for _, row in payouts_df.iterrows()`. For a year of data with ~5000 races and 5 place payout entries each, this processes ~25,000 rows via slow Python iteration. The same pattern exists in `build_wide_payout_map()` with up to 35,000 iterations (7 wide entries x 5000 races).
 
-**Why it happens:** The regime detector is trained on market-level features computed from the OLD model's predictions. When the model changes, the prediction errors change, the rolling ROI changes, and the market efficiency metrics change. The regime boundaries (learned from the old model's prediction patterns) no longer apply.
-
-**Current codebase status:** `RegimeDetector` in `training_pipeline.py:267-271` is trained after all submodels. Its features include `market_efficiency` computed from favorite win rate and overround, which are model-independent. However, the `rolling_roi` feature (if used) depends on the model's betting performance. If stacking changes ROI from 89% to 105%, the regime detector's ROI-based features shift.
-
-**Consequences:** The regime detector may incorrectly suppress betting when the new model is actually performing well, or may allow aggressive betting when the new model is misfiring. The regime detector's strategy parameters (edge_threshold, stake_fraction) become misaligned with the model's actual edge.
+**Why it happens:** The function was written for correctness, not performance. `iterrows()` is the slowest pandas iteration method (creates a Series per row).
 
 **Prevention:**
-- Always retrain the regime detector after any model architecture change. The training pipeline already does this (`training_pipeline.py:267-271`), but the regime detector's features must also be recomputed with the new model's predictions.
-- Consider making the regime detector purely model-independent: use only market-level features (overround, entropy, favorite win rate) that do not depend on the model's predictions.
-- Add a sanity check: after retraining, verify that the regime detector's classification distribution is not dramatically different from the previous version (e.g., if previously 40% aggressive, 40% conservative, 20% collapsed, and now 10% aggressive, 80% conservative, 10% collapsed, something changed that needs investigation).
+- Replace with vectorized operations:
+```python
+# Win payout map (vectorized)
+tansyo_cols = ["race_id", "paytansyoumaban1", "paytansyopay1"]
+t = payouts_df[tansyo_cols].dropna()
+t["key"] = t["race_id"].astype(str) + "_" + t["paytansyoumaban1"].astype(int).astype(str)
+t["val"] = t["paytansyopay1"].astype(float) / 100.0
+win_payout_map = dict(zip(t["key"], t["val"]))
+```
+- Use `itertuples()` as a middle ground if full vectorization is complex.
+- For the wide payout map, parse kumi strings with `.str` operations.
 
 **Detection:**
-- Compare regime state distributions before and after model changes. Large shifts indicate the regime detector is responding to changed model behavior, not changed market conditions.
-- Test backtest ROI with regime detector enabled vs. disabled using the new model. If enabling the regime detector reduces ROI, it is misaligned.
+- Time `build_payout_map()` and `build_wide_payout_map()`. If they take > 5 seconds combined, optimization is needed.
 
-**Phase:** After any model architecture change, during integration testing.
+**Phase:** Phase 3 (pipeline optimization), quick win.
 
 **Sources:**
-- Codebase analysis: `regime_detector.py`, `training_pipeline.py:267-271`
-- HIGH confidence: Architectural dependency directly observable
+- Codebase analysis: `engine.py:102-168`
+- HIGH confidence: `iterrows()` performance impact is well-documented
+
+---
+
+### Pitfall 11: Training Pipeline Recomputes Features Every Run (No Feature Caching)
+
+**What goes wrong:** `TrainingPipelineV5.run()` always recomputes ALL features from raw data (load races -> load entries -> load odds -> build_all -> add submodel features). For a 4-year training window (~200K entries), this takes significant time. When running WF validation with 2 folds, the same feature computation runs twice for overlapping periods.
+
+**Why it happens:** No feature caching mechanism exists. The pipeline was designed for simplicity, not iteration speed. The existing `data/features/horse_features.parquet` cache is referenced in `readers.py:297-300` but is never written to by the training pipeline.
+
+**Consequences:** Each training run takes ~44 minutes (per CLAUDE.md). WF validation with 2 folds takes ~4 hours. Development iteration is slow.
+
+**Prevention:**
+- Cache `feat_df` (before submodel-specific features) to `data/features/horse_features.parquet` after the first computation. Subsequent runs load from cache if the input data range matches.
+- Add a `--cache-features` flag to `run_train.py` and `run_wf_validation.py`.
+- Hash the input parameters (date range, feature version) into a cache key. If the key matches, skip feature computation.
+- NOTE: Submodel-specific features (HorseHistoryFeatures, PaceAptitudeFeatures, etc.) depend on the training data and cannot be simply cached. Only cache the base features from `FeatureEngine.build_all()`.
+
+**Detection:**
+- Add timing instrumentation. If `build_all()` takes > 10 minutes, feature caching is worth implementing.
+
+**Phase:** Phase 3 (pipeline optimization).
+
+**Sources:**
+- Codebase analysis: `training_pipeline.py:84-188`, `readers.py:297-300`
+- HIGH confidence: No caching mechanism observable in pipeline code
+
+---
+
+### Pitfall 12: Optuna Hyperparameter Search In Ensemble Adds 2-3x Training Time
+
+**What goes wrong:** The v1.1 ensemble uses Optuna for per-model hyperparameter optimization (per PROJECT.md). This adds significant training time on top of the already expensive 3-model stacking. Combined with the lack of feature caching (Pitfall 11), a single WF fold could take 2+ hours.
+
+**Why it happens:** Optuna runs multiple trials per model, each requiring a full model training. With 3 base models x N trials x K OOF folds, the trial count multiplies.
+
+**Prevention:**
+- For development iterations, disable Optuna and use fixed reasonable hyperparameters. Only run Optuna for the final production model.
+- Add a `--quick-train` flag that skips Optuna, uses fewer OOF folds (2 instead of 5), and reduces boost rounds (200 instead of 300).
+- Cache Optuna results: if hyperparameters have been tuned for a given data range, reuse them instead of re-optimizing.
+
+**Detection:**
+- If a single training run exceeds 90 minutes, Optuna is likely the bottleneck.
+
+**Phase:** Phase 3 (pipeline optimization).
+
+**Sources:**
+- PROJECT.md context: "学習時間がOptunaチューニングにより推定2-3倍に増加"
+- HIGH confidence: Optuna overhead is documented in project context
+
+---
+
+### Pitfall 13: Diagnostic CSV `iterrows()` Calls In Per-Race Loop Are Expensive
+
+**What goes wrong:** Within the per-race loop, the engine calls `diag_logger.log_horse()` for every horse in every race (lines 545-591 for quality-failed races, lines 632-678 for quality-passed races). Each call uses `hr.to_dict()` on a row from `result_df.iterrows()`. For a race with 14 horses, that is 14 dict constructions per race, 70,000 total for 5000 races. The dict construction is slow because it includes all feature columns (~120+).
+
+**Why it happens:** Diagnostics were designed for completeness, not performance. Logging every horse's every feature is overkill for routine backtests.
+
+**Prevention:**
+- Make diagnostic logging optional. Add a `--diagnostics` flag to `run_backtest.py`. Only enable for debugging.
+- When diagnostics are disabled, skip the entire `log_horse` / `log_horse_features` calls.
+- When diagnostics are enabled, only log the bet-relevant columns (not all ~120 feature columns).
+- The `log_race()` call is lightweight (1 per race) and can always run.
+
+**Detection:**
+- Profile `diag_logger.log_horse()` total time. If it exceeds 10% of total backtest time, it is worth optimizing.
+
+**Phase:** Phase 3 (pipeline optimization).
+
+**Sources:**
+- Codebase analysis: `engine.py:545-591, 632-678`
+- HIGH confidence: `iterrows()` + `to_dict()` overhead well-documented
 
 ---
 
 ## Minor Pitfalls
 
-### Pitfall 11: Model Serialization Format Change Breaks Backward Compatibility
+### Pitfall 14: `run_backtest.py` Report Compares Against Place Baseline ROI
 
-**What goes wrong:** The `StackedEnsemble` is serialized as joblib (`.joblib`) while single LightGBM models use native format (`.lgb`). The `ModelLoader._load_hit_model()` method handles both formats (lines 447-472), but the `meta.json` must be updated to record `use_ensemble=true/false`. If a developer trains with stacking enabled but forgets to update meta.json, or if the backtest uses a different meta.json than training, the model loading fails silently (loads single LightGBM instead of ensemble).
+**What goes wrong:** The `before_roi = 0.638` hardcoded at line 233 and the display logic at lines 233-243 compare backtest ROI against a place-model baseline. This is misleading when testing win bets.
 
-**Prevention:** Always update meta.json automatically during training. Never rely on manual flag setting. The `training_pipeline.py` should write `use_ensemble` to meta.json in the `_log_to_mlflow` or equivalent save step.
+**Prevention:** Replace with a win-model baseline or make it configurable via command-line argument.
 
-**Detection:** Compare model predictions loaded from `.joblib` vs. `.lgb`. If they differ for the same data, there is a loading mismatch.
-
-**Phase:** Infrastructure phase, during model save/load integration.
+**Phase:** Phase 2 (analysis).
 
 ---
 
-### Pitfall 12: Memory Usage Spike During Stacking OOF Generation
+### Pitfall 15: Bet History Records Place-Specific Fields For Win Bets
 
-**What goes wrong:** The stacking OOF generation creates 3 K-fold models for each base learner (9 total models in memory for 3-fold x 3 models). For 200K training rows with 50 features, each LightGBM/XGBoost/CatBoost model consumes 100-500MB of memory. During OOF generation, all intermediate models are in memory simultaneously, causing potential OOM on systems with less than 16GB RAM.
+**What goes wrong:** `bet_history` entries at `engine.py:699-752` record `p_place_pred`, `e_return_place_pred` in the bet history. For win validation, these should be `p_win_pred`, `e_return_win_pred`, `ev_win`, `ev_win_corrected`, `EV_lower_win_corrected`. The multi-year JSON report and parquet output will contain the wrong prediction values.
 
-**Prevention:** Delete fold models immediately after generating OOF predictions. Only the final full-data models need to be retained. Add explicit `del` and `gc.collect()` calls in the fold loop.
+**Prevention:** Add win-specific fields to bet_history entries. Record both win and place metrics for completeness, or switch based on the bet type.
 
-**Detection:** Monitor peak memory usage during stacking training. If it exceeds 8GB, add model cleanup.
-
-**Phase:** Infrastructure phase.
+**Phase:** Phase 2 (analysis/reporting).
 
 ---
 
-### Pitfall 13: Odds Deviation EV Double-Counting
+### Pitfall 16: `backtest_result.json` Does Not Distinguish Win vs. Place Mode
 
-**What goes wrong:** If odds deviation features (e.g., `odds_to_ability_ratio`) are added to the hit model features AND the model output is multiplied by odds in the EV calculation, the market information is effectively used twice. The hit model learns "when p_market >> p_ability, this horse is underbet by the market" and assigns higher P(win). Then EV = P(win) * odds captures the market inefficiency again through the odds term. This double-counts the edge.
+**What goes wrong:** The JSON output from `run_backtest.py` does not record which betting mode was used. If someone runs a place backtest and later a win backtest, the JSON files look identical in structure. Comparing them requires external knowledge.
 
-**Why it happens:** The `odds_to_ability_ratio` is defined as `p_market / p_ability`. A value > 1.0 means the market rates the horse higher than the model. If the hit model uses this feature and learns to increase P(win) for high-ratio horses, the EV calculation `P * odds` will reflect both the increased P (from the feature) and the odds (which are the source of the feature). The edge is amplified beyond what is real.
+**Prevention:** Add `betting_target: "win"` or `"place"` field to the JSON output.
 
-**Prevention:** Decide on one path: either (a) use odds deviation features in the hit model and compute EV = P * odds, or (b) do not use odds deviation features in the hit model and instead use them in a Benter-style combination after prediction. Never do both.
-- Path (a) is simpler but makes the model dependent on having pre-race odds at prediction time.
-- Path (b) is cleaner conceptually because it separates the fundamental model (no odds) from the market combination step. This is the Benter approach already used for place predictions.
+**Phase:** Phase 2 (reporting).
 
-**Current codebase status:** `odds_to_ability_ratio` is already in `WinTwoStageModel.FEATURE_COLS` (line 88). The EV calculation uses `confirmed_odds` or pre-race odds. This means the feature is already being double-counted. The existing v1.0 implementation chose path (a).
+---
 
-**Detection:** Compare model predictions with and without `odds_to_ability_ratio`. If removing the feature causes P(win) to drop for horses where p_market > p_ability, the model is learning from the ratio. Then check if the EV estimates are inflated for these horses relative to actual returns.
+### Pitfall 17: `_generate_bets()` Legacy Method Still Uses Place-Only Logic
 
-**Phase:** Feature engineering phase, when evaluating odds deviation features.
+**What goes wrong:** `_generate_bets()` at `engine.py:870-907` is a legacy method that creates only `BetType.PLACE` bets using `fukuoddslow`. It is marked as "kept for compatibility" (tests may reference it). If any code path falls back to this method, it will generate place bets regardless of the intended mode.
+
+**Prevention:** Ensure all code paths use `RacePredictor.select_bets()` and never fall back to `_generate_bets()`. Add a deprecation warning.
+
+**Phase:** Phase 1 (ensure no regression).
+
+---
+
+### Pitfall 18: `compute_roi_ema()` And Market Bias Features May Use Wrong Odds Column
+
+**What goes wrong:** Various feature computations use `tanodds` (win odds) for some calculations and `fukuoddslow` (place odds) for others. When the betting target is win, some feature computations that use `fukuoddslow` in the EV pipeline (e.g., `compute_market_bias`, Benter combination at `race_predictor.py:158-193`) need to use `tanodds` instead. If this is not consistent, the EV estimates will mix win and place odds.
+
+**Why it happens:** The Benter combination at `race_predictor.py:158-193` computes `p_market = 1.0 / fukuoddslow` which is the market-implied PLACE probability. This feeds into `edge_place = p_combined * fukuoddslow - 1.0`. This is correct for place but wrong for win. A parallel path using `1.0 / tanodds` and `ev_win` must be used for win bets.
+
+**Prevention:** The Win Benter Combination (`WinBenterGate.apply()`) at `race_predictor.py:119-128` already handles this correctly using tanodds. Ensure `get_win_candidates()` uses the Win Benter outputs rather than the place Benter outputs.
+
+**Phase:** Phase 1 (verify win Benter is used in win path).
+
+**Sources:**
+- Codebase analysis: `race_predictor.py:119-128, 158-193`, `win_benter_gate.py`
+- HIGH confidence: Separate win and place Benter paths observable
 
 ---
 
@@ -357,57 +413,96 @@ The OOF meta-learner was trained on predictions from models that only saw `X_tra
 
 | Phase Topic | Likely Pitfall | Mitigation |
 |-------------|---------------|------------|
-| Stacking implementation | Pitfall 1: Correlated base models | Force diversity via different hyperparameters per model |
-| Stacking OOF generation | Pitfall 2: Temporal leakage from full-data retraining | Validate meta-learner calibration on held-out data |
-| Odds features (any) | Pitfall 3: Look-ahead bias from near-post odds | Tighten snapshot tolerance to 5min max |
-| Time-series horse features | Pitfall 4: Current race leaks into past features | Add boundary assertions for every searchsorted call |
-| Pace prediction features | Pitfall 5: Circular reasoning with post-race data | Audit pace feature provenance against POST_RACE_COLS |
-| Stacking integration | Pitfall 6: EV decomposition miscalibration | Retrain full pipeline including EV correction after stacking |
-| Feature expansion | Pitfall 7: Dimension explosion with limited data | Feature importance filtering before production training |
-| Training infrastructure | Pitfall 8: Training time 3x increase | Parallelize base models within OOF folds |
-| Inference pipeline | Pitfall 9: Odds TS features unavailable at inference | Ensure inference data matches training data format |
-| Model architecture change | Pitfall 10: Regime detector misalignment | Always retrain regime detector after model changes |
-| Model save/load | Pitfall 11: Serialization format confusion | Auto-write meta.json during training |
-| Stacking memory | Pitfall 12: OOM during OOF generation | Delete fold models after OOF prediction |
-| Odds deviation features | Pitfall 13: EV double-counting | Choose one path: feature-in-model OR Benter-combination |
+| Win payout map creation | Pitfall 1: Using place payouts for win settlement | Create `build_win_payout_map()` reading `paytansyoumaban1/paytansyopay1` |
+| Final odds map for win | Pitfall 2: Using `fukuoddslow` for win odds | Build separate map from `tanodds` or `confirmed_odds` |
+| Win bet generation | Pitfall 3: No `get_win_candidates()` or win bet path | Create win candidate selection using `WinSelectionGate` outputs |
+| WF validation mode | Pitfall 5: Engine defaults to place bets | Add betting target parameter to engine and WF script |
+| Diagnostic logging | Pitfall 4: Logging place metrics only | Add win metric logging path |
+| Edge threshold calibration | Pitfall 8: Place thresholds applied to win edges | Add win-specific regime parameters |
+| Per-race loop performance | Pitfall 9: 5000 DataFrame operations in loop | Batch inference, cache predict results |
+| Payout map performance | Pitfall 10: `iterrows()` on payouts | Vectorize payout map construction |
+| Feature caching | Pitfall 11: Recomputing features every run | Cache `feat_df` between training runs |
+| Optuna overhead | Pitfall 12: 2-3x training time from HP search | Add `--quick-train` flag for development |
+| Diagnostic overhead | Pitfall 13: Per-horse `to_dict()` in loop | Make diagnostics optional |
+| Bet history analysis | Pitfall 15: Place-specific fields in history | Add win fields to bet_history entries |
+| Report baseline | Pitfall 14: Hardcoded place baseline ROI | Make baseline configurable or remove |
 
 ---
 
-## Priority Action Items (Ordered by Risk Severity)
+## Priority Action Items (Ordered by Impact)
 
-1. **Audit odds snapshot timing** (Pitfall 3) -- Before trusting any odds-based feature results, validate that `_pick_target_snapshot` tolerance is tightened and no fallback to confirmed_odds exists in feature paths. This is a data-integrity prerequisite.
+1. **Build `build_win_payout_map()`** (Pitfall 1) -- Without this, ALL win backtest ROI numbers are wrong. Must read `paytansyoumaban1` and `paytansyopay1`.
 
-2. **Validate stacking meta-learner on held-out data** (Pitfall 2) -- Before using the stacked model for any decisions, compare meta-learner predictions using OOF base models vs. full-data base models on the 2024 backtest year. If predictions differ by >2%, recalibrate or switch to Option A (no full-data retraining).
+2. **Fix `final_odds_map` to use `tanodds` for win** (Pitfall 2) -- Settlement fallback uses place odds. Must dispatch by bet type.
 
-3. **Force base model diversity** (Pitfall 1) -- Before training the production stacked model, set different hyperparameters for each base model. At minimum: different `num_leaves` and `feature_fraction`.
+3. **Create `get_win_candidates()` and win bet generation** (Pitfall 3) -- Without this, no win bets are generated. Use `WinSelectionGate` outputs.
 
-4. **Add time-series boundary assertions** (Pitfall 4) -- Extend `leakage_validators.py` to cover horse history and pace features. Add `assert` statements in `horse_history_features.py` and `pace_aptitude_features.py`.
+4. **Add betting target parameter to `BacktestEngine`** (Pitfall 5) -- Engine must know whether to generate win or place bets. Propagate to `RacePredictor`.
 
-5. **Audit pace feature provenance** (Pitfall 5) -- Trace the source of `kyakusitukubun_cd` used in pace computation. Confirm it comes from past races only, not from the current race's post-race classification.
+5. **Add win diagnostic logging** (Pitfall 4) -- After backtest runs, diagnostics must show win metrics for analysis.
 
-6. **Plan full pipeline retrain after stacking** (Pitfall 6) -- Ensure the training pipeline retrain order is: hit model (stacked) -> return model -> EV correction model. Never reuse old downstream models.
+6. **Batch model inference in backtest loop** (Pitfall 9) -- The biggest performance win for the optimization phase. Call `predict()` once on full DataFrame instead of per-race.
+
+7. **Vectorize payout map construction** (Pitfall 10) -- Quick performance win, easy to implement.
+
+8. **Add feature caching to training pipeline** (Pitfall 11) -- Largest time savings for iteration speed. Cache base features between runs.
+
+9. **Add `--quick-train` mode** (Pitfall 12) -- Disable Optuna for development iterations. Saves 2-3x per training run.
+
+10. **Make diagnostics optional** (Pitfall 13) -- Disable by default for routine backtests. Saves ~10% of loop time.
+
+---
+
+## Dependency Graph
+
+```
+Pitfall 1 (payout map) ──┐
+Pitfall 2 (final odds) ──┤── Must be done FIRST (Phase 1)
+Pitfall 3 (bet gen)    ──┤
+Pitfall 5 (WF mode)    ──┘
+         │
+         ▼
+Pitfall 4 (diagnostics) ── Phase 1-2 (alongside first backtest run)
+Pitfall 6 (fallback)    ── Phase 1 (resolved by Pitfall 2 fix)
+Pitfall 17 (legacy)     ── Phase 1 (verify no regression)
+Pitfall 18 (Benter)     ── Phase 1 (verify win path)
+         │
+         ▼
+Pitfall 7 (baseline)    ── Phase 2 (analysis)
+Pitfall 8 (thresholds)  ── Phase 2 (calibration)
+Pitfall 14 (baseline)   ── Phase 2
+Pitfall 15 (history)    ── Phase 2
+Pitfall 16 (JSON)       ── Phase 2
+         │
+         ▼
+Pitfall 9  (loop)       ── Phase 3 (optimization)
+Pitfall 10 (payout)     ── Phase 3
+Pitfall 11 (cache)      ── Phase 3
+Pitfall 12 (Optuna)     ── Phase 3
+Pitfall 13 (diags)      ── Phase 3
+```
 
 ---
 
 ## Sources
 
-### HIGH confidence (codebase analysis + established theory)
-- [StackExchange: Stacking with Cross-Validation](https://stats.stackexchange.com/questions/239445/how-to-properly-do-stacking-meta-ensembling-with-cross-validation) -- meta-learner separation principle
-- [ML4Devs: Ensemble Methods -- Overfitting Risk](https://www.ml4devs.com/what-is/ensemble-learning-bagging-boosting-stacking/) -- meta-learner overfitting with correlated base models
-- [Look-Ahead Bias in Backtests (Michael Harris)](https://mikeharrisny.medium.com/look-ahead-bias-in-backtests-and-how-to-detect-it-ad5e42d97879) -- temporal information leakage
-- Codebase analysis: `stacked_ensemble.py`, `training_pipeline.py`, `odds_dynamics_features.py`, `ev_correction_model.py`, `pace_aptitude_features.py`
+### HIGH confidence (codebase analysis + directly observable patterns)
+- `src/backtest/engine.py:102-168` -- payout map construction using place-only columns
+- `src/backtest/engine.py:276-281` -- final odds map using `fukuoddslow`
+- `src/backtest/engine.py:420-785` -- per-race loop with DataFrame operations
+- `src/backtest/engine.py:909-950` -- settlement logic dispatching
+- `src/backtest/race_predictor.py:408-642` -- place-only candidate selection and bet generation
+- `src/backtest/race_predictor.py:119-143` -- WinSelectionGate application (correct win path exists)
+- `src/db/etl.py:112-113` -- win payout columns in schema (`paytansyoumaban1`, `paytansyopay1`)
+- `src/domain/types.py:13-18` -- BetType enum includes WIN
+- `scripts/run_wf_validation.py:171-195` -- WF backtest engine instantiation
+- `scripts/run_backtest.py:233` -- hardcoded place baseline ROI
 
-### MEDIUM confidence (domain literature + inference)
-- [ResearchGate: Optimizing Horse Racing Through Ensemble Learning](https://www.researchgate.net/publication/385301910_Optimizing_Horse_Racing_Predictions_through_Ensemble_Learning_and_Automated_Betting_Systems) -- time-series CV for racing
-- [Geegeez: Pace Bias Without Outcome Knowledge](https://www.geegeez.co.uk/running-well-against-a-pace-bias-part-1/) -- difficulty of pace assessment
-- [Sage Journals: Hindsight Bias in Predictions](https://journals.sagepub.com/doi/10.1177/17456916231204579) -- retrospective contamination
-- [Kaggle: Practical Stacking Discussion](https://www.kaggle.com/general/24748) -- OOF vs full-data retraining tradeoffs
-
-### LOW confidence (needs validation during implementation)
-- Exact correlation between LightGBM/XGBoost/CatBoost predictions on this specific dataset (needs empirical measurement)
-- Specific JRA odds drift magnitude in final 10 minutes (needs domain data analysis)
-- Whether `kyakusitukubun_cd` in pace features comes from current race or past race (needs code tracing)
+### MEDIUM confidence (needs empirical validation)
+- Pitfall 8: Win edge threshold calibration -- needs win model edge distribution data
+- Pitfall 11: Feature caching time savings -- needs profiling to confirm `build_all()` is the bottleneck
+- Pitfall 12: Optuna overhead fraction -- needs timing data from v1.1 training runs
 
 ---
-*Research completed: 2026-05-03*
+*Research completed: 2026-05-04*
 *Ready for roadmap: yes*
