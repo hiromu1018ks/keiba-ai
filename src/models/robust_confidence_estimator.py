@@ -113,11 +113,17 @@ class RobustConfidenceEstimator:
             logger.warning("RobustConfidenceEstimator not calibrated, using EV as bounds")
             win_df = win_df.copy()
             place_df = place_df.copy()
-            win_df["EV_lower_win_corrected"] = win_df.get("ev_win_corrected", 0.0)
-            win_df["EV_upper_win_corrected"] = win_df.get("ev_win_corrected", 0.0)
+            win_df["EV_lower_win_corrected"] = pd.to_numeric(
+                win_df.get("ev_win_corrected", pd.Series(0.0, index=win_df.index)),
+                errors="coerce",
+            ).fillna(0.0)
+            win_df["EV_upper_win_corrected"] = win_df["EV_lower_win_corrected"]
             win_df["conformal_confidence_score"] = 0.0
-            place_df["EV_lower_place"] = place_df.get("ev_place_corrected", 0.0)
-            place_df["EV_upper_place"] = place_df.get("ev_place_corrected", 0.0)
+            place_df["EV_lower_place"] = pd.to_numeric(
+                place_df.get("ev_place_corrected", pd.Series(0.0, index=place_df.index)),
+                errors="coerce",
+            ).fillna(0.0)
+            place_df["EV_upper_place"] = place_df["EV_lower_place"]
             return win_df, place_df
 
         win_df = win_df.copy()
