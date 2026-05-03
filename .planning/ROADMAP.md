@@ -4,7 +4,7 @@
 
 - ✅ **v1.0 Win Model** - Phases 1-4 (shipped 2026-05-03)
 - ✅ **v1.1 ROI Advanced Model** - Phases 5-7 (shipped 2026-05-03)
-- 📋 **v1.2** - TBD (next milestone)
+- 🚧 **v1.2 Win Backtest Validation** - Phases 8-10 (in progress)
 
 ## Phases
 
@@ -87,10 +87,64 @@ Plans:
 
 </details>
 
+### 🚧 v1.2 Win Backtest Validation (In Progress)
+
+**Milestone Goal:** バックテスト・WF検証を単勝ベースに修正し、実際に実行してROI>100%を確認する
+
+- [ ] **Phase 8: Win Backtest Core** - 単勝決済・候補選択・ベット生成の修正
+- [ ] **Phase 9: Win Reporting** - 単勝ベット履歴・ROI診断・オッズバンド分析
+- [ ] **Phase 10: Pipeline Performance** - ベクトル化・groupby辞書・特徴量キャッシュ・プロファイリング
+
+## Phase Details
+
+### Phase 8: Win Backtest Core
+**Goal**: ユーザーが単勝モードのバックテストを実行し、正しい単勝ROI・的中率・バンクロール推移を得られる
+**Depends on**: Phase 7 (v1.1 complete)
+**Requirements**: WIN-01, WIN-02, WIN-03, WIN-04, WIN-05
+**Success Criteria** (what must be TRUE):
+  1. バックテスト実行時、単勝払戻しデータ(paytansyoumaban1/paytansyopay1)から正確なpayout_mapが構築され、単勝ベットが正しい払戻金額で決済される
+  2. バックテスト実行時、tanoddslow(単勝オッズ)ベースのfinal_odds_mapで単勝ベットのオッズ参照が行われる
+  3. `--betting-target win` フラグでBacktestEngineが単勝/複勝モードを切り替えられる(デフォルト=win)
+  4. WinSelectionGateのwin_selection_ev/edge/prob列に基づき、Conformal信頼性スコア付きの単勝ベット候補が生成される
+  5. WF検証スクリプト(run_wf_validation.py)が単勝ROIで過学習検出を行う
+**Plans**: 2 plans
+
+Plans:
+- [ ] 08-01: Win payout map + final odds map + betting_target dispatch (WIN-01, WIN-02, WIN-04)
+- [ ] 08-02: Win candidate selection + Conformal confidence integration + WF validation (WIN-03, WIN-05)
+
+### Phase 9: Win Reporting
+**Goal**: ユーザーが単勝バックテスト結果のベット履歴・ROI診断・オッズバンド別内訳を確認できる
+**Depends on**: Phase 8
+**Requirements**: RPT-01, RPT-02, RPT-03
+**Success Criteria** (what must be TRUE):
+  1. バックテスト結果のJSON/レポートに各単勝ベットの馬番・オッズ・EV・的中結果が記録されている
+  2. バックテスト終了時に単勝ROI・回収率・的中率・ベット数の集計診断が標準出力される
+  3. レポートにオッズバンド別(人気1-3番人気・中穴4-6番人気・大穴7番人気以降)のROI内訳が表示される
+**Plans**: 1 plan
+
+Plans:
+- [ ] 09-01: Win bet history + ROI diagnostics + odds band analysis (RPT-01, RPT-02, RPT-03)
+
+### Phase 10: Pipeline Performance
+**Goal**: バックテスト・学習パイプラインの実行時間が短縮され、ボトルネックが定量測定可能になる
+**Depends on**: Phase 8
+**Requirements**: PERF-01, PERF-02, PERF-03, PERF-04
+**Success Criteria** (what must be TRUE):
+  1. build_payout_map()/build_wide_payout_map()のiterrows()がベクトル化pandas操作に置き換わり、マップ構築が高速化される
+  2. レースごとのDataFrameフィルタリングがgroupby辞書の前処理に置き換わり、O(1)ルックアップでレースデータを取得できる
+  3. HorseHistoryFeatures等の履歴特徴量がParquetキャッシュされ、バックテスト再実行時にキャッシュヒットすれば再計算をスキップできる
+  4. pyinstrumentプロファイリングを統合し、バックテスト実行時のボトルネック関数と所要時間を定量測定できる
+**Plans**: 2 plans
+
+Plans:
+- [ ] 10-01: Vectorize payout maps + groupby dict lookups (PERF-01, PERF-02)
+- [ ] 10-02: Feature cache + pyinstrument profiling (PERF-03, PERF-04)
+
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
+Phases execute in numeric order: 8 → 9 → 10
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
@@ -101,3 +155,6 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 | 5. Foundation Features | v1.1 | 2/2 | Complete | 2026-05-03 |
 | 6. Odds Deviation EV | v1.1 | 1/1 | Complete | 2026-05-03 |
 | 7. Ensemble Enhancement | v1.1 | 1/1 | Complete | 2026-05-03 |
+| 8. Win Backtest Core | v1.2 | 0/2 | Not started | - |
+| 9. Win Reporting | v1.2 | 0/1 | Not started | - |
+| 10. Pipeline Performance | v1.2 | 0/2 | Not started | - |

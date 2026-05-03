@@ -2,13 +2,13 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Win Backtest Validation
-status: planning
+status: roadmap_created
 last_updated: "2026-05-04T00:00:00Z"
-last_activity: 2026-05-04 — Milestone v1.2 started
+last_activity: 2026-05-04 — Roadmap created for v1.2 (Phases 8-10)
 progress:
-  total_phases: 0
+  total_phases: 3
   completed_phases: 0
-  total_plans: 0
+  total_plans: 5
   completed_plans: 0
   percent: 0
 ---
@@ -20,14 +20,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-05-04)
 
 **Core value:** 単勝モデルのバックテストROIを100%超えにすること
-**Current focus:** Milestone v1.2 Win Backtest Validation
+**Current focus:** Phase 8 — Win Backtest Core
 
 ## Current Position
 
-Phase: Not started (defining requirements)
-Plan: —
-Status: Defining requirements
-Last activity: 2026-05-04 — Milestone v1.2 started
+Phase: 8 of 10 (Win Backtest Core)
+Plan: 0 of 2 in current phase
+Status: Ready to plan
+Last activity: 2026-05-04 — Roadmap created for v1.2 (Phases 8-10, 5 plans)
 
 Progress: [          ] 0%
 
@@ -53,6 +53,11 @@ Historical decisions archived in:
 - .planning/milestones/v1.0-ROADMAP.md
 - .planning/milestones/v1.1-ROADMAP.md
 
+Recent decisions affecting current work:
+- Phase 8 before Phase 9: Cannot report win metrics until win settlement is correct
+- Phase 9 before Phase 10: Optimization must not be mixed with correctness changes
+- Phase 10 depends on Phase 8 only (can overlap with Phase 9)
+
 ### Pending Todos
 
 - バックテストROI検証(run_backtest.py実行、PostgreSQL環境必要)
@@ -61,6 +66,7 @@ Historical decisions archived in:
 
 - PostgreSQL環境が必要な検証が複数残存(WF検証、バックテスト)
 - Optunaチューニングによる学習時間増加(推定2-3倍)
+- Win payout data completeness: paytansyoumaban1/paytansyopay1がETL SQLに含まれていない可能性あり
 
 ## Deferred Items
 
@@ -75,5 +81,5 @@ Items acknowledged and deferred at milestone close on 2026-05-04:
 ## Session Continuity
 
 Last session: 2026-05-04
-Stopped at: Milestone v1.1 archival complete. Ready for /gsd-new-milestone.
-Resume file: .planning/RETROSPECTIVE.md
+Stopped at: Roadmap created for v1.2 milestone (Phases 8-10)
+Resume file: None
