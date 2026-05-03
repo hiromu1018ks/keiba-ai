@@ -251,7 +251,11 @@ class TestDiversityCheck:
             [0.5, 0.2, 0.4],
         ])
         y = pd.Series([0, 1, 0, 1, 0])
-        importances = [np.array([1.0, 2.0, 3.0]), np.array([3.0, 1.0, 2.0]), np.array([2.0, 3.0, 1.0])]
+        importances = [
+            np.array([1.0, 2.0, 3.0]),
+            np.array([3.0, 1.0, 2.0]),
+            np.array([2.0, 3.0, 1.0]),
+        ]
         feature_names = ["f1", "f2", "f3"]
 
         with caplog.at_level(logging.INFO, logger="models.stacked_ensemble"):
@@ -285,7 +289,11 @@ class TestDiversityCheck:
             [0.3, 0.1, 0.2],
         ])
         y = pd.Series([0, 1, 0])
-        importances = [np.array([1.0, 2.0, 3.0]), np.array([3.0, 1.0, 2.0]), np.array([2.0, 3.0, 1.0])]
+        importances = [
+            np.array([1.0, 2.0, 3.0]),
+            np.array([3.0, 1.0, 2.0]),
+            np.array([2.0, 3.0, 1.0]),
+        ]
         feature_names = ["f1", "f2", "f3"]
 
         with caplog.at_level(logging.INFO, logger="models.stacked_ensemble"):

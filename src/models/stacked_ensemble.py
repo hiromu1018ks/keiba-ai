@@ -102,6 +102,14 @@ class StackedEnsemble:
         self.xgb_model = self._train_xgb_full(X_all, y_all, num_threads, self.best_params["xgb"])
         self.cat_model = self._train_cat_full(X_all, y_all, num_threads, self.best_params["cat"])
 
+        # --- 多様性検証 (D-09, D-10, D-11) ---
+        feature_names = list(X_train.columns)
+        importances = self._compute_importance(feature_names)
+        self._check_diversity(
+            oof_preds[valid_mask], y_train.iloc[valid_mask],
+            importances, feature_names,
+        )
+
     def predict(self, X: pd.DataFrame, num_iteration: int | None = None) -> np.ndarray:
         """アンサンブル予測。Ridge で3モデルの予測を統合。"""
         p_lgbm = self.lgbm_model.predict(X)
@@ -491,3 +499,54 @@ class StackedEnsemble:
             eval_set=(X_num.iloc[es_split:], y.iloc[es_split:]),
         )
         return m
+
+    # --- Diversity verification ---
+
+    def _compute_importance(self, feature_names: list[str]) -> list[np.ndarray]:
+        """各ベースモデルのfeature importanceを抽出"""
+        # LightGBM
+        lgb_imp = self.lgbm_model.feature_importance(importance_type="gain")
+
+        # XGBoost
+        xgb_scores = self.xgb_model.get_score(importance_type="gain")
+        # get_scoreは存在する特徴量のみ返す — 全特徴量分の配列に変換
+        xgb_imp = np.array([xgb_scores.get(f, 0.0) for f in feature_names], dtype=float)
+
+        # CatBoost
+        cat_imp = self.cat_model.get_feature_importance()
+
+        return [lgb_imp, xgb_imp, cat_imp]
+
+    def _check_diversity(
+        self,
+        oof_preds: np.ndarray,
+        y_train: pd.Series,
+        importances: list[np.ndarray],
+        feature_names: list[str],
+    ) -> None:
+        """OOF予測の多様性を検証 (D-09, D-10, D-11)"""
+        from scipy.stats import spearmanr
+
+        # ペアワイズ相関 (D-09)
+        corr_matrix = np.corrcoef(oof_preds.T)
+        pairs = [(0, 1, "LGB-XGB"), (0, 2, "LGB-CAT"), (1, 2, "XGB-CAT")]
+        for i, j, name in pairs:
+            c = corr_matrix[i, j]
+            logger.info("OOF prediction correlation %s: %.4f", name, c)
+            if c >= 0.95:
+                logger.warning(
+                    "High prediction correlation %s: %.4f >= 0.95"
+                    " — diversity may be insufficient",
+                    name, c,
+                )
+
+        # Feature importance Spearman順位相関 (D-10)
+        for i, j, name in pairs:
+            rho, _ = spearmanr(importances[i], importances[j])
+            logger.info("Feature importance rank correlation %s: %.4f", name, rho)
+            if rho > 0.8:
+                logger.warning(
+                    "High importance correlation %s: %.4f > 0.8"
+                    " — models rely on similar features",
+                    name, rho,
+                )
