@@ -75,7 +75,7 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 05-01: Time-series and pace features (TSER-01, TSER-02, TSER-03, PACE-01, PACE-02)
+- [x] 05-01: Time-series and pace features (TSER-01, TSER-02, TSER-03, PACE-01, PACE-02)
 - [ ] 05-02: Odds time-series features (ODTS-01, ODTS-02)
 
 ### Phase 6: Odds Deviation EV
@@ -115,6 +115,6 @@ Phases execute in numeric order: 5 → 6 → 7
 | 2. Win Benter Combination & Calibration | v1.0 | 2/2 | Complete | 2026-05-02 |
 | 3. Selection Gate, Confidence & Betting | v1.0 | 2/2 | Complete | 2026-05-02 |
 | 4. Walk-Forward Validation | v1.0 | 1/1 | Complete | 2026-05-03 |
-| 5. Foundation Features | v1.1 | 0/2 | Not started | - |
+| 5. Foundation Features | v1.1 | 1/2 | In progress | - |
 | 6. Odds Deviation EV | v1.1 | 0/1 | Not started | - |
 | 7. Ensemble Enhancement | v1.1 | 0/1 | Not started | - |

@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: ROI Advanced Model
-status: ready_to_execute
-last_updated: "2026-05-03T08:00:00.000Z"
-last_activity: 2026-05-03 — Phase 5 planned (2 plans, 2 waves, verification passed)
+status: in_progress
+last_updated: "2026-05-03T07:34:25Z"
+last_activity: 2026-05-03 — Plan 05-01 completed (TSER-01~03, PACE-01~02 features)
 progress:
   total_phases: 3
   completed_phases: 0
   total_plans: 4
-  completed_plans: 0
-  percent: 0
+  completed_plans: 1
+  percent: 25
 ---
 
 # Project State
@@ -25,11 +25,11 @@ See: .planning/PROJECT.md (updated 2026-05-03)
 ## Current Position
 
 Phase: 5 of 7 (Foundation Features)
-Plan: 0 of 2 in current phase
-Status: Ready to execute
-Last activity: 2026-05-03 — Phase 5 planned (2 plans, verification passed)
+Plan: 1 of 2 in current phase
+Status: In progress — Plan 05-01 complete
+Last activity: 2026-05-03 — Plan 05-01 completed (TSER+PACE features)
 
-Progress: [░░░░░░░░░░] 0%
+Progress: [==░░░░░░░░░] 25%
 
 ## Performance Metrics
 
@@ -64,6 +64,7 @@ Recent decisions affecting current work:
 - Roadmap: Ensemble last — highest risk isolated, feature improvements safe even if stacking underperforms
 - Phase 3 (v1.0): edge_threshold+0.01微小引き上げでJRA控除率25%マージン確保
 - Phase 4 (v1.0): LightGBM feature_namesはDatasetコンストラクタで設定(lgb.trainには渡せない)
+- Plan 05-01: EMA halflife=3採用 (金融時系列標準)、class_adj_formetric式、z-score trend最低3走、PACE 3サブ特徴量分割
 
 ### Pending Todos
 
@@ -86,5 +87,5 @@ Items acknowledged and carried forward from previous milestone close:
 ## Session Continuity
 
 Last session: 2026-05-03
-Stopped at: Phase 5 planned (2 plans, verification passed)
-Resume file: .planning/phases/05-foundation-features/05-01-PLAN.md
+Stopped at: Plan 05-01 completed, next is 05-02 (ODTS-01~02 odds dynamics)
+Resume file: .planning/phases/05-foundation-features/05-02-PLAN.md
