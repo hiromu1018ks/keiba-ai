@@ -89,7 +89,7 @@ Plans:
 **Plans**: 1 plan
 
 Plans:
-- [ ] 06-01: Odds deviation EV features and pipeline integration (ODDS-01, ODDS-02, ODDS-03)
+- [x] 06-01: Odds deviation EV features and pipeline integration (ODDS-01, ODDS-02, ODDS-03)
 
 ### Phase 7: Ensemble Enhancement
 **Goal**: 3モデルスタッキング(LightGBM+XGBoost+CatBoost)の多様性を強制するハイパーパラメータ最適化・early stopping・特徴量サブセット分割を実装し、予測精度を最大化する
@@ -116,5 +116,5 @@ Phases execute in numeric order: 5 → 6 → 7
 | 3. Selection Gate, Confidence & Betting | v1.0 | 2/2 | Complete | 2026-05-02 |
 | 4. Walk-Forward Validation | v1.0 | 1/1 | Complete | 2026-05-03 |
 | 5. Foundation Features | v1.1 | 2/2 | Complete | 2026-05-03 |
-| 6. Odds Deviation EV | v1.1 | 0/1 | Not started | - |
+| 6. Odds Deviation EV | v1.1 | 1/1 | Complete | 2026-05-03 |
 | 7. Ensemble Enhancement | v1.1 | 0/1 | Not started | - |
