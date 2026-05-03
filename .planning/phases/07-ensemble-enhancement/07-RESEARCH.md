@@ -378,17 +378,13 @@ def _train_cat_fold(self, X_tr, y_tr, X_va, nt, params):
 | A3 | K-fold 3fold + 80/20分割で十分なvalidデータが確保できる | Architecture | LOW — データ量が十分(数万行)であれば問題なし |
 | A4 | Optuna objectiveの評価指標としてAUCが適切 | Architecture | LOW — 二値分類の標準指標。loglossも検討可能 |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Optuna n_trials の最適値**
-   - What we know: データサイズは数万行程度、3モデル × 各500rounds(max)
-   - What's unclear: 実際の1trialあたりの所要時間
-   - Recommendation: n_trials=30で開始、タイムアウト60秒/trialを設定。Claude's Discretionで調整
+   - RESOLVED: n_trials=30, タイムアウト60秒/trial。Claude's Discretionで調整可能
 
 2. **Early stoppingのeval_metric**
-   - What we know: WinTwoStageModelは"auc"を使用
-   - What's unclear: loglossの方がより安定する可能性
-   - Recommendation: 既存パターンと同じ"auc"を採用。AUCは不均衡データでも安定
+   - RESOLVED: 既存パターンと同じ"auc"を採用。AUCは不均衡データでも安定
 
 ## Environment Availability
 
