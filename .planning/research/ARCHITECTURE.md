@@ -1,538 +1,412 @@
-# Architecture Patterns: Win Model Improvement
+# Architecture Patterns: v1.1 ROI Advanced Model
 
-**Domain:** Horse racing prediction system -- win (単勝) model optimization
-**Researched:** 2026-05-02
+**Domain:** Horse racing prediction -- ensemble stacking, odds deviation EV, time-series features
+**Researched:** 2026-05-03
+**Parent system:** keiba-ai v5.5 (LightGBM + 2-stage decomposition P(hit) x E(odds|hit))
 
 ## Recommended Architecture
 
-The win model improvement should follow a **targeted enhancement** strategy within the existing 2-stage decomposition, rather than a wholesale replacement. The core architecture (P(hit) x E(odds|hit)) is theoretically sound. The improvement path focuses on three layers: (1) better probability estimation for the win-specific case, (2) Benter-style fundamental+market combination applied to win probabilities, and (3) win-specific betting strategy with proper Kelly sizing.
+The v1.1 milestone extends the existing 2-stage decomposition architecture in three targeted layers: (1) replacing single-GBM models with a 3-model stacking ensemble, (2) adding odds-deviation features that feed directly into EV calculation, and (3) introducing time-series/pace features that improve the Stage1 ability estimate. The existing pipeline structure (FeatureEngine -> AbilityModel -> TwoStageModel -> EVCorrection -> WinBenterGate -> WinSelectionGate) is preserved; only the internal implementations of certain stages change.
 
-### Current State Analysis
-
-The existing system has a **critical asymmetry**: the Place model pipeline is mature (Benter combination, isotonic calibration, temperature scaling, PlaceSelectionGate), while the Win model pipeline is comparatively bare. Specifically:
+### Current Pipeline Flow (v5.5, unchanged foundation)
 
 ```
-PLACE pipeline (mature):
-  AbilityModel -> PlaceAbilityModel -> PlaceTwoStageModel
-    -> PlaceEVCorrectionModel -> BenterCombination -> IsotonicRegression
-    -> TemperatureScaling -> RobustConfidenceEstimator -> PlaceSelectionGate
-    -> select_bets (gate-based, regime-adaptive)
-
-WIN pipeline (minimal):
-  AbilityModel -> WinTwoStageModel -> EVCorrectionModel
-    -> (no Benter for win)
-    -> (no calibration for win)
-    -> (no gate for win)
-    -> WinStrategy.generate (simple threshold)
+ParquetStore -> DataRepository -> FeatureEngine.build_all()
+  -> SubModelManager (turf/dirt split)
+    -> [per surface]:
+       MarketModel (OOF) -> AbilityModel.train_oof() (LightGBM Ranker)
+       -> PlaceAbilityModel -> WinTwoStageModel (hit + return)
+       -> JockeyContext / TrainerContext / JTCombo features
+       -> EVCorrectionModel (P-correction + E-correction)
+       -> PlaceTwoStageModel -> BenterCombination -> Calibration
+       -> WinBenterGate (Benter + calibration + temperature)
+       -> WinSelectionGate (walk-forward OOF gate)
+       -> RobustConfidenceEstimator
 ```
 
-The Win path gets the 2-stage model and EV correction, but lacks every downstream refinement that Place receives. This is the primary architectural gap to close.
+### v1.1 Extension Points
 
-## Target Architecture
+The three feature areas map to specific insertion points in this pipeline:
 
-```text
-┌──────────────────────────────────────────────────────────────────────────┐
-│                     Shared Model Layer (unchanged)                       │
-│  MarketModel -> AbilityModel (OOF) -> PlaceAbilityModel                 │
-├──────────────────────────────────────────────────────────────────────────┤
-│                     Win-Specific Enhancement Layer                       │
-│                                                                          │
-│  ┌─────────────────┐    ┌──────────────────────┐    ┌────────────────┐  │
-│  │ WinTwoStageModel │───>│ WinEVCorrectionModel │───>│ WinBenterGate  │  │
-│  │ (improved feats) │    │ (existing, improved)  │    │ (NEW)          │  │
-│  └─────────────────┘    └──────────────────────┘    └───────┬────────┘  │
-│                                                              │           │
-│  ┌──────────────────────────────┐    ┌────────────────────┐  │           │
-│  │ WinCalibrationPipeline (NEW) │<───┘                    │  │           │
-│  │  -> IsotonicRegression       │                         │  │           │
-│  │  -> TemperatureScaling       │                         │  │           │
-│  └──────────┬───────────────────┘                         │  │           │
-│             │                                              │  │           │
-│  ┌──────────▼───────────────────┐    ┌────────────────────┘  │           │
-│  │ WinConfidenceEstimator (NEW) │<───┘                      │           │
-│  │  -> EV lower bound for win   │                           │           │
-│  └──────────┬───────────────────┘                           │           │
-│             │                                               │           │
-│  ┌──────────▼───────────────────┐                           │           │
-│  │ WinSelectionGate (NEW)       │<── WinBenterGate output   │           │
-│  │  -> learned yes/no filter    │                           │           │
-│  └──────────┬───────────────────┘                           │           │
-│             │                                               │           │
-├─────────────┼───────────────────────────────────────────────────────────┤
-│  Betting Layer                                                          │
-│  ┌──────────▼───────────────────┐                                       │
-│  │ WinStrategy (enhanced)        │                                       │
-│  │  -> Kelly stake sizing        │                                       │
-│  │  -> Regime-adaptive params    │                                       │
-│  │  -> Pool-size-aware capping   │                                       │
-│  └──────────────────────────────┘                                       │
-└──────────────────────────────────────────────────────────────────────────┘
+```
+                         NEW/CHANGED COMPONENTS
+                         ======================
+
+[A] Stacking Ensemble (replaces single LightGBM in hit_model)
+    Location: WinTwoStageModel.hit_model, PlaceTwoStageModel.hit_model
+    Mechanism: StackedEnsemble class already exists (src/models/stacked_ensemble.py)
+    Change: Enable use_ensemble=True in pipeline, enhance StackedEnsemble
+
+[B] Odds Deviation EV Features (new features in FeatureEngine + TwoStageModel)
+    Location: FeatureEngine.build_all() + WinTwoStageModel.FEATURE_COLS
+    Mechanism: New feature module (odds_deviation_features.py)
+    Change: Compute market-vs-model deviation metrics before EV correction
+
+[C] Time-Series / Pace Features (new features in FeatureEngine)
+    Location: FeatureEngine.build_all() + HorseHistoryFeatures
+    Mechanism: New feature modules (time_series_features.py, pace_prediction_features.py)
+    Change: Extend horse history with temporal trend features and pace prediction
 ```
 
-### Component Boundaries
+## Component Boundaries
 
-| Component | Responsibility | Communicates With | Status |
-|-----------|----------------|-------------------|--------|
-| WinTwoStageModel | P(win) x E(odds\|win) estimation with improved feature set | Upstream: AbilityModel, MarketModel. Downstream: WinEVCorrectionModel | Exists, enhance |
-| WinEVCorrectionModel | P/E decomposition correction for win probabilities | Upstream: WinTwoStageModel. Downstream: WinBenterGate | Exists (EVCorrectionModel), minor changes |
-| WinBenterGate | Combine fundamental P(win) with market-implied P(win) via logit-space weighting; also acts as the selection gate | Upstream: WinEVCorrectionModel + market odds. Downstream: WinStrategy | **NEW** |
-| WinCalibrationPipeline | Isotonic regression + temperature scaling for win probabilities | Upstream: WinBenterGate. Downstream: WinConfidenceEstimator | **NEW** |
-| WinConfidenceEstimator | Confidence intervals on EV_win for conservative bet sizing | Upstream: WinCalibrationPipeline. Downstream: WinStrategy | **NEW** |
-| WinSelectionGate | Learned binary gate: should this horse receive a win bet? | Upstream: WinConfidenceEstimator. Downstream: WinStrategy | **NEW** |
-| WinStrategy (enhanced) | Kelly-based stake sizing, regime-adaptive thresholds, pool-size awareness | Upstream: WinSelectionGate, RegimeDetector, DDController. Downstream: BacktestEngine | Exists, enhance |
+### Components to MODIFY (existing)
 
-### Data Flow
+| Component | File | What Changes | Why |
+|-----------|------|-------------|-----|
+| StackedEnsemble | `src/models/stacked_ensemble.py` | Add Ranker support, hyperparameter tuning, model persistence | Current implementation only supports binary classification; AbilityModel uses LightGBM Ranker (lambdarank) which requires group-aware training |
+| WinTwoStageModel | `src/models/two_stage_return_model.py` | Add odds-deviation features to FEATURE_COLS, support stacked hit_model | New features need to flow through the 2-stage model |
+| TrainingPipelineV5 | `src/pipelines/training_pipeline.py` | Wire new feature modules, improve ensemble integration | Orchestrator must call new modules in correct order |
+| FeatureEngine | `src/features/feature_engine.py` | Add calls to new feature modules in build_all() | New features must be computed during batch feature generation |
+| HorseHistoryFeatures | `src/features/horse_history_features.py` | Add time-series trend features to BASE_COLS | Temporal features computed from past performance data |
+| BacktestEngine | `src/evaluation/backtest_engine.py` | Support loading stacked models | Must handle joblib-pickled ensembles alongside .lgb files |
 
-```text
-1. Shared Layer (existing, unchanged):
-   Parquet -> FeatureEngine -> AbilityModel (OOF) -> p_ability_win
-                                       -> PlaceAbilityModel -> p_ability_place
-                                       -> MarketModel -> signed_log_error_win, abs_log_error_win
+### Components to CREATE (new)
 
-2. Win-Specific Model Chain (enhanced):
-   p_ability_win + market_errors + race_features
-     -> WinTwoStageModel (improved FEATURE_COLS)
-       -> p_win_pred, e_return_win_pred, ev_win
+| Component | File | Responsibility | Inserted Before |
+|-----------|------|---------------|----------------|
+| OddsDeviationFeatures | `src/features/odds_deviation_features.py` | Compute model-vs-market probability deviation, deviation trends, deviation-adjusted EV | WinTwoStageModel training |
+| TimeSeriesFeatures | `src/features/time_series_features.py` | Temporal features from past runs: time progression, closing-speed trend, consistency metrics | HorseHistoryFeatures.compute() |
+| PacePredictionFeatures | `src/features/pace_prediction_features.py` | Predicted pace scenario from entry field composition, position-taking probability | AbilityModel training |
+| StackedRankerEnsemble | (extend `src/models/stacked_ensemble.py`) | 3-model stacking for ranking (lambdarank) with group-aware OOF | AbilityModel.train_oof() |
 
-   p_win_pred + e_return_win_pred + interaction_features
-     -> EVCorrectionModel (P-correction + E-correction)
-       -> p_win_corrected, e_return_win_corrected, ev_win_corrected
+### Components UNCHANGED
 
-   p_win_corrected + 1/tanodds (market implied)
-     -> WinBenterGate (logit combination)
-       -> p_win_combined (unbiased probability estimate)
+| Component | Why Unchanged |
+|-----------|--------------|
+| ParquetStore / DataRepository | Data layer is stable; new features derive from existing data |
+| EVCorrectionModel | Operates downstream of TwoStageModel; gets better inputs automatically |
+| WinBenterGate | Benter combination already works with any probability source |
+| WinSelectionGate | Walk-forward gate learns from realized ROI; improved model inputs help automatically |
+| RegimeDetector | Market regime detection uses pre-race features only |
+| BettingOrchestrator / WinStrategy | Betting logic is downstream; benefits from better predictions |
+| SubModelManager | turf/dirt split remains the same |
 
-   p_win_combined + validation actuals
-     -> IsotonicRegression + TemperatureScaling
-       -> p_win_calibrated
+## Data Flow Changes
 
-   p_win_calibrated + variance features
-     -> WinConfidenceEstimator
-       -> EV_lower_win (conservative EV bound)
+### Current Flow (simplified, per surface)
 
-   EV_lower_win + horse_features + race_features
-     -> WinSelectionGate (learned binary filter)
-       -> pass/reject decision
-
-3. Betting Decision:
-   For each horse that passes WinSelectionGate:
-     edge = p_win_calibrated * tanodds - 1.0
-     stake = kelly(edge, tanodds, bankroll) * fractional_kelly
-     stake = min(stake, pool_size_limit)
-     if edge >= regime_params.win_edge_threshold:
-         emit Bet(bet_type=WIN)
+```
+raw data -> FeatureEngine.build_all()
+  -> HorseHistoryFeatures.compute()    [past performance stats]
+  -> compute_odds_dynamics()           [odds velocity/volatility]
+  -> compute_market_bias()             [market entropy, overround]
+  -> MarketModel.train() + OOF         [log_error features]
+  -> AbilityModel.train_oof()          [p_ability_win via LightGBM Ranker]
+  -> WinTwoStageModel.train_hit_model() [p_win via LightGBM binary]
+  -> WinTwoStageModel.train_return_model() [E(odds|win) via LightGBM regression]
+  -> EVCorrectionModel.train()         [P/E correction]
 ```
 
-## Key Architectural Decisions
+### New Flow (v1.1, additions in **bold**)
 
-### Decision 1: WinBenterGate is a Single Combined Component
+```
+raw data -> FeatureEngine.build_all()
+  -> HorseHistoryFeatures.compute()    [past performance stats]
+  **-> TimeSeriesFeatures.compute()**   [time progression, closing-speed trend]
+  **-> PacePredictionFeatures.compute()** [predicted pace, position probability]
+  -> compute_odds_dynamics()           [odds velocity/volatility]
+  -> compute_market_bias()             [market entropy, overround]
+  -> MarketModel.train() + OOF         [log_error features]
+  -> AbilityModel.train_oof()
+     **[uses StackedRankerEnsemble if enabled]** [LightGBM + XGBoost + CatBoost Ranker]
+  **-> OddsDeviationFeatures.compute()** [model-vs-market deviation at this stage]
+  -> WinTwoStageModel.train_hit_model()
+     **[uses StackedEnsemble if enabled]** [LightGBM + XGBoost + CatBoost binary]
+  -> WinTwoStageModel.train_return_model()
+  -> EVCorrectionModel.train()         [P/E correction, now sees deviation features]
+```
 
-**What:** Instead of separate BenterCombination + PlaceSelectionGate (as in Place), the Win path uses a single `WinBenterGate` that combines fundamental+market probabilities AND makes the selection decision.
+### Key Data Dependency Chain
 
-**Why:** Win betting has lower frequency but higher variance than place. The Place pipeline separates combination (BenterCombination) from selection (PlaceSelectionGate) because place candidates are numerous and need nuanced ranking. Win candidates are sparse (typically 0-2 per race), so a unified component reduces complexity without losing expressiveness. The Benter-combined probability is the selection signal.
+```
+TimeSeriesFeatures      -- requires --> HorseHistoryFeatures (past run data)
+PacePredictionFeatures  -- requires --> entry_df (field composition)
+OddsDeviationFeatures   -- requires --> p_ability_win (from AbilityModel)
+                           requires --> p_market_win_adj (from market_bias)
+StackedRankerEnsemble   -- requires --> same features as AbilityModel
+StackedEnsemble (binary) -- requires --> same features as WinTwoStageModel.hit_model
+```
 
-**When to split:** If win betting volume grows to justify a separate selection gate (e.g., when betting multiple horses per race becomes viable), refactor WinBenterGate into separate WinBenterCombination + WinSelectionGate.
-
-### Decision 2: Win-Specific Benter Combination (Not Reusing Place Benter)
-
-**What:** The existing `BenterCombination` is fitted on place data (`p_place_pred` vs `p_market_place`). A new fit is needed for win (`p_win_corrected` vs `1/tanodds`).
-
-**Why:** Benter (1994) emphasizes that the combined model must be fitted for each bet type independently. The fundamental model's bias characteristics differ for win vs place. Benter's Tables 3-4 show that fundamental model bias direction depends on whether p_model > p_market or vice versa, and this relationship differs for win probabilities (spikier, higher variance) vs place probabilities (smoother, lower variance).
-
-**Implementation:** Reuse the `BenterCombination` class but fit new alpha/beta/gamma parameters on win validation data. The key data: `_val_p_win` (validation P(win) predictions), `_val_tanodds` (validation win odds), `_val_y_win` (actual win=1/loss=0).
-
-### Decision 3: Race-Level Normalization to Sum=1
-
-**What:** Win probabilities within a race must sum to 1.0 (exactly one horse wins). This is a constraint that place probabilities do not have (multiple horses can place).
-
-**Why:** The existing `_normalize_probability_by_race()` with `target_sum=1.0` is already used in `EVCorrectionModel` for P(win). This must be preserved and extended to the Benter combination step. After combining fundamental + market probabilities, re-normalize within each race so probabilities sum to 1.0.
-
-**Critical:** Benter's original paper uses the multinomial logit formulation which inherently produces probabilities summing to 1. Our LightGBM binary approach does not have this property, making explicit normalization essential at every step.
-
-### Decision 4: Feature Enhancement in WinTwoStageModel
-
-**What:** Add win-specific features to `WinTwoStageModel.FEATURE_COLS`.
-
-**Why:** The current `FEATURE_COLS` for the Win hit model (27 features) is a subset of the Place hit model (45+ features). Missing features that matter for win prediction:
-- `norm_finish_logit_avg`, `harontimel5_zscore` (raw ability metrics, not just rank)
-- `jockey_wr_overall`, `trainer_wr_overall`, `jt_combo_place_rate` (human factors)
-- `race_mean_fuku_odds`, `odds_gap_fav12` (race context)
-- `form_trend`, `form_consistency` (recent form signals)
-- `blood_surface_wr`, `blood_distance_wr` (pedigree signals)
-
-However, feature addition must be careful: adding too many features to a model with sparse positive labels (~8% win rate for a 12-horse field) risks overfitting. The feature set should be expanded selectively based on feature importance analysis.
-
-### Decision 5: Win-Specific Calibration Pipeline
-
-**What:** Add IsotonicRegression + TemperatureScaling fitted on win predictions, mirroring the Place pipeline's calibration.
-
-**Why:** The current Place pipeline benefits from calibration (though Isotonic was disabled in v5.6 for being too aggressive). For win, calibration is arguably MORE important because:
-1. Win probability estimation errors have outsized EV impact (EV = p * odds, and odds are high)
-2. The 2-stage decomposition introduces compounding errors that calibration can correct
-3. Benter's Tables 5-7 demonstrate that combined model probabilities show good calibration after the second-stage logit combination
-
-The v5.6 lesson (isotonic overcorrection) should be heeded: fit calibration only on Benter-combined probabilities, not on raw model outputs.
-
-### Decision 6: Pool-Size-Aware Kelly Betting
-
-**What:** Extend `WinStrategy` to account for pari-mutuel pool size effects on dividend.
-
-**Why:** Benter (1994) demonstrates that in pari-mutuel markets, the bettor's own wager reduces the dividend, creating a maximum profitable bet size. For a horse with p=0.06, odds=20, the maximum expected profit bet is only $416 despite the 20% edge. This is critical for JRA pools which may be smaller than HKJC pools.
-
-The formula: `max_bet = pool_size * (p * odds - 1) / (odds - 1 + pool_size_fraction)`
-
-**Implementation:** Use the `overround` feature (already available) as a proxy for pool sophistication, and apply a conservative bet cap based on estimated pool size.
+This dependency chain determines the build order. Time-series and pace features can be computed early (they depend only on raw data and past performance). Odds deviation features must wait until after AbilityModel produces p_ability_win.
 
 ## Patterns to Follow
 
-### Pattern 1: Benter Second-Stage Combination
+### Pattern 1: Feature Module Pattern
 
-**What:** Combine fundamental model probability with market-implied probability via logit-space weighting.
-
-**When:** After the fundamental model (WinTwoStageModel + EVCorrection) produces p_win_corrected, but before betting decisions.
-
+**What:** Each feature group lives in its own module under `src/features/`, follows the same interface pattern.
+**When:** Adding any new feature group.
 **Example:**
+
 ```python
-# WinBenterGate (new component in SubmodelSet)
-class WinBenterGate:
-    """Win-specific Benter combination + selection gate."""
+# src/features/time_series_features.py
 
-    def __init__(self, benter: BenterCombination, gate_model: lgb.Booster | None = None):
-        self.benter = benter
-        self.gate_model = gate_model  # learned binary gate
+def compute_time_series_features(
+    df: pd.DataFrame,
+    hist_df: pd.DataFrame | None = None,
+) -> pd.DataFrame:
+    """Compute temporal trend features from past performance data.
 
-    def combine_and_select(self, df: pd.DataFrame) -> pd.DataFrame:
-        # 1. Market implied probability
-        p_market_win = np.where(
-            df["tanodds"] > 0, 1.0 / df["tanodds"], np.nan
-        )
-        # 2. Benter logit combination
-        df["p_win_combined"] = self.benter.combine(
-            df["p_win_corrected"].values,
-            np.clip(p_market_win, 0.01, 0.99),
-        )
-        # 3. Race normalization (sum=1.0)
-        df["p_win_combined"] = _normalize_probability_by_race(
-            df, "p_win_combined", target_sum=1.0
-        )
-        # 4. Edge calculation
-        df["edge_win"] = df["p_win_combined"] * df["tanodds"] - 1.0
-        return df
+    Args:
+        df: Base DataFrame with race_id, umaban, kettonum columns
+        hist_df: Pre-loaded history DataFrame (optional, loaded from ParquetStore if None)
+
+    Returns:
+        DataFrame with new feature columns, merged on (race_id, umaban)
+    """
+    df = df.copy()
+    # ... compute features ...
+    return df
 ```
 
-### Pattern 2: Win-Regime Parameter Separation
+This pattern is already established by `compute_odds_dynamics()`, `compute_market_bias()`, `compute_intra_race_features()`, etc. New modules must follow it.
 
-**What:** Add win-specific parameters to `RegimeDetector.get_strategy_params()`.
+### Pattern 2: Stacked Ensemble Drop-In Replacement
 
-**When:** Whenever the regime changes, win betting thresholds should adjust independently of place.
-
+**What:** The StackedEnsemble class replaces `lgb.Booster` via duck typing (`.predict()` method + `.best_iteration` attribute).
+**When:** Using ensemble mode in the pipeline.
 **Example:**
+
 ```python
-# Add to regime params:
-if regime == RegimeState.AGGRESSIVE:
-    return {
-        # ... existing place params ...
-        "win_edge_threshold": 0.05,
-        "win_max_odds": 30.0,
-        "win_max_bets_per_race": 1,
-    }
-elif regime == RegimeState.CONSERVATIVE:
-    return {
-        # ... existing place params ...
-        "win_edge_threshold": 0.08,
-        "win_max_odds": 20.0,
-        "win_max_bets_per_race": 1,
-    }
+# Current (single model):
+hit_model = lgb.train(params, train_data, num_boost_round=500)
+p = hit_model.predict(features, num_iteration=hit_model.best_iteration)
+
+# Ensemble (drop-in replacement):
+ensemble = StackedEnsemble(cat_cols=["surface", "distance_bin"])
+ensemble.train(X_train, y_train, X_valid, y_valid)
+p = ensemble.predict(X)  # same signature
 ```
 
-### Pattern 3: Selective Feature Expansion
+The existing `TrainingPipelineV5._train_submodel()` already handles this via `use_ensemble=True` flag (lines 439-454). The StackedEnsemble class must maintain `.best_iteration = 0` and a compatible `.predict()` signature.
 
-**What:** Add features to WinTwoStageModel based on importance analysis, not blanket inclusion.
+### Pattern 3: PIT (Point-in-Time) Feature Computation
 
-**When:** During Phase 1 (feature analysis), identify which of the ~100 existing features matter for win prediction specifically.
+**What:** All features must be computed using only data available before the target race. No future leakage.
+**When:** Computing any feature from historical data.
+**Example:** HorseHistoryFeatures uses `searchsorted` to find data before `target_date`, and expanding window statistics that only look backward.
 
-**Approach:**
-1. Run LightGBM feature importance on the existing Win hit model
-2. Identify high-importance features already present
-3. Add Place-only features that have theoretical win relevance
-4. Validate via time-series cross-validation (WalkForwardCV)
-
-### Pattern 4: Dual Pipeline Coexistence
-
-**What:** Win and Place pipelines share the upstream models (AbilityModel, MarketModel) but diverge at the 2-stage model level.
-
-**When:** Always. The shared upstream ensures consistency while allowing bet-type-specific optimization downstream.
-
-**Implementation in SubmodelSet:**
+New time-series features MUST follow this pattern:
 ```python
-@dataclass
-class SubmodelSet:
-    # Shared (existing)
-    market: MarketModel
-    stage1: AbilityModel
-    place_ability: PlaceAbilityModel
+# CORRECT: only use past data
+past = history[history["race_date"] < target_date]
+stats = expanding_mean(past["harontimel3"])
 
-    # Win pipeline (enhanced)
-    win: WinTwoStageModel
-    ev_corrector: EVCorrectionModel           # existing, serves win
-    win_benter_gate: WinBenterGate | None = None        # NEW
-    win_isotonic_calibrator: IsotonicRegression | None = None  # NEW (win-specific)
-    win_temperature_scaler: TemperatureScaling | None = None   # NEW (win-specific)
-    win_selection_gate: lgb.Booster | None = None              # NEW
-
-    # Place pipeline (existing, unchanged)
-    place: PlaceTwoStageModel
-    place_ev_corrector: PlaceEVCorrectionModel
-    place_selection_gate: PlaceSelectionGateModel | None = None
-    benter_combo: BenterCombination | None = None      # Place Benter
-    isotonic_calibrator: IsotonicRegression | None = None     # Place isotonic
-    temperature_scaler: TemperatureScaling | None = None      # Place temp
-
-    # Shared
-    wide: WideTwoStageModel
-    confidence: RobustConfidenceEstimator
-    use_ensemble: bool = False
+# WRONG: uses future data
+stats = history["harontimel3"].rolling(5).mean()  # may include future races
 ```
+
+### Pattern 4: Surface-Parallel Training
+
+**What:** turf and dirt models are trained independently in parallel via ThreadPoolExecutor.
+**When:** Any model that varies by surface.
+**Implementation:** TrainingPipelineV5._train_submodel() handles this. New features added within _train_submodel() (like time-series features) automatically get the surface parallelism. Features added in build_all() (before the split) are computed once for both surfaces.
 
 ## Anti-Patterns to Avoid
 
-### Anti-Pattern 1: Reusing Place Calibration for Win
+### Anti-Pattern 1: Stacking Without Time-Series Awareness
 
-**What:** Using the same IsotonicRegression / TemperatureScaling fitted on place data for win predictions.
-**Why bad:** Place probabilities have a much higher base rate (~18-35% place rate vs ~8% win rate). Calibration fitted on place data will systematically overcorrect win probabilities toward the place mean.
-**Instead:** Fit separate calibration models on win validation data. The Benter + isotonic + temperature pipeline must be independently fitted for each bet type.
+**What:** Using random KFold for OOF generation in stacking.
+**Why bad:** Horse racing data is temporal. Random folds leak future information (training on 2023 to predict 2022).
+**Instead:** Use expanding window folds, exactly like the existing `AbilityModel.train_oof()` does with `race_date`-sorted boundaries. The current `StackedEnsemble.train()` uses approximate position-based folds; these must be replaced with date-aware expanding windows.
 
-### Anti-Pattern 2: Place-Style Aggressive Multi-Bet on Win
+### Anti-Pattern 2: Mixing Ranker and Binary Stacking
 
-**What:** Allowing 2-3 win bets per race (as place does) with relaxed thresholds.
-**Why bad:** Win bets have ~3x the variance of place bets. Multiple win bets per race dramatically increase risk without proportional EV gain. Benter's operation bet "all positive expectation bets" but in pools with $10M+ turnover. JRA pools are smaller, making the dividend impact of multiple bets worse.
-**Instead:** Default to max 1 win bet per race. Only consider a second bet when both horses have edge > 2x the threshold AND the probability sum is < 0.25 (to avoid correlated losses).
+**What:** Using binary classification stacking for the Stage1 Ranker model.
+**Why bad:** The AbilityModel uses `lambdarank` objective which requires group information (horses per race). Binary classification ignores this race-level grouping, losing critical ranking signal.
+**Instead:** Create a separate `StackedRankerEnsemble` that passes `group` information to each base model's training. XGBoost supports `rank:pairwise`, `rank:ndcg` objectives with group data. CatBoost supports `PairLogit` and `YetiRank` ranking objectives with group data.
 
-### Anti-Pattern 3: Full Kelly Betting on Win
+### Anti-Pattern 3: Odds Leakage in Feature Computation
 
-**What:** Using the raw Kelly fraction for win bet sizing.
-**Why bad:** Benter (1994) explicitly warns: "betting the full amount recommended by the Kelly formula is unwise... if one overestimates the advantage by more than a factor of two, Kelly betting will cause a negative rate of capital growth." Win edge estimation is inherently less precise than place due to the sparser signal (only 1 winner per race).
-**Instead:** Use fractional Kelly (1/3 to 1/2 Kelly). The existing `StakeCalculator` already uses half-Kelly with a 0.25 cap, which is appropriate for place but aggressive for win. Consider a separate `win_fractional_kelly = 0.25` (quarter-Kelly) for win bets.
+**What:** Using confirmed (post-race) odds in features that feed into pre-race prediction.
+**Why bad:** The system already handles this (confirmed_odds vs tanodds separation in FeatureEngine.build_all()), but new feature modules must respect the convention.
+**Instead:** Always use `tanodds` (pre-race snapshot) for features, `confirmed_odds` only for training labels (E-correction target).
 
-### Anti-Pattern 4: Modifying RacePredictor to Be Win-First
+### Anti-Pattern 4: Feature Computation After Model Training
 
-**What:** Changing `RacePredictor.predict()` to prioritize win inference over place.
-**Why bad:** `RacePredictor` is a shared component used by both BacktestEngine and PaperPredictor. Changing its internal ordering breaks the place/wide pipeline that other parts of the system depend on.
-**Instead:** Add win-specific methods to RacePredictor (e.g., `get_win_candidates()`, `select_win_bets()`) that run after the existing predict chain. The predict chain should remain place-first; win inference reuses its intermediate results (p_win_pred, ev_win_corrected already computed in predict()).
+**What:** Computing new features after models are already trained on the old feature set.
+**Why bad:** The pipeline has a strict ordering -- features must exist before model training begins.
+**Instead:** Add new feature computation to FeatureEngine.build_all() (for features available pre-surface-split) or to _train_submodel() (for features computed within a surface group). Never compute features after model training.
 
-### Anti-Pattern 5: Training Win Models on Different Data Than Place
+## Architecture for Each Feature Area
 
-**What:** Filtering training data differently for win vs place (e.g., excluding certain races from win training but including them for place).
-**Why bad:** Creates inconsistency between model predictions. If win and place models see different training data, the relationship between p_win and p_place breaks down, making the Benter combination's probability normalization invalid.
-**Instead:** Use identical training data for all bet types within a surface. Filter at the betting decision layer, not the training layer.
+### Area 1: 3-Model Stacking Ensemble
 
-## Component Integration: RacePredictor Changes
+**Current state:** `StackedEnsemble` class exists in `src/models/stacked_ensemble.py` with LightGBM + XGBoost + CatBoost binary classification and Ridge meta-learner. It is already wired into TrainingPipelineV5 via `use_ensemble=True`.
 
-The `RacePredictor` requires targeted additions without disrupting existing place/wide flow.
+**Gaps to address:**
 
-### Current predict() flow (lines 88-191 of race_predictor.py):
+1. **Ranker stacking does not exist.** The current StackedEnsemble only supports binary classification (`objective="binary"`). The AbilityModel uses LightGBM Ranker (lambdarank) which requires group information. We need to either:
+   - Option A: Keep AbilityModel as single LightGBM Ranker, only stack the binary models (hit_model in WinTwoStageModel). This is the simpler approach and targets the biggest ROI impact since binary hit prediction is where stacking helps most.
+   - Option B: Build a StackedRankerEnsemble that handles group-aware training for all 3 frameworks. This is more complex but theoretically better.
+
+   **Recommendation: Option A for v1.1.** The hit_model (binary) is where stacking has the most empirical benefit. Ranker stacking adds complexity with unclear payoff. The AbilityModel's p_ability_win feeds into WinTwoStageModel via init_score/logit anyway, so improving the binary model downstream captures most of the ensemble benefit.
+
+2. **Time-series OOF generation.** Current StackedEnsemble uses positional folds (`val_start = int(n * (i+1) / (n_folds+1))`) which may not align with race_date boundaries. Must use race_date-aware expanding window splits like AbilityModel.train_oof() does.
+
+3. **Hyperparameter tuning.** Current StackedEnsemble uses hardcoded parameters (learning_rate=0.03, num_leaves=31, max_depth=6, num_boost_round=300). These are reasonable defaults but each GBM framework benefits from slightly different tuning. At minimum, XGBoost should use `max_depth=4-6` and CatBoost should use `l2_leaf_reg=3`.
+
+4. **Model persistence.** StackedEnsemble is saved via joblib (line 1182-1243 in training_pipeline.py). This works but the Ridge meta-learner coefficients should be logged to MLflow for traceability.
+
+**Proposed component structure:**
+
 ```
-market.predict_and_calc_error -> stage1.add_ability_probs -> place_ability.predict
-  -> win.predict_ev -> ev_corrector.correct_ev -> place.predict_ev
-  -> place_ev_corrector.correct_ev -> confidence.predict_lower_bound
-  -> Benter combination (place) -> place_selection_gate
-```
+StackedEnsemble (enhanced, src/models/stacked_ensemble.py)
+  +-- train(): Use race_date-aware expanding window for OOF
+  +-- predict(): Unchanged (3 predictions -> Ridge -> clip)
+  +-- save/load(): Add to existing joblib pattern
 
-### Proposed additions to predict():
-```
-... existing flow unchanged ...
-
-# After ev_corrector.correct_ev (line 113), the following win outputs exist:
-#   p_win_pred, e_return_win_pred, ev_win
-#   p_win_corrected, e_return_win_corrected, ev_win_corrected
-
-# --- NEW: Win Benter + Calibration ---
-if submodel.win_benter_gate is not None:
-    df = submodel.win_benter_gate.combine_and_select(df)
-
-    # Win-specific calibration (if fitted)
-    if submodel.win_isotonic_calibrator is not None:
-        df["p_win_calibrated"] = submodel.win_isotonic_calibrator.transform(
-            df["p_win_combined"].values
-        )
-    else:
-        df["p_win_calibrated"] = df["p_win_combined"]
-
-    if submodel.win_temperature_scaler is not None:
-        df["p_win_calibrated"] = submodel.win_temperature_scaler.transform(
-            df["p_win_calibrated"].values
-        )
-
-    # Recalculate edge with calibrated probability
-    df["edge_win_calibrated"] = df["p_win_calibrated"] * df["tanodds"] - 1.0
+No new files needed for this area -- extend existing StackedEnsemble.
 ```
 
-### New method: get_win_candidates()
+### Area 2: Odds Deviation EV Features
+
+**Current state:** The market_bias_features module computes `p_market_win_adj` (normalized market probability). The pipeline computes `odds_to_ability_ratio = p_market / p_ability` (line 422-423 in training_pipeline.py). The EVCorrectionModel uses `signed_log_error_win` and `abs_log_error_win` from MarketModel.
+
+**What to add:** A dedicated feature module that computes richer odds-deviation metrics:
+
 ```python
-def get_win_candidates(
-    self,
-    race_df: pd.DataFrame,
-    *,
-    regime_params: dict[str, Any] | None = None,
-) -> pd.DataFrame:
-    """Select win bet candidates from predicted race data."""
-    # Use p_win_calibrated if available, else p_win_corrected
-    # Apply edge threshold from regime_params
-    # Apply max_odds filter
-    # Apply win_selection_gate if trained
-    # Return sorted candidates (max 1-2 per race)
+# src/features/odds_deviation_features.py
+
+def compute_odds_deviation_features(df: pd.DataFrame) -> pd.DataFrame:
+    """Compute features capturing model-vs-market probability divergence.
+
+    These features quantify how much the model disagrees with the market,
+    which is directly related to expected value.
+
+    Features:
+      - odds_deviation_signed: log(p_model/p_market), positive = model thinks horse is better
+      - odds_deviation_abs: absolute deviation (uncertainty measure)
+      - odds_deviation_squared: squared deviation (larger penalties for big disagreements)
+      - odds_deviation_zscore: standardized deviation within race
+      - model_confidence_gap: p_model - p_market (raw probability difference)
+      - market_efficiency_score: entropy ratio (model vs market distribution)
+      - deviation_adjusted_ev: p_model * odds * (1 - abs(deviation)) -- discounted EV
+    """
 ```
 
-### New method: select_win_bets()
-```python
-def select_win_bets(
-    self,
-    race_df: pd.DataFrame,
-    bankroll: float,
-    *,
-    candidates: pd.DataFrame | None = None,
-) -> list[Bet]:
-    """Generate win Bet objects with Kelly stake sizing."""
-    # Get candidates
-    # Calculate Kelly stake (quarter-Kelly for win)
-    # Apply pool-size cap
-    # Return Bet list
+**Integration point:** This module must be called AFTER AbilityModel.train_oof() (because it needs p_ability_win) but BEFORE WinTwoStageModel.train_hit_model() (because the deviation features feed into the hit model). This means it goes inside `_train_submodel()`, after the `odds_to_ability_ratio` computation (line 422) and before `WinTwoStageModel` training (line 435).
+
+**Data flow:**
+
+```
+AbilityModel.train_oof() -> p_ability_win
+compute_market_bias()     -> p_market_win_adj
+                                    |
+                            compute_odds_deviation_features()
+                                    |
+                            WinTwoStageModel.FEATURE_COLS += deviation features
 ```
 
-## Component Integration: TrainingPipeline Changes
+### Area 3: Time-Series / Pace Features
 
-### Current _train_submodel flow (lines 282-608 of training_pipeline.py):
+**Current state:** HorseHistoryFeatures computes static aggregates of past performance (averages over last N runs). `harontime_late_trend` (last 2 vs first 3 runs) is the only temporal feature. The pace_aptitude_features module computes pace aptitude from historical data but does not predict the pace scenario for the upcoming race.
+
+**What to add:**
+
+1. **Time-series features** (temporal trends from past runs):
+   - `time_progression_slope`: linear regression slope of finishing times over last 5 runs (positive = getting slower, negative = improving)
+   - `closing_speed_trend`: trend in closing index over last 5 runs
+   - `form_volatility`: standard deviation of normalized finish positions (consistency measure)
+   - `recent_improvement_rate`: rate of change in the last 3 runs vs preceding 3 runs
+   - `peak_form_indicator`: whether the horse is within 10% of its best recent performance
+
+2. **Pace prediction features** (predicted race scenario from field composition):
+   - `predicted_pace_scenario`: classify race as "fast pace" / "moderate" / "slow pace" based on the number of front-running horses in the field
+   - `front_runner_count`: number of horses with kyakusitukubun_cd == "escape" (front-running style) in the race
+   - `pace_pressure_index`: competition for the lead (how many horses prefer early position)
+   - `position_fit_score`: how well the horse's running style fits the predicted pace
+
+**Integration point:**
+
+Time-series features go inside HorseHistoryFeatures.compute() -- they use the same past-performance data and follow the same PIT pattern. They add columns to the output DataFrame.
+
+Pace prediction features are different: they require looking at ALL entries in the same race, not just one horse's history. This means they need to be computed at the race level, similar to `compute_intra_race_features()`. The best insertion point is within `_train_submodel()`, after HorseHistoryFeatures and before AbilityModel, since pace features are inputs to the ability model.
+
 ```
-market -> ability_oof -> place_ability -> win_2stage -> ev_correction
-  -> jockey/trainer/jt context -> place_2stage -> benter+isotonic+temp
-  -> place_ev_correction -> wide -> confidence -> place_selection_gate
+HorseHistoryFeatures.compute()  [includes time-series trends]
+     |
+PacePredictionFeatures.compute() [race-level pace analysis]
+     |
+AbilityModel.train_oof()         [sees pace features in FEATURE_COLS]
 ```
-
-### Proposed insertion point for win components:
-```
-... existing flow through ev_corrector.correct_ev (line 479) ...
-
-# --- NEW: Win Benter + Calibration ---
-if hasattr(win_2s, "_val_p_raw") and len(win_2s._val_p_raw) >= 500:
-    # Win-specific Benter combination
-    val_p_win = win_2s._val_p_raw  # validation P(win) from hit model
-    val_p_market_win = np.where(
-        df_oof["tanodds"] > 0, 1.0 / df_oof["tanodds"], 0.5
-    )
-    val_y_win = (df_oof["kakuteijyuni"] == 1).astype(int).values
-
-    win_benter = BenterCombination.fit(val_p_win, val_p_market_win, val_y_win)
-
-    # Win Isotonic calibration
-    val_p_win_combined = win_benter.combine(val_p_win, val_p_market_win)
-    win_isotonic = IsotonicRegression(out_of_bounds="clip")
-    win_isotonic.fit(val_p_win_combined, val_y_win)
-
-    # Win Temperature Scaling
-    val_p_win_isotonic = win_isotonic.transform(val_p_win_combined)
-    win_temp_scaler = TemperatureScaling.fit(val_p_win_isotonic, val_y_win)
-
-# ... continue with existing place pipeline ...
-```
-
-### SubmodelSet construction changes (line 593):
-```python
-return SubmodelSet(
-    # ... existing fields ...
-    win_benter_gate=WinBenterGate(win_benter) if win_benter else None,
-    win_isotonic_calibrator=win_isotonic if win_isotonic else None,
-    win_temperature_scaler=win_temp_scaler if win_temp_scaler else None,
-    # win_selection_gate trained after confidence estimation
-)
-```
-
-## Component Integration: BacktestEngine Changes
-
-### Current flow (engine.py line 420+):
-The backtest loop currently only calls `get_place_candidates()` and `select_bets()` (which only returns place + wide bets). Win bets are NOT generated in the backtest.
-
-### Proposed changes:
-```python
-# After line 596 (existing bets = self._race_predictor.select_bets(...)):
-# Add win bet generation
-win_bets = self._race_predictor.select_win_bets(
-    result_df, bankroll,
-    regime_params=regime_params,
-)
-all_bets = bets + win_bets
-```
-
-### Settlement changes:
-Win bet settlement already works generically (Bet.result = odds * stake if horse finishes 1st). The existing settlement logic in `BacktestEngine._settle_bets()` handles this via `kakuteijyuni == 1` check.
 
 ## Scalability Considerations
 
-| Concern | Current (Place-focused) | After Win Enhancement | Notes |
-|---------|------------------------|----------------------|-------|
-| Model count per surface | 10 models in SubmodelSet | 13-14 models (+3-4 win-specific) | Memory impact negligible; models are <50MB each |
-| Training time | ~57 min/year | ~65 min/year (+10-15%) | Win Benter fitting is fast (<1 min); gate training adds ~3 min |
-| Backtest inference per race | ~5 ms | ~6 ms (+20%) | Win Benter + calibration adds ~1 ms per race |
-| Bet frequency | 9,074 place bets/year | ~2,000-3,000 win bets/year | Win is sparser; total volume depends on threshold tuning |
-| Bankroll at risk per race | 2% (place cap) | 2% total (place + win combined) | Race exposure cap already handles this |
+| Concern | Current (v5.5) | With Stacking | With New Features |
+|---------|---------------|---------------|-------------------|
+| Training time | ~44 min (2 surfaces) | ~2-3x increase (3 models per slot) | ~10-15% increase (more columns) |
+| Memory (training) | ~4 GB | ~8-12 GB (3 models in memory) | ~5 GB (more feature columns) |
+| Prediction latency | ~10 ms/race | ~30 ms/race (3 models + meta) | ~12 ms/race (more features) |
+| Model storage | ~50 MB (.lgb files) | ~150 MB (3x models + joblib) | ~55 MB (feature metadata) |
+| Backtest time | ~57 min/year | ~120-170 min/year | ~65 min/year |
 
-## Build Order (Dependency Chain)
+The training time increase from stacking is the most significant concern. Mitigation: the pipeline already trains turf/dirt in parallel via ThreadPoolExecutor, and each surface's models can internally parallelize via num_threads. With 4+ CPU cores (typical), the wall-clock increase is closer to 1.5-2x rather than 3x.
 
-The win model improvement should be built in this order, where each phase builds on the previous:
+## Build Order Recommendation
+
+The build order follows strict data dependencies. Features must exist before models that consume them. Single models must work before stacking is layered on top.
 
 ```
-Phase 1: Feature Analysis & Win Feature Enhancement
-  ├─ Analyze feature importance for existing Win hit model
-  ├─ Expand WinTwoStageModel.FEATURE_COLS with validated features
-  ├─ Run WalkForwardCV to measure improvement
-  └─ No architectural changes needed
+Phase 1: Time-Series Features (no model changes)
+  1a. Create src/features/time_series_features.py
+  1b. Add time-series features to HorseHistoryFeatures.compute()
+  1c. Add time-series columns to AbilityModel.FEATURE_COLS
+  1d. Validate via backtest (features only, no stacking)
 
-Phase 2: Win Benter Combination + Calibration
-  ├─ Add WinBenterGate component
-  ├─ Fit BenterCombination on win validation data
-  ├─ Add Win IsotonicRegression + TemperatureScaling
-  ├─ Integrate into TrainingPipeline._train_submodel()
-  ├─ Integrate into RacePredictor.predict()
-  └─ Run backtest to measure improvement
+  Rationale: Features are the foundation. Adding them first means all
+  subsequent model improvements benefit from richer inputs. No risk of
+  regression since we only add columns (LightGBM ignores unused features).
 
-Phase 3: Win Selection Gate + Confidence Estimation
-  ├─ Train win-specific selection gate (like PlaceSelectionGate)
-  ├─ Add WinConfidenceEstimator (EV lower bound for win)
-  ├─ Integrate into SubmodelSet
-  └─ Run backtest to measure improvement
+Phase 2: Pace Prediction Features (no model changes)
+  2a. Create src/features/pace_prediction_features.py
+  2b. Wire into _train_submodel() after HorseHistoryFeatures
+  2c. Add pace features to AbilityModel.FEATURE_COLS
+  2d. Validate via backtest
 
-Phase 4: Win Betting Strategy Enhancement
-  ├─ Add win-specific regime parameters
-  ├─ Implement pool-size-aware Kelly sizing in WinStrategy
-  ├─ Add get_win_candidates() + select_win_bets() to RacePredictor
-  ├─ Integrate win bets into BacktestEngine
-  └─ Run final backtest for ROI measurement
+  Rationale: Pace features are independent of time-series features
+  but follow the same "features first" principle.
 
-Phase 5: Validation & Hardening
-  ├─ WalkForwardCV across multiple years
-  ├─ Sensitivity analysis on edge thresholds
-  ├─ Overfitting check (train vs test ROI gap)
-  └─ Paper trading validation
+Phase 3: Odds Deviation Features (feature module + feature list update)
+  3a. Create src/features/odds_deviation_features.py
+  3b. Wire into _train_submodel() after AbilityModel.train_oof()
+  3c. Add deviation features to WinTwoStageModel.FEATURE_COLS
+  3d. Validate via backtest
+
+  Rationale: Deviation features depend on p_ability_win existing,
+  so they must come after Phase 1 (which improves p_ability_win).
+
+Phase 4: Stacking Ensemble Enhancement (model change)
+  4a. Enhance StackedEnsemble with time-aware OOF splits
+  4b. Add hyperparameter profiles per GBM framework
+  4c. Enable use_ensemble=True and validate
+  4d. Add MLflow logging for meta-learner coefficients
+
+  Rationale: Stacking is the last layer because it amplifies the
+  quality of the underlying features. Better features first means
+  the stacking meta-learner has a stronger signal to combine.
+
+  NOTE: Stacking is applied only to the binary hit_model, not to
+  the AbilityModel Ranker. This is a deliberate scope reduction.
+  Ranker stacking can be evaluated in a future iteration.
 ```
 
-### Dependency rationale:
-- Phase 1 is independent of all others and has the highest expected ROI (better features -> better P(win))
-- Phase 2 depends on Phase 1 because Benter combination quality depends on fundamental model quality
-- Phase 3 depends on Phase 2 because the selection gate needs calibrated probabilities as input
-- Phase 4 depends on Phase 2-3 because betting strategy needs calibrated edge estimates
-- Phase 5 depends on all previous phases
+## Integration Verification Checklist
 
-### Risk mitigation:
-- Each phase produces a measurable backtest ROI change
-- If a phase shows negative ROI, it can be reverted independently
-- The Place pipeline remains completely untouched throughout
+After each phase, verify:
+
+- [ ] New features have no NaN values for >95% of training data
+- [ ] New features do not use post-race information (PIT compliance)
+- [ ] Backtest with new features shows no regression vs baseline
+- [ ] Feature importance (SHAP or gain) shows non-zero contribution from new features
+- [ ] Training pipeline completes without errors
+- [ ] All existing tests pass (`python -m pytest tests/ -v`)
+- [ ] mypy type checking passes (`mypy src/`)
 
 ## Sources
 
-- Benter (1994), "Computer Based Horse Race Handicapping and Wagering Systems: A Report" -- annotated version at [Acta Machina](http://actamachina.com/posts/annotated-benter-paper). HIGH confidence for architectural patterns.
-- Bolton & Chapman (1986), "The Searching Problem in Probabilistic Simulation of Horse Racing" -- multinomial logit model for horse racing. HIGH confidence.
-- Existing codebase: `src/models/two_stage_return_model.py`, `src/models/benter_combination.py`, `src/models/ev_correction_model.py`, `src/backtest/race_predictor.py`, `src/pipelines/training_pipeline.py`. PRIMARY confidence.
-- [StableBet](https://stablebet.co.uk/betting/strategies/ai-prediction-models/) -- LightGBM + isotonic calibration pattern for racing. MEDIUM confidence.
-- [seven-seas-punter](https://github.com/levonrush/seven-seas-punter) -- time-based CV + calibrated probabilities + value betting backtest. MEDIUM confidence.
-
----
-*Architecture research: 2026-05-02*
+- Existing codebase analysis (src/models/stacked_ensemble.py, src/pipelines/training_pipeline.py, src/features/*.py, src/models/stage1_ability_model.py, src/models/two_stage_return_model.py)
+- XGBoost Learning to Rank documentation: https://xgboost.readthedocs.io/en/latest/tutorials/learning_to_rank.html
+- CatBoost Ranking loss functions documentation: https://catboost.ai/docs/en/concepts/loss-functions-ranking
+- Stacking ensemble best practices: Kaggle community discussion, ResearchGate publication on XGBoost+LightGBM+CatBoost stacking
+- XGBoost v3.2.0 and CatBoost v1.2.10 verified as installed in the project environment
