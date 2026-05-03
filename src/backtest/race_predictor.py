@@ -150,7 +150,7 @@ class RacePredictor:
         win_df, place_df = submodel.confidence.predict_interval(df, df)
         df = win_df
         if "EV_lower_place" in place_df.columns:
-            df["EV_lower_place"] = place_df["EV_lower_place"].values
+            df["EV_lower_place"] = place_df["EV_lower_place"].reindex(df.index).values
 
         # --- Benter Combination + Isotonic Calibration ---
         # p_place_pred は fundamental model 出力 (オッズ特徴量なし)
