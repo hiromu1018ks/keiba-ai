@@ -174,9 +174,12 @@ class StackedEnsemble:
         optuna.logging.set_verbosity(optuna.logging.WARNING)
 
         n = len(X_train)
-        split = int(n * 0.8)
+        # K-fold OOF の最終fold validation区間と重複しないよう、
+        # OOF対象外の前半データ内でHPチューニング用の80/20 splitを行う
+        oob_start = int(n * self.n_folds / (self.n_folds + 1))  # 最終foldのval_start
+        split = int(oob_start * 0.8)
         X_t, y_t = X_train.iloc[:split], y_train.iloc[:split]
-        X_v, y_v = X_train.iloc[split:], y_train.iloc[split:]
+        X_v, y_v = X_train.iloc[split:oob_start], y_train.iloc[split:oob_start]
 
         best_params: dict[str, dict[str, Any]] = {}
         for model_name, suggest_fn, eval_fn in [
