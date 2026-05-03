@@ -125,3 +125,110 @@ class TestOddsDeviationFeatures:
             assert result["deviation_zscore"].iloc[i] == pytest.approx(
                 expected_zscores[i], rel=1e-6
             )
+
+
+class TestOddsDeviationNumericalConsistency:
+    """ODDS-02: 数値的一貫性チェック (EV区間順序性、NaN率、スコア範囲)"""
+
+    def test_ev_interval_ordering(self) -> None:
+        """EV区間: lower < ev < upper (predict_interval mockデータ)"""
+        from models.robust_confidence_estimator import RobustConfidenceEstimator
+
+        np.random.seed(42)
+        n = 20
+        cal_win = pd.DataFrame(
+            {
+                "race_id": [f"R{i}" for i in range(n)],
+                "ev_win_corrected": np.random.uniform(0.5, 2.0, n),
+                "actual_ev_win": np.random.uniform(0.0, 3.0, n),
+            }
+        )
+        cal_place = pd.DataFrame(
+            {
+                "race_id": [f"R{i}" for i in range(n)],
+                "ev_place_corrected": np.random.uniform(0.5, 2.0, n),
+                "actual_ev_place": np.random.uniform(0.0, 3.0, n),
+            }
+        )
+
+        estimator = RobustConfidenceEstimator()
+        estimator.calibrate(cal_win, cal_place)
+
+        test_win = pd.DataFrame(
+            {
+                "race_id": ["T1"] * 5,
+                "ev_win_corrected": [1.0, 1.5, 0.8, 2.0, 1.2],
+            }
+        )
+        test_place = pd.DataFrame(
+            {
+                "race_id": ["T1"] * 5,
+                "ev_place_corrected": [1.0, 1.3, 0.9, 1.6, 1.1],
+            }
+        )
+
+        win_result, _ = estimator.predict_interval(test_win, test_place)
+        for i in range(len(win_result)):
+            lower = win_result["EV_lower_win_corrected"].iloc[i]
+            ev = win_result["ev_win_corrected"].iloc[i]
+            upper = win_result["EV_upper_win_corrected"].iloc[i]
+            assert lower <= ev + 1e-10, f"Row {i}: lower={lower} > ev={ev}"
+            assert ev <= upper + 1e-10, f"Row {i}: ev={ev} > upper={upper}"
+
+    def test_conformal_confidence_score_range(self) -> None:
+        """conformal_confidence_score は [0, inf) の範囲"""
+        from models.robust_confidence_estimator import RobustConfidenceEstimator
+
+        np.random.seed(42)
+        n = 20
+        cal_win = pd.DataFrame(
+            {
+                "race_id": [f"R{i}" for i in range(n)],
+                "ev_win_corrected": np.random.uniform(0.5, 2.0, n),
+                "actual_ev_win": np.random.uniform(0.0, 3.0, n),
+            }
+        )
+        cal_place = pd.DataFrame(
+            {
+                "race_id": [f"R{i}" for i in range(n)],
+                "ev_place_corrected": np.random.uniform(0.5, 2.0, n),
+                "actual_ev_place": np.random.uniform(0.0, 3.0, n),
+            }
+        )
+
+        estimator = RobustConfidenceEstimator()
+        estimator.calibrate(cal_win, cal_place)
+
+        test_win = pd.DataFrame(
+            {
+                "race_id": ["T1"] * 5,
+                "ev_win_corrected": [1.0, 1.5, 0.8, 2.0, 1.2],
+            }
+        )
+        test_place = pd.DataFrame(
+            {
+                "race_id": ["T1"] * 5,
+                "ev_place_corrected": [1.0, 1.3, 0.9, 1.6, 1.1],
+            }
+        )
+
+        win_result, _ = estimator.predict_interval(test_win, test_place)
+        assert (win_result["conformal_confidence_score"] >= 0).all()
+        assert np.isfinite(win_result["conformal_confidence_score"]).all()
+
+    def test_deviation_features_nan_rate_bounded(self) -> None:
+        """odds_to_ability_ratioが存在する場合、NaN率は0%である"""
+        from features.odds_deviation_features import compute_odds_deviation_features
+
+        df = pd.DataFrame(
+            {
+                "race_id": ["R1"] * 5 + ["R2"] * 5,
+                "odds_to_ability_ratio": [1.0, 1.5, 2.0, 0.8, 1.2] * 2,
+            }
+        )
+        result = compute_odds_deviation_features(df)
+
+        # deviation_rank は NaN でないはず
+        assert result["deviation_rank"].notna().all()
+        # deviation_zscore は複数頭レースでは NaN でない
+        assert result["deviation_zscore"].notna().all()

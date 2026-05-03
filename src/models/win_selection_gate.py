@@ -136,6 +136,8 @@ class WinSelectionGateModel:
         self.combo_scores: dict[tuple[int, int, int], float] = {}
         self.pair_scores: dict[tuple[str, int, int], float] = {}
         self.single_scores: dict[tuple[str, int], float] = {}
+        # ODDS-03: conformal confidence edges for pair scoring
+        self._confidence_edges: list[float] = []
         self.min_prob = 0.0
         self.min_edge = 0.0
         self.max_odds = float("inf")
@@ -318,10 +320,48 @@ class WinSelectionGateModel:
                     self.prior_weight,
                 )
 
+        # ODDS-03: conformal confidence pair scores (D-08)
+        confidence_col = work.get("conformal_confidence_score")
+        if confidence_col is not None:
+            confidence_edges = _quantile_edges(
+                confidence_col.fillna(0.0),
+                max(3, self.n_bins // 2),  # Fewer bins to avoid sparsity
+            )
+            work["_confidence_bin"] = _bucketize(
+                confidence_col.fillna(0.0),
+                confidence_edges,
+            )
+
+            confidence_pair_specs = {
+                "confidence_prob": ["_confidence_bin", "_prob_bin"],
+                "confidence_edge": ["_confidence_bin", "_edge_bin"],
+            }
+            for prefix, cols in confidence_pair_specs.items():
+                grouped = (
+                    work.groupby(cols, observed=True)["realized_win_roi"]
+                    .agg(["mean", "count"])
+                    .reset_index()
+                )
+                for _, data in grouped.iterrows():
+                    if pd.isna(data[cols[0]]) or pd.isna(data[cols[1]]):
+                        continue
+                    if data["count"] < 5:
+                        continue
+                    key = (prefix, int(data[cols[0]]), int(data[cols[1]]))
+                    pair_scores[key] = _smoothed_score(
+                        float(data["mean"]),
+                        float(data["count"]),
+                        global_score,
+                        self.prior_weight,
+                    )
+        else:
+            confidence_edges = []
+
         return {
             "prob_edges": prob_edges,
             "edge_edges": edge_edges,
             "odds_edges": odds_edges,
+            "confidence_edges": confidence_edges,
             "global_score": global_score,
             "combo_scores": combo_scores,
             "pair_scores": pair_scores,
@@ -339,6 +379,7 @@ class WinSelectionGateModel:
         combo_scores: dict[tuple[int, int, int], float],
         pair_scores: dict[tuple[str, int, int], float],
         single_scores: dict[tuple[str, int], float],
+        confidence_bin: float | None = None,
     ) -> float:
         if pd.isna(prob_bin) or pd.isna(edge_bin) or pd.isna(odds_bin):
             return global_score
@@ -360,6 +401,17 @@ class WinSelectionGateModel:
             ]
             if key in pair_scores
         ]
+
+        # ODDS-03: confidence pair fallback
+        if confidence_bin is not None and not pd.isna(confidence_bin):
+            conf_key = int(confidence_bin)
+            for key in [
+                ("confidence_prob", conf_key, prob_key),
+                ("confidence_edge", conf_key, edge_key),
+            ]:
+                if key in pair_scores:
+                    pair_values.append(pair_scores[key])
+
         if pair_values:
             return float(np.mean(pair_values))
 
@@ -389,6 +441,16 @@ class WinSelectionGateModel:
         odds_values = np.log1p(_numeric_or_nan(prepared, "tanoddslow").clip(lower=0.0))
         odds_bins = _bucketize(odds_values, list(tables["odds_edges"]))
 
+        # ODDS-03: confidence bin for pair scoring
+        confidence_edges = tables.get("confidence_edges", [])
+        if confidence_edges and "conformal_confidence_score" in prepared.columns:
+            confidence_bins = _bucketize(
+                _numeric_or_nan(prepared, "conformal_confidence_score").fillna(0.0),
+                list(confidence_edges),
+            )
+        else:
+            confidence_bins = pd.Series(np.nan, index=prepared.index, dtype=float)
+
         scores = [
             cls._score_row_from_tables(
                 prob_bin,
@@ -398,8 +460,11 @@ class WinSelectionGateModel:
                 combo_scores=dict(tables["combo_scores"]),
                 pair_scores=dict(tables["pair_scores"]),
                 single_scores=dict(tables["single_scores"]),
+                confidence_bin=conf_bin,
             )
-            for prob_bin, edge_bin, odds_bin in zip(prob_bins, edge_bins, odds_bins, strict=False)
+            for prob_bin, edge_bin, odds_bin, conf_bin in zip(
+                prob_bins, edge_bins, odds_bins, confidence_bins, strict=False
+            )
         ]
         return pd.Series(scores, index=prepared.index, dtype=float)
 
@@ -408,6 +473,7 @@ class WinSelectionGateModel:
             "prob_edges": self.prob_edges,
             "edge_edges": self.edge_edges,
             "odds_edges": self.odds_edges,
+            "confidence_edges": self._confidence_edges,
             "global_score": self.global_score,
             "combo_scores": self.combo_scores,
             "pair_scores": self.pair_scores,
@@ -801,6 +867,7 @@ class WinSelectionGateModel:
         self.prob_edges = list(score_tables["prob_edges"])
         self.edge_edges = list(score_tables["edge_edges"])
         self.odds_edges = list(score_tables["odds_edges"])
+        self._confidence_edges = list(score_tables["confidence_edges"])
         self.global_score = float(score_tables["global_score"])
         self.combo_scores = dict(score_tables["combo_scores"])
         self.pair_scores = dict(score_tables["pair_scores"])
@@ -988,6 +1055,7 @@ class WinSelectionGateModel:
             "prob_edges": self.prob_edges,
             "edge_edges": self.edge_edges,
             "odds_edges": self.odds_edges,
+            "confidence_edges": self._confidence_edges,
             "combo_scores": self.combo_scores,
             "pair_scores": self.pair_scores,
             "single_scores": self.single_scores,
@@ -1021,6 +1089,7 @@ class WinSelectionGateModel:
         model.prob_edges = list(state["prob_edges"])
         model.edge_edges = list(state["edge_edges"])
         model.odds_edges = list(state["odds_edges"])
+        model._confidence_edges = list(state.get("confidence_edges", []))
         model.combo_scores = dict(state["combo_scores"])
         model.pair_scores = dict(state["pair_scores"])
         model.single_scores = dict(state["single_scores"])

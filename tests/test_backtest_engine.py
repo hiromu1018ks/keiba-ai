@@ -442,6 +442,10 @@ class TestPostRaceColumnExclusion:
             _corrected,
             pd.DataFrame({"EV_lower_place": [1.5]}),
         )
+        submodel.confidence.predict_interval.return_value = (
+            _corrected,
+            pd.DataFrame({"EV_lower_place": [1.5]}),
+        )
 
         # --- spy on RacePredictor.predict to capture the DataFrame ---
         captured_df: dict[str, pd.DataFrame] = {}
@@ -603,6 +607,10 @@ class TestBetHistoryEnrichment:
         _corrected = feat_df.assign(ev_place_corrected=feat_df.get("ev_place", 1.5))
         submodel.place_ev_corrector.correct_ev.return_value = _corrected
         submodel.confidence.predict_lower_bound.return_value = (
+            _corrected,
+            pd.DataFrame({"EV_lower_place": [1.5]}),
+        )
+        submodel.confidence.predict_interval.return_value = (
             _corrected,
             pd.DataFrame({"EV_lower_place": [1.5]}),
         )
@@ -928,6 +936,10 @@ class TestJRAFilterBacktest:
             _corrected,
             pd.DataFrame({"EV_lower_place": [1.5]}),
         )
+        submodel.confidence.predict_interval.return_value = (
+            _corrected,
+            pd.DataFrame({"EV_lower_place": [1.5]}),
+        )
 
         from backtest.engine import BacktestEngine
 
@@ -1059,6 +1071,10 @@ class TestJRAFilterBacktest:
         _corrected = feat_df.assign(ev_place_corrected=feat_df.get("ev_place", 1.5))
         submodel.place_ev_corrector.correct_ev.return_value = _corrected
         submodel.confidence.predict_lower_bound.return_value = (
+            _corrected,
+            pd.DataFrame({"EV_lower_place": [1.5]}),
+        )
+        submodel.confidence.predict_interval.return_value = (
             _corrected,
             pd.DataFrame({"EV_lower_place": [1.5]}),
         )

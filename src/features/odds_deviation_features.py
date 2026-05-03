@@ -27,6 +27,11 @@ def compute_odds_deviation_features(df: pd.DataFrame) -> pd.DataFrame:
 
     ratio = pd.to_numeric(ratio, errors="coerce")
 
+    if "race_id" not in df.columns:
+        df["deviation_rank"] = pd.Series(np.nan, index=df.index, dtype=float)
+        df["deviation_zscore"] = pd.Series(np.nan, index=df.index, dtype=float)
+        return df
+
     # レース内ランク (descending: ratio大=過小評価=高いrank)
     df["deviation_rank"] = (
         ratio.groupby(df["race_id"])

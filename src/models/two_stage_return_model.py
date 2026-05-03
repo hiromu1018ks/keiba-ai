@@ -386,6 +386,9 @@ class PlaceTwoStageModel:
         "actual_pace_fit",
         "odds_acceleration",
         "odds_direction_consistency",
+        # ODDS-01: Phase 6 deviation features
+        "deviation_rank",
+        "deviation_zscore",
     ]
 
     # 後方互換: FEATURE_COLS は return model のリストを返す (最も情報量が多いため)

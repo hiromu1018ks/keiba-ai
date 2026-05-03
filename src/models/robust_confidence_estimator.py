@@ -1,4 +1,4 @@
-"""信頼区間推定 — Conformal Prediction + Rolling Quantile min (Rule 4)"""
+"""信頼区間推定 -- Conformal Prediction + Rolling Quantile min (Rule 4)"""
 
 from __future__ import annotations
 
@@ -93,31 +93,39 @@ class RobustConfidenceEstimator:
 
         self._calibrated = True
 
-    def predict_lower_bound(
+    def predict_interval(
         self,
         win_df: pd.DataFrame,
         place_df: pd.DataFrame,
+        alphas: tuple[float, ...] = (0.1, 0.2),
     ) -> tuple[pd.DataFrame, pd.DataFrame]:
-        """
-        EV の信頼区間下限を推定。
-        min(CP_bound, Rolling_Quantile_bound) を採用 (Rule 4)。
+        """EVの信頼区間(上下)を複数水準で推定。min(CP, Rolling_Quantile)を採用 (Rule 4)。
+
+        Args:
+            win_df: ev_win_corrected を含むDataFrame
+            place_df: ev_place_corrected を含むDataFrame
+            alphas: 信頼水準のタプル。0.1=90%区間、0.2=80%区間
+
+        Returns:
+            win_df, place_df with EV_lower/upper columns and conformal_confidence_score
         """
         if not self._calibrated:
-            # 未キャリブレーション時: EVをそのまま下限として使用 (保守的)
-            logger.warning("RobustConfidenceEstimator not calibrated, using EV as lower bound")
+            logger.warning("RobustConfidenceEstimator not calibrated, using EV as bounds")
             win_df = win_df.copy()
             place_df = place_df.copy()
             win_df["EV_lower_win_corrected"] = win_df.get("ev_win_corrected", 0.0)
+            win_df["EV_upper_win_corrected"] = win_df.get("ev_win_corrected", 0.0)
+            win_df["conformal_confidence_score"] = 0.0
             place_df["EV_lower_place"] = place_df.get("ev_place_corrected", 0.0)
+            place_df["EV_upper_place"] = place_df.get("ev_place_corrected", 0.0)
             return win_df, place_df
 
         win_df = win_df.copy()
         place_df = place_df.copy()
         win_ev = pd.to_numeric(win_df["ev_win_corrected"], errors="coerce").fillna(0.0)
-        place_ev = pd.to_numeric(place_df["ev_place_corrected"], errors="coerce").fillna(0.0)
 
-        # Win lower bound (with race-condition-dependent CP quantile)
-        cp_quantile = self._win_cp_quantile
+        # Race-condition-dependent CP quantile (same as predict_lower_bound)
+        cp_quantile_per_row: pd.Series | float
         if self._win_cp_quantile_by_condition:
             cond_keys = (
                 win_df["surface"].astype(str) + "_" + win_df["distance_bin"].astype(str)
@@ -125,24 +133,104 @@ class RobustConfidenceEstimator:
                 else pd.Series("", index=win_df.index)
             )
             cond_quantiles = cond_keys.map(self._win_cp_quantile_by_condition)
-            # Use conditional quantile where available, global otherwise
             cp_quantile_per_row = cond_quantiles.fillna(self._win_cp_quantile)
         else:
-            cp_quantile_per_row = pd.Series(self._win_cp_quantile, index=win_df.index)
+            cp_quantile_per_row = self._win_cp_quantile
 
-        cp_lower_win = win_ev - cp_quantile_per_row
-        rolling_lower_win = win_ev - self._win_rolling_quantile
-        win_df["EV_lower_win_corrected"] = np.maximum(
-            np.minimum(cp_lower_win, rolling_lower_win),
-            0.0,
-        )
+        # Use first alpha for primary lower/upper bounds
+        primary_alpha = alphas[0]
 
-        # Place lower bound
+        # Recalculate CP quantile for primary alpha if different from self.alpha
+        if abs(primary_alpha - self.alpha) < 1e-9:
+            primary_cp_quantile = cp_quantile_per_row
+            primary_rolling_quantile = self._win_rolling_quantile
+        else:
+            # Reuse calibration data: recompute quantile at different alpha
+            # Higher alpha -> narrower interval -> smaller quantile
+            # scale = sqrt(calibrated_alpha / requested_alpha)
+            scale = np.sqrt(self.alpha / primary_alpha)
+            primary_cp_quantile = (
+                cp_quantile_per_row * scale
+                if isinstance(cp_quantile_per_row, pd.Series)
+                else float(cp_quantile_per_row) * scale
+            )
+            primary_rolling_quantile = self._win_rolling_quantile * scale
+
+        # Primary interval (widest, e.g. 90%)
+        cp_lower = win_ev - primary_cp_quantile
+        rolling_lower = win_ev - primary_rolling_quantile
+        lower = np.maximum(np.minimum(cp_lower, rolling_lower), 0.0)
+
+        cp_upper = win_ev + primary_cp_quantile
+        rolling_upper = win_ev + primary_rolling_quantile
+        upper = np.maximum(cp_upper, rolling_upper)
+
+        win_df["EV_lower_win_corrected"] = lower
+        win_df["EV_upper_win_corrected"] = upper
+
+        # Use second alpha for confidence scoring (narrower, e.g. 80%)
+        if len(alphas) > 1:
+            secondary_alpha = alphas[1]
+            if abs(secondary_alpha - self.alpha) < 1e-9:
+                secondary_cp_quantile = cp_quantile_per_row
+            else:
+                scale = np.sqrt(self.alpha / secondary_alpha)
+                secondary_cp_quantile = (
+                    cp_quantile_per_row * scale
+                    if isinstance(cp_quantile_per_row, pd.Series)
+                    else float(cp_quantile_per_row) * scale
+                )
+            secondary_lower = np.maximum(win_ev - secondary_cp_quantile, 0.0)
+            win_df["_ev_lower_secondary"] = secondary_lower
+        else:
+            win_df["_ev_lower_secondary"] = lower
+
+        # conformal_confidence_score per D-06, D-08:
+        # Higher score = more confident bet
+        # Score = EV_lower_80 * (1 - normalized_width)
+        interval_width = (upper - lower).clip(lower=1e-6)
+        if "race_id" in win_df.columns:
+            max_width = interval_width.groupby(win_df["race_id"]).transform("max").clip(lower=1e-6)
+            normalized_width = (interval_width / max_width).clip(0.0, 1.0)
+        else:
+            max_width = interval_width.max()
+            normalized_width = (interval_width / max(max_width, 1e-6)).clip(0.0, 1.0)
+
+        ev_lower_for_score = win_df["_ev_lower_secondary"]
+        win_df["conformal_confidence_score"] = (
+            ev_lower_for_score * (1.0 - normalized_width)
+        ).fillna(0.0)
+
+        # Clean up temporary column
+        win_df.drop(columns=["_ev_lower_secondary"], inplace=True, errors="ignore")
+
+        # Place bounds (simpler: no confidence score needed for place)
+        place_ev = pd.to_numeric(place_df["ev_place_corrected"], errors="coerce").fillna(0.0)
         cp_lower_place = place_ev - self._place_cp_quantile
         rolling_lower_place = place_ev - self._place_rolling_quantile
         place_df["EV_lower_place"] = np.maximum(
-            np.minimum(cp_lower_place, rolling_lower_place),
-            0.0,
+            np.minimum(cp_lower_place, rolling_lower_place), 0.0
         )
+        cp_upper_place = place_ev + self._place_cp_quantile
+        rolling_upper_place = place_ev + self._place_rolling_quantile
+        place_df["EV_upper_place"] = np.maximum(cp_upper_place, rolling_upper_place)
 
         return win_df, place_df
+
+    def predict_lower_bound(
+        self,
+        win_df: pd.DataFrame,
+        place_df: pd.DataFrame,
+    ) -> tuple[pd.DataFrame, pd.DataFrame]:
+        """EVの信頼区間下限を推定。predict_interval()のラッパー (後方互換)。"""
+        win_result, place_result = self.predict_interval(win_df, place_df)
+        # Remove upper bound and confidence columns for backward compatibility
+        win_result = win_result.drop(
+            columns=["EV_upper_win_corrected", "conformal_confidence_score"],
+            errors="ignore",
+        )
+        place_result = place_result.drop(
+            columns=["EV_upper_place"],
+            errors="ignore",
+        )
+        return win_result, place_result
