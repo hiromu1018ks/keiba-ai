@@ -1,3 +1,5 @@
+import logging
+
 import numpy as np
 import pandas as pd
 from unittest.mock import patch, MagicMock
@@ -232,3 +234,108 @@ class TestOptunaTuning:
 
         call_kwargs = mock_cat_cls.call_args.kwargs
         assert call_kwargs.get("early_stopping_rounds") == 100
+
+
+class TestDiversityCheck:
+    """Task 2: 多様性検証メソッド + テスト拡張"""
+
+    def test_check_diversity_logs_pairwise_correlation(self, caplog):
+        """_check_diversityがOOF予測の3ペア相関をINFOでログ出力"""
+        ensemble = StackedEnsemble(cat_cols=[])
+        # 異なる予測値 — 相関は低い
+        oof_preds = np.array([
+            [0.1, 0.3, 0.7],
+            [0.2, 0.5, 0.8],
+            [0.3, 0.1, 0.2],
+            [0.4, 0.9, 0.6],
+            [0.5, 0.2, 0.4],
+        ])
+        y = pd.Series([0, 1, 0, 1, 0])
+        importances = [np.array([1.0, 2.0, 3.0]), np.array([3.0, 1.0, 2.0]), np.array([2.0, 3.0, 1.0])]
+        feature_names = ["f1", "f2", "f3"]
+
+        with caplog.at_level(logging.INFO, logger="models.stacked_ensemble"):
+            ensemble._check_diversity(oof_preds, y, importances, feature_names)
+
+        corr_logs = [r for r in caplog.records if "OOF prediction correlation" in r.message]
+        assert len(corr_logs) == 3  # LGB-XGB, LGB-CAT, XGB-CAT
+
+    def test_check_diversity_warns_high_correlation(self, caplog):
+        """相関>=0.95の場合、WARNINGログが出力される"""
+        ensemble = StackedEnsemble(cat_cols=[])
+        # 全列が同じ → 相関1.0
+        col = np.array([0.1, 0.2, 0.3, 0.4, 0.5])
+        oof_preds = np.column_stack([col, col, col])
+        y = pd.Series([0, 1, 0, 1, 0])
+        importances = [np.array([1.0, 2.0]), np.array([1.0, 2.0]), np.array([1.0, 2.0])]
+        feature_names = ["f1", "f2"]
+
+        with caplog.at_level(logging.WARNING, logger="models.stacked_ensemble"):
+            ensemble._check_diversity(oof_preds, y, importances, feature_names)
+
+        warn_logs = [r for r in caplog.records if "High prediction correlation" in r.message]
+        assert len(warn_logs) == 3  # 全ペアが高相関
+
+    def test_check_diversity_logs_importance_correlation(self, caplog):
+        """_check_diversityがfeature importanceのSpearman順位相関をログ出力"""
+        ensemble = StackedEnsemble(cat_cols=[])
+        oof_preds = np.array([
+            [0.1, 0.3, 0.7],
+            [0.2, 0.5, 0.8],
+            [0.3, 0.1, 0.2],
+        ])
+        y = pd.Series([0, 1, 0])
+        importances = [np.array([1.0, 2.0, 3.0]), np.array([3.0, 1.0, 2.0]), np.array([2.0, 3.0, 1.0])]
+        feature_names = ["f1", "f2", "f3"]
+
+        with caplog.at_level(logging.INFO, logger="models.stacked_ensemble"):
+            ensemble._check_diversity(oof_preds, y, importances, feature_names)
+
+        imp_logs = [r for r in caplog.records if "Feature importance rank correlation" in r.message]
+        assert len(imp_logs) == 3  # LGB-XGB, LGB-CAT, XGB-CAT
+
+    def test_check_diversity_warns_high_importance_correlation(self, caplog):
+        """importance順位相関>0.8の場合、WARNINGログが出力される"""
+        ensemble = StackedEnsemble(cat_cols=[])
+        oof_preds = np.array([
+            [0.1, 0.3, 0.7],
+            [0.2, 0.5, 0.8],
+            [0.3, 0.1, 0.2],
+        ])
+        y = pd.Series([0, 1, 0])
+        # 同一importance → Spearman相関1.0
+        imp = np.array([1.0, 2.0, 3.0])
+        importances = [imp.copy(), imp.copy(), imp.copy()]
+        feature_names = ["f1", "f2", "f3"]
+
+        with caplog.at_level(logging.WARNING, logger="models.stacked_ensemble"):
+            ensemble._check_diversity(oof_preds, y, importances, feature_names)
+
+        warn_logs = [
+            r for r in caplog.records if "High importance correlation" in r.message
+        ]
+        assert len(warn_logs) == 3  # 全ペアが高相関
+
+    def test_full_ensemble_with_optuna(self):
+        """500行ダミーデータでtrain→predictが完走"""
+        X, y = _make_binary_data(n=500, seed=20)
+        split = int(len(X) * 0.8)
+        ensemble = StackedEnsemble(cat_cols=[], n_trials=3)
+        ensemble.train(X.iloc[:split], y.iloc[:split], X.iloc[split:], y.iloc[split:])
+        preds = ensemble.predict(X.iloc[split:])
+        assert len(preds) == len(X) - split
+        assert (preds >= 0).all() and (preds <= 1).all()
+
+    def test_base_models_have_different_hp(self):
+        """train後の3モデルのlearning_rateが全て異なる"""
+        X, y = _make_binary_data(n=300, seed=21)
+        split = int(len(X) * 0.8)
+        ensemble = StackedEnsemble(cat_cols=[], n_trials=3)
+        ensemble.train(X.iloc[:split], y.iloc[:split], X.iloc[split:], y.iloc[split:])
+        lrs = {
+            ensemble.best_params["lgbm"]["lgb_lr"],
+            ensemble.best_params["xgb"]["xgb_lr"],
+            ensemble.best_params["cat"]["cat_lr"],
+        }
+        # 全て異なる値であることを確認(3つのユニーク値)
+        assert len(lrs) == 3
