@@ -300,3 +300,212 @@ class TestPaceAptitudeComputeBatch:
 
         assert len(result) == 2
         assert set(result["kettonum"].tolist()) == {"K1", "K2"}
+
+
+# ---------------------------------------------------------------------------
+# PACE-01: pace_corner_stability, pace_closing_power, pace_position_consistency
+# ---------------------------------------------------------------------------
+
+
+class TestPaceCornerStability:
+    """pace_corner_stability: 1C→4C位置変位の一貫性"""
+
+    def test_consistent_position_near_zero(self) -> None:
+        """一貫した位置取りの馬 (1C=2, 4C=2 で毎回同じ) で ≈ 0"""
+        entries_hist = pd.DataFrame({
+            "kettonum": ["K1", "K1", "K1"],
+            "race_id": ["H1", "H2", "H3"],
+            "race_date": pd.to_datetime(["2024-01-01", "2024-02-01", "2024-03-01"]),
+            "kakuteijyuni": [2, 2, 2],
+            "jyuni1c": [2, 2, 2],  # 常に2番手
+            "jyuni4c": [2, 2, 2],  # 常に2番手
+            "syussotosu": [10, 10, 10],
+        })
+        races_hist = pd.DataFrame({
+            "race_id": ["H1", "H2", "H3"],
+            "trackcd": [10, 10, 10],
+            "kyori": [1600, 1600, 1600],
+            "surface": ["turf", "turf", "turf"],
+            "track_condition_code": [1, 1, 1],
+        })
+        df = pd.DataFrame({
+            "kettonum": ["K1"],
+            "race_id": ["R1"],
+            "race_date": pd.to_datetime(["2024-06-01"]),
+            "surface": ["turf"],
+            "distance_bin": ["mile"],
+            "jyocd": ["01"],
+        })
+
+        store = MagicMock()
+
+        def mock_read(table_type, name, **kwargs):
+            if table_type == "raw" and name == "entries":
+                return entries_hist
+            elif table_type == "raw" and name == "races":
+                return races_hist
+            return pd.DataFrame()
+
+        store.read.side_effect = mock_read
+        feat = PaceAptitudeFeatures(store)
+        result = feat.compute_batch(df)
+        assert "pace_corner_stability" in result.columns
+        val = result["pace_corner_stability"].iloc[0]
+        if not np.isnan(val):
+            assert val < 0.01, f"Consistent position should be ~0, got {val}"
+
+    def test_variable_position_positive(self) -> None:
+        """バラついた位置取りで pace_corner_stability > 0"""
+        entries_hist = pd.DataFrame({
+            "kettonum": ["K1", "K1", "K1"],
+            "race_id": ["H1", "H2", "H3"],
+            "race_date": pd.to_datetime(["2024-01-01", "2024-02-01", "2024-03-01"]),
+            "kakuteijyuni": [3, 5, 1],
+            "jyuni1c": [1, 8, 3],  # 1C位置がバラつき
+            "jyuni4c": [2, 6, 1],  # 4C位置もバラつき
+            "syussotosu": [10, 10, 10],
+        })
+        races_hist = pd.DataFrame({
+            "race_id": ["H1", "H2", "H3"],
+            "trackcd": [10, 10, 10],
+            "kyori": [1600, 1600, 1600],
+            "surface": ["turf", "turf", "turf"],
+            "track_condition_code": [1, 1, 1],
+        })
+        df = pd.DataFrame({
+            "kettonum": ["K1"],
+            "race_id": ["R1"],
+            "race_date": pd.to_datetime(["2024-06-01"]),
+            "surface": ["turf"],
+            "distance_bin": ["mile"],
+            "jyocd": ["01"],
+        })
+
+        store = MagicMock()
+
+        def mock_read(table_type, name, **kwargs):
+            if table_type == "raw" and name == "entries":
+                return entries_hist
+            elif table_type == "raw" and name == "races":
+                return races_hist
+            return pd.DataFrame()
+
+        store.read.side_effect = mock_read
+        feat = PaceAptitudeFeatures(store)
+        result = feat.compute_batch(df)
+        val = result["pace_corner_stability"].iloc[0]
+        if not np.isnan(val):
+            assert val > 0, f"Variable position should be > 0, got {val}"
+
+
+class TestPacePositionConsistency:
+    """pace_position_consistency: 正規化着順のばらつき"""
+
+    def test_always_first_near_zero(self) -> None:
+        """常に1着の馬で pace_position_consistency ≈ 0"""
+        entries_hist = pd.DataFrame({
+            "kettonum": ["K1", "K1", "K1"],
+            "race_id": ["H1", "H2", "H3"],
+            "race_date": pd.to_datetime(["2024-01-01", "2024-02-01", "2024-03-01"]),
+            "kakuteijyuni": [1, 1, 1],
+            "jyuni1c": [1, 1, 1],
+            "jyuni4c": [1, 1, 1],
+            "syussotosu": [10, 10, 10],
+        })
+        races_hist = pd.DataFrame({
+            "race_id": ["H1", "H2", "H3"],
+            "trackcd": [10, 10, 10],
+            "kyori": [1600, 1600, 1600],
+            "surface": ["turf", "turf", "turf"],
+            "track_condition_code": [1, 1, 1],
+        })
+        df = pd.DataFrame({
+            "kettonum": ["K1"],
+            "race_id": ["R1"],
+            "race_date": pd.to_datetime(["2024-06-01"]),
+            "surface": ["turf"],
+            "distance_bin": ["mile"],
+            "jyocd": ["01"],
+        })
+
+        store = MagicMock()
+
+        def mock_read(table_type, name, **kwargs):
+            if table_type == "raw" and name == "entries":
+                return entries_hist
+            elif table_type == "raw" and name == "races":
+                return races_hist
+            return pd.DataFrame()
+
+        store.read.side_effect = mock_read
+        feat = PaceAptitudeFeatures(store)
+        result = feat.compute_batch(df)
+        assert "pace_position_consistency" in result.columns
+        val = result["pace_position_consistency"].iloc[0]
+        if not np.isnan(val):
+            assert val < 0.01, f"Always 1st should be ~0, got {val}"
+
+    def test_variable_finish_positive(self) -> None:
+        """着順がバラついた場合に pace_position_consistency > 0"""
+        entries_hist = pd.DataFrame({
+            "kettonum": ["K1", "K1", "K1"],
+            "race_id": ["H1", "H2", "H3"],
+            "race_date": pd.to_datetime(["2024-01-01", "2024-02-01", "2024-03-01"]),
+            "kakuteijyuni": [1, 8, 5],  # バラつき
+            "jyuni1c": [1, 8, 5],
+            "jyuni4c": [1, 8, 5],
+            "syussotosu": [10, 10, 10],
+        })
+        races_hist = pd.DataFrame({
+            "race_id": ["H1", "H2", "H3"],
+            "trackcd": [10, 10, 10],
+            "kyori": [1600, 1600, 1600],
+            "surface": ["turf", "turf", "turf"],
+            "track_condition_code": [1, 1, 1],
+        })
+        df = pd.DataFrame({
+            "kettonum": ["K1"],
+            "race_id": ["R1"],
+            "race_date": pd.to_datetime(["2024-06-01"]),
+            "surface": ["turf"],
+            "distance_bin": ["mile"],
+            "jyocd": ["01"],
+        })
+
+        store = MagicMock()
+
+        def mock_read(table_type, name, **kwargs):
+            if table_type == "raw" and name == "entries":
+                return entries_hist
+            elif table_type == "raw" and name == "races":
+                return races_hist
+            return pd.DataFrame()
+
+        store.read.side_effect = mock_read
+        feat = PaceAptitudeFeatures(store)
+        result = feat.compute_batch(df)
+        val = result["pace_position_consistency"].iloc[0]
+        if not np.isnan(val):
+            assert val > 0, f"Variable finish should be > 0, got {val}"
+
+
+class TestPaceClosingPower:
+    """pace_closing_power: harontimel3相対値"""
+
+    def test_new_columns_in_result(self) -> None:
+        """pace_closing_powerがcompute_batch結果に含まれる"""
+        store = MagicMock()
+        store.read.return_value = pd.DataFrame()
+        feat = PaceAptitudeFeatures(store)
+        df = pd.DataFrame({
+            "kettonum": ["K1"],
+            "race_id": ["R1"],
+            "race_date": pd.to_datetime(["2024-06-01"]),
+            "surface": ["turf"],
+            "distance_bin": ["mile"],
+            "jyocd": ["01"],
+        })
+        result = feat.compute_batch(df)
+        assert "pace_closing_power" in result.columns
+        assert "pace_corner_stability" in result.columns
+        assert "pace_position_consistency" in result.columns

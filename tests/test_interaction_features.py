@@ -110,3 +110,64 @@ def test_pace_projection_features():
     assert result["closer_share"].iloc[0] == 0.5
     assert result["pace_scenario_fit"].iloc[0] < 0  # 逃げ先行はハイペース不利
     assert result["pace_scenario_fit"].iloc[-1] > 0  # 差し追込はハイペース有利
+
+
+# ---------------------------------------------------------------------------
+# PACE-02: actual_pace_fit
+# ---------------------------------------------------------------------------
+
+
+def test_actual_pace_fit_front_runner():
+    """脚質1(逃げ)の馬に actual_pace_fit == front_pace_wr"""
+    df = pd.DataFrame(
+        {
+            "race_id": ["R1"],
+            "kyakusitukubun_cd": [1],  # 逃げ
+            "front_pace_wr": [0.3],
+            "closing_pace_wr": [0.1],
+        }
+    )
+    result = compute_interaction_features(df)
+    assert "actual_pace_fit" in result.columns
+    assert abs(result["actual_pace_fit"].iloc[0] - 0.3) < 1e-6
+
+
+def test_actual_pace_fit_closer():
+    """脚質4(追込)の馬に actual_pace_fit == closing_pace_wr"""
+    df = pd.DataFrame(
+        {
+            "race_id": ["R1"],
+            "kyakusitukubun_cd": [4],  # 追込
+            "front_pace_wr": [0.3],
+            "closing_pace_wr": [0.2],
+        }
+    )
+    result = compute_interaction_features(df)
+    assert abs(result["actual_pace_fit"].iloc[0] - 0.2) < 1e-6
+
+
+def test_actual_pace_fit_nan_when_unknown_style():
+    """脚質NaNの馬に actual_pace_fit が NaN"""
+    df = pd.DataFrame(
+        {
+            "race_id": ["R1"],
+            "kyakusitukubun_cd": [float("nan")],
+            "front_pace_wr": [0.3],
+            "closing_pace_wr": [0.2],
+        }
+    )
+    result = compute_interaction_features(df)
+    assert "actual_pace_fit" in result.columns
+    assert pd.isna(result["actual_pace_fit"].iloc[0])
+
+
+def test_actual_pace_fit_missing_pace_wr():
+    """front_pace_wr/closing_pace_wrがない場合は actual_pace_fit が生成されない"""
+    df = pd.DataFrame(
+        {
+            "race_id": ["R1"],
+            "kyakusitukubun_cd": [1],
+        }
+    )
+    result = compute_interaction_features(df)
+    assert "actual_pace_fit" not in result.columns
