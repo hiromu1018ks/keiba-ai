@@ -4,7 +4,7 @@ milestone: v1.2
 milestone_name: Win Backtest Validation
 status: roadmap_created
 last_updated: "2026-05-04T00:00:00Z"
-last_activity: 2026-05-04 — Roadmap created for v1.2 (Phases 8-10)
+last_activity: 2026-05-04 — Phase 8 context gathered (Win Backtest Core)
 progress:
   total_phases: 3
   completed_phases: 0
@@ -26,8 +26,8 @@ See: .planning/PROJECT.md (updated 2026-05-04)
 
 Phase: 8 of 10 (Win Backtest Core)
 Plan: 0 of 2 in current phase
-Status: Ready to plan
-Last activity: 2026-05-04 — Roadmap created for v1.2 (Phases 8-10, 5 plans)
+Status: Phase 8 context gathered
+Last activity: 2026-05-04 — Phase 8 context gathered (Win Backtest Core)
 
 Progress: [          ] 0%
 
@@ -81,5 +81,5 @@ Items acknowledged and deferred at milestone close on 2026-05-04:
 ## Session Continuity
 
 Last session: 2026-05-04
-Stopped at: Roadmap created for v1.2 milestone (Phases 8-10)
-Resume file: None
+Stopped at: Phase 8 context gathered
+Resume file: .planning/phases/08-win-backtest-core/08-CONTEXT.md
