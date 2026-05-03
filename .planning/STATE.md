@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: ROI Advanced Model
 status: in_progress
-last_updated: "2026-05-03T09:45:35Z"
-last_activity: 2026-05-03 — Phase 6 executed (Odds Deviation EV)
+last_updated: "2026-05-03T10:30:00Z"
+last_activity: 2026-05-03 — Phase 7 context gathered
 progress:
   total_phases: 3
   completed_phases: 2
@@ -20,14 +20,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-05-03)
 
 **Core value:** 単勝モデルのバックテストROIを100%超えにすること
-**Current focus:** Phase 6 — Odds Deviation EV
+**Current focus:** Phase 7 — Ensemble Enhancement
 
 ## Current Position
 
 Phase: 7 of 7 (Ensemble Enhancement)
 Plan: 0 of 1 in current phase
-Status: Phase 6 complete — ready for Phase 7
-Last activity: 2026-05-03 — Phase 6 verified and complete
+Status: Phase 7 context gathered — ready for planning
+Last activity: 2026-05-03 — Phase 7 context gathered
 
 Progress: [========░░] 82%
 
@@ -66,6 +66,7 @@ Recent decisions affecting current work:
 - Phase 4 (v1.0): LightGBM feature_namesはDatasetコンストラクタで設定(lgb.trainには渡せない)
 - Plan 05-02: odds_acceleration 3点差分(vel_late-vel_early)、direction_consistency halflife=n/4+最小5点要件
 - Phase 6 context: deviation_rank+z-score追加、conformal EV区間2段階(80%/90%)、三層テスト戦略
+- Phase 7 context: Optuna個別最適化+探索空間分離、全フェーズearly stopping、Optuna最適化feature_fraction、OOF相関+importance相関の多角多様性検証
 
 ### Pending Todos
 
@@ -88,5 +89,5 @@ Items acknowledged and carried forward from previous milestone close:
 ## Session Continuity
 
 Last session: 2026-05-03
-Stopped at: Phase 6 context gathered. Next is Phase 6 planning.
-Resume file: .planning/phases/06-odds-deviation/06-CONTEXT.md
+Stopped at: Phase 7 context gathered. Next is Phase 7 planning.
+Resume file: .planning/phases/07-ensemble-enhancement/07-CONTEXT.md
