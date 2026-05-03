@@ -98,6 +98,12 @@ class AbilityModel:
         "class_adj_formetric",
         # TSER-03: z-score改善トラジェクトリ
         "haron_zscore_trend",
+        # PACE-01: ペースフィグアサブ特徴量
+        "pace_corner_stability",
+        "pace_closing_power",
+        "pace_position_consistency",
+        # PACE-02: 実績ベースのペース適性
+        "actual_pace_fit",
     ]
 
     def __init__(self) -> None:

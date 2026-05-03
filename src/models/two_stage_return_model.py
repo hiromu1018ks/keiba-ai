@@ -89,6 +89,8 @@ class WinTwoStageModel:
         "class_adj_formetric",
         # TSER-03: z-score改善トラジェクトリ
         "haron_zscore_trend",
+        # PACE-02: 実績ベースのペース適性
+        "actual_pace_fit",
     ]
 
     def __init__(self, cfg: TwoStageConfig | None = None) -> None:

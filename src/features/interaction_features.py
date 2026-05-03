@@ -105,3 +105,14 @@ def _add_pace_projection_features(df: pd.DataFrame) -> None:
     df["pace_pressure"] = front_share.astype(float)
     df["closer_share"] = closer_share.astype(float)
     df["pace_scenario_fit"] = (style_fit * df["pace_pressure"]).astype(float)
+
+    # PACE-02: actual_pace_fit — 実績ベースのペース適性 (D-13, D-14, D-15)
+    # front_runner (脚質1=逃げ, 2=先行) → front_pace_wr
+    # closer (脚質3=差し, 4=追込) → closing_pace_wr
+    if "front_pace_wr" in df.columns and "closing_pace_wr" in df.columns:
+        is_front_runner = style.isin([1, 2])
+        is_closer = style.isin([3, 4])
+        df["actual_pace_fit"] = np.where(
+            is_front_runner, df["front_pace_wr"],
+            np.where(is_closer, df["closing_pace_wr"], np.nan),
+        )

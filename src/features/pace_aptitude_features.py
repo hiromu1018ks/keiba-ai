@@ -73,7 +73,10 @@ class PaceAptitudeFeatures:
         """
         from db.readers import load_history_entries, load_history_races
 
-        result_cols = ["pace_aptitude", "front_pace_wr", "closing_pace_wr"]
+        result_cols = [
+            "pace_aptitude", "front_pace_wr", "closing_pace_wr",
+            "pace_corner_stability", "pace_closing_power", "pace_position_consistency",
+        ]
 
         entries_hist = load_history_entries(self.store)
         races_hist = load_history_races(self.store)
@@ -138,6 +141,7 @@ class PaceAptitudeFeatures:
         # --- 正規化列を事前計算 ---
         hist["norm_finish"] = hist["kakuteijyuni"].astype(float) / hist["syussotosu"].astype(float)
         hist["norm_1c"] = hist["jyuni1c"].astype(float) / hist["syussotosu"].astype(float)
+        hist["norm_4c"] = hist["jyuni4c"].astype(float) / hist["syussotosu"].astype(float)
         hist["is_front"] = hist["norm_1c"] <= 0.33
         hist["is_closing"] = hist["norm_1c"] > 0.66
         hist["is_win"] = hist["kakuteijyuni"] == 1
@@ -154,9 +158,16 @@ class PaceAptitudeFeatures:
         # 各馬の日付・特徴量配列
         h_dates = hist["race_date"].values  # ソート済み
         h_norm_finish = hist["norm_finish"].values
+        h_norm_1c = hist["norm_1c"].values
+        h_norm_4c = hist["norm_4c"].values
         h_is_front = hist["is_front"].values
         h_is_closing = hist["is_closing"].values
         h_is_win = hist["is_win"].values
+
+        # PACE-01: harontimel3 (上がり3ハロン通過タイム) の可用性チェック
+        _has_harontimel3 = "harontimel3" in hist.columns
+        if _has_harontimel3:
+            h_harontimel3 = hist["harontimel3"].astype(float).values
 
         # 累積和（各馬内での累積値）
         cum_front_count = np.zeros(len(hist), dtype=np.int64)
@@ -198,6 +209,9 @@ class PaceAptitudeFeatures:
             "pace_aptitude": np.full(len(targets), np.nan),
             "front_pace_wr": np.full(len(targets), np.nan),
             "closing_pace_wr": np.full(len(targets), np.nan),
+            "pace_corner_stability": np.full(len(targets), np.nan),
+            "pace_closing_power": np.full(len(targets), np.nan),
+            "pace_position_consistency": np.full(len(targets), np.nan),
         }
 
         # 各ターゲット馬について一括処理
@@ -243,6 +257,26 @@ class PaceAptitudeFeatures:
                 results["pace_aptitude"][ti] = pa
                 results["front_pace_wr"][ti] = f_wr
                 results["closing_pace_wr"][ti] = c_wr
+
+                # PACE-01: ペースフィグアサブ特徴量
+                # pace_corner_stability: 1C→4Cの位置変位の標準偏差 (低い=一貫性高い)
+                if c >= 2:
+                    corner_1c = h_norm_1c[base : base + c]
+                    corner_4c = h_norm_4c[base : base + c]
+                    disp = corner_4c - corner_1c
+                    results["pace_corner_stability"][ti] = float(np.std(disp))
+
+                # pace_closing_power: harontimel3の相対値 (低い=速い上がり)
+                if _has_harontimel3 and c >= 2:
+                    ht_past = h_harontimel3[base : base + c]
+                    ht_valid_pace = ht_past[~np.isnan(ht_past)]
+                    if len(ht_valid_pace) >= 2:
+                        results["pace_closing_power"][ti] = float(-np.mean(ht_valid_pace))
+
+                # pace_position_consistency: 正規化着順の標準偏差
+                if c >= 2:
+                    pos_finish = h_norm_finish[base : base + c]
+                    results["pace_position_consistency"][ti] = float(np.std(pos_finish))
 
         out = df[["kettonum", "race_id"]].copy()
         for c in result_cols:

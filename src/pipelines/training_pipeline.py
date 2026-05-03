@@ -305,14 +305,21 @@ class TrainingPipelineV5:
             pace_feat = PaceAptitudeFeatures(store=self.store)
             pace_df = pace_feat.compute_batch(df)
             # df には既に特徴量列が含まれている可能性があるため削除
-            for col in ["pace_aptitude", "front_pace_wr", "closing_pace_wr"]:
+            _pace_drop_cols = [
+                "pace_aptitude", "front_pace_wr", "closing_pace_wr",
+                "pace_corner_stability", "pace_closing_power", "pace_position_consistency",
+            ]
+            for col in _pace_drop_cols:
                 if col in df.columns:
                     df.drop(columns=[col], inplace=True)
             if not pace_df.empty:
+                pace_merge_cols = [c for c in
+                    ["kettonum", "race_id", "pace_aptitude", "front_pace_wr", "closing_pace_wr",
+                     "pace_corner_stability", "pace_closing_power", "pace_position_consistency"]
+                    if c in pace_df.columns
+                ]
                 df = df.merge(
-                    pace_df[
-                        ["kettonum", "race_id", "pace_aptitude", "front_pace_wr", "closing_pace_wr"]
-                    ],
+                    pace_df[pace_merge_cols],
                     on=["kettonum", "race_id"],
                     how="left",
                 )
@@ -321,6 +328,9 @@ class TrainingPipelineV5:
                 df["pace_aptitude"] = np.nan
                 df["front_pace_wr"] = np.nan
                 df["closing_pace_wr"] = np.nan
+                df["pace_corner_stability"] = np.nan
+                df["pace_closing_power"] = np.nan
+                df["pace_position_consistency"] = np.nan
 
         # Group D: コース別適性特徴量 (pace_aptitude の直後)
         from features.course_features import CourseFeatures
