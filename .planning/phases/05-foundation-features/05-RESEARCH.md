@@ -405,17 +405,16 @@ halflife_snaps = ts.groupby(["race_id", "umaban"])["_odds_dir"].transform("count
 
 **If this table is empty:** All claims in this research were verified or cited.
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **harontimel3 の正確な定義**
-   - What we know: entries テーブルに含まれる float 列。ETLで float 型変換される
-   - What's unclear: これが「最終3ハロン通過タイム」なのか「ハロンタイム3（最後から3番目）」なのか。pace_closing_power の設計に影響
-   - Recommendation: harontimel3 を上がりタイムの近似として使用。NaN率を計測し、50%超の場合は pace_closing_power を簡易版（4C位置のみ）にフォールバック
+1. **harontimel3 の正確な定義** — RESOLVED
+   - **結論:** `harontimel3` = 上がり3ハロン通過タイム (最終600m)。JRA-VAN DataLab で `entries` テーブルに float 列として格納。
+   - **根拠:** `src/db/etl.py:97` で float 型変換、`src/features/horse_history_features.py` で `harontimel5_avg`/`harontimel5_zscore` の基礎値として使用。`harontimel4` も存在するがETLでは抽出対象外。
+   - **pace_closing_power への影響:** harontimel3 は上がりタイムそのものであるため、pace_closing_power の計算に直接使用可能。agi 列の代用品としてではなく、正しいデータソース。
 
-2. **odds_direction_consistency のNaN率**
-   - What we know: 最小5点のスナップショットが必要 (D-21)
-   - What's unclear: 実際の jodds_tanpuku データで5点以上のスナップショットがあるレースの割合
-   - Recommendation: 実装後にNaN率を計測。50%超なら最小3点に緩和
+2. **odds_direction_consistency のNaN率** — RESOLVED (DEFERRED TO IMPLEMENTATION)
+   - **結論:** 実データでのNaN率は実装後に計測する。最小5点要求 (D-21) を維持し、NaN率50%超の場合は最小3点に緩和するフォールバックを実装に含める。
+   - **根拠:** jodds_tanpuku Parquet（年/月パーティション）のスナップショット密度は事前推定困難。実装時の計測が最も確実。
 
 ## Environment Availability
 
