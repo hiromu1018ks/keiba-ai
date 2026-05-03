@@ -366,6 +366,15 @@ class PlaceTwoStageModel:
         "win_dominance",
         "freshness_score",
         "odds_to_ability_ratio",
+        # Phase 5: Foundation Features
+        "class_adj_formetric",
+        "haron_zscore_trend",
+        "pace_corner_stability",
+        "pace_closing_power",
+        "pace_position_consistency",
+        "actual_pace_fit",
+        "odds_acceleration",
+        "odds_direction_consistency",
     ]
 
     # 後方互換: FEATURE_COLS は return model のリストを返す (最も情報量が多いため)

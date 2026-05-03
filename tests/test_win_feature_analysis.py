@@ -178,7 +178,7 @@ class TestRemoveNoiseFeatures:
 
     def test_remaining_features_are_subset_of_original(self) -> None:
         """除外後のFEATURE_COLSは元の特徴量の部分集合であること"""
-        # 元の完全リスト (Plan 01の27 + Plan 02の6 = 33)
+        # 元の完全リスト (Plan 01の27 + Plan 02の6 = 33 + Phase 5: 8)
         original_all = [
             "p_ability_win",
             "signed_log_error_win", "abs_log_error_win",
@@ -197,6 +197,15 @@ class TestRemoveNoiseFeatures:
             "distance_change", "surface_change", "class_drop_bounce",
             "win_dominance", "freshness_score",
             "odds_to_ability_ratio",
+            # Phase 5: Foundation Features
+            "class_adj_formetric",
+            "haron_zscore_trend",
+            "pace_corner_stability",
+            "pace_closing_power",
+            "pace_position_consistency",
+            "actual_pace_fit",
+            "odds_acceleration",
+            "odds_direction_consistency",
         ]
         original = list(WinTwoStageModel.FEATURE_COLS)
         # FEATURE_COLSは元の特徴量の部分集合であること

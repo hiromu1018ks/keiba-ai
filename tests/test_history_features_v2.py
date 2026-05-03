@@ -154,10 +154,11 @@ class TestHaronTimeL5Avg:
 
         val = result["harontimel5_avg"].iloc[0]
         assert not np.isnan(val)
-        assert abs(val - 35.0) < 1e-6  # (34+35+36)/3 = 35.0
+        # EMA halflife=3: newest (36) weighted highest, oldest (34) lowest
+        assert abs(val - 35.1731667) < 1e-4
 
     def test_nan_values_excluded(self) -> None:
-        """NaN値は平均から除外される"""
+        """NaN値はEMAから除外される"""
         entries_hist = _build_entries_hist(
             [
                 {"race_id": "p1", "harontimel3": 34.0, "kakuteijyuni": 3, "odds": 5.0},
@@ -195,7 +196,8 @@ class TestHaronTimeL5Avg:
 
         val = result["harontimel5_avg"].iloc[0]
         assert not np.isnan(val)
-        assert abs(val - 35.0) < 1e-6  # (34+36)/2 = 35.0
+        # EMA halflife=3 with 2 valid values [34, 36]
+        assert abs(val - 35.1306136) < 1e-4
 
 
 # ============================================================
