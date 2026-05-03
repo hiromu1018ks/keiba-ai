@@ -95,6 +95,9 @@ class RacePredictor:
             return pd.DataFrame()
         df = submodel.stage1.add_ability_probs(df)
         df = submodel.place_ability.predict(df)
+        # ODDS-01: deviation features (after AbilityModel, before WinTwoStageModel)
+        from features.odds_deviation_features import compute_odds_deviation_features
+        df = compute_odds_deviation_features(df)
         df = submodel.win.predict_ev(df)
 
         # 5. 騎手/調教師コンテキスト マージ
