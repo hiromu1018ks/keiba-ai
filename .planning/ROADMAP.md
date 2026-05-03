@@ -53,7 +53,7 @@ Plans:
 
 </details>
 
-### 🚧 v1.1 ROI Advanced Model (In Progress)
+### ✅ v1.1 ROI Advanced Model - SHIPPED 2026-05-03
 
 **Milestone Goal:** 単勝バックテストROI 100%超えに向けて、アンサンブル・オッズ活用・特徴量改良の3本柱でモデル精度を大幅向上させる
 

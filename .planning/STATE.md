@@ -2,9 +2,9 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: ROI Advanced Model
-status: in_progress
-last_updated: "2026-05-03T12:55:00Z"
-last_activity: 2026-05-03 — Phase 7 Plan 01 completed (ensemble enhancement)
+status: milestone_complete
+last_updated: "2026-05-03T23:30:00Z"
+last_activity: 2026-05-03 — Milestone v1.1 ROI Advanced Model complete
 progress:
   total_phases: 3
   completed_phases: 3
@@ -20,14 +20,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-05-03)
 
 **Core value:** 単勝モデルのバックテストROIを100%超えにすること
-**Current focus:** Phase 7 — Ensemble Enhancement
+**Current focus:** Milestone v1.1 complete — all phases shipped
 
 ## Current Position
 
-Phase: 7 of 7 (Ensemble Enhancement)
+Phase: 7 of 7 (Ensemble Enhancement) — COMPLETE
 Plan: 1 of 1 in current phase (COMPLETE)
-Status: Phase 7 completed — Ensemble enhancement with forced diversity
-Last activity: 2026-05-03 — Phase 7 Plan 01 completed
+Status: Milestone v1.1 ROI Advanced Model complete — all 3 phases shipped
+Last activity: 2026-05-03 — Milestone complete
 
 Progress: [==========] 100%
 
