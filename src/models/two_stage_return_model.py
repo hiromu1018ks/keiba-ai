@@ -392,7 +392,8 @@ class PlaceTwoStageModel:
     ]
 
     # 後方互換: FEATURE_COLS は return model のリストを返す (最も情報量が多いため)
-    FEATURE_COLS: list[str] = RETURN_FEATURE_COLS
+    # list()で独立コピーを作成 -- RETURN_FEATURE_COLSとの共有ミュータブル参照を防ぐ
+    FEATURE_COLS: list[str] = list(RETURN_FEATURE_COLS)
 
     def __init__(self, cfg: TwoStageConfig | None = None) -> None:
         self.cfg = cfg or TwoStageConfig()
