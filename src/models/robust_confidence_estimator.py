@@ -155,6 +155,11 @@ class RobustConfidenceEstimator:
             # Higher alpha -> narrower interval -> smaller quantile
             # scale = sqrt(calibrated_alpha / requested_alpha)
             scale = np.sqrt(self.alpha / primary_alpha)
+            logger.warning(
+                "Scaling CP quantile by sqrt(%.3f/%.3f) -- Gaussian approximation "
+                "may be invalid for non-Gaussian residual distributions",
+                self.alpha, primary_alpha,
+            )
             primary_cp_quantile = (
                 cp_quantile_per_row * scale
                 if isinstance(cp_quantile_per_row, pd.Series)
@@ -181,6 +186,11 @@ class RobustConfidenceEstimator:
                 secondary_cp_quantile = cp_quantile_per_row
             else:
                 scale = np.sqrt(self.alpha / secondary_alpha)
+                logger.warning(
+                    "Scaling CP quantile by sqrt(%.3f/%.3f) -- Gaussian approximation "
+                    "may be invalid for non-Gaussian residual distributions",
+                    self.alpha, secondary_alpha,
+                )
                 secondary_cp_quantile = (
                     cp_quantile_per_row * scale
                     if isinstance(cp_quantile_per_row, pd.Series)
