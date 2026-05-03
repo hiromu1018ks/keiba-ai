@@ -2,7 +2,7 @@
 
 ## What This Is
 
-競馬AI予測システムの単勝モデル改善プロジェクト。既存のLightGBM 2段階モデル(P(hit) × E(odds|hit))をベースに、単勝ベッティングのバックテストROIを100%超えに引き上げる。Python 3.11 + LightGBM + scikit-learn、PostgreSQL(EveryDB2)データソース、Parquetベースのデータパイプライン。
+競馬AI予測システムの単勝モデル改善プロジェクト。既存のLightGBM 2段階モデル(P(hit) × E(odds|hit))をベースに、3モデルスタッキング・オッズ活用・特徴量改良で単勝ベッティングのバックテストROIを100%超えに引き上げる。Python 3.11 + LightGBM + XGBoost + CatBoost、PostgreSQL(EveryDB2)データソース、Parquetベースのデータパイプライン。
 
 ## Core Value
 
@@ -29,7 +29,23 @@
 
 ### Active
 
-- [ ] 単勝モデルのバックテストROI > 100%を達成 (WF検証スクリプト実行待ち)
+- [ ] 3モデルスタッキング (LightGBM + XGBoost + CatBoost) で予測精度向上
+- [ ] オッズ乖離EV活用 (市場オッズとモデル予測の乖離をEV計算に直接活用)
+- [ ] オッズ変動特徴量 (直前オッズの変動パターンを特徴量化)
+- [ ] 時系列特徴量 (過去走のタイム推移・上がり変化)
+- [ ] 展開予測特徴量 (レースペース・展開予測の組み込み)
+- [ ] 単勝モデルのバックテストROI > 100%を達成
+
+## Current Milestone: v1.1 ROI Advanced Model
+
+**Goal:** 単勝バックテストROI 100%超えに向けて、アンサンブル・オッズ活用・特徴量改良の3本柱でモデル精度を大幅向上させる
+
+**Target features:**
+- 3モデルスタッキング (LightGBM + XGBoost + CatBoost)
+- オッズ乖離EV活用 (市場オッズとモデル予測の乖離をEV計算に直接活用)
+- オッズ変動特徴量 (直前オッズの変動パターンを特徴量化)
+- 時系列特徴量 (過去走のタイム推移・上がり変化)
+- 展開予測特徴量 (レースペース・展開予測の組み込み)
 
 ### Out of Scope
 
@@ -38,6 +54,7 @@
 - 実馬券購入機能 — ペーパートレードまで
 - Web UI — CLIベースで十分
 - リアルタイムオッズ収集の改善 — 既存機能をそのまま使用
+- ベッティング戦略の高度化(Kelly基準, RegimeDetector精緻化) — v1.2以降で検討
 
 ## Context
 
@@ -57,11 +74,10 @@
 
 ### 検討すべき改善方向
 
-1. **特徴量分析**: 既存100+列のうち単勝に効く特徴量を特定。不要特徴量の除去も検討
-2. **キャリブレーション**: IsotonicRegressionの精度向上、過剰補正の防止
-3. **アンサンブル**: 既存XGBoost/CatBoost(Level-1)の統合強化
-4. **Benter最適化**: 確率統合の重み最適化
-5. **ベッティング**: Kelly基準による最適賭け金、マーケットレジーム判定の精緻化
+1. **アンサンブル拡張**: LightGBM + XGBoost + CatBoost の3モデルスタッキングで予測精度向上
+2. **オッズ活用**: 市場オッズとモデル予測の乖離をEV計算に直接活用 + オッズ変動パターンの特徴量化
+3. **特徴量改良**: 過去走の時系列特徴量(タイム推移・上がり変化) + 展開予測(ペース・位置取り)
+4. **ベッティング**: Kelly基準による最適賭け金、マーケットレジーム判定の精緻化 (v1.2以降)
 
 ## Constraints
 
@@ -78,7 +94,9 @@
 | 単勝に集中 | 複勝で100%超え困難、単勝は中穴でエッジが出やすい | — Pending |
 | 既存データ活用 | EveryDB2のデータ量(2015-2025)で十分な学習データがある | — Pending |
 | 2段階モデル維持 | P×E分解は理論的に正当、改善は精度面で行う | — Pending |
-| 特徴量分析から開始 | モデル改善の前に、どの特徴量が効いているか把握が必要 | — Pending |
+| 特徴量分析から開始 | モデル改善の前に、どの特徴量が効いているか把握が必要 | ✓ Good (v1.0) |
+| 3モデルスタッキング | 単一モデルより精度向上が期待できる、XGBoost/CatBoostは既存依存関係にあり | — Pending |
+| ベッティング戦略は後回し | モデル精度を先に最大化し、戦略は精度が十分になってから調整 | — Pending |
 
 ## Evolution
 
@@ -98,4 +116,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-02 after initialization*
+*Last updated: 2026-05-03 after v1.1 milestone start*

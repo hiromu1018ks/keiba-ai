@@ -1,3 +1,18 @@
+---
+gsd_state_version: 1.0
+milestone: v1.1
+milestone_name: ROI Advanced Model
+status: planning
+last_updated: "2026-05-03T05:00:00.000Z"
+last_activity: 2026-05-03 — Milestone v1.1 started
+progress:
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
+---
+
 # Project State
 
 ## Project Reference
@@ -5,24 +20,24 @@
 See: .planning/PROJECT.md (updated 2026-05-03)
 
 **Core value:** 単勝モデルのバックテストROIを100%超えにすること
-**Current focus:** v1.0 shipped — planning next milestone
+**Current focus:** v1.1 ROI Advanced Model — defining requirements
 
 ## Current Position
 
-Milestone: v1.0 Win Model (SHIPPED 2026-05-03)
-Status: Milestone complete — awaiting next milestone
-Last activity: 2026-05-03 — v1.0 milestone archived
-
-Progress: [██████████] 100%
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-05-03 — Milestone v1.1 started
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 6
+
+- Total plans completed: 7 (v1.0)
 - Average duration: ~9min
 - Total execution time: ~55min
 
-**By Phase:**
+**By Phase (v1.0):**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
@@ -31,6 +46,7 @@ Progress: [██████████] 100%
 | 4. Walk-Forward Validation | 1 | ~5min | ~5min |
 
 **Recent Trend:**
+
 - Last 6 plans: 01-01 (9m), 01-02 (20m), 03-01 (~20m), 03-02 (5m), 04-01 (5m)
 - Trend: Healthy
 
@@ -65,10 +81,11 @@ Items acknowledged and carried forward from previous milestone close:
 
 | Category | Item | Status | Deferred At |
 |----------|------|--------|-------------|
-| *(none)* | | | |
+| Validation | WF検証スクリプトの実際の実行(PostgreSQL環境必要、~4時間) | Pending | v1.0 close |
+| UAT | Human UAT 2項目(04-HUMAN-UAT.md) | Pending | v1.0 close |
 
 ## Session Continuity
 
 Last session: 2026-05-03
-Stopped at: Phase 4 complete — all plans executed
+Stopped at: N/A
 Resume file: None
