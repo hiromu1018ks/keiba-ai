@@ -3,7 +3,7 @@
 ## Milestones
 
 - ✅ **v1.0 Win Model** - Phases 1-4 (shipped 2026-05-03)
-- 🚧 **v1.1 ROI Advanced Model** - Phases 5-7 (in progress)
+- 🚧 **v1.1 ROI Advanced Model** - Phases 5-7 (complete, pending backtest verification)
 
 ## Phases
 
@@ -59,7 +59,7 @@ Plans:
 
 - [x] **Phase 5: Foundation Features** - 時系列・ペース・オッズ変動の3系統の新特徴量を追加し、モデル入力の情報量を最大化する
 - [x] **Phase 6: Odds Deviation EV** - 市場オッズとモデル予測の乖離をEV計算に直接活用し、ベッティングエッジを定量化する
-- [ ] **Phase 7: Ensemble Enhancement** - 3モデルスタッキングの多様性を強制し、予測精度の向上と過学習防止を両立する
+- [x] **Phase 7: Ensemble Enhancement** - 3モデルスタッキングの多様性を強制し、予測精度の向上と過学習防止を両立する
 
 ## Phase Details
 
@@ -102,7 +102,7 @@ Plans:
 **Plans**: 1 plan
 
 Plans:
-- [ ] 07-01: Ensemble stacking enhancement with forced diversity (ENS-01, ENS-02, ENS-03)
+- [x] 07-01: Ensemble stacking enhancement with forced diversity (ENS-01, ENS-02, ENS-03)
 
 ## Progress
 
@@ -117,4 +117,4 @@ Phases execute in numeric order: 5 → 6 → 7
 | 4. Walk-Forward Validation | v1.0 | 1/1 | Complete | 2026-05-03 |
 | 5. Foundation Features | v1.1 | 2/2 | Complete | 2026-05-03 |
 | 6. Odds Deviation EV | v1.1 | 1/1 | Complete | 2026-05-03 |
-| 7. Ensemble Enhancement | v1.1 | 0/1 | Not started | - |
+| 7. Ensemble Enhancement | v1.1 | 1/1 | Complete | 2026-05-03 |

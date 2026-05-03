@@ -7,9 +7,9 @@
 
 ### Ensemble Stacking (ENS)
 
-- [ ] **ENS-01**: 各ベースモデル(LightGBM/XGBoost/CatBoost)に異なるハイパーパラメータ(lr, depth, rounds)を設定し、モデル間の多様性を確保できる
-- [ ] **ENS-02**: 各ベースモデルにバリデーションベースのearly stoppingを追加し、過学習を防止できる
-- [ ] **ENS-03**: feature_fraction/colsample_bytree/rsm で各モデルに異なる特徴量サブセットを与え、アンサンブル多様性を向上できる
+- [x] **ENS-01**: 各ベースモデル(LightGBM/XGBoost/CatBoost)に異なるハイパーパラメータ(lr, depth, rounds)を設定し、モデル間の多様性を確保できる
+- [x] **ENS-02**: 各ベースモデルにバリデーションベースのearly stoppingを追加し、過学習を防止できる
+- [x] **ENS-03**: feature_fraction/colsample_bytree/rsm で各モデルに異なる特徴量サブセットを与え、アンサンブル多様性を向上できる
 
 ### Odds Deviation EV (ODDS)
 
@@ -65,9 +65,9 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| ENS-01 | Phase 7 | Pending |
-| ENS-02 | Phase 7 | Pending |
-| ENS-03 | Phase 7 | Pending |
+| ENS-01 | Phase 7 | Complete |
+| ENS-02 | Phase 7 | Complete |
+| ENS-03 | Phase 7 | Complete |
 | ODDS-01 | Phase 6 | Pending |
 | ODDS-02 | Phase 6 | Pending |
 | ODDS-03 | Phase 6 | Pending |
