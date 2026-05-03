@@ -206,6 +206,9 @@ class TestRemoveNoiseFeatures:
             "actual_pace_fit",
             "odds_acceleration",
             "odds_direction_consistency",
+            # ODDS-01: Phase 6 deviation features
+            "deviation_rank",
+            "deviation_zscore",
         ]
         original = list(WinTwoStageModel.FEATURE_COLS)
         # FEATURE_COLSは元の特徴量の部分集合であること

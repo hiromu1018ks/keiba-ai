@@ -432,6 +432,10 @@ class TrainingPipelineV5:
             p_ability = df_oof["p_ability_win"].clip(lower=1e-6)
             df_oof["odds_to_ability_ratio"] = (p_market / p_ability).clip(0.1, 10.0)
 
+        # ODDS-01: deviation features (after odds_to_ability_ratio computed)
+        from features.odds_deviation_features import compute_odds_deviation_features
+        df_oof = compute_odds_deviation_features(df_oof)
+
         # NEW: PlaceAbilityModel
         from models.place_ability_model import PlaceAbilityModel
 

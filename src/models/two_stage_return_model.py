@@ -95,6 +95,9 @@ class WinTwoStageModel:
         "haron_zscore_trend",
         # PACE-02: 実績ベースのペース適性
         "actual_pace_fit",
+        # ODDS-01: オッズ乖離レース内相対特徴量
+        "deviation_rank",
+        "deviation_zscore",
     ]
 
     def __init__(self, cfg: TwoStageConfig | None = None) -> None:
@@ -155,6 +158,14 @@ class WinTwoStageModel:
                 p_market = df["p_market_win_adj"].clip(lower=1e-6)
                 p_ability = df["p_ability_win"].clip(lower=1e-6)
                 df["odds_to_ability_ratio"] = (p_market / p_ability).clip(0.1, 10.0)
+
+        # ODDS-01: 推論時にdeviation特徴量が未計算なら計算する
+        if (
+            "deviation_rank" in self.FEATURE_COLS
+            and "deviation_rank" not in df.columns
+        ):
+            from features.odds_deviation_features import compute_odds_deviation_features
+            df = compute_odds_deviation_features(df)
 
         available_cols = [c for c in self.FEATURE_COLS if c in df.columns]
         features = df[available_cols].copy()
@@ -375,6 +386,9 @@ class PlaceTwoStageModel:
         "actual_pace_fit",
         "odds_acceleration",
         "odds_direction_consistency",
+        # ODDS-01: Phase 6 deviation features
+        "deviation_rank",
+        "deviation_zscore",
     ]
 
     # 後方互換: FEATURE_COLS は return model のリストを返す (最も情報量が多いため)

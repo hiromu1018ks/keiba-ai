@@ -88,6 +88,14 @@ class TestRacePredictor:
             result_df.copy(),
             pd.DataFrame({"EV_lower_place": [1.5]}),
         )
+        submodel.confidence.predict_interval.return_value = (
+            result_df.copy(),
+            pd.DataFrame({"EV_lower_place": [1.5]}),
+        )
+        submodel.confidence.predict_interval.return_value = (
+            result_df.copy(),
+            pd.DataFrame({"EV_lower_place": [1.5]}),
+        )
 
         result = predictor.predict(race_df)
 
@@ -264,6 +272,10 @@ class TestRacePredictor:
         submodel.place.predict_ev.return_value = result_df
         submodel.place_ev_corrector.correct_ev.return_value = result_df.copy()
         submodel.confidence.predict_lower_bound.return_value = (
+            result_df.copy(),
+            pd.DataFrame({"EV_lower_place": [1.5]}),
+        )
+        submodel.confidence.predict_interval.return_value = (
             result_df.copy(),
             pd.DataFrame({"EV_lower_place": [1.5]}),
         )
@@ -1013,6 +1025,10 @@ class TestRacePredictor:
             result_df.copy(),
             pd.DataFrame({"EV_lower_place": [1.5]}),
         )
+        submodel.confidence.predict_interval.return_value = (
+            result_df.copy(),
+            pd.DataFrame({"EV_lower_place": [1.5]}),
+        )
 
         result = predictor.predict(race_df)
 
@@ -1063,6 +1079,10 @@ class TestRacePredictor:
             result_df.copy(),
             pd.DataFrame({"EV_lower_place": [1.5]}),
         )
+        submodel.confidence.predict_interval.return_value = (
+            result_df.copy(),
+            pd.DataFrame({"EV_lower_place": [1.5]}),
+        )
 
         result = predictor.predict(race_df)
 
@@ -1110,6 +1130,10 @@ class TestRacePredictor:
         submodel.place.predict_ev.return_value = result_df
         submodel.place_ev_corrector.correct_ev.return_value = result_df.copy()
         submodel.confidence.predict_lower_bound.return_value = (
+            result_df.copy(),
+            pd.DataFrame({"EV_lower_place": [1.5]}),
+        )
+        submodel.confidence.predict_interval.return_value = (
             result_df.copy(),
             pd.DataFrame({"EV_lower_place": [1.5]}),
         )
@@ -1176,6 +1200,10 @@ class TestRacePredictorEVEdge:
             result_df.copy(),
             pd.DataFrame({"EV_lower_place": [1.5, 1.2, 1.0, 0.8]}),
         )
+        submodel.confidence.predict_interval.return_value = (
+            result_df.copy(),
+            pd.DataFrame({"EV_lower_place": [1.5, 1.2, 1.0, 0.8]}),
+        )
 
     def test_predict_computes_ev_edge(self, mock_models: MagicMock) -> None:
         """predict が EV ベースの edge を計算すること (benter=None フォールバック)"""
@@ -1197,3 +1225,113 @@ class TestRacePredictorEVEdge:
         expected_edge = p_pred * odds - 1.0
         np.testing.assert_allclose(result["edge_place"].values, expected_edge, rtol=1e-6)
         np.testing.assert_allclose(result["p_place_combined"].values, p_pred, rtol=1e-6)
+
+
+class TestRacePredictorConfidenceIntegration:
+    """ODDS-03: predict_interval pipeline integration tests"""
+
+    def test_predict_produces_conformal_confidence_score(
+        self, mock_models: MagicMock
+    ) -> None:
+        """RacePredictor.predict() produces conformal_confidence_score when
+        confidence estimator supports predict_interval."""
+        from backtest.race_predictor import RacePredictor
+
+        predictor = RacePredictor(models=mock_models)
+
+        race_df = pd.DataFrame(
+            {
+                "race_id": ["R1"],
+                "umaban": [1],
+                "surface": ["turf"],
+                "kyori": [1200],
+                "distance_bin": ["sprint"],
+                "popularity_rank": [3],
+                "ninki": [3],
+                "fukuoddslow": [1.5],
+                "kakuteijyuni": [2],
+                "kettonum": [1234],
+                "odds": [5.0],
+                "bataijyu": [480],
+                "field_size": [10],
+                "track_condition_code": [2],
+                "grade_code": ["C"],
+            }
+        )
+
+        result_df = race_df.copy()
+        result_df["p_place_pred"] = [0.70]
+
+        submodel = mock_models.submodels["turf"]
+        submodel.market.predict_and_calc_error.return_value = race_df.copy()
+        submodel.stage1.add_ability_probs.return_value = race_df.copy()
+        submodel.place_ability.predict.return_value = race_df.copy()
+        submodel.win.predict_ev.return_value = race_df.copy()
+        submodel.ev_corrector.correct_ev.return_value = race_df.copy()
+        submodel.place.predict_ev.return_value = result_df
+        submodel.place_ev_corrector.correct_ev.return_value = result_df.copy()
+
+        # Mock predict_interval to return EV interval columns
+        win_interval = result_df.copy()
+        win_interval["EV_lower_win_corrected"] = [1.2]
+        win_interval["EV_upper_win_corrected"] = [1.8]
+        win_interval["conformal_confidence_score"] = [0.5]
+        place_interval = pd.DataFrame({"EV_lower_place": [1.1], "EV_upper_place": [1.5]})
+        submodel.confidence.predict_interval.return_value = (win_interval, place_interval)
+
+        result = predictor.predict(race_df)
+
+        assert "conformal_confidence_score" in result.columns
+        assert result["conformal_confidence_score"].iloc[0] == pytest.approx(0.5)
+
+    def test_predict_uses_predict_interval_not_lower_bound(
+        self, mock_models: MagicMock
+    ) -> None:
+        """RacePredictor.predict() calls predict_interval (not predict_lower_bound)."""
+        from backtest.race_predictor import RacePredictor
+
+        predictor = RacePredictor(models=mock_models)
+
+        race_df = pd.DataFrame(
+            {
+                "race_id": ["R1"],
+                "umaban": [1],
+                "surface": ["turf"],
+                "kyori": [1200],
+                "distance_bin": ["sprint"],
+                "popularity_rank": [3],
+                "ninki": [3],
+                "fukuoddslow": [1.5],
+                "kakuteijyuni": [2],
+                "kettonum": [1234],
+                "odds": [5.0],
+                "bataijyu": [480],
+                "field_size": [10],
+                "track_condition_code": [2],
+                "grade_code": ["C"],
+            }
+        )
+
+        result_df = race_df.copy()
+        result_df["p_place_pred"] = [0.70]
+
+        submodel = mock_models.submodels["turf"]
+        submodel.market.predict_and_calc_error.return_value = race_df.copy()
+        submodel.stage1.add_ability_probs.return_value = race_df.copy()
+        submodel.place_ability.predict.return_value = race_df.copy()
+        submodel.win.predict_ev.return_value = race_df.copy()
+        submodel.ev_corrector.correct_ev.return_value = race_df.copy()
+        submodel.place.predict_ev.return_value = result_df
+        submodel.place_ev_corrector.correct_ev.return_value = result_df.copy()
+
+        win_interval = result_df.copy()
+        win_interval["EV_lower_win_corrected"] = [1.2]
+        win_interval["EV_upper_win_corrected"] = [1.8]
+        win_interval["conformal_confidence_score"] = [0.5]
+        place_interval = pd.DataFrame({"EV_lower_place": [1.1], "EV_upper_place": [1.5]})
+        submodel.confidence.predict_interval.return_value = (win_interval, place_interval)
+
+        predictor.predict(race_df)
+
+        submodel.confidence.predict_interval.assert_called_once()
+        submodel.confidence.predict_lower_bound.assert_not_called()

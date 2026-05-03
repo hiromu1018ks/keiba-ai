@@ -95,6 +95,9 @@ class RacePredictor:
             return pd.DataFrame()
         df = submodel.stage1.add_ability_probs(df)
         df = submodel.place_ability.predict(df)
+        # ODDS-01: deviation features (after AbilityModel, before WinTwoStageModel)
+        from features.odds_deviation_features import compute_odds_deviation_features
+        df = compute_odds_deviation_features(df)
         df = submodel.win.predict_ev(df)
 
         # 5. 騎手/調教師コンテキスト マージ
@@ -143,8 +146,8 @@ class RacePredictor:
         # place_ev_corrector: 補正EVと下限EVの両方をベット選択に使う
         df = submodel.place_ev_corrector.correct_ev(df)
 
-        # 7. 信頼区間
-        win_df, place_df = submodel.confidence.predict_lower_bound(df, df)
+        # 7. 信頼区間 (ODDS-03: predict_interval for EV上下区間 + conformal_confidence_score)
+        win_df, place_df = submodel.confidence.predict_interval(df, df)
         df = win_df
         if "EV_lower_place" in place_df.columns:
             df["EV_lower_place"] = place_df["EV_lower_place"].values
