@@ -2,17 +2,16 @@
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-05-02)
+See: .planning/PROJECT.md (updated 2026-05-03)
 
 **Core value:** 単勝モデルのバックテストROIを100%超えにすること
-**Current focus:** Phase 4: Walk-Forward Validation
+**Current focus:** v1.0 shipped — planning next milestone
 
 ## Current Position
 
-Phase: 4 of 4 (Walk-Forward Validation)
-Plan: 1 of 1 in current phase (COMPLETE)
-Status: Phase 4 complete
-Last activity: 2026-05-03 — Plan 04-01 executed (WFValidationResult + run_wf_validation.py)
+Milestone: v1.0 Win Model (SHIPPED 2026-05-03)
+Status: Milestone complete — awaiting next milestone
+Last activity: 2026-05-03 — v1.0 milestone archived
 
 Progress: [██████████] 100%
 
