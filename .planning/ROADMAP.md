@@ -58,7 +58,7 @@ Plans:
 **Milestone Goal:** 単勝バックテストROI 100%超えに向けて、アンサンブル・オッズ活用・特徴量改良の3本柱でモデル精度を大幅向上させる
 
 - [x] **Phase 5: Foundation Features** - 時系列・ペース・オッズ変動の3系統の新特徴量を追加し、モデル入力の情報量を最大化する
-- [ ] **Phase 6: Odds Deviation EV** - 市場オッズとモデル予測の乖離をEV計算に直接活用し、ベッティングエッジを定量化する
+- [x] **Phase 6: Odds Deviation EV** - 市場オッズとモデル予測の乖離をEV計算に直接活用し、ベッティングエッジを定量化する
 - [ ] **Phase 7: Ensemble Enhancement** - 3モデルスタッキングの多様性を強制し、予測精度の向上と過学習防止を両立する
 
 ## Phase Details
