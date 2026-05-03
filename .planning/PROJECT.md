@@ -35,7 +35,11 @@ MLflow で実験管理。PostgreSQL (EveryDB2/JRA-VAN DataLab) をデータソ�
 
 ### Active
 
-(None — next milestone to be defined)
+- [ ] run_wf_validation.pyを単勝検証に修正
+- [ ] run_backtest.pyを単勝検証に修正
+- [ ] バックテスト結果分析の単勝化
+- [ ] 学習・バックテストパイプラインの高速化(無駄な処理の除去、ベクトル化等)
+- [ ] 実際のバックテスト実行によるROI検証(ROI>100%)
 
 ### Out of Scope
 
@@ -50,9 +54,16 @@ MLflow で実験管理。PostgreSQL (EveryDB2/JRA-VAN DataLab) をデータソ�
 | 複雑メタラーナー(GBM/NN) | 特徴量3個ではRidgeが最適 |
 | sklearn StackingClassifier | ネイティブブースティングAPIとPIT安全フォールドに非対応 |
 
-## Current Milestone: TBD (Next milestone to be planned)
+## Current Milestone: v1.2 Win Backtest Validation
 
-**Goal:** TBA
+**Goal:** バックテスト・WF検証を単勝ベースに修正し、実際に実行してROI>100%を確認する
+
+**Target features:**
+- run_wf_validation.pyを単勝検証に修正
+- run_backtest.pyを単勝検証に修正
+- バックテスト結果分析の単勝化
+- 学習・バックテストパイプラインの高速化(無駄な処理の除去、ベクトル化等)
+- 実際のバックテスト実行によるROI検証
 
 ## Context
 
@@ -118,4 +129,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-04 after v1.1 milestone completion*
+*Last updated: 2026-05-04 after starting v1.2 milestone*

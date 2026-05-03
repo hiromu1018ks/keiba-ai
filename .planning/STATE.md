@@ -1,10 +1,10 @@
 ---
 gsd_state_version: 1.0
 milestone: v1.2
-milestone_name: TBD
-status: between_milestones
+milestone_name: Win Backtest Validation
+status: planning
 last_updated: "2026-05-04T00:00:00Z"
-last_activity: 2026-05-04 — Milestone v1.1 archived, awaiting next milestone
+last_activity: 2026-05-04 — Milestone v1.2 started
 progress:
   total_phases: 0
   completed_phases: 0
@@ -20,15 +20,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-05-04)
 
 **Core value:** 単勝モデルのバックテストROIを100%超えにすること
-**Current focus:** Milestone v1.1 archived — planning next milestone
+**Current focus:** Milestone v1.2 Win Backtest Validation
 
 ## Current Position
 
-Phase: Between milestones
-Status: v1.1 ROI Advanced Model archived 2026-05-04
-Last activity: 2026-05-04 — Milestone archival complete
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-05-04 — Milestone v1.2 started
 
-Progress: [          ] 0% (next milestone not started)
+Progress: [          ] 0%
 
 ## Performance Metrics
 
