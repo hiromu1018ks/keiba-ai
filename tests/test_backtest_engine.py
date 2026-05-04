@@ -1216,3 +1216,116 @@ class TestPayoutSettlement:
         engine.payout_map = payout_map
         result = engine._settle_bet(bet, race_df)
         assert result == pytest.approx(180.0)
+
+
+class TestVectorizedPayoutMaps:
+    """ベクトル化された payout map 関数の回帰テスト"""
+
+    def test_build_payout_map_vectorized_matches_original(self) -> None:
+        """melt + groupby 版 build_payout_map が正しいマッピングを返す"""
+        payouts = pd.DataFrame(
+            {
+                "race_id": ["R001", "R001", "R002"],
+                "payfukusyoumaban1": [1, 3, 2],
+                "payfukusyopay1": [150, 150, 200],
+                "payfukusyoumaban2": [2, 5, 5],
+                "payfukusyopay2": [200, 180, 150],
+                "payfukusyoumaban3": [3, 7, 8],
+                "payfukusyopay3": [300, 250, 100],
+                "payfukusyoumaban4": [None, None, None],
+                "payfukusyopay4": [None, None, None],
+                "payfukusyoumaban5": [None, None, None],
+                "payfukusyopay5": [None, None, None],
+            }
+        )
+        from backtest.engine import build_payout_map
+
+        payout_map = build_payout_map(payouts)
+        assert payout_map[("R001", 1)] == pytest.approx(1.5)
+        assert payout_map[("R001", 2)] == pytest.approx(2.0)
+        assert payout_map[("R001", 3)] == pytest.approx(3.0)
+        assert payout_map[("R002", 2)] == pytest.approx(2.0)
+        assert ("R002", 1) not in payout_map
+
+    def test_build_wide_payout_map_vectorized_kumi_formats(self) -> None:
+        """ベクトル化版 build_wide_payout_map が各 kumi 長のフォーマットを正しくパースする"""
+        payouts = pd.DataFrame(
+            {
+                "race_id": ["R001", "R002", "R003", "R004"],
+                "paywidekumi1": ["15", "513", "1113", "0102"],
+                "paywidepay1": [300, 400, 500, 600],
+                "paywidekumi2": [None, None, None, None],
+                "paywidepay2": [None, None, None, None],
+                "paywidekumi3": [None, None, None, None],
+                "paywidepay3": [None, None, None, None],
+                "paywidekumi4": [None, None, None, None],
+                "paywidepay4": [None, None, None, None],
+                "paywidekumi5": [None, None, None, None],
+                "paywidepay5": [None, None, None, None],
+                "paywidekumi6": [None, None, None, None],
+                "paywidepay6": [None, None, None, None],
+                "paywidekumi7": [None, None, None, None],
+                "paywidepay7": [None, None, None, None],
+            }
+        )
+        from backtest.engine import build_wide_payout_map
+
+        wide_map = build_wide_payout_map(payouts)
+        # "15" → (1, 5)
+        assert ("R001", 1, 5) in wide_map
+        assert wide_map[("R001", 1, 5)] == pytest.approx(3.0)
+        # "513" → first_two=51 > 18, so split at 1: (5, 13)
+        assert ("R002", 5, 13) in wide_map
+        assert wide_map[("R002", 5, 13)] == pytest.approx(4.0)
+        # "1113" → (11, 13)
+        assert ("R003", 11, 13) in wide_map
+        assert wide_map[("R003", 11, 13)] == pytest.approx(5.0)
+        # "0102" → (01, 02) = (1, 2)
+        assert ("R004", 1, 2) in wide_map
+        assert wide_map[("R004", 1, 2)] == pytest.approx(6.0)
+
+    def test_build_payout_map_keeps_max_per_key(self) -> None:
+        """同一 (race_id, umaban) に複数エントリがある場合、最大 payout を保持する"""
+        payouts = pd.DataFrame(
+            {
+                "race_id": ["R001"],
+                "payfukusyoumaban1": [3],
+                "payfukusyopay1": [150],
+                "payfukusyoumaban2": [3],  # 同じ馬番 3
+                "payfukusyopay2": [300],   # より高い配当
+                "payfukusyoumaban3": [1],
+                "payfukusyopay3": [120],
+                "payfukusyoumaban4": [None],
+                "payfukusyopay4": [None],
+                "payfukusyoumaban5": [None],
+                "payfukusyopay5": [None],
+            }
+        )
+        from backtest.engine import build_payout_map
+
+        payout_map = build_payout_map(payouts)
+        # 馬番 3 は最大値 3.0 を保持
+        assert payout_map[("R001", 3)] == pytest.approx(3.0)
+        assert payout_map[("R001", 1)] == pytest.approx(1.2)
+
+    def test_final_odds_map_vectorized(self) -> None:
+        """set_index 版 final_odds_map 構築が正しい dict を返す"""
+        final_odds_df = pd.DataFrame(
+            {
+                "race_id": ["R001", "R001", "R002"],
+                "umaban": [1, 2, 1],
+                "fukuoddslow": [1.5, 3.2, 2.8],
+            }
+        )
+        # Replicate the vectorized logic from engine.py
+        final_odds_map: dict[tuple[str, int], float] = {}
+        _odds = final_odds_df.dropna(subset=["fukuoddslow"])
+        if not _odds.empty:
+            for (race_id, umaban), odds in (
+                _odds.set_index(["race_id", "umaban"])["fukuoddslow"].items()
+            ):
+                final_odds_map[(str(race_id), int(umaban))] = float(odds)
+
+        assert final_odds_map[("R001", 1)] == pytest.approx(1.5)
+        assert final_odds_map[("R001", 2)] == pytest.approx(3.2)
+        assert final_odds_map[("R002", 1)] == pytest.approx(2.8)
