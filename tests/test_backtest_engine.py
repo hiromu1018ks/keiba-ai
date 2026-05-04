@@ -1088,6 +1088,145 @@ class TestJRAFilterBacktest:
         assert result.total_bets >= 1, "JRA race (jyocd=05) should be included in backtest"
 
 
+class TestBuildWinPayoutMap:
+    """build_win_payout_map のテスト"""
+
+    def test_basic_win_payout_map(self) -> None:
+        """単勝払戻データから正しい win_payout_map を構築する"""
+        payouts = pd.DataFrame(
+            {
+                "race_id": ["202401010101", "202401010202"],
+                "paytansyoumaban1": [5, 3],
+                "paytansyopay1": [240.0, 350.0],
+            }
+        )
+        from backtest.engine import build_win_payout_map
+
+        win_map = build_win_payout_map(payouts)
+        assert win_map[("202401010101", 5)] == pytest.approx(2.4)
+        assert win_map[("202401010202", 3)] == pytest.approx(3.5)
+
+    def test_empty_payouts_returns_empty(self) -> None:
+        """空の DataFrame は空の map を返す"""
+        payouts = pd.DataFrame()
+        from backtest.engine import build_win_payout_map
+
+        win_map = build_win_payout_map(payouts)
+        assert len(win_map) == 0
+
+    def test_nan_umaban_skipped(self) -> None:
+        """paytansyoumaban1 が NaN の行はスキップする"""
+        payouts = pd.DataFrame(
+            {
+                "race_id": ["202401010101", "202401010202"],
+                "paytansyoumaban1": [5, None],
+                "paytansyopay1": [240.0, 350.0],
+            }
+        )
+        from backtest.engine import build_win_payout_map
+
+        win_map = build_win_payout_map(payouts)
+        assert len(win_map) == 1
+        assert ("202401010101", 5) in win_map
+
+
+class TestBettingTarget:
+    """BacktestEngine betting_target パラメータのテスト"""
+
+    def test_default_betting_target_is_win(self, mock_models: MagicMock) -> None:
+        """デフォルトの betting_target は 'win'"""
+        from backtest.engine import BacktestEngine
+
+        engine = BacktestEngine(models=mock_models)
+        assert engine.betting_target == "win"
+
+    def test_betting_target_place(self, mock_models: MagicMock) -> None:
+        """betting_target='place' で初期化できる"""
+        from backtest.engine import BacktestEngine
+
+        engine = BacktestEngine(models=mock_models, betting_target="place")
+        assert engine.betting_target == "place"
+
+    def test_betting_target_invalid_raises(self, mock_models: MagicMock) -> None:
+        """不正な betting_target は ValueError"""
+        from backtest.engine import BacktestEngine
+
+        with pytest.raises(ValueError, match="betting_target must be"):
+            BacktestEngine(models=mock_models, betting_target="invalid")
+
+
+class TestWinSettleBet:
+    """_settle_bet() の WIN branch テスト"""
+
+    def test_win_payout_map_hit(self) -> None:
+        """WIN bet + win_payout_map hit → stake * multiplier (not place payout)"""
+        from backtest.engine import BacktestEngine
+        from domain.models import Bet
+        from domain.types import BetType
+
+        bet = Bet(
+            race_id="R001",
+            umaban=5,
+            bet_type=BetType.WIN,
+            odds=3.0,
+            ev_lower_corrected=0.0,
+            stake=100,
+            final_odds=3.0,
+        )
+        race_df = pd.DataFrame({"umaban": [5], "kakuteijyuni": [1]})
+        engine = BacktestEngine.__new__(BacktestEngine)
+        engine.payout_map = {("R001", 5): 1.5}  # place payout (should NOT be used)
+        engine.win_payout_map = {("R001", 5): 2.4}  # win payout
+        result = engine._settle_bet(bet, race_df)
+        assert result == pytest.approx(240.0)  # 100 * 2.4, NOT 100 * 1.5
+
+    def test_win_payout_map_miss_fallback(self, caplog: pytest.LogCaptureFixture) -> None:
+        """WIN bet + win_payout_map miss → WARNING + finish_pos==1 fallback"""
+        from backtest.engine import BacktestEngine
+        from domain.models import Bet
+        from domain.types import BetType
+
+        bet = Bet(
+            race_id="R999",
+            umaban=1,
+            bet_type=BetType.WIN,
+            odds=5.0,
+            ev_lower_corrected=0.0,
+            stake=100,
+            final_odds=5.0,
+        )
+        race_df = pd.DataFrame({"umaban": [1], "kakuteijyuni": [1]})
+        engine = BacktestEngine.__new__(BacktestEngine)
+        engine.payout_map = {}
+        engine.win_payout_map = {}  # no payout data
+        with caplog.at_level(logging.WARNING, logger="backtest.engine"):
+            result = engine._settle_bet(bet, race_df)
+        assert result == pytest.approx(500.0)  # 100 * 5.0 (finish_pos==1)
+        assert any("Win payout missing" in rec.message for rec in caplog.records)
+
+    def test_place_still_uses_payout_map(self) -> None:
+        """PLACE bet は引き続き payout_map を使用する (変更なし)"""
+        from backtest.engine import BacktestEngine
+        from domain.models import Bet
+        from domain.types import BetType
+
+        bet = Bet(
+            race_id="R001",
+            umaban=3,
+            bet_type=BetType.PLACE,
+            odds=2.5,
+            ev_lower_corrected=0.0,
+            stake=100,
+            final_odds=2.5,
+        )
+        race_df = pd.DataFrame({"umaban": [3], "kakuteijyuni": [2]})
+        engine = BacktestEngine.__new__(BacktestEngine)
+        engine.payout_map = {("R001", 3): 3.0}
+        engine.win_payout_map = {("R001", 3): 10.0}  # win payout (should NOT be used)
+        result = engine._settle_bet(bet, race_df)
+        assert result == pytest.approx(300.0)  # 100 * 3.0 (place payout_map)
+
+
 class TestBuildPayoutMap:
     """build_payout_map のテスト"""
 

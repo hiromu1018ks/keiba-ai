@@ -125,6 +125,31 @@ def build_payout_map(
     return payout_map
 
 
+def build_win_payout_map(
+    payouts_df: pd.DataFrame,
+) -> dict[tuple[str, int], float]:
+    """payouts DataFrame から (race_id, umaban) → odds_multiplier のマップを構築 (単勝用)。
+
+    paytansyopay1 は「100円あたりの円」なので、100で割って倍率に変換する。
+    単勝は1着のみ払戻しがあるため、ループは1回のみ。
+    """
+    win_payout_map: dict[tuple[str, int], float] = {}
+    if payouts_df.empty:
+        return win_payout_map
+    for _, row in payouts_df.iterrows():
+        race_id = str(row.get("race_id", ""))
+        umaban = row.get("paytansyoumaban1")
+        pay = row.get("paytansyopay1")
+        if pd.notna(umaban) and pd.notna(pay):
+            try:
+                key = (race_id, int(umaban))
+                val = float(pay) / 100.0
+                win_payout_map[key] = val
+            except (ValueError, TypeError):
+                continue
+    return win_payout_map
+
+
 def build_wide_payout_map(
     payouts_df: pd.DataFrame,
 ) -> dict[tuple[str, int, int], float]:
@@ -186,14 +211,18 @@ class BacktestEngine:
         store: ParquetStore | None = None,
         betting_mode: str = "flat",
         diag_prefix: str = "bt",
+        betting_target: str = "win",
     ) -> None:
         if betting_mode not in ("flat", "kelly"):
             raise ValueError(f"betting_mode must be 'flat' or 'kelly', got '{betting_mode}'")
+        if betting_target not in ("win", "place", "wide"):
+            raise ValueError(f"betting_target must be 'win', 'place', or 'wide', got '{betting_target}'")
         self.models = models
         self.initial_bankroll = initial_bankroll
         self.store = store or ParquetStore()
         self.betting_mode = betting_mode
         self.diag_prefix = diag_prefix
+        self.betting_target = betting_target
 
         if betting_mode == "kelly":
             from betting.drawdown_controller import DrawdownController
@@ -289,10 +318,22 @@ class BacktestEngine:
         self.wide_payout_map = build_wide_payout_map(payouts_df)
         logger.info("Loaded wide payout map: %d entries", len(self.wide_payout_map))
 
+        # 単勝払戻マップを構築（精算用）
+        self.win_payout_map = build_win_payout_map(payouts_df)
+        logger.info("Loaded win payout map: %d entries", len(self.win_payout_map))
+
         feat_df = feat_engine.build_all(
             race_df, entry_df, pre_post_odds, odds_ts_df=odds_ts_df, store=self.store
         )
         feat_df = submodel_mgr.add_distance_band_features(feat_df)
+
+        # 単勝確定オッズマップを構築（精算用。tanodds列を使用）
+        final_win_odds_map: dict[tuple[str, int], float] = {}
+        if not feat_df.empty and "tanodds" in feat_df.columns:
+            for _, r in feat_df.iterrows():
+                key = (str(r["race_id"]), int(r["umaban"]))
+                if pd.notna(r.get("tanodds")):
+                    final_win_odds_map[key] = float(r["tanodds"])
 
         # ワイドオッズを pivot して特徴量にマージ（WideJointPairBuilder 用）
         wide_odds_df = load_wide_odds(self.store, start, end)
@@ -501,10 +542,20 @@ class BacktestEngine:
                 regime = self.models.regime_detector.current_regime
             regime_params = self.models.regime_detector.get_strategy_params(regime)
             edge_threshold = regime_params.get("edge_threshold", 0.03)
-            candidate_df = self._race_predictor.get_place_candidates(
-                result_df,
-                regime_params=regime_params,
-            )
+            if self.betting_target == "win":
+                get_win = getattr(self._race_predictor, "get_win_candidates", None)
+                if callable(get_win):
+                    candidate_df = get_win(result_df)
+                else:
+                    candidate_df = self._race_predictor.get_place_candidates(
+                        result_df,
+                        regime_params=regime_params,
+                    )
+            else:
+                candidate_df = self._race_predictor.get_place_candidates(
+                    result_df,
+                    regime_params=regime_params,
+                )
             n_candidates = len(candidate_df)
             candidate_reason_df = candidate_df[
                 ["race_id", "umaban", "place_selection_reason"]
@@ -603,6 +654,9 @@ class BacktestEngine:
             for bet in bets:
                 if bet.bet_type == BetType.WIDE:
                     updated_bets.append(bet)
+                elif bet.bet_type == BetType.WIN:
+                    fo = final_win_odds_map.get((bet.race_id, bet.umaban), bet.odds)
+                    updated_bets.append(replace(bet, final_odds=fo))
                 else:
                     fo = final_odds_map.get((bet.race_id, bet.umaban), bet.odds)
                     updated_bets.append(replace(bet, final_odds=fo))
@@ -928,7 +982,26 @@ class BacktestEngine:
                     return float(bet.stake * settle_odds)
             return 0.0
 
-        # 複勝/単勝: payout_map（確定配当）から精算
+        # 単勝: win_payout_map（確定配当）から精算
+        if bet.bet_type == BetType.WIN:
+            win_key = (bet.race_id, bet.umaban)
+            if hasattr(self, "win_payout_map") and win_key in self.win_payout_map:
+                return float(bet.stake * self.win_payout_map[win_key])
+            # D-04: フォールバック — 着順ベース
+            logger.warning(
+                "Win payout missing for %s umaban=%d, using odds fallback",
+                bet.race_id, bet.umaban,
+            )
+            horse = race_df[race_df["umaban"] == bet.umaban]
+            if horse.empty:
+                return 0.0
+            finish_pos = int(horse.iloc[0]["kakuteijyuni"])
+            if finish_pos == 1:
+                settle_odds = bet.final_odds if bet.final_odds > 0 else bet.odds
+                return float(bet.stake * settle_odds)
+            return 0.0
+
+        # 複勝: payout_map（確定配当）から精算
         payout_key = (bet.race_id, bet.umaban)
         if hasattr(self, "payout_map") and payout_key in self.payout_map:
             return float(bet.stake * self.payout_map[payout_key])
@@ -942,9 +1015,6 @@ class BacktestEngine:
 
         if bet.bet_type == BetType.PLACE:
             if 1 <= finish_pos <= 3:
-                return float(bet.stake * settle_odds)
-        elif bet.bet_type == BetType.WIN:
-            if finish_pos == 1:
                 return float(bet.stake * settle_odds)
 
         return 0.0
