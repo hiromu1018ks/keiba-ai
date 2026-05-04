@@ -270,6 +270,29 @@ def build_wide_payout_map(
     return wide_payout_map
 
 
+def build_race_groups(
+    df: pd.DataFrame,
+    group_col: str = "race_id",
+    name: str = "",
+) -> dict[str, pd.DataFrame]:
+    """DataFrame を group_col でグループ化し dict に変換。
+
+    pandas>=2.0 の groupby は view を返すため、実質的なメモリ増加は元の1.1〜1.2倍程度。
+    """
+    if df.empty:
+        logger.warning("[%s] empty DataFrame, returning empty dict", name)
+        return {}
+    groups: dict[str, pd.DataFrame] = {}
+    for key, group in df.groupby(group_col):
+        groups[str(key)] = group
+    empty_count = sum(1 for g in groups.values() if g.empty)
+    if empty_count > 0:
+        logger.warning("[%s] %d empty groups in %d total", name, empty_count, len(groups))
+    mem_mb = df.memory_usage(deep=True).sum() / 1024 / 1024
+    logger.info("[%s] %d groups, %d rows, %.1f MB", name, len(groups), len(df), mem_mb)
+    return groups
+
+
 class BacktestEngine:
     """バックテストエンジン
 
@@ -509,6 +532,13 @@ class BacktestEngine:
             )
 
         # 5. レースごとにシミュレーション (推論は RacePredictor に委譲)
+        # Groupby dict preprocessing — O(1) race lookups per D-07
+        feat_groups = build_race_groups(feat_df, name="features")
+        hist_groups = build_race_groups(hist_df_all, name="history")
+        jockey_groups = build_race_groups(jockey_df_all, name="jockey")
+        trainer_groups = build_race_groups(trainer_df_all, name="trainer")
+        jt_groups = build_race_groups(jt_df_all, name="jockey_trainer")
+
         diag_logger = DiagnosticLogger()
         bankroll = self.initial_bankroll
         peak_bankroll = bankroll
@@ -522,9 +552,11 @@ class BacktestEngine:
         recent_stats_list: list[dict[str, float]] = []
 
         for race_id in race_ids:
-            race_df_single = feat_df[feat_df["race_id"] == race_id].copy()
-            if race_df_single.empty:
+            race_id = str(race_id)
+            race_df_single = feat_groups.get(race_id)
+            if race_df_single is None:
                 continue
+            race_df_single = race_df_single.copy()
 
             # --- レースメタデータ抽出 (bet_history拡張用) ---
             race_row = race_df_single.iloc[0]
@@ -566,11 +598,11 @@ class BacktestEngine:
                     }
                 )
 
-            # 事前計算済み特徴量をマージ
-            hist_df_race = hist_df_all[hist_df_all["race_id"] == race_id]
-            jockey_df_race = jockey_df_all[jockey_df_all["race_id"] == race_id]
-            trainer_df_race = trainer_df_all[trainer_df_all["race_id"] == race_id]
-            jt_df_race = jt_df_all[jt_df_all["race_id"] == race_id]
+            # 事前計算済み特徴量をマージ (groupby dict O(1) lookup)
+            hist_df_race = hist_groups.get(race_id)
+            jockey_df_race = jockey_groups.get(race_id)
+            trainer_df_race = trainer_groups.get(race_id)
+            jt_df_race = jt_groups.get(race_id)
 
             # M3 fix: POST_RACE 列を predict() に渡さない
             predict_df = race_df_single.drop(
