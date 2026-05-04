@@ -32,14 +32,18 @@ MLflow で実験管理。PostgreSQL (EveryDB2/JRA-VAN DataLab) をデータソ�
 - ✓ オッズ変動特徴量(acceleration + direction_consistency) — v1.1
 - ✓ オッズ乖離EV特徴量(deviation_rank/zscore) + Conformal EV区間 — v1.1
 - ✓ 3モデルスタッキング多様性強制(Optuna + early stopping + feature subset) — v1.1
+- ✓ 単勝バックテスト決済・候補選択・ベット生成の修正 — v1.2
+- ✓ 単勝ベット履歴・ROI診断・オッズバンド分析レポート — v1.2
+- ✓ バックテストパイプライン高速化(ベクトル化・groupby辞書・特徴量キャッシュ) — v1.2
 
 ### Active
 
-- [ ] run_wf_validation.pyを単勝検証に修正
-- [ ] run_backtest.pyを単勝検証に修正
-- [ ] バックテスト結果分析の単勝化
-- [ ] 学習・バックテストパイプラインの高速化(無駄な処理の除去、ベクトル化等)
-- [ ] 実際のバックテスト実行によるROI検証(ROI>100%)
+- [ ] Conformal信頼区間フィルター(alpha=0.1下限で低信頼ベット除外)
+- [ ] オッズバンド別ROI分析に基づく赤字バンド除外
+- [ ] RegimeDetector状態に応じたベット有無切替
+- [ ] Kelly基準による最適賭け金計算(f*=p-(1-p)/(odds-1))
+- [ ] EV比例サイジング(EVの大きさに比例して賭け金調整)
+- [ ] 動的DD制御(バンクロール変動に応じたリスク調整)
 
 ### Out of Scope
 
@@ -54,24 +58,25 @@ MLflow で実験管理。PostgreSQL (EveryDB2/JRA-VAN DataLab) をデータソ�
 | 複雑メタラーナー(GBM/NN) | 特徴量3個ではRidgeが最適 |
 | sklearn StackingClassifier | ネイティブブースティングAPIとPIT安全フォールドに非対応 |
 
-## Current Milestone: v1.2 Win Backtest Validation
+## Current Milestone: v1.3 Betting Strategy Optimization
 
-**Goal:** バックテスト・WF検証を単勝ベースに修正し、実際に実行してROI>100%を確認する
+**Goal:** バックテストROI 91.6% → 100%超えを達成するため、ベット選択の厳格化とステークサイジング最適化のベストプラクティスを実装する
 
 **Target features:**
-- run_wf_validation.pyを単勝検証に修正
-- run_backtest.pyを単勝検証に修正
-- バックテスト結果分析の単勝化
-- 学習・バックテストパイプラインの高速化(無駄な処理の除去、ベクトル化等)
-- 実際のバックテスト実行によるROI検証
+- Conformal信頼区間フィルター(alpha=0.1下限で低信頼ベット除外)
+- オッズバンド別ROI分析に基づく赤字バンド除外
+- RegimeDetector状態に応じたベット有無切替
+- Kelly基準による最適賭け金計算(f*=p-(1-p)/(odds-1))
+- EV比例サイジング(EVの大きさに比例して賭け金調整)
+- 動的DD制御(バンクロール変動に応じたリスク調整)
 
 ## Context
 
 ### 現状の課題
 
-- v1.1で3本柱(特徴量9追加・オッズ乖離EV・3モデルスタッキング)を実装完了
-- バックテストROI検証が未実施(PostgreSQL環境必要)
-- 学習時間がOptunaチューニングにより推定2-3倍に増加
+- バックテストROI 91.6%確認済み (9,074ベット) → 100%超えに8.4pt不足
+- v1.2でパイプライン高速化完了、ベット選択・サイジングが未最適化
+- Conformal信頼性スコア・WinSelectionGate・RegimeDetectorは実装済みだが閾値が未調整
 
 ### 技術背景
 
@@ -80,13 +85,13 @@ MLflow で実験管理。PostgreSQL (EveryDB2/JRA-VAN DataLab) をデータソ�
 - Parquetベースのデータパイプライン(PostgreSQLはETL専用)
 - RegimeDetector: 3状態(aggressive/conservative/collapsed)
 - WinStrategy: Conformal信頼性スコア付きベッティング
+- バックテストパイプライン: ベクトル化済み、groupby辞書O(1)ルックアップ
 
 ### 検討すべき改善方向
 
-1. **バックテストROI検証**: 実際のバックテストでROI>100%を確認 — 最優先
-2. **ベッティング戦略精緻化**: Kelly基準・RegimeDetector精緻化 — v1.2候補
-3. **Stage1 Rankerスタッキング**: 3Ranker→メタRanker構成 — 複雑度高
-4. **Late money特徴量**: オッズスナップショット粒度検証が必要
+1. **ベット選択厳格化**: Conformal信頼区間・オッズバンド・Regime別にフィルター — 最優先
+2. **ステークサイジング最適化**: Kelly基準・EV比例・動的DD制御 — 第2優先
+3. **閾値チューニング**: バックテストでのグリッドサーチによる最適閾値発見
 
 ## Constraints
 
@@ -129,4 +134,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-04 after starting v1.2 milestone*
+*Last updated: 2026-05-04 after starting v1.3 milestone*
