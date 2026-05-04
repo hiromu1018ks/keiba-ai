@@ -1,597 +1,445 @@
-# Architecture Patterns: Win Backtest Fix and Pipeline Optimization
+# Architecture: Betting Strategy Optimization Integration
 
-**Domain:** Backtest engine conversion from place-mode to win-mode + pipeline performance optimization
+**Project:** keiba-ai v1.3 -- Betting Strategy Optimization
 **Researched:** 2026-05-04
-**Parent system:** keiba-ai v5.5 (LightGBM + 2-stage decomposition P(hit) x E(odds|hit))
+**Scope:** How Kelly criterion sizing, EV-proportional sizing, dynamic drawdown control, and multi-criteria bet filtering integrate with the existing Strategy/Orchestrator/StakeCalculator/DDController architecture.
 
-## Executive Summary
+## Current Architecture Map
 
-The backtest system is architecturally hardwired for place (fukusho) betting across three layers: (1) the payout data pipeline only extracts fukusho payouts from EveryDB2, missing win (tansho) payouts entirely; (2) the BacktestEngine and RacePredictor orchestrate candidate selection exclusively through `get_place_candidates()` and `place_selection_ev`/`place_selection_edge` columns; (3) diagnostic logging records only place-specific EV metrics. Converting to win-mode requires changes at all three layers, but the changes are surgical -- the inference chain already computes win EV columns (`ev_win`, `ev_win_corrected`, `win_selection_ev`, `win_selection_edge`, `win_selection_prob`), and the WinSelectionGateModel is already trained and stored in SubmodelSet. The missing pieces are: win payout ETL, a `get_win_candidates()` method on RacePredictor parallel to the existing `get_place_candidates()`, and win-specific settlement logic.
-
-For pipeline optimization, the primary bottleneck is redundant feature computation. HorseHistoryFeatures, JockeyContextFeatures, TrainerContextFeatures, JockeyTrainerComboFeatures, PaceAptitudeFeatures, CourseFeatures, and SireFeatures are each instantiated and computed twice -- once during TrainingPipelineV5._train_submodel() and again inside BacktestEngine.run(). The backtest also recomputes features race-by-race in the main loop, when it already pre-computes them in bulk above the loop. The optimization strategy is: (1) extract the pre-computation block into a reusable FeatureComputer class, (2) add Parquet-based caching for expensive feature modules, (3) vectorize the per-race merge operations.
-
-## Recommended Architecture
-
-### Current State: Place-Mode Hardcoding Map
+The betting layer has a well-defined protocol-based architecture with clear dependency injection boundaries. The following diagram shows the current data flow during backtest (the primary integration point):
 
 ```
-PLACE-MODE HARDCODING (what needs to change)
-=============================================
-
-Layer 1: ETL / Payout Data
-  everydb2_queries.get_payouts()
-    SQL: SELECT payfukusyoumaban1..5, payfukusyopay1..5
-    MISSING: paytansyoumaban1, paytansyopay1  (win payout columns exist in EveryDB2 but not extracted)
-
-  etl._TABLE_TYPE_RULES["payouts"]["int"]
-    Has: paytansyoumaban1 + payfukusyoumaban1..5
-    Has: paytansyopay1 + payfukusyopay1..5
-    BUT: get_payouts() SQL does not SELECT paytanshou columns
-
-  engine.build_payout_map()
-    Reads payfukusyoumaban/payfukusyopay only
-    Returns dict[(race_id, umaban) -> float]  (place payout multiplier)
-
-Layer 2: BacktestEngine.run() -- Candidate Selection
-  Line 504: candidate_df = self._race_predictor.get_place_candidates(...)
-  Line 886: ev_col = "ev_place_corrected" / "ev_place"
-  Line 544: diagnostic logs ev_place, p_place_pred, e_return_place_pred, etc.
-  Line 609: odds_val = float(row["fukuoddslow"])
-  Line 633: bet_type=BetType.PLACE
-  Line 281: final_odds_map uses fukuoddslow
-
-Layer 3: RacePredictor.select_bets()
-  Line 552: candidates = self.get_place_candidates(...)
-  Line 609: odds_val = float(row["fukuoddslow"])
-  Line 633: Bet(bet_type=BetType.PLACE, ...)
-  No get_win_candidates() method exists
-
-Layer 4: Settlement
-  engine._settle_bet() line 943: BetType.PLACE checks finish_pos 1-3
-  engine._settle_bet() line 946: BetType.WIN checks finish_pos == 1
-  BUT: payout_map only contains place payouts (Layer 1 gap)
-  AND: final_odds_map uses fukuoddslow, not tanoddslow
+DataRepository
+    |
+    v
+FeatureEngine.build_all()          (14 modules, 100+ features)
+    |
+    v
+BacktestEngine.run()               <-- MAIN LOOP (per-race)
+    |
+    +---> RacePredictor.predict()   (inference: stage1 -> market -> win -> EV correction -> benter -> gate)
+    |         |
+    |         +---> RegimeDetector.detect()  (3-state: aggressive/conservative/collapsed)
+    |
+    +---> RacePredictor.get_win_candidates()   OR   get_place_candidates()
+    |         |
+    |         +---> WinSelectionGateModel.score() / PlaceSelectionGateModel.score()
+    |         +---> Candidate filtering + pruning (regime-dependent)
+    |
+    +---> RacePredictor.select_bets()
+    |         |
+    |         +---> StakeCalculator.calc_stake(edge, odds, bankroll, bet_type)
+    |         |         |
+    |         |         +---> Kelly fraction = edge / (odds - 1)
+    |         |         +---> x FRACTIONAL_KELLY (0.5)
+    |         |         +---> cap at KELLY_FRACTION_CAP (0.25)
+    |         |
+    |         +---> DrawdownController.adjust_stake(base_stake, bankroll)
+    |                   |
+    |                   +---> Multiplier from DD table (DD% x ROI)
+    |                   +---> Recovery state machine (NORMAL/REDUCED/RECOVERING)
+    |                   +---> N-bet rate limiter
+    |
+    +---> _settle_bet()              (final odds from payout map)
+    +---> DDController.update()      (feedback: bankroll + bet_return)
 ```
 
-### Target Architecture: Dual-Mode Backtest
+### Existing Component Inventory
 
+| Component | File | Role | Protocol |
+|-----------|------|------|----------|
+| `BettingOrchestrator` | `betting/orchestrator.py` | 12-step race flow (NOT used in backtest) | Main entry |
+| `RacePredictor` | `backtest/race_predictor.py` | Per-race inference + bet selection | Core in backtest |
+| `StakeCalculator` | `betting/stake_calculator.py` | Kelly stake + race exposure cap | `StakeCalculatorProtocol` |
+| `DrawdownController` | `betting/drawdown_controller.py` | DD multiplier + recovery FSM | `DrawdownControllerProtocol` |
+| `GateKeeper` | `betting/gate_keeper.py` | Edge-based final filter | `GateKeeperProtocol` |
+| `MetaSwitcher` | `betting/meta_switcher.py` | Regime -> strategy params mapping | `MetaSwitcherProtocol` |
+| `WinStrategy` | `betting/win_strategy.py` | Win candidate generation (unused in backtest path) | `BetStrategyProtocol` |
+| `RegimeDetector` | `models/regime_detector.py` | 3-state market regime classifier | Used directly |
+| `WinSelectionGateModel` | `models/win_selection_gate.py` | OOF-learned score + threshold gate | Used via RacePredictor |
+| `RobustConfidenceEstimator` | `models/robust_confidence_estimator.py` | Conformal prediction intervals | Used via RacePredictor |
+
+### Critical Architecture Observation
+
+The `BettingOrchestrator` is **not used in the backtest path**. The backtest flow goes directly through `BacktestEngine` -> `RacePredictor`. The `BettingOrchestrator` is designed for the live/paper-trading path (12-step flow with t-3min cancellation). This means:
+
+- **Modifications for v1.3 must target `RacePredictor.select_bets()`** for backtest impact.
+- `BettingOrchestrator.process_race()` can be updated later for live path parity.
+- `WinStrategy` is also **not used in the backtest path** -- win candidates go through `RacePredictor.get_win_candidates()` directly.
+
+---
+
+## Target Features (v1.3) and Integration Points
+
+### Feature 1: Conformal Confidence Filter
+
+**What:** Exclude bets where `conformal_confidence_score` at alpha=0.1 lower bound is below a threshold.
+
+**Integration point:** `RacePredictor.get_win_candidates()` and `RacePredictor.get_place_candidates()`.
+
+**Current state:** `conformal_confidence_score` is already computed by `RobustConfidenceEstimator.predict_interval()` during `RacePredictor.predict()`. It is used as a tertiary sort key in `get_win_candidates()`. But it is **never used as a filter**.
+
+**Approach:** Modify the candidate filter in `get_win_candidates()` and `get_place_candidates()` to add a conformal confidence floor.
+
+**Component to modify:** `RacePredictor` (add filter condition) + `MetaSwitcher._default_params()` (add `min_conformal_confidence` parameter per regime).
+
+**No new components needed.**
+
+### Feature 2: Odds Band ROI Filter
+
+**What:** Exclude bets in odds bands with historically negative ROI.
+
+**Integration point:** Same candidate filtering in `RacePredictor.get_win_candidates()` / `RacePredictor.get_place_candidates()`.
+
+**Current state:** `WinSelectionGateModel` already builds odds-bucket score tables (quantile-binned) with smoothed ROI estimates per (prob_bin, edge_bin, odds_bin) combination. The gate model's `score()` method returns a composite score, and `min_prob`, `min_edge`, `max_odds` thresholds are OOF-optimized. However, the **explicit "exclude this odds band entirely" logic** is not present -- it is implicit in the gate threshold.
+
+**Approach:** Two options:
+- (A) Add an explicit `odds_band_exclusion_ranges` parameter to `RacePredictor` that hard-excludes specific odds ranges. Simple, transparent, backtestable.
+- (B) Rely on `WinSelectionGateModel` threshold optimization to achieve the same effect implicitly.
+
+**Recommendation:** Option A is safer and more auditable. The gate model's threshold is a global cutoff, but we may want to exclude specific mid-range bands (e.g., odds 5-7 with negative ROI) while keeping higher odds that have positive ROI. This is not achievable with a single `max_odds` threshold.
+
+**New component needed:** `OddsBandFilter` -- a lightweight filter that takes learned exclusion ranges and applies them during candidate selection.
+
+### Feature 3: Regime-Dependent Bet Toggle
+
+**What:** In COLLAPSED regime, skip all bets (not just raise thresholds).
+
+**Integration point:** `BacktestEngine.run()` per-race loop, after `RegimeDetector.detect()`.
+
+**Current state:** COLLAPSED regime already sets very high thresholds (`ev_threshold=1.55`, `edge_threshold=0.10`, `max_bets_per_race=1`). This effectively stops most betting, but not all -- a horse with edge >= 0.10 and EV >= 1.55 could still get through.
+
+**Approach:** Add a `betting_enabled` boolean to `MetaSwitcher._default_params()` per regime. When `False`, skip the entire candidate selection and return empty bets.
+
+**Component to modify:** `MetaSwitcher._default_params()` (add `betting_enabled` field), `BacktestEngine.run()` (check `betting_enabled` before calling `get_win_candidates`).
+
+**No new components needed.**
+
+### Feature 4: Kelly Criterion Sizing (Enhanced)
+
+**What:** The standard Kelly formula `f* = p - (1-p)/(odds-1)` with proper probability input.
+
+**Integration point:** `StakeCalculator.calc_stake()` and `RacePredictor.select_bets()`.
+
+**Current state:** `StakeCalculator` already implements a value-betting Kelly variant: `kelly_fraction = edge / (odds - 1)`, with `FRACTIONAL_KELLY = 0.5` (half-Kelly) and `KELLY_FRACTION_CAP = 0.25`. The edge is `p_model * odds - 1`, so `edge / (odds - 1) = (p*odds - 1)/(odds - 1)` which IS mathematically equivalent to the standard Kelly formula.
+
+**The Kelly criterion is already implemented correctly.** The formula `f* = p - (1-p)/(odds-1)` simplifies to `(p*odds - 1)/(odds - 1)` which is exactly what `edge / (odds - 1)` computes.
+
+**What might need tuning:**
+- The `FRACTIONAL_KELLY = 0.5` and `KELLY_FRACTION_CAP = 0.25` are conservative. These could be regime-dependent.
+- The `RACE_EXPOSURE_CAP = 0.02` (2% per race) is very tight. For win bets with high edge, this may be too conservative.
+
+**Component to modify:** `StakeCalculator` (make fractional Kelly and exposure cap configurable per regime). `MetaSwitcher._default_params()` (add `fractional_kelly`, `race_exposure_cap` per regime).
+
+**No new components needed.** This is parameter tuning, not architectural change.
+
+### Feature 5: EV-Proportional Sizing
+
+**What:** Scale stake proportionally to expected value (higher EV = larger stake).
+
+**Integration point:** Between `StakeCalculator.calc_stake()` (base Kelly stake) and `DrawdownController.adjust_stake()` (DD adjustment).
+
+**Current state:** The current pipeline is:
 ```
-PROPOSED ARCHITECTURE
-=====================
-
-BacktestEngine
-  +-- betting_target: BetType = BetType.WIN  (constructor param, default=WIN)
-  |
-  +-- run(test_start, test_end)
-  |     1. Load data (unchanged)
-  |     2. Build features (unchanged)
-  |     3. Pre-compute context features (unchanged)
-  |     4. For each race:
-  |         a. predict() -> result_df (unchanged -- already computes win + place EV)
-  |         b. get_candidates() -> delegates to get_win_candidates() or get_place_candidates()
-  |         c. select_bets() -> uses tanoddslow (win) or fukuoddslow (place)
-  |         d. settle_bet() -> uses win_payout_map or place_payout_map
-  |         e. log diagnostics -> win-specific or place-specific columns
-  |
-  +-- build_win_payout_map(payouts_df)  (NEW)
-  +-- build_place_payout_map(payouts_df)  (renamed from build_payout_map)
-
-RacePredictor
-  +-- get_win_candidates(race_df, regime_params)  (NEW -- mirrors get_place_candidates)
-  +-- select_bets()  (MODIFIED -- dispatches based on self.betting_target)
-  +-- get_candidates()  (NEW -- thin dispatcher)
-```
-
-## Component Boundaries
-
-### Components to MODIFY (existing)
-
-| Component | File | What Changes | Why |
-|-----------|------|-------------|-----|
-| BacktestEngine | `src/backtest/engine.py` | Add `betting_target` param, add `build_win_payout_map()`, modify `run()` loop to dispatch on target, modify `final_odds_map` to use `tanoddslow` for win mode | Core change: engine must support win settlement and win candidate selection |
-| RacePredictor | `src/backtest/race_predictor.py` | Add `get_win_candidates()` method, modify `select_bets()` to support win mode | The inference chain already computes win EV columns; only the candidate selection + bet generation layer is missing |
-| DiagnosticLogger | `src/backtest/diagnostic_logger.py` | Add win-specific HorseDiagnostic fields (p_win_pred, ev_win, win_selection_ev, etc.) | Win-mode diagnostics must log win model outputs, not place outputs |
-| EveryDB2Queries | `src/db/everydb2_queries.py` | Add `paytansyoumaban1, paytansyopay1` to `get_payouts()` SQL SELECT | Win payout data exists in EveryDB2 but is not extracted |
-| ParquetStore ETL | `src/db/etl.py` | Verify `paytansyoumaban1`/`paytansyopay1` are in type rules (already there), ensure schema migration | Data pipeline must persist win payouts to Parquet |
-| Backtest Schema | `src/db/schema.py` | Schema already has `tan_umaban` + `tan_pay` in payouts table; no schema change needed | Already accounted for |
-| run_backtest.py | `scripts/run_backtest.py` | Add `--betting-target win\|place` CLI argument | User-facing entry point must expose target selection |
-| run_wf_validation.py | `scripts/run_wf_validation.py` | Default to win-mode target | WF validation currently runs place-mode implicitly |
-
-### Components to CREATE (new)
-
-| Component | File | Responsibility | Inserted At |
-|-----------|------|---------------|-------------|
-| `build_win_payout_map()` | `src/backtest/engine.py` (add to module) | Parse paytansyoumaban1/paytansyopay1 into (race_id, umaban) -> odds_multiplier dict | Called in `BacktestEngine.run()` after loading payouts |
-| `get_win_candidates()` | `src/backtest/race_predictor.py` (add method) | Select win-bet candidates using win_selection_ev, win_selection_edge, win_selection_prob, WinSelectionGateModel | Called from `BacktestEngine.run()` race loop |
-| FeatureComputer (optional) | `src/features/feature_computer.py` | Extract shared feature pre-computation logic from BacktestEngine + TrainingPipelineV5 | Used by both callers to avoid duplication |
-
-### Components UNCHANGED
-
-| Component | Why Unchanged |
-|-----------|--------------|
-| FeatureEngine | `build_all()` already generates all features for both win and place models |
-| TrainingPipelineV5 | Already trains WinTwoStageModel, WinSelectionGateModel, WinBenterGate |
-| WinTwoStageModel | Already produces `ev_win`, `ev_win_corrected` columns during predict |
-| WinSelectionGateModel | Already trained, stored, and invoked in predict chain |
-| EVCorrectionModel | Win EV correction already works; `ev_corrector.correct_ev(df)` at line 117 of race_predictor.py operates on win columns |
-| WinBenterGate | Already applied during predict() at line 120-128 of race_predictor.py |
-| SubmodelSet | Already holds `win_selection_gate`, `win_benter`, `win_isotonic_calibrator`, `win_temperature_scaler` |
-| BetType enum | Already has `WIN = "win"` value |
-| Domain types | Bet dataclass already supports `BetType.WIN`; `_settle_bet()` already handles `finish_pos == 1` check for win |
-| RegimeDetector | Regime detection uses pre-race features only; no bet-type dependency |
-| RaceQualityScreener | Quality screening uses market-level features; no bet-type dependency |
-| ParquetStore | Data storage layer is format-agnostic |
-| Parquet ETL type rules | Already include `paytansyoumaban1` (int) and `paytansyopay1` (float) in `_TABLE_TYPE_RULES["payouts"]` |
-
-## Data Flow Changes
-
-### Current Flow (Place-mode only)
-
-```
-EveryDB2 (s_harai/n_harai)
-  -> get_payouts() SQL: payfukusyoumaban1-5, payfukusyopay1-5  [MISSING win payout]
-  -> ETL to Parquet: data/raw/payouts.parquet
-  -> BacktestEngine.run():
-       build_payout_map() -> place payout dict
-       final_odds_map: (race_id, umaban) -> fukuoddslow
-       RacePredictor.get_place_candidates() -> place edge/ev threshold filtering
-       RacePredictor.select_bets() -> BetType.PLACE with fukuoddslow odds
-       _settle_bet() -> check place payout map, fallback to finish_pos <= 3
-```
-
-### Target Flow (Dual-mode)
-
-```
-EveryDB2 (s_harai/n_harai)
-  -> get_payouts() SQL: payfukusyoumaban1-5, payfukusyopay1-5,
-                        paytansyoumaban1, paytansyopay1           [ADDED win payout]
-  -> ETL to Parquet: data/raw/payouts.parquet (now includes tan columns)
-  -> BacktestEngine.run(betting_target=WIN):
-       build_win_payout_map()  -> win payout dict (NEW)
-       build_place_payout_map() -> place payout dict (renamed)
-       final_odds_map: (race_id, umaban) -> tanoddslow            [CHANGED for win]
-       RacePredictor.get_win_candidates() -> win edge/ev threshold filtering (NEW)
-       RacePredictor.select_bets() -> BetType.WIN with tanoddslow odds (MODIFIED)
-       _settle_bet() -> check win payout map, fallback to finish_pos == 1
-```
-
-### Win Candidate Selection Flow (NEW)
-
-```
-result_df (from RacePredictor.predict())
-  already contains: win_selection_ev, win_selection_edge, win_selection_prob,
-                    win_gate_score, win_gate_pass, tanoddslow, ev_win, ev_win_corrected,
-                    EV_lower_win_corrected, conformal_confidence_score
-
-get_win_candidates():
-  1. Ensure win_selection_columns via ensure_win_selection_columns()
-  2. Get regime_params (edge_threshold, min_win_prob, max_win_odds)
-  3. If WinSelectionGateModel.is_trained:
-       a. score(df) -> win_gate_score, win_gate_pass
-       b. annotate_race_context(df) -> aggressive_strength, aggressive_tier
-       c. Hard gate: win_gate_pass AND edge >= 0 AND prob >= min AND odds <= max
-       d. Soft gate: near-threshold candidates (buffer zones)
-       e. Runner-up: add_second/rescue candidates from aggressive regime
-  4. Else (no gate model):
-       Simple threshold: win_selection_edge >= edge_threshold AND prob >= min AND odds <= max
-  5. Sort by win_gate_score (or edge) descending
-  6. Return candidates DataFrame
-
-select_bets() [win path]:
-  1. Get candidates from get_win_candidates()
-  2. For each candidate:
-       odds_val = tanoddslow (NOT fukuoddslow)
-       edge_val = win_selection_edge
-       ev_val = win_selection_ev
-       Bet(bet_type=BetType.WIN, odds=tanoddslow, ...)
-  3. Return bet list
+base_stake = StakeCalculator.calc_stake(edge, odds, bankroll, bet_type)
+final_stake = DDController.adjust_stake(base_stake, bankroll)
 ```
 
-## Patterns to Follow
+Kelly sizing already scales with edge (higher edge -> larger Kelly fraction). But EV-proportional is a separate concept: it scales the FINAL stake by a factor proportional to `(ev - 1.0) / max_ev_range`. This allows differentiation among bets that all pass the Kelly threshold -- a bet with EV=1.8 gets a larger EV-multiplier than one with EV=1.2.
 
-### Pattern 1: Parallel Method Pattern (get_win_candidates mirrors get_place_candidates)
-
-**What:** The `get_win_candidates()` method should be structurally identical to `get_place_candidates()`, operating on win-specific columns instead of place-specific columns.
-**When:** Implementing win candidate selection.
-
-The WinSelectionGateModel already has `score()`, `annotate_race_context()`, `soft_pass_mask()`, and `runner_up_candidate_reason()` methods that are the exact analogues of PlaceSelectionGateModel's methods. The mapping is:
-
+**Approach:** Add an EV-scaling step between Kelly and DD:
 ```
-Place column              -> Win column
-place_selection_ev        -> win_selection_ev
-place_selection_edge      -> win_selection_edge
-place_selection_prob      -> win_selection_prob
-place_gate_score          -> win_gate_score
-place_gate_pass           -> win_gate_pass
-fukuoddslow               -> tanoddslow
-edge_place                -> edge_win
+kelly_stake = StakeCalculator.calc_stake(edge, odds, bankroll, bet_type)
+ev_scaled_stake = EVScaler.scale(kelly_stake, ev, min_ev, max_ev)
+final_stake = DDController.adjust_stake(ev_scaled_stake, bankroll)
 ```
 
-### Pattern 2: Betting Target Dispatch Pattern
+**New component needed:** `EVScaler` -- simple proportional scaler that maps EV to [ev_scale_min, ev_scale_max] range. This could be a method on `StakeCalculator` rather than a new class, but extracting it keeps responsibilities clean.
 
-**What:** BacktestEngine and RacePredictor accept a `betting_target` parameter and dispatch to target-specific methods.
-**When:** Any code path that differs between win and place.
+**Recommendation:** Add as a method on `StakeCalculator` (`apply_ev_scaling`) rather than a separate class. It is a simple linear mapping, not complex enough for its own class.
+
+### Feature 6: Dynamic Drawdown Control (Enhanced)
+
+**What:** More responsive DD control with bankroll-varying risk.
+
+**Integration point:** `DrawdownController.adjust_stake()`.
+
+**Current state:** `DrawdownController` already implements:
+- DD% x ROI multiplier table (8 entries)
+- 3-state recovery FSM (NORMAL -> REDUCED -> RECOVERING -> NORMAL)
+- EWMA + SMA hybrid rolling ROI
+- N-bet rate limiter (max 0.15 change per 20 bets)
+- Hysteresis transitions
+
+This is already sophisticated. What the v1.3 feature requests is making it **dynamic** -- responding to bankroll changes more smoothly and adapting risk parameters.
+
+**Specific enhancements:**
+1. Regime-dependent DD thresholds (aggressive regime tolerates deeper DD)
+2. Bankroll-proportional base unit (as bankroll grows, base unit scales)
+3. Sharpe-adjusted multiplier (factor in risk-adjusted return, not just raw ROI)
+
+**Component to modify:** `DrawdownController` (add regime-aware multiplier table selection, bankroll-proportional base unit).
+
+**No new components needed.** This is enhancement of an existing component.
+
+---
+
+## Recommended New Components
+
+Only one truly new component is needed:
+
+### OddsBandFilter
 
 ```python
-class BacktestEngine:
-    def __init__(self, models, betting_target: BetType = BetType.WIN, ...):
-        self.betting_target = betting_target
+# betting/odds_band_filter.py
 
-    def run(self, test_start, test_end):
-        # ...
-        if self.betting_target == BetType.WIN:
-            self.payout_map = self.build_win_payout_map(payouts_df)
-            odds_col = "tanoddslow"
-        else:
-            self.payout_map = self.build_place_payout_map(payouts_df)
-            odds_col = "fukuoddslow"
-        # ...
+class OddsBandFilter:
+    """Exclude specific odds bands with historically negative ROI."""
 
-class RacePredictor:
-    def get_candidates(self, race_df, *, regime_params=None, target=BetType.WIN):
-        if target == BetType.WIN:
-            return self.get_win_candidates(race_df, regime_params=regime_params)
-        else:
-            return self.get_place_candidates(race_df, regime_params=regime_params)
+    def __init__(self, exclusion_ranges: list[tuple[float, float]] | None = None) -> None:
+        self.exclusion_ranges = exclusion_ranges or []
 
-    def select_bets(self, race_df, bankroll, *, candidates=None, target=BetType.WIN):
-        if candidates is None:
-            candidates = self.get_candidates(race_df, target=target)
-        # ... use target-appropriate odds column
+    def filter_candidates(
+        self,
+        candidates: pd.DataFrame,
+        odds_col: str = "tanodds",
+    ) -> pd.DataFrame:
+        """Remove candidates whose odds fall within exclusion ranges."""
+        if not self.exclusion_ranges or candidates.empty:
+            return candidates
+
+        odds = pd.to_numeric(candidates[odds_col], errors="coerce")
+        mask = pd.Series(True, index=candidates.index, dtype=bool)
+        for low, high in self.exclusion_ranges:
+            mask &= ~(odds.between(low, high))
+        return candidates.loc[mask].copy()
+
+    @classmethod
+    def from_backtest_analysis(
+        cls,
+        bet_history: list[dict],
+        n_bins: int = 10,
+        min_samples: int = 50,
+        roi_threshold: float = 0.95,
+    ) -> OddsBandFilter:
+        """Learn exclusion ranges from backtest bet history."""
+        # Bin by odds, compute per-band ROI, exclude bands below threshold
+        ...
 ```
 
-### Pattern 3: Payout Map Builder Pattern
+---
 
-**What:** Separate payout map builders for each bet type, following the existing `build_payout_map()` pattern.
-**When:** Building settlement data from payouts Parquet.
+## Modified Components Summary
 
-```python
-def build_win_payout_map(payouts_df: pd.DataFrame) -> dict[tuple[str, int], float]:
-    """Build (race_id, umaban) -> win odds multiplier from payouts DataFrame.
+| Component | Change Type | What Changes |
+|-----------|-------------|-------------|
+| `RacePredictor.get_win_candidates()` | Filter addition | Add conformal confidence floor + odds band exclusion |
+| `RacePredictor.get_place_candidates()` | Filter addition | Add conformal confidence floor + odds band exclusion |
+| `RacePredictor.select_bets()` | Sizing pipeline | Insert EV-proportional scaling step |
+| `StakeCalculator` | Method addition | Add `apply_ev_scaling()` method; make fractional Kelly configurable |
+| `DrawdownController` | Enhancement | Regime-aware multiplier tables; bankroll-proportional base unit |
+| `MetaSwitcher._default_params()` | Parameter expansion | Add `betting_enabled`, `min_conformal_confidence`, `fractional_kelly`, `race_exposure_cap` per regime |
+| `BacktestEngine.run()` | Guard addition | Check `betting_enabled` before candidate selection |
+| `BacktestEngine.run()` | Wiring | Pass `OddsBandFilter` instance to `RacePredictor` |
+| `RacePredictor.__init__()` | Dependency addition | Accept optional `OddsBandFilter` |
 
-    paytansyopay is 'yen per 100 yen bet', so divide by 100 for multiplier.
-    """
-    payout_map: dict[tuple[str, int], float] = {}
-    if payouts_df.empty:
-        return payout_map
-    for _, row in payouts_df.iterrows():
-        race_id = str(row.get("race_id", ""))
-        umaban = row.get("paytansyoumaban1") or row.get("tan_umaban")
-        pay = row.get("paytansyopay1") or row.get("tan_pay")
-        if pd.notna(umaban) and pd.notna(pay):
-            try:
-                payout_map[(race_id, int(umaban))] = float(pay) / 100.0
-            except (ValueError, TypeError):
-                continue
-    return payout_map
+---
+
+## Data Flow: After v1.3 Changes
+
+```
+DataRepository -> FeatureEngine -> BacktestEngine.run() [per race]
+    |
+    +---> RacePredictor.predict()
+    |         (unchanged: stage1 -> market -> win -> EV correction -> benter -> gate -> conformal)
+    |         Output: result_df with conformal_confidence_score, win_selection_edge, etc.
+    |
+    +---> RegimeDetector.detect() -> regime_params
+    |         NEW: regime_params includes betting_enabled, min_conformal_confidence,
+    |              fractional_kelly, race_exposure_cap
+    |
+    +---> [GUARD] if not regime_params["betting_enabled"]: skip race  <-- NEW
+    |
+    +---> RacePredictor.get_win_candidates()
+    |         NEW filters applied:
+    |         1. conformal_confidence_score >= min_conformal_confidence  <-- NEW
+    |         2. OddsBandFilter.filter_candidates()                      <-- NEW
+    |         3. (existing: edge > 0, odds >= 1.0)
+    |
+    +---> RacePredictor.select_bets(candidates)
+    |         Per candidate:
+    |         1. kelly_stake = StakeCalculator.calc_stake(edge, odds, bankroll)
+    |            (uses regime-dependent fractional_kelly)               <-- ENHANCED
+    |         2. ev_scaled = StakeCalculator.apply_ev_scaling(kelly_stake, ev) <-- NEW
+    |         3. final_stake = DDController.adjust_stake(ev_scaled, bankroll)
+    |            (uses regime-aware multiplier table)                   <-- ENHANCED
+    |         4. Race exposure cap (regime-dependent cap)              <-- ENHANCED
+    |
+    +---> _settle_bet() (unchanged)
+    +---> DDController.update() (unchanged feedback loop)
 ```
 
-Note: The column names may differ between EveryDB2 raw (`paytansyoumaban1`, `paytansyopay1`) and the Parquet schema (`tan_umaban`, `tan_pay`). The ETL type rules map these during extraction. The payout map builder must handle both naming conventions.
+---
 
-### Pattern 4: Feature Pre-Computation Extraction
+## Build Order (Dependency-Driven)
 
-**What:** Extract the repeated feature pre-computation block into a shared class.
-**When:** Both BacktestEngine and TrainingPipeline compute the same features.
+### Phase 1: Filter Enhancements (No sizing changes, safe to test independently)
 
-```python
-class FeatureComputer:
-    """Pre-computes expensive features once, shared across pipeline stages."""
+These changes affect WHICH bets are placed, not HOW MUCH is wagered. They are low-risk and independently testable.
 
-    def __init__(self, store: ParquetStore):
-        self.store = store
-        self._cache: dict[str, pd.DataFrame] = {}
+1. **Regime-dependent bet toggle** (MetaSwitcher + BacktestEngine guard)
+   - Modifies: `MetaSwitcher._default_params()`, `BacktestEngine.run()`
+   - Depends on: Nothing new
+   - Test: Verify COLLAPSED regime produces 0 bets
 
-    def compute_context_features(
-        self, race_df: pd.DataFrame, entry_df: pd.DataFrame, race_ids: np.ndarray
-    ) -> dict[str, pd.DataFrame]:
-        """Compute horse_history, jockey, trainer, jt_combo features for all races.
+2. **Conformal confidence filter** (RacePredictor candidate methods)
+   - Modifies: `RacePredictor.get_win_candidates()`, `RacePredictor.get_place_candidates()`
+   - Depends on: `conformal_confidence_score` already in result_df
+   - Test: Verify low-confidence candidates are excluded
 
-        Returns dict keyed by feature name for per-race lookup.
-        """
-        # HorseHistoryFeatures
-        hist = HorseHistoryFeatures(store=self.store)
-        hist_df = hist.compute(race_df, entry_df, race_ids)
+3. **OddsBandFilter** (new component + wiring)
+   - Creates: `betting/odds_band_filter.py`
+   - Modifies: `RacePredictor.__init__()` (accept filter), `RacePredictor.get_win_candidates()`
+   - Depends on: Nothing new
+   - Test: Verify excluded odds ranges produce no bets
 
-        # JockeyContextFeatures
-        jockey_ctx = JockeyContextFeatures(self.store)
-        jockey_df = jockey_ctx.compute(entry_df)
+**Milestone checkpoint:** Run backtest after Phase 1. Measure bet count reduction and ROI impact.
 
-        # TrainerContextFeatures
-        trainer_ctx = TrainerContextFeatures(self.store)
-        trainer_df = trainer_ctx.compute(entry_df)
+### Phase 2: Sizing Enhancements (Changes HOW MUCH is wagered)
 
-        # JockeyTrainerComboFeatures
-        jt_combo = JockeyTrainerComboFeatures(self.store)
-        jt_df = jt_combo.compute(entry_df)
+These changes affect stake amounts. They should be built after filters are stable, because sizing changes are meaningless if we are betting on the wrong horses.
 
-        return {
-            "hist": hist_df,
-            "jockey": jockey_df,
-            "trainer": trainer_df,
-            "jt_combo": jt_df,
-        }
+4. **Configurable Kelly parameters** (StakeCalculator + MetaSwitcher)
+   - Modifies: `StakeCalculator` (accept config params), `MetaSwitcher._default_params()`
+   - Depends on: Phase 1 complete (correct bet pool)
+   - Test: Verify regime-dependent Kelly fractions produce expected stake ranges
 
-    def compute_derived_features(self, feat_df: pd.DataFrame) -> pd.DataFrame:
-        """Compute pace_aptitude, course, and sire features."""
-        # PaceAptitudeFeatures
-        pace_feat = PaceAptitudeFeatures(store=self.store)
-        pace_df = pace_feat.compute_batch(feat_df)
-        # ... merge logic ...
+5. **EV-proportional scaling** (StakeCalculator new method + RacePredictor wiring)
+   - Modifies: `StakeCalculator.apply_ev_scaling()`, `RacePredictor.select_bets()`
+   - Depends on: Step 4 (Kelly params must be correct first)
+   - Test: Verify high-EV bets get proportionally larger stakes
 
-        # CourseFeatures
-        course_feat = CourseFeatures(store=self.store)
-        course_df = course_feat.compute_batch(feat_df)
-        # ... merge logic ...
+6. **Enhanced DD control** (DrawdownController)
+   - Modifies: `DrawdownController` (regime-aware tables, bankroll-proportional unit)
+   - Depends on: Steps 4-5 (sizing pipeline must be correct first)
+   - Test: Verify DD multiplier changes with regime transitions
 
-        # SireFeatures
-        # ... same as current BacktestEngine.run() lines 356-376 ...
+**Milestone checkpoint:** Run full backtest. Compare ROI with Phase 1 baseline.
 
-        return feat_df
-```
+### Phase 3: Threshold Tuning (Grid search for optimal parameters)
+
+7. **Parameter sweep** -- Run backtests across parameter grid:
+   - `min_conformal_confidence`: [0.0, 0.3, 0.5, 0.7]
+   - `fractional_kelly`: [0.25, 0.375, 0.5, 0.625]
+   - `race_exposure_cap`: [0.02, 0.03, 0.04]
+   - `odds_band_exclusion_ranges`: [from ROI analysis]
+   - DD multiplier adjustments
+
+**This is search, not code.** But the architecture must support parameter injection via `MetaSwitcher`.
+
+---
+
+## Key Design Decisions
+
+### Decision 1: Modify RacePredictor, Not BettingOrchestrator
+
+The backtest path goes through `RacePredictor`, not `BettingOrchestrator`. All v1.3 changes target the backtest ROI metric. The `BettingOrchestrator` path (live/paper trading) can be updated later by mirroring the same filters and sizing logic.
+
+### Decision 2: OddsBandFilter as Separate Component, Not Inside Gate Model
+
+The `WinSelectionGateModel` already has odds-bucket scoring. But it uses quantile bins internally and the exclusion is implicit (via threshold). An explicit `OddsBandFilter` gives:
+- Transparency: "we exclude odds 5-7" is auditable
+- Backtestability: easy to measure impact of specific exclusions
+- Separation of concerns: gate model scores, filter excludes
+
+### Decision 3: EV-Scaling as StakeCalculator Method, Not Separate Class
+
+EV-proportional scaling is a simple linear mapping: `stake * (ev - min_ev) / (max_ev - min_ev)`. This is 5 lines of code. A separate class would be over-engineering. Adding it as a method on `StakeCalculator` keeps the sizing pipeline in one place.
+
+### Decision 4: Keep DDController as Single Component (Enhance, Don't Replace)
+
+The existing `DrawdownController` is well-tested with a sophisticated recovery FSM. Enhancing it with regime-dependent tables is safer than replacing it with a new component. The risk of introducing bugs in DD control is high -- the current implementation handles edge cases (deadlock prevention at mult=0.05, rate limiting, hysteresis).
+
+---
 
 ## Anti-Patterns to Avoid
 
-### Anti-Pattern 1: Duplicating RacePredictor Logic
+### Anti-Pattern 1: Modifying BettingOrchestrator First
 
-**What:** Copy-pasting the entire get_place_candidates() method and changing column names.
-**Why bad:** 600+ lines of logic (gate scoring, pruning, aggressive runner-up, soft pass) would need to be maintained in two places. Any fix or improvement to one would need manual synchronization to the other.
-**Instead:** Create `get_win_candidates()` that reuses the same structural pattern but with a column-name mapping. Better yet, refactor the shared logic into private helper methods parameterized by column names:
+The `BettingOrchestrator` is for the live path and is not exercised by backtests. Changes there would be untested. Always implement and validate in the `RacePredictor` path first.
 
-```python
-def _get_candidates_impl(self, race_df, *, regime_params, target):
-    col_map = {
-        "selection_ev": "win_selection_ev" if target == WIN else "place_selection_ev",
-        "selection_edge": "win_selection_edge" if target == WIN else "place_selection_edge",
-        "selection_prob": "win_selection_prob" if target == WIN else "place_selection_prob",
-        "gate_score": "win_gate_score" if target == WIN else "place_gate_score",
-        "gate_pass": "win_gate_pass" if target == WIN else "place_gate_pass",
-        "odds_col": "tanoddslow" if target == WIN else "fukuoddslow",
-    }
-    gate_model = (submodel.win_selection_gate if target == WIN
-                  else submodel.place_selection_gate)
-    # ... shared logic using col_map ...
-```
+### Anti-Pattern 2: Parameter Hardcoding
 
-### Anti-Pattern 2: Re-Running ETL for Win Payouts Separately
+All new thresholds must be in `MetaSwitcher._default_params()` (regime-dependent) or configurable via `BacktestEngine.__init__()`. Hardcoded constants in `RacePredictor` would prevent grid search.
 
-**What:** Creating a separate ETL step or Parquet file for win payouts.
-**Why bad:** The payouts Parquet already exists; win payout data comes from the same EveryDB2 table (s_harai / n_harai). Adding a separate file doubles I/O and introduces sync issues.
-**Instead:** Modify the existing `get_payouts()` SQL query to include win payout columns. The ETL type rules already list `paytansyoumaban1` and `paytansyopay1`. The schema already has `tan_umaban` and `tan_pay` columns. Just add the columns to the SQL SELECT and the payout map builder.
+### Anti-Pattern 3: Overlapping Filters
 
-### Anti-Pattern 3: Breaking Place-Mode Backtest
+The `WinSelectionGateModel` already filters by prob/edge/odds thresholds. Adding conformal confidence and odds band filters must not duplicate what the gate model already does. The conformal filter should be applied BEFORE gate scoring (pre-filter), while odds band exclusion should be AFTER candidate selection (post-filter).
 
-**What:** Changing BacktestEngine in a way that breaks existing place-mode testing.
-**Why bad:** The project may need to compare win vs place ROI side-by-side. Place-mode backtest must continue to work.
-**Instead:** Default to `betting_target=BetType.WIN` (as the milestone requires) but keep the `BetType.PLACE` path fully functional. All existing tests mock the BacktestEngine; ensure new tests cover both targets.
+### Anti-Pattern 4: Sizing Before Filtering
 
-### Anti-Pattern 4: Vectorizing Inside the Race Loop
+Changing stake sizes before fixing the bet pool is premature optimization. A 200-yen bet on a losing horse loses more than a 100-yen bet on the same horse. Fix selection first, then optimize sizing.
 
-**What:** Trying to vectorize operations that are inherently per-race (bankroll tracking, DD controller updates).
-**Why bad:** Bankroll state is sequential -- each bet depends on the previous bet's outcome. This cannot be parallelized.
-**Instead:** Vectorize the feature computation (before the loop) and the settlement aggregation (after the loop), but keep the loop for stateful operations. The pre-computation block (lines 329-405 of engine.py) is the main vectorization target.
-
-## Pipeline Optimization Architecture
-
-### Current Bottleneck Analysis
-
-The backtest pipeline has three distinct phases with the following time profile (based on ~57 min/year from CLAUDE.md):
-
-```
-Phase 1: Data Load + Feature Build (~15 min, 26%)
-  - load_races, load_entries, load_odds_snapshots, load_odds_time_series_range
-  - extract_pre_post_odds (year-by-year)
-  - FeatureEngine.build_all() -- 14 sub-modules
-  - SubModelManager.add_distance_band_features()
-
-Phase 2: Pre-Computation (~8 min, 14%)
-  - HorseHistoryFeatures.compute() -- per-race historical queries
-  - JockeyContextFeatures.compute() -- jockey stats
-  - TrainerContextFeatures.compute() -- trainer stats
-  - JockeyTrainerComboFeatures.compute() -- combo stats
-  - PaceAptitudeFeatures.compute_batch()
-  - CourseFeatures.compute_batch()
-  - SireFeatures.compute_batch()
-
-Phase 3: Race-by-Race Loop (~34 min, 60%)
-  - Per-race: predict() -> candidate selection -> bet generation -> settlement
-  - Per-race: filter pre-computed DataFrames by race_id (4 DataFrame filters)
-  - Per-race: merge result_df with race_df_single columns
-  - Per-race: DiagnosticLogger.log_horse() for each horse (iterrows)
-```
-
-### Optimization Strategy
-
-#### Optimization 1: Parquet-Backed Feature Cache
-
-**Target:** Phase 2 pre-computation (8 min)
-**Approach:** Cache expensive feature computation results to Parquet files keyed by (feature_name, date_range). On subsequent runs with overlapping date ranges, load from cache instead of recomputing.
-
-```python
-class CachedFeatureComputer:
-    """Feature computation with Parquet-backed caching."""
-
-    def __init__(self, store: ParquetStore, cache_dir: Path = Path("data/features")):
-        self.store = store
-        self.cache_dir = cache_dir
-
-    def compute_horse_history(self, race_df, entry_df, race_ids):
-        cache_key = f"horse_history_{race_ids.min()}_{race_ids.max()}"
-        cache_path = self.cache_dir / f"{cache_key}.parquet"
-        if cache_path.exists():
-            return pd.read_parquet(cache_path)
-        hist = HorseHistoryFeatures(store=self.store)
-        result = hist.compute(race_df, entry_df, race_ids)
-        result.to_parquet(cache_path, index=False)
-        return result
-```
-
-**Risk:** Stale cache if underlying data changes. Mitigation: Use ETL timestamp or race_id range as cache invalidation key. The existing `data/features/horse_features.parquet` path in CLAUDE.md suggests this pattern was partially considered.
-
-#### Optimization 2: Pre-Race DataFrame GroupBy Instead of Per-Race Filter
-
-**Target:** Phase 3 per-race DataFrame filtering (~5-10 min of the 34 min loop)
-**Approach:** Replace the 4 per-race DataFrame filters (hist_df, jockey_df, trainer_df, jt_df each filtered by race_id) with a pre-built groupby dictionary.
-
-```python
-# Current (O(n_races * 4) filter operations):
-for race_id in race_ids:
-    hist_df_race = hist_df_all[hist_df_all["race_id"] == race_id]       # filter
-    jockey_df_race = jockey_df_all[jockey_df_all["race_id"] == race_id] # filter
-    trainer_df_race = trainer_df_all[trainer_df_all["race_id"] == race_id]
-    jt_df_race = jt_df_all[jt_df_all["race_id"] == race_id]
-
-# Optimized (O(n_total) groupby + O(1) dict lookup):
-hist_groups = dict(iter(hist_df_all.groupby("race_id")))
-jockey_groups = dict(iter(jockey_df_all.groupby("race_id")))
-trainer_groups = dict(iter(trainer_df_all.groupby("race_id")))
-jt_groups = dict(iter(jt_df_all.groupby("race_id")))
-
-for race_id in race_ids:
-    hist_df_race = hist_groups.get(race_id, pd.DataFrame())
-    jockey_df_race = jockey_groups.get(race_id, pd.DataFrame())
-    trainer_df_race = trainer_groups.get(race_id, pd.DataFrame())
-    jt_df_race = jt_groups.get(race_id, pd.DataFrame())
-```
-
-This converts O(n_races * n_rows) filtering to O(n_rows) groupby + O(n_races) dict lookup. For ~5000 races with ~80000 entries, this is a significant speedup.
-
-#### Optimization 3: Batch Diagnostic Logging
-
-**Target:** Phase 3 per-horse iterrows logging (~5-8 min of the 34 min loop)
-**Approach:** Replace per-horse `iterrows()` + `log_horse()` with batch DataFrame collection and bulk write at the end.
-
-```python
-# Current: ~14 log_horse calls per race * ~5000 races = ~70000 individual log_horse calls
-# Each call creates a HorseDiagnostic dataclass and appends to a list
-
-# Optimized: Collect horse diagnostic rows into a DataFrame during the loop,
-# write once at the end via DiagnosticLogger
-```
-
-#### Optimization 4: Skip Feature Pre-Computation When Using Cached Models
-
-**Target:** Phase 2 (8 min) when `--skip-train` is used
-**Approach:** When `--skip-train` loads cached models, the feature pre-computation for the test period can be parallelized since there is no training dependency.
-
-**Note:** The existing `--skip-train` flag already skips training but still recomputes all features. This is by design (reproducibility), but for rapid iteration, an additional `--skip-features` flag that loads cached feature Parquets would reduce backtest-only runs from ~57 min to ~34 min.
-
-### Optimization Priority
-
-| Optimization | Time Saved | Complexity | Risk | Priority |
-|-------------|-----------|------------|------|----------|
-| GroupBy dict for per-race filtering | 5-10 min | Low | None | HIGH |
-| Batch diagnostic logging | 5-8 min | Low | None | HIGH |
-| Feature Parquet cache | 5-8 min | Medium | Stale cache | MEDIUM |
-| Skip-features flag | 8 min (conditional) | Low | None | LOW |
+---
 
 ## Scalability Considerations
 
-| Concern | Current (1 year) | With Win Mode | With Optimization | Multi-Year (5 years) |
-|---------|-----------------|---------------|-------------------|---------------------|
-| Backtest time | ~57 min | ~57 min (same data volume) | ~35-40 min | ~175-285 min (linear) |
-| Memory (backtest) | ~3 GB | ~3 GB (no new data) | ~2.5 GB (groupby is more efficient) | ~6-8 GB |
-| Payout map size | ~15000 entries (place) | ~5000 entries (win, fewer winners) | Same | ~75000 entries |
-| Parquet size (payouts) | ~5 MB | ~6 MB (+ 1 win column) | Same | ~30 MB |
-| Diagnostic output | ~70 MB CSV/year | ~70 MB (same rows, different cols) | ~50 MB (batch write) | ~350 MB |
+| Concern | Current Scale | v1.3 Impact | Mitigation |
+|---------|--------------|-------------|------------|
+| Filter complexity | O(n) per race (n=18 horses max) | +2 O(n) passes (conformal, odds band) | Negligible. 18 horses x 2 passes = constant time |
+| OddsBandFilter memory | None | One list of (float, float) tuples | Negligible. <100 ranges max |
+| Parameter grid search | N/A | Backtest runs per parameter combo | ~200 combos x 57 min/backtest = significant. Use coarse grid first, then refine |
+| DD state complexity | 3-state FSM | Same 3 states, regime-dependent tables | No complexity increase |
 
-## Build Order Recommendation
+---
 
-The build order prioritizes the win-mode conversion first (it is the milestone goal), then optimization as a separate pass.
+## Testing Strategy
 
-```
-Phase 1: Win Payout Data Pipeline (ETL layer)
-  1a. Modify get_payouts() SQL to include paytanshoumaban1, paytansyopay1
-  1b. Re-run ETL for affected date range to update payouts.parquet
-  1c. Add build_win_payout_map() to engine.py
-  1d. Verify win payout data loads correctly (unit test with mock Parquet)
+### Unit Tests (All mock-based, no DB required)
 
-  Rationale: Data must flow before anything else can work. This is the
-  foundation for all win-mode settlement.
+For each modified component:
 
-Phase 2: Win Candidate Selection (RacePredictor layer)
-  2a. Add get_win_candidates() to RacePredictor
-      - Mirror get_place_candidates() structure
-      - Use WinSelectionGateModel.score()/annotate_race_context()
-      - Use win_selection_ev, win_selection_edge, win_selection_prob
-      - Use tanoddslow for odds filtering
-  2b. Add betting_target dispatch to select_bets()
-  2c. Add BetType.WIN path in select_bets() using tanoddslow
-  2d. Unit tests with mock result DataFrames
+1. **OddsBandFilter**: Test with various exclusion ranges, edge cases (empty, overlapping, single range)
+2. **StakeCalculator.apply_ev_scaling()**: Test EV mapping boundaries (min EV, max EV, out of range)
+3. **RacePredictor.get_win_candidates()**: Test conformal confidence filter, verify candidates excluded below threshold
+4. **DrawdownController**: Test regime-dependent multiplier selection
+5. **MetaSwitcher._default_params()**: Verify `betting_enabled=False` for COLLAPSED, `min_conformal_confidence` values
 
-  Rationale: The inference chain already produces all win EV columns.
-  Only the candidate selection + bet generation layer needs to be
-  activated for win mode.
+### Integration Test (Full backtest)
 
-Phase 3: BacktestEngine Integration
-  3a. Add betting_target parameter to BacktestEngine.__init__()
-  3b. Modify run() to use tanoddslow for final_odds_map in win mode
-  3c. Modify run() to call get_win_candidates() in win mode
-  3d. Add win-specific diagnostic logging fields
-  3e. Modify _settle_bet() to use win_payout_map for WIN bets
-  3f. Integration test: run single-year backtest in win mode
+Run `scripts/run_backtest.py --years 2024` with:
+- Baseline (current params) -> record ROI, bet count, max DD
+- Each new filter enabled individually -> measure delta
+- All filters + sizing enabled -> compare to baseline
+- Parameter sweep -> find optimal combination
 
-  Rationale: This wires the new data + candidate selection into the
-  simulation loop. Each sub-change is small and testable.
+---
 
-Phase 4: Script and WF Validation Updates
-  4a. Add --betting-target to run_backtest.py CLI
-  4b. Update run_wf_validation.py to use win mode by default
-  4c. Update BacktestResult.summary() to show win-specific metrics
-  4d. Run full WF validation in win mode
+## Files to Create/Modify
 
-  Rationale: Scripts are the user-facing layer. Must be updated after
-  the engine changes are validated.
+### New Files
 
-Phase 5: Pipeline Optimization (separate pass)
-  5a. Replace per-race DataFrame filters with groupby dict
-  5b. Batch diagnostic logging
-  5c. Add FeatureComputer class (optional, for cache abstraction)
-  5d. Add --skip-features flag for rapid iteration
+| File | Purpose |
+|------|---------|
+| `src/betting/odds_band_filter.py` | Odds band exclusion filter |
 
-  Rationale: Optimization does not change outcomes, only speed. It
-  should come after the win-mode conversion is validated to avoid
-  conflating two types of changes.
-```
+### Modified Files
 
-## Integration Verification Checklist
+| File | Changes |
+|------|---------|
+| `src/betting/stake_calculator.py` | Add `apply_ev_scaling()` method; accept fractional_kelly/race_exposure_cap as init params |
+| `src/betting/drawdown_controller.py` | Add regime-aware multiplier table selection; bankroll-proportional base unit |
+| `src/betting/meta_switcher.py` | Add `betting_enabled`, `min_conformal_confidence`, `fractional_kelly`, `race_exposure_cap` to params |
+| `src/betting/__init__.py` | Export `OddsBandFilter` |
+| `src/backtest/race_predictor.py` | Accept `OddsBandFilter`; add conformal filter in `get_win_candidates()` / `get_place_candidates()`; wire EV scaling in `select_bets()` |
+| `src/backtest/engine.py` | Add `betting_enabled` guard; pass `OddsBandFilter` to `RacePredictor` |
+| `tests/test_odds_band_filter.py` | New test file |
+| `tests/test_stake_calculator.py` | New test for `apply_ev_scaling()` |
 
-After each phase, verify:
-
-- [ ] Phase 1: `load_payouts()` returns DataFrame with tan_umaban/tan_pay columns (or raw EveryDB2 names)
-- [ ] Phase 1: `build_win_payout_map()` produces non-empty dict for known win races
-- [ ] Phase 2: `get_win_candidates()` returns non-empty DataFrame for races with strong win EV
-- [ ] Phase 2: Candidates have win_selection_ev > 1.0 and tanoddslow > 0
-- [ ] Phase 3: `_settle_bet()` correctly settles WIN bets (finish_pos == 1 pays, else 0)
-- [ ] Phase 3: Bankroll tracking works correctly for WIN bets
-- [ ] Phase 3: Diagnostic logs contain win-specific columns (ev_win, win_selection_ev, etc.)
-- [ ] Phase 4: `run_backtest.py --betting-target win` completes without errors
-- [ ] Phase 4: WF validation produces win-mode ROI results
-- [ ] Phase 5: GroupBy optimization produces identical backtest results
-- [ ] Phase 5: Timing comparison shows speedup without result changes
-- [ ] All phases: Existing tests pass (`python -m pytest tests/ -v`)
-- [ ] All phases: mypy type checking passes (`mypy src/`)
-
-## Confidence Assessment
-
-| Area | Confidence | Notes |
-|------|-----------|-------|
-| Win payout data availability | HIGH | EveryDB2 type rules already list paytansyoumaban1/paytansyopay1; schema has tan_umaban/tan_pay |
-| WinSelectionGateModel completeness | HIGH | Already trained, stored, loaded, and invoked; has score(), annotate_race_context(), soft_pass_mask(), runner_up_candidate_reason() |
-| Win EV column availability | HIGH | race_predictor.py predict() already computes ev_win, ev_win_corrected, win_selection_ev/edge/prob, win_gate_score/pass |
-| GroupBy optimization correctness | HIGH | Pure data structure change; groupby preserves all rows |
-| Backtest result equivalence | HIGH | Settlement logic already handles BetType.WIN in _settle_bet() |
-| Pipeline speedup estimates | MEDIUM | Based on code structure analysis, not profiling data |
+---
 
 ## Sources
 
-- `src/backtest/engine.py` -- BacktestEngine.run(), build_payout_map(), _settle_bet()
-- `src/backtest/race_predictor.py` -- RacePredictor.get_place_candidates(), select_bets(), predict()
-- `src/backtest/diagnostic_logger.py` -- HorseDiagnostic dataclass (place-only fields)
-- `src/pipelines/training_pipeline.py` -- TrainingPipelineV5._train_submodel(), feature computation
-- `src/db/everydb2_queries.py` -- get_payouts() SQL (missing tanshou columns)
-- `src/db/etl.py` -- _TABLE_TYPE_RULES (includes paytansyoumaban1, paytansyopay1)
-- `src/db/schema.py` -- payouts table schema (has tan_umaban, tan_pay)
-- `src/models/win_selection_gate.py` -- WinSelectionGateModel (fully implemented)
-- `src/domain/models.py` -- SubmodelSet, Bet, BetType
-- `scripts/run_backtest.py` -- CLI entry point
-- `scripts/run_wf_validation.py` -- WF validation entry point
+- Direct code analysis of `src/betting/*.py`, `src/backtest/race_predictor.py`, `src/backtest/engine.py`, `src/models/win_selection_gate.py`, `src/models/regime_detector.py`, `src/models/robust_confidence_estimator.py`
+- Kelly criterion equivalence: `edge/(odds-1) = (p*odds-1)/(odds-1) = p - (1-p)/(odds-1)` -- standard identity
+- Confidence level: HIGH (all analysis based on direct code reading, no external dependencies)

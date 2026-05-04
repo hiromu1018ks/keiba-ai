@@ -1,153 +1,173 @@
 # Project Research Summary
 
-**Project:** keiba-ai v1.1 ROI Advanced Model
-**Domain:** Parimutuel horse racing win prediction (JRA Japan) -- ensemble stacking, odds deviation EV, time-series features
-**Researched:** 2026-05-03
+**Project:** keiba-ai v1.3 -- Betting Strategy Optimization
+**Domain:** Horse racing ML prediction system -- bet selection and stake sizing optimization
+**Researched:** 2026-05-04
 **Confidence:** HIGH
 
 ## Executive Summary
 
-This is a machine learning prediction system for Japanese horse racing (JRA) that currently achieves 89% ROI (a loss) in backtest after the v1.0 milestone. The v1.1 milestone aims to push ROI above 100% through three targeted improvements: (1) replacing the single LightGBM hit model with a 3-model stacking ensemble (LightGBM + XGBoost + CatBoost + Ridge meta-learner), (2) adding odds deviation features that quantify model-vs-market disagreement as a direct EV signal, and (3) enriching the time-series and pace feature pipeline to give the models better inputs. The existing codebase already has a `StackedEnsemble` class and all required dependencies (XGBoost 3.2.0, CatBoost 1.2.10) installed -- this is primarily an enhancement and optimization effort, not greenfield development.
+keiba-ai v1.3 is not a greenfield project. It is a targeted optimization of an existing betting layer built on a mature ML pipeline (3-model GBM stacking, conformal prediction, regime detection, walk-forward gate model). The current system produces 89.0% ROI on 9,074 bets in the 2024 test year. The goal is to push past 100% ROI through better bet selection (which bets to take), stake sizing (how much to bet), and risk control (when to reduce exposure) -- without modifying the frozen ML model pipeline.
 
-The recommended approach follows a strict feature-first, model-second build order: add time-series and pace features first (they are the foundation), then add odds deviation features (which depend on improved ability estimates), and finally enhance the stacking ensemble (which amplifies everything). The existing `StackedEnsemble` class is the right foundation but is critically under-optimized -- all three base models use identical hyperparameters (lr=0.03, leaves/depth 31/6, 300 rounds), which defeats the purpose of stacking since the models produce nearly identical predictions. Forcing diversity through differentiated hyperparameters, feature subsampling, and early stopping per model is the single highest-leverage change.
+The research consensus across all four domains is clear: the existing codebase already implements the correct foundations. `StakeCalculator` has a mathematically correct Kelly formula. `DrawdownController` has a sophisticated 3-state recovery FSM. `RegimeDetector` classifies market states. `RobustConfidenceEstimator` produces conformal confidence intervals. The gaps are not missing algorithms -- they are missing wiring. The conformal confidence score is computed but never used as a filter. The regime detector raises thresholds in COLLAPSED mode but never fully skips betting. The Kelly fraction is hardcoded rather than regime-dependent. The DD controller is calibrated for place betting (30% hit rate) rather than win betting (7-10% hit rate). Zero new production dependencies are needed.
 
-The key risks are temporal data leakage (odds features using near-post-time snapshots, time-series features including current-race data) and meta-learner overfitting (Ridge fitting noise in correlated base model outputs). These are mitigated by tightening snapshot tolerance from 15 to 5 minutes, adding PIT boundary assertions to all `searchsorted` calls, and using higher Ridge regularization with diverse base model configurations. The EV decomposition chain (hit model -> return model -> EV correction) must always be retrained end-to-end after any model architecture change.
+The primary risk is overfitting. The 9,074-bet test year provides limited statistical power, and the natural temptation to grid-search strategy parameters on backtest ROI will produce fictitious improvements. All four research files converge on the same mitigation: use walk-forward validation, freeze strategy parameters before out-of-sample evaluation, and treat parameter tuning with extreme conservatism. The recommended build order is filters-first (fix which bets to take), then sizing (optimize how much to bet), then parameter tuning (search for optimal thresholds on a held-out validation period).
 
 ## Key Findings
 
 ### Recommended Stack
 
-No new packages are needed. All required dependencies are installed at current stable versions. The stack recommendation is to keep the existing custom `StackedEnsemble` with manual OOF + Ridge meta-learner rather than switching to `sklearn.ensemble.StackingClassifier`, because the project uses native APIs (`lgb.train()`, `xgb.train()`, `CatBoostClassifier`) for low-level control over Dataset construction, group handling, and init_score injection. Version pin updates in `pyproject.toml` are recommended but not blocking.
+No new production dependencies required. The existing numpy, pandas, optuna, and scipy (transitive via sklearn) stack covers every v1.3 feature. External Kelly criterion libraries (keeks, bet-optimizer, kelly-criterion) were evaluated and rejected: all provide trivial wrappers around arithmetic the codebase already implements, and none handle JRA-specific constraints (25% deduction rate, 100-yen minimum units, 2% race exposure cap).
 
 **Core technologies:**
-- LightGBM 4.6.0: Stage1 ranker + primary binary base model -- native categorical support, fastest training, leaf-wise growth
-- XGBoost 3.2.0: Secondary base model in stack -- complementary depth-wise tree growth, different regularization
-- CatBoost 1.2.10: Tertiary base model in stack -- symmetric trees create different decision boundaries, ordered boosting reduces overfitting
-- scikit-learn Ridge 1.8.0: Meta-learner -- L2 regularization prevents overfitting on correlated base predictions
-- pandas/numpy/scipy: Feature engineering -- rolling windows, expanding stats, vectorized computation; no specialized time-series library needed
+- **numpy >=1.26:** Kelly formula, EV-proportional scaling, drawdown calculations -- already installed and used in `StakeCalculator`
+- **pandas >=2.2:** Multi-criteria boolean filtering for bet selection -- already used throughout
+- **optuna >=3.5:** Threshold parameter search using TPE sampler -- already installed for model HP tuning, reusable for strategy parameters
+- **itertools.product (stdlib):** Exhaustive grid enumeration for small parameter spaces -- already used in `training_pipeline.py`
 
 ### Expected Features
 
 **Must have (table stakes):**
-- 3-model stacking with hyperparameter diversity -- the existing identical-config stacking must be differentiated per model
-- OOF expanding-window meta-learner training -- already correct, increase from 3 to 5 folds
-- Model-vs-market probability gap (`odds_to_ability_ratio = p_market / p_ability`) as Stage2 feature -- the core edge signal
-- Exponential decay weighting on past performance averages -- drop-in replacement for simple means in all history features
-- Odds acceleration (2nd derivative) -- simple addition to existing `odds_dynamics_features.py`
+- Conformal confidence filter -- reject bets where `EV_lower_win_corrected < 1.0` (90% CI does not clear breakeven). Data already computed by `RobustConfidenceEstimator`.
+- Regime COLLAPSED bet skip -- skip all betting in COLLAPSED regime rather than just raising thresholds. Likely the single highest-impact change.
+- Configurable Kelly fraction -- make `FRACTIONAL_KELLY` a parameter instead of hardcoded constant, vary by regime (AGGRESSIVE=0.50, CONSERVATIVE=0.25, COLLAPSED=0.0).
+- EV-proportional scaling -- optional multiplier on Kelly stake proportional to absolute EV. `final_stake = kelly_stake * min(ev / target_ev, max_scale)`.
+- Odds band ROI exclusion -- learn negative-ROI odds bands from backtest history and exclude them during candidate selection.
+- Win-specific DD control -- recalibrate `DrawdownController` for win betting's ~10% hit rate (vs current PLACE-tuned 30%).
 
 **Should have (competitive):**
-- Feature subsampling per base model (feature_fraction=0.7/0.8/0.8) -- forces diversity
-- Early stopping per base model -- prevents overfitting
-- Edge confidence interval from conformal prediction -- better bet selection
-- Kelly stake sizing from stacked probability -- converts improved estimates into ROI
-- Class-adjusted form metric -- contextualizes form by opposition quality
-- Composite pace figure per horse -- synthesizes corner positions into pace metric
+- Confidence-weighted EV -- replace binary confidence threshold with continuous weighting: `weighted_ev = ev * max(confidence, 0.3)`.
+- Bankroll-relative stop-loss -- convert `SafetyGuard` from absolute yen limits to percentage-based limits.
+- Correlation-aware race exposure -- adjust per-race cap when multiple win bets are placed (anti-correlated diversification).
 
-**Defer (v1.2+):**
-- Stacking at Stage1 (Ranker) level -- complex, uncertain payoff
-- Projected position at each corner -- requires field-level interaction modeling
-- Volume-weighted odds movement -- depends on data availability (unverified)
-- Late money intensity (t-5 vs t-10) -- depends on snapshot granularity
-- LSTM/transformer temporal modeling -- data too sparse
+**Defer (v2+):**
+- ML-based stake sizing, Monte Carlo simulation, real-time odds re-evaluation, multi-race parlay betting -- all explicitly out of scope for v1.3.
 
 ### Architecture Approach
 
-The v1.1 milestone extends the existing 2-stage decomposition pipeline (P(hit) x E(odds|hit)) at three insertion points. New feature modules (time_series_features, pace_prediction_features, odds_deviation_features) plug into `FeatureEngine.build_all()` and `_train_submodel()`. The StackedEnsemble replaces `lgb.Booster` via duck typing (`.predict()` + `.best_iteration`). The pipeline ordering is strict: features must exist before models that consume them, and single models must work before stacking layers on top.
+The backtest data flow goes through `BacktestEngine.run()` -> `RacePredictor` per race, not through `BettingOrchestrator` (which is for the live path). All v1.3 changes must target the `RacePredictor` path. The architecture is protocol-based with dependency injection: `StakeCalculatorProtocol`, `DrawdownControllerProtocol`, `GateKeeperProtocol`, `MetaSwitcherProtocol`. New components should follow the same pattern.
 
-**Major components:**
-1. `src/features/time_series_features.py` (NEW) -- temporal trend features from past runs (time progression slope, closing speed trend, form volatility)
-2. `src/features/pace_prediction_features.py` (NEW) -- race-level pace scenario prediction from field composition
-3. `src/features/odds_deviation_features.py` (NEW) -- model-vs-market deviation metrics feeding into hit model
-4. `src/models/stacked_ensemble.py` (MODIFY) -- enhance with diverse hyperparameters, 5-fold OOF, early stopping, MLflow logging
+**Major components to modify:**
+1. **RacePredictor** (`backtest/race_predictor.py`) -- add conformal confidence filter and odds band filter in `get_win_candidates()` / `get_place_candidates()`; wire EV scaling in `select_bets()`
+2. **StakeCalculator** (`betting/stake_calculator.py`) -- make Kelly fraction configurable per regime; add `apply_ev_scaling()` method
+3. **DrawdownController** (`betting/drawdown_controller.py`) -- add win-specific multiplier table; increase `ROLLING_WINDOW` from 150 to 400+; lower recovery thresholds
+4. **MetaSwitcher** (`betting/meta_switcher.py`) -- add `betting_enabled`, `min_conformal_confidence`, `fractional_kelly`, `race_exposure_cap` to per-regime params
+
+**One new component:**
+5. **OddsBandFilter** (`betting/odds_band_filter.py`) -- lightweight filter that takes learned exclusion ranges and applies them during candidate selection
 
 ### Critical Pitfalls
 
-1. **Meta-learner overfitting from correlated base models** -- Force diversity via differentiated hyperparameters (num_leaves 15/31/63, feature_fraction 0.5/0.7/0.9), add 5-10 key features alongside base predictions to meta-learner inputs, use Ridge alpha=10.0 or higher. Validate ensemble beats best single model by at least 1% AUC on held-out year.
-2. **Temporal leakage from full-data retraining in stacking** -- After OOF meta-learner training, the code retrains base models on ALL data (train+valid), creating a mismatch between OOF-calibrated meta-learner and stronger production base models. Either skip full-data retraining (Option A, safer) or add a calibration step comparing OOF vs full-data predictions.
-3. **Odds look-ahead bias from near-post-time snapshots** -- `_pick_target_snapshot` has `tolerance_minutes=15.0` which allows post-time snapshots to match "t-10" targets. Tighten to 5 minutes. Never fall back to `confirmed_odds` for features.
-4. **Time-series feature PIT boundary violations** -- New time-series features using `searchsorted` must use strict `race_date < target_date` (not `<=`). Add explicit assertions. Extend `leakage_validators.py` to cover horse history and pace features.
-5. **EV decomposition miscalibration after stacking** -- Stacking only the hit model while leaving return model and EV correction unchanged breaks the joint calibration. Always retrain the full chain: hit model -> return model -> EV correction after any model architecture change.
+1. **Kelly overbetting from overconfident edge estimates** -- ML models systematically overestimate probabilities for win bets (low base rate). Use half-Kelly or quarter-Kelly consistently. Never increase to full Kelly. Verify predicted vs actual win rate per decile on OOF data before trusting edge estimates.
+
+2. **Look-ahead bias in parameter optimization** -- Grid-searching strategy parameters on the test year and reporting the best ROI is textbook overfitting. Use nested walk-forward: tune on first half of test period, validate on second half. Or reserve 2023 as validation, develop on 2024, report 2023 results.
+
+3. **Regime detector state oscillation** -- The 5-race hysteresis counter allows ~1000 regime transitions per year, each changing bet selection. Increase hysteresis to 20-50 races. Count transitions after backtest; if >50, the detector is oscillating. Consider disabling regime switching for MVP and running in CONSERVATIVE-only mode.
+
+4. **Odds band survivorship bias** -- High-odds bands have few bets, making ROI estimates unreliable. Require 200+ bets per band before excluding. Use shrinkage toward global mean. Validate on 2+ OOS periods. Do not exclude bands; downweight instead.
+
+5. **DD controller feedback loop trapping** -- The 150-bet rolling window contains only ~15 wins at 10% hit rate, making ROI estimates too noisy. The 0.98 recovery threshold may never be reached, trapping the system in REDUCED state permanently. Increase window to 400-500 bets. Lower recovery threshold to 0.92-0.95.
+
+6. **Filter cascade interaction** -- Multiple filters applied sequentially may remove 50%+ of bets, reducing statistical power below minimum. Test filters in combination, not individually. Fix filter order: regime -> gate model -> conformal confidence -> odds band -> Kelly -> DD. Set minimum bet count guard at 1,000/year.
 
 ## Implications for Roadmap
 
-### Phase 1: Time-Series Features
-**Rationale:** Features are the foundation. Adding them first means all subsequent model improvements benefit from richer inputs. No risk of regression since LightGBM ignores unused features. Time-series features have no model dependencies -- they derive from raw data and past performance only.
-**Delivers:** New feature module `time_series_features.py` with temporal trend features (time progression slope, closing speed trend, form volatility, peak form indicator). Exponential decay weighting on existing history averages.
-**Addresses:** Past-Run Time-Series Enhancement features from FEATURES.md
-**Avoids:** Pitfall 4 (temporal leakage) by implementing PIT-safe `searchsorted` patterns with explicit boundary assertions
+Based on combined research, the recommended phase structure follows the architectural build order from ARCHITECTURE.md: filters before sizing, sizing before tuning.
 
-### Phase 2: Pace Prediction Features
-**Rationale:** Pace features are independent of time-series features but follow the same feature-first principle. They are computed at race level (looking at all entrants) rather than horse level, making them architecturally distinct and requiring separate integration.
-**Delivers:** New feature module `pace_prediction_features.py` with predicted pace scenario, front runner count, pace pressure index, position fit score.
-**Addresses:** Pace/Position Prediction features from FEATURES.md
-**Avoids:** Pitfall 5 (circular reasoning) by auditing pace feature provenance to confirm only pre-race data is used
+### Phase 1: Bet Selection Filters
 
-### Phase 3: Odds Deviation Features
-**Rationale:** Deviation features depend on `p_ability_win` from AbilityModel (which is improved by Phase 1 and 2 features). Must come after feature phases. These features directly measure the betting edge and are the strongest ROI signal.
-**Delivers:** New feature module `odds_deviation_features.py` with odds deviation signed/absolute/squared, deviation z-score, model confidence gap, deviation-adjusted EV.
-**Addresses:** Odds Deviation EV features from FEATURES.md
-**Avoids:** Pitfall 3 (look-ahead bias) by tightening snapshot tolerance, Pitfall 13 (EV double-counting) by choosing one path (feature-in-model, consistent with existing v1.0 approach)
+**Rationale:** Changing which bets to take is lower risk than changing how much to bet. A bad filter removes bets (reducing volume); bad sizing loses money. Filters are independently testable. The research consensus is that COLLAPSED-regime skipping and conformal confidence filtering are likely the highest-impact, lowest-risk changes.
+**Delivers:** Fewer but higher-quality bets. Measurable ROI improvement from bet pool refinement.
+**Addresses:** Conformal confidence filter, regime COLLAPSED skip, odds band exclusion.
+**Avoids:** Pitfall 1 (Kelly overbetting -- not touching sizing yet), Pitfall 2 (look-ahead bias -- filters use fixed thresholds from domain knowledge, not optimized), Pitfall 3 (regime oscillation -- adding skip logic is simpler than tuning regime detector), Pitfall 4 (odds band bias -- implementing minimum sample counts and shrinkage), Pitfall 6 (conformal precision -- using fixed alpha=0.1, not tuning it), Pitfall 8 (filter interaction -- testing combined filters against baseline).
+**Estimated scope:** ~60-80 LOC new/modified. New file: `odds_band_filter.py`. Modifications: `race_predictor.py`, `engine.py`, `meta_switcher.py`.
 
-### Phase 4: Stacking Ensemble Enhancement
-**Rationale:** Stacking is the last layer because it amplifies feature quality. Better features first means the meta-learner has stronger signal to combine. This phase also includes the highest-risk pitfall (meta-learner overfitting), so having validated features first gives a stable baseline to compare against.
-**Delivers:** Enhanced `StackedEnsemble` with differentiated hyperparameters per base model, 5-fold expanding window OOF, early stopping, feature subsampling, MLflow meta-learner logging.
-**Addresses:** Ensemble Stacking Enhancement features from FEATURES.md (hyperparameter diversity, early stopping, feature subsampling)
-**Avoids:** Pitfall 1 (correlated base models) via forced diversity, Pitfall 2 (temporal leakage) via validated OOF approach, Pitfall 6 (EV miscalibration) via full pipeline retrain
+### Phase 2: Stake Sizing Enhancement
+
+**Rationale:** After the bet pool is refined, optimize stake amounts. Sizing changes depend on having a correct bet pool -- optimizing sizing on the wrong bets wastes effort. Kelly fraction configuration and EV-proportional scaling are the two sizing dimensions.
+**Delivers:** Regime-dependent Kelly fractions (AGGRESSIVE bets more, CONSERVATIVE bets less). EV-proportional scaling that rewards high-conviction bets with more capital.
+**Uses:** numpy for Kelly and EV arithmetic, existing `StakeCalculator` framework, `MetaSwitcher` params.
+**Implements:** Configurable Kelly parameters, EV-proportional scaling as `StakeCalculator.apply_ev_scaling()`.
+**Avoids:** Pitfall 1 (overbetting -- capping EV scaling at 2.0x, enforcing per-bet exposure cap), Pitfall 7 (tail risk -- log-EV scaling option, Herfindahl index monitoring).
+**Estimated scope:** ~40-50 LOC modified. No new files. Modifications: `stake_calculator.py`, `race_predictor.py`, `meta_switcher.py`.
+
+### Phase 3: Risk Control Calibration
+
+**Rationale:** DD controller must be calibrated after sizing is correct, because DD reacts to absolute stake amounts. Win-specific calibration (wider DD bands, longer rolling window, lower recovery threshold) is the final structural change.
+**Delivers:** Win-specific DD multiplier table, appropriate rolling window for 10% hit rate, calibrated recovery thresholds.
+**Uses:** Existing `DrawdownController` framework, `config/settings.yaml` for thresholds.
+**Implements:** Win-specific multiplier table, increased `ROLLING_WINDOW`, adjusted recovery thresholds.
+**Avoids:** Pitfall 5 (DD trapping -- longer window, lower threshold, maximum REDUCED duration guard).
+**Estimated scope:** ~40 LOC modified. No new files. Modifications: `drawdown_controller.py`, `config/settings.yaml`.
+
+### Phase 4: Parameter Sweep and Validation
+
+**Rationale:** Only after all structural changes are in place should parameter tuning begin. This phase is search, not code. It must use walk-forward validation on a held-out period to avoid look-ahead bias.
+**Delivers:** Optimal parameter combination for production use. Quantified ROI improvement vs baseline.
+**Uses:** optuna for TPE search, `itertools.product` for exhaustive grid on small spaces, `run_backtest.py` as evaluation harness.
+**Avoids:** Pitfall 2 (look-ahead bias -- nested walk-forward, held-out validation year), all pitfalls verified through OOS testing.
+**Estimated scope:** ~60 LOC for sweep script, ~80 LOC for test file. No production code changes.
 
 ### Phase Ordering Rationale
 
-- Features before models: Adding features is additive (LightGBM ignores unused columns), so there is no regression risk. Models before stacking: single-model performance must be validated before adding the complexity of stacking.
-- Dependency chain respected: Time-series features (Phase 1) improve AbilityModel output, which feeds into odds deviation features (Phase 3), which improve hit model input, which is what stacking (Phase 4) amplifies.
-- Risk escalation: Phases 1-3 are low-risk feature additions. Phase 4 is the highest-risk model architecture change. Isolating risk in the final phase means the feature improvements are safe even if stacking underperforms.
+- Filters before sizing: Fixing bet selection first means sizing optimizations operate on a correct bet pool. The architectural analysis in ARCHITECTURE.md identifies this as "anti-pattern 4: sizing before filtering."
+- Sizing before DD calibration: DD controller reacts to absolute stake amounts, so sizing must be finalized first.
+- All structural changes before parameter tuning: Tuning before structural correctness gives false optima. The pitfalls research emphasizes that parameter optimization on incomplete implementations embeds structural deficiencies into "optimal" parameters.
+- Config-driven thresholds throughout: Every new threshold goes into `MetaSwitcher._default_params()` or `config/settings.yaml`, enabling Phase 4 sweep without code changes.
 
 ### Research Flags
 
 Phases likely needing deeper research during planning:
-- **Phase 3 (Odds Deviation):** Needs verification of snapshot granularity in `data/odds/time_series/` -- whether sub-10-minute snapshots exist. Also needs decision on EV double-counting path (feature-in-model vs Benter-combination).
-- **Phase 4 (Stacking):** Needs empirical measurement of base model prediction correlation on this specific dataset. If all pairwise correlations exceed 0.90, stacking adds minimal value regardless of meta-learner tuning.
+- **Phase 1 (Odds band filter):** Needs analysis of historical backtest report to identify which bands have negative ROI with sufficient sample sizes. This is data-dependent and cannot be determined from code analysis alone.
+- **Phase 3 (DD calibration):** Win-specific DD thresholds need empirical calibration on actual backtest data. The research provides theoretical guidance (400-500 bet window, 0.92-0.95 recovery threshold) but optimal values require experimentation.
+- **Phase 4 (Parameter sweep):** The search space boundaries and validation methodology need careful design to avoid overfitting. Consider `/gsd-research-phase` for walk-forward validation best practices.
 
 Phases with standard patterns (skip research-phase):
-- **Phase 1 (Time-Series Features):** Well-documented pandas rolling/expanding patterns, established `HorseHistoryFeatures` pattern to follow
-- **Phase 2 (Pace Features):** Follows existing `pace_aptitude_features.py` and `interaction_features.py` patterns
+- **Phase 1 (Conformal filter, regime skip):** Both are straightforward filter additions with well-documented patterns in the existing codebase.
+- **Phase 2 (Kelly config, EV scaling):** Both are parameterization of existing arithmetic. No new algorithms needed.
 
 ## Confidence Assessment
 
 | Area | Confidence | Notes |
 |------|------------|-------|
-| Stack | HIGH | All packages installed and verified. Existing StackedEnsemble class demonstrates integration pattern. XGBoost 3.x native API compatibility confirmed. |
-| Features | HIGH | Most table-stakes features already exist. New features are well-understood pandas/numpy operations. Feature dependency chain is clear. |
-| Architecture | HIGH | Existing pipeline structure is well-documented. Extension points are identified in code with specific line numbers. Build order follows strict data dependencies. |
-| Pitfalls | HIGH | 6 critical pitfalls identified with specific code references and prevention strategies. All pitfalls traceable to observable code patterns. |
+| Stack | HIGH | Zero new dependencies. All required packages verified installed. Kelly formula mathematically proven equivalent to existing code. External libraries evaluated and rejected with specific rationale. |
+| Features | HIGH | Full codebase audit of 7 key files (2000+ LOC total). Every feature mapped to specific existing component with identified gap. Anti-features explicitly scoped out. Dependency map complete. |
+| Architecture | HIGH | Data flow traced through actual backtest path. Protocol boundaries identified. Critical discovery: `BettingOrchestrator` is NOT in the backtest path. Build order derived from dependency analysis. |
+| Pitfalls | HIGH | 8 pitfalls identified from code analysis + domain expertise. Each mapped to specific code locations (line numbers). Prevention strategies and warning signs specified. Recovery strategies provided. |
 
 **Overall confidence:** HIGH
 
+All research was grounded in direct codebase analysis with line-level references. No findings depend on assumptions or external documentation. The main uncertainty is empirical: the actual ROI impact of each feature on JRA data requires running backtests, which is the purpose of the implementation phases.
+
 ### Gaps to Address
 
-- **Base model prediction correlation:** Unknown how correlated LightGBM, XGBoost, and CatBoost predictions are on this specific dataset. Must measure during Phase 4 before investing in stacking. If correlations are all >0.90, consider skipping stacking and focusing on feature engineering alone.
-- **Odds snapshot granularity:** Unverified whether `data/odds/time_series/` contains sub-10-minute snapshots. Affects feasibility of late money intensity feature and snapshot tolerance tightening. Check during Phase 3 planning.
-- **`kyakusitukubun_cd` provenance in pace features:** Whether the running style code used in pace computation comes from past races or current race assignment is unverified. Must trace during Phase 2 implementation.
-- **Stacking ROI impact on this specific data:** Theoretical benefits of stacking are well-documented, but the actual ROI improvement on JRA data with ~50K training samples is uncertain. Phase 4 should include a baseline comparison (single LightGBM vs stacked) before committing to the ensemble in production.
+- **Empirical ROI impact of each feature:** The research identifies what to build but cannot predict how much each feature improves ROI. Phase 4 addresses this, but Phases 1-3 should measure ROI delta after each change to validate or invalidate feature hypotheses.
+- **Optimal regime parameters for WIN betting:** Current regime parameters (`ev_threshold`, `edge_threshold`) were set for PLACE betting. The research recommends OOF-percentile-based calibration, but the actual percentile values need to be computed from training data during implementation.
+- **Conformal estimator coverage rate on WIN OOS data:** The research warns that conformal prediction assumes exchangeability, which may not hold for high-odds horses. The coverage rate (fraction of actual EVs above the lower bound) must be verified on OOS data before trusting the filter.
+- **DD controller WIN-specific multiplier table values:** The research recommends wider DD bands but the exact thresholds (0-15%, 15-25%, 25-35%, etc.) are theoretical. Calibration requires running the DD controller in isolation on WIN backtest data and analyzing the multiplier distribution.
 
 ## Sources
 
 ### Primary (HIGH confidence)
-- Codebase analysis: `src/models/stacked_ensemble.py`, `src/pipelines/training_pipeline.py`, `src/features/*.py`, `src/models/two_stage_return_model.py`, `src/models/stage1_ability_model.py` -- all extension points and pitfalls verified against actual code
-- XGBoost 3.2.0 documentation -- native API stability confirmed, learning-to-rank support
-- CatBoost 1.2.10 documentation -- ranking objectives, native categorical handling
-- LightGBM 4.6.0 documentation -- binary classification, early stopping, categorical features
+- Full codebase audit: `src/betting/stake_calculator.py`, `src/betting/drawdown_controller.py`, `src/betting/win_strategy.py`, `src/betting/orchestrator.py`, `src/betting/gate_keeper.py`, `src/betting/meta_switcher.py`, `src/models/regime_detector.py`, `src/models/win_selection_gate.py`, `src/models/robust_confidence_estimator.py`, `src/backtest/engine.py`, `src/backtest/race_predictor.py`, `pyproject.toml`
+- Kelly criterion equivalence proof: `edge/(odds-1) = (p*odds-1)/(odds-1) = p - (1-p)/(odds-1)` -- standard algebraic identity
+- PROJECT.md v1.3 milestone definition (6 target features specified)
+- Kelly Criterion literature: Thorp (2006), Benter (1994) -- foundational for stake sizing design
 
 ### Secondary (MEDIUM confidence)
-- Benter (1994) -- foundational model structure for horse racing prediction
-- Lessmann et al. (2020) via PMC -- stacking multiple GBMs consistently outperforms single GBM
-- Springer (2024) -- Ridge/ElasticNet as optimal meta-learners for stacking with few features
-- ResearchGate: Ensemble Learning for Horse Racing -- time-series CV prevents leakage
-- Kaggle community -- practical stacking discussion, OOF vs full-data retraining tradeoffs
+- Pinnacle: Fractional Kelly -- half Kelly delivers ~75% of full Kelly growth with dramatically lower variance
+- Matthew Downey: Why Fractional Kelly -- fractional Kelly is optimal under probability estimation uncertainty
+- PLOS ONE: Statistical Theory of Optimal Decision-Making in Sports Betting -- confidence intervals for evaluating betting model performance
+- Reddit r/quant: Applying Kelly to Sports Betting -- real-world data showing 25% Kelly provides better risk-adjusted returns
+- arXiv: On Kelly Betting Limitations -- drawdown control feedback loop analysis
+- Stanford: Risk-Constrained Kelly -- formal treatment of drawdown-aware Kelly sizing
 
-### Tertiary (LOW confidence, needs validation)
-- Exact LightGBM/XGBoost/CatBoost prediction correlation on this dataset -- needs empirical measurement
-- Specific JRA odds drift magnitude in final 10 minutes -- needs domain data analysis
-- `kyakusitukubun_cd` source (past vs current race) -- needs code tracing during implementation
+### Tertiary (LOW confidence)
+- Exact ROI impact of each feature on JRA data -- requires running backtests
+- Optimal Kelly fractions for JRA win betting specifically -- theoretical guidance only
+- Win betting hit rate variance profile on JRA data -- estimated at ~7-10% based on model characteristics
+- Odds band survivorship bias in horse racing -- general statistical principle applied to this specific domain
 
 ---
-*Research completed: 2026-05-03*
+*Research completed: 2026-05-04*
 *Ready for roadmap: yes*

@@ -1,508 +1,375 @@
-# Domain Pitfalls: Win Backtest Validation & Pipeline Optimization
+# Pitfalls Research: Betting Strategy Optimization (v1.3)
 
-**Domain:** Switching backtest/WF validation from place (fukusho) to win (tansho) + ML pipeline performance optimization
-**Context:** keiba-ai v1.2 milestone -- existing v1.1 pipeline produces place bets, needs win bet generation, win payout settlement, and faster training/backtest cycles
+**Domain:** Adding Kelly criterion stake sizing, EV-proportional sizing, drawdown control, multi-criteria bet filtering, and backtest parameter optimization to an existing ML horse racing prediction system
+**Context:** keiba-ai v1.3 milestone -- existing BacktestEngine + RacePredictor + RegimeDetector + StakeCalculator + DrawdownController are in place. Goal is ROI 91.6% -> 100%+ by optimizing bet selection and stake sizing. The ML model pipeline is frozen; only betting strategy parameters change.
 **Researched:** 2026-05-04
-**Confidence:** HIGH (cross-validated with full codebase analysis of backtest engine, race predictor, training pipeline, and payout settlement logic)
+**Confidence:** HIGH (cross-validated with full codebase analysis of engine.py, race_predictor.py, stake_calculator.py, drawdown_controller.py, regime_detector.py, win_selection_gate.py, robust_confidence_estimator.py)
 
 ---
 
 ## Critical Pitfalls
 
-Mistakes that cause systematically wrong ROI numbers, silent mis-settlement, or require major rewrites.
+Mistakes that cause fictitious ROI improvement, silent overfitting, or systematic mis-sizing leading to bankroll ruin.
 
-### Pitfall 1: Payout Map Uses Place Payouts (`payfukusyo*`) For Win Settlement
+### Pitfall 1: Kelly Overbetting From Overconfident Edge Estimates
 
-**What goes wrong:** `build_payout_map()` in `engine.py:102-125` reads `payfukusyoumaban1-5` and `payfukusyopay1-5` (place payout columns). When switching to win bets, the settlement still uses place payouts. This produces systematically wrong ROI numbers: place payouts pay for top-3 finishers, but win bets should only pay for 1st place. The ROI will be inflated because more bets "win" against place payout odds than actually win at win odds.
+**What goes wrong:**
+The Kelly formula `f* = edge / (odds - 1)` is only as good as the edge estimate fed into it. ML models systematically produce overconfident probability estimates, especially for win bets where the base rate is low (p_win ~0.05-0.15 for mid-range horses). When the model says p=0.12 but the true probability is p=0.08, Kelly computes f* based on the inflated edge, leading to systematic overbetting across all bets. With 9,074 bets per year, even a small systematic overestimate compounds into massive drawdowns.
 
-**Why it happens:** The function was written for the place-only era. It builds `payout_map: dict[(race_id, umaban), odds_multiplier]` from place payout columns. The `_settle_bet()` method at line 931-934 uses this map for both place AND win bets:
-```python
-# line 931-934: applies to BOTH win and place
-if hasattr(self, "payout_map") and payout_key in self.payout_map:
-    return float(bet.stake * self.payout_map[payout_key])
-```
-Since the map contains place multipliers (which include top-3 finishers), a win bet that finished 2nd would incorrectly receive a payout.
+In this codebase, `StakeCalculator.calc_stake()` at `stake_calculator.py:59` computes `kelly_fraction = edge / (odds - 1.0)`. The `edge` parameter comes from `bet.edge` which is `win_selection_edge` from `WinSelectionGateModel`. If the gate model's realized ROI training overfits to calibration data, the edge values embed that overfitting.
 
-**Consequences:** Backtest ROI is completely unreliable. You cannot validate the win model because the settlement logic is wrong. This is the single highest-priority fix.
+**Why it happens:**
+- ML models (LightGBM/XGBoost/CatBoost) optimize log loss, not calibration. Log loss penalizes confident wrong predictions heavily, but models can still be systematically overconfident in certain probability ranges.
+- The WinSelectionGateModel trains on realized ROI with prior-weight smoothing (`prior_weight=24`), but this smoothing may be insufficient for sparse bins (e.g., high-odds/low-prob combinations).
+- The edge is computed from EV which is `p_model * odds - 1.0`. A 3% absolute error in p_model at odds 10.0 translates to a 30% error in edge (0.30 vs 0.00).
 
-**Prevention:**
-- Create a new `build_win_payout_map()` that reads `paytansyoumaban1` and `paytansyopay1` (win payout columns that exist in the ETL schema at `etl.py:112-113`).
-- The win payout map should map `(race_id, umaban) -> win_odds_multiplier` using ONLY the single win payout entry (1st place only).
-- In `_settle_bet()`, dispatch to the correct payout map based on `bet.bet_type`: win bets use `win_payout_map`, place bets use `payout_map`.
-- If `win_payout_map` lookup fails, fall back to `confirmed_odds` (line 941-948 already handles this for WIN via `finish_pos == 1`).
+**How to avoid:**
+1. **Use half-Kelly or quarter-Kelly consistently.** The codebase already uses `FRACTIONAL_KELLY = 0.5` (half-Kelly) at `stake_calculator.py:26`. This is correct. Never increase this to full Kelly. The `KELLY_FRACTION_CAP = 0.25` at line 27 provides an additional cap. Keep both.
+2. **Apply Conformal confidence filtering BEFORE Kelly sizing.** Use `conformal_confidence_score` from `RobustConfidenceEstimator` to filter out bets where the confidence interval width exceeds a threshold. This removes bets with unreliable edge estimates before Kelly amplifies the sizing error.
+3. **Add a minimum edge buffer.** The current `MIN_EDGE_THRESHOLD = 0.005` (0.5%) at `stake_calculator.py:25` is too low for win betting where JRA takeout is ~20-25%. The `GateKeeper.filter_bets()` at `gate_keeper.py:28` uses a 4% edge threshold, which is better. Ensure the Kelly edge input respects this gate.
+4. **Verify calibration on OOF data.** Before adjusting Kelly parameters, plot predicted vs actual win rate in decile bins. If the model is overconfident in any bin, reduce Kelly fraction for that bin.
 
-**Detection:**
-- After the switch, verify that no win bet with `kakuteijyuni != 1` receives a non-zero payout. Count should be zero.
-- Cross-check total payout sum against manually computed `sum(stake * confirmed_odds)` for 1st-place finishers only.
+**Warning signs:**
+- Backtest shows ROI improvement from Kelly sizing but the improvement comes from a few large bets (concentration risk). Check the distribution of bet sizes: if the top 10 bets by stake account for >30% of total return, Kelly is amplifying noise.
+- Max drawdown increases when switching from flat to Kelly sizing. If max_drawdown goes from 15% to 40%, Kelly is overbetting.
+- More than 5% of bets have stake = MAX_STAKE (10,000 yen cap at `stake_calculator.py:30`). This means Kelly wants to bet more but hits the cap, indicating systematically high edge estimates.
 
-**Phase:** Must be fixed FIRST, before any other win validation work. Phase 1.
-
-**Sources:**
-- Codebase analysis: `engine.py:102-125` (build_payout_map), `engine.py:931-948` (_settle_bet), `etl.py:112-113` (payout columns in schema)
-- HIGH confidence: Directly observable mismatch between payout columns and bet type
+**Phase to address:**
+Phase 1 (stake sizing implementation). Must be addressed before any backtest with Kelly sizing is trusted.
 
 ---
 
-### Pitfall 2: `final_odds_map` Uses `fukuoddslow` (Place Odds) For Win Bet Settlement
+### Pitfall 2: Look-Ahead Bias in Backtest Parameter Optimization
 
-**What goes wrong:** At `engine.py:276-281`, the final odds map is built from `fukuoddslow` (place odds):
-```python
-final_odds_map: dict[tuple[str, int], float] = {}
-if not final_odds_df.empty:
-    for _, r in final_odds_df.iterrows():
-        key = (str(r["race_id"]), int(r["umaban"]))
-        if pd.notna(r.get("fukuoddslow")):
-            final_odds_map[key] = float(r["fukuoddslow"])
-```
-When win bets are generated, `final_odds_map` provides place odds for the `bet.final_odds` field, which is used for settlement when payout map lookup fails. Win odds are much higher than place odds, so using place odds understates settlement and deflates ROI.
+**What goes wrong:**
+When tuning Conformal alpha thresholds, odds band filters, regime edge thresholds, or Kelly parameters by running backtests and selecting the best-performing parameters, the optimization uses future information. You run backtest with alpha=0.05, alpha=0.10, alpha=0.15, pick the alpha that gives best ROI, and report that ROI. But that ROI embeds knowledge of which alpha would have worked best for the test period -- information you would not have had at the start of the test period.
 
-**Why it happens:** The map was built exclusively for the place betting system. The `load_odds_snapshots()` reader returns both `tanodds` and `fukuoddslow`, but only `fukuoddslow` is used for the final odds map.
+In this codebase, the `WinSelectionGateModel.train()` at `win_selection_gate.py:804-878` already uses walk-forward OOF folds (`_build_walk_forward_folds`) with `_simulate_threshold_surface()` to find optimal thresholds. However, the regime detector's strategy parameters in `regime_detector.py:178-232` are hardcoded. If v1.3 optimizes these parameters by grid-searching backtest ROI on the test period, it introduces look-ahead bias.
 
-**Consequences:** Win bets settled via `final_odds_map` fallback receive place odds, dramatically understating ROI. This makes it impossible to assess the true win model performance.
+The `BacktestEngine.run()` at `engine.py:364-1026` processes races sequentially and the regime detector updates per-race. But the regime detector was trained on ALL data before the backtest starts (the `train()` call happens in the training pipeline). If the training data includes 2020-2023 and the test is 2024, and regime thresholds are calibrated using 2024 backtest results, that is look-ahead bias.
 
-**Prevention:**
-- Build separate `final_win_odds_map` using `tanodds` column (confirmed win odds) instead of `fukuoddslow`.
-- When updating bet final odds at line 607, dispatch based on `bet.bet_type`: use `final_win_odds_map` for WIN, `final_odds_map` for PLACE.
-- Alternatively, build a unified map keyed by `(race_id, umaban, bet_type)` to avoid parallel map confusion.
+**Why it happens:**
+- Parameter optimization on backtest results is the most natural thing to do -- "which alpha gives the best ROI?" The temptation is strong because the infrastructure makes it easy to iterate.
+- Walk-forward validation exists for the ML models but NOT for the betting strategy parameters. The strategy parameters (ev_threshold, edge_threshold, regime multiplier) are set once and applied to the entire test period.
+- The existing `ParameterFreezeProtocol` at `parameter_freeze_protocol.py` freezes model parameters, not strategy parameters.
 
-**Detection:**
-- Log the final_odds value for each settled bet. If win bets show odds < 5.0 for mid-range popularity horses, the map is using place odds.
-- Compare `final_odds` in bet_history against `tanodds` column for a sample of races.
+**How to avoid:**
+1. **Nested walk-forward for strategy parameters.** Split the test period into two: use the first half for strategy parameter tuning, the second half for validation. Report only the second-half ROI.
+2. **Use the existing WF framework.** `BacktestEngine` already supports `--years` with `--train-window` for multi-year backtests. Extend this to also hold out a portion of each test year for strategy parameter validation.
+3. **Freeze strategy parameters before OOS evaluation.** Extend `ParameterFreezeProtocol` to also hash and freeze regime detector parameters, edge thresholds, and Kelly fraction settings.
+4. **Limit the parameter search space.** If you must optimize, use at most 3-5 parameters with 3 values each (27-243 combinations). Large search spaces guarantee overfitting. The current regime detector has ~10 parameters per regime state -- do NOT optimize all of them.
+5. **Apply the multiple testing penalty.** If you test N parameter combinations, the probability of at least one showing spurious ROI > 100% by chance is much higher than the nominal p-value. Use Bonferroni correction or the deflated Sharpe ratio approach.
 
-**Phase:** Must be fixed alongside Pitfall 1, before any backtest execution.
+**Warning signs:**
+- Optimized parameters are "ugly" numbers (e.g., edge_threshold=0.047, alpha=0.13) rather than round numbers. This suggests curve-fitting to noise.
+- The ROI improvement from optimization is similar in magnitude to the optimization search range. If you search 20 parameter combinations and the best ROI is 101% vs 91.6% baseline, the 9.4pt improvement is within the expected noise range for 20 trials.
+- Parameters that work on 2024 test data fail on 2023 test data.
 
-**Sources:**
-- Codebase analysis: `engine.py:276-281`, `engine.py:601-608`
-- HIGH confidence: Column name directly observable
+**Phase to address:**
+Phase 1 (parameter selection). Must be addressed before any parameter tuning begins. If parameters are hand-picked from domain knowledge rather than optimized, this risk is minimal.
 
 ---
 
-### Pitfall 3: Bet Generation Hardcodes `BetType.PLACE` And Place Odds Columns
+### Pitfall 3: Regime Detector Overfitting and State Oscillation
 
-**What goes wrong:** `RacePredictor.select_bets()` at `race_predictor.py:532-642` always generates `BetType.PLACE` bets using `fukuoddslow` as the odds source. The candidate selection calls `get_place_candidates()` which uses place-specific columns (`place_selection_ev`, `place_selection_edge`, `place_selection_prob`, `fukuoddslow`). When switching to win validation, there is no corresponding `get_win_candidates()` or win-based bet generation path.
+**What goes wrong:**
+The `RegimeDetector` at `regime_detector.py:41-239` classifies market state into 3 regimes (AGGRESSIVE, CONSERVATIVE, COLLAPSED) and switches strategy parameters accordingly. Two failure modes:
 
-**Why it happens:** The entire `select_bets()` method was designed for place betting. The method:
-1. Gets candidates from `get_place_candidates()` (line 552)
-2. Uses `place_selection_ev` and `place_selection_edge` columns (line 608-609)
-3. Uses `fukuoddslow` for odds (line 609)
-4. Creates `BetType.PLACE` (line 631)
+**(A) Overfitting to regime labels.** The regime training at lines 75-131 uses a LightGBM multiclass model with only 8 features and `num_leaves=7`. The training labels are generated from market indicators: `market_condition_score = favorite_implied_prob * (1 - overround_adj)`. If this score's thresholds are calibrated on the full dataset including the test period, the regime model has seen future information.
 
-The win model DOES compute `win_selection_ev`, `ev_win_corrected`, `EV_lower_win_corrected` (via `WinSelectionGate` at `race_predictor.py:131-143`), but no code path uses these for bet generation.
+**(B) State oscillation.** The hysteresis counter at `regime_detector.py:166` requires 5 consecutive races in the same alternative state before transitioning. In volatile periods, the regime can oscillate between states every 5-10 races. Each transition switches edge thresholds (0.05 vs 0.06 vs 0.09), which changes the bet set dramatically. This creates a hidden parameter that multiplies the effective parameter space by 3x.
 
-**Consequences:** Without implementing win bet generation, the backtest will continue to generate place bets even if the rest of the pipeline is "switched" to win mode. The validation will test the wrong thing.
+In the BacktestEngine loop at `engine.py:682-688`, the regime is re-detected per race using `recent_stats_list[-200:]`. This means the regime can change mid-backtest based on the rolling window of recent races. If a cluster of bad races pushes the regime from CONSERVATIVE to COLLAPSED, bets are cut to near-zero for the next 5+ races, even if the underlying model edge is unchanged.
 
-**Prevention:**
-- Create `get_win_candidates()` analogous to `get_place_candidates()`, using `win_selection_ev`, `win_selection_edge`, and `tanodds` instead of place equivalents.
-- Create `select_win_bets()` (or add a mode parameter to `select_bets()`) that generates `BetType.WIN` bets using `tanodds` and win EV columns.
-- The `WinSelectionGate` already scores candidates with `win_gate_score`, `win_gate_pass`, etc. Use these for candidate filtering.
-- Add a `betting_target` parameter to `BacktestEngine.__init__()` to control whether to generate win or place bets.
+**Why it happens:**
+- Regime detection is conceptually appealing but practically fragile. The 3-state model has low resolution (only 8 features, 7 leaves) and the thresholds are somewhat arbitrary.
+- The hysteresis counter of 5 races is very low. In a year with ~5000 races, this allows ~1000 regime transitions per year, each potentially changing bet selection.
+- The regime parameters in `get_strategy_params()` are hardcoded and have not been validated on OOS data for the WIN model (they were calibrated for PLACE).
 
-**Detection:**
-- After implementation, verify that generated bets have `bet_type == "win"` (not `"place"`).
-- Check that bet odds come from `tanodds` (typically 1.1-100+) not `fukuoddslow` (typically 1.0-10.0).
+**How to avoid:**
+1. **Validate regime Win-specific parameters on OOS data.** The current AGGRESSIVE ev_threshold=1.10, CONSERVATIVE ev_threshold=1.30, COLLAPSED ev_threshold=1.50 were set for PLACE. Win EV distribution is different. Compute the Win EV distribution on OOF data and set thresholds based on percentiles.
+2. **Increase hysteresis to 20-50 races.** The current `_transition_hysteresis = 5` at line 68 is too aggressive. Increasing to 20-50 races reduces oscillation and prevents knee-jerk regime switches.
+3. **Consider disabling regime switching for v1.3 MVP.** If the regime detector is causing more harm than good, run the entire backtest in CONSERVATIVE mode and use fixed edge thresholds. This removes a source of overfitting and simplifies debugging.
+4. **Log regime transitions per race.** The existing `DiagnosticLogger.log_race()` already records regime. After backtest, count transitions. If >50 transitions per year, the detector is oscillating.
 
-**Phase:** Core implementation work, Phase 1 alongside payout fixes.
+**Warning signs:**
+- Regime distribution is heavily skewed: >80% of races in one regime state. This means the other states are dead code and the thresholds need recalibration.
+- ROI improvement comes primarily from COLLAPSED regime skipping races (reducing bets) rather than AGGRESSIVE regime adding value. This is just bet reduction, not genuine edge improvement.
+- Different random seeds for the regime model produce different ROI outcomes. This indicates the regime model is unstable.
 
-**Sources:**
-- Codebase analysis: `race_predictor.py:408-642`, `win_selection_gate.py`, `engine.py:504-596`
-- HIGH confidence: All place-specific column references directly observable
-
----
-
-### Pitfall 4: Diagnostics Log Place-Specific Columns, Breaking Win Analysis
-
-**What goes wrong:** The `DiagnosticLogger.log_horse()` calls in `engine.py:545-591` and `engine.py:632-678` log place-specific diagnostic fields: `p_place_pred`, `e_return_place_pred`, `ev_place`, `p_place_corrected`, `e_return_place_corrected`, `ev_place_corrected`, `EV_lower_place`, `place_selection_ev`, `place_selection_edge`, `place_selection_prob`, `place_bucket_multiplier`, `place_gate_score`, `place_gate_pass`, `place_gate_rank`, `place_gate_score_gap`. For win validation, these are the wrong metrics. The diagnostic data will show place model performance when you need win model performance.
-
-**Why it happens:** The `if "ev_place" in result_df.columns:` guard (line 544, 630) means diagnostics are only logged when place EV columns exist. For win-focused validation, `ev_place` may still exist (both models run), but the diagnostic focus should shift to `ev_win`, `p_win_pred`, `ev_win_corrected`, `EV_lower_win_corrected`, `win_selection_ev`, etc.
-
-**Consequences:** Post-backtest analysis of horse diagnostics CSV will show place metrics, making it impossible to diagnose why specific win bets were or were not placed.
-
-**Prevention:**
-- Add parallel diagnostic logging for win-specific columns when they exist.
-- At minimum, log `p_win_pred`, `ev_win`, `ev_win_corrected`, `EV_lower_win_corrected`, `win_selection_ev`, `win_selection_edge`, `win_gate_score`, `win_gate_pass`, `tanodds`.
-- Consider making the diagnostic logger mode-aware (place vs. win) to control which columns are logged in detail.
-
-**Detection:**
-- After backtest, check `bt_*_horse_diagnostics.csv` columns. If they only contain place metrics, the diagnostics are incomplete for win analysis.
-
-**Phase:** Should be fixed alongside bet generation. Phase 1-2.
-
-**Sources:**
-- Codebase analysis: `engine.py:544-591, 630-678`
-- HIGH confidence: Column names directly observable
+**Phase to address:**
+Phase 1 (regime parameter calibration). Address before committing to regime-based strategy switching.
 
 ---
 
-### Pitfall 5: WF Validation Uses Place Backtest For Overfitting Detection
+### Pitfall 4: Odds Band Survivorship Bias
 
-**What goes wrong:** `run_wf_validation.py` at lines 171-195 creates `BacktestEngine` instances and runs backtests for both test and train periods. The engine uses the default behavior, which generates place bets. The WF validation then compares `train_roi` vs `test_roi` to detect overfitting (via `judge_overfitting()` at `walk_forward_cv.py:300-351`). But the ROI being compared is PLACE ROI, not WIN ROI. The overfitting detection is testing the wrong model's performance.
+**What goes wrong:**
+Odds band analysis filters out bands where historical ROI is negative. For example, if horses with odds 8.0-12.0 have 85% ROI while horses with odds 1.0-3.0 have 105% ROI, you might exclude the 8.0-12.0 band. But this analysis suffers from survivorship bias:
 
-**Why it happens:** `BacktestEngine` has no parameter to switch between place and win mode. `run_wf_validation.py` has no mode flag. The WF validation script was designed before win model became the priority.
+1. **Small sample sizes in extreme bands.** High-odds bands (>30.0) have very few bets. A single big-win outlier can make the band look profitable or unprofitable. The 2024 test has 9,074 bets total; if odds >30.0 has 200 bets, the ROI estimate has a confidence interval of roughly +/-14 percentage points.
+2. **Non-stationarity.** The odds band ROI in 2020-2023 may not apply to 2024. If the model improved, its edge may have shifted to different odds ranges.
+3. **Selection interaction.** Filtering by odds band changes the bet population, which changes the edge distribution of remaining bets, which may invalidate the original ROI estimate.
 
-**Consequences:** WF validation may report "PASS" for overfitting on place metrics while the win model is heavily overfit. Or it may report "FAIL" on place metrics when the win model is fine. Either way, the overfitting verdict is unreliable for the win model.
+In this codebase, the `WinSelectionGateModel` already bucketizes odds via `_quantile_edges()` and `_bucketize()` with `n_bins=6`. The score tables (`combo_scores`, `pair_scores`) use these buckets. But if the training data's ROI per bucket does not generalize to test data, the gate model is filtering on noise.
 
-**Prevention:**
-- Add a `betting_target` parameter (or similar) to `BacktestEngine.__init__()` and propagate it through `RacePredictor`.
-- Add a `--betting-target win|place` flag to `run_wf_validation.py` (or change the default to `win`).
-- The WF validation feature ranking extraction (`_extract_all_feature_rankings`) already correctly pulls from `sub.win.hit_model` (line 92-98), so feature stability analysis is already win-focused. Only the ROI comparison needs fixing.
+**Why it happens:**
+- Odds band analysis is the most natural post-hoc filtering technique. "Just exclude the bands where we lose money" seems logical.
+- The `WinSelectionGateModel` uses Bayesian smoothing (`prior_weight=24`) which helps with small samples, but 24 prior observations may be too few for high-odds buckets with very few training examples.
+- The bucketization is quantile-based (equal-frequency bins), not equal-width. This means each bin has roughly the same number of observations, but the odds range varies. A bin might cover odds 1.0-1.5 (heavy favorite) while another covers 10.0-50.0 (longshots). The longshot bin has much higher variance.
 
-**Detection:**
-- If WF validation report shows `total_bets` count similar to the place-only era (~9000 bets/year), it is still generating place bets. Win bets should be fewer (~1000-3000 bets/year depending on edge thresholds).
+**How to avoid:**
+1. **Require minimum sample count per band.** Before reporting ROI for an odds band, require at least 200 bets in that band on OOS data. Bands with fewer bets should be marked "insufficient data" rather than "negative ROI."
+2. **Use shrinkage toward global mean.** Instead of raw band ROI, compute `shrunken_roi = (band_roi * n_band + global_roi * prior_weight) / (n_band + prior_weight)`. This is exactly what `WinSelectionGateModel` does with `_smoothed_score()`. Ensure the prior weight is at least 50 for odds-band analysis.
+3. **Validate on at least 2 separate OOS periods.** If an odds band is negative in 2023 AND 2024, it is more likely a genuine negative edge. If it is negative in 2024 but positive in 2023, it may be noise.
+4. **Do not exclude bands; downweight instead.** Rather than binary exclude/include, use a continuous weight based on the band's estimated edge. This avoids the discontinuity at band boundaries.
 
-**Phase:** Phase 1, alongside engine changes.
+**Warning signs:**
+- Odds band ROI chart shows a sawtooth pattern (positive-negative-positive-negative across adjacent bands). This indicates noise, not signal.
+- The excluded bands have <100 bets. The "improvement" from excluding them is within the confidence interval of the ROI estimate.
+- ROI "improvement" from odds band filtering is >50% of the total ROI gap (8.4pt). If filtering alone gives you 5pt of the 8.4pt improvement, it is likely overfitting.
 
-**Sources:**
-- Codebase analysis: `run_wf_validation.py:171-195`, `walk_forward_cv.py:300-351`
-- HIGH confidence: BacktestEngine constructor and WF script directly observable
-
----
-
-### Pitfall 6: `_settle_bet()` Fallback Uses `finish_pos == 1` For Win But Settlement Odds Are Wrong
-
-**What goes wrong:** The `_settle_bet()` fallback path at `engine.py:940-949` correctly checks `finish_pos == 1` for win bets. However, `settle_odds` is set to `bet.final_odds` which, as identified in Pitfall 2, currently contains place odds. The settlement will pay `stake * fukuoddslow` for a win, which understates the actual return.
-
-**Why it happens:** The fallback is architecturally correct (use `final_odds` for settlement when payout map lookup fails) but the data flowing into `final_odds` is wrong.
-
-**Consequences:** Even after fixing the payout map (Pitfall 1), if any race's win payout data is missing from the payout map, the fallback will underpay. This creates inconsistency: most bets settle correctly but some settle incorrectly, making the aggregate ROI unreliable.
-
-**Prevention:**
-- Fix Pitfall 2 (final_odds_map uses tanodds) first. Then the fallback path will work correctly.
-- Add logging when fallback settlement is used: `logger.warning("Win payout map miss for %s/%d, using final_odds=%.1f", race_id, umaban, settle_odds)`.
-- Track `n_fallback_settlements` in `BacktestResult` and alert if > 5% of bets use fallback.
-
-**Detection:**
-- After backtest, check fallback settlement count. If high, the win payout data has gaps.
-
-**Phase:** Phase 1, alongside Pitfalls 1 and 2.
-
-**Sources:**
-- Codebase analysis: `engine.py:940-949`
-- HIGH confidence: Fallback logic directly observable
+**Phase to address:**
+Phase 1 (bet filtering). Address when implementing Conformal filter and odds band exclusion.
 
 ---
 
-## Moderate Pitfalls
+### Pitfall 5: Drawdown Controller Feedback Loop Destabilization
 
-### Pitfall 7: `run_backtest.py` `before_roi` Reference Is Place-Specific
+**What goes wrong:**
+The `DrawdownController` at `drawdown_controller.py:15-167` adjusts bet size based on rolling ROI and drawdown. The multiplier decreases from 1.0 to as low as 0.05 when DD exceeds 25%. This creates a feedback loop:
 
-**What goes wrong:** `display_single_year_result()` at `run_backtest.py:233` compares against a hardcoded `before_roi = 0.638` (63.8% place ROI). When switching to win mode, this baseline is meaningless because win ROI has a different distribution (fewer winning bets, higher payouts per win). The comparison will be misleading.
+1. Bad run -> DD increases -> multiplier decreases -> bet sizes shrink -> wins produce smaller absolute returns -> recovery takes longer -> DD persists -> multiplier stays low.
+2. If the DD controller's rolling window (150 bets) is too short for win betting, it may react to normal variance as if it were a genuine edge loss.
+3. The SMA + EWMA hybrid at `_calc_rolling_roi()` (lines 132-144) uses `ROLLING_WINDOW=150` and `EWMA_ALPHA=0.1`. For win bets with ~10% hit rate, 150 bets contains only ~15 wins. The ROI estimate is extremely noisy.
 
-**Prevention:**
-- Replace `before_roi` with the win-model baseline from the v1.1 backtest (or remove the comparison entirely until a win baseline is established).
-- Add a comment explaining what the baseline represents.
+The `MAX_ADJUSTMENT_PER_N_BETS=20` and `MAX_ADJUSTMENT_AMOUNT=0.15` at lines 39-40 limit how fast the multiplier can change. This is good. But the underlying issue is that the DD controller was calibrated for PLACE betting (hit rate ~30%) where 150 bets gives ~45 wins and a more stable ROI estimate.
 
-**Phase:** Phase 2 (analysis).
+**Why it happens:**
+- The DD controller was designed for PLACE betting with 3x higher hit rate. Win betting's lower hit rate means the rolling ROI estimate has 3x higher variance.
+- The recovery logic (lines 86-111) transitions REDUCED -> RECOVERING when `roi >= 0.98` and `dd < 0.15`. For win betting, ROI oscillates wildly around 0.90, and the 0.98 threshold may never be reached, trapping the system in REDUCED state permanently.
+- The `RECOVERY_INCREMENT = 0.05` per bet (line 33) means recovery from 0.30 multiplier to 1.00 takes 14 bets. With 15 wins in 150 bets, this is plausible for PLACE but marginal for WIN.
 
----
+**How to avoid:**
+1. **Increase rolling window for WIN mode.** Change `ROLLING_WINDOW` from 150 to 400-500 bets when `betting_target="win"`. This gives ~40-50 wins in the window for a more stable ROI estimate.
+2. **Lower the recovery ROI threshold for WIN.** `RECOVERY_ROI_THRESHOLD = 0.98` is too strict for win betting where ROI is inherently noisier. Consider 0.92-0.95 for WIN mode.
+3. **Add a maximum REDUCED duration.** If the system has been in REDUCED state for >500 bets without recovering, force a gradual recovery regardless of ROI. This prevents permanent low-stake trapping.
+4. **Consider disabling DD control for Phase 1 MVP.** Run flat 100-yen bets first, verify the model edge is real, then add DD control. DD control can mask model problems by reducing bet sizes when the model is actually losing.
 
-### Pitfall 8: Edge Thresholds Calibrated For Place, Not Win
+**Warning signs:**
+- The DD controller spends >30% of races in REDUCED state. This means the model is losing more than expected or the thresholds are too aggressive.
+- Average stake size is <80 yen (80% of base). The DD controller is frequently active.
+- Recovery from a drawdown takes >200 bets. The controller is trapping the system.
 
-**What goes wrong:** The `RegimeDetector` strategy parameters (`edge_threshold`, `ev_threshold`, `min_place_prob`, `max_place_odds`) in `config/settings.yaml` or hardcoded defaults are calibrated for place betting. Place edge distribution is different from win edge distribution: place edges are smaller and more frequent (p_place ~0.3 for average horse, odds ~1.5-3.0) while win edges are larger but rarer (p_win ~0.08 for average horse, odds ~5.0-50.0).
-
-**Why it happens:** The regime detector was trained on place ROI and place edge statistics. Win edge distribution has heavier tails and higher variance.
-
-**Consequences:** Using place-calibrated edge thresholds for win bet selection may either (a) generate too many bets (threshold too low for win edge scale) causing overbetting, or (b) generate too few bets (threshold too high) causing missed opportunities.
-
-**Prevention:**
-- Add win-specific strategy parameters to the regime detector config: `win_edge_threshold`, `win_ev_threshold`, `min_win_prob`, `max_win_odds`.
-- Calibrate these from the win model's edge distribution on validation data.
-- In `get_win_candidates()`, use the win-specific parameters instead of place parameters.
-
-**Detection:**
-- Plot the distribution of `win_selection_edge` values. If the 95th percentile is much higher than `edge_threshold=0.03`, the threshold is too low. If it is lower, the threshold is too high.
-
-**Phase:** Phase 2 (after win bet generation works).
-
-**Sources:**
-- Codebase analysis: `regime_detector.py`, `race_predictor.py:427-429`
-- MEDIUM confidence: Threshold values are configurable, exact calibration needs empirical data
+**Phase to address:**
+Phase 2 (drawdown control tuning). Should be calibrated after basic stake sizing works.
 
 ---
 
-### Pitfall 9: Race-Level Per-Race Loop Is The Dominant Performance Bottleneck
+### Pitfall 6: Conformal Filter Threshold Creates a False Sense of Precision
 
-**What goes wrong:** The backtest engine iterates over individual races in a Python for-loop (`engine.py:420: for race_id in race_ids:`). For each race, it:
-1. Filters the full feature DataFrame for that race (line 421)
-2. Merges pre-computed features (hist_df, jockey_df, trainer_df, jt_df) for that race (lines 466-469)
-3. Drops POST_RACE columns (line 472-475)
-4. Calls `RacePredictor.predict()` which itself does multiple DataFrame operations per race
-5. Iterates over `result_df` rows to log diagnostics (lines 545-591, 632-678) using `.iterrows()`
+**What goes wrong:**
+The `RobustConfidenceEstimator` at `robust_confidence_estimator.py:14-252` produces `EV_lower_win_corrected` and `conformal_confidence_score`. The plan is to filter bets where `EV_lower_win_corrected < alpha_threshold`. But:
 
-For a year of ~5000 races, this is 5000 iterations of DataFrame filtering, merging, and row-level iteration. The per-race overhead compounds.
+1. **Conformal prediction assumes exchangeability.** The calibration residuals must be exchangeable (i.i.d.-like). Horse racing residuals are heteroscedastic: high-odds horses have much larger prediction errors than low-odds horses. The race-condition-dependent quantile at lines 71-77 partially addresses this but only for `surface x distance_bin`, not for odds level.
+2. **The alpha threshold is a tuning parameter.** Setting alpha=0.1 means "exclude bets where the 90% lower bound of EV is below threshold." If you optimize this threshold on backtest ROI, you are doing exactly the parameter optimization that Pitfall 2 warns about.
+3. **The `conformal_confidence_score` at line 216 is a composite metric:** `ev_lower_secondary * (1 - normalized_width)`. This is reasonable but the normalization is within-race (`groupby race_id`). In a race with 3 strong candidates, all get high confidence scores even if they are mediocre in absolute terms.
 
-**Why it happens:** The original design processes races one-by-one because bet settlement needs sequential bankroll tracking. But the feature engineering and model inference could be batched.
+**Why it happens:**
+- Conformal prediction provides valid coverage guarantees under exchangeability, but "valid coverage" does not mean "useful for filtering." The 90% lower bound may be so conservative that it filters out all but the safest bets, or so permissive that it passes everything.
+- The confidence score is relative within a race. A horse with confidence_score=0.5 in a weak race looks the same as a horse with confidence_score=0.5 in a strong race, but the absolute edge may differ by 2x.
 
-**Prevention:**
-- Batch model inference: instead of calling `predict()` per race, call it once on the full `feat_df` with a `race_id` groupby. LightGBM/XGBoost inference is much faster in batch mode.
-- Pre-compute and cache `predict()` results for all races before entering the settlement loop.
-- The settlement loop (bankroll tracking) must remain sequential but should be lightweight (just arithmetic, no DataFrame operations).
-- Replace `.iterrows()` in diagnostic logging with vectorized column extraction.
-- Replace the `for _, row in payouts_df.iterrows()` in `build_payout_map()` with vectorized `zip()` and list comprehension.
+**How to avoid:**
+1. **Use conformal filter as a safety net, not a primary selector.** Keep the existing `WinSelectionGateModel` as the primary bet selector. Use conformal confidence only to exclude bets where the confidence interval is so wide that the edge estimate is unreliable (e.g., `EV_lower_win_corrected < 0.5`).
+2. **Do not optimize the conformal alpha threshold.** Pick a conservative value (alpha=0.1, i.e., 90% confidence) and stick with it. Treat it as a fixed safety parameter, not a tuning knob.
+3. **Add absolute confidence floor.** In addition to the within-race normalized confidence, check that the absolute `EV_lower_win_corrected >= 0.8` (or some minimum) before allowing a bet. This prevents passing bets in weak races where all horses have high relative scores.
 
-**Detection:**
-- Profile `engine.py` run time. If per-race processing exceeds 0.1 seconds (500+ seconds total for 5000 races), the loop overhead is significant.
-- Check if `predict()` call dominates the per-race time (it likely does due to DataFrame copies and merges).
+**Warning signs:**
+- Conformal filter rejects >50% of WinSelectionGateModel-approved bets. The filter is too aggressive and may be throwing away genuine edge.
+- Conformal filter rejects <5% of bets. It is not doing anything useful and adds complexity without value.
+- The ROI of conformal-filtered bets is only marginally better than unfiltered bets. The filter is not adding discriminative power.
 
-**Phase:** Phase 3 (pipeline optimization).
-
-**Sources:**
-- Codebase analysis: `engine.py:420-785`, `race_predictor.py:51-222`
-- HIGH confidence: Per-race loop pattern is directly observable; ~5000 iterations with DataFrame operations per iteration
+**Phase to address:**
+Phase 1 (confidence filter implementation).
 
 ---
 
-### Pitfall 10: `build_payout_map()` Uses `iterrows()` Over Full Payouts DataFrame
+### Pitfall 7: EV-Proportional Sizing Amplifies Tail Risk
 
-**What goes wrong:** `build_payout_map()` at `engine.py:112` iterates row-by-row with `for _, row in payouts_df.iterrows()`. For a year of data with ~5000 races and 5 place payout entries each, this processes ~25,000 rows via slow Python iteration. The same pattern exists in `build_wide_payout_map()` with up to 35,000 iterations (7 wide entries x 5000 races).
+**What goes wrong:**
+EV-proportional sizing (stake proportional to EV) sounds logical: bet more when the edge is larger. But for win betting with high-odds horses, a small number of bets with very high EV dominate the bankroll exposure. For example:
+- Horse A: EV=1.50, odds=5.0 -> 50% edge, Kelly fraction ~12.5%, stake = 12,500 yen (capped at 10,000)
+- Horse B: EV=1.05, odds=2.0 -> 5% edge, Kelly fraction ~5%, stake = 5,000 yen
 
-**Why it happens:** The function was written for correctness, not performance. `iterrows()` is the slowest pandas iteration method (creates a Series per row).
+Horse A gets 2x the stake of Horse B. If Horse A loses (80% probability at odds 5.0), the bankroll drops 10%. If this happens repeatedly in a cluster, the DD controller kicks in and reduces ALL subsequent bets. The system becomes dominated by a few high-EV bets.
 
-**Prevention:**
-- Replace with vectorized operations:
-```python
-# Win payout map (vectorized)
-tansyo_cols = ["race_id", "paytansyoumaban1", "paytansyopay1"]
-t = payouts_df[tansyo_cols].dropna()
-t["key"] = t["race_id"].astype(str) + "_" + t["paytansyoumaban1"].astype(int).astype(str)
-t["val"] = t["paytansyopay1"].astype(float) / 100.0
-win_payout_map = dict(zip(t["key"], t["val"]))
-```
-- Use `itertuples()` as a middle ground if full vectorization is complex.
-- For the wide payout map, parse kumi strings with `.str` operations.
+In this codebase, `StakeCalculator.calc_stake()` uses edge-based Kelly (`edge / (odds - 1)`), which already scales with EV. The `RACE_EXPOSURE_CAP = 0.02` (2% of bankroll) at `stake_calculator.py:28` and `check_race_exposure()` at lines 79-122 provide protection. But the cap is relative to bankroll, not to the EV distribution.
 
-**Detection:**
-- Time `build_payout_map()` and `build_wide_payout_map()`. If they take > 5 seconds combined, optimization is needed.
+**Why it happens:**
+- EV distribution for win bets is heavy-tailed. Most bets have EV 1.0-1.2, but a few have EV 1.5-3.0. EV-proportional sizing concentrates stake in the tail.
+- The 10,000 yen MAX_STAKE cap at line 30 provides some protection, but at a 100,000 yen bankroll, 10,000 yen is already 10% exposure on a single bet -- far above the 2% race cap.
 
-**Phase:** Phase 3 (pipeline optimization), quick win.
+**How to avoid:**
+1. **Cap EV-proportional scaling.** Instead of `stake = base * (ev / threshold)`, use `stake = base * min(ev / threshold, max_scale)` where `max_scale = 2.0`. This prevents extreme concentration.
+2. **Use log-EV scaling instead of linear.** `stake = base * log(ev) / log(threshold)`. This compresses the tail and prevents a few high-EV bets from dominating.
+3. **Enforce per-bet exposure cap independent of race cap.** Add `BET_EXPOSURE_CAP = 0.01` (1% of bankroll per bet) in addition to the existing 2% per-race cap.
+4. **Monitor concentration.** After backtest, compute the Herfindahl index of bet stakes. If HHI > 0.01 (equivalent to 100 equal bets), the sizing is too concentrated.
 
-**Sources:**
-- Codebase analysis: `engine.py:102-168`
-- HIGH confidence: `iterrows()` performance impact is well-documented
+**Warning signs:**
+- Top 10 bets by stake account for >20% of total stake. Sizing is too concentrated.
+- More than 3 bets hit the MAX_STAKE cap. The scaling function wants to bet more than the cap allows.
+- Removing the top-10 bets by stake changes ROI by >5 percentage points. The system is dependent on a few large bets.
 
----
-
-### Pitfall 11: Training Pipeline Recomputes Features Every Run (No Feature Caching)
-
-**What goes wrong:** `TrainingPipelineV5.run()` always recomputes ALL features from raw data (load races -> load entries -> load odds -> build_all -> add submodel features). For a 4-year training window (~200K entries), this takes significant time. When running WF validation with 2 folds, the same feature computation runs twice for overlapping periods.
-
-**Why it happens:** No feature caching mechanism exists. The pipeline was designed for simplicity, not iteration speed. The existing `data/features/horse_features.parquet` cache is referenced in `readers.py:297-300` but is never written to by the training pipeline.
-
-**Consequences:** Each training run takes ~44 minutes (per CLAUDE.md). WF validation with 2 folds takes ~4 hours. Development iteration is slow.
-
-**Prevention:**
-- Cache `feat_df` (before submodel-specific features) to `data/features/horse_features.parquet` after the first computation. Subsequent runs load from cache if the input data range matches.
-- Add a `--cache-features` flag to `run_train.py` and `run_wf_validation.py`.
-- Hash the input parameters (date range, feature version) into a cache key. If the key matches, skip feature computation.
-- NOTE: Submodel-specific features (HorseHistoryFeatures, PaceAptitudeFeatures, etc.) depend on the training data and cannot be simply cached. Only cache the base features from `FeatureEngine.build_all()`.
-
-**Detection:**
-- Add timing instrumentation. If `build_all()` takes > 10 minutes, feature caching is worth implementing.
-
-**Phase:** Phase 3 (pipeline optimization).
-
-**Sources:**
-- Codebase analysis: `training_pipeline.py:84-188`, `readers.py:297-300`
-- HIGH confidence: No caching mechanism observable in pipeline code
+**Phase to address:**
+Phase 1 (EV-proportional sizing implementation).
 
 ---
 
-### Pitfall 12: Optuna Hyperparameter Search In Ensemble Adds 2-3x Training Time
+### Pitfall 8: Silent Interaction Between Multiple Filters
 
-**What goes wrong:** The v1.1 ensemble uses Optuna for per-model hyperparameter optimization (per PROJECT.md). This adds significant training time on top of the already expensive 3-model stacking. Combined with the lack of feature caching (Pitfall 11), a single WF fold could take 2+ hours.
+**What goes wrong:**
+v1.3 plans to add multiple filters in sequence: Conformal confidence filter -> odds band filter -> regime edge filter -> DD-adjusted sizing. Each filter individually makes sense, but their interaction can create unexpected behavior:
 
-**Why it happens:** Optuna runs multiple trials per model, each requiring a full model training. With 3 base models x N trials x K OOF folds, the trial count multiplies.
+1. **Cascading exclusion.** The Conformal filter removes 30% of bets. The odds band filter removes another 20% of remaining bets. The regime filter removes another 15%. Total removal: 30% + 14% + 10.5% = 54.5%. You end up with far fewer bets than any single filter would suggest, potentially below the minimum needed for statistical significance.
+2. **Correlated filters.** If the Conformal confidence score is correlated with odds (it likely is -- high-odds horses have wider confidence intervals), the odds band filter and Conformal filter are removing overlapping bet populations. The "additional" filtering from adding the second filter is much less than expected.
+3. **Order dependency.** Applying Conformal filter before regime filter gives different results than the reverse order, because regime parameters (edge_threshold) interact with the filtered population.
 
-**Prevention:**
-- For development iterations, disable Optuna and use fixed reasonable hyperparameters. Only run Optuna for the final production model.
-- Add a `--quick-train` flag that skips Optuna, uses fewer OOF folds (2 instead of 5), and reduces boost rounds (200 instead of 300).
-- Cache Optuna results: if hyperparameters have been tuned for a given data range, reuse them instead of re-optimizing.
+In the current codebase, `BacktestEngine.run()` at lines 681-798 applies filters in this order: regime detection -> candidate selection (WinSelectionGate) -> bet generation -> settlement. The new filters would be inserted at various points in this chain.
 
-**Detection:**
-- If a single training run exceeds 90 minutes, Optuna is likely the bottleneck.
+**Why it happens:**
+- Each filter is designed and tested in isolation. "Conformal filter improves ROI by 2pt." "Odds band filter improves ROI by 1.5pt." The naive expectation is 3.5pt combined, but the actual improvement may be 2.5pt due to overlap.
+- Filter order matters because each filter changes the population that subsequent filters see.
 
-**Phase:** Phase 3 (pipeline optimization).
+**How to avoid:**
+1. **Test filters in combination, not just individually.** Run backtest with all filters enabled simultaneously and measure the combined effect. Do not assume effects are additive.
+2. **Fix filter order and document it.** The recommended order: (1) Regime detection (sets parameters), (2) WinSelectionGate (primary selection), (3) Conformal confidence floor (safety net), (4) Odds band validation (optional post-filter), (5) Kelly sizing, (6) DD adjustment.
+3. **Monitor filter cascade metrics.** For each filter, log: number of bets before, number after, and the overlap with the previous filter's exclusion set. This reveals correlation between filters.
+4. **Set minimum bet count.** If the combined filters reduce bet count below 1,000 per year, the statistical power to detect genuine edge is very low. Add a guard that warns if bet count drops below this threshold.
 
-**Sources:**
-- PROJECT.md context: "学習時間がOptunaチューニングにより推定2-3倍に増加"
-- HIGH confidence: Optuna overhead is documented in project context
+**Warning signs:**
+- Combined filter improvement < sum of individual improvements. Filters are correlated.
+- Bet count drops below 2,000 per year. Too few bets for reliable ROI estimation.
+- Adding a new filter changes ROI by <0.5pt. The filter is not adding value.
 
----
-
-### Pitfall 13: Diagnostic CSV `iterrows()` Calls In Per-Race Loop Are Expensive
-
-**What goes wrong:** Within the per-race loop, the engine calls `diag_logger.log_horse()` for every horse in every race (lines 545-591 for quality-failed races, lines 632-678 for quality-passed races). Each call uses `hr.to_dict()` on a row from `result_df.iterrows()`. For a race with 14 horses, that is 14 dict constructions per race, 70,000 total for 5000 races. The dict construction is slow because it includes all feature columns (~120+).
-
-**Why it happens:** Diagnostics were designed for completeness, not performance. Logging every horse's every feature is overkill for routine backtests.
-
-**Prevention:**
-- Make diagnostic logging optional. Add a `--diagnostics` flag to `run_backtest.py`. Only enable for debugging.
-- When diagnostics are disabled, skip the entire `log_horse` / `log_horse_features` calls.
-- When diagnostics are enabled, only log the bet-relevant columns (not all ~120 feature columns).
-- The `log_race()` call is lightweight (1 per race) and can always run.
-
-**Detection:**
-- Profile `diag_logger.log_horse()` total time. If it exceeds 10% of total backtest time, it is worth optimizing.
-
-**Phase:** Phase 3 (pipeline optimization).
-
-**Sources:**
-- Codebase analysis: `engine.py:545-591, 632-678`
-- HIGH confidence: `iterrows()` + `to_dict()` overhead well-documented
+**Phase to address:**
+Phase 1 (filter implementation and integration testing).
 
 ---
 
-## Minor Pitfalls
+## Technical Debt Patterns
 
-### Pitfall 14: `run_backtest.py` Report Compares Against Place Baseline ROI
+Shortcuts that seem reasonable but create long-term problems.
 
-**What goes wrong:** The `before_roi = 0.638` hardcoded at line 233 and the display logic at lines 233-243 compare backtest ROI against a place-model baseline. This is misleading when testing win bets.
-
-**Prevention:** Replace with a win-model baseline or make it configurable via command-line argument.
-
-**Phase:** Phase 2 (analysis).
-
----
-
-### Pitfall 15: Bet History Records Place-Specific Fields For Win Bets
-
-**What goes wrong:** `bet_history` entries at `engine.py:699-752` record `p_place_pred`, `e_return_place_pred` in the bet history. For win validation, these should be `p_win_pred`, `e_return_win_pred`, `ev_win`, `ev_win_corrected`, `EV_lower_win_corrected`. The multi-year JSON report and parquet output will contain the wrong prediction values.
-
-**Prevention:** Add win-specific fields to bet_history entries. Record both win and place metrics for completeness, or switch based on the bet type.
-
-**Phase:** Phase 2 (analysis/reporting).
+| Shortcut | Immediate Benefit | Long-term Cost | When Acceptable |
+|----------|-------------------|----------------|-----------------|
+| Hardcode regime thresholds | Quick implementation, no tuning infrastructure needed | Thresholds become stale as data distribution shifts; every threshold change requires manual backtest | MVP only. Must add config-driven thresholds before production. |
+| Single-pass backtest for filter validation | Fast iteration | No OOS validation of filter parameters; all improvements may be overfit | Never for final reporting. Acceptable for exploratory analysis only. |
+| Use PLACE-calibrated DD controller for WIN | No new code needed | DD reaction is too aggressive for WIN's lower hit rate; system may get trapped in REDUCED state | Only if WIN-specific calibration is planned for next phase |
+| Optimize all parameters simultaneously | Potentially larger ROI improvement | Massive overfitting risk; no way to attribute improvement to individual parameters | Never. Optimize one parameter at a time, validate each on OOS. |
+| Ignore filter interaction effects | Simpler implementation | Combined effect is unpredictable; may over- or under-filter | Acceptable in Phase 1 if combined test is done before Phase 2 |
 
 ---
 
-### Pitfall 16: `backtest_result.json` Does Not Distinguish Win vs. Place Mode
+## Integration Gotchas
 
-**What goes wrong:** The JSON output from `run_backtest.py` does not record which betting mode was used. If someone runs a place backtest and later a win backtest, the JSON files look identical in structure. Comparing them requires external knowledge.
+Common mistakes when connecting new betting strategy components to existing infrastructure.
 
-**Prevention:** Add `betting_target: "win"` or `"place"` field to the JSON output.
-
-**Phase:** Phase 2 (reporting).
-
----
-
-### Pitfall 17: `_generate_bets()` Legacy Method Still Uses Place-Only Logic
-
-**What goes wrong:** `_generate_bets()` at `engine.py:870-907` is a legacy method that creates only `BetType.PLACE` bets using `fukuoddslow`. It is marked as "kept for compatibility" (tests may reference it). If any code path falls back to this method, it will generate place bets regardless of the intended mode.
-
-**Prevention:** Ensure all code paths use `RacePredictor.select_bets()` and never fall back to `_generate_bets()`. Add a deprecation warning.
-
-**Phase:** Phase 1 (ensure no regression).
+| Integration Point | Common Mistake | Correct Approach |
+|-------------------|----------------|------------------|
+| StakeCalculator + DDController | DD adjusts stake AFTER Kelly cap, making effective cap unpredictable | Apply DD multiplier before rounding, then re-apply 100-yen floor and MAX_STAKE cap |
+| RegimeDetector + WinSelectionGate | Regime sets edge_threshold but gate model has its own min_edge; these may conflict | Regime should set high-level parameters (bet/not-bet), gate model should set fine-grained selection. Do not double-filter. |
+| ConformalEstimator + BacktestEngine | Conformal is calibrated on OOF data from training pipeline, but backtest uses different feature computation path | Verify conformal calibration is loaded from the same model checkpoint used in training. The `predict_interval()` call in `race_predictor.py:150` must use the calibrated quantiles. |
+| Odds band filter + WinSelectionGate | Gate model already encodes odds band information via `_odds_bin`. Adding a separate odds band filter double-counts odds information. | If WinSelectionGate is used, odds band filter should be redundant. Only add explicit odds band filter if gate model is disabled. |
+| Kelly sizing + race exposure cap | `check_race_exposure()` scales down all bets proportionally when cap is exceeded, but does not re-check minimum stake. Bets with stake < 100 after scaling are silently dropped. | After `check_race_exposure()`, filter out bets with `stake < 100` and log the count of dropped bets. Current code at `engine.py:227` does this correctly. |
+| DDController.update() + sequential bankroll | DD is updated per-bet, not per-race. A single race with 2 bets triggers 2 DD updates. | Consider updating DD once per race (aggregate result) rather than per-bet. This reduces DD noise from correlated within-race bets. |
 
 ---
 
-### Pitfall 18: `compute_roi_ema()` And Market Bias Features May Use Wrong Odds Column
+## Performance Traps
 
-**What goes wrong:** Various feature computations use `tanodds` (win odds) for some calculations and `fukuoddslow` (place odds) for others. When the betting target is win, some feature computations that use `fukuoddslow` in the EV pipeline (e.g., `compute_market_bias`, Benter combination at `race_predictor.py:158-193`) need to use `tanodds` instead. If this is not consistent, the EV estimates will mix win and place odds.
+Patterns that work at the current scale but would fail with different parameter choices.
 
-**Why it happens:** The Benter combination at `race_predictor.py:158-193` computes `p_market = 1.0 / fukuoddslow` which is the market-implied PLACE probability. This feeds into `edge_place = p_combined * fukuoddslow - 1.0`. This is correct for place but wrong for win. A parallel path using `1.0 / tanodds` and `ev_win` must be used for win bets.
-
-**Prevention:** The Win Benter Combination (`WinBenterGate.apply()`) at `race_predictor.py:119-128` already handles this correctly using tanodds. Ensure `get_win_candidates()` uses the Win Benter outputs rather than the place Benter outputs.
-
-**Phase:** Phase 1 (verify win Benter is used in win path).
-
-**Sources:**
-- Codebase analysis: `race_predictor.py:119-128, 158-193`, `win_benter_gate.py`
-- HIGH confidence: Separate win and place Benter paths observable
+| Trap | Symptoms | Prevention | When It Breaks |
+|------|----------|------------|----------------|
+| Per-race regime detection in backtest loop | Backtest takes >2x longer when regime detection is enabled | Cache regime state and only re-detect every N races instead of every race | With N=5000 races and LightGBM inference per race, regime detection adds ~1-2 minutes. Acceptable. Breaks if model is heavier. |
+| Grid search over strategy parameters | Parameter optimization takes hours for large grids | Limit grid to <=3 parameters with <=5 values each; use randomized search for larger spaces | With 5 params x 5 values = 3125 combinations x 57 min/backtest = 124 days. Never grid-search more than 3 params. |
+| DDController SMA+EWMA hybrid recalculated per bet | Each `get_multiplier()` call recalculates SMA over 150-element list | Use deque with rolling sum instead of `np.mean(list)` per call | At 9074 bets, this is 9074 * 150 = 1.36M operations. Marginal but noticeable. Breaks at 100K+ bets. |
+| DiagnosticLogger writing per-horse CSV | CSV grows linearly with bet count and feature count | Make diagnostics optional; only log for bet-relevant columns in production mode | At 9074 bets x 14 horses x 120 features = 15M cells. ~50MB CSV. Acceptable now, breaks at 50K+ bets. |
 
 ---
 
-## Phase-Specific Warnings
+## "Looks Done But Isn't" Checklist
 
-| Phase Topic | Likely Pitfall | Mitigation |
-|-------------|---------------|------------|
-| Win payout map creation | Pitfall 1: Using place payouts for win settlement | Create `build_win_payout_map()` reading `paytansyoumaban1/paytansyopay1` |
-| Final odds map for win | Pitfall 2: Using `fukuoddslow` for win odds | Build separate map from `tanodds` or `confirmed_odds` |
-| Win bet generation | Pitfall 3: No `get_win_candidates()` or win bet path | Create win candidate selection using `WinSelectionGate` outputs |
-| WF validation mode | Pitfall 5: Engine defaults to place bets | Add betting target parameter to engine and WF script |
-| Diagnostic logging | Pitfall 4: Logging place metrics only | Add win metric logging path |
-| Edge threshold calibration | Pitfall 8: Place thresholds applied to win edges | Add win-specific regime parameters |
-| Per-race loop performance | Pitfall 9: 5000 DataFrame operations in loop | Batch inference, cache predict results |
-| Payout map performance | Pitfall 10: `iterrows()` on payouts | Vectorize payout map construction |
-| Feature caching | Pitfall 11: Recomputing features every run | Cache `feat_df` between training runs |
-| Optuna overhead | Pitfall 12: 2-3x training time from HP search | Add `--quick-train` flag for development |
-| Diagnostic overhead | Pitfall 13: Per-horse `to_dict()` in loop | Make diagnostics optional |
-| Bet history analysis | Pitfall 15: Place-specific fields in history | Add win fields to bet_history entries |
-| Report baseline | Pitfall 14: Hardcoded place baseline ROI | Make baseline configurable or remove |
+Things that appear complete when adding betting strategy optimization but are missing critical pieces.
+
+- [ ] **Kelly criterion:** Often missing edge estimate validation -- verify that `edge` used in Kelly matches OOF-realized edge, not just in-sample edge. Check: compute realized edge per decile of predicted edge on OOF data.
+- [ ] **EV-proportional sizing:** Often missing concentration risk check -- verify that no single bet accounts for >5% of total annual exposure. Check: compute top-10 bet exposure share after sizing.
+- [ ] **Conformal filter:** Often missing calibration verification -- verify that `EV_lower_win_corrected` is actually a valid lower bound on OOS data (at least 90% of actual EVs should be above the lower bound). Check: compute coverage rate on OOS data.
+- [ ] **Odds band exclusion:** Often missing minimum sample check -- verify excluded bands have >200 bets on OOS data. Check: log bet count per band after filtering.
+- [ ] **Regime parameter update:** Often missing OOS validation -- verify regime parameters (ev_threshold, edge_threshold) are set on training data, not optimized on test data. Check: verify parameter_freeze_protocol covers regime parameters.
+- [ ] **DD controller WIN calibration:** Often missing hit-rate adjustment -- verify ROLLING_WINDOW and recovery thresholds are calibrated for ~10% hit rate (WIN) not ~30% (PLACE). Check: run DD controller in isolation and verify multiplier distribution.
+- [ ] **Filter cascade testing:** Often missing combined test -- verify all filters together on a held-out year that was NOT used for individual filter development. Check: reserve 2023 as "validation" year, develop filters on 2024, report 2023 results.
 
 ---
 
-## Priority Action Items (Ordered by Impact)
+## Recovery Strategies
 
-1. **Build `build_win_payout_map()`** (Pitfall 1) -- Without this, ALL win backtest ROI numbers are wrong. Must read `paytansyoumaban1` and `paytansyopay1`.
+When pitfalls occur despite prevention, how to recover.
 
-2. **Fix `final_odds_map` to use `tanodds` for win** (Pitfall 2) -- Settlement fallback uses place odds. Must dispatch by bet type.
-
-3. **Create `get_win_candidates()` and win bet generation** (Pitfall 3) -- Without this, no win bets are generated. Use `WinSelectionGate` outputs.
-
-4. **Add betting target parameter to `BacktestEngine`** (Pitfall 5) -- Engine must know whether to generate win or place bets. Propagate to `RacePredictor`.
-
-5. **Add win diagnostic logging** (Pitfall 4) -- After backtest runs, diagnostics must show win metrics for analysis.
-
-6. **Batch model inference in backtest loop** (Pitfall 9) -- The biggest performance win for the optimization phase. Call `predict()` once on full DataFrame instead of per-race.
-
-7. **Vectorize payout map construction** (Pitfall 10) -- Quick performance win, easy to implement.
-
-8. **Add feature caching to training pipeline** (Pitfall 11) -- Largest time savings for iteration speed. Cache base features between runs.
-
-9. **Add `--quick-train` mode** (Pitfall 12) -- Disable Optuna for development iterations. Saves 2-3x per training run.
-
-10. **Make diagnostics optional** (Pitfall 13) -- Disable by default for routine backtests. Saves ~10% of loop time.
+| Pitfall | Recovery Cost | Recovery Steps |
+|---------|---------------|----------------|
+| Kelly overbetting (bankroll loss) | MEDIUM | (1) Revert to flat 100-yen bets, (2) Reduce FRACTIONAL_KELLY to 0.25 (quarter-Kelly), (3) Recalibrate edge estimates on OOF data |
+| Look-ahead bias in parameters | LOW | (1) Identify which parameters were optimized on test data, (2) Revert to pre-optimization values or use separate validation period, (3) Re-run backtest with corrected parameters |
+| Regime overfitting | LOW | (1) Disable regime switching (force CONSERVATIVE), (2) Re-run backtest, (3) If ROI improves, regime was harmful and can be removed |
+| Odds band survivorship bias | LOW | (1) Remove odds band filter, (2) Re-run backtest, (3) If ROI drops significantly, the model edge genuinely varies by odds band -- but verify on 2+ OOS periods |
+| DD controller trapping | LOW | (1) Increase ROLLING_WINDOW to 500, (2) Lower RECOVERY_ROI_THRESHOLD to 0.90, (3) If still trapped, disable DD control and use fixed 100-yen flat bets |
+| Filter interaction surprise | LOW | (1) Remove the newest filter, (2) Re-run backtest to isolate the problematic interaction, (3) Fix filter order or remove redundant filter |
+| Concentration from EV-proportional sizing | MEDIUM | (1) Cap per-bet exposure at 1% of bankroll, (2) Use log-EV scaling instead of linear, (3) Verify Herfindahl index of bet stakes |
 
 ---
 
-## Dependency Graph
+## Pitfall-to-Phase Mapping
 
-```
-Pitfall 1 (payout map) ──┐
-Pitfall 2 (final odds) ──┤── Must be done FIRST (Phase 1)
-Pitfall 3 (bet gen)    ──┤
-Pitfall 5 (WF mode)    ──┘
-         │
-         ▼
-Pitfall 4 (diagnostics) ── Phase 1-2 (alongside first backtest run)
-Pitfall 6 (fallback)    ── Phase 1 (resolved by Pitfall 2 fix)
-Pitfall 17 (legacy)     ── Phase 1 (verify no regression)
-Pitfall 18 (Benter)     ── Phase 1 (verify win path)
-         │
-         ▼
-Pitfall 7 (baseline)    ── Phase 2 (analysis)
-Pitfall 8 (thresholds)  ── Phase 2 (calibration)
-Pitfall 14 (baseline)   ── Phase 2
-Pitfall 15 (history)    ── Phase 2
-Pitfall 16 (JSON)       ── Phase 2
-         │
-         ▼
-Pitfall 9  (loop)       ── Phase 3 (optimization)
-Pitfall 10 (payout)     ── Phase 3
-Pitfall 11 (cache)      ── Phase 3
-Pitfall 12 (Optuna)     ── Phase 3
-Pitfall 13 (diags)      ── Phase 3
-```
+How v1.3 phases should address these pitfalls.
+
+| Pitfall | Prevention Phase | Verification |
+|---------|------------------|--------------|
+| Kelly overbetting | Phase 1 (sizing) | Verify OOF realized edge vs predicted edge per decile. Confirm half-Kelly is used. |
+| Look-ahead bias | Phase 1 (parameter selection) | Use held-out 2023 as validation. Freeze strategy parameters before 2024 test. |
+| Regime overfitting | Phase 1 (regime calibration) | Count regime transitions on test period. Verify <50 per year. Test CONSERVATIVE-only as baseline. |
+| Odds band survivorship | Phase 1 (filter implementation) | Require >200 bets per band on OOS. Use shrinkage toward global mean. |
+| DD controller WIN mismatch | Phase 2 (DD tuning) | Verify ROLLING_WINDOW >= 400 for WIN. Check multiplier distribution: >70% of races at 1.0 is healthy. |
+| Conformal filter precision | Phase 1 (confidence filter) | Verify 90% coverage rate on OOS data. Confirm filter passes >60% of WinSelectionGate bets. |
+| EV-proportional tail risk | Phase 1 (sizing) | Compute top-10 exposure share. Verify <15% of total stake. |
+| Filter interaction | Phase 2 (integration testing) | Run combined filter backtest on validation year. Compare combined improvement vs sum of individual improvements. |
 
 ---
 
 ## Sources
 
-### HIGH confidence (codebase analysis + directly observable patterns)
-- `src/backtest/engine.py:102-168` -- payout map construction using place-only columns
-- `src/backtest/engine.py:276-281` -- final odds map using `fukuoddslow`
-- `src/backtest/engine.py:420-785` -- per-race loop with DataFrame operations
-- `src/backtest/engine.py:909-950` -- settlement logic dispatching
-- `src/backtest/race_predictor.py:408-642` -- place-only candidate selection and bet generation
-- `src/backtest/race_predictor.py:119-143` -- WinSelectionGate application (correct win path exists)
-- `src/db/etl.py:112-113` -- win payout columns in schema (`paytansyoumaban1`, `paytansyopay1`)
-- `src/domain/types.py:13-18` -- BetType enum includes WIN
-- `scripts/run_wf_validation.py:171-195` -- WF backtest engine instantiation
-- `scripts/run_backtest.py:233` -- hardcoded place baseline ROI
+### HIGH confidence (codebase analysis + directly observable patterns + established domain knowledge)
+- `src/betting/stake_calculator.py:1-123` -- Kelly sizing implementation with half-Kelly, cap, and race exposure
+- `src/betting/drawdown_controller.py:1-181` -- DD controller with SMA+EWMA, hysteresis, per-N-bets rate limit
+- `src/models/regime_detector.py:1-240` -- 3-state regime with hysteresis counter, hardcoded strategy parameters
+- `src/backtest/engine.py:1-1175` -- backtest loop with per-race regime update, bet settlement, DD feedback
+- `src/backtest/race_predictor.py:1-900` -- candidate selection, bet generation, regime parameter application
+- `src/models/win_selection_gate.py:1-1113` -- WF OOF gate training with threshold surface, score tables
+- `src/models/robust_confidence_estimator.py:1-253` -- conformal prediction with race-condition quantiles
+- `src/betting/gate_keeper.py:1-42` -- edge-based final filter
+- `src/backtest/parameter_freeze_protocol.py:1-101` -- model parameter freezing (does NOT cover strategy params)
 
-### MEDIUM confidence (needs empirical validation)
-- Pitfall 8: Win edge threshold calibration -- needs win model edge distribution data
-- Pitfall 11: Feature caching time savings -- needs profiling to confirm `build_all()` is the bottleneck
-- Pitfall 12: Optuna overhead fraction -- needs timing data from v1.1 training runs
+### MEDIUM confidence (domain knowledge from web sources, needs empirical validation)
+- Kelly overbetting from overconfident ML edge estimates: [Common Mistakes with Kelly](https://kellycriterion.co.uk/sport-betting-guides/common-mistakes-to-avoid-when-using-the-kelly-criterion-in-sports-betting/), [Analytics.Bet on Kelly](https://analytics.bet/articles/reasons-to-ignore-the-kelly-criterion/), [Kelly Criterion Wikipedia](https://en.wikipedia.org/wiki/Kelly_criterion)
+- Drawdown control feedback loops: [On Kelly Betting Limitations (arXiv)](https://arxiv.org/pdf/1710.01787), [Risk-Constrained Kelly (Stanford)](https://web.stanford.edu/~boyd/papers/pdf/kelly.pdf)
+- Look-ahead bias in backtest optimization: [Backtesting Pitfalls (Quant Guild)](https://www.linkedin.com/posts/quant-guild_3-backtesting-pitfalls-that-ruin-your-trading-activity-7439369906346737664-qzwO), [Look-Ahead Bias Detection (Medium)](https://mikeharrisny.medium.com/look-ahead-bias-in-backtests-and-how-to-detect-it-ad5e42d97879)
+- Fractional Kelly practical guidance: [Why Fractional Kelly (simulations)](https://matthewdowney.github.io/uncertainty-kelly-criterion-optimal-bet-size.html), [Good and Bad Properties of Kelly (Berkeley)](https://www.stat.berkeley.edu/~aldous/157/Papers/Good_Bad_Kelly.pdf)
+- Regime detection overfitting: [Are most quant strategies overfit regime bets? (Reddit)](https://www.reddit.com/r/algotrading/comments/1r96n10/are_most_retail_quant_strategies_just_overfit/)
+
+### LOW confidence (extrapolated from related domains, flag for validation)
+- Odds band survivorship bias in horse racing: General statistical principle applied to this specific domain. The [Bookie Bashing odds band analysis](https://www.bookiebashing.net/2021/10/17/roi-of-bb-horse-racing-by-odds-bands-and-sp-2/) provides real-world data but the survivorship bias concern is inferred.
+- DD controller WIN-specific calibration: The analysis of 150-bet window being too short for WIN is based on statistical reasoning (10% hit rate -> 15 wins in 150 bets -> high variance). Needs empirical validation with actual WIN backtest data.
 
 ---
-*Research completed: 2026-05-04*
+*Pitfalls research for: Betting Strategy Optimization (v1.3)*
+*Researched: 2026-05-04*
 *Ready for roadmap: yes*
