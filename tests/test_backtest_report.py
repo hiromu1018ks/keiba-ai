@@ -248,6 +248,8 @@ class TestComputeConditionStats:
         assert result["surface_distance"] == []
         assert result["popularity_bands"] == []
         assert result["ev_bands"] == []
+        assert result["odds_multiplier_bands"] == []
+        assert result["regime_bands"] == []
 
 
 class TestComputeBankrollSeries:
@@ -532,3 +534,101 @@ class TestCliReportFlag:
         mock_gen.save_bet_history.assert_called_once()
         call_args = mock_gen.generate.call_args
         assert call_args[0][0].total_roi == 1.5  # BacktestResult passed
+
+
+class TestComputeRegimeStats:
+    """_compute_regime_stats のテスト"""
+
+    def _make_bets(self) -> list[dict[str, Any]]:
+        return [
+            {"regime": "aggressive", "stake": 100.0, "result": 250.0},
+            {"regime": "aggressive", "stake": 100.0, "result": 0.0},
+            {"regime": "conservative", "stake": 100.0, "result": 180.0},
+            {"regime": "conservative", "stake": 100.0, "result": 0.0},
+            {"regime": "collapsed", "stake": 100.0, "result": 0.0},
+        ]
+
+    def test_regime_aggregation(self) -> None:
+        """regime別に bets/wins/roi を正しく集計する"""
+        from backtest.report import BacktestReportGenerator
+
+        gen = BacktestReportGenerator(output_dir=Path("/tmp"))
+        result = gen._compute_regime_stats(self._make_bets())
+        assert len(result) == 3
+        agg = [r for r in result if r["regime"] == "aggressive"][0]
+        assert agg["bets"] == 2
+        assert agg["wins"] == 1
+        assert agg["roi"] == pytest.approx(250.0 / 200.0)
+
+    def test_empty_input(self) -> None:
+        """空リストは空リストを返す"""
+        from backtest.report import BacktestReportGenerator
+
+        gen = BacktestReportGenerator(output_dir=Path("/tmp"))
+        assert gen._compute_regime_stats([]) == []
+
+
+class TestComputeConditionStatsWin:
+    """_compute_condition_stats の win 拡張テスト"""
+
+    def _make_win_bets(self) -> list[dict[str, Any]]:
+        return [
+            {
+                "surface": "turf", "kyori": 1200, "popularity": 1,
+                "ev": 1.8, "stake": 100.0, "result": 250.0, "is_win": True,
+                "tanoddslow": 2.5, "regime": "aggressive",
+            },
+            {
+                "surface": "turf", "kyori": 1600, "popularity": 5,
+                "ev": 1.3, "stake": 100.0, "result": 300.0, "is_win": True,
+                "tanoddslow": 5.0, "regime": "conservative",
+            },
+            {
+                "surface": "dirt", "kyori": 1200, "popularity": 8,
+                "ev": 0.9, "stake": 100.0, "result": 0.0, "is_win": False,
+                "tanoddslow": 15.0, "regime": "aggressive",
+            },
+            {
+                "surface": "dirt", "kyori": 1800, "popularity": 3,
+                "ev": 1.5, "stake": 100.0, "result": 400.0, "is_win": True,
+                "tanoddslow": 8.0, "regime": "collapsed",
+            },
+        ]
+
+    def test_odds_multiplier_bands_present_in_win_mode(self) -> None:
+        """win モード時に odds_multiplier_bands と regime_bands が含まれる"""
+        from backtest.report import BacktestReportGenerator
+
+        gen = BacktestReportGenerator(output_dir=Path("/tmp"))
+        result = gen._compute_condition_stats(
+            self._make_win_bets(), betting_target="win"
+        )
+        assert "odds_multiplier_bands" in result
+        assert "regime_bands" in result
+
+    def test_odds_multiplier_bands_absent_in_place_mode(self) -> None:
+        """place モード時に odds_multiplier_bands と regime_bands が空リスト"""
+        from backtest.report import BacktestReportGenerator
+
+        gen = BacktestReportGenerator(output_dir=Path("/tmp"))
+        result = gen._compute_condition_stats(
+            self._make_win_bets(), betting_target="place"
+        )
+        assert result["odds_multiplier_bands"] == []
+        assert result["regime_bands"] == []
+
+    def test_odds_multiplier_bands_values(self) -> None:
+        """オッズ倍率帯の値が正しい"""
+        from backtest.report import BacktestReportGenerator
+
+        gen = BacktestReportGenerator(output_dir=Path("/tmp"))
+        result = gen._compute_condition_stats(
+            self._make_win_bets(), betting_target="win"
+        )
+        bands = result["odds_multiplier_bands"]
+        # tanoddslow: 2.5, 5.0, 15.0, 8.0
+        # bands: 1.0-3.0 (1), 3.0-10.0 (2), 10.0-30.0 (1)
+        band_names = [b["band"] for b in bands]
+        assert "1.0-3.0" in band_names
+        assert "3.0-10.0" in band_names
+        assert "10.0-30.0" in band_names
