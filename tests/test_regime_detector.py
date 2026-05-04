@@ -98,8 +98,7 @@ class TestRegimeDetector:
 
     def test_should_retrain_after_consecutive_collapsed(self) -> None:
         detector = RegimeDetector()
-        detector._current_regime = RegimeState.COLLAPSED
-        detector._regime_counter = 100
+        detector._collapsed_consecutive = 100
         assert detector.should_retrain() is True
 
     def test_min_samples_returns_conservative(self) -> None:
