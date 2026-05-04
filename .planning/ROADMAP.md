@@ -155,6 +155,6 @@ Phases execute in numeric order: 8 → 9 → 10
 | 5. Foundation Features | v1.1 | 2/2 | Complete | 2026-05-03 |
 | 6. Odds Deviation EV | v1.1 | 1/1 | Complete | 2026-05-03 |
 | 7. Ensemble Enhancement | v1.1 | 1/1 | Complete | 2026-05-03 |
-| 8. Win Backtest Core | v1.2 | 0/2 | Not started | - |
+| 8. Win Backtest Core | v1.2 | 1/2 | In progress | - |
 | 9. Win Reporting | v1.2 | 0/1 | Not started | - |
 | 10. Pipeline Performance | v1.2 | 0/2 | Not started | - |

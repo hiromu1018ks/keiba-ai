@@ -7,10 +7,10 @@
 
 ### Win Backtest Core
 
-- [ ] **WIN-01**: build_win_payout_map()で単勝払戻しデータ(tan_umaban/tan_pay)を読み取り、payout_mapを構築できる
-- [ ] **WIN-02**: final_odds_mapがtanoddslow(単勝オッズ)を使用し、単勝ベットの正しい決済を行える
+- [x] **WIN-01**: build_win_payout_map()で単勝払戻しデータ(tan_umaban/tan_pay)を読み取り、payout_mapを構築できる
+- [x] **WIN-02**: final_odds_mapがtanoddslow(単勝オッズ)を使用し、単勝ベットの正しい決済を行える
 - [ ] **WIN-03**: get_win_candidates()がwin_selection_ev/edge/prob列で候補をフィルタリングし、単勝ベット候補を生成できる
-- [ ] **WIN-04**: BacktestEngineにbetting_targetパラメータを追加し、単勝/複勝モードを切り替えられる(デフォルト=WIN)
+- [x] **WIN-04**: BacktestEngineにbetting_targetパラメータを追加し、単勝/複勝モードを切り替えられる(デフォルト=WIN)
 - [ ] **WIN-05**: Conformal信頼性スコア(conformal_confidence_score)を単勝ベット判定に組み込み、高信頼度ベットのみを生成できる
 
 ### Win Reporting
@@ -48,10 +48,10 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| WIN-01 | Phase 8 | Pending |
-| WIN-02 | Phase 8 | Pending |
+| WIN-01 | Phase 8 | Complete (08-01) |
+| WIN-02 | Phase 8 | Complete (08-01) |
 | WIN-03 | Phase 8 | Pending |
-| WIN-04 | Phase 8 | Pending |
+| WIN-04 | Phase 8 | Complete (08-01) |
 | WIN-05 | Phase 8 | Pending |
 | RPT-01 | Phase 9 | Pending |
 | RPT-02 | Phase 9 | Pending |
@@ -68,4 +68,4 @@
 
 ---
 *Requirements defined: 2026-05-04*
-*Last updated: 2026-05-04 after roadmap creation*
+*Last updated: 2026-05-04 after Plan 08-01 completion*
