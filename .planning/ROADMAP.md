@@ -126,7 +126,7 @@ Plans:
 
 **Milestone Goal:** バックテストROI 91.6% → 100%超えを達成するため、ベット選択の厳格化とステークサイジング最適化を実装する
 
-- [ ] **Phase 11: Bet Selection Filters** - Conformal信頼区間・レジームスキップ・オッズバンド除外でベット対象を厳格化
+- [x] **Phase 11: Bet Selection Filters** - Conformal信頼区間・レジームスキップ・オッズバンド除外でベット対象を厳格化
 - [ ] **Phase 12: Stake Sizing Enhancement** - レジーム別Kelly分数とEV比例乗算器で賭け金を最適化
 - [ ] **Phase 13: Risk Calibration & Parameter Optimization** - WIN向けDD調整 + パラメータ凍結 + Optuna最適化
 
@@ -145,7 +145,7 @@ Plans:
 
 Plans:
 - [x] 11-01: OddsBandFilter クラス + EV_lower フィルター + RegimeDetector skip=True (BSEL-01, BSEL-03)
-- [ ] 11-02: Engine統合 (COLLAPSED skip + OddsBandFilter + counters + guard) + レポート除外統計 (BSEL-01, BSEL-02, BSEL-03)
+- [x] 11-02: Engine統合 (COLLAPSED skip + OddsBandFilter + counters + guard) + レポート除外統計 (BSEL-01, BSEL-02, BSEL-03)
 
 ### Phase 12: Stake Sizing Enhancement
 **Goal**: レジーム状態に応じたKelly分数とEV比例乗算器により、高確信ベットに重点配分された賭け金が算出される
@@ -184,6 +184,6 @@ Phases execute in numeric order: 11 → 12 → 13
 | 8. Win Backtest Core | v1.2 | 2/2 | Complete | 2026-05-04 |
 | 9. Win Reporting | v1.2 | 1/1 | Complete | 2026-05-04 |
 | 10. Pipeline Performance | v1.2 | 2/2 | Complete | 2026-05-04 |
-| 11. Bet Selection Filters | v1.3 | 1/2 | Executing | - |
+| 11. Bet Selection Filters | v1.3 | 2/2 | Complete | 2026-05-04 |
 | 12. Stake Sizing Enhancement | v1.3 | 0/? | Not started | - |
 | 13. Risk Calibration & Parameter Optimization | v1.3 | 0/? | Not started | - |

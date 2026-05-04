@@ -3,11 +3,11 @@ gsd_state_version: 1.0
 milestone: v1.3
 milestone_name: Betting Strategy Optimization
 status: executing
-last_updated: "2026-05-04T14:30:40Z"
-last_activity: 2026-05-04 — Phase 11 Plan 02 completed
+last_updated: "2026-05-04T15:30:00Z"
+last_activity: 2026-05-04 — Phase 11 complete (verified 6/6)
 progress:
   total_phases: 3
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 6
   completed_plans: 2
   percent: 33
@@ -20,14 +20,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-05-04)
 
 **Core value:** 単勝モデルのバックテストROIを100%超えにすること
-**Current focus:** Phase 11 — Bet Selection Filters
+**Current focus:** Phase 12 — Stake Sizing Enhancement (next)
 
 ## Current Position
 
-Phase: 11 of 13 (Bet Selection Filters)
-Plan: 02 complete (Engine filter integration + exclusion stats)
-Status: Phase 11 complete, ready for Phase 12
-Last activity: 2026-05-04 — Phase 11 Plan 02 completed
+Phase: 12 of 13 (Stake Sizing Enhancement)
+Plan: —
+Status: Phase 11 verified complete, ready to plan Phase 12
+Last activity: 2026-05-04 — Phase 11 verified 6/6 must-haves
 
 Progress: [===       ] 33%
 
@@ -37,12 +37,13 @@ Progress: [===       ] 33%
 - v1.0: 4 phases, 7 plans, ~3 sessions
 - v1.1: 3 phases, 5 plans, ~2 sessions
 - v1.2: 3 phases, 5 plans, ~1 session
-- Total plans completed: 17 (v1.0 + v1.1 + v1.2)
+- v1.3: Phase 11 done (2 plans, ~13min)
+- Total plans completed: 19 (v1.0 + v1.1 + v1.2 + v1.3 partial)
 - Average duration: ~12min/plan
 
 **Cumulative:**
-- LOC (src/): ~21,200
-- Tests: 1,162
+- LOC (src/): ~21,500
+- Tests: 1,183
 - Total features implemented: 18+ new features across 3 milestones
 
 ## Accumulated Context
@@ -59,6 +60,7 @@ Recent decisions affecting v1.3:
 - Only ONE new component: OddsBandFilter; all others modify existing StakeCalculator/DrawdownController/RegimeDetector
 - Build order: Filters first → Sizing second → Tuning third (avoids sizing-on-wrong-bets anti-pattern)
 - No new production dependencies needed (numpy/pandas/optuna sufficient)
+- EV exclusion count propagated via DataFrame.attrs (gap fix in Phase 11)
 
 ### Pending Todos
 
@@ -82,5 +84,5 @@ Items acknowledged and deferred at milestone close on 2026-05-04:
 ## Session Continuity
 
 Last session: 2026-05-04
-Stopped at: Phase 11 Plan 02 completed — ready for Phase 12
-Resume file: .planning/phases/11-bet-selection-filters/11-02-SUMMARY.md
+Stopped at: Phase 11 verified complete — ready for Phase 12
+Resume file: .planning/phases/12-stake-sizing-enhancement/
