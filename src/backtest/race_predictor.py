@@ -430,6 +430,25 @@ class RacePredictor:
         mask = selection_edge.fillna(0.0) > 0.0
         mask &= odds.fillna(0.0) >= 1.0
 
+        # D-01: EV lower bound filter (dual with edge > 0)
+        ev_lower_col = "EV_lower_win_corrected"
+        n_before_ev = int(mask.sum())
+        if ev_lower_col in race_df.columns:
+            ev_lower = pd.to_numeric(race_df[ev_lower_col], errors="coerce")
+            # D-03: NaN -> True (fallback to edge-only, fillna(1.0) passes >= 1.0)
+            ev_mask = ev_lower.fillna(1.0) >= 1.0
+            mask &= ev_mask
+            n_ev_excluded = n_before_ev - int(mask.sum())
+            if n_ev_excluded > 0:
+                ev_total = len(race_df)
+                logger.info(
+                    "EV filter: excluded %d candidates (%.1f%%), "
+                    "EV_lower < 1.0 in race %s",
+                    n_ev_excluded,
+                    100.0 * n_ev_excluded / max(ev_total, 1),
+                    race_df["race_id"].iloc[0] if "race_id" in race_df.columns else "?",
+                )
+
         candidates = race_df.loc[mask].copy()
 
         if candidates.empty:

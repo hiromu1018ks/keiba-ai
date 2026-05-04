@@ -228,6 +228,7 @@ class RegimeDetector:
                 "score_threshold": 0.050,
                 "max_bets_per_race": 1,
                 "weak_prob_prune_threshold": 0.35,
+                "skip": True,  # D-11: COLLAPSED regime skip flag
                 "description": "崩壊 -> ほぼ停止",
             }
 
