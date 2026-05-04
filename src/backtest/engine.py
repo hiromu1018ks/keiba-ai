@@ -746,6 +746,7 @@ class BacktestEngine:
                 get_win = getattr(self._race_predictor, "get_win_candidates", None)
                 if callable(get_win):
                     candidate_df = get_win(result_df)
+                    n_ev_excluded += int(candidate_df.attrs.get("n_ev_excluded", 0))
                 else:
                     candidate_df = self._race_predictor.get_place_candidates(
                         result_df,
