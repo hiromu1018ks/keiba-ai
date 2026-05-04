@@ -655,3 +655,35 @@ class TestEveryDB2Queries:
         queries = EveryDB2Queries(connection_string="postgresql://localhost/everydb2")
         result = queries.get_odds_time_series("20260405")
         assert result.empty
+
+    # --- get_payouts テスト ---
+
+    @patch("db.everydb2_queries.pd.read_sql_query")
+    @patch("db.everydb2_queries.psycopg2.connect")
+    def test_get_payouts_sql_includes_win_columns(
+        self, mock_connect: MagicMock, mock_read_sql: MagicMock
+    ) -> None:
+        """get_payouts() SQL に paytansyoumaban1, paytansyopay1 が含まれる"""
+        from db.everydb2_queries import EveryDB2Queries
+
+        mock_conn = MagicMock()
+        mock_connect.return_value.__enter__ = MagicMock(return_value=mock_conn)
+        mock_connect.return_value.__exit__ = MagicMock(return_value=False)
+
+        mock_read_sql.return_value = pd.DataFrame(
+            {
+                "race_id": ["2026040505010101"],
+                "paytansyoumaban1": ["5"],
+                "paytansyopay1": ["240"],
+                "payfukusyoumaban1": ["3"],
+                "payfukusyopay1": ["150"],
+            }
+        )
+
+        queries = EveryDB2Queries(connection_string="postgresql://localhost/everydb2")
+        result = queries.get_payouts("20260405")
+
+        assert not result.empty
+        sql_called = mock_read_sql.call_args[0][0]
+        assert "paytansyoumaban1" in sql_called
+        assert "paytansyopay1" in sql_called

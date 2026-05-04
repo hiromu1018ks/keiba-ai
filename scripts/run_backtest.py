@@ -81,6 +81,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--ensemble", action="store_true", help="アンサンブル (B1) を有効化")
     parser.add_argument(
+        "--betting-target",
+        choices=["win", "place", "wide"],
+        default="win",
+        help="ベッティング対象 (win=単勝, place=複勝, wide=ワイド, デフォルト: win)",
+    )
+    parser.add_argument(
         "--skip-train",
         action="store_true",
         help="学習をスキップし、キャッシュ済みモデルをロードしてテストのみ実行",
@@ -316,6 +322,7 @@ def _run_single_year(args: argparse.Namespace) -> None:
         store=store,
         betting_mode=args.betting_mode,
         diag_prefix=f"bt_{test_year}",
+        betting_target=args.betting_target,
     )
     result = engine.run(test_start, test_end)
     elapsed_test = time.time() - t1
@@ -429,6 +436,7 @@ def _run_multi_year(args: argparse.Namespace) -> None:
                 store=store,
                 betting_mode=args.betting_mode,
                 diag_prefix=f"bt_{test_year}",
+                betting_target=args.betting_target,
             )
             result = engine.run(test_start, test_end)
         except Exception as e:

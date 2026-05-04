@@ -168,3 +168,64 @@ class TestTrainWindowDefault:
         build_parser = _import_build_parser()
         args = build_parser().parse_args(["--years", "2024", "--train-window", "5"])
         assert args.train_window == 5
+
+
+class TestBettingTargetArg:
+    """--betting-target CLI 引数のテスト"""
+
+    def test_default_betting_target_is_win(self) -> None:
+        """デフォルトの --betting-target は 'win'"""
+        build_parser = _import_build_parser()
+        args = build_parser().parse_args(
+            [
+                "--train-start", "20200101",
+                "--train-end", "20231231",
+                "--test-start", "20240101",
+                "--test-end", "20241231",
+            ]
+        )
+        assert args.betting_target == "win"
+
+    def test_betting_target_place(self) -> None:
+        """--betting-target place を指定できる"""
+        build_parser = _import_build_parser()
+        args = build_parser().parse_args(
+            [
+                "--train-start", "20200101",
+                "--train-end", "20231231",
+                "--test-start", "20240101",
+                "--test-end", "20241231",
+                "--betting-target", "place",
+            ]
+        )
+        assert args.betting_target == "place"
+
+    def test_betting_target_wide(self) -> None:
+        """--betting-target wide を指定できる"""
+        build_parser = _import_build_parser()
+        args = build_parser().parse_args(
+            [
+                "--train-start", "20200101",
+                "--train-end", "20231231",
+                "--test-start", "20240101",
+                "--test-end", "20241231",
+                "--betting-target", "wide",
+            ]
+        )
+        assert args.betting_target == "wide"
+
+    def test_betting_target_invalid_rejected(self) -> None:
+        """--betting-target invalid は引数エラー"""
+        build_parser = _import_build_parser()
+        import pytest
+
+        with pytest.raises(SystemExit):
+            build_parser().parse_args(
+                [
+                    "--train-start", "20200101",
+                    "--train-end", "20231231",
+                    "--test-start", "20240101",
+                    "--test-end", "20241231",
+                    "--betting-target", "invalid",
+                ]
+            )
