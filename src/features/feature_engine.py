@@ -55,9 +55,9 @@ def is_cache_valid(
     cache_path: Path,
     source_paths: list[Path],
 ) -> bool:
-    """ハイブリッド無効化: タイムスタンプ比較(高速) -> コンテンツハッシュ(厳密)
+    """タイムスタンプベースのキャッシュ無効化
 
-    Returns True if cache is valid (can be used), False if stale.
+    cache_path が存在し、かつ全ての source_paths よりも新しい場合に True を返す。
     """
     if not cache_path.exists():
         return False
