@@ -193,7 +193,9 @@ def build_wide_payout_map(
         "pay": pay_melted["pay"].values,
     })
     combined = combined.dropna(subset=["kumi", "pay"])
-    combined["kumi"] = combined["kumi"].astype(str).str.strip()
+    # BUG-FIX: Parquet may store kumi as float64 (e.g. 513.0).
+    # Convert to str and strip trailing ".0" from float-as-string, preserving zero-padded strings.
+    combined["kumi"] = combined["kumi"].astype(str).str.strip().str.replace(r"\.0$", "", regex=True)
     combined = combined[combined["kumi"] != ""]
 
     if combined.empty:
@@ -435,16 +437,30 @@ class BacktestEngine:
                     final_odds_map[(str(race_id), int(umaban))] = float(odds)
 
         # 確定配当マップを構築（精算用。実際の払戻金額を使用）
+        # BUG-FIX: betting_target に応じて必要な払戻マップのみ構築
         payouts_df = load_payouts(self.store, start, end)
-        self.payout_map = build_payout_map(payouts_df)
-        logger.info("Loaded payout map: %d entries", len(self.payout_map))
 
-        self.win_payout_map = build_win_payout_map(payouts_df)
-        logger.info("Loaded win payout map: %d entries", len(self.win_payout_map))
+        needs_place = self.betting_target in ("place", "wide")
+        needs_win = self.betting_target in ("win", "wide")
+        needs_wide = self.betting_target == "wide"
 
-        # ワイド払戻マップを構築（精算用）
-        self.wide_payout_map = build_wide_payout_map(payouts_df)
-        logger.info("Loaded wide payout map: %d entries", len(self.wide_payout_map))
+        if needs_place:
+            self.payout_map = build_payout_map(payouts_df)
+            logger.info("Loaded payout map: %d entries", len(self.payout_map))
+        else:
+            self.payout_map = {}
+
+        if needs_win:
+            self.win_payout_map = build_win_payout_map(payouts_df)
+            logger.info("Loaded win payout map: %d entries", len(self.win_payout_map))
+        else:
+            self.win_payout_map = {}
+
+        if needs_wide:
+            self.wide_payout_map = build_wide_payout_map(payouts_df)
+            logger.info("Loaded wide payout map: %d entries", len(self.wide_payout_map))
+        else:
+            self.wide_payout_map = {}
 
         feat_df = feat_engine.build_all(
             race_df, entry_df, pre_post_odds, odds_ts_df=odds_ts_df, store=self.store
@@ -537,9 +553,13 @@ class BacktestEngine:
         logger.info("Pre-computing PaceAptitudeFeatures...")
         pace_feat = PaceAptitudeFeatures(store=self.store)
         pace_df = pace_feat.compute_batch(feat_df)
+        # BUG-FIX: 学習パイプラインと同様に全6列をマージ (PACE-01 の3列が漏れていた)
         _pace_cols = [
             c
-            for c in ["pace_aptitude", "front_pace_wr", "closing_pace_wr"]
+            for c in [
+                "pace_aptitude", "front_pace_wr", "closing_pace_wr",
+                "pace_corner_stability", "pace_closing_power", "pace_position_consistency",
+            ]
             if c in pace_df.columns
         ]
         if _pace_cols:
@@ -681,9 +701,12 @@ class BacktestEngine:
                     regime_params=regime_params,
                 )
             n_candidates = len(candidate_df)
-            candidate_reason_df = candidate_df[
-                ["race_id", "umaban", "place_selection_reason"]
-            ].copy()
+            # BUG-FIX: place_selection_reason は place/wide 候補にのみ存在。
+            # win モード時は get_win_candidates() がこの列を生成しないため、列存在チェックで保護。
+            _reason_cols = ["race_id", "umaban"]
+            if "place_selection_reason" in candidate_df.columns:
+                _reason_cols.append("place_selection_reason")
+            candidate_reason_df = candidate_df[_reason_cols].copy()
             candidate_reason_df["umaban"] = candidate_reason_df["umaban"].astype(
                 result_df["umaban"].dtype
             )
@@ -775,7 +798,7 @@ class BacktestEngine:
                 betting_target=self.betting_target,
             )
 
-            # v5: セグメント除外フィルタ全削除 — モデル自身がedgeを低く見積もるように改善する
+            # v5: セグメント除外フィルタ全削除 — モデル自身がedgeを低に見積もるように改善する
             # (旧v4の14個の除外フィルタは全て削除)
 
             # Bet に確定オッズを設定（place/win のみ。wide は wide_payout_map で精算）
