@@ -52,6 +52,9 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Phase 7 バックテスト (2024年テスト、複勝モード、フラットベット) のベースラインROI
+BASELINE_ROI = 0.638
+
 
 def to_dash_date(yyyymmdd: str) -> str:
     """YYYYMMDD → YYYY-MM-DD"""
@@ -256,7 +259,7 @@ def display_single_year_result(
             print(f"  平均Edge:       {result.avg_edge:>9.3f}")
             print(f"  Edge範囲:       {result.min_edge:.3f} ~ {result.max_edge:.3f}")
 
-    before_roi = 0.638
+    before_roi = BASELINE_ROI
     diff = result.total_roi - before_roi
     status = "目標達成!" if result.total_roi >= 1.01 else "未達"
     print()
