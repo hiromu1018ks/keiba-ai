@@ -65,20 +65,20 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| BSEL-01 | TBD | Pending |
-| BSEL-02 | TBD | Pending |
-| BSEL-03 | TBD | Pending |
-| SIZE-01 | TBD | Pending |
-| SIZE-02 | TBD | Pending |
-| RISK-01 | TBD | Pending |
-| VAL-01 | TBD | Pending |
-| VAL-02 | TBD | Pending |
+| BSEL-01 | Phase 11 | Pending |
+| BSEL-02 | Phase 11 | Pending |
+| BSEL-03 | Phase 11 | Pending |
+| SIZE-01 | Phase 12 | Pending |
+| SIZE-02 | Phase 12 | Pending |
+| RISK-01 | Phase 13 | Pending |
+| VAL-01 | Phase 13 | Pending |
+| VAL-02 | Phase 13 | Pending |
 
 **Coverage:**
 - v1.3 requirements: 8 total
-- Mapped to phases: 0
-- Unmapped: 8
+- Mapped to phases: 8
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-05-04*
-*Last updated: 2026-05-04 after initial definition*
+*Last updated: 2026-05-04 after roadmap creation*
