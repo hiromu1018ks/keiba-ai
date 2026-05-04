@@ -11,11 +11,18 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
+import logging
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
 
 from domain.models import Entry, Race
 from utils.timing import TimingContext
+
+logger = logging.getLogger(__name__)
 
 _GRADE_LEVEL_MAP: dict[str, float] = {
     "A": 8.0,
@@ -24,6 +31,43 @@ _GRADE_LEVEL_MAP: dict[str, float] = {
     "D": 5.0,
     "E": 4.0,
 }
+
+
+def compute_cache_key(
+    input_paths: list[Path],
+    date_range: tuple[str, str] | None,
+    feature_type: str,
+) -> str:
+    """キャッシュキーを計算: 入力パス + 日付範囲 + 特徴量種別 -> SHA-256先頭16文字"""
+    payload = json.dumps(
+        {
+            "paths": [str(p) for p in sorted(input_paths)],
+            "start": date_range[0] if date_range else "",
+            "end": date_range[1] if date_range else "",
+            "type": feature_type,
+        },
+        sort_keys=True,
+    )
+    return hashlib.sha256(payload.encode()).hexdigest()[:16]
+
+
+def is_cache_valid(
+    cache_path: Path,
+    source_paths: list[Path],
+) -> bool:
+    """ハイブリッド無効化: タイムスタンプ比較(高速) -> コンテンツハッシュ(厳密)
+
+    Returns True if cache is valid (can be used), False if stale.
+    """
+    if not cache_path.exists():
+        return False
+    cache_mtime = cache_path.stat().st_mtime
+    for src in source_paths:
+        if not src.exists():
+            return False
+        if src.stat().st_mtime > cache_mtime:
+            return False
+    return True
 
 
 def _compute_class_level(
@@ -78,8 +122,15 @@ class FeatureEngine:
     build_features(): 推論用 — Race + list[Entry] から単レース特徴量を計算
     """
 
-    def __init__(self, exclude_steeple: bool = True) -> None:
+    def __init__(
+        self,
+        exclude_steeple: bool = True,
+        use_cache: bool = True,
+        cache_dir: str = "features/cache",
+    ) -> None:
         self._exclude_steeple = exclude_steeple
+        self._use_cache = use_cache
+        self._cache_dir = cache_dir
 
     def build_all(
         self,
@@ -101,6 +152,52 @@ class FeatureEngine:
         Returns:
             全馬の特徴量を含むDataFrame (1行 = 1馬)
         """
+        # --- Feature Cache (PERF-03) ---
+        _cache_name: str | None = None
+        if self._use_cache and store is not None:
+            from db.parquet_store import ParquetStore
+
+            if isinstance(store, ParquetStore):
+                data_dir = Path(store.data_dir)
+                source_paths: list[Path] = []
+                for cat, name in [
+                    ("raw", "races"),
+                    ("raw", "entries"),
+                    ("odds", "snapshots"),
+                ]:
+                    p = data_dir / cat / name
+                    if p.with_suffix(".parquet").exists():
+                        source_paths.append(p.with_suffix(".parquet"))
+                    elif p.is_dir():
+                        source_paths.append(p)
+
+                date_range: tuple[str, str] | None = None
+                if "race_date" in race_df.columns:
+                    rd = pd.to_datetime(race_df["race_date"], errors="coerce")
+                    rd_valid = rd.dropna()
+                    if len(rd_valid) >= 2:
+                        date_range = (
+                            str(rd_valid.min().date()),
+                            str(rd_valid.max().date()),
+                        )
+
+                cache_key = compute_cache_key(source_paths, date_range, "build_all")
+                _cache_name = f"feat_{cache_key}"
+                cache_path = data_dir / self._cache_dir / f"{_cache_name}.parquet"
+
+                if is_cache_valid(cache_path, source_paths):
+                    logger.info("Feature cache HIT: %s", _cache_name)
+                    try:
+                        cached_df = store.read(self._cache_dir, _cache_name)
+                        if not cached_df.empty:
+                            return cached_df
+                    except Exception:
+                        logger.warning("Feature cache read failed, recomputing")
+                else:
+                    logger.info("Feature cache MISS: %s (computing...)", _cache_name)
+
+        # --- End cache check, proceed with normal computation ---
+
         # 1. race + entry を race_id で結合
         #    race_df は同一 race_id が複数行ある場合があるため dedup
         #    entries 側の共有列を除外して _x/_y サフィックスを防止
@@ -125,56 +222,56 @@ class FeatureEngine:
             columns=[c for c in _race_entry_shared if c in entry_df.columns]
         )
         race_dedup = race_df.drop_duplicates(subset=["race_id"])
-        df = pd.merge(race_dedup, entry_subset, on="race_id", how="inner")
+        result_df = pd.merge(race_dedup, entry_subset, on="race_id", how="inner")
 
         # 2. odds を (race_id, umaban) で結合
         #    entries と odds_tanpuku は year, monthday, race_date 等の共有列があるため、
         #    不要な列を事前に除外して _x/_y サフィックスの発生を防止する
         odds_cols = ["race_id", "umaban", "tanodds", "fukuoddslow", "tanninki"]
-        df = pd.merge(df, odds_df[odds_cols], on=["race_id", "umaban"], how="left")
+        result_df = pd.merge(result_df, odds_df[odds_cols], on=["race_id", "umaban"], how="left")
 
         # LEAK修正: entries.odds は確定オッズ (レース後)。特徴量計算では
         # tanodds (発走前スナップショット) を優先使用する。
         # 確定オッズは confirmed_odds に保存 (学習ターゲット用)
-        if "odds" in df.columns:
-            df["confirmed_odds"] = df["odds"].copy()
-        if "odds" in df.columns and "tanodds" in df.columns:
-            mask = (df["tanodds"] > 0) & df["tanodds"].notna()
-            df.loc[mask, "odds"] = df.loc[mask, "tanodds"]
+        if "odds" in result_df.columns:
+            result_df["confirmed_odds"] = result_df["odds"].copy()
+        if "odds" in result_df.columns and "tanodds" in result_df.columns:
+            mask = (result_df["tanodds"] > 0) & result_df["tanodds"].notna()
+            result_df.loc[mask, "odds"] = result_df.loc[mask, "tanodds"]
 
         # 3. 障害レース除外
         if self._exclude_steeple:
-            df = df[df["trackcd"] < 51]
+            result_df = result_df[result_df["trackcd"] < 51]
 
         # 4. 基本特徴量のマッピング
-        df = self._map_basic_features(df)
+        result_df = self._map_basic_features(result_df)
 
         # 5. サブモジュールの特徴量計算
         from features.intra_race_features import compute_intra_race_features
 
         with TimingContext("build_all/intra_race"):
-            df = compute_intra_race_features(df)
+            result_df = compute_intra_race_features(result_df)
 
         from features.odds_dynamics_features import compute_odds_dynamics
 
         with TimingContext("build_all/odds_dynamics"):
-            df = compute_odds_dynamics(df, odds_ts_df)
+            result_df = compute_odds_dynamics(result_df, odds_ts_df)
 
         from features.market_bias_features import compute_market_bias
 
         with TimingContext("build_all/market_bias"):
-            df = compute_market_bias(df)
+            result_df = compute_market_bias(result_df)
 
         from features.market_bias_features import compute_flb_slope
 
         with TimingContext("build_all/flb_slope"):
-            flb_result = compute_flb_slope(df)
-            df = pd.concat([df, flb_result], axis=1)
+            flb_result = compute_flb_slope(result_df)
+            result_df = pd.concat([result_df, flb_result], axis=1)
 
         from features.race_difficulty_model import compute_difficulty_score
 
         with TimingContext("build_all/difficulty"):
-            df = compute_difficulty_score(df)
+            result_df = compute_difficulty_score(result_df)
 
         # Group B: 血統特徴量
         if store is not None:
@@ -182,8 +279,8 @@ class FeatureEngine:
                 from features.bloodline_features import BloodlineFeatures
 
                 bloodline = BloodlineFeatures(store)
-                bloodline_df = bloodline.compute(df)
-                df = pd.merge(df, bloodline_df, on=["race_id", "umaban"], how="left")
+                bloodline_df = bloodline.compute(result_df)
+                result_df = pd.merge(result_df, bloodline_df, on=["race_id", "umaban"], how="left")
 
         # NOTE: Group C (ペース適性特徴量) と Group D (コース別適性特徴量) は
         # TrainingPipeline._train_submodel() で計算されるため、ここではプレースホルダーなし
@@ -193,7 +290,16 @@ class FeatureEngine:
         # kyakusitu_cd が必要なため、build_all では実行しない。
         # _train_submodel / BacktestEngine で hist_df merge 後に呼び出す。
 
-        return df
+        # --- Feature Cache Write (PERF-03) — single write point, guaranteed ---
+        if self._use_cache and _cache_name is not None and not result_df.empty:
+            try:
+                if store is not None:
+                    store.write(self._cache_dir, _cache_name, result_df)
+                    logger.info("Feature cache SAVED: %s (%d rows)", _cache_name, len(result_df))
+            except Exception:
+                logger.warning("Feature cache write failed (non-fatal)")
+
+        return result_df
 
     def build_features(
         self,

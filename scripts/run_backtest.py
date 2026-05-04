@@ -94,6 +94,12 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="学習をスキップし、キャッシュ済みモデルをロードしてテストのみ実行",
     )
+    parser.add_argument(
+        "--profile",
+        action="store_true",
+        default=False,
+        help="Enable pyinstrument profiling (outputs to data/profiles/)",
+    )
     return parser
 
 
@@ -581,10 +587,13 @@ def main() -> None:
     args = parser.parse_args()
     validate_args(parser, args)
 
-    if args.years:
-        _run_multi_year(args)
-    else:
-        _run_single_year(args)
+    from utils.profiling import ProfileContext
+
+    with ProfileContext(enabled=args.profile, label="backtest"):
+        if args.years:
+            _run_multi_year(args)
+        else:
+            _run_single_year(args)
 
 
 if __name__ == "__main__":

@@ -608,3 +608,159 @@ class TestFLBSlopeFeatures:
         hhi_vals = result["implied_prob_hhi"].dropna().unique()
         assert len(hhi_vals) == 1
         assert 0 < hhi_vals[0] <= 1.0
+
+
+class TestFeatureCache:
+    """FeatureEngine Parquetキャッシュのユニットテスト"""
+
+    def test_cache_key_deterministic(self) -> None:
+        """同じ入力で同じキャッシュキーが生成される"""
+        from pathlib import Path
+
+        from features.feature_engine import compute_cache_key
+
+        paths = [Path("data/raw/races.parquet")]
+        key1 = compute_cache_key(paths, ("2020-01-01", "2023-12-31"), "build_all")
+        key2 = compute_cache_key(paths, ("2020-01-01", "2023-12-31"), "build_all")
+        assert key1 == key2
+        assert len(key1) == 16
+
+    def test_cache_key_different_inputs(self) -> None:
+        """異なる日付範囲で異なるキャッシュキーが生成される"""
+        from pathlib import Path
+
+        from features.feature_engine import compute_cache_key
+
+        paths = [Path("data/raw/races.parquet")]
+        key1 = compute_cache_key(paths, ("2020-01-01", "2023-12-31"), "build_all")
+        key2 = compute_cache_key(paths, ("2021-01-01", "2024-12-31"), "build_all")
+        assert key1 != key2
+
+    def test_cache_key_different_type(self) -> None:
+        """異なる特徴量種別で異なるキャッシュキーが生成される"""
+        from pathlib import Path
+
+        from features.feature_engine import compute_cache_key
+
+        paths = [Path("data/raw/races.parquet")]
+        key1 = compute_cache_key(paths, ("2020-01-01", "2023-12-31"), "build_all")
+        key2 = compute_cache_key(paths, ("2020-01-01", "2023-12-31"), "intra_race")
+        assert key1 != key2
+
+    def test_is_cache_valid_no_cache_file(self, tmp_path: object) -> None:
+        """キャッシュファイルが存在しない場合はFalse"""
+        import pathlib
+
+        from features.feature_engine import is_cache_valid
+
+        cache_path = pathlib.Path(str(tmp_path)) / "nonexistent.parquet"
+        source_path = pathlib.Path(str(tmp_path)) / "source.parquet"
+        source_path.touch()
+        assert is_cache_valid(cache_path, [source_path]) is False
+
+    def test_is_cache_valid_stale_source(self, tmp_path: object) -> None:
+        """ソースファイルがキャッシュより新しい場合はFalse"""
+        import pathlib
+        import time
+
+        from features.feature_engine import is_cache_valid
+
+        tp = pathlib.Path(str(tmp_path))
+        cache_path = tp / "cache.parquet"
+        source_path = tp / "source.parquet"
+        cache_path.touch()
+        time.sleep(0.05)
+        source_path.touch()
+        assert is_cache_valid(cache_path, [source_path]) is False
+
+    def test_is_cache_valid_fresh(self, tmp_path: object) -> None:
+        """キャッシュがソースより新しい場合はTrue"""
+        import pathlib
+        import time
+
+        from features.feature_engine import is_cache_valid
+
+        tp = pathlib.Path(str(tmp_path))
+        source_path = tp / "source.parquet"
+        source_path.touch()
+        time.sleep(0.05)
+        cache_path = tp / "cache.parquet"
+        cache_path.touch()
+        assert is_cache_valid(cache_path, [source_path]) is True
+
+    def test_build_all_uses_cache_on_hit(
+        self, sample_race_df, sample_entry_df, sample_odds_df
+    ) -> None:
+        """キャッシュHIT時にキャッシュされたDataFrameを返す"""
+        from unittest.mock import MagicMock, patch
+
+        from db.parquet_store import ParquetStore
+
+        cached_df = pd.DataFrame({"race_id": ["cached"], "col": [1.0]})
+        mock_store = MagicMock(spec=ParquetStore)
+        mock_store.data_dir = "data"
+        mock_store.read.return_value = cached_df
+        # exists() はパスチェック用にTrueを返す
+        mock_store.exists.return_value = True
+
+        engine = FeatureEngine(exclude_steeple=False, use_cache=True)
+
+        with patch("features.feature_engine.is_cache_valid", return_value=True):
+            result = engine.build_all(
+                sample_race_df, sample_entry_df, sample_odds_df, store=mock_store
+            )
+
+        assert len(result) == 1
+        assert result["race_id"].iloc[0] == "cached"
+
+    def test_build_all_writes_cache_on_miss(
+        self, sample_race_df, sample_entry_df, sample_odds_df
+    ) -> None:
+        """キャッシュMISS時にstore.write()が呼ばれる"""
+        from unittest.mock import MagicMock, patch
+
+        from db.parquet_store import ParquetStore
+
+        mock_store = MagicMock(spec=ParquetStore)
+        mock_store.data_dir = "data"
+        mock_store.exists.return_value = True
+
+        engine = FeatureEngine(exclude_steeple=False, use_cache=True)
+
+        with patch("features.feature_engine.is_cache_valid", return_value=False):
+            result = engine.build_all(
+                sample_race_df, sample_entry_df, sample_odds_df, store=mock_store
+            )
+
+        # store.write() should have been called for cache save
+        assert mock_store.write.called
+        # The result should be a real computation result (18 rows)
+        assert len(result) == 18
+        # Check the cache_dir argument
+        call_args = mock_store.write.call_args
+        assert call_args[0][0] == "features/cache"
+
+    def test_build_all_skip_cache_when_no_store(
+        self, sample_race_df, sample_entry_df, sample_odds_df
+    ) -> None:
+        """store=Noneのときキャッシュ処理をスキップして正常動作する"""
+        engine = FeatureEngine(exclude_steeple=False, use_cache=True)
+        result = engine.build_all(sample_race_df, sample_entry_df, sample_odds_df)
+        assert len(result) == 18
+
+    def test_build_all_disabled_cache(
+        self, sample_race_df, sample_entry_df, sample_odds_df
+    ) -> None:
+        """use_cache=Falseのときキャッシュ書き込みが呼ばれない"""
+        from unittest.mock import MagicMock
+
+        mock_store = MagicMock()
+        mock_store.data_dir = "data"
+
+        engine = FeatureEngine(exclude_steeple=False, use_cache=False)
+        result = engine.build_all(
+            sample_race_df, sample_entry_df, sample_odds_df, store=mock_store
+        )
+        assert len(result) == 18
+        # store.write() should not be called for cache save when cache is disabled
+        mock_store.write.assert_not_called()
