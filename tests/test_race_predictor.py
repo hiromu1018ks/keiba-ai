@@ -1433,6 +1433,57 @@ class TestGetWinCandidates:
         result = predictor.get_win_candidates(race_df)
         assert len(result) == 0
 
+    def test_ev_lower_filter_excludes_below_threshold(self, mock_models: MagicMock) -> None:
+        """Test 8: EV_lower_win_corrected < 1.0 の候補は除外される (D-01)"""
+        from backtest.race_predictor import RacePredictor
+
+        predictor = RacePredictor(models=mock_models)
+        race_df = self._make_win_race_df(
+            n=3,
+            EV_lower_win_corrected=[0.8, 1.2, 0.5],  # horses 2 passes, 1 & 3 fail
+        )
+        result = predictor.get_win_candidates(race_df)
+        assert len(result) == 1
+        assert result.iloc[0]["umaban"] == 2
+
+    def test_ev_lower_nan_fallback_to_edge_only(self, mock_models: MagicMock) -> None:
+        """Test 9: EV_lower_win_corrected が NaN なら edge>0 のみで判定 (D-03)"""
+        from backtest.race_predictor import RacePredictor
+
+        predictor = RacePredictor(models=mock_models)
+        race_df = self._make_win_race_df(
+            n=2,
+            EV_lower_win_corrected=[float("nan"), float("nan")],  # NaN -> fallback
+        )
+        result = predictor.get_win_candidates(race_df)
+        # Both have edge > 0, both should pass via fallback
+        assert len(result) == 2
+
+    def test_ev_lower_column_missing_keeps_existing_behavior(
+        self, mock_models: MagicMock
+    ) -> None:
+        """Test 10: EV_lower_win_corrected 列なし → 既存動作と同じ"""
+        from backtest.race_predictor import RacePredictor
+
+        predictor = RacePredictor(models=mock_models)
+        race_df = self._make_win_race_df(n=3)
+        # Remove EV_lower column if it exists
+        race_df = race_df.drop(columns=["EV_lower_win_corrected"], errors="ignore")
+        result = predictor.get_win_candidates(race_df)
+        assert len(result) == 2  # max 2 candidates, same as existing
+
+    def test_ev_lower_above_threshold_kept(self, mock_models: MagicMock) -> None:
+        """Test 7: EV_lower_win_corrected >= 1.0 の候補は保持される"""
+        from backtest.race_predictor import RacePredictor
+
+        predictor = RacePredictor(models=mock_models)
+        race_df = self._make_win_race_df(
+            n=3,
+            EV_lower_win_corrected=[1.5, 1.2, 2.0],  # all >= 1.0
+        )
+        result = predictor.get_win_candidates(race_df)
+        assert len(result) == 2  # max 2
+
 
 class TestSelectBetsWinPath:
     """select_bets() の win path テスト (WIN-03)"""

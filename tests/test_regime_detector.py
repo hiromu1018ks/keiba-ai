@@ -153,6 +153,18 @@ class TestRegimeDetector:
         col = detector.get_strategy_params(RegimeState.COLLAPSED)
         assert agg["edge_threshold"] <= con["edge_threshold"] <= col["edge_threshold"]
 
+    def test_collapsed_strategy_has_skip_true(self) -> None:
+        """Test 11: COLLAPSED params に skip=True が含まれる (D-11)"""
+        detector = RegimeDetector()
+        params = detector.get_strategy_params(RegimeState.COLLAPSED)
+        assert params.get("skip") is True
+
+    def test_aggressive_strategy_no_skip(self) -> None:
+        """Test 12: AGGRESSIVE params に skip キーがない (または False)"""
+        detector = RegimeDetector()
+        params = detector.get_strategy_params(RegimeState.AGGRESSIVE)
+        assert params.get("skip") is not True
+
     def test_train_uses_pre_race_features_for_labels(self) -> None:
         """train() の教師ラベルが PRE_RACE 指標のみで計算される"""
         detector = RegimeDetector()
