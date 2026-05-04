@@ -808,6 +808,38 @@ class BacktestEngine:
                         ),
                         "top3_finishers": _top3,
                         "umaban_b": getattr(bet, "umaban_b", None),
+                        # --- Win-specific fields (D-09, RPT-01) ---
+                        "win_selection_ev": (
+                            float(horse_rows.iloc[0].get("win_selection_ev", 0.0))
+                            if not horse_rows.empty
+                            else 0.0
+                        ),
+                        "win_selection_edge": (
+                            float(horse_rows.iloc[0].get("win_selection_edge", 0.0))
+                            if not horse_rows.empty
+                            else 0.0
+                        ),
+                        "win_selection_prob": (
+                            float(horse_rows.iloc[0].get("win_selection_prob", 0.0))
+                            if not horse_rows.empty
+                            else 0.0
+                        ),
+                        "win_gate_score": (
+                            float(horse_rows.iloc[0].get("win_gate_score", float("nan")))
+                            if not horse_rows.empty
+                            else float("nan")
+                        ),
+                        "conformal_confidence_score": (
+                            float(horse_rows.iloc[0].get("conformal_confidence_score", 0.0))
+                            if not horse_rows.empty
+                            else 0.0
+                        ),
+                        "tanoddslow": (
+                            float(horse_rows.iloc[0].get("tanoddslow", 0.0))
+                            if not horse_rows.empty
+                            else 0.0
+                        ),
+                        "regime": str(regime),
                     }
                 )
 
