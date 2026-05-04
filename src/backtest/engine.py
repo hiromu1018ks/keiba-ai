@@ -708,6 +708,10 @@ class BacktestEngine:
             else:
                 regime = self.models.regime_detector.current_regime
             regime_params = self.models.regime_detector.get_strategy_params(regime)
+            # D-11: レジーム別 fractional_kelly を StakeCalculator に注入
+            if self._race_predictor.stake_calc is not None:
+                fk = float(regime_params.get("fractional_kelly", 0.5))
+                self._race_predictor.stake_calc.fractional_kelly = fk
             edge_threshold = regime_params.get("edge_threshold", 0.03)
 
             # D-11: 統計を蓄積 (COLLAPSEDスキップ前 — レジーム遷移に必要, Pitfall 3)

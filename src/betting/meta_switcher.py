@@ -45,6 +45,7 @@ class MetaSwitcher:
             return {
                 "ev_threshold": 1.15,  # raised from 1.10
                 "edge_threshold": 0.05,  # 5% edge — JRA控除率25%考慮 (Phase 3)
+                "fractional_kelly": 0.50,   # D-01: half-Kelly
                 "score_threshold": 0.010,
                 "max_bets_per_race": 3,
                 "description": "歪み強い → 攻める",
@@ -53,6 +54,7 @@ class MetaSwitcher:
             return {
                 "ev_threshold": 1.35,  # raised from 1.30
                 "edge_threshold": 0.07,  # 7% edge — JRA控除率25%考慮 (Phase 3)
+                "fractional_kelly": 0.25,   # D-01: quarter-Kelly
                 "score_threshold": 0.020,
                 "max_bets_per_race": 2,
                 "description": "効率的 → 絞る",
@@ -61,6 +63,7 @@ class MetaSwitcher:
             return {
                 "ev_threshold": 1.55,  # raised from 1.50
                 "edge_threshold": 0.10,  # 10% edge — JRA控除率25%考慮 (Phase 3)
+                "fractional_kelly": 0.00,   # D-01: no betting
                 "score_threshold": 0.050,
                 "max_bets_per_race": 1,
                 "description": "崩壊 → ほぼ停止",

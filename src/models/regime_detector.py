@@ -188,6 +188,7 @@ class RegimeDetector:
             return {
                 "ev_threshold": 1.10,
                 "edge_threshold": 0.05,  # Phase 3: JRA控除率25%考慮 +0.01
+                "fractional_kelly": 0.50,   # D-01: half-Kelly
                 "min_place_prob": 0.08,
                 "max_place_odds": 18.0,
                 "wide_enabled": False,
@@ -216,6 +217,7 @@ class RegimeDetector:
             return {
                 "ev_threshold": 1.30,
                 "edge_threshold": 0.06,  # 6% edge — JRA控除率考慮 (Phase 3)
+                "fractional_kelly": 0.25,   # D-01: quarter-Kelly
                 "min_place_prob": 0.09,
                 "max_place_odds": 18.0,
                 "wide_enabled": False,
@@ -229,6 +231,7 @@ class RegimeDetector:
             return {
                 "ev_threshold": 1.50,
                 "edge_threshold": 0.09,  # 9% edge — JRA控除率考慮 (Phase 3)
+                "fractional_kelly": 0.00,   # D-01: no betting
                 "min_place_prob": 0.10,
                 "max_place_odds": 16.0,
                 "wide_enabled": False,

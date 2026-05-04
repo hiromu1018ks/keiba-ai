@@ -35,3 +35,13 @@ submodel:
       sprint: [0, 1400]
       mile: [1401, 1700]
       intermediate: [1701, 9999]
+
+betting_strategy:
+  default_fractional_kelly: 0.5
+  kelly_fraction_cap: 0.25
+  target_ev: 1.10
+  max_scale: 2.0
+  regime_fractions:
+    aggressive: 0.50
+    conservative: 0.25
+    collapsed: 0.00
