@@ -103,7 +103,7 @@ Plans:
 **Requirements**: WIN-01, WIN-02, WIN-03, WIN-04, WIN-05
 **Success Criteria** (what must be TRUE):
   1. バックテスト実行時、単勝払戻しデータ(paytansyoumaban1/paytansyopay1)から正確なpayout_mapが構築され、単勝ベットが正しい払戻金額で決済される
-  2. バックテスト実行時、tanoddslow(単勝オッズ)ベースのfinal_odds_mapで単勝ベットのオッズ参照が行われる
+  2. バックテスト実行時、tanodds(単勝オッズ)ベースのfinal_win_odds_mapで単勝ベットのオッズ参照が行われる
   3. `--betting-target win` フラグでBacktestEngineが単勝/複勝モードを切り替えられる(デフォルト=win)
   4. WinSelectionGateのwin_selection_ev/edge/prob列に基づき、Conformal信頼性スコア付きの単勝ベット候補が生成される
   5. WF検証スクリプト(run_wf_validation.py)が単勝ROIで過学習検出を行う
