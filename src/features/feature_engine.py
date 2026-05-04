@@ -191,6 +191,8 @@ class FeatureEngine:
                         cached_df = store.read(self._cache_dir, _cache_name)
                         if not cached_df.empty:
                             return cached_df
+                        # Cache hit but empty — fall through to recomputation
+                        logger.warning("Feature cache HIT but empty, recomputing: %s", _cache_name)
                     except Exception:
                         logger.warning("Feature cache read failed, recomputing")
                 else:
