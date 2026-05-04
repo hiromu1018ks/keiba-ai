@@ -92,7 +92,7 @@ Plans:
 **Milestone Goal:** バックテスト・WF検証を単勝ベースに修正し、実際に実行してROI>100%を確認する
 
 - [x] **Phase 8: Win Backtest Core** - 単勝決済・候補選択・ベット生成の修正
-- [ ] **Phase 9: Win Reporting** - 単勝ベット履歴・ROI診断・オッズバンド分析
+- [x] **Phase 9: Win Reporting** - 単勝ベット履歴・ROI診断・オッズバンド分析
 - [ ] **Phase 10: Pipeline Performance** - ベクトル化・groupby辞書・特徴量キャッシュ・プロファイリング
 
 ## Phase Details
@@ -124,7 +124,7 @@ Plans:
 **Plans**: 1 plan
 
 Plans:
-- [ ] 09-01: Win bet history fields + regime/odds band analysis + AI diagnostics + HTML/CLI extension (RPT-01, RPT-02, RPT-03)
+- [x] 09-01: Win bet history fields + regime/odds band analysis + AI diagnostics + HTML/CLI extension (RPT-01, RPT-02, RPT-03)
 
 ### Phase 10: Pipeline Performance
 **Goal**: バックテスト・学習パイプラインの実行時間が短縮され、ボトルネックが定量測定可能になる
@@ -156,5 +156,5 @@ Phases execute in numeric order: 8 → 9 → 10
 | 6. Odds Deviation EV | v1.1 | 1/1 | Complete | 2026-05-03 |
 | 7. Ensemble Enhancement | v1.1 | 1/1 | Complete | 2026-05-03 |
 | 8. Win Backtest Core | v1.2 | 2/2 | Complete | 2026-05-04 |
-| 9. Win Reporting | v1.2 | 0/1 | Not started | - |
+| 9. Win Reporting | v1.2 | 1/1 | Complete | 2026-05-04 |
 | 10. Pipeline Performance | v1.2 | 0/2 | Not started | - |
