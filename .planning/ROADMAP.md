@@ -138,8 +138,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 10-01: Vectorize payout maps + groupby dict lookups (PERF-01, PERF-02)
-- [ ] 10-02: Feature cache + pyinstrument profiling (PERF-03, PERF-04)
+- [x] 10-01: Vectorize payout maps + groupby dict lookups (PERF-01, PERF-02)
+- [x] 10-02: Feature cache + pyinstrument profiling (PERF-03, PERF-04)
 
 ## Progress
 
@@ -157,4 +157,4 @@ Phases execute in numeric order: 8 → 9 → 10
 | 7. Ensemble Enhancement | v1.1 | 1/1 | Complete | 2026-05-03 |
 | 8. Win Backtest Core | v1.2 | 2/2 | Complete | 2026-05-04 |
 | 9. Win Reporting | v1.2 | 1/1 | Complete | 2026-05-04 |
-| 10. Pipeline Performance | v1.2 | 0/2 | Not started | - |
+| 10. Pipeline Performance | v1.2 | 2/2 | Complete | 2026-05-04 |
