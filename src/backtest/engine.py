@@ -469,18 +469,17 @@ class BacktestEngine:
                 feat_df = feat_df.merge(wide_pivot, on="race_id", how="left")
                 logger.info("Merged wide odds: %d pair-columns", len(wide_pivot.columns) - 1)
 
-        # JRAフィルタ: NARレース (jyocd 30以上) を除外
+        # Safety check: verify feature generation did not introduce NAR entries
+        # (already filtered at data load above; this catches pipeline bugs)
         if "jyocd" in feat_df.columns:
             jyocd_int = pd.to_numeric(feat_df["jyocd"], errors="coerce")
-            before_count = len(feat_df)
-            feat_df = feat_df[jyocd_int.between(1, 10)]
-            after_count = len(feat_df)
-            if before_count > after_count:
-                logger.info(
-                    "JRA filter: excluded %d NAR entries (jyocd >= 30), %d remaining",
-                    before_count - after_count,
-                    after_count,
+            nar_count = (~jyocd_int.between(1, 10)).sum()
+            if nar_count > 0:
+                logger.warning(
+                    "NAR entries leaked into feat_df: %d (feature pipeline bug?)",
+                    int(nar_count),
                 )
+                feat_df = feat_df[jyocd_int.between(1, 10)]
 
         # 3. 特徴量の一括事前計算 (ループ外で全レース分を一度に計算)
         from features.horse_history_features import HorseHistoryFeatures
