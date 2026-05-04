@@ -155,7 +155,11 @@ Plans:
   1. レジーム状態別にKelly分数が異なり、AGGRESSIVE > CONSERVATIVE > COLLAPSED(=0)の順で賭け金が計算される (SIZE-01)
   2. 高EVベットの賭け金にEV比例乗算器(min(ev/target_ev, max_scale))が適用され、同一レジーム内でEVが高いほど賭け金が大きくなる (SIZE-02)
   3. フィルター+サイジング変更後のバックテストROIがベースライン(89.0%)を上回る
-**Plans**: TBD
+**Plans**: 2 plans
+
+Plans:
+- [ ] 12-01: StakeCalculator コンストラクタ注入リファクタリング + apply_ev_scaling() 実装 (SIZE-01, SIZE-02)
+- [ ] 12-02: RegimeDetector/MetaSwitcher パラメータ追加 + Kelly→EV乗算→DD パイプライン統合 (SIZE-01, SIZE-02)
 
 ### Phase 13: Risk Calibration & Parameter Optimization
 **Goal**: WIN向中率10%に最適化されたDD制御が動作し、ルックアヘッドバイアスを防いだ上で全戦略パラメータが最適化される
@@ -185,5 +189,5 @@ Phases execute in numeric order: 11 → 12 → 13
 | 9. Win Reporting | v1.2 | 1/1 | Complete | 2026-05-04 |
 | 10. Pipeline Performance | v1.2 | 2/2 | Complete | 2026-05-04 |
 | 11. Bet Selection Filters | v1.3 | 2/2 | Complete | 2026-05-04 |
-| 12. Stake Sizing Enhancement | v1.3 | 0/? | Not started | - |
+| 12. Stake Sizing Enhancement | v1.3 | 0/2 | Not started | - |
 | 13. Risk Calibration & Parameter Optimization | v1.3 | 0/? | Not started | - |
