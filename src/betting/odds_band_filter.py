@@ -49,6 +49,8 @@ class OddsBandFilter:
 
         for bet in bet_history:
             odds = float(bet.get("odds", 0))
+            if odds < 1.0:
+                continue  # Skip bets with invalid/missing odds
             band = self._get_band_name(odds)
             band_data[band]["total_stake"] += float(bet.get("stake", 0))
             band_data[band]["total_return"] += float(bet.get("result", 0))
