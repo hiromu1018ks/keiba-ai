@@ -141,7 +141,11 @@ Plans:
   2. RegimeDetectorがCOLLAPSEDと判定したレースでベット数が0になり、スキップレース数がレポートに記録される (BSEL-02)
   3. 過去バックテストROI分析で赤字のオッズバンドに該当するベットがOddsBandFilterで除外され、除外バンド・件数がレポートに出力される (BSEL-03)
   4. 全フィルター適用後の残存ベット数が年間1,000件以上を維持する（フィルター過剰除外のガード）
-**Plans**: TBD
+**Plans**: 2 plans
+
+Plans:
+- [ ] 11-01: OddsBandFilter クラス + EV_lower フィルター + RegimeDetector skip=True (BSEL-01, BSEL-03)
+- [ ] 11-02: Engine統合 (COLLAPSED skip + OddsBandFilter + counters + guard) + レポート除外統計 (BSEL-01, BSEL-02, BSEL-03)
 
 ### Phase 12: Stake Sizing Enhancement
 **Goal**: レジーム状態に応じたKelly分数とEV比例乗算器により、高確信ベットに重点配分された賭け金が算出される
@@ -180,6 +184,6 @@ Phases execute in numeric order: 11 → 12 → 13
 | 8. Win Backtest Core | v1.2 | 2/2 | Complete | 2026-05-04 |
 | 9. Win Reporting | v1.2 | 1/1 | Complete | 2026-05-04 |
 | 10. Pipeline Performance | v1.2 | 2/2 | Complete | 2026-05-04 |
-| 11. Bet Selection Filters | v1.3 | 0/? | Not started | - |
+| 11. Bet Selection Filters | v1.3 | 0/2 | Planning | - |
 | 12. Stake Sizing Enhancement | v1.3 | 0/? | Not started | - |
 | 13. Risk Calibration & Parameter Optimization | v1.3 | 0/? | Not started | - |
