@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Win Backtest Validation
 status: executing
-last_updated: "2026-05-04T00:40:00Z"
-last_activity: 2026-05-04 — Phase 8 Plan 08-01 completed
+last_updated: "2026-05-04T01:02:32Z"
+last_activity: 2026-05-04 — Phase 8 Plan 08-02 completed
 progress:
   total_phases: 3
   completed_phases: 0
   total_plans: 5
-  completed_plans: 1
-  percent: 20
+  completed_plans: 2
+  percent: 40
 ---
 
 # Project State
@@ -25,11 +25,11 @@ See: .planning/PROJECT.md (updated 2026-05-04)
 ## Current Position
 
 Phase: 8 of 10 (Win Backtest Core)
-Plan: 1 of 2 in current phase
-Status: Plan 08-01 completed, ready for 08-02
-Last activity: 2026-05-04 — Plan 08-01 completed
+Plan: 2 of 2 in current phase (COMPLETE)
+Status: Phase 8 complete, ready for Phase 9
+Last activity: 2026-05-04 — Plan 08-02 completed
 
-Progress: [==        ] 20%
+Progress: [====      ] 40%
 
 ## Performance Metrics
 
@@ -57,6 +57,8 @@ Recent decisions affecting current work:
 - Phase 8 before Phase 9: Cannot report win metrics until win settlement is correct
 - Phase 9 before Phase 10: Optimization must not be mixed with correctness changes
 - Phase 10 depends on Phase 8 only (can overlap with Phase 9)
+- conformal_confidence_score is soft ranking signal only, never hard filter
+- get_win_candidates() is symmetric to get_place_candidates() but simplified
 
 ### Pending Todos
 
@@ -81,5 +83,5 @@ Items acknowledged and deferred at milestone close on 2026-05-04:
 ## Session Continuity
 
 Last session: 2026-05-04
-Stopped at: Plan 08-01 completed
-Resume file: .planning/phases/08-win-backtest-core/08-01-SUMMARY.md
+Stopped at: Plan 08-02 completed
+Resume file: .planning/phases/08-win-backtest-core/08-02-SUMMARY.md
