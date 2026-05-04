@@ -107,7 +107,6 @@
                 <div class="kpi-label">最終資金</div>
                 <div class="kpi-value">&yen;{{ summary.final_bankroll|format_number }}</div>
             </div>
-            {% if betting_target == "win" %}
             <div class="kpi-card">
                 <div class="kpi-label">ベット数</div>
                 <div class="kpi-value">{{ summary.total_bets }}</div>
@@ -120,7 +119,6 @@
                 <div class="kpi-label">払戻額</div>
                 <div class="kpi-value">&yen;{{ summary.total_return|format_number }}</div>
             </div>
-            {% endif %}
         </div>
     </div>
 
