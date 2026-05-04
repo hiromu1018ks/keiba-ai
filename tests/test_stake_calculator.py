@@ -90,8 +90,8 @@ class TestStakeCalculator:
         assert stake <= 10000.0
 
     def test_calc_stake_fractional_kelly_constants(self, calc: StakeCalculator) -> None:
-        """FRACTIONAL_KELLY が 0.5 であることを確認"""
-        assert calc.FRACTIONAL_KELLY == 0.5
+        """fractional_kelly が 0.5 であることを確認"""
+        assert calc.fractional_kelly == 0.5
         assert calc.MAX_STAKE == 10000
 
     def test_calc_stake_min_edge_threshold_constant(self, calc: StakeCalculator) -> None:
@@ -99,8 +99,8 @@ class TestStakeCalculator:
         assert calc.MIN_EDGE_THRESHOLD == 0.005
 
     def test_calc_stake_no_kelly_fraction_cap_constant(self, calc: StakeCalculator) -> None:
-        """KELLY_FRACTION_CAP は 0.25 のまま（FRACTIONAL_KELLY で乗算）"""
-        assert calc.KELLY_FRACTION_CAP == 0.25
+        """kelly_fraction_cap は 0.25 のまま（fractional_kelly で乗算）"""
+        assert calc.kelly_fraction_cap == 0.25
 
     def test_check_race_exposure_caps_at_2pct(self, calc: StakeCalculator) -> None:
         """1レースの総stakeが資金の2%を超えたら削減"""
@@ -256,3 +256,121 @@ class TestStakeCalculatorValueBetting:
         standard_kelly = (p * (odds - 1) - (1 - p)) / (odds - 1)
         vb_kelly = edge / (odds - 1)
         assert abs(standard_kelly - vb_kelly) < 1e-10
+
+
+class TestConstructorInjection:
+    """コンストラクタ注入のテスト."""
+
+    def test_default_constructor(self) -> None:
+        """デフォルト値の確認."""
+        c = StakeCalculator()
+        assert c.fractional_kelly == 0.5
+        assert c.kelly_fraction_cap == 0.25
+        assert c.target_ev == 1.10
+        assert c.max_scale == 2.0
+
+    def test_custom_fractional_kelly(self) -> None:
+        """カスタム fractional_kelly の確認."""
+        c = StakeCalculator(fractional_kelly=0.25)
+        assert c.fractional_kelly == 0.25
+
+    def test_backward_compatible(self) -> None:
+        """デフォルトコンストラクタで後方互換性がある."""
+        c = StakeCalculator()
+        stake = c.calc_stake(edge=0.06, odds=5.0, bankroll=100000, bet_type=BetType.PLACE)
+        assert stake == 700.0
+
+
+class TestRegimeBasedKelly:
+    """レジーム別Kelly分数のテスト."""
+
+    def test_aggressive_half_kelly(self) -> None:
+        """AGGRESSIVE(fk=0.50) の stake."""
+        c = StakeCalculator(fractional_kelly=0.50)
+        stake = c.calc_stake(edge=0.06, odds=5.0, bankroll=100000, bet_type=BetType.PLACE)
+        assert stake == 700.0
+
+    def test_conservative_quarter_kelly(self) -> None:
+        """CONSERVATIVE(fk=0.25) の stake が約半分."""
+        c = StakeCalculator(fractional_kelly=0.25)
+        stake = c.calc_stake(edge=0.06, odds=5.0, bankroll=100000, bet_type=BetType.PLACE)
+        # kelly=0.015*0.25=0.00375, cap=0.25*0.25=0.0625
+        # raw=100000*0.00375=375, floor(375/100)*100=300
+        assert stake == 300.0
+
+    def test_collapsed_zero_kelly(self) -> None:
+        """COLLAPSED(fk=0.00) の stake は 0."""
+        c = StakeCalculator(fractional_kelly=0.00)
+        stake = c.calc_stake(edge=0.06, odds=5.0, bankroll=100000, bet_type=BetType.PLACE)
+        assert stake == 0.0
+
+    def test_aggressive_larger_than_conservative(self) -> None:
+        """AGGRESSIVE stake > CONSERVATIVE stake."""
+        c_agg = StakeCalculator(fractional_kelly=0.50)
+        c_con = StakeCalculator(fractional_kelly=0.25)
+        stake_agg = c_agg.calc_stake(edge=0.06, odds=5.0, bankroll=100000, bet_type=BetType.PLACE)
+        stake_con = c_con.calc_stake(edge=0.06, odds=5.0, bankroll=100000, bet_type=BetType.PLACE)
+        assert stake_agg > stake_con
+
+    def test_effective_cap_with_half_kelly(self) -> None:
+        """fk=0.50 の effective_cap = 0.25 * 0.50 = 0.125."""
+        c = StakeCalculator(fractional_kelly=0.50)
+        # effective_cap = kelly_fraction_cap * fractional_kelly
+        effective_cap = c.kelly_fraction_cap * c.fractional_kelly
+        assert abs(effective_cap - 0.125) < 1e-10
+
+    def test_effective_cap_with_quarter_kelly(self) -> None:
+        """fk=0.25 の effective_cap = 0.25 * 0.25 = 0.0625."""
+        c = StakeCalculator(fractional_kelly=0.25)
+        effective_cap = c.kelly_fraction_cap * c.fractional_kelly
+        assert abs(effective_cap - 0.0625) < 1e-10
+
+
+class TestEvScaling:
+    """EV比例乗算器 apply_ev_scaling() のテスト."""
+
+    @pytest.fixture
+    def calc_ev(self) -> StakeCalculator:
+        return StakeCalculator(target_ev=1.10, max_scale=2.0)
+
+    def test_target_ev_boundary(self, calc_ev: StakeCalculator) -> None:
+        """EV = target_ev → scale = 1.0 → stake 変更なし."""
+        result = calc_ev.apply_ev_scaling(1000.0, ev=1.10)
+        assert result == 1000.0
+
+    def test_max_scale_boundary(self, calc_ev: StakeCalculator) -> None:
+        """EV = 2.20 → scale = min(2.0, 2.0) = 2.0 → 2000."""
+        result = calc_ev.apply_ev_scaling(1000.0, ev=2.20)
+        assert result == 2000.0
+
+    def test_mid_scale(self, calc_ev: StakeCalculator) -> None:
+        """EV = 1.50 → scale = 1.50/1.10 = 1.3636..."""
+        result = calc_ev.apply_ev_scaling(1000.0, ev=1.50)
+        expected = 1000.0 * (1.50 / 1.10)
+        assert abs(result - expected) < 0.01
+
+    def test_low_ev_shrink(self, calc_ev: StakeCalculator) -> None:
+        """EV = 0.80 → scale = 0.80/1.10 = 0.7272... → 縮小."""
+        result = calc_ev.apply_ev_scaling(1000.0, ev=0.80)
+        expected = 1000.0 * (0.80 / 1.10)
+        assert abs(result - expected) < 0.01
+
+    def test_zero_stake(self, calc_ev: StakeCalculator) -> None:
+        """stake=0 → 0.0 (ガード)."""
+        result = calc_ev.apply_ev_scaling(0.0, ev=1.50)
+        assert result == 0.0
+
+    def test_nan_ev(self, calc_ev: StakeCalculator) -> None:
+        """ev=NaN → stake をそのまま返す."""
+        result = calc_ev.apply_ev_scaling(1000.0, ev=float("nan"))
+        assert result == 1000.0
+
+    def test_zero_ev(self, calc_ev: StakeCalculator) -> None:
+        """ev=0 → stake をそのまま返す."""
+        result = calc_ev.apply_ev_scaling(1000.0, ev=0.0)
+        assert result == 1000.0
+
+    def test_negative_ev(self, calc_ev: StakeCalculator) -> None:
+        """ev < 0 → stake をそのまま返す."""
+        result = calc_ev.apply_ev_scaling(1000.0, ev=-1.0)
+        assert result == 1000.0
