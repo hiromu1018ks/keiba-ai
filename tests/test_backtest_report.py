@@ -442,16 +442,13 @@ class TestBetHistorySerialization:
 class TestCliReportFlag:
     """--report フラグのテスト"""
 
-    @pytest.mark.skip(reason="run_backtest.py still references deleted DataRepository")
     @patch("backtest.report.BacktestReportGenerator")
     @patch("pipelines.training_pipeline.TrainingPipelineV5")
     @patch("backtest.engine.BacktestEngine")
-    @patch("db.repository.DataRepository")
     @patch("db.parquet_store.ParquetStore")
     def test_report_flag_triggers_generation(
         self,
         mock_store_cls: MagicMock,
-        mock_repo_cls: MagicMock,
         mock_engine_cls: MagicMock,
         mock_pipeline_cls: MagicMock,
         mock_report_gen_cls: MagicMock,
@@ -461,12 +458,6 @@ class TestCliReportFlag:
         mock_store = MagicMock()
         mock_store_cls.return_value = mock_store
         mock_store.exists.return_value = True
-
-        mock_repo = MagicMock()
-        mock_repo_cls.return_value = mock_repo
-        mock_repo.load_races.return_value = pd.DataFrame()
-        mock_repo.load_entries.return_value = pd.DataFrame()
-        mock_repo.load_odds_snapshots.return_value = pd.DataFrame()
 
         mock_models = MagicMock()
         mock_pipeline = MagicMock()
