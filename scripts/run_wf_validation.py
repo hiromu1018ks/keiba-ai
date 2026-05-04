@@ -112,6 +112,15 @@ def main() -> None:
         logger.error("Parquetデータが見つかりません。先に run_etl.py を実行してください。")
         sys.exit(1)
 
+    parser = argparse.ArgumentParser(description="Walk-Forward Validation")
+    parser.add_argument(
+        "--betting-target",
+        choices=["win", "place", "wide"],
+        default="win",
+        help="ベッティング対象 (デフォルト: win)",
+    )
+    args = parser.parse_args()
+
     # git hash
     try:
         git_hash = subprocess.check_output(
@@ -173,6 +182,7 @@ def main() -> None:
 
         test_engine = BacktestEngine(
             models=models, store=store, diag_prefix=f"wf_{i}_test",
+            betting_target=args.betting_target,
         )
         test_result = test_engine.run(fold_def["test_start"], fold_def["test_end"])
         elapsed_test = time.time() - t1
@@ -186,6 +196,7 @@ def main() -> None:
         t2 = time.time()
         train_engine = BacktestEngine(
             models=models, store=store, diag_prefix=f"wf_{i}_train",
+            betting_target=args.betting_target,
         )
         train_result = train_engine.run(fold_def["train_start"], fold_def["train_end"])
         elapsed_train_bt = time.time() - t2
