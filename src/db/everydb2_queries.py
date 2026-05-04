@@ -287,6 +287,7 @@ class EveryDB2Queries:
         sql = f"""
             SELECT
                 CAST(year || monthday || jyocd || kaiji || nichiji || racenum AS varchar) AS race_id,
+                paytansyoumaban1, paytansyopay1,
                 payfukusyoumaban1, payfukusyopay1,
                 payfukusyoumaban2, payfukusyopay2,
                 payfukusyoumaban3, payfukusyopay3,
