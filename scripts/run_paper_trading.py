@@ -33,6 +33,7 @@ from datetime import date, datetime, timedelta
 from typing import TYPE_CHECKING
 
 import pandas as pd
+from dotenv import load_dotenv
 
 if TYPE_CHECKING:
     from db.parquet_store import ParquetStore
@@ -43,6 +44,8 @@ if TYPE_CHECKING:
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 sys.path.insert(0, os.path.join(ROOT, "src"))
+
+load_dotenv(os.path.join(ROOT, ".env"))
 
 logging.basicConfig(
     level=logging.INFO,

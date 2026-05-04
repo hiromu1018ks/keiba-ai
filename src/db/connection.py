@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
 import yaml
+from dotenv import load_dotenv
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.pool import NullPool
@@ -19,6 +20,8 @@ if TYPE_CHECKING:
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 _DEFAULT_SETTINGS_PATH = _PROJECT_ROOT / "config" / "settings.yaml"
+
+load_dotenv(_PROJECT_ROOT / ".env")
 
 
 def _load_settings(settings_path: Optional[Path] = None) -> dict:

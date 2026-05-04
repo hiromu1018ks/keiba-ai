@@ -71,7 +71,11 @@ class TestDatabaseConnection:
                 "password": "",
             }
         }
-        with patch("db.connection._load_settings", return_value=mock_settings):
+        env_without_pg = {k: v for k, v in os.environ.items() if k != "PGPASSWORD"}
+        with (
+            patch.dict(os.environ, env_without_pg, clear=True),
+            patch("db.connection._load_settings", return_value=mock_settings),
+        ):
             conn = DatabaseConnection()
             expected = "postgresql+psycopg2://postgres@localhost:5432/everydb2"
             assert conn._connection_url == expected
@@ -86,7 +90,11 @@ class TestDatabaseConnection:
                 "password": "secret",
             }
         }
-        with patch("db.connection._load_settings", return_value=mock_settings):
+        env_without_pg = {k: v for k, v in os.environ.items() if k != "PGPASSWORD"}
+        with (
+            patch.dict(os.environ, env_without_pg, clear=True),
+            patch("db.connection._load_settings", return_value=mock_settings),
+        ):
             conn = DatabaseConnection()
             expected = "postgresql+psycopg2://app_user:secret@db.example.com:5433/everydb2"
             assert conn._connection_url == expected
