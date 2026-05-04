@@ -464,7 +464,7 @@ class TestPostRaceColumnExclusion:
         mock_store = MagicMock()
 
         with patch.object(RacePredictor, "predict", spy_predict):
-            engine = BacktestEngine(models=mock_models, store=mock_store)
+            engine = BacktestEngine(models=mock_models, store=mock_store, betting_target="place")
             engine.run("2024-01-01", "2024-12-31")
 
         # --- assertions ---
@@ -619,7 +619,7 @@ class TestBetHistoryEnrichment:
         from backtest.engine import BacktestEngine
 
         mock_store = MagicMock()
-        engine = BacktestEngine(models=mock_models, store=mock_store)
+        engine = BacktestEngine(models=mock_models, store=mock_store, betting_target="place")
         result = engine.run("2024-01-01", "2024-12-31")
 
         # --- assertions ---
@@ -1082,7 +1082,7 @@ class TestJRAFilterBacktest:
         from backtest.engine import BacktestEngine
 
         mock_store = MagicMock()
-        engine = BacktestEngine(models=mock_models, store=mock_store)
+        engine = BacktestEngine(models=mock_models, store=mock_store, betting_target="place")
         result = engine.run("2024-01-01", "2024-12-31")
 
         assert result.total_bets >= 1, "JRA race (jyocd=05) should be included in backtest"

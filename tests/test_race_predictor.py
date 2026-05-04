@@ -1418,8 +1418,9 @@ class TestGetWinCandidates:
             win_selection_edge=[0.05, 0.20, 0.10],
         )
         result = predictor.get_win_candidates(race_df)
-        assert len(result) == 3
+        assert len(result) == 2  # D-09: max 2 candidates per race
         assert result.iloc[0]["win_selection_edge"] == pytest.approx(0.20)
+        assert result.iloc[1]["win_selection_edge"] == pytest.approx(0.10)
 
     def test_missing_tanodds_returns_empty(self, mock_models: MagicMock) -> None:
         """tanodds 列なし → 空 DataFrame"""

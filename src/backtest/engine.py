@@ -557,17 +557,19 @@ class BacktestEngine:
                     regime_params=regime_params,
                 )
             n_candidates = len(candidate_df)
-            candidate_reason_df = candidate_df[
-                ["race_id", "umaban", "place_selection_reason"]
-            ].copy()
-            candidate_reason_df["umaban"] = candidate_reason_df["umaban"].astype(
-                result_df["umaban"].dtype
-            )
-            result_df = result_df.merge(
-                candidate_reason_df.drop_duplicates(subset=["race_id", "umaban"]),
-                on=["race_id", "umaban"],
-                how="left",
-            )
+            # place_selection_reason is only available in place mode
+            if "place_selection_reason" in candidate_df.columns:
+                candidate_reason_df = candidate_df[
+                    ["race_id", "umaban", "place_selection_reason"]
+                ].copy()
+                candidate_reason_df["umaban"] = candidate_reason_df["umaban"].astype(
+                    result_df["umaban"].dtype
+                )
+                result_df = result_df.merge(
+                    candidate_reason_df.drop_duplicates(subset=["race_id", "umaban"]),
+                    on=["race_id", "umaban"],
+                    how="left",
+                )
             race_aggressive_strength = float(
                 result_df.get("aggressive_strength", pd.Series([np.nan])).iloc[0]
             )
@@ -644,7 +646,10 @@ class BacktestEngine:
 
             # Bet generation
             surface_key = result_df["surface"].iloc[0]
-            bets = self._race_predictor.select_bets(result_df, bankroll, candidates=candidate_df)
+            bets = self._race_predictor.select_bets(
+                result_df, bankroll, candidates=candidate_df,
+                betting_target=self.betting_target,
+            )
 
             # v5: セグメント除外フィルタ全削除 — モデル自身がedgeを低く見積もるように改善する
             # (旧v4の14個の除外フィルタは全て削除)

@@ -405,6 +405,70 @@ class RacePredictor:
         prepared["place_prune_reason"] = prune_reason.replace("", pd.NA)
         return prepared.loc[prune_reason.eq("")].copy()
 
+    def get_win_candidates(
+        self,
+        race_df: pd.DataFrame,
+    ) -> pd.DataFrame:
+        """単勝ベット候補を選択。
+
+        フィルタ: win_selection_edge > 0 AND tanodds >= 1.0 (D-06)
+        ソート: win_gate_score DESC (D-07), fallback win_selection_edge DESC
+        上限: 2頭 (D-09)
+        win_gate_pass はログ表示のみ、フィルタに使用しない (D-08)
+        conformal_confidence_score はランキングのタイブレークにのみ使用 (soft signal)
+        """
+        edge_col = "win_selection_edge"
+        odds_col = "tanodds"
+
+        if edge_col not in race_df.columns or odds_col not in race_df.columns:
+            return race_df.iloc[0:0].copy()
+
+        selection_edge = pd.to_numeric(race_df[edge_col], errors="coerce")
+        odds = pd.to_numeric(race_df[odds_col], errors="coerce")
+
+        # D-06: Basic filter — edge > 0 AND odds >= 1.0
+        mask = selection_edge.fillna(0.0) > 0.0
+        mask &= odds.fillna(0.0) >= 1.0
+
+        candidates = race_df.loc[mask].copy()
+
+        if candidates.empty:
+            return candidates
+
+        # D-08: Log gate pass status for debugging (not used as filter)
+        if "win_gate_pass" in candidates.columns:
+            n_gate_pass = int(candidates["win_gate_pass"].fillna(False).astype(bool).sum())
+            logger.debug(
+                "Win candidates: %d total, %d gate pass", len(candidates), n_gate_pass,
+            )
+
+        # D-07: Rank by win_gate_score DESC, fallback to win_selection_edge DESC
+        if "win_gate_score" in candidates.columns:
+            gate_score = pd.to_numeric(candidates["win_gate_score"], errors="coerce")
+            candidates["_win_gate_score_num"] = gate_score.fillna(float("-inf"))
+            # Soft signal: conformal_confidence_score as tertiary sort
+            if "conformal_confidence_score" in candidates.columns:
+                conf_score = pd.to_numeric(
+                    candidates["conformal_confidence_score"], errors="coerce"
+                )
+                candidates["_conf_score"] = conf_score.fillna(0.0)
+                candidates = candidates.sort_values(
+                    ["_win_gate_score_num", edge_col, "_conf_score"],
+                    ascending=[False, False, False],
+                )
+                candidates = candidates.drop(columns=["_conf_score"])
+            else:
+                candidates = candidates.sort_values(
+                    ["_win_gate_score_num", edge_col],
+                    ascending=[False, False],
+                )
+            candidates = candidates.drop(columns=["_win_gate_score_num"])
+        else:
+            candidates = candidates.sort_values([edge_col], ascending=[False])
+
+        # D-09: Max 2 candidates per race
+        return candidates.head(2)
+
     def get_place_candidates(
         self,
         race_df: pd.DataFrame,
@@ -535,11 +599,13 @@ class RacePredictor:
         bankroll: float,
         *,
         candidates: pd.DataFrame | None = None,
+        betting_target: str = "place",
     ) -> list[Bet]:
         """Benter Value Betting: edge >= threshold の馬を選択 + ワイドペア生成。
 
         v5: 下限EV (EV_lower_place) を最優先し、未利用時のみ補正EVへフォールバック。
         Place: edge = selection_ev - 1.0
+        Win: win_selection_edge > 0 AND tanodds >= 1.0
         Wide: WideTwoStageModel でスコアリング
         """
         regime = self.models.regime_detector.current_regime
@@ -547,6 +613,51 @@ class RacePredictor:
 
         bets: list[Bet] = []
         max_bets = regime_params.get("max_bets_per_race", 3)
+
+        # --- Win bets ---
+        if betting_target == "win":
+            ev_col = "win_selection_ev"
+            edge_col = "win_selection_edge"
+            if candidates is None:
+                candidates = self.get_win_candidates(race_df)
+            if candidates.empty:
+                return bets
+            candidates = candidates.head(max_bets)
+
+            for _, row in candidates.iterrows():
+                edge_val = float(row.get(edge_col, 0))
+                odds_val = float(row.get("tanodds", 0))
+
+                if self._betting_mode == "kelly" and self.stake_calc is not None:
+                    stake = self.stake_calc.calc_stake(
+                        edge=edge_val,
+                        odds=odds_val,
+                        bankroll=bankroll,
+                        bet_type=BetType.WIN,
+                    )
+                    if self.dd_ctrl is not None:
+                        stake = self.dd_ctrl.adjust_stake(stake, bankroll)
+                        stake = max(0, math.floor(stake / 100) * 100)
+                else:
+                    stake = 100.0
+
+                if stake < 100:
+                    continue
+
+                bets.append(
+                    Bet(
+                        race_id=row["race_id"],
+                        umaban=int(row["umaban"]),
+                        bet_type=BetType.WIN,
+                        odds=odds_val,
+                        ev_lower_corrected=float(row.get(ev_col, 0)),
+                        stake=stake,
+                        edge=edge_val,
+                    )
+                )
+            return bets
+
+        # --- Place bets (existing logic) ---
         ev_col = "place_selection_ev"
         if candidates is None:
             candidates = self.get_place_candidates(race_df, regime_params=regime_params)
