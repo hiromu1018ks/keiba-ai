@@ -623,3 +623,217 @@ class TestComputeConditionStatsWin:
         assert "1.0-3.0" in band_names
         assert "3.0-10.0" in band_names
         assert "10.0-30.0" in band_names
+
+
+class TestSaveAiDiagnostics:
+    """save_ai_diagnostics のテスト"""
+
+    def _make_win_result(self, n_bets: int = 10) -> tuple[Any, list[dict[str, Any]]]:
+        """win モード用の BacktestResult + bet_history を生成"""
+        from backtest.engine import BacktestResult
+
+        bets = []
+        for i in range(n_bets):
+            month = 1 + (i % 6)  # 1-6 月に分散
+            bets.append({
+                "race_id": f"2024{month:02d}{10 + i:02d}010101",
+                "stake": 100.0,
+                "result": 240.0 if i % 2 == 0 else 0.0,
+                "surface": "turf" if i % 3 != 0 else "dirt",
+                "kyori": 1200 + (i % 4) * 400,
+                "popularity": 1 + (i % 8),
+                "ev": 1.0 + (i % 5) * 0.2,
+                "tanoddslow": 2.0 + i * 1.5,
+                "regime": ["aggressive", "conservative", "collapsed"][i % 3],
+                "race_date": f"2024-{month:02d}-{10 + i:02d}",
+                "is_win": i % 2 == 0,
+                "bankroll_after": 100000.0 + i * 100,
+            })
+
+        n_wins = sum(1 for b in bets if b["result"] > 0)
+        total_return = sum(b["result"] for b in bets)
+        result = BacktestResult(
+            total_bets=len(bets),
+            total_stake=sum(b["stake"] for b in bets),
+            total_return=total_return,
+            winning_bets=n_wins,
+            total_roi=total_return / (len(bets) * 100.0),
+            max_drawdown=0.05,
+            final_bankroll=100000.0 + len(bets) * 100,
+        )
+        return result, bets
+
+    def test_win_mode_produces_valid_json(self, tmp_path: Path) -> None:
+        """win モードで有効な JSON が生成され、highlights が含まれる"""
+        import json
+
+        from backtest.report import BacktestReportGenerator
+
+        gen = BacktestReportGenerator(output_dir=tmp_path)
+        result, bets = self._make_win_result(n_bets=10)
+
+        path = gen.save_ai_diagnostics(bets, result, betting_target="win")
+        assert path is not None
+        assert path.exists()
+
+        data = json.loads(path.read_text(encoding="utf-8"))
+        assert data["meta"]["betting_target"] == "win"
+        assert "summary" in data
+        assert data["summary"]["total_bets"] == 10
+        assert "highlights" in data
+        assert "monthly_trend" in data["highlights"]
+
+    def test_empty_bets_returns_none(self, tmp_path: Path) -> None:
+        """空の bet リストでは None を返す"""
+        from backtest.engine import BacktestResult
+        from backtest.report import BacktestReportGenerator
+
+        gen = BacktestReportGenerator(output_dir=tmp_path)
+        result = BacktestResult()
+
+        path = gen.save_ai_diagnostics([], result, betting_target="win")
+        assert path is None
+
+    def test_place_mode_returns_none(self, tmp_path: Path) -> None:
+        """place モードでは None を返す"""
+        from backtest.report import BacktestReportGenerator
+
+        gen = BacktestReportGenerator(output_dir=tmp_path)
+        result, bets = self._make_win_result(n_bets=5)
+
+        path = gen.save_ai_diagnostics(bets, result, betting_target="place")
+        assert path is None
+
+    def test_trend_improving(self, tmp_path: Path) -> None:
+        """後半ROIが前半の1.1倍以上なら improving"""
+        import json
+
+        from backtest.engine import BacktestResult
+        from backtest.report import BacktestReportGenerator
+
+        gen = BacktestReportGenerator(output_dir=tmp_path)
+
+        # 6ヶ月分のデータ: 前半ROI低、後半ROI高
+        bets = []
+        for i in range(30):
+            month = 1 + i // 5  # 月1-6 (各5件)
+            is_second_half = month >= 4
+            bets.append({
+                "race_id": f"2024{month:02d}{10 + i:02d}010101",
+                "stake": 100.0,
+                "result": 150.0 if is_second_half else 50.0,  # 後半が高い
+                "surface": "turf",
+                "kyori": 1200,
+                "popularity": 3,
+                "ev": 1.2,
+                "tanoddslow": 3.0,
+                "regime": "aggressive",
+                "race_date": f"2024-{month:02d}-{10 + i:02d}",
+                "is_win": is_second_half,
+                "bankroll_after": 100000.0 + i * 100,
+            })
+
+        total_return = sum(b["result"] for b in bets)
+        result = BacktestResult(
+            total_bets=len(bets),
+            total_stake=len(bets) * 100.0,
+            total_return=total_return,
+            winning_bets=sum(1 for b in bets if b["result"] > 0),
+            total_roi=total_return / (len(bets) * 100.0),
+            max_drawdown=0.05,
+            final_bankroll=103000.0,
+        )
+
+        path = gen.save_ai_diagnostics(bets, result, betting_target="win")
+        assert path is not None
+        data = json.loads(path.read_text(encoding="utf-8"))
+        assert data["highlights"]["monthly_trend"] == "improving"
+
+    def test_trend_declining(self, tmp_path: Path) -> None:
+        """後半ROIが前半の0.9倍以下なら declining"""
+        import json
+
+        from backtest.engine import BacktestResult
+        from backtest.report import BacktestReportGenerator
+
+        gen = BacktestReportGenerator(output_dir=tmp_path)
+
+        # 6ヶ月分: 前半ROI高、後半ROI低
+        bets = []
+        for i in range(30):
+            month = 1 + i // 5
+            is_first_half = month < 4
+            bets.append({
+                "race_id": f"2024{month:02d}{10 + i:02d}010101",
+                "stake": 100.0,
+                "result": 150.0 if is_first_half else 50.0,  # 前半が高い
+                "surface": "turf",
+                "kyori": 1200,
+                "popularity": 3,
+                "ev": 1.2,
+                "tanoddslow": 3.0,
+                "regime": "aggressive",
+                "race_date": f"2024-{month:02d}-{10 + i:02d}",
+                "is_win": is_first_half,
+                "bankroll_after": 100000.0 + i * 100,
+            })
+
+        total_return = sum(b["result"] for b in bets)
+        result = BacktestResult(
+            total_bets=len(bets),
+            total_stake=len(bets) * 100.0,
+            total_return=total_return,
+            winning_bets=sum(1 for b in bets if b["result"] > 0),
+            total_roi=total_return / (len(bets) * 100.0),
+            max_drawdown=0.05,
+            final_bankroll=103000.0,
+        )
+
+        path = gen.save_ai_diagnostics(bets, result, betting_target="win")
+        assert path is not None
+        data = json.loads(path.read_text(encoding="utf-8"))
+        assert data["highlights"]["monthly_trend"] == "declining"
+
+    def test_trend_stable(self, tmp_path: Path) -> None:
+        """前後半のROI差が小さいなら stable"""
+        import json
+
+        from backtest.engine import BacktestResult
+        from backtest.report import BacktestReportGenerator
+
+        gen = BacktestReportGenerator(output_dir=tmp_path)
+
+        # 6ヶ月分: 前後半とも同程度のROI
+        bets = []
+        for i in range(30):
+            month = 1 + i // 5
+            bets.append({
+                "race_id": f"2024{month:02d}{10 + i:02d}010101",
+                "stake": 100.0,
+                "result": 100.0,  # 全ベット同額返し → ROI=1.0
+                "surface": "turf",
+                "kyori": 1200,
+                "popularity": 3,
+                "ev": 1.2,
+                "tanoddslow": 3.0,
+                "regime": "aggressive",
+                "race_date": f"2024-{month:02d}-{10 + i:02d}",
+                "is_win": True,
+                "bankroll_after": 100000.0 + i * 100,
+            })
+
+        total_return = sum(b["result"] for b in bets)
+        result = BacktestResult(
+            total_bets=len(bets),
+            total_stake=len(bets) * 100.0,
+            total_return=total_return,
+            winning_bets=len(bets),
+            total_roi=total_return / (len(bets) * 100.0),
+            max_drawdown=0.0,
+            final_bankroll=103000.0,
+        )
+
+        path = gen.save_ai_diagnostics(bets, result, betting_target="win")
+        assert path is not None
+        data = json.loads(path.read_text(encoding="utf-8"))
+        assert data["highlights"]["monthly_trend"] == "stable"
