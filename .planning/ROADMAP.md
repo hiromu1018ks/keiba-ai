@@ -124,7 +124,7 @@ Plans:
 **Plans**: 1 plan
 
 Plans:
-- [ ] 09-01: Win bet history + ROI diagnostics + odds band analysis (RPT-01, RPT-02, RPT-03)
+- [ ] 09-01: Win bet history fields + regime/odds band analysis + AI diagnostics + HTML/CLI extension (RPT-01, RPT-02, RPT-03)
 
 ### Phase 10: Pipeline Performance
 **Goal**: バックテスト・学習パイプラインの実行時間が短縮され、ボトルネックが定量測定可能になる
