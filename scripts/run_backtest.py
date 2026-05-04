@@ -246,7 +246,8 @@ def display_single_year_result(
         print(f"  的中率:         {wr:>9.1%}")
         print(f"  的中数:         {result.winning_bets:>8,} / {result.total_bets:,}")
         avg_odds = (
-            sum(b.get("tanoddslow", 0) for b in result.bet_history) / len(result.bet_history)
+            sum(b.get("final_odds", b.get("odds", 0)) for b in result.bet_history)
+            / len(result.bet_history)
             if result.bet_history
             else 0.0
         )
