@@ -605,22 +605,16 @@ def main():
 | A4 | pyinstrument 5.1.2 は Python 3.11 で動作する | Standard Stack | 互換性がない場合はバージョン調整が必要 |
 | A5 | FeatureEngine.build_all() は特徴量の事前計算エントリポイント。engine.py:341 が正確な統合ポイント | Architecture Patterns | 実際のフローが異なる場合はキャッシュ統合設計の見直しが必要 |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **payfukusyopay 列数の確認**
-   - What we know: engine.py 既存コードで payfukusyopay1-5 を参照している可能性
-   - What's unclear: 実際の DataFrame に pay4, pay5 が存在するか
-   - Recommendation: planner が engine.py の既存 iterrows() を読んで実際の列参照を確認
+   - RESOLVED: executor が Task 1 の read_first で engine.py の既存 iterrows() を読み込み、実際の列参照 (pay1-4 または pay1-5) を確認する。ベクトル化コードは read_first で確認した列数に合わせて実装する。
 
 2. **kumi 文字列の実際のバリエーション**
-   - What we know: D-02 で3パターン想定。str.len() で分類する設計
-   - What's unclear: 実データにどの長さの kumi が存在するか
-   - Recommendation: 実装時に `payouts_df['kumi'].str.len().value_counts()` で分布を確認してからロジックを実装
+   - RESOLVED: executor が Task 1 の read_first で engine.py の既存 _parse_kumi() を読み込み、想定パターンを確認する。実装時には `payouts_df['kumi'].str.len().value_counts()` で分布を検証してからロジックを実装する。
 
 3. **キャッシュの粒度: build_all() 全体 vs 個別特徴量モジュール**
-   - What we know: D-10 は6種の特徴量を列挙。D-13 は特徴量種別をキーに含める
-   - What's unclear: キャッシュは build_all() の結果全体を1ファイルにするか、各特徴量モジュールごとに個別ファイルにするか
-   - Recommendation: 個別モジュールごとの方が再利用性が高いが、build_all() 全体の方が実装がシンプル。planner で決定
+   - RESOLVED: build_all() 全体を単一キャッシュファイルとして保存するアプローチを採用。実装がシンプルで、D-10/D-13 の要件を満たす。個別モジュールキャッシュは将来の最適化として扱う。
 
 ## Environment Availability
 
