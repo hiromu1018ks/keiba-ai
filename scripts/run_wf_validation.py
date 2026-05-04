@@ -105,29 +105,9 @@ def _extract_all_feature_rankings(models: Any) -> tuple[dict[str, int], list[str
 
 def main() -> None:
     """WF検証のメインループ"""
-    import argparse
-
     parser = argparse.ArgumentParser(description="Walk-Forward Validation")
     parser.add_argument("--profile", action="store_true", default=False,
                         help="Enable pyinstrument profiling (outputs to data/profiles/)")
-    args = parser.parse_args()
-
-    from utils.profiling import ProfileContext
-
-    with ProfileContext(enabled=args.profile, label="wf_validation"):
-        _run_validation()
-
-
-def _run_validation() -> None:
-    """WF検証の実際の処理ロジック"""
-    from db.parquet_store import ParquetStore
-
-    store = ParquetStore()
-    if not store.exists("raw", "races"):
-        logger.error("Parquetデータが見つかりません。先に run_etl.py を実行してください。")
-        sys.exit(1)
-
-    parser = argparse.ArgumentParser(description="Walk-Forward Validation")
     parser.add_argument(
         "--betting-target",
         choices=["win", "place", "wide"],
@@ -135,6 +115,21 @@ def _run_validation() -> None:
         help="ベッティング対象 (デフォルト: win)",
     )
     args = parser.parse_args()
+
+    from utils.profiling import ProfileContext
+
+    with ProfileContext(enabled=args.profile, label="wf_validation"):
+        _run_validation(args.betting_target)
+
+
+def _run_validation(betting_target: str = "win") -> None:
+    """WF検証の実際の処理ロジック"""
+    from db.parquet_store import ParquetStore
+
+    store = ParquetStore()
+    if not store.exists("raw", "races"):
+        logger.error("Parquetデータが見つかりません。先に run_etl.py を実行してください。")
+        sys.exit(1)
 
     # git hash
     try:
@@ -197,7 +192,7 @@ def _run_validation() -> None:
 
         test_engine = BacktestEngine(
             models=models, store=store, diag_prefix=f"wf_{i}_test",
-            betting_target=args.betting_target,
+            betting_target=betting_target,
         )
         test_result = test_engine.run(fold_def["test_start"], fold_def["test_end"])
         elapsed_test = time.time() - t1
@@ -211,7 +206,7 @@ def _run_validation() -> None:
         t2 = time.time()
         train_engine = BacktestEngine(
             models=models, store=store, diag_prefix=f"wf_{i}_train",
-            betting_target=args.betting_target,
+            betting_target=betting_target,
         )
         train_result = train_engine.run(fold_def["train_start"], fold_def["train_end"])
         elapsed_train_bt = time.time() - t2
