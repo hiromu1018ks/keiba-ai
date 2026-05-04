@@ -141,6 +141,29 @@ def build_payout_map(
     return payout_map
 
 
+def build_win_payout_map(
+    payouts_df: pd.DataFrame,
+) -> dict[tuple[str, int], float]:
+    """payouts DataFrame から (race_id, umaban) → odds_multiplier のマップを構築 (単勝用)。
+
+    paytansyopay1 は「100円あたりの円」なので、100で割って倍率に変換する。
+    ベクトル化: dropna → astype → dict comprehension。
+    """
+    if payouts_df.empty:
+        return {}
+    df = payouts_df.dropna(subset=["paytansyoumaban1", "paytansyopay1"]).copy()
+    if df.empty:
+        return {}
+    df["umaban"] = df["paytansyoumaban1"].astype(int)
+    df["pay_100"] = df["paytansyopay1"] / 100.0
+    return {
+        (str(race_id), int(umaban)): float(pay_100)
+        for (race_id, umaban), pay_100 in df.set_index(["race_id", "umaban"])[
+            "pay_100"
+        ].items()
+    }
+
+
 def build_wide_payout_map(
     payouts_df: pd.DataFrame,
 ) -> dict[tuple[str, int, int], float]:
@@ -311,14 +334,18 @@ class BacktestEngine:
         store: ParquetStore | None = None,
         betting_mode: str = "flat",
         diag_prefix: str = "bt",
+        betting_target: str = "win",
     ) -> None:
         if betting_mode not in ("flat", "kelly"):
             raise ValueError(f"betting_mode must be 'flat' or 'kelly', got '{betting_mode}'")
+        if betting_target not in ("win", "place", "wide"):
+            raise ValueError(f"betting_target must be 'win', 'place', or 'wide', got '{betting_target}'")
         self.models = models
         self.initial_bankroll = initial_bankroll
         self.store = store or ParquetStore()
         self.betting_mode = betting_mode
         self.diag_prefix = diag_prefix
+        self.betting_target = betting_target
 
         if betting_mode == "kelly":
             from betting.drawdown_controller import DrawdownController
@@ -411,6 +438,9 @@ class BacktestEngine:
         payouts_df = load_payouts(self.store, start, end)
         self.payout_map = build_payout_map(payouts_df)
         logger.info("Loaded payout map: %d entries", len(self.payout_map))
+
+        self.win_payout_map = build_win_payout_map(payouts_df)
+        logger.info("Loaded win payout map: %d entries", len(self.win_payout_map))
 
         # ワイド払戻マップを構築（精算用）
         self.wide_payout_map = build_wide_payout_map(payouts_df)
@@ -637,10 +667,20 @@ class BacktestEngine:
                 regime = self.models.regime_detector.current_regime
             regime_params = self.models.regime_detector.get_strategy_params(regime)
             edge_threshold = regime_params.get("edge_threshold", 0.03)
-            candidate_df = self._race_predictor.get_place_candidates(
-                result_df,
-                regime_params=regime_params,
-            )
+            if self.betting_target == "win":
+                get_win = getattr(self._race_predictor, "get_win_candidates", None)
+                if callable(get_win):
+                    candidate_df = get_win(result_df)
+                else:
+                    candidate_df = self._race_predictor.get_place_candidates(
+                        result_df,
+                        regime_params=regime_params,
+                    )
+            else:
+                candidate_df = self._race_predictor.get_place_candidates(
+                    result_df,
+                    regime_params=regime_params,
+                )
             n_candidates = len(candidate_df)
             candidate_reason_df = candidate_df[
                 ["race_id", "umaban", "place_selection_reason"]
@@ -731,7 +771,10 @@ class BacktestEngine:
 
             # Bet generation
             surface_key = result_df["surface"].iloc[0]
-            bets = self._race_predictor.select_bets(result_df, bankroll, candidates=candidate_df)
+            bets = self._race_predictor.select_bets(
+                result_df, bankroll, candidates=candidate_df,
+                betting_target=self.betting_target,
+            )
 
             # v5: セグメント除外フィルタ全削除 — モデル自身がedgeを低く見積もるように改善する
             # (旧v4の14個の除外フィルタは全て削除)
@@ -1068,7 +1111,25 @@ class BacktestEngine:
                     return float(bet.stake * settle_odds)
             return 0.0
 
-        # 複勝/単勝: payout_map（確定配当）から精算
+        # 単勝: win_payout_map（確定配当）から精算
+        if bet.bet_type == BetType.WIN:
+            win_key = (bet.race_id, bet.umaban)
+            if hasattr(self, "win_payout_map") and win_key in self.win_payout_map:
+                return float(bet.stake * self.win_payout_map[win_key])
+            logger.warning(
+                "Win payout missing for %s umaban=%d, using odds fallback",
+                bet.race_id, bet.umaban,
+            )
+            horse = race_df[race_df["umaban"] == bet.umaban]
+            if horse.empty:
+                return 0.0
+            finish_pos = int(horse.iloc[0]["kakuteijyuni"])
+            if finish_pos == 1:
+                settle_odds = bet.final_odds if bet.final_odds > 0 else bet.odds
+                return float(bet.stake * settle_odds)
+            return 0.0
+
+        # 複勝: payout_map（確定配当）から精算
         payout_key = (bet.race_id, bet.umaban)
         if hasattr(self, "payout_map") and payout_key in self.payout_map:
             return float(bet.stake * self.payout_map[payout_key])
