@@ -220,6 +220,7 @@ def display_single_year_result(
     train_end: str,
     test_start: str,
     test_end: str,
+    betting_target: str = "win",
 ) -> dict[str, Any]:
     """単一年度の結果を表示し、JSON用dictを返す"""
     print()
@@ -235,6 +236,24 @@ def display_single_year_result(
     print(f"  最終資金:       {result.final_bankroll:>10,.0f} 円")
     print(f"  学習時間:       {elapsed_train:>7,.0f} 秒")
     print(f"  テスト時間:     {elapsed_test:>7,.0f} 秒")
+
+    if betting_target == "win":
+        print()
+        print("=" * 50)
+        print("  単勝ベット詳細")
+        print("=" * 50)
+        wr = result.winning_bets / result.total_bets if result.total_bets > 0 else 0
+        print(f"  的中率:         {wr:>9.1%}")
+        print(f"  的中数:         {result.winning_bets:>8,} / {result.total_bets:,}")
+        avg_odds = (
+            sum(b.get("tanoddslow", 0) for b in result.bet_history) / len(result.bet_history)
+            if result.bet_history
+            else 0.0
+        )
+        print(f"  平均オッズ:     {avg_odds:>9.1f}")
+        if result.avg_edge > 0:
+            print(f"  平均Edge:       {result.avg_edge:>9.3f}")
+            print(f"  Edge範囲:       {result.min_edge:.3f} ~ {result.max_edge:.3f}")
 
     before_roi = 0.638
     diff = result.total_roi - before_roi
@@ -337,6 +356,7 @@ def _run_single_year(args: argparse.Namespace) -> None:
         train_end,
         test_start,
         test_end,
+        betting_target=args.betting_target,
     )
 
     # 出力
@@ -350,6 +370,15 @@ def _run_single_year(args: argparse.Namespace) -> None:
         bet_history_path = gen.save_bet_history(result.bet_history)
         print(f"\nbet_history保存: {bet_history_path}")
 
+        if args.betting_target == "win":
+            diag_path = gen.save_ai_diagnostics(
+                gen._derive_fields(result.bet_history),
+                result,
+                betting_target=args.betting_target,
+            )
+            if diag_path:
+                print(f"AI診断JSON: {diag_path}")
+
         result_path = output_dir / "backtest_result.json"
         result_path.write_text(json.dumps(out, indent=2, ensure_ascii=False), encoding="utf-8")
         print(f"結果保存: {result_path}")
@@ -359,6 +388,7 @@ def _run_single_year(args: argparse.Namespace) -> None:
             result.bet_history,
             train_period=f"{train_start} ~ {train_end}",
             test_period=f"{test_start} ~ {test_end}",
+            betting_target=args.betting_target,
         )
         print(f"レポート生成: {report_path}")
 

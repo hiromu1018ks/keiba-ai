@@ -107,6 +107,20 @@
                 <div class="kpi-label">最終資金</div>
                 <div class="kpi-value">&yen;{{ summary.final_bankroll|format_number }}</div>
             </div>
+            {% if betting_target == "win" %}
+            <div class="kpi-card">
+                <div class="kpi-label">ベット数</div>
+                <div class="kpi-value">{{ summary.total_bets }}</div>
+            </div>
+            <div class="kpi-card">
+                <div class="kpi-label">投資額</div>
+                <div class="kpi-value">&yen;{{ summary.total_stake|format_number }}</div>
+            </div>
+            <div class="kpi-card">
+                <div class="kpi-label">払戻額</div>
+                <div class="kpi-value">&yen;{{ summary.total_return|format_number }}</div>
+            </div>
+            {% endif %}
         </div>
     </div>
 
@@ -224,6 +238,47 @@
             </div>
             {% endif %}
         </div>
+        {% if betting_target == "win" %}
+        {% if condition_stats.regime_bands %}
+        <div>
+            <h3>Regime別</h3>
+            <table class="display" style="width:100%;">
+                <thead>
+                    <tr><th>Regime</th><th>ベット数</th><th>的中率</th><th>ROI</th></tr>
+                </thead>
+                <tbody>
+                    {% for row in condition_stats.regime_bands %}
+                    <tr class="{{ 'heatmap-positive' if row.roi >= 1 else 'heatmap-negative' }}">
+                        <td>{{ row.regime }}</td><td>{{ row.bets }}</td>
+                        <td>{{ "%.1f%%"|format(row.win_rate * 100) }}</td>
+                        <td>{{ "%.1f%%"|format(row.roi * 100) }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% endif %}
+        {% if condition_stats.odds_multiplier_bands %}
+        <div>
+            <h3>オッズ倍率帯</h3>
+            <table class="display" style="width:100%;">
+                <thead>
+                    <tr><th>オッズ帯</th><th>ベット数</th><th>的中率</th><th>平均払戻</th><th>ROI</th></tr>
+                </thead>
+                <tbody>
+                    {% for row in condition_stats.odds_multiplier_bands %}
+                    <tr class="{{ 'heatmap-positive' if row.roi >= 1 else 'heatmap-negative' }}">
+                        <td>{{ row.band }}</td><td>{{ row.bets }}</td>
+                        <td>{{ "%.1f%%"|format(row.win_rate * 100) }}</td>
+                        <td>&yen;{{ row.avg_payout|format_number }}</td>
+                        <td>{{ "%.1f%%"|format(row.roi * 100) }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% endif %}
+        {% endif %}
         {% else %}
         <p class="no-data">データなし</p>
         {% endif %}

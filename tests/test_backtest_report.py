@@ -248,6 +248,8 @@ class TestComputeConditionStats:
         assert result["surface_distance"] == []
         assert result["popularity_bands"] == []
         assert result["ev_bands"] == []
+        assert result["odds_multiplier_bands"] == []
+        assert result["regime_bands"] == []
 
 
 class TestComputeBankrollSeries:
@@ -605,15 +607,15 @@ class TestComputeConditionStatsWin:
         assert "regime_bands" in result
 
     def test_odds_multiplier_bands_absent_in_place_mode(self) -> None:
-        """place モード時に odds_multiplier_bands と regime_bands が含まれない"""
+        """place モード時に odds_multiplier_bands と regime_bands が空リスト"""
         from backtest.report import BacktestReportGenerator
 
         gen = BacktestReportGenerator(output_dir=Path("/tmp"))
         result = gen._compute_condition_stats(
             self._make_win_bets(), betting_target="place"
         )
-        assert "odds_multiplier_bands" not in result
-        assert "regime_bands" not in result
+        assert result["odds_multiplier_bands"] == []
+        assert result["regime_bands"] == []
 
     def test_odds_multiplier_bands_values(self) -> None:
         """オッズ倍率帯の値が正しい"""
