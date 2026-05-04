@@ -4,13 +4,13 @@ milestone: v1.3
 milestone_name: Betting Strategy Optimization
 status: executing
 last_updated: "2026-05-05T00:00:00Z"
-last_activity: 2026-05-05 — Phase 12 context gathered
+last_activity: 2026-05-05 — Phase 12 planned (2 plans)
 progress:
   total_phases: 3
   completed_phases: 1
-  total_plans: 6
+  total_plans: 8
   completed_plans: 2
-  percent: 33
+  percent: 25
 ---
 
 # Project State
@@ -20,14 +20,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-05-04)
 
 **Core value:** 単勝モデルのバックテストROIを100%超えにすること
-**Current focus:** Phase 12 — Stake Sizing Enhancement (next)
+**Current focus:** Phase 12 — Stake Sizing Enhancement (ready to execute)
 
 ## Current Position
 
 Phase: 12 of 13 (Stake Sizing Enhancement)
-Plan: —
-Status: Phase 12 context gathered, ready to plan
-Last activity: 2026-05-05 — Phase 12 context gathered
+Plan: 2 plans (12-01, 12-02) in 2 waves
+Status: Ready to execute
+Last activity: 2026-05-05 — Phase 12 planned (2 plans)
 
 Progress: [===       ] 33%
 

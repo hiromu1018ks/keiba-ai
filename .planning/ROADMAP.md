@@ -189,5 +189,5 @@ Phases execute in numeric order: 11 → 12 → 13
 | 9. Win Reporting | v1.2 | 1/1 | Complete | 2026-05-04 |
 | 10. Pipeline Performance | v1.2 | 2/2 | Complete | 2026-05-04 |
 | 11. Bet Selection Filters | v1.3 | 2/2 | Complete | 2026-05-04 |
-| 12. Stake Sizing Enhancement | v1.3 | 0/2 | Not started | - |
+| 12. Stake Sizing Enhancement | v1.3 | 0/2 | Ready to execute | - |
 | 13. Risk Calibration & Parameter Optimization | v1.3 | 0/? | Not started | - |

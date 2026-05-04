@@ -365,17 +365,17 @@ betting_strategy:
 
 **If this table has entries:** 上記の `[ASSUMED]` 主張はコードベース調査に基づいているが、実行時検証が必要な項目がある。
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **StakeCalculator のライフサイクル設計**
+1. **StakeCalculator のライフサイクル設計** — RESOLVED: インプレース更新を採用
    - What we know: engine.py で一度だけ作成される。レースループ内でレジームが変わる可能性がある
-   - What's unclear: レジーム遷移時に StakeCalculator を再生成するか、fractional_kelly をインプレース更新するか
-   - Recommendation: インプレース更新 (`stake_calc.fractional_kelly = new_value`) が最もシンプル。再生成は RacePredictor 内の stake_calc 参照の更新が必要で複雑になる
+   - Decision: インプレース更新 (`stake_calc.fractional_kelly = new_value`)。Plan 12-02 Task 1 で実装
+   - Rationale: 再生成は RacePredictor 内の stake_calc 参照の更新が必要で複雑になるため不採用
 
-2. **EV < 1.0 の候補の処理**
-   - What we know: ev_threshold フィルタで EV >= 1.10 等の候補のみが select_bets() に到達する
-   - What's unclear: EV乗算器の scale = ev/1.10 で EV=1.05 の場合 scale=0.955 となるが、このような低EV候補はそもそもフィルタ段階で除外されているか
-   - Recommendation: Phase 11のフィルタが先に動くので、EV乗算器に到達する候補は基本的に ev_threshold 以上。ただし、EV乗算器自体は安全のため ev <= 0 のエッジケースを処理すべき
+2. **EV < 1.0 の候補の処理** — RESOLVED: EV乗算器にNaN/非正エッジケースガードを実装
+   - What we know: Phase 11のev_thresholdフィルタが先に動くため、EV乗算器に到達する候補は基本的に ev_threshold 以上
+   - Decision: apply_ev_scaling() で ev <= 0, NaN の場合に stake をそのまま返すガードを実装。Plan 12-01 Task 1 で対応
+   - Rationale: 安全のためエッジケース処理は必須。Phase 11フィルタとの相互作用は明確
 
 ## Environment Availability
 
