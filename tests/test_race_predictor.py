@@ -1335,3 +1335,210 @@ class TestRacePredictorConfidenceIntegration:
 
         submodel.confidence.predict_interval.assert_called_once()
         submodel.confidence.predict_lower_bound.assert_not_called()
+
+
+class TestGetWinCandidates:
+    """get_win_candidates() のテスト (WIN-03)"""
+
+    def _make_win_race_df(self, n: int = 5, **overrides: object) -> pd.DataFrame:
+        """get_win_candidates テスト用の DataFrame を構築"""
+        data: dict[str, list[object]] = {
+            "race_id": ["R1"] * n,
+            "umaban": list(range(1, n + 1)),
+            "win_selection_edge": [0.1] * n,
+            "win_selection_ev": [1.1] * n,
+            "win_selection_prob": [0.3] * n,
+            "tanodds": [2.4] * n,
+            "win_gate_score": [0.8] * n,
+            "win_gate_pass": [True] * n,
+            "conformal_confidence_score": [0.5] * n,
+        }
+        for key, val in overrides.items():
+            if isinstance(val, list):
+                data[key] = val
+        return pd.DataFrame(data)
+
+    def test_basic_filter_returns_candidates(self, mock_models: MagicMock) -> None:
+        """Test 1: win_selection_edge>0, tanodds>=1.0 の馬が返される"""
+        from backtest.race_predictor import RacePredictor
+
+        predictor = RacePredictor(models=mock_models)
+        race_df = self._make_win_race_df(n=3)
+        result = predictor.get_win_candidates(race_df)
+        assert len(result) > 0
+        assert all(result["win_selection_edge"].fillna(0) > 0)
+
+    def test_negative_edge_returns_empty(self, mock_models: MagicMock) -> None:
+        """Test 2: win_selection_edge<0 の馬は除外される"""
+        from backtest.race_predictor import RacePredictor
+
+        predictor = RacePredictor(models=mock_models)
+        race_df = self._make_win_race_df(n=2, win_selection_edge=[-0.1, -0.2])
+        result = predictor.get_win_candidates(race_df)
+        assert len(result) == 0
+
+    def test_low_odds_returns_empty(self, mock_models: MagicMock) -> None:
+        """Test 3: tanodds < 1.0 の馬は除外される"""
+        from backtest.race_predictor import RacePredictor
+
+        predictor = RacePredictor(models=mock_models)
+        race_df = self._make_win_race_df(n=2, tanodds=[0.5, 0.8])
+        result = predictor.get_win_candidates(race_df)
+        assert len(result) == 0
+
+    def test_max_two_candidates(self, mock_models: MagicMock) -> None:
+        """Test 4: 5候補いても上位2頭のみ返す"""
+        from backtest.race_predictor import RacePredictor
+
+        predictor = RacePredictor(models=mock_models)
+        race_df = self._make_win_race_df(
+            n=5,
+            win_gate_score=[0.9, 0.7, 0.5, 0.3, 0.1],
+        )
+        result = predictor.get_win_candidates(race_df)
+        assert len(result) == 2
+
+    def test_missing_edge_column_returns_empty(self, mock_models: MagicMock) -> None:
+        """Test 5: win_selection_edge 列なし → 空 DataFrame"""
+        from backtest.race_predictor import RacePredictor
+
+        predictor = RacePredictor(models=mock_models)
+        race_df = pd.DataFrame({"race_id": ["R1"], "umaban": [1], "tanodds": [2.4]})
+        result = predictor.get_win_candidates(race_df)
+        assert len(result) == 0
+
+    def test_nan_gate_score_fallback_to_edge(self, mock_models: MagicMock) -> None:
+        """Test 6: win_gate_score が NaN でも win_selection_edge でソートされる"""
+        from backtest.race_predictor import RacePredictor
+
+        predictor = RacePredictor(models=mock_models)
+        race_df = self._make_win_race_df(
+            n=3,
+            win_gate_score=[float("nan"), float("nan"), float("nan")],
+            win_selection_edge=[0.05, 0.20, 0.10],
+        )
+        result = predictor.get_win_candidates(race_df)
+        assert len(result) == 3
+        assert result.iloc[0]["win_selection_edge"] == pytest.approx(0.20)
+
+    def test_missing_tanodds_returns_empty(self, mock_models: MagicMock) -> None:
+        """tanodds 列なし → 空 DataFrame"""
+        from backtest.race_predictor import RacePredictor
+
+        predictor = RacePredictor(models=mock_models)
+        race_df = pd.DataFrame(
+            {"race_id": ["R1"], "umaban": [1], "win_selection_edge": [0.1]}
+        )
+        result = predictor.get_win_candidates(race_df)
+        assert len(result) == 0
+
+
+class TestSelectBetsWinPath:
+    """select_bets() の win path テスト (WIN-03)"""
+
+    def test_win_path_produces_win_bets(self, mock_models: MagicMock) -> None:
+        """Test 7: betting_target='win' で BetType.WIN の Bet を生成"""
+        from backtest.race_predictor import RacePredictor
+        from domain.models import BetType
+
+        predictor = RacePredictor(models=mock_models)
+        race_df = pd.DataFrame(
+            {
+                "race_id": ["R1", "R1"],
+                "umaban": [1, 2],
+                "win_selection_edge": [0.10, 0.05],
+                "win_selection_ev": [1.10, 1.05],
+                "win_selection_prob": [0.30, 0.25],
+                "tanodds": [3.0, 5.0],
+                "win_gate_score": [0.8, 0.5],
+                "surface": ["turf", "turf"],
+            }
+        )
+        bets = predictor.select_bets(
+            race_df, bankroll=100000.0, betting_target="win"
+        )
+        assert len(bets) >= 1
+        assert all(b.bet_type == BetType.WIN for b in bets)
+        assert all(b.odds > 0 for b in bets)
+
+    def test_win_path_kelly_uses_stake_calc(self, mock_models: MagicMock) -> None:
+        """Test 8: win + kelly モードで calc_stake が呼ばれる"""
+        from backtest.race_predictor import RacePredictor
+        from betting.drawdown_controller import DrawdownController
+        from betting.stake_calculator import StakeCalculator
+        from domain.models import BetType
+
+        stake_calc = MagicMock(spec=StakeCalculator)
+        stake_calc.calc_stake.return_value = 200.0
+        dd_ctrl = MagicMock(spec=DrawdownController)
+        dd_ctrl.adjust_stake.return_value = 200.0
+
+        predictor = RacePredictor(
+            mock_models,
+            stake_calculator=stake_calc,
+            dd_controller=dd_ctrl,
+        )
+        race_df = pd.DataFrame(
+            {
+                "race_id": ["R1", "R1"],
+                "umaban": [1, 2],
+                "win_selection_edge": [0.10, 0.05],
+                "win_selection_ev": [1.10, 1.05],
+                "win_selection_prob": [0.30, 0.25],
+                "tanodds": [3.0, 5.0],
+                "win_gate_score": [0.8, 0.5],
+                "surface": ["turf", "turf"],
+            }
+        )
+        bets = predictor.select_bets(
+            race_df, bankroll=100000.0, betting_target="win"
+        )
+        assert len(bets) >= 1
+        assert all(b.bet_type == BetType.WIN for b in bets)
+        assert stake_calc.calc_stake.called
+
+    def test_win_path_respects_max_bets(self, mock_models: MagicMock) -> None:
+        """win path は max_bets_per_race を超えない"""
+        from backtest.race_predictor import RacePredictor
+
+        predictor = RacePredictor(models=mock_models)
+        mock_models.regime_detector.get_strategy_params.return_value = {
+            "ev_threshold": 1.20,
+            "edge_threshold": 0.03,
+            "max_bets_per_race": 1,
+        }
+        race_df = pd.DataFrame(
+            {
+                "race_id": ["R1", "R1", "R1"],
+                "umaban": [1, 2, 3],
+                "win_selection_edge": [0.10, 0.05, 0.03],
+                "win_selection_ev": [1.10, 1.05, 1.03],
+                "win_selection_prob": [0.30, 0.25, 0.20],
+                "tanodds": [3.0, 5.0, 8.0],
+                "win_gate_score": [0.9, 0.7, 0.5],
+                "surface": ["turf", "turf", "turf"],
+            }
+        )
+        bets = predictor.select_bets(
+            race_df, bankroll=100000.0, betting_target="win"
+        )
+        assert len(bets) <= 1
+
+    def test_win_path_no_candidates_returns_empty(self, mock_models: MagicMock) -> None:
+        """win 候補がいない → 空 list"""
+        from backtest.race_predictor import RacePredictor
+
+        predictor = RacePredictor(models=mock_models)
+        race_df = pd.DataFrame(
+            {
+                "race_id": ["R1"],
+                "umaban": [1],
+                "win_selection_edge": [-0.1],
+                "tanodds": [2.0],
+                "surface": ["turf"],
+            }
+        )
+        bets = predictor.select_bets(
+            race_df, bankroll=100000.0, betting_target="win"
+        )
+        assert bets == []
