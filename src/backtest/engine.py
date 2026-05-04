@@ -105,49 +105,40 @@ def build_payout_map(
     """payouts DataFrame から (race_id, umaban) → odds_multiplier のマップを構築。
 
     payfukusyopay は「100円あたりの円」なので、100で割って倍率に変換する。
+    ベクトル化: melt + groupby で一括処理。同一 (race_id, umaban) の最大値を保持。
     """
+    if payouts_df.empty:
+        return {}
+    id_vars = ["race_id"]
+    maban_cols = [f"payfukusyoumaban{i}" for i in range(1, 6)]
+    pay_cols = [f"payfukusyopay{i}" for i in range(1, 6)]
+
+    maban_melted = payouts_df[id_vars + maban_cols].melt(
+        id_vars=id_vars, value_vars=maban_cols, value_name="umaban",
+    )
+    pay_melted = payouts_df[id_vars + pay_cols].melt(
+        id_vars=id_vars, value_vars=pay_cols, value_name="pay",
+    )
+
+    combined = pd.DataFrame({
+        "race_id": maban_melted["race_id"].values,
+        "umaban": maban_melted["umaban"].values,
+        "pay": pay_melted["pay"].values,
+    })
+    combined = combined.dropna(subset=["umaban", "pay"])
+    combined["umaban"] = combined["umaban"].astype(int)
+    combined["pay_100"] = combined["pay"] / 100.0
+
+    # 同一 (race_id, umaban) の最大値を保持
+    idx = combined.groupby(["race_id", "umaban"])["pay_100"].idxmax()
+    deduped = combined.loc[idx]
+
     payout_map: dict[tuple[str, int], float] = {}
-    if payouts_df.empty:
-        return payout_map
-    for _, row in payouts_df.iterrows():
-        race_id = str(row.get("race_id", ""))
-        for i in range(1, 6):
-            umaban = row.get(f"payfukusyoumaban{i}")
-            pay = row.get(f"payfukusyopay{i}")
-            if pd.notna(umaban) and pd.notna(pay):
-                try:
-                    key = (race_id, int(umaban))
-                    val = float(pay) / 100.0
-                    if key not in payout_map or val > payout_map[key]:
-                        payout_map[key] = val
-                except (ValueError, TypeError):
-                    continue
+    for race_id, umaban, pay_100 in zip(
+        deduped["race_id"].values, deduped["umaban"].values, deduped["pay_100"].values
+    ):
+        payout_map[(str(race_id), int(umaban))] = float(pay_100)
     return payout_map
-
-
-def build_win_payout_map(
-    payouts_df: pd.DataFrame,
-) -> dict[tuple[str, int], float]:
-    """payouts DataFrame から (race_id, umaban) → odds_multiplier のマップを構築 (単勝用)。
-
-    paytansyopay1 は「100円あたりの円」なので、100で割って倍率に変換する。
-    単勝は1着のみ払戻しがあるため、ループは1回のみ。
-    """
-    win_payout_map: dict[tuple[str, int], float] = {}
-    if payouts_df.empty:
-        return win_payout_map
-    for _, row in payouts_df.iterrows():
-        race_id = str(row.get("race_id", ""))
-        umaban = row.get("paytansyoumaban1")
-        pay = row.get("paytansyopay1")
-        if pd.notna(umaban) and pd.notna(pay):
-            try:
-                key = (race_id, int(umaban))
-                val = float(pay) / 100.0
-                win_payout_map[key] = val
-            except (ValueError, TypeError):
-                continue
-    return win_payout_map
 
 
 def build_wide_payout_map(
@@ -157,56 +148,149 @@ def build_wide_payout_map(
 
     ワイド払戻は paywidekumi1-7 と paywidepay1-7 (100円あたり円) を使用。
     kumi 形式は非ゼロ埋め: "513" = 馬5+馬13, "1113" = 馬11+馬13, "15" = 馬1+馬5。
+    ベクトル化: melt + str vectorized ops で一括処理。
     """
-    wide_payout_map: dict[tuple[str, int, int], float] = {}
     if payouts_df.empty:
-        return wide_payout_map
+        return {}
 
-    def _parse_kumi(kumi_str: str) -> tuple[int, int] | None:
-        """非ゼロ埋め kumi を (lo, hi) にパース。馬番は 1-18 を前提。"""
-        n = len(kumi_str)
-        if n == 4:
-            lo, hi = int(kumi_str[:2]), int(kumi_str[2:])
-        elif n == 3:
-            # Two possible splits: X|YZ or XY|Z
-            split_a = (int(kumi_str[:1]), int(kumi_str[1:]))
-            split_b = (int(kumi_str[:2]), int(kumi_str[2:]))
-            # Valid horse numbers are 1-18; pick the valid split
-            valid_a = all(1 <= v <= 18 for v in split_a)
-            valid_b = all(1 <= v <= 18 for v in split_b)
-            if valid_a and not valid_b:
-                lo, hi = split_a
-            elif valid_b and not valid_a:
-                lo, hi = split_b
-            elif valid_a:
-                # Both valid -- use first split (X|YZ) as convention
-                lo, hi = split_a
-            else:
-                return None
-        elif n == 2:
-            lo, hi = int(kumi_str[:1]), int(kumi_str[1:])
-        else:
-            return None
-        return (min(lo, hi), max(lo, hi))
+    id_vars = ["race_id"]
+    kumi_cols = [f"paywidekumi{i}" for i in range(1, 8)]
+    pay_cols = [f"paywidepay{i}" for i in range(1, 8)]
 
-    for _, row in payouts_df.iterrows():
-        race_id = str(row.get("race_id", ""))
-        for i in range(1, 8):
-            kumi = row.get(f"paywidekumi{i}")
-            pay = row.get(f"paywidepay{i}")
-            if pd.notna(kumi) and pd.notna(pay) and str(kumi).strip():
-                try:
-                    parsed = _parse_kumi(str(kumi).strip())
-                    if parsed is None:
-                        continue
-                    umaban_lo, umaban_hi = parsed
-                    val = float(pay) / 100.0
-                    key = (race_id, umaban_lo, umaban_hi)
-                    if key not in wide_payout_map or val > wide_payout_map[key]:
-                        wide_payout_map[key] = val
-                except (ValueError, TypeError):
-                    continue
+    kumi_melted = payouts_df[id_vars + kumi_cols].melt(
+        id_vars=id_vars, value_vars=kumi_cols, value_name="kumi",
+    )
+    pay_melted = payouts_df[id_vars + pay_cols].melt(
+        id_vars=id_vars, value_vars=pay_cols, value_name="pay",
+    )
+
+    combined = pd.DataFrame({
+        "race_id": kumi_melted["race_id"].values,
+        "kumi": kumi_melted["kumi"].values,
+        "pay": pay_melted["pay"].values,
+    })
+    combined = combined.dropna(subset=["kumi", "pay"])
+    combined["kumi"] = combined["kumi"].astype(str).str.strip()
+    combined = combined[combined["kumi"] != ""]
+
+    if combined.empty:
+        return {}
+
+    # Vectorized kumi parsing based on string length
+    lengths = combined["kumi"].str.len()
+
+    # Initialize lo/hi columns
+    lo = pd.Series(np.nan, index=combined.index, dtype=float)
+    hi = pd.Series(np.nan, index=combined.index, dtype=float)
+
+    # Length 2: "XY" → lo=X, hi=Y (e.g., "15" → 1, 5)
+    mask2 = lengths == 2
+    if mask2.any():
+        lo.loc[mask2] = combined.loc[mask2, "kumi"].str.slice(0, 1).astype(int)
+        hi.loc[mask2] = combined.loc[mask2, "kumi"].str.slice(1, 2).astype(int)
+
+    # Length 3: "XYZ" — ambiguous: could be (X, YZ) or (XY, Z)
+    # Heuristic: if int(XY) <= 18, use (XY, Z); else use (X, YZ)
+    mask3 = lengths == 3
+    if mask3.any():
+        first_two = combined.loc[mask3, "kumi"].str.slice(0, 2).astype(int)
+        use_first_two = first_two <= 18
+        idx3 = combined.index[mask3]
+
+        # Where first two digits form a valid horse number (1-18)
+        split_at_2 = idx3[use_first_two]
+        if len(split_at_2) > 0:
+            lo.loc[split_at_2] = combined.loc[split_at_2, "kumi"].str.slice(0, 2).astype(int)
+            hi.loc[split_at_2] = combined.loc[split_at_2, "kumi"].str.slice(2, 3).astype(int)
+
+        # Otherwise split at 1
+        split_at_1 = idx3[~use_first_two]
+        if len(split_at_1) > 0:
+            lo.loc[split_at_1] = combined.loc[split_at_1, "kumi"].str.slice(0, 1).astype(int)
+            hi.loc[split_at_1] = combined.loc[split_at_1, "kumi"].str.slice(1, 3).astype(int)
+
+    # Length 4: "XXYY" → lo=XX, hi=YY (e.g., "1113" → 11, 13)
+    mask4 = lengths == 4
+    if mask4.any():
+        lo.loc[mask4] = combined.loc[mask4, "kumi"].str.slice(0, 2).astype(int)
+        hi.loc[mask4] = combined.loc[mask4, "kumi"].str.slice(2, 4).astype(int)
+
+    # Length 5: "XXYYZ" (rare, e.g. zero-padded "01113") → treat as (XX, YYZ) or (XXX, YZ)
+    mask5 = lengths >= 5
+    if mask5.any():
+        # Use same 2+3 or 3+2 logic based on first 2 digits
+        first_two = combined.loc[mask5, "kumi"].str.slice(0, 2).astype(int)
+        use_first_two = first_two <= 18
+        idx5 = combined.index[mask5]
+        kumi5 = combined.loc[mask5, "kumi"]
+        kumi5_len = lengths[mask5]
+
+        split_at_2 = idx5[use_first_two]
+        if len(split_at_2) > 0:
+            lo.loc[split_at_2] = combined.loc[split_at_2, "kumi"].str.slice(0, 2).astype(int)
+            hi.loc[split_at_2] = (
+                combined.loc[split_at_2, "kumi"]
+                .str.slice(2).astype(int)
+            )
+
+        split_at_3 = idx5[~use_first_two]
+        if len(split_at_3) > 0:
+            lo.loc[split_at_3] = (
+                combined.loc[split_at_3, "kumi"]
+                .str.slice(0, -2).astype(int)
+            )
+            hi.loc[split_at_3] = combined.loc[split_at_3, "kumi"].str.slice(-2).astype(int)
+
+    combined["lo"] = lo
+    combined["hi"] = hi
+    combined = combined.dropna(subset=["lo", "hi"])
+    combined["lo"] = combined["lo"].astype(int)
+    combined["hi"] = combined["hi"].astype(int)
+    combined["pay_100"] = combined["pay"] / 100.0
+
+    # Ensure lo <= hi
+    combined["_lo"] = np.minimum(combined["lo"], combined["hi"])
+    combined["_hi"] = np.maximum(combined["lo"], combined["hi"])
+    combined["lo"] = combined["_lo"]
+    combined["hi"] = combined["_hi"]
+    combined = combined.drop(columns=["_lo", "_hi", "kumi"])
+
+    # Keep max payout per key
+    idx = combined.groupby(["race_id", "lo", "hi"])["pay_100"].idxmax()
+    deduped = combined.loc[idx]
+
+    wide_payout_map: dict[tuple[str, int, int], float] = {}
+    for race_id, lo_val, hi_val, pay_100 in zip(
+        deduped["race_id"].values,
+        deduped["lo"].values,
+        deduped["hi"].values,
+        deduped["pay_100"].values,
+    ):
+        wide_payout_map[(str(race_id), int(lo_val), int(hi_val))] = float(pay_100)
     return wide_payout_map
+
+
+def build_race_groups(
+    df: pd.DataFrame,
+    group_col: str = "race_id",
+    name: str = "",
+) -> dict[str, pd.DataFrame]:
+    """DataFrame を group_col でグループ化し dict に変換。
+
+    pandas>=2.0 の groupby は view を返すため、実質的なメモリ増加は元の1.1〜1.2倍程度。
+    """
+    if df.empty:
+        logger.warning("[%s] empty DataFrame, returning empty dict", name)
+        return {}
+    groups: dict[str, pd.DataFrame] = {}
+    for key, group in df.groupby(group_col):
+        groups[str(key)] = group
+    empty_count = sum(1 for g in groups.values() if g.empty)
+    if empty_count > 0:
+        logger.warning("[%s] %d empty groups in %d total", name, empty_count, len(groups))
+    mem_mb = df.memory_usage(deep=True).sum() / 1024 / 1024
+    logger.info("[%s] %d groups, %d rows, %.1f MB", name, len(groups), len(df), mem_mb)
+    return groups
 
 
 class BacktestEngine:
@@ -227,18 +311,14 @@ class BacktestEngine:
         store: ParquetStore | None = None,
         betting_mode: str = "flat",
         diag_prefix: str = "bt",
-        betting_target: str = "win",
     ) -> None:
         if betting_mode not in ("flat", "kelly"):
             raise ValueError(f"betting_mode must be 'flat' or 'kelly', got '{betting_mode}'")
-        if betting_target not in ("win", "place", "wide"):
-            raise ValueError(f"betting_target must be 'win', 'place', or 'wide', got '{betting_target}'")
         self.models = models
         self.initial_bankroll = initial_bankroll
         self.store = store or ParquetStore()
         self.betting_mode = betting_mode
         self.diag_prefix = diag_prefix
-        self.betting_target = betting_target
 
         if betting_mode == "kelly":
             from betting.drawdown_controller import DrawdownController
@@ -320,10 +400,12 @@ class BacktestEngine:
         # 確定オッズマップを構築（精算用。FeatureEngine の列フィルタ回避）
         final_odds_map: dict[tuple[str, int], float] = {}
         if not final_odds_df.empty:
-            for _, r in final_odds_df.iterrows():
-                key = (str(r["race_id"]), int(r["umaban"]))
-                if pd.notna(r.get("fukuoddslow")):
-                    final_odds_map[key] = float(r["fukuoddslow"])
+            _odds = final_odds_df.dropna(subset=["fukuoddslow"])
+            if not _odds.empty:
+                for (race_id, umaban), odds in (
+                    _odds.set_index(["race_id", "umaban"])["fukuoddslow"].items()
+                ):
+                    final_odds_map[(str(race_id), int(umaban))] = float(odds)
 
         # 確定配当マップを構築（精算用。実際の払戻金額を使用）
         payouts_df = load_payouts(self.store, start, end)
@@ -334,22 +416,10 @@ class BacktestEngine:
         self.wide_payout_map = build_wide_payout_map(payouts_df)
         logger.info("Loaded wide payout map: %d entries", len(self.wide_payout_map))
 
-        # 単勝払戻マップを構築（精算用）
-        self.win_payout_map = build_win_payout_map(payouts_df)
-        logger.info("Loaded win payout map: %d entries", len(self.win_payout_map))
-
         feat_df = feat_engine.build_all(
             race_df, entry_df, pre_post_odds, odds_ts_df=odds_ts_df, store=self.store
         )
         feat_df = submodel_mgr.add_distance_band_features(feat_df)
-
-        # 単勝確定オッズマップを構築（精算用。tanodds列を使用）
-        final_win_odds_map: dict[tuple[str, int], float] = {}
-        if not feat_df.empty and "tanodds" in feat_df.columns:
-            for _, r in feat_df.iterrows():
-                key = (str(r["race_id"]), int(r["umaban"]))
-                if pd.notna(r.get("tanodds")):
-                    final_win_odds_map[key] = float(r["tanodds"])
 
         # ワイドオッズを pivot して特徴量にマージ（WideJointPairBuilder 用）
         wide_odds_df = load_wide_odds(self.store, start, end)
@@ -462,11 +532,19 @@ class BacktestEngine:
             )
 
         # 5. レースごとにシミュレーション (推論は RacePredictor に委譲)
+        # Groupby dict preprocessing — O(1) race lookups per D-07
+        feat_groups = build_race_groups(feat_df, name="features")
+        hist_groups = build_race_groups(hist_df_all, name="history")
+        jockey_groups = build_race_groups(jockey_df_all, name="jockey")
+        trainer_groups = build_race_groups(trainer_df_all, name="trainer")
+        jt_groups = build_race_groups(jt_df_all, name="jockey_trainer")
+
         diag_logger = DiagnosticLogger()
         bankroll = self.initial_bankroll
         peak_bankroll = bankroll
         max_dd = 0.0
         bet_history: list[dict[str, Any]] = []
+        monthly_returns: dict[str, float] = {}
         n_pre_post_odds_bets = 0
         n_fallback_odds_bets = 0
 
@@ -474,9 +552,11 @@ class BacktestEngine:
         recent_stats_list: list[dict[str, float]] = []
 
         for race_id in race_ids:
-            race_df_single = feat_df[feat_df["race_id"] == race_id].copy()
-            if race_df_single.empty:
+            race_id = str(race_id)
+            race_df_single = feat_groups.get(race_id)
+            if race_df_single is None:
                 continue
+            race_df_single = race_df_single.copy()
 
             # --- レースメタデータ抽出 (bet_history拡張用) ---
             race_row = race_df_single.iloc[0]
@@ -504,25 +584,25 @@ class BacktestEngine:
                 race_df_single["kakuteijyuni"].notna() & (race_df_single["kakuteijyuni"] > 0)
             ].nsmallest(3, "kakuteijyuni")
             _top3: list[dict[str, Any]] = []
-            for _, r in _valid.iterrows():
+            for r in _valid.itertuples(index=False):
                 _top3.append(
                     {
-                        "umaban": int(r["umaban"]),
-                        "bamei": str(r.get("bamei", "")) if pd.notna(r.get("bamei")) else "",
+                        "umaban": int(r.umaban),
+                        "bamei": str(r.bamei) if pd.notna(r.bamei) else "",
                         "kisyuryakusyo": (
-                            str(r.get("kisyuryakusyo", ""))
-                            if pd.notna(r.get("kisyuryakusyo"))
+                            str(r.kisyuryakusyo)
+                            if pd.notna(r.kisyuryakusyo)
                             else ""
                         ),
-                        "kakuteijyuni": int(r["kakuteijyuni"]),
+                        "kakuteijyuni": int(r.kakuteijyuni),
                     }
                 )
 
-            # 事前計算済み特徴量をマージ
-            hist_df_race = hist_df_all[hist_df_all["race_id"] == race_id]
-            jockey_df_race = jockey_df_all[jockey_df_all["race_id"] == race_id]
-            trainer_df_race = trainer_df_all[trainer_df_all["race_id"] == race_id]
-            jt_df_race = jt_df_all[jt_df_all["race_id"] == race_id]
+            # 事前計算済み特徴量をマージ (groupby dict O(1) lookup)
+            hist_df_race = hist_groups.get(race_id)
+            jockey_df_race = jockey_groups.get(race_id)
+            trainer_df_race = trainer_groups.get(race_id)
+            jt_df_race = jt_groups.get(race_id)
 
             # M3 fix: POST_RACE 列を predict() に渡さない
             predict_df = race_df_single.drop(
@@ -557,34 +637,22 @@ class BacktestEngine:
                 regime = self.models.regime_detector.current_regime
             regime_params = self.models.regime_detector.get_strategy_params(regime)
             edge_threshold = regime_params.get("edge_threshold", 0.03)
-            if self.betting_target == "win":
-                get_win = getattr(self._race_predictor, "get_win_candidates", None)
-                if callable(get_win):
-                    candidate_df = get_win(result_df)
-                else:
-                    candidate_df = self._race_predictor.get_place_candidates(
-                        result_df,
-                        regime_params=regime_params,
-                    )
-            else:
-                candidate_df = self._race_predictor.get_place_candidates(
-                    result_df,
-                    regime_params=regime_params,
-                )
+            candidate_df = self._race_predictor.get_place_candidates(
+                result_df,
+                regime_params=regime_params,
+            )
             n_candidates = len(candidate_df)
-            # place_selection_reason is only available in place mode
-            if "place_selection_reason" in candidate_df.columns:
-                candidate_reason_df = candidate_df[
-                    ["race_id", "umaban", "place_selection_reason"]
-                ].copy()
-                candidate_reason_df["umaban"] = candidate_reason_df["umaban"].astype(
-                    result_df["umaban"].dtype
-                )
-                result_df = result_df.merge(
-                    candidate_reason_df.drop_duplicates(subset=["race_id", "umaban"]),
-                    on=["race_id", "umaban"],
-                    how="left",
-                )
+            candidate_reason_df = candidate_df[
+                ["race_id", "umaban", "place_selection_reason"]
+            ].copy()
+            candidate_reason_df["umaban"] = candidate_reason_df["umaban"].astype(
+                result_df["umaban"].dtype
+            )
+            result_df = result_df.merge(
+                candidate_reason_df.drop_duplicates(subset=["race_id", "umaban"]),
+                on=["race_id", "umaban"],
+                how="left",
+            )
             race_aggressive_strength = float(
                 result_df.get("aggressive_strength", pd.Series([np.nan])).iloc[0]
             )
@@ -610,49 +678,51 @@ class BacktestEngine:
                     market_condition_score=race_market_condition,
                 )
                 if "ev_place" in result_df.columns:
-                    for _, hr in result_df.iterrows():
+                    for hr in result_df.itertuples(index=False):
                         diag_logger.log_horse(
                             race_id=race_id,
-                            umaban=int(hr["umaban"]),
-                            p_place_pred=float(hr.get("p_place_pred", 0)),
-                            e_return_place_pred=float(hr.get("e_return_place_pred", 0)),
-                            ev_place=float(hr.get("ev_place", 0)),
-                            fukuoddslow=float(hr.get("fukuoddslow", 0)),
+                            umaban=int(hr.umaban),
+                            p_place_pred=float(getattr(hr, "p_place_pred", 0)),
+                            e_return_place_pred=float(getattr(hr, "e_return_place_pred", 0)),
+                            ev_place=float(getattr(hr, "ev_place", 0)),
+                            fukuoddslow=float(getattr(hr, "fukuoddslow", 0)),
                             is_bet=False,
-                            p_place_corrected=float(hr.get("p_place_corrected", float("nan"))),
+                            p_place_corrected=float(getattr(hr, "p_place_corrected", float("nan"))),
                             e_return_place_corrected=float(
-                                hr.get("e_return_place_corrected", float("nan"))
+                                getattr(hr, "e_return_place_corrected", float("nan"))
                             ),
-                            ev_place_corrected=float(hr.get("ev_place_corrected", float("nan"))),
-                            ev_lower_place=float(hr.get("EV_lower_place", float("nan"))),
-                            place_selection_ev=float(hr.get("place_selection_ev", float("nan"))),
+                            ev_place_corrected=float(getattr(hr, "ev_place_corrected", float("nan"))),
+                            ev_lower_place=float(getattr(hr, "EV_lower_place", float("nan"))),
+                            place_selection_ev=float(getattr(hr, "place_selection_ev", float("nan"))),
                             place_selection_edge=float(
-                                hr.get("place_selection_edge", float("nan"))
+                                getattr(hr, "place_selection_edge", float("nan"))
                             ),
                             place_selection_prob=float(
-                                hr.get("place_selection_prob", float("nan"))
+                                getattr(hr, "place_selection_prob", float("nan"))
                             ),
                             place_bucket_multiplier=float(
-                                hr.get("place_bucket_multiplier", float("nan"))
+                                getattr(hr, "place_bucket_multiplier", float("nan"))
                             ),
-                            place_gate_score=float(hr.get("place_gate_score", float("nan"))),
-                            place_gate_pass=bool(hr.get("place_gate_pass", False)),
-                            place_gate_rank=float(hr.get("place_gate_rank", float("nan"))),
+                            place_gate_score=float(getattr(hr, "place_gate_score", float("nan"))),
+                            place_gate_pass=bool(getattr(hr, "place_gate_pass", False)),
+                            place_gate_rank=float(getattr(hr, "place_gate_rank", float("nan"))),
                             place_gate_score_gap=float(
-                                hr.get("place_gate_score_gap", float("nan"))
+                                getattr(hr, "place_gate_score_gap", float("nan"))
                             ),
                             market_condition_score=float(
-                                hr.get("market_condition_score", float("nan"))
+                                getattr(hr, "market_condition_score", float("nan"))
                             ),
-                            aggressive_strength=float(hr.get("aggressive_strength", float("nan"))),
+                            aggressive_strength=float(
+                                getattr(hr, "aggressive_strength", float("nan"))
+                            ),
                             aggressive_tier=(
-                                str(hr.get("aggressive_tier"))
-                                if pd.notna(hr.get("aggressive_tier"))
+                                str(getattr(hr, "aggressive_tier"))
+                                if pd.notna(getattr(hr, "aggressive_tier", None))
                                 else None
                             ),
                             place_selection_reason=(
-                                str(hr.get("place_selection_reason"))
-                                if pd.notna(hr.get("place_selection_reason"))
+                                str(getattr(hr, "place_selection_reason"))
+                                if pd.notna(getattr(hr, "place_selection_reason", None))
                                 else None
                             ),
                         )
@@ -661,10 +731,7 @@ class BacktestEngine:
 
             # Bet generation
             surface_key = result_df["surface"].iloc[0]
-            bets = self._race_predictor.select_bets(
-                result_df, bankroll, candidates=candidate_df,
-                betting_target=self.betting_target,
-            )
+            bets = self._race_predictor.select_bets(result_df, bankroll, candidates=candidate_df)
 
             # v5: セグメント除外フィルタ全削除 — モデル自身がedgeを低く見積もるように改善する
             # (旧v4の14個の除外フィルタは全て削除)
@@ -674,9 +741,6 @@ class BacktestEngine:
             for bet in bets:
                 if bet.bet_type == BetType.WIDE:
                     updated_bets.append(bet)
-                elif bet.bet_type == BetType.WIN:
-                    fo = final_win_odds_map.get((bet.race_id, bet.umaban), bet.odds)
-                    updated_bets.append(replace(bet, final_odds=fo))
                 else:
                     fo = final_odds_map.get((bet.race_id, bet.umaban), bet.odds)
                     updated_bets.append(replace(bet, final_odds=fo))
@@ -703,53 +767,55 @@ class BacktestEngine:
             )
             if "ev_place" in result_df.columns:
                 bet_umabans = {b.umaban for b in bets}
-                for _, hr in result_df.iterrows():
+                for hr in result_df.itertuples(index=False):
                     diag_logger.log_horse(
                         race_id=race_id,
-                        umaban=int(hr["umaban"]),
-                        p_place_pred=float(hr.get("p_place_pred", 0)),
-                        e_return_place_pred=float(hr.get("e_return_place_pred", 0)),
-                        ev_place=float(hr.get("ev_place", 0)),
-                        fukuoddslow=float(hr.get("fukuoddslow", 0)),
-                        is_bet=int(hr["umaban"]) in bet_umabans,
-                        p_place_corrected=float(hr.get("p_place_corrected", float("nan"))),
+                        umaban=int(hr.umaban),
+                        p_place_pred=float(getattr(hr, "p_place_pred", 0)),
+                        e_return_place_pred=float(getattr(hr, "e_return_place_pred", 0)),
+                        ev_place=float(getattr(hr, "ev_place", 0)),
+                        fukuoddslow=float(getattr(hr, "fukuoddslow", 0)),
+                        is_bet=int(hr.umaban) in bet_umabans,
+                        p_place_corrected=float(getattr(hr, "p_place_corrected", float("nan"))),
                         e_return_place_corrected=float(
-                            hr.get("e_return_place_corrected", float("nan"))
+                            getattr(hr, "e_return_place_corrected", float("nan"))
                         ),
-                        ev_place_corrected=float(hr.get("ev_place_corrected", float("nan"))),
-                        ev_lower_place=float(hr.get("EV_lower_place", float("nan"))),
-                        place_selection_ev=float(hr.get("place_selection_ev", float("nan"))),
+                        ev_place_corrected=float(getattr(hr, "ev_place_corrected", float("nan"))),
+                        ev_lower_place=float(getattr(hr, "EV_lower_place", float("nan"))),
+                        place_selection_ev=float(getattr(hr, "place_selection_ev", float("nan"))),
                         place_selection_edge=float(
-                            hr.get("place_selection_edge", float("nan"))
+                            getattr(hr, "place_selection_edge", float("nan"))
                         ),
                         place_selection_prob=float(
-                            hr.get("place_selection_prob", float("nan"))
+                            getattr(hr, "place_selection_prob", float("nan"))
                         ),
                         place_bucket_multiplier=float(
-                            hr.get("place_bucket_multiplier", float("nan"))
+                            getattr(hr, "place_bucket_multiplier", float("nan"))
                         ),
-                        place_gate_score=float(hr.get("place_gate_score", float("nan"))),
-                        place_gate_pass=bool(hr.get("place_gate_pass", False)),
-                        place_gate_rank=float(hr.get("place_gate_rank", float("nan"))),
+                        place_gate_score=float(getattr(hr, "place_gate_score", float("nan"))),
+                        place_gate_pass=bool(getattr(hr, "place_gate_pass", False)),
+                        place_gate_rank=float(getattr(hr, "place_gate_rank", float("nan"))),
                         place_gate_score_gap=float(
-                            hr.get("place_gate_score_gap", float("nan"))
+                            getattr(hr, "place_gate_score_gap", float("nan"))
                         ),
                         market_condition_score=float(
-                            hr.get("market_condition_score", float("nan"))
+                            getattr(hr, "market_condition_score", float("nan"))
                         ),
-                        aggressive_strength=float(hr.get("aggressive_strength", float("nan"))),
+                        aggressive_strength=float(
+                            getattr(hr, "aggressive_strength", float("nan"))
+                        ),
                         aggressive_tier=(
-                            str(hr.get("aggressive_tier"))
-                            if pd.notna(hr.get("aggressive_tier"))
+                            str(getattr(hr, "aggressive_tier"))
+                            if pd.notna(getattr(hr, "aggressive_tier", None))
                             else None
                         ),
                         place_selection_reason=(
-                            str(hr.get("place_selection_reason"))
-                            if pd.notna(hr.get("place_selection_reason"))
+                            str(getattr(hr, "place_selection_reason"))
+                            if pd.notna(getattr(hr, "place_selection_reason", None))
                             else None
                         ),
                     )
-                    diag_logger.log_horse_features(hr.to_dict())
+                    diag_logger.log_horse_features(hr._asdict())
 
             # Settlement (BacktestEngine 固有)
             for bet in bets:
@@ -823,38 +889,6 @@ class BacktestEngine:
                         ),
                         "top3_finishers": _top3,
                         "umaban_b": getattr(bet, "umaban_b", None),
-                        # --- Win-specific fields (D-09, RPT-01) ---
-                        "win_selection_ev": (
-                            float(horse_rows.iloc[0].get("win_selection_ev", 0.0))
-                            if not horse_rows.empty
-                            else 0.0
-                        ),
-                        "win_selection_edge": (
-                            float(horse_rows.iloc[0].get("win_selection_edge", 0.0))
-                            if not horse_rows.empty
-                            else 0.0
-                        ),
-                        "win_selection_prob": (
-                            float(horse_rows.iloc[0].get("win_selection_prob", 0.0))
-                            if not horse_rows.empty
-                            else 0.0
-                        ),
-                        "win_gate_score": (
-                            float(horse_rows.iloc[0].get("win_gate_score", float("nan")))
-                            if not horse_rows.empty
-                            else float("nan")
-                        ),
-                        "conformal_confidence_score": (
-                            float(horse_rows.iloc[0].get("conformal_confidence_score", 0.0))
-                            if not horse_rows.empty
-                            else 0.0
-                        ),
-                        "tanoddslow": (
-                            float(horse_rows.iloc[0].get("tanoddslow", 0.0))
-                            if not horse_rows.empty
-                            else 0.0
-                        ),
-                        "regime": str(regime),
                     }
                 )
 
@@ -916,7 +950,7 @@ class BacktestEngine:
             total_roi=total_return / total_stake if total_stake > 0 else 0.0,
             max_drawdown=max_dd,
             final_bankroll=bankroll,
-            monthly_returns={},
+            monthly_returns=monthly_returns,
             bet_history=bet_history,
             n_pre_post_odds_bets=n_pre_post_odds_bets,
             n_fallback_odds_bets=n_fallback_odds_bets,
@@ -924,6 +958,93 @@ class BacktestEngine:
             min_edge=result_data.get("min_edge", 0.0),
             max_edge=result_data.get("max_edge", 0.0),
         )
+
+    def _build_race_features(self, race_df: pd.DataFrame) -> dict[str, Any]:
+        """レースレベル特徴量を dict に変換 (QualityScreener 用)
+
+        NOTE: 現在は RacePredictor.build_race_features() に委譲されている。
+        互換性のため残している (テスト等で参照される可能性がある)。
+
+        RaceQualityScreener.FEATURE_COLS (20列) に対応。
+        """
+        row = race_df.iloc[0]
+        signed_error = (
+            race_df["signed_log_error_win"]
+            if "signed_log_error_win" in race_df.columns
+            else pd.Series([0.0])
+        )
+        abs_error = (
+            race_df["abs_log_error_win"]
+            if "abs_log_error_win" in race_df.columns
+            else pd.Series([0.0])
+        )
+        return {
+            "surface": row.get("surface", "turf"),
+            "distance_bin": row.get("distance_bin", "mile"),
+            "track_condition_code": row.get("track_condition_code", 2),
+            "grade_code": row.get("grade_code", "C"),
+            "field_size": row.get("field_size", 10),
+            "difficulty_score": row.get("difficulty_score", 0.5),
+            "market_log_error_mean": float(signed_error.mean()),
+            "market_log_error_std": float(signed_error.std()) if len(signed_error) > 1 else 0.0,
+            "market_log_error_abs_mean": float(abs_error.mean()),
+            "market_log_error_max_abs": float(abs_error.max()) if len(abs_error) > 0 else 0.0,
+            "market_log_error_top_q75": float(abs_error.quantile(0.75))
+            if len(abs_error) > 1
+            else 0.0,
+            "n_positive_errors": int((signed_error > 0).sum()),
+            "top_k_error_sum": float(signed_error.nlargest(3).sum())
+            if len(signed_error) >= 3
+            else 0.0,
+            "positive_error_ratio": float((signed_error > 0).sum()) / max(len(signed_error), 1),
+            "market_entropy": row.get("market_entropy", 2.0),
+            "overround": row.get("overround", 0.20),
+            "overround_deviation": 0.0,
+            "hist_hit_rate_topk": row.get("hist_hit_rate_topk", 0.3),
+            "hist_roi_topk": row.get("hist_roi_topk", 1.0),
+            "hist_positive_return_ratio": row.get("hist_positive_return_ratio", 0.3),
+            "hist_win_rate_same_condition": row.get("hist_hit_rate_topk", 0.3),
+            "hist_market_entropy_avg": row.get("market_entropy", 2.0),
+        }
+
+    def _generate_bets(
+        self,
+        race_df: pd.DataFrame,
+        bankroll: float,
+        regime_params: dict[str, Any],
+    ) -> list[Bet]:
+        """簡易ベット生成 (EV条件を満たす馬にベット)
+
+        NOTE: 現在は RacePredictor.select_bets() に委譲されている。
+        互換性のため残している (テスト等で参照される可能性がある)。
+        """
+        bets: list[Bet] = []
+        ev_threshold = regime_params.get("ev_threshold", 1.10)
+        max_bets = regime_params.get("max_bets_per_race", 3)
+
+        # 複勝ベット
+        ev_col = "ev_place_corrected" if "ev_place_corrected" in race_df.columns else "ev_place"
+        if ev_col in race_df.columns and "fukuoddslow" in race_df.columns:
+            candidates = race_df[race_df[ev_col].fillna(0) >= ev_threshold].copy()
+            # ev_col 降順でソートし、上位 max_bets 頭のみベット
+            candidates = candidates.nlargest(max_bets, ev_col)
+
+            for row in candidates.itertuples(index=False):
+                stake = 100.0  # 固定100円ベット (簡易版)
+                if bankroll >= stake:
+                    bets.append(
+                        Bet(
+                            race_id=row.race_id,
+                            umaban=int(row.umaban),
+                            bet_type=BetType.PLACE,
+                            odds=float(row.fukuoddslow),
+                            final_odds=float(row.fukuoddslow),  # レガシー: 同一オッズ
+                            ev_lower_corrected=float(getattr(row, ev_col, 0)),
+                            stake=stake,
+                        )
+                    )
+
+        return bets
 
     def _settle_bet(self, bet: Bet, race_df: pd.DataFrame) -> float:
         """ベットの結果を判定"""
@@ -947,26 +1068,7 @@ class BacktestEngine:
                     return float(bet.stake * settle_odds)
             return 0.0
 
-        # 単勝: win_payout_map（確定配当）から精算
-        if bet.bet_type == BetType.WIN:
-            win_key = (bet.race_id, bet.umaban)
-            if hasattr(self, "win_payout_map") and win_key in self.win_payout_map:
-                return float(bet.stake * self.win_payout_map[win_key])
-            # D-04: フォールバック — 着順ベース
-            logger.warning(
-                "Win payout missing for %s umaban=%d, using odds fallback",
-                bet.race_id, bet.umaban,
-            )
-            horse = race_df[race_df["umaban"] == bet.umaban]
-            if horse.empty:
-                return 0.0
-            finish_pos = int(horse.iloc[0]["kakuteijyuni"])
-            if finish_pos == 1:
-                settle_odds = bet.final_odds if bet.final_odds > 0 else bet.odds
-                return float(bet.stake * settle_odds)
-            return 0.0
-
-        # 複勝: payout_map（確定配当）から精算
+        # 複勝/単勝: payout_map（確定配当）から精算
         payout_key = (bet.race_id, bet.umaban)
         if hasattr(self, "payout_map") and payout_key in self.payout_map:
             return float(bet.stake * self.payout_map[payout_key])
@@ -980,6 +1082,9 @@ class BacktestEngine:
 
         if bet.bet_type == BetType.PLACE:
             if 1 <= finish_pos <= 3:
+                return float(bet.stake * settle_odds)
+        elif bet.bet_type == BetType.WIN:
+            if finish_pos == 1:
                 return float(bet.stake * settle_odds)
 
         return 0.0
