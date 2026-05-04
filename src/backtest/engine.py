@@ -467,7 +467,6 @@ class BacktestEngine:
         peak_bankroll = bankroll
         max_dd = 0.0
         bet_history: list[dict[str, Any]] = []
-        monthly_returns: dict[str, float] = {}
         n_pre_post_odds_bets = 0
         n_fallback_odds_bets = 0
 
@@ -917,7 +916,7 @@ class BacktestEngine:
             total_roi=total_return / total_stake if total_stake > 0 else 0.0,
             max_drawdown=max_dd,
             final_bankroll=bankroll,
-            monthly_returns=monthly_returns,
+            monthly_returns={},
             bet_history=bet_history,
             n_pre_post_odds_bets=n_pre_post_odds_bets,
             n_fallback_odds_bets=n_fallback_odds_bets,
