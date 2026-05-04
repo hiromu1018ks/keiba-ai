@@ -70,6 +70,11 @@ class BacktestResult:
     avg_edge: float = 0.0           # Value Betting 平均 edge
     min_edge: float = 0.0           # Value Betting 最小 edge
     max_edge: float = 0.0           # Value Betting 最大 edge
+    # Phase 11: Bet selection filter exclusion stats
+    n_collapsed_skipped: int = 0          # D-11: COLLAPSED regime skip count
+    n_ev_excluded: int = 0                # D-01: EV filter exclusion count
+    n_odds_band_excluded: int = 0         # D-06: OddsBandFilter exclusion count
+    exclusion_stats: dict[str, Any] = field(default_factory=dict)  # Full exclusion breakdown
 
     @property
     def profit(self) -> float:
@@ -600,6 +605,12 @@ class BacktestEngine:
         # RegimeDetector 用: 直近200レースの統計を蓄積
         recent_stats_list: list[dict[str, float]] = []
 
+        # Phase 11: Bet selection filter counters
+        n_collapsed_skipped = 0
+        n_ev_excluded = 0
+        n_odds_band_excluded = 0
+        n_total_candidates = 0
+
         for race_id in race_ids:
             race_id = str(race_id)
             race_df_single = feat_groups.get(race_id)
@@ -686,6 +697,39 @@ class BacktestEngine:
                 regime = self.models.regime_detector.current_regime
             regime_params = self.models.regime_detector.get_strategy_params(regime)
             edge_threshold = regime_params.get("edge_threshold", 0.03)
+
+            # D-11: 統計を蓄積 (COLLAPSEDスキップ前 — レジーム遷移に必要, Pitfall 3)
+            row_data = result_df.iloc[0] if not result_df.empty else {}
+            recent_stats_list.append({
+                "market_error_std": (
+                    float(result_df["signed_log_error_win"].std())
+                    if "signed_log_error_win" in result_df.columns and len(result_df) > 1
+                    else 0.2
+                ),
+                "market_error_mean": (
+                    float(result_df["signed_log_error_win"].mean())
+                    if "signed_log_error_win" in result_df.columns
+                    else 0.0
+                ),
+                "overround_rolling": float(row_data.get("overround", 0.20))
+                    if not result_df.empty else 0.20,
+                "entropy_rolling": float(row_data.get("market_entropy", 2.0))
+                    if not result_df.empty else 2.0,
+                "odds_skewness_rolling": calc_odds_skewness(result_df),
+                "favorite_implied_prob_rolling": calc_favorite_implied_prob(result_df),
+                "odds_volatility_mean": (
+                    float(result_df["odds_volatility"].mean())
+                    if "odds_volatility" in result_df.columns and not result_df.empty
+                    else 0.1
+                ),
+                "field_size_mean": float(row_data.get("field_size", 14.0))
+                    if not result_df.empty else 14.0,
+            })
+
+            # D-11: COLLAPSED regime skip (race-level, D-09: filter order #1)
+            if regime_params.get("skip", False):
+                n_collapsed_skipped += 1
+                continue
             if self.betting_target == "win":
                 get_win = getattr(self._race_predictor, "get_win_candidates", None)
                 if callable(get_win):
@@ -962,34 +1006,6 @@ class BacktestEngine:
                 dd = (peak_bankroll - bankroll) / peak_bankroll if peak_bankroll > 0 else 0
                 max_dd = max(max_dd, dd)
 
-            # 統計を蓄積 (発走前情報のみ)
-            row_data = result_df.iloc[0] if not result_df.empty else {}
-            recent_stats_list.append({
-                "market_error_std": (
-                    float(result_df["signed_log_error_win"].std())
-                    if "signed_log_error_win" in result_df.columns and len(result_df) > 1
-                    else 0.2
-                ),
-                "market_error_mean": (
-                    float(result_df["signed_log_error_win"].mean())
-                    if "signed_log_error_win" in result_df.columns
-                    else 0.0
-                ),
-                "overround_rolling": float(row_data.get("overround", 0.20))
-                    if not result_df.empty else 0.20,
-                "entropy_rolling": float(row_data.get("market_entropy", 2.0))
-                    if not result_df.empty else 2.0,
-                "odds_skewness_rolling": calc_odds_skewness(result_df),
-                "favorite_implied_prob_rolling": calc_favorite_implied_prob(result_df),
-                "odds_volatility_mean": (
-                    float(result_df["odds_volatility"].mean())
-                    if "odds_volatility" in result_df.columns and not result_df.empty
-                    else 0.1
-                ),
-                "field_size_mean": float(row_data.get("field_size", 14.0))
-                    if not result_df.empty else 14.0,
-            })
-
         # 5. 診断ログ保存
         diag_logger.save(Path("data/backtest"), prefix=self.diag_prefix)
 
@@ -1008,6 +1024,13 @@ class BacktestEngine:
                 result_data["min_edge"] = min(edges)
                 result_data["max_edge"] = max(edges)
 
+        # Phase 11: Bet selection filter summary logging
+        logger.info(
+            "Bet Selection Filters: EV_excluded=%d, COLLAPSED_skipped=%d",
+            n_ev_excluded,
+            n_collapsed_skipped,
+        )
+
         return BacktestResult(
             total_bets=total_bets,
             total_stake=total_stake,
@@ -1023,6 +1046,15 @@ class BacktestEngine:
             avg_edge=result_data.get("avg_edge", 0.0),
             min_edge=result_data.get("min_edge", 0.0),
             max_edge=result_data.get("max_edge", 0.0),
+            n_collapsed_skipped=n_collapsed_skipped,
+            n_ev_excluded=n_ev_excluded,
+            n_odds_band_excluded=n_odds_band_excluded,
+            exclusion_stats={
+                "collapsed_skipped": n_collapsed_skipped,
+                "ev_excluded": n_ev_excluded,
+                "odds_band_excluded": n_odds_band_excluded,
+                "total_candidates_evaluated": n_total_candidates,
+            },
         )
 
     def _build_race_features(self, race_df: pd.DataFrame) -> dict[str, Any]:

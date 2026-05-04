@@ -1130,6 +1130,192 @@ class TestBuildWinPayoutMap:
         assert ("202401010101", 5) in win_map
 
 
+class TestBetSelectionFilters:
+    """Phase 11: COLLAPSED skip + BacktestResult exclusion fields"""
+
+    def test_backtest_result_has_exclusion_fields(self) -> None:
+        """Test 1: BacktestResult default exclusion fields"""
+        from backtest.engine import BacktestResult
+
+        result = BacktestResult(total_bets=0, total_stake=0.0, total_return=0.0, winning_bets=0)
+        assert result.n_collapsed_skipped == 0
+        assert result.n_ev_excluded == 0
+        assert result.n_odds_band_excluded == 0
+        assert result.exclusion_stats == {}
+
+    def test_backtest_result_exclusion_fields_with_values(self) -> None:
+        """BacktestResult exclusion fields accept non-default values"""
+        from backtest.engine import BacktestResult
+
+        result = BacktestResult(
+            total_bets=10,
+            total_stake=1000.0,
+            total_return=1100.0,
+            winning_bets=3,
+            n_collapsed_skipped=5,
+            n_ev_excluded=20,
+            n_odds_band_excluded=8,
+            exclusion_stats={
+                "collapsed_skipped": 5,
+                "ev_excluded": 20,
+                "odds_band_excluded": 8,
+                "total_candidates_evaluated": 100,
+            },
+        )
+        assert result.n_collapsed_skipped == 5
+        assert result.n_ev_excluded == 20
+        assert result.n_odds_band_excluded == 8
+        assert result.exclusion_stats["collapsed_skipped"] == 5
+
+    @patch("db.odds_extractor.extract_pre_post_odds")
+    @patch("features.trainer_context_features.TrainerContextFeatures")
+    @patch("features.jockey_context_features.JockeyContextFeatures")
+    @patch("features.interaction_features.compute_interaction_features")
+    @patch("features.horse_history_features.HorseHistoryFeatures")
+    @patch("models.submodel_manager.SubModelManager")
+    @patch("features.feature_engine.FeatureEngine")
+    @patch("backtest.engine.load_odds_time_series_range")
+    @patch("backtest.engine.load_odds_snapshots")
+    @patch("backtest.engine.load_entries")
+    @patch("backtest.engine.load_races")
+    def test_collapsed_skip_increments_counter(
+        self,
+        mock_load_races: MagicMock,
+        mock_load_entries: MagicMock,
+        mock_load_odds: MagicMock,
+        mock_load_odds_ts: MagicMock,
+        mock_feat_engine_cls: MagicMock,
+        mock_submodel_mgr_cls: MagicMock,
+        mock_hist_cls: MagicMock,
+        mock_interaction_fn: MagicMock,
+        mock_jockey_cls: MagicMock,
+        mock_trainer_cls: MagicMock,
+        mock_extract_odds: MagicMock,
+        mock_models: MagicMock,
+    ) -> None:
+        """Test 2+3: COLLAPSED regime race -> n_collapsed_skipped incremented, 0 bets"""
+        mock_load_races.return_value = pd.DataFrame(
+            {
+                "race_id": ["20240101010101"],
+                "race_date": pd.to_datetime("2024-01-01"),
+                "hassotime": ["03101500"],
+            }
+        )
+        mock_load_entries.return_value = pd.DataFrame(
+            {
+                "race_id": ["20240101010101"],
+                "umaban": [1],
+                "kettonum": [1234],
+                "kakuteijyuni": [2],
+                "odds": [5.0],
+                "ninki": [3],
+                "bataijyu": [480],
+                "zogen_fugo": [0],
+                "zogen_sa": [0],
+                "kisyucode": [100],
+                "chokyosicode": [200],
+            }
+        )
+        mock_load_odds.return_value = pd.DataFrame()
+        mock_load_odds_ts.return_value = pd.DataFrame(
+            {"race_id": ["20240101010101"], "umaban": [1], "odds": [5.0]}
+        )
+        mock_extract_odds.return_value = pd.DataFrame(
+            {"race_id": ["20240101010101"], "umaban": [1], "fukuoddslow": [4.0]}
+        )
+
+        feat_df = pd.DataFrame(
+            {
+                "race_id": ["20240101010101"],
+                "umaban": [1],
+                "surface": ["turf"],
+                "kyori": [1600],
+                "distance_bin": ["mile"],
+                "popularity_rank": [3],
+                "ninki": [3],
+                "ev_place": [1.5],
+                "fukuoddslow": [4.0],
+                "kakuteijyuni": [2],
+                "kettonum": [1234],
+                "odds": [5.0],
+                "bataijyu": [480],
+                "jyocd": [5],
+                "racenum": [11],
+                "grade_code": ["E"],
+                "hondai": ["テスト"],
+                "bamei": ["テスト馬"],
+                "kisyuryakusyo": ["テスト騎手"],
+                "track_condition_code": [1],
+                "p_place_pred": [0.65],
+                "e_return_place_pred": [1.80],
+            }
+        )
+
+        mock_feat_engine = MagicMock()
+        mock_feat_engine_cls.return_value = mock_feat_engine
+        mock_feat_engine.build_all.return_value = feat_df
+
+        mock_submodel_mgr = MagicMock()
+        mock_submodel_mgr_cls.return_value = mock_submodel_mgr
+        mock_submodel_mgr.add_distance_band_features.return_value = feat_df
+
+        mock_hist = MagicMock()
+        mock_hist_cls.return_value = mock_hist
+        mock_hist.compute.return_value = pd.DataFrame(columns=["race_id", "umaban"])
+        mock_hist.add_race_transforms = staticmethod(lambda df: df)
+        mock_interaction_fn.side_effect = lambda df: df
+
+        mock_jockey = MagicMock()
+        mock_jockey_cls.return_value = mock_jockey
+        mock_jockey.compute.return_value = pd.DataFrame(columns=["race_id", "umaban"])
+
+        mock_trainer = MagicMock()
+        mock_trainer_cls.return_value = mock_trainer
+        mock_trainer.compute.return_value = pd.DataFrame(columns=["race_id", "umaban"])
+
+        # Submodel mocks for predict() to pass
+        submodel = MagicMock()
+        submodel.benter_combo = None
+        submodel.isotonic_calibrator = None
+        submodel.win_benter = None
+        mock_models.submodels["turf"] = submodel
+        submodel.market.predict_and_calc_error.return_value = feat_df
+        submodel.stage1.add_ability_probs.return_value = feat_df
+        submodel.place_ability.predict.return_value = feat_df
+        submodel.win.predict_ev.return_value = feat_df
+        submodel.ev_corrector.correct_ev.return_value = feat_df
+        submodel.place.predict_ev.return_value = feat_df
+        _corrected = feat_df.assign(ev_place_corrected=feat_df.get("ev_place", 1.5))
+        submodel.place_ev_corrector.correct_ev.return_value = _corrected
+        submodel.confidence.predict_lower_bound.return_value = (
+            _corrected,
+            pd.DataFrame({"EV_lower_place": [1.5]}),
+        )
+        submodel.confidence.predict_interval.return_value = (
+            _corrected,
+            pd.DataFrame({"EV_lower_place": [1.5]}),
+        )
+
+        # COLLAPSED skip=True
+        mock_models.regime_detector.get_strategy_params.return_value = {
+            "ev_threshold": 1.50,
+            "edge_threshold": 0.09,
+            "score_threshold": 0.050,
+            "max_bets_per_race": 1,
+            "skip": True,
+        }
+
+        from backtest.engine import BacktestEngine
+
+        mock_store = MagicMock()
+        engine = BacktestEngine(models=mock_models, store=mock_store, betting_target="win")
+        result = engine.run("2024-01-01", "2024-12-31")
+
+        # COLLAPSED skip should increment counter and produce 0 bets
+        assert result.n_collapsed_skipped >= 1
+        assert result.total_bets == 0
+
+
 class TestBettingTarget:
     """BacktestEngine betting_target パラメータのテスト"""
 
