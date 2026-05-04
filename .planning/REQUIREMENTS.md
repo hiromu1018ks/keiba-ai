@@ -1,71 +1,84 @@
-# Requirements: keiba-ai v1.2
+# Requirements: keiba-ai v1.3 Betting Strategy Optimization
 
 **Defined:** 2026-05-04
 **Core Value:** 単勝モデルのバックテストROIを100%超えにすること
 
-## v1.2 Requirements
+## v1.3 Requirements
 
-### Win Backtest Core
+Requirements for Betting Strategy Optimization milestone. Each maps to roadmap phases.
 
-- [x] **WIN-01**: build_win_payout_map()で単勝払戻しデータ(tan_umaban/tan_pay)を読み取り、payout_mapを構築できる
-- [x] **WIN-02**: final_odds_mapがtanoddslow(単勝オッズ)を使用し、単勝ベットの正しい決済を行える
-- [x] **WIN-03**: get_win_candidates()がwin_selection_ev/edge/prob列で候補をフィルタリングし、単勝ベット候補を生成できる
-- [x] **WIN-04**: BacktestEngineにbetting_targetパラメータを追加し、単勝/複勝モードを切り替えられる(デフォルト=WIN)
-- [x] **WIN-05**: Conformal信頼性スコア(conformal_confidence_score)を単勝ベット判定に組み込み、高信頼度ベットのみを生成できる
+### Bet Selection (BSEL)
 
-### Win Reporting
+- [ ] **BSEL-01**: バックテスト実行時、EV_lower_win_corrected >= 1.0 を満たさないベットが自動除外される
+- [ ] **BSEL-02**: RegimeDetectorがCOLLAPSEDと判定したレースでベットが完全スキップされる
+- [ ] **BSEL-03**: オッズバンド別ROI分析に基づき、赤字バンドのベットがOddsBandFilterで除外される
 
-- [ ] **RPT-01**: バックテスト結果のベット履歴に単勝ベットの馬番・オッズ・EV・結果を記録できる
-- [ ] **RPT-02**: 単勝ROI・回収率・的中率・ベット数の集計診断を出力できる
-- [ ] **RPT-03**: オッズバンド別(人気・中穴・大穴)のROI内訳を分析・表示できる
+### Stake Sizing (SIZE)
 
-### Pipeline Performance
+- [ ] **SIZE-01**: レジーム状態に応じたKelly分数が設定される (AGGRESSIVE/CONSERVATIVE/COLLAPSED別)
+- [ ] **SIZE-02**: 高EV機会にEV比例乗算器 (min(ev/target_ev, max_scale)) で重点配分される
 
-- [ ] **PERF-01**: build_payout_map()/build_wide_payout_map()のiterrows()をベクトル化pandas操作に置き換えられる
-- [ ] **PERF-02**: レースごとのDataFrameフィルタリングをgroupby辞書の前処理に置き換え、O(n_races * n_rows)→O(1)ルックアップにできる
-- [ ] **PERF-03**: HorseHistoryFeatures等の履歴特徴量をParquetキャッシュし、バックテスト再実行時に再計算をスキップできる
-- [ ] **PERF-04**: pyinstrumentによるプロファイリングを統合し、ボトルネックの定量測定ができる
+### Risk Control (RISK)
+
+- [ ] **RISK-01**: DrawdownControllerの乗数テーブル・ローリングウィンドウ・リカバリ閾値がWIN向の中率10%に再調整される
+
+### Validation (VAL)
+
+- [ ] **VAL-01**: ParameterFreezeProtocolが戦略パラメータをカバーし、ルックアヘッドバイアスを防止する
+- [ ] **VAL-02**: Optuna TPEで全戦略パラメータの同時最適化が実行され、最適設定が発見される
 
 ## Future Requirements
 
-### Win vs Place Comparison
+Deferred to future milestones. Tracked but not in current roadmap.
 
-- **COMP-01**: 同一条件下での単勝/複勝ROI比較レポートを生成できる
-- **COMP-02**: ベッティング戦略の単勝/複勝切替による感度分析ができる
+### Advanced Bet Selection
+
+- **BSEL-04**: バックテスト分析による動的バンド閾値の自動更新
+- **BSEL-05**: フィルター相互作用の定量評価ダッシュボード
+
+### Advanced Sizing
+
+- **SIZE-03**: バンクロール成長率最大化に基づくKelly分数自動調整
+
+### Advanced Risk Control
+
+- **RISK-02**: Regime別独立DD制御 (AGGRESSIVE/CONSERVATIVE/COLLAPSED別のDD乗数テーブル)
+- **RISK-03**: 動的リカバリ閾値 (ROIノイズに適応する自己調整型リカバリ条件)
 
 ## Out of Scope
 
+Explicitly excluded. Documented to prevent scope creep.
+
 | Feature | Reason |
 |---------|--------|
-| 複勝/ワイドモデルの変更 | 単勝に集中するため |
-| 新データ源の導入 | 既存EveryDB2データで十分 |
+| LSTM/Transformerモデリング | 過去5-15走では過学習リスク高 |
+| 複勝/ワイドモデルの変更 | 単勝に集中 |
 | 実馬券購入機能 | ペーパートレードまで |
 | Web UI | CLIベースで十分 |
-| LSTM/Transformer時系列モデリング | 過去5-15走では過学習リスク高 |
-| 複雑メタラーナー(GBM/NN) | 特徴量3個ではRidgeが最適 |
+| 外部Kellyライブラリ導入 | 既存StakeCalculatorで十分、JRA固有制約はカスタム実装が必要 |
+| モデル再学習 | 既存3モデルスタッキングをそのまま使用 |
+| 新データ源の導入 | 既存EveryDB2データで十分 |
 
 ## Traceability
 
+Which phases cover which requirements. Updated during roadmap creation.
+
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| WIN-01 | Phase 8 | Complete (08-01) |
-| WIN-02 | Phase 8 | Complete (08-01) |
-| WIN-03 | Phase 8 | Complete (08-02) |
-| WIN-04 | Phase 8 | Complete (08-01) |
-| WIN-05 | Phase 8 | Complete (08-02) |
-| RPT-01 | Phase 9 | Pending |
-| RPT-02 | Phase 9 | Pending |
-| RPT-03 | Phase 9 | Pending |
-| PERF-01 | Phase 10 | Pending |
-| PERF-02 | Phase 10 | Pending |
-| PERF-03 | Phase 10 | Pending |
-| PERF-04 | Phase 10 | Pending |
+| BSEL-01 | TBD | Pending |
+| BSEL-02 | TBD | Pending |
+| BSEL-03 | TBD | Pending |
+| SIZE-01 | TBD | Pending |
+| SIZE-02 | TBD | Pending |
+| RISK-01 | TBD | Pending |
+| VAL-01 | TBD | Pending |
+| VAL-02 | TBD | Pending |
 
 **Coverage:**
-- v1.2 requirements: 12 total
-- Mapped to phases: 12
-- Unmapped: 0
+- v1.3 requirements: 8 total
+- Mapped to phases: 0
+- Unmapped: 8
 
 ---
 *Requirements defined: 2026-05-04*
-*Last updated: 2026-05-04 after Plan 08-02 completion*
+*Last updated: 2026-05-04 after initial definition*
