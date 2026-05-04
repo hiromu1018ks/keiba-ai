@@ -67,6 +67,7 @@ class RegimeDetector:
         self._regime_counter: int = 0
         self._transition_hysteresis: int = 5
         self._pending_regime: RegimeState | None = None
+        self._collapsed_consecutive: int = 0
 
     @property
     def current_regime(self) -> RegimeState:
@@ -149,6 +150,12 @@ class RegimeDetector:
             RegimeState.COLLAPSED,
         ]
         raw_regime = regime_map[raw_regime_idx]
+
+        # Track consecutive COLLAPSED detections for retrain trigger
+        if raw_regime == RegimeState.COLLAPSED:
+            self._collapsed_consecutive += 1
+        else:
+            self._collapsed_consecutive = 0
 
         # ヒステリシス判定
         if raw_regime == self._current_regime:
@@ -234,7 +241,4 @@ class RegimeDetector:
 
     def should_retrain(self) -> bool:
         """COLLAPSED状態が連続100レース続いた場合に再学習をトリガー"""
-        return (
-            self._current_regime == RegimeState.COLLAPSED
-            and self._regime_counter >= self.cfg.retrain_trigger
-        )
+        return self._collapsed_consecutive >= self.cfg.retrain_trigger
