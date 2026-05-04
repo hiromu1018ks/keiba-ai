@@ -15,6 +15,7 @@ import pandas as pd
 
 from backtest.diagnostic_logger import DiagnosticLogger
 from backtest.race_predictor import RacePredictor
+from betting.odds_band_filter import OddsBandFilter
 from db.parquet_store import ParquetStore
 from db.readers import (
     load_entries,
@@ -354,6 +355,11 @@ class BacktestEngine:
         self.diag_prefix = diag_prefix
         self.betting_target = betting_target
 
+        # Phase 11: Bet selection filters
+        self._odds_band_filter: OddsBandFilter | None = None
+        if betting_target == "win":
+            self._odds_band_filter = OddsBandFilter()
+
         if betting_mode == "kelly":
             from betting.drawdown_controller import DrawdownController
             from betting.stake_calculator import StakeCalculator
@@ -370,12 +376,14 @@ class BacktestEngine:
         self,
         test_start: str,
         test_end: str,
+        training_bet_history: list[dict[str, Any]] | None = None,  # D-05
     ) -> BacktestResult:
         """バックテストを実行
 
         Args:
             test_start: テスト開始日 (YYYY-MM-DD)
             test_end: テスト終了日 (YYYY-MM-DD)
+            training_bet_history: トレーニング期間のベット履歴 (OddsBandFilter キャリブレーション用)
 
         Returns:
             BacktestResult
@@ -611,6 +619,10 @@ class BacktestEngine:
         n_odds_band_excluded = 0
         n_total_candidates = 0
 
+        # D-05: OddsBandFilter キャリブレーション (トレーニング期間データ)
+        if self._odds_band_filter is not None and training_bet_history:
+            self._odds_band_filter.calibrate(training_bet_history)
+
         for race_id in race_ids:
             race_id = str(race_id)
             race_df_single = feat_groups.get(race_id)
@@ -745,6 +757,16 @@ class BacktestEngine:
                     regime_params=regime_params,
                 )
             n_candidates = len(candidate_df)
+
+            # D-09: OddsBandFilter (candidate-level, filter order #3)
+            n_candidates_before_band = n_candidates
+            if (
+                self._odds_band_filter is not None
+                and not candidate_df.empty
+            ):
+                candidate_df = self._odds_band_filter.filter(candidate_df)
+                n_odds_band_excluded += n_candidates_before_band - len(candidate_df)
+            n_total_candidates += n_candidates_before_band
             # BUG-FIX: place_selection_reason は place/wide 候補にのみ存在。
             # win モード時は get_win_candidates() がこの列を生成しないため、列存在チェックで保護。
             _reason_cols = ["race_id", "umaban"]
@@ -1031,6 +1053,31 @@ class BacktestEngine:
             n_collapsed_skipped,
         )
 
+        # D-08: OddsBandFilter除外ログ
+        if n_odds_band_excluded > 0:
+            logger.info(
+                "OddsBandFilter excluded %d candidates in bands: %s",
+                n_odds_band_excluded,
+                self._odds_band_filter.excluded_bands if self._odds_band_filter else {},
+            )
+
+        # D-10: Bet count guard
+        if total_bets > 0:
+            try:
+                from datetime import datetime as dt
+                t_start = dt.strptime(test_start, "%Y-%m-%d")
+                t_end = dt.strptime(test_end, "%Y-%m-%d")
+                n_years = max(1, (t_end - t_start).days / 365.25)
+            except (ValueError, TypeError):
+                n_years = 1.0
+            bets_per_year = total_bets / n_years
+            if bets_per_year < 1000:
+                logger.warning(
+                    "Bet count guard: %.0f bets/year (below 1000 threshold). "
+                    "Consider parameter adjustment in Phase 13.",
+                    bets_per_year,
+                )
+
         return BacktestResult(
             total_bets=total_bets,
             total_stake=total_stake,
@@ -1054,6 +1101,11 @@ class BacktestEngine:
                 "ev_excluded": n_ev_excluded,
                 "odds_band_excluded": n_odds_band_excluded,
                 "total_candidates_evaluated": n_total_candidates,
+                "odds_band_filter_excluded": (
+                    self._odds_band_filter.excluded_bands
+                    if self._odds_band_filter
+                    else {}
+                ),
             },
         )
 

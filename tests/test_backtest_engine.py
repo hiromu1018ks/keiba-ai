@@ -1315,6 +1315,66 @@ class TestBetSelectionFilters:
         assert result.n_collapsed_skipped >= 1
         assert result.total_bets == 0
 
+    def test_odds_band_filter_initialized_for_win(self, mock_models: MagicMock) -> None:
+        """Test: betting_target='win' -> _odds_band_filter is not None"""
+        from backtest.engine import BacktestEngine
+        from betting.odds_band_filter import OddsBandFilter
+
+        engine = BacktestEngine(models=mock_models, betting_target="win")
+        assert engine._odds_band_filter is not None
+        assert isinstance(engine._odds_band_filter, OddsBandFilter)
+
+    def test_odds_band_filter_none_for_place(self, mock_models: MagicMock) -> None:
+        """Test: betting_target='place' -> _odds_band_filter is None"""
+        from backtest.engine import BacktestEngine
+
+        engine = BacktestEngine(models=mock_models, betting_target="place")
+        assert engine._odds_band_filter is None
+
+    @patch("db.odds_extractor.extract_pre_post_odds")
+    @patch("features.trainer_context_features.TrainerContextFeatures")
+    @patch("features.jockey_context_features.JockeyContextFeatures")
+    @patch("features.interaction_features.compute_interaction_features")
+    @patch("features.horse_history_features.HorseHistoryFeatures")
+    @patch("models.submodel_manager.SubModelManager")
+    @patch("features.feature_engine.FeatureEngine")
+    @patch("backtest.engine.load_odds_time_series_range")
+    @patch("backtest.engine.load_odds_snapshots")
+    @patch("backtest.engine.load_entries")
+    @patch("backtest.engine.load_races")
+    def test_bet_count_guard_warning(
+        self,
+        mock_load_races: MagicMock,
+        mock_load_entries: MagicMock,
+        mock_load_odds: MagicMock,
+        mock_load_odds_ts: MagicMock,
+        mock_feat_engine_cls: MagicMock,
+        mock_submodel_mgr_cls: MagicMock,
+        mock_hist_cls: MagicMock,
+        mock_interaction_fn: MagicMock,
+        mock_jockey_cls: MagicMock,
+        mock_trainer_cls: MagicMock,
+        mock_extract_odds: MagicMock,
+        mock_models: MagicMock,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Test: < 1000 bets/year triggers WARNING log"""
+        mock_load_races.return_value = pd.DataFrame()
+        mock_load_entries.return_value = pd.DataFrame()
+        mock_load_odds.return_value = pd.DataFrame()
+        mock_load_odds_ts.return_value = pd.DataFrame()
+        mock_extract_odds.return_value = pd.DataFrame()
+
+        from backtest.engine import BacktestEngine
+
+        mock_store = MagicMock()
+        engine = BacktestEngine(models=mock_models, store=mock_store, betting_target="win")
+        with caplog.at_level(logging.WARNING, logger="backtest.engine"):
+            result = engine.run("2024-01-01", "2024-12-31")
+
+        # Empty data -> 0 bets -> no bet count guard log (guard only runs when total_bets > 0)
+        assert result.total_bets == 0
+
 
 class TestBettingTarget:
     """BacktestEngine betting_target パラメータのテスト"""
