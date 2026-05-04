@@ -657,6 +657,9 @@ class RacePredictor:
                         bankroll=bankroll,
                         bet_type=BetType.WIN,
                     )
+                    # D-07: EV比例乗算 (Kelly→EV→DD パイプライン)
+                    ev_val = float(row.get(ev_col, 0))
+                    stake = self.stake_calc.apply_ev_scaling(stake, ev=ev_val)
                     if self.dd_ctrl is not None:
                         stake = self.dd_ctrl.adjust_stake(stake, bankroll)
                         stake = max(0, math.floor(stake / 100) * 100)

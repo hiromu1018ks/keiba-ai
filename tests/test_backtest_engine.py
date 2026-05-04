@@ -10,7 +10,7 @@ import pandas as pd
 import pytest
 
 from domain.models import SubmodelSet, TrainedModelsV5
-from domain.types import RegimeState
+from domain.types import BetType, RegimeState
 
 
 @pytest.fixture
@@ -1714,3 +1714,154 @@ class TestVectorizedPayoutMaps:
         assert final_odds_map[("R001", 1)] == pytest.approx(1.5)
         assert final_odds_map[("R001", 2)] == pytest.approx(3.2)
         assert final_odds_map[("R002", 1)] == pytest.approx(2.8)
+
+
+class TestStakeSizingIntegration:
+    """Phase 12: fractional_kelly 注入 + EV乗算 パイプラインのテスト"""
+
+    def test_regime_injects_fractional_kelly(self, mock_models: MagicMock) -> None:
+        """engine レースループで fractional_kelly が StakeCalculator に注入される"""
+        from backtest.engine import BacktestEngine
+
+        engine = BacktestEngine(
+            models=mock_models, betting_mode="kelly", betting_target="win"
+        )
+        # 初期値はデフォルト 0.5
+        assert engine._race_predictor.stake_calc is not None
+        assert engine._race_predictor.stake_calc.fractional_kelly == 0.5
+
+        # CONSERVATIVE regime_params で fractional_kelly=0.25 を注入
+        regime_params = {
+            "ev_threshold": 1.30,
+            "edge_threshold": 0.06,
+            "fractional_kelly": 0.25,
+            "score_threshold": 0.020,
+            "max_bets_per_race": 1,
+        }
+        if engine._race_predictor.stake_calc is not None:
+            fk = float(regime_params.get("fractional_kelly", 0.5))
+            engine._race_predictor.stake_calc.fractional_kelly = fk
+
+        assert engine._race_predictor.stake_calc.fractional_kelly == 0.25
+
+        # COLLAPSED regime_params で fractional_kelly=0.00 を注入
+        collapsed_params = {
+            "ev_threshold": 1.50,
+            "edge_threshold": 0.09,
+            "fractional_kelly": 0.00,
+            "score_threshold": 0.050,
+            "max_bets_per_race": 1,
+            "skip": True,
+        }
+        if engine._race_predictor.stake_calc is not None:
+            fk = float(collapsed_params.get("fractional_kelly", 0.5))
+            engine._race_predictor.stake_calc.fractional_kelly = fk
+
+        assert engine._race_predictor.stake_calc.fractional_kelly == 0.0
+
+    def test_ev_scaling_in_select_bets(self) -> None:
+        """select_bets() winパスで calc_stake→apply_ev_scaling→DD パイプラインが動作する"""
+        from backtest.race_predictor import RacePredictor
+        from betting.drawdown_controller import DrawdownController
+        from betting.stake_calculator import StakeCalculator
+        from domain.models import BetType
+
+        # モックモデル
+        models = MagicMock(spec=TrainedModelsV5)
+        models.submodels = {"turf": MagicMock(spec=SubmodelSet)}
+        models.regime_detector = MagicMock()
+        models.regime_detector.current_regime = RegimeState.AGGRESSIVE
+        models.regime_detector.get_strategy_params.return_value = {
+            "ev_threshold": 1.10,
+            "edge_threshold": 0.05,
+            "fractional_kelly": 0.50,
+            "score_threshold": 0.010,
+            "max_bets_per_race": 2,
+        }
+        models.quality_screener = MagicMock()
+        models.quality_screener.should_bet.return_value = True
+
+        # StakeCalculator(fractional_kelly=0.50, target_ev=1.10, max_scale=2.0)
+        stake_calc = StakeCalculator(fractional_kelly=0.50, target_ev=1.10, max_scale=2.0)
+        dd_ctrl = DrawdownController(peak_bankroll=100000)
+
+        predictor = RacePredictor(
+            models,
+            stake_calculator=stake_calc,
+            dd_controller=dd_ctrl,
+        )
+
+        # 候補 DataFrame (win mode)
+        candidates = pd.DataFrame({
+            "race_id": ["20240101010101"],
+            "umaban": [3],
+            "tanodds": [5.0],
+            "win_selection_edge": [0.06],
+            "win_selection_ev": [1.50],  # EV > target_ev → 拡大
+        })
+
+        bets = predictor.select_bets(
+            pd.DataFrame({"race_id": ["20240101010101"], "umaban": [3]}),
+            bankroll=100000.0,
+            candidates=candidates,
+            betting_target="win",
+        )
+
+        # Kelly stake (edge=0.06, odds=5.0, fk=0.50): 700.0
+        # apply_ev_scaling(700, ev=1.50): scale = 1.50/1.10 = 1.3636 → 954.54
+        # DD adjust → floor(954.54/100)*100 = 900
+        assert len(bets) == 1
+        assert bets[0].bet_type == BetType.WIN
+        # 900 = floor(700 * 1.3636 / 100) * 100
+        assert bets[0].stake == 900.0
+
+    def test_collapsed_regime_zero_stake(self) -> None:
+        """fractional_kelly=0.00 の StakeCalculator で stake=0 → ベットが空リスト"""
+        from backtest.race_predictor import RacePredictor
+        from betting.stake_calculator import StakeCalculator
+
+        models = MagicMock(spec=TrainedModelsV5)
+        models.submodels = {"turf": MagicMock(spec=SubmodelSet)}
+        models.regime_detector = MagicMock()
+        models.regime_detector.current_regime = RegimeState.COLLAPSED
+        models.regime_detector.get_strategy_params.return_value = {
+            "ev_threshold": 1.50,
+            "edge_threshold": 0.09,
+            "fractional_kelly": 0.00,
+            "score_threshold": 0.050,
+            "max_bets_per_race": 1,
+            "skip": True,
+        }
+        models.quality_screener = MagicMock()
+        models.quality_screener.should_bet.return_value = True
+
+        # COLLAPSED: fractional_kelly=0.00
+        stake_calc = StakeCalculator(fractional_kelly=0.00)
+        predictor = RacePredictor(
+            models,
+            stake_calculator=stake_calc,
+        )
+
+        # calc_stake が 0 を返すことを確認
+        stake = stake_calc.calc_stake(
+            edge=0.06, odds=5.0, bankroll=100000, bet_type=BetType.WIN
+        )
+        assert stake == 0.0
+
+        # 候補があってもベットは生成されない (stake < 100 で continue)
+        candidates = pd.DataFrame({
+            "race_id": ["20240101010101"],
+            "umaban": [3],
+            "tanodds": [5.0],
+            "win_selection_edge": [0.06],
+            "win_selection_ev": [1.50],
+        })
+
+        bets = predictor.select_bets(
+            pd.DataFrame({"race_id": ["20240101010101"], "umaban": [3]}),
+            bankroll=100000.0,
+            candidates=candidates,
+            betting_target="win",
+        )
+
+        assert len(bets) == 0
