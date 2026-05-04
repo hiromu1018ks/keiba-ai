@@ -204,7 +204,11 @@ class BacktestReportGenerator:
         enriched = []
         for bet in bet_history:
             d = dict(bet)
-            d["race_date"] = f"{bet['race_id'][:4]}-{bet['race_id'][4:6]}-{bet['race_id'][6:8]}"
+            rid = str(bet.get("race_id", ""))
+            if len(rid) >= 8:
+                d["race_date"] = f"{rid[:4]}-{rid[4:6]}-{rid[6:8]}"
+            else:
+                d["race_date"] = ""
             d["profit"] = bet["result"] - bet["stake"]
             d["is_win"] = bet["result"] > 0
             enriched.append(d)
