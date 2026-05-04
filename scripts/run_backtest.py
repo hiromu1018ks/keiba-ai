@@ -121,7 +121,7 @@ def _load_cached_models(model_dir: Path) -> Any:
     from db.model_loader import ModelLoader
 
     loader = ModelLoader()
-    models, info = loader._load_from_local(model_dir, use_ensemble_override=True)
+    models, info = loader.load_from_dir(model_dir, use_ensemble_override=True)
     logger.info(
         "キャッシュモデルをロード: %s (学習期間: %s ~ %s)",
         model_dir,

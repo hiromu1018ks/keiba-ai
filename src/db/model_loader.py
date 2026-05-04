@@ -44,7 +44,7 @@ class ModelLoader:
         # 1. ローカルディレクトリから読み込み
         models_dir = Path("data/models")
         if models_dir.is_dir() and (models_dir / "meta.json").is_file():
-            return self._load_from_local(models_dir, use_ensemble_override=use_ensemble)
+            return self.load_from_dir(models_dir, use_ensemble_override=use_ensemble)
 
         # 2. MLflow 経由 (フォールバック)
         if run_id is None:
@@ -471,10 +471,14 @@ class ModelLoader:
 
         raise FileNotFoundError(f"No model file found for {name} in {models_dir}")
 
-    def _load_from_local(
+    def load_from_dir(
         self, models_dir: Path, *, use_ensemble_override: bool | None = None
     ) -> tuple[TrainedModelsV5, ModelInfo]:
-        """data/models/ から全モデルをロード"""
+        """指定ディレクトリから全モデルをロード。
+
+        backtest スクリプト等で data/models-backtest/ のような
+        カスタムディレクトリを指定する場合に使用する。
+        """
         from domain.models import SubmodelSet, TrainedModelsV5
         from models.ev_correction_model import EVCorrectionModel, PlaceEVCorrectionModel
         from models.market_model import MarketModel
