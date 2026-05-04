@@ -105,6 +105,21 @@ def _extract_all_feature_rankings(models: Any) -> tuple[dict[str, int], list[str
 
 def main() -> None:
     """WF検証のメインループ"""
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Walk-Forward Validation")
+    parser.add_argument("--profile", action="store_true", default=False,
+                        help="Enable pyinstrument profiling (outputs to data/profiles/)")
+    args = parser.parse_args()
+
+    from utils.profiling import ProfileContext
+
+    with ProfileContext(enabled=args.profile, label="wf_validation"):
+        _run_validation()
+
+
+def _run_validation() -> None:
+    """WF検証の実際の処理ロジック"""
     from db.parquet_store import ParquetStore
 
     store = ParquetStore()
