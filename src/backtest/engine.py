@@ -166,12 +166,28 @@ def build_wide_payout_map(
         """非ゼロ埋め kumi を (lo, hi) にパース。馬番は 1-18 を前提。"""
         n = len(kumi_str)
         if n == 4:
-            return int(kumi_str[:2]), int(kumi_str[2:])
+            lo, hi = int(kumi_str[:2]), int(kumi_str[2:])
         elif n == 3:
-            return int(kumi_str[:1]), int(kumi_str[1:])
+            # Two possible splits: X|YZ or XY|Z
+            split_a = (int(kumi_str[:1]), int(kumi_str[1:]))
+            split_b = (int(kumi_str[:2]), int(kumi_str[2:]))
+            # Valid horse numbers are 1-18; pick the valid split
+            valid_a = all(1 <= v <= 18 for v in split_a)
+            valid_b = all(1 <= v <= 18 for v in split_b)
+            if valid_a and not valid_b:
+                lo, hi = split_a
+            elif valid_b and not valid_a:
+                lo, hi = split_b
+            elif valid_a:
+                # Both valid -- use first split (X|YZ) as convention
+                lo, hi = split_a
+            else:
+                return None
         elif n == 2:
-            return int(kumi_str[:1]), int(kumi_str[1:])
-        return None
+            lo, hi = int(kumi_str[:1]), int(kumi_str[1:])
+        else:
+            return None
+        return (min(lo, hi), max(lo, hi))
 
     for _, row in payouts_df.iterrows():
         race_id = str(row.get("race_id", ""))
