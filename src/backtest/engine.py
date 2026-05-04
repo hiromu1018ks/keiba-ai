@@ -788,7 +788,7 @@ class BacktestEngine:
                                 else None
                             ),
                         )
-                        diag_logger.log_horse_features(hr.to_dict())
+                        diag_logger.log_horse_features(hr._asdict())
                 continue
 
             # Bet generation
