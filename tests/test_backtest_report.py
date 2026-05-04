@@ -836,3 +836,131 @@ class TestSaveAiDiagnostics:
         assert path is not None
         data = json.loads(path.read_text(encoding="utf-8"))
         assert data["highlights"]["monthly_trend"] == "stable"
+
+
+class TestExclusionStatsReporting:
+    """Phase 11: レポート除外統計表示のテスト"""
+
+    def _make_result_with_exclusions(self) -> Any:
+        """除外フィールド付きの BacktestResult を生成"""
+        from backtest.engine import BacktestResult
+
+        return BacktestResult(
+            total_bets=10,
+            total_stake=1000.0,
+            total_return=1100.0,
+            winning_bets=3,
+            n_collapsed_skipped=5,
+            n_ev_excluded=20,
+            n_odds_band_excluded=8,
+            exclusion_stats={
+                "collapsed_skipped": 5,
+                "ev_excluded": 20,
+                "odds_band_excluded": 8,
+                "total_candidates_evaluated": 100,
+                "odds_band_filter_excluded": {"10.0-30.0": {"roi": 0.65, "count": 45}},
+            },
+        )
+
+    def test_generate_includes_exclusion_stats(self, tmp_path: Path) -> None:
+        """Test 1: generate() の summary dict に exclusion_stats が含まれる"""
+        from backtest.report import BacktestReportGenerator
+
+        gen = BacktestReportGenerator(output_dir=tmp_path)
+        result = self._make_result_with_exclusions()
+        bet_history = [
+            {
+                "race_id": "20240101010101",
+                "bet_type": "win",
+                "umaban": 1,
+                "stake": 100.0,
+                "odds": 2.4,
+                "result": 240.0,
+                "surface": "turf",
+                "kyori": 1200,
+                "ev": 1.5,
+                "popularity": 3,
+                "bankroll_after": 100200.0,
+            },
+        ]
+        path = gen.generate(result, bet_history, betting_target="win")
+        assert path.exists()
+        # summary dict はテンプレートに渡されるので、generateがエラーなく完了すればOK
+        # テンプレート内で exclusion_stats を参照できるかは HTML レンダリングで確認
+
+    def test_save_ai_diagnostics_includes_exclusion(self, tmp_path: Path) -> None:
+        """Test 2: save_ai_diagnostics() の JSON に exclusion キーが含まれる"""
+        import json
+
+        from backtest.report import BacktestReportGenerator
+
+        gen = BacktestReportGenerator(output_dir=tmp_path)
+        result = self._make_result_with_exclusions()
+        bets = [
+            {
+                "race_id": "20240101010101",
+                "bet_type": "win",
+                "stake": 100.0,
+                "result": 240.0,
+                "surface": "turf",
+                "kyori": 1200,
+                "popularity": 3,
+                "ev": 1.5,
+                "tanoddslow": 2.4,
+                "regime": "aggressive",
+                "race_date": "2024-01-01",
+                "is_win": True,
+                "bankroll_after": 100200.0,
+            },
+        ]
+        path = gen.save_ai_diagnostics(bets, result, betting_target="win")
+        assert path is not None
+        assert path.exists()
+
+        data = json.loads(path.read_text(encoding="utf-8"))
+        assert "exclusion" in data
+        assert data["exclusion"]["collapsed_skipped"] == 5
+        assert data["exclusion"]["ev_excluded"] == 20
+        assert data["exclusion"]["odds_band_excluded"] == 8
+        assert "10.0-30.0" in data["exclusion"]["excluded_odds_bands"]
+        assert data["exclusion"]["total_candidates_evaluated"] == 100
+
+    def test_default_exclusion_fields_no_error(self, tmp_path: Path) -> None:
+        """Test 3: デフォルト除外値 (0/空dict) の BacktestResult でもエラーなく動作する"""
+        import json
+
+        from backtest.engine import BacktestResult
+        from backtest.report import BacktestReportGenerator
+
+        gen = BacktestReportGenerator(output_dir=tmp_path)
+        result = BacktestResult()
+        bets = [
+            {
+                "race_id": "20240101010101",
+                "bet_type": "win",
+                "umaban": 1,
+                "stake": 100.0,
+                "odds": 2.4,
+                "result": 240.0,
+                "surface": "turf",
+                "kyori": 1200,
+                "popularity": 3,
+                "ev": 1.5,
+                "tanoddslow": 2.4,
+                "regime": "aggressive",
+                "race_date": "2024-01-01",
+                "is_win": True,
+                "bankroll_after": 100200.0,
+            },
+        ]
+        # generate() should not raise
+        gen.generate(result, bets, betting_target="win")
+
+        # save_ai_diagnostics() should not raise
+        path = gen.save_ai_diagnostics(bets, result, betting_target="win")
+        assert path is not None
+        data = json.loads(path.read_text(encoding="utf-8"))
+        assert data["exclusion"]["collapsed_skipped"] == 0
+        assert data["exclusion"]["ev_excluded"] == 0
+        assert data["exclusion"]["odds_band_excluded"] == 0
+        assert data["exclusion"]["excluded_odds_bands"] == {}

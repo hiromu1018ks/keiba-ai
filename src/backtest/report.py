@@ -47,6 +47,14 @@ class BacktestReportGenerator:
             "test_period": test_period,
             "train_period": train_period,
             "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC"),
+            "exclusion_stats": {
+                "collapsed_skipped": result.n_collapsed_skipped,
+                "ev_excluded": result.n_ev_excluded,
+                "odds_band_excluded": result.n_odds_band_excluded,
+                "odds_band_filter_excluded": result.exclusion_stats.get(
+                    "odds_band_filter_excluded", {}
+                ),
+            },
         }
 
         template_dir = Path(__file__).parent / "templates"
@@ -185,6 +193,17 @@ class BacktestReportGenerator:
                     b for b in significant_bands
                     if b["roi"] < result.total_roi and b["bets"] >= 5
                 ],
+            },
+            "exclusion": {
+                "collapsed_skipped": result.n_collapsed_skipped,
+                "ev_excluded": result.n_ev_excluded,
+                "odds_band_excluded": result.n_odds_band_excluded,
+                "excluded_odds_bands": result.exclusion_stats.get(
+                    "odds_band_filter_excluded", {}
+                ),
+                "total_candidates_evaluated": result.exclusion_stats.get(
+                    "total_candidates_evaluated", 0
+                ),
             },
         }
 
