@@ -942,6 +942,7 @@ class BacktestEngine:
                             else 0
                         ),
                         "track_condition_code": _track_condition,
+                        "regime": str(regime),
                         "p_place_pred": (
                             float(horse_rows.iloc[0].get("p_place_pred", 0))
                             if not horse_rows.empty

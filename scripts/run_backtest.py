@@ -544,7 +544,7 @@ def _run_multi_year(args: argparse.Namespace) -> None:
         from backtest.report import MultiYearReportGenerator
 
         gen = MultiYearReportGenerator(output_dir=output_dir)
-        report_path = gen.generate(all_results, all_metadata)
+        report_path = gen.generate(all_results, all_metadata, betting_target=args.betting_target)
         print(f"\n  レポート生成: {report_path}")
 
         json_data: dict[str, Any] = {
