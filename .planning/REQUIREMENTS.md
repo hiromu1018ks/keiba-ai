@@ -9,9 +9,9 @@ Requirements for Betting Strategy Optimization milestone. Each maps to roadmap p
 
 ### Bet Selection (BSEL)
 
-- [ ] **BSEL-01**: バックテスト実行時、EV_lower_win_corrected >= 1.0 を満たさないベットが自動除外される
+- [x] **BSEL-01**: バックテスト実行時、EV_lower_win_corrected >= 1.0 を満たさないベットが自動除外される
 - [ ] **BSEL-02**: RegimeDetectorがCOLLAPSEDと判定したレースでベットが完全スキップされる
-- [ ] **BSEL-03**: オッズバンド別ROI分析に基づき、赤字バンドのベットがOddsBandFilterで除外される
+- [x] **BSEL-03**: オッズバンド別ROI分析に基づき、赤字バンドのベットがOddsBandFilterで除外される
 
 ### Stake Sizing (SIZE)
 
@@ -65,9 +65,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| BSEL-01 | Phase 11 | Pending |
+| BSEL-01 | Phase 11 | Complete (Plan 01) |
 | BSEL-02 | Phase 11 | Pending |
-| BSEL-03 | Phase 11 | Pending |
+| BSEL-03 | Phase 11 | Complete (Plan 01) |
 | SIZE-01 | Phase 12 | Pending |
 | SIZE-02 | Phase 12 | Pending |
 | RISK-01 | Phase 13 | Pending |
@@ -81,4 +81,4 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 ---
 *Requirements defined: 2026-05-04*
-*Last updated: 2026-05-04 after roadmap creation*
+*Last updated: 2026-05-04 after Plan 11-01 completion*

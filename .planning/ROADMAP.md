@@ -144,7 +144,7 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 11-01: OddsBandFilter クラス + EV_lower フィルター + RegimeDetector skip=True (BSEL-01, BSEL-03)
+- [x] 11-01: OddsBandFilter クラス + EV_lower フィルター + RegimeDetector skip=True (BSEL-01, BSEL-03)
 - [ ] 11-02: Engine統合 (COLLAPSED skip + OddsBandFilter + counters + guard) + レポート除外統計 (BSEL-01, BSEL-02, BSEL-03)
 
 ### Phase 12: Stake Sizing Enhancement
@@ -184,6 +184,6 @@ Phases execute in numeric order: 11 → 12 → 13
 | 8. Win Backtest Core | v1.2 | 2/2 | Complete | 2026-05-04 |
 | 9. Win Reporting | v1.2 | 1/1 | Complete | 2026-05-04 |
 | 10. Pipeline Performance | v1.2 | 2/2 | Complete | 2026-05-04 |
-| 11. Bet Selection Filters | v1.3 | 0/2 | Planning | - |
+| 11. Bet Selection Filters | v1.3 | 1/2 | Executing | - |
 | 12. Stake Sizing Enhancement | v1.3 | 0/? | Not started | - |
 | 13. Risk Calibration & Parameter Optimization | v1.3 | 0/? | Not started | - |
