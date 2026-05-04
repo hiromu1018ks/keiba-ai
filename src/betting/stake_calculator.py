@@ -16,18 +16,28 @@ class StakeCalculator:
     Kelly fraction = edge / (odds - 1)
     ただし edge = p_model * odds - 1 (期待利益/単位投資額)
 
-    実際のstake = bankroll × kelly_fraction × FRACTIONAL_KELLY
+    実際のstake = bankroll × kelly_fraction × fractional_kelly
     100円単位に切り捨て。
 
     Rule 6: 1レースの最大リスクは資金の2%。
     """
 
     MIN_EDGE_THRESHOLD: float = 0.005  # Minimum edge to consider betting (0.5%)
-    FRACTIONAL_KELLY: float = 0.5  # ハーフケリー
-    KELLY_FRACTION_CAP: float = 0.25  # Kelly fraction の最大値（full Kellyの1/4）
     RACE_EXPOSURE_CAP: float = 0.02  # 1レースの最大露出率（2%）
     MIN_STAKE: int = 100  # 最低投票額
     MAX_STAKE: int = 10000  # 最大投票額 (10K yen cap)
+
+    def __init__(
+        self,
+        fractional_kelly: float = 0.5,
+        kelly_fraction_cap: float = 0.25,
+        target_ev: float = 1.10,
+        max_scale: float = 2.0,
+    ) -> None:
+        self.fractional_kelly = fractional_kelly
+        self.kelly_fraction_cap = kelly_fraction_cap
+        self.target_ev = target_ev
+        self.max_scale = max_scale
 
     def calc_stake(
         self,
@@ -61,10 +71,10 @@ class StakeCalculator:
         kelly_fraction = edge / (odds - 1.0)
 
         # Fractional Kelly (half-Kelly for safety)
-        kelly_fraction *= self.FRACTIONAL_KELLY
+        kelly_fraction *= self.fractional_kelly
 
         # Effective cap: max fraction of bankroll
-        effective_cap = self.KELLY_FRACTION_CAP * self.FRACTIONAL_KELLY  # 0.125
+        effective_cap = self.kelly_fraction_cap * self.fractional_kelly
         kelly_fraction = min(kelly_fraction, effective_cap)
 
         # Compute stake
@@ -120,3 +130,15 @@ class StakeCalculator:
                     result.append(replace(bet, stake=float(adjusted)))
 
         return result
+
+    def apply_ev_scaling(self, stake: float, ev: float) -> float:
+        """EV比例乗算器 (D-06/D-07).
+
+        scale = min(ev / target_ev, max_scale)
+        EV < target_ev → scale < 1.0 → 縮小
+        EV >= target_ev → scale >= 1.0 → 拡大 (max_scale まで)
+        """
+        if stake <= 0 or math.isnan(ev) or ev <= 0:
+            return stake
+        scale = min(ev / self.target_ev, self.max_scale)
+        return stake * scale
