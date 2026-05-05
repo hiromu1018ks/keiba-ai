@@ -48,11 +48,11 @@ class TestBacktestResult:
             winning_bets=30,
             total_roi=1.05,
             max_drawdown=0.08,
-            monthly_returns={},
             bet_history=[],
         )
         assert result.total_roi == 1.05
         assert result.total_return - result.total_stake == 5000
+        assert result.monthly_returns == {}  # bet_history空なら空dictを返す
 
     def test_profit_property(self) -> None:
         """profit プロパティが正しく計算される"""
