@@ -2,11 +2,11 @@
 gsd_state_version: 1.0
 milestone: v1.4
 milestone_name: Ensemble Filter Recalibration
-status: planning
-last_updated: "2026-05-05T18:00:00Z"
-last_activity: 2026-05-05 — Milestone v1.4 started
+status: roadmap_created
+last_updated: "2026-05-05T19:00:00Z"
+last_activity: 2026-05-05 — Roadmap created for v1.4
 progress:
-  total_phases: 0
+  total_phases: 5
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -20,14 +20,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-05-05)
 
 **Core value:** 単勝モデルのバックテストROIを100%超えにすること
-**Current focus:** v1.4 Ensemble Filter Recalibration — defining requirements
+**Current focus:** Phase 14 — Gate Recalibration
 
 ## Current Position
 
-Phase: Not started (defining requirements)
-Plan: —
-Status: Defining requirements
-Last activity: 2026-05-05 — Milestone v1.4 started
+Phase: 14 of 18 (Gate Recalibration)
+Plan: 0 of TBD in current phase
+Status: Roadmap created — ready to plan Phase 14
+Last activity: 2026-05-05 — Roadmap created for v1.4 (5 phases, 12 requirements mapped)
 
 Progress: [            ] 0%
 
@@ -56,17 +56,25 @@ Historical decisions archived in:
 - .planning/milestones/v1.1-ROADMAP.md
 - .planning/milestones/v1.3-ROADMAP.md
 
+Recent decisions affecting current work:
+
+- **Build order is dependency-ordered:** Gate → EV_lower → OddsBand → Optuna → Validation (from research)
+- **EV_lower dynamic threshold starting value:** Data-dependent, research recommends 25th percentile of positive-edge ensemble OOF winners
+- **Optuna fold count:** Must be 4+ (not 2) to prevent overfitting with 14 free parameters
+- **Look-ahead bias fix:** strategy_optimizer.py must use default params for training_bet_history generation
+
 ### Pending Todos
 
-- バックテストROI検証(run_backtest.py実行、PostgreSQL環境必要)
-- Optuna最適化実行(run_strategy_optimization.py、PostgreSQL + 学習済みモデル必要)
-- WF検証スクリプトの実際の実行(PostgreSQL環境必要、~4時間)
+- バックテストROI検証(run_backtest.py実行、PostgreSQL環境必要) — addressed by Phase 18
+- Optuna最適化実行(run_strategy_optimization.py) — addressed by Phase 17
+- WF検証スクリプトの実際の実行(PostgreSQL環境必要、~4時間) — deferred
 
 ### Blockers/Concerns
 
-- Look-ahead bias risk in parameter optimization — walk-forward validation required
-- Regime detector oscillation risk — hysteresis counter may need adjustment
-- PostgreSQL環境が必要な検証が複数残存(WF検証、バックテスト、最適化)
+- Look-ahead bias in strategy_optimizer.py — must be fixed in Phase 16 before Optuna (Phase 17)
+- EV_lower threshold value is data-dependent — empirical tuning needed in Phase 15
+- OOF vs inference distribution shift magnitude unknown — Phase 14 diagnostics will measure this
+- RegimeDetector behavior under ensemble needs verification post-recalibration
 
 ## Deferred Items
 
@@ -82,4 +90,5 @@ Items acknowledged and deferred at milestone close:
 ## Session Continuity
 
 Last session: 2026-05-05
-Stopped at: Milestone v1.4 started — defining requirements
+Stopped at: Roadmap created for v1.4 — ready to plan Phase 14
+Resume file: None
