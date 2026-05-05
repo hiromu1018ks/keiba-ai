@@ -21,7 +21,8 @@ class OddsBandFilter:
     ]
     BAND_NAMES: list[str] = ["1.0-3.0", "3.0-10.0", "10.0-30.0", "30.0+"]
 
-    def __init__(self) -> None:
+    def __init__(self, roi_threshold: float = 1.0) -> None:
+        self._roi_threshold = roi_threshold
         self._excluded_bands: set[str] = set()
         self._band_roi: dict[str, float] = {}
         self._band_counts: dict[str, int] = {}
@@ -66,7 +67,7 @@ class OddsBandFilter:
                 continue
             roi = data["total_return"] / data["total_stake"] if data["total_stake"] > 0 else 0.0
             self._band_roi[name] = roi
-            if roi < 1.0:  # D-07: ROI < 100% → exclude
+            if roi < self._roi_threshold:  # D-07: ROI < threshold → exclude
                 self._excluded_bands.add(name)
 
         logger.info(

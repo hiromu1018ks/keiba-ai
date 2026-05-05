@@ -80,3 +80,23 @@ class TestOddsBandFilter:
         assert "1.0-3.0" in excluded
         assert excluded["1.0-3.0"]["roi"] == pytest.approx(0.4)  # (50+30)/(100+100)
         assert excluded["1.0-3.0"]["count"] == 2
+
+    def test_calibrate_custom_roi_threshold_keeps_band(self) -> None:
+        """roi_threshold=0.9 のとき ROI=0.95 のバンドは除外されない"""
+        obf = OddsBandFilter(roi_threshold=0.9)
+        # バンド 1.0-3.0: ROI = 95/100 = 0.95 > 0.9 → KEEP
+        bet_history = [
+            {"odds": 2.0, "stake": 100, "result": 95},
+        ]
+        obf.calibrate(bet_history)
+        assert "1.0-3.0" not in obf.excluded_bands
+
+    def test_calibrate_custom_roi_threshold_excludes_band(self) -> None:
+        """roi_threshold=1.1 のとき ROI=1.05 のバンドは除外される"""
+        obf = OddsBandFilter(roi_threshold=1.1)
+        # バンド 1.0-3.0: ROI = 105/100 = 1.05 < 1.1 → EXCLUDE
+        bet_history = [
+            {"odds": 2.0, "stake": 100, "result": 105},
+        ]
+        obf.calibrate(bet_history)
+        assert "1.0-3.0" in obf.excluded_bands

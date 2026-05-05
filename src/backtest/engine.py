@@ -381,7 +381,8 @@ class BacktestEngine:
         # Phase 11: Bet selection filters
         self._odds_band_filter: OddsBandFilter | None = None
         if betting_target == "win":
-            self._odds_band_filter = OddsBandFilter()
+            _roi_thresh = (strategy_params or {}).get("roi_threshold", 1.0)
+            self._odds_band_filter = OddsBandFilter(roi_threshold=_roi_thresh)
 
         if betting_mode == "kelly":
             from betting.drawdown_controller import DDConfig, DrawdownController
