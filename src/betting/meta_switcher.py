@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Protocol
 
 from domain.types import RegimeState
@@ -11,7 +12,7 @@ class RegimeDetectorProtocol(Protocol):
     """RegimeDetector のプロトコル（依存逆転）"""
 
     current_regime: RegimeState
-    should_retrain: callable
+    should_retrain: Callable[[], bool]
 
 
 class MetaSwitcher:
