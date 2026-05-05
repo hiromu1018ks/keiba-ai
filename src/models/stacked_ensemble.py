@@ -28,6 +28,8 @@ class StackedEnsemble:
     lgb.Booster のインターフェース互換:
     - best_iteration: int (=0, アンサンブルでは使用しない)
     - predict(X, num_iteration=None) → np.ndarray of probabilities
+    - feature_name() → list[str]
+    - feature_importance(importance_type=) → np.ndarray
     """
 
     best_iteration: int = 0
@@ -123,6 +125,48 @@ class StackedEnsemble:
 
         stacked = np.column_stack([p_lgbm, p_xgb, p_cat])
         return np.clip(self.meta_model.predict(stacked), 0, 1)
+
+    def feature_name(self) -> list[str]:
+        """特徴量名を返す (lgb.Booster 互換)。
+
+        アンサンブル内の LightGBM モデルの特徴量名をそのまま返す。
+        3モデルは同じ特徴量空間で学習されるためこれで十分。
+        """
+        if self.lgbm_model is None:
+            return []
+        return self.lgbm_model.feature_name()
+
+    def feature_importance(self, importance_type: str = "split") -> np.ndarray:
+        """特徴量重要度を返す (lgb.Booster 互換)。
+
+        3ベースモデルの重要度を正規化して平均化した値を返す。
+        各モデルの重要度を [0, 1] に正規化後、単純平均する。
+
+        Args:
+            importance_type: "split" or "gain" (LightGBM のみ使用)
+        """
+        if self.lgbm_model is None:
+            return np.array([])
+
+        feature_names = self.lgbm_model.feature_name()
+
+        # LightGBM
+        lgb_imp = self.lgbm_model.feature_importance(importance_type=importance_type).astype(float)
+
+        # XGBoost
+        xgb_scores = self.xgb_model.get_score(importance_type="gain")
+        xgb_imp = np.array([xgb_scores.get(f, 0.0) for f in feature_names], dtype=float)
+
+        # CatBoost
+        cat_imp = self.cat_model.get_feature_importance().astype(float)
+
+        # 各モデルの重要度を [0, 1] に正規化して平均
+        def _normalize(arr: np.ndarray) -> np.ndarray:
+            total = arr.sum()
+            return arr / total if total > 0 else arr
+
+        normalized = [_normalize(imp) for imp in [lgb_imp, xgb_imp, cat_imp]]
+        return np.mean(normalized, axis=0)
 
     def _encode_cats(self, X: pd.DataFrame) -> pd.DataFrame:
         """カテゴリ列を数値コードに変換 (XGBoost/CatBoost 用)。
@@ -391,7 +435,7 @@ class StackedEnsemble:
         n_tr = len(X_tr_num)
         es_split = int(n_tr * 0.8)
         dtrain = xgb.DMatrix(X_tr_num.iloc[:es_split], label=y_tr.iloc[:es_split])
-        dvalid = xgb.DMatrix(X_tr_num.iloc[es_split:], label=y_tr.iloc[es_split:])
+        dvalid = xgb.DMatrix(X_tr_num.iloc[es_split:], y_tr.iloc[es_split:])
 
         m = xgb.train(
             {
@@ -424,7 +468,7 @@ class StackedEnsemble:
         n = len(X_num)
         es_split = int(n * 0.8)
         dtrain = xgb.DMatrix(X_num.iloc[:es_split], label=y.iloc[:es_split])
-        dvalid = xgb.DMatrix(X_num.iloc[es_split:], label=y.iloc[es_split:])
+        dvalid = xgb.DMatrix(X_num.iloc[es_split:], y.iloc[es_split:])
 
         return xgb.train(
             {

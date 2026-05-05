@@ -88,6 +88,69 @@ class TestStackedEnsemble:
         assert result["color"].tolist() == [0.0, -1.0, 1.0, -1.0]
 
 
+class TestFeatureNameImportanceCompat:
+    """feature_name() / feature_importance() の lgb.Booster 互換インターフェース"""
+
+    def test_feature_name_returns_list(self):
+        """train後、feature_name()が文字列リストを返す"""
+        X, y = _make_binary_data()
+        split = int(len(X) * 0.8)
+        ensemble = StackedEnsemble(cat_cols=[], n_trials=2)
+        ensemble.train(X.iloc[:split], y.iloc[:split], X.iloc[split:], y.iloc[split:])
+        names = ensemble.feature_name()
+        assert isinstance(names, list)
+        assert set(names) == {"f1", "f2", "f3"}
+
+    def test_feature_name_before_train_returns_empty(self):
+        """train前、feature_name()が空リストを返す"""
+        ensemble = StackedEnsemble(cat_cols=[])
+        assert ensemble.feature_name() == []
+
+    def test_feature_importance_returns_ndarray(self):
+        """train後、feature_importance()がndarrayを返す"""
+        X, y = _make_binary_data()
+        split = int(len(X) * 0.8)
+        ensemble = StackedEnsemble(cat_cols=[], n_trials=2)
+        ensemble.train(X.iloc[:split], y.iloc[:split], X.iloc[split:], y.iloc[split:])
+        imp = ensemble.feature_importance(importance_type="gain")
+        assert isinstance(imp, np.ndarray)
+        assert len(imp) == 3  # 3 features
+
+    def test_feature_importance_before_train_returns_empty(self):
+        """train前、feature_importance()が空配列を返す"""
+        ensemble = StackedEnsemble(cat_cols=[])
+        result = ensemble.feature_importance()
+        assert isinstance(result, np.ndarray)
+        assert len(result) == 0
+
+    def test_feature_importance_normalized_and_averaged(self):
+        """feature_importance()は正規化平均のため全要素の合計が概ね1.0"""
+        X, y = _make_binary_data()
+        split = int(len(X) * 0.8)
+        ensemble = StackedEnsemble(cat_cols=[], n_trials=2)
+        ensemble.train(X.iloc[:split], y.iloc[:split], X.iloc[split:], y.iloc[split:])
+        imp = ensemble.feature_importance(importance_type="gain")
+        # 3モデルの正規化平均なので合計は約1.0
+        assert abs(imp.sum() - 1.0) < 0.01
+
+    def test_extract_feature_ranking_with_stacked_ensemble(self):
+        """extract_feature_ranking() が StackedEnsemble で動作する"""
+        from models.walk_forward_cv import extract_feature_ranking
+
+        X, y = _make_binary_data()
+        split = int(len(X) * 0.8)
+        ensemble = StackedEnsemble(cat_cols=[], n_trials=2)
+        ensemble.train(X.iloc[:split], y.iloc[:split], X.iloc[split:], y.iloc[split:])
+
+        ranking, top_features = extract_feature_ranking(ensemble, top_n=3)
+        assert isinstance(ranking, dict)
+        assert isinstance(top_features, list)
+        assert len(top_features) <= 3
+        # top_featuresの要素が全て学習特徴量に含まれる
+        for f in top_features:
+            assert f in {"f1", "f2", "f3"}
+
+
 class TestOptunaTuning:
     """Task 1: Optuna HP最適化 + Early Stopping + 特徴量サブセット"""
 

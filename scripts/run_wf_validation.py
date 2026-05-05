@@ -114,15 +114,17 @@ def main() -> None:
         default="win",
         help="ベッティング対象 (デフォルト: win)",
     )
+    parser.add_argument("--ensemble", action="store_true", default=False,
+                        help="アンサンブル (LightGBM+XGBoost+CatBoost) を有効化")
     args = parser.parse_args()
 
     from utils.profiling import ProfileContext
 
     with ProfileContext(enabled=args.profile, label="wf_validation"):
-        _run_validation(args.betting_target)
+        _run_validation(args.betting_target, use_ensemble=args.ensemble)
 
 
-def _run_validation(betting_target: str = "win") -> None:
+def _run_validation(betting_target: str = "win", *, use_ensemble: bool = False) -> None:
     """WF検証の実際の処理ロジック"""
     from db.parquet_store import ParquetStore
 
@@ -177,7 +179,7 @@ def _run_validation(betting_target: str = "win") -> None:
         from pipelines.training_pipeline import TrainingPipelineV5
 
         pipeline = TrainingPipelineV5(store=store, model_dir=year_model_dir)
-        models = pipeline.run(fold_def["train_start"], fold_def["train_end"])
+        models = pipeline.run(fold_def["train_start"], fold_def["train_end"], use_ensemble=use_ensemble)
         elapsed_train = time.time() - t0
         logger.info("Fold %d: 学習完了 (%.0f秒)", i, elapsed_train)
 
