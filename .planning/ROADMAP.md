@@ -179,7 +179,11 @@ Plans:
   1. run_backtest.py --ensemble 実行時にWinSelectionGateがアンサンブルOOF予測で再学習され、再計算されたprob_edges/edge_edges/odds_edgesが単一モデルと異なる値になる
   2. ks_2samp/wasserstein_distanceで単一モデルとアンサンブルのOOF確率分布を比較した診断レポートが出力され、ドリフト量が定量化されている
   3. use_ensemble=TrueがModelLoader→RacePredictor→BacktestEngine→WinSelectionGate全経路で一貫して伝播され、アンサンブルモデル推論結果が各コンポーネントに到達していることをテストで確認できる
-**Plans**: TBD
+**Plans**: 2 plans
+
+Plans:
+- [ ] 14-01: ドリフト診断モジュール作成 + パイプライン統合 + ゲート再学習検証テスト (GATE-01, GATE-02)
+- [ ] 14-02: use_ensembleフラグ伝播統合テスト (GATE-03)
 
 ### Phase 15: EV Filter Enhancement
 **Goal**: EV_lower閾値がアンサンブルOOF分布に基づく動的閾値に置き換わり、過剰除外が解消されるとともにEV推定精度が可視化されている状態になる
@@ -238,7 +242,7 @@ Phases execute in numeric order: 14 → 15 → 16 → 17 → 18
 | 11. Bet Selection Filters | v1.3 | 2/2 | Complete | 2026-05-04 |
 | 12. Stake Sizing Enhancement | v1.3 | 2/2 | Complete | 2026-05-05 |
 | 13. Risk Calibration & Parameter Optimization | v1.3 | 3/3 | Complete | 2026-05-05 |
-| 14. Gate Recalibration | v1.4 | 0/? | Not started | - |
+| 14. Gate Recalibration | v1.4 | 0/2 | Planning | - |
 | 15. EV Filter Enhancement | v1.4 | 0/? | Not started | - |
 | 16. Odds Band Rebuild | v1.4 | 0/? | Not started | - |
 | 17. Optuna Optimization | v1.4 | 0/? | Not started | - |
