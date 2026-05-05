@@ -1,375 +1,339 @@
-# Pitfalls Research: Betting Strategy Optimization (v1.3)
+# Domain Pitfalls: Ensemble Filter Recalibration (v1.4)
 
-**Domain:** Adding Kelly criterion stake sizing, EV-proportional sizing, drawdown control, multi-criteria bet filtering, and backtest parameter optimization to an existing ML horse racing prediction system
-**Context:** keiba-ai v1.3 milestone -- existing BacktestEngine + RacePredictor + RegimeDetector + StakeCalculator + DrawdownController are in place. Goal is ROI 91.6% -> 100%+ by optimizing bet selection and stake sizing. The ML model pipeline is frozen; only betting strategy parameters change.
-**Researched:** 2026-05-04
-**Confidence:** HIGH (cross-validated with full codebase analysis of engine.py, race_predictor.py, stake_calculator.py, drawdown_controller.py, regime_detector.py, win_selection_gate.py, robust_confidence_estimator.py)
+**Domain:** Recalibrating betting filters for ensemble model output distribution
+**Context:** keiba-ai v1.4 milestone -- the 3-model stacked ensemble (LightGBM + XGBoost + CatBoost -> Ridge) produces a different probability distribution than the single LightGBM used to calibrate WinSelectionGate, EV_lower threshold, OddsBandFilter, and Optuna parameters. The symptom is 7 bets/year at ROI 0% (vs. target 100+ bets/year at ROI >100%). The ML model pipeline is frozen; only filter parameters and calibration change.
+**Researched:** 2026-05-05
+**Confidence:** HIGH (based on direct codebase analysis of all filter components, ensemble model, training pipeline, and strategy optimizer)
 
 ---
 
 ## Critical Pitfalls
 
-Mistakes that cause fictitious ROI improvement, silent overfitting, or systematic mis-sizing leading to bankroll ruin.
+Mistakes that cause complete filter rejection (0 bets), silent look-ahead bias, or fictitious ROI improvement.
 
-### Pitfall 1: Kelly Overbetting From Overconfident Edge Estimates
-
-**What goes wrong:**
-The Kelly formula `f* = edge / (odds - 1)` is only as good as the edge estimate fed into it. ML models systematically produce overconfident probability estimates, especially for win bets where the base rate is low (p_win ~0.05-0.15 for mid-range horses). When the model says p=0.12 but the true probability is p=0.08, Kelly computes f* based on the inflated edge, leading to systematic overbetting across all bets. With 9,074 bets per year, even a small systematic overestimate compounds into massive drawdowns.
-
-In this codebase, `StakeCalculator.calc_stake()` at `stake_calculator.py:59` computes `kelly_fraction = edge / (odds - 1.0)`. The `edge` parameter comes from `bet.edge` which is `win_selection_edge` from `WinSelectionGateModel`. If the gate model's realized ROI training overfits to calibration data, the edge values embed that overfitting.
-
-**Why it happens:**
-- ML models (LightGBM/XGBoost/CatBoost) optimize log loss, not calibration. Log loss penalizes confident wrong predictions heavily, but models can still be systematically overconfident in certain probability ranges.
-- The WinSelectionGateModel trains on realized ROI with prior-weight smoothing (`prior_weight=24`), but this smoothing may be insufficient for sparse bins (e.g., high-odds/low-prob combinations).
-- The edge is computed from EV which is `p_model * odds - 1.0`. A 3% absolute error in p_model at odds 10.0 translates to a 30% error in edge (0.30 vs 0.00).
-
-**How to avoid:**
-1. **Use half-Kelly or quarter-Kelly consistently.** The codebase already uses `FRACTIONAL_KELLY = 0.5` (half-Kelly) at `stake_calculator.py:26`. This is correct. Never increase this to full Kelly. The `KELLY_FRACTION_CAP = 0.25` at line 27 provides an additional cap. Keep both.
-2. **Apply Conformal confidence filtering BEFORE Kelly sizing.** Use `conformal_confidence_score` from `RobustConfidenceEstimator` to filter out bets where the confidence interval width exceeds a threshold. This removes bets with unreliable edge estimates before Kelly amplifies the sizing error.
-3. **Add a minimum edge buffer.** The current `MIN_EDGE_THRESHOLD = 0.005` (0.5%) at `stake_calculator.py:25` is too low for win betting where JRA takeout is ~20-25%. The `GateKeeper.filter_bets()` at `gate_keeper.py:28` uses a 4% edge threshold, which is better. Ensure the Kelly edge input respects this gate.
-4. **Verify calibration on OOF data.** Before adjusting Kelly parameters, plot predicted vs actual win rate in decile bins. If the model is overconfident in any bin, reduce Kelly fraction for that bin.
-
-**Warning signs:**
-- Backtest shows ROI improvement from Kelly sizing but the improvement comes from a few large bets (concentration risk). Check the distribution of bet sizes: if the top 10 bets by stake account for >30% of total return, Kelly is amplifying noise.
-- Max drawdown increases when switching from flat to Kelly sizing. If max_drawdown goes from 15% to 40%, Kelly is overbetting.
-- More than 5% of bets have stake = MAX_STAKE (10,000 yen cap at `stake_calculator.py:30`). This means Kelly wants to bet more but hits the cap, indicating systematically high edge estimates.
-
-**Phase to address:**
-Phase 1 (stake sizing implementation). Must be addressed before any backtest with Kelly sizing is trusted.
-
----
-
-### Pitfall 2: Look-Ahead Bias in Backtest Parameter Optimization
+### Pitfall 1: WinSelectionGate Quantile Bin Mismatch
 
 **What goes wrong:**
-When tuning Conformal alpha thresholds, odds band filters, regime edge thresholds, or Kelly parameters by running backtests and selecting the best-performing parameters, the optimization uses future information. You run backtest with alpha=0.05, alpha=0.10, alpha=0.15, pick the alpha that gives best ROI, and report that ROI. But that ROI embeds knowledge of which alpha would have worked best for the test period -- information you would not have had at the start of the test period.
+`WinSelectionGateModel` stores `prob_edges`, `edge_edges`, and `odds_edges` computed from single-LightGBM OOF predictions (quantile-based binning via `_quantile_edges()` at win_selection_gate.py:57-71). When the ensemble produces a different `win_selection_prob` distribution, candidates land in wrong bins. The `combo_scores` and `pair_scores` lookup tables return stale bucket statistics, making `win_gate_score` invalid.
 
-In this codebase, the `WinSelectionGateModel.train()` at `win_selection_gate.py:804-878` already uses walk-forward OOF folds (`_build_walk_forward_folds`) with `_simulate_threshold_surface()` to find optimal thresholds. However, the regime detector's strategy parameters in `regime_detector.py:178-232` are hardcoded. If v1.3 optimizes these parameters by grid-searching backtest ROI on the test period, it introduces look-ahead bias.
-
-The `BacktestEngine.run()` at `engine.py:364-1026` processes races sequentially and the regime detector updates per-race. But the regime detector was trained on ALL data before the backtest starts (the `train()` call happens in the training pipeline). If the training data includes 2020-2023 and the test is 2024, and regime thresholds are calibrated using 2024 backtest results, that is look-ahead bias.
+The ensemble's Ridge meta-learner produces probabilities that are (a) smoother (less extreme highs/lows), (b) calibrated differently (the Ridge alpha=1.0 regularization pulls toward the mean), and (c) have a different variance structure across the 3 base model predictions. A candidate with `win_selection_prob = 0.12` under the old edges might map to bin 3, but under ensemble-calibrated edges it would be bin 2. The `_score_row_from_tables()` lookup returns a score from a bucket trained on a different distribution.
 
 **Why it happens:**
-- Parameter optimization on backtest results is the most natural thing to do -- "which alpha gives the best ROI?" The temptation is strong because the infrastructure makes it easy to iterate.
-- Walk-forward validation exists for the ML models but NOT for the betting strategy parameters. The strategy parameters (ev_threshold, edge_threshold, regime multiplier) are set once and applied to the entire test period.
-- The existing `ParameterFreezeProtocol` at `parameter_freeze_protocol.py` freezes model parameters, not strategy parameters.
+The quantile binning is data-dependent by design. `_quantile_edges()` computes `np.linspace(0, 1, n_bins+1)` quantiles from the training data. If the ensemble's probability distribution has a different shape (e.g., narrower interquartile range, different tail behavior), the bin boundaries shift. The `combo_scores` dict keys are `(prob_bin, edge_bin, odds_bin)` tuples -- any shift in any dimension makes the majority of lookup keys miss.
 
-**How to avoid:**
-1. **Nested walk-forward for strategy parameters.** Split the test period into two: use the first half for strategy parameter tuning, the second half for validation. Report only the second-half ROI.
-2. **Use the existing WF framework.** `BacktestEngine` already supports `--years` with `--train-window` for multi-year backtests. Extend this to also hold out a portion of each test year for strategy parameter validation.
-3. **Freeze strategy parameters before OOS evaluation.** Extend `ParameterFreezeProtocol` to also hash and freeze regime detector parameters, edge thresholds, and Kelly fraction settings.
-4. **Limit the parameter search space.** If you must optimize, use at most 3-5 parameters with 3 values each (27-243 combinations). Large search spaces guarantee overfitting. The current regime detector has ~10 parameters per regime state -- do NOT optimize all of them.
-5. **Apply the multiple testing penalty.** If you test N parameter combinations, the probability of at least one showing spurious ROI > 100% by chance is much higher than the nominal p-value. Use Bonferroni correction or the deflated Sharpe ratio approach.
+**Consequences:**
+The `win_gate_score` for most candidates falls back to `global_score` (the overall mean, typically ~1.0). The `win_gate_pass` flag uses hard thresholds on `win_selection_prob`, `win_selection_edge`, and `tanoddslow` (lines 996-1001) which were also tuned on single-model distribution. Combined, this causes the gate to reject nearly all candidates.
 
-**Warning signs:**
-- Optimized parameters are "ugly" numbers (e.g., edge_threshold=0.047, alpha=0.13) rather than round numbers. This suggests curve-fitting to noise.
-- The ROI improvement from optimization is similar in magnitude to the optimization search range. If you search 20 parameter combinations and the best ROI is 101% vs 91.6% baseline, the 9.4pt improvement is within the expected noise range for 20 trials.
-- Parameters that work on 2024 test data fail on 2023 test data.
+**Prevention:**
+1. Re-run `WinSelectionGateModel.train()` with ensemble OOF predictions. The training pipeline must be run with `use_ensemble=True`, and the resulting OOF `df` (which contains `p_win_corrected`, `ev_win_corrected` from the ensemble) must be passed to the gate's `train()` method.
+2. Never load a single-model gate `.joblib` file for ensemble predictions. Verify by checking that the gate's `prob_edges` quantiles match the current model's output distribution.
+3. After retraining, log the gate's new thresholds (`min_prob`, `min_edge`, `max_odds`) and compare with the old ones. If they change by more than 20%, the old gate was severely mismatched.
 
-**Phase to address:**
-Phase 1 (parameter selection). Must be addressed before any parameter tuning begins. If parameters are hand-picked from domain knowledge rather than optimized, this risk is minimal.
+**Detection:**
+- Compare `win_selection_prob` statistics (mean, std, p5/p95) between single and ensemble predictions on the same held-out data. If they differ by more than 10%, gate bins are stale.
+- Log `self.prob_edges` after loading and compare against quantiles of current model output.
+- If `n_ev_excluded` jumps dramatically (from ~500 to 3594 as documented in PROJECT.md), this confirms the mismatch.
+
+**Phase to address:** First v1.4 task (WinSelectionGate retraining). Must complete before threshold tuning or Optuna.
 
 ---
 
-### Pitfall 3: Regime Detector Overfitting and State Oscillation
+### Pitfall 2: EV_lower Threshold Distribution Shift
 
 **What goes wrong:**
-The `RegimeDetector` at `regime_detector.py:41-239` classifies market state into 3 regimes (AGGRESSIVE, CONSERVATIVE, COLLAPSED) and switches strategy parameters accordingly. Two failure modes:
+`EV_lower_win_corrected >= 1.0` is a hard filter in `get_win_candidates()` (race_predictor.py:437-441). The `EV_lower` is computed by `RobustConfidenceEstimator.predict_interval()` which stores conformal residual quantiles (`_q_hat_*`) from the calibration set. When the ensemble produces different prediction errors, the conformal interval width is miscalibrated.
 
-**(A) Overfitting to regime labels.** The regime training at lines 75-131 uses a LightGBM multiclass model with only 8 features and `num_leaves=7`. The training labels are generated from market indicators: `market_condition_score = favorite_implied_prob * (1 - overround_adj)`. If this score's thresholds are calibrated on the full dataset including the test period, the regime model has seen future information.
-
-**(B) State oscillation.** The hysteresis counter at `regime_detector.py:166` requires 5 consecutive races in the same alternative state before transitioning. In volatile periods, the regime can oscillate between states every 5-10 races. Each transition switches edge thresholds (0.05 vs 0.06 vs 0.09), which changes the bet set dramatically. This creates a hidden parameter that multiplies the effective parameter space by 3x.
-
-In the BacktestEngine loop at `engine.py:682-688`, the regime is re-detected per race using `recent_stats_list[-200:]`. This means the regime can change mid-backtest based on the rolling window of recent races. If a cluster of bad races pushes the regime from CONSERVATIVE to COLLAPSED, bets are cut to near-zero for the next 5+ races, even if the underlying model edge is unchanged.
+More critically, the ensemble's `ev_win_corrected` (P_corrected * E_corrected) has a different distribution because both P and E correction models were trained on single-model predictions. The EVCorrectionModel uses `init_score = logit(p_win_pred)` (ev_correction_model.py:208) -- if `p_win_pred` is systematically different from the ensemble's output, the correction margin is applied to the wrong baseline. This pushes `ev_win_corrected` lower, which pushes `EV_lower_win_corrected` further below 1.0.
 
 **Why it happens:**
-- Regime detection is conceptually appealing but practically fragile. The 3-state model has low resolution (only 8 features, 7 leaves) and the thresholds are somewhat arbitrary.
-- The hysteresis counter of 5 races is very low. In a year with ~5000 races, this allows ~1000 regime transitions per year, each potentially changing bet selection.
-- The regime parameters in `get_strategy_params()` are hardcoded and have not been validated on OOS data for the WIN model (they were calibrated for PLACE).
+The chain is: ensemble hit model produces different `p_win_pred` -> `EVCorrectionModel.correct_ev()` applies a correction margin that was trained on single-model `p_win_pred` -> `p_win_corrected` is biased -> `ev_win_corrected = p_win_corrected * e_return_win_corrected` is biased -> `EV_lower_win_corrected` is biased -> the `>= 1.0` filter rejects most candidates.
 
-**How to avoid:**
-1. **Validate regime Win-specific parameters on OOS data.** The current AGGRESSIVE ev_threshold=1.10, CONSERVATIVE ev_threshold=1.30, COLLAPSED ev_threshold=1.50 were set for PLACE. Win EV distribution is different. Compute the Win EV distribution on OOF data and set thresholds based on percentiles.
-2. **Increase hysteresis to 20-50 races.** The current `_transition_hysteresis = 5` at line 68 is too aggressive. Increasing to 20-50 races reduces oscillation and prevents knee-jerk regime switches.
-3. **Consider disabling regime switching for v1.3 MVP.** If the regime detector is causing more harm than good, run the entire backtest in CONSERVATIVE mode and use fixed edge thresholds. This removes a source of overfitting and simplifies debugging.
-4. **Log regime transitions per race.** The existing `DiagnosticLogger.log_race()` already records regime. After backtest, count transitions. If >50 transitions per year, the detector is oscillating.
+The E-correction model compounds this: it uses `1/sqrt(p_win_pred)` as sample weights (ev_correction_model.py:254), so its training is also sensitive to the probability distribution.
 
-**Warning signs:**
-- Regime distribution is heavily skewed: >80% of races in one regime state. This means the other states are dead code and the thresholds need recalibration.
-- ROI improvement comes primarily from COLLAPSED regime skipping races (reducing bets) rather than AGGRESSIVE regime adding value. This is just bet reduction, not genuine edge improvement.
-- Different random seeds for the regime model produce different ROI outcomes. This indicates the regime model is unstable.
+**Consequences:**
+The documented symptom of 3594 EV exclusions out of total candidates is consistent with the ensemble's corrected EV being systematically lower than the single model's. The `EV_lower_win_corrected >= 1.0` filter becomes the dominant exclusion mechanism.
 
-**Phase to address:**
-Phase 1 (regime parameter calibration). Address before committing to regime-based strategy switching.
+**Prevention:**
+1. The `EVCorrectionModel` and `RobustConfidenceEstimator` must be retrained alongside the ensemble. The training pipeline handles this automatically when `use_ensemble=True`.
+2. Make the `EV_lower` threshold adaptive. Instead of fixed 1.0, use a percentile of the ensemble's OOF `EV_lower` distribution among winners. For example, set threshold = 60th percentile of `EV_lower_win_corrected` for horses with `kakuteijyuni == 1` in OOF data.
+3. Log the distribution of `EV_lower_win_corrected` on a sample of ensemble predictions before setting any threshold.
+
+**Detection:**
+- Compute `EV_lower_win_corrected.describe()` on ensemble predictions. If median is below 0.90, the threshold 1.0 is too aggressive.
+- Count exclusions: if `n_ev_excluded` exceeds 80% of total candidates, the threshold needs recalibration.
+- Compare `ev_win_corrected` distribution between single-model and ensemble. If ensemble mean is 0.05+ lower, the correction models need retraining.
+
+**Phase to address:** Second v1.4 task (EV_lower dynamic threshold). Depends on WinSelectionGate retraining completing first.
 
 ---
 
-### Pitfall 4: Odds Band Survivorship Bias
+### Pitfall 3: OddsBandFilter Look-Ahead Bias via training_bet_history
 
 **What goes wrong:**
-Odds band analysis filters out bands where historical ROI is negative. For example, if horses with odds 8.0-12.0 have 85% ROI while horses with odds 1.0-3.0 have 105% ROI, you might exclude the 8.0-12.0 band. But this analysis suffers from survivorship bias:
+The `StrategyOptimizer._run_single_backtest()` (strategy_optimizer.py:150-184) generates `training_bet_history` by running a backtest on the training period with the current trial's strategy parameters (including Optuna-optimized `roi_threshold`, `ev_threshold`, etc.). This training bet history is then passed to the test-period `engine.run()` for `OddsBandFilter.calibrate()`.
 
-1. **Small sample sizes in extreme bands.** High-odds bands (>30.0) have very few bets. A single big-win outlier can make the band look profitable or unprofitable. The 2024 test has 9,074 bets total; if odds >30.0 has 200 bets, the ROI estimate has a confidence interval of roughly +/-14 percentage points.
-2. **Non-stationarity.** The odds band ROI in 2020-2023 may not apply to 2024. If the model improved, its edge may have shifted to different odds ranges.
-3. **Selection interaction.** Filtering by odds band changes the bet population, which changes the edge distribution of remaining bets, which may invalidate the original ROI estimate.
-
-In this codebase, the `WinSelectionGateModel` already bucketizes odds via `_quantile_edges()` and `_bucketize()` with `n_bins=6`. The score tables (`combo_scores`, `pair_scores`) use these buckets. But if the training data's ROI per bucket does not generalize to test data, the gate model is filtering on noise.
+The look-ahead bias is subtle: the training bet history is generated using strategy parameters that Optuna is simultaneously optimizing to maximize test-period ROI. When Optuna discovers that a certain `roi_threshold` value works well on the test period, the training bet history is retroactively filtered through that threshold. The OddsBandFilter then "learns" band exclusions that are indirectly informed by test-period performance.
 
 **Why it happens:**
-- Odds band analysis is the most natural post-hoc filtering technique. "Just exclude the bands where we lose money" seems logical.
-- The `WinSelectionGateModel` uses Bayesian smoothing (`prior_weight=24`) which helps with small samples, but 24 prior observations may be too few for high-odds buckets with very few training examples.
-- The bucketization is quantile-based (equal-frequency bins), not equal-width. This means each bin has roughly the same number of observations, but the odds range varies. A bin might cover odds 1.0-1.5 (heavy favorite) while another covers 10.0-50.0 (longshots). The longshot bin has much higher variance.
+In `_run_single_backtest()`, the same `strategy_config` dict (built from Optuna trial parameters) is used for both the training backtest (line 161) and the test backtest (line 181). The `regime_overrides` are injected into the RegimeDetector (line 148), affecting which races are skipped (COLLAPSED) in the training period based on test-optimized parameters. This means the training bet history's composition (which races were bet on, at what odds) depends on parameters chosen for test-period performance.
 
-**How to avoid:**
-1. **Require minimum sample count per band.** Before reporting ROI for an odds band, require at least 200 bets in that band on OOS data. Bands with fewer bets should be marked "insufficient data" rather than "negative ROI."
-2. **Use shrinkage toward global mean.** Instead of raw band ROI, compute `shrunken_roi = (band_roi * n_band + global_roi * prior_weight) / (n_band + prior_weight)`. This is exactly what `WinSelectionGateModel` does with `_smoothed_score()`. Ensure the prior weight is at least 50 for odds-band analysis.
-3. **Validate on at least 2 separate OOS periods.** If an odds band is negative in 2023 AND 2024, it is more likely a genuine negative edge. If it is negative in 2024 but positive in 2023, it may be noise.
-4. **Do not exclude bands; downweight instead.** Rather than binary exclude/include, use a continuous weight based on the band's estimated edge. This avoids the discontinuity at band boundaries.
+**Consequences:**
+The OddsBandFilter will show inflated ROI during Optuna optimization because the band exclusions encode test-period information. In live trading or on truly unseen data, the filter will underperform. The Optuna "best" parameters may include an OddsBandFilter configuration that only works because the training bet history was generated with test-informed parameters.
 
-**Warning signs:**
-- Odds band ROI chart shows a sawtooth pattern (positive-negative-positive-negative across adjacent bands). This indicates noise, not signal.
-- The excluded bands have <100 bets. The "improvement" from excluding them is within the confidence interval of the ROI estimate.
-- ROI "improvement" from odds band filtering is >50% of the total ROI gap (8.4pt). If filtering alone gives you 5pt of the 8.4pt improvement, it is likely overfitting.
+**Prevention:**
+1. Generate `training_bet_history` with default (non-optimized) strategy parameters. Use `strategy_params=None` for the training backtest, not the Optuna-tuned values.
+2. Alternatively, use the previous walk-forward fold's finalized parameters for generating the current fold's training bet history.
+3. Add a verification step: log the parameters used for training bet history generation and confirm they are NOT the Optuna-optimized values.
 
-**Phase to address:**
-Phase 1 (bet filtering). Address when implementing Conformal filter and odds band exclusion.
+**Detection:**
+- If Optuna's best `roi_threshold` consistently differs from default (1.0) by more than 0.1, look-ahead bias is likely present.
+- Compare ROI on a held-out validation year vs. Optuna-reported ROI. If gap exceeds 5 percentage points, the filter is likely overfitted.
+- Check if training bet history count varies significantly across Optuna trials. If it does, the strategy params are affecting the training data composition.
+
+**Phase to address:** OddsBandFilter rebuild task. Must generate training bets with non-optimized parameters.
 
 ---
 
-### Pitfall 5: Drawdown Controller Feedback Loop Destabilization
+### Pitfall 4: Optuna Overfitting to Backtest Period
 
 **What goes wrong:**
-The `DrawdownController` at `drawdown_controller.py:15-167` adjusts bet size based on rolling ROI and drawdown. The multiplier decreases from 1.0 to as low as 0.05 when DD exceeds 25%. This creates a feedback loop:
+The `StrategyOptimizer` searches 14 dimensions (6 regime + 5 DD control + 2 EV scaling + 1 OddsBandFilter) to maximize walk-forward ROI. With only 2 folds (2024 and 2025 test), 100 trials, and a highly stochastic target (horse racing ROI has massive variance from a small number of high-payout winners), the optimizer finds parameters that fit the specific outcome sequence but fail to generalize.
 
-1. Bad run -> DD increases -> multiplier decreases -> bet sizes shrink -> wins produce smaller absolute returns -> recovery takes longer -> DD persists -> multiplier stays low.
-2. If the DD controller's rolling window (150 bets) is too short for win betting, it may react to normal variance as if it were a genuine edge loss.
-3. The SMA + EWMA hybrid at `_calc_rolling_roi()` (lines 132-144) uses `ROLLING_WINDOW=150` and `EWMA_ALPHA=0.1`. For win bets with ~10% hit rate, 150 bets contains only ~15 wins. The ROI estimate is extremely noisy.
-
-The `MAX_ADJUSTMENT_PER_N_BETS=20` and `MAX_ADJUSTMENT_AMOUNT=0.15` at lines 39-40 limit how fast the multiplier can change. This is good. But the underlying issue is that the DD controller was calibrated for PLACE betting (hit rate ~30%) where 150 bets gives ~45 wins and a more stable ROI estimate.
+Horse racing ROI is dominated by a few longshot winners. In a year with ~5000 JRA races, a single 50-1 winner passing through the filter can swing total ROI by 20+ percentage points. Optuna's TPE sampler will discover parameter combinations that happen to include those specific longshots (e.g., setting `ev_aggressive` just low enough, `fk_aggressive` just high enough) while excluding the losing bets. With 14 free parameters and only ~5000 data points per fold, the optimization has far more degrees of freedom than the data can constrain.
 
 **Why it happens:**
-- The DD controller was designed for PLACE betting with 3x higher hit rate. Win betting's lower hit rate means the rolling ROI estimate has 3x higher variance.
-- The recovery logic (lines 86-111) transitions REDUCED -> RECOVERING when `roi >= 0.98` and `dd < 0.15`. For win betting, ROI oscillates wildly around 0.90, and the 0.98 threshold may never be reached, trapping the system in REDUCED state permanently.
-- The `RECOVERY_INCREMENT = 0.05` per bet (line 33) means recovery from 0.30 multiplier to 1.00 takes 14 bets. With 15 wins in 150 bets, this is plausible for PLACE but marginal for WIN.
+The objective function `_objective()` at strategy_optimizer.py:194-224 computes `mean_roi` across folds with a minimum bet count constraint. The constraint (`min_bets_per_fold=1000`) helps but is insufficient for 14 dimensions. The search space includes highly correlated parameters (e.g., `fk_aggressive` and `ev_aggressive` both affect which bets pass and how much is staked on them), creating ridges in the optimization landscape where many parameter combinations give similar results on the specific test data.
 
-**How to avoid:**
-1. **Increase rolling window for WIN mode.** Change `ROLLING_WINDOW` from 150 to 400-500 bets when `betting_target="win"`. This gives ~40-50 wins in the window for a more stable ROI estimate.
-2. **Lower the recovery ROI threshold for WIN.** `RECOVERY_ROI_THRESHOLD = 0.98` is too strict for win betting where ROI is inherently noisier. Consider 0.92-0.95 for WIN mode.
-3. **Add a maximum REDUCED duration.** If the system has been in REDUCED state for >500 bets without recovering, force a gradual recovery regardless of ROI. This prevents permanent low-stake trapping.
-4. **Consider disabling DD control for Phase 1 MVP.** Run flat 100-yen bets first, verify the model edge is real, then add DD control. DD control can mask model problems by reducing bet sizes when the model is actually losing.
+**Consequences:**
+The "optimal" parameters produce 100%+ ROI in 2024-2025 backtests but collapse to below 80% ROI on any other period. The system appears profitable during development but is actually overfitted to two specific years of race outcomes.
 
-**Warning signs:**
-- The DD controller spends >30% of races in REDUCED state. This means the model is losing more than expected or the thresholds are too aggressive.
-- Average stake size is <80 yen (80% of base). The DD controller is frequently active.
-- Recovery from a drawdown takes >200 bets. The controller is trapping the system.
+**Prevention:**
+1. Increase fold count from 2 to at least 4 (2022, 2023, 2024, 2025) with expanding training windows.
+2. Add parameter stability checks: if Optuna's top-5 trials have substantially different parameter values, the optimization surface is flat and the "best" is not reliable.
+3. Apply parameter rounding: round the best parameters to the nearest grid point and verify the rounded values achieve >95% of the best ROI.
+4. Run optimization with 5 different random seeds. If best parameters differ substantially across seeds, the optimization is unstable.
+5. Consider reducing the search space. The most impactful parameters are `fk_aggressive`, `ev_aggressive`, `ev_conservative`, and `roi_threshold`. Freeze the less impactful DD parameters to reasonable defaults.
 
-**Phase to address:**
-Phase 2 (drawdown control tuning). Should be calibrated after basic stake sizing works.
+**Detection:**
+- Compare per-fold ROI for the best trial. If one fold has 150% and the other has 50%, the parameters are fitting fold-specific noise.
+- Run the best parameters on a year not included in the optimization (e.g., 2022). If ROI drops below 85%, the parameters are overfitted.
+- Check parameter stability across top-10 trials. High variance = unstable optimization.
+
+**Phase to address:** Final v1.4 task (Optuna optimization). Must complete after all other recalibrations.
 
 ---
 
-### Pitfall 6: Conformal Filter Threshold Creates a False Sense of Precision
+## Moderate Pitfalls
+
+### Pitfall 5: Model Output Distribution Mismatch Between OOF Training and Inference
 
 **What goes wrong:**
-The `RobustConfidenceEstimator` at `robust_confidence_estimator.py:14-252` produces `EV_lower_win_corrected` and `conformal_confidence_score`. The plan is to filter bets where `EV_lower_win_corrected < alpha_threshold`. But:
+The `StackedEnsemble` trains the Ridge meta-learner on K-fold OOF predictions from fold-specific base models (stacked_ensemble.py:69-98). At inference, the base models are retrained on ALL training data (lines 100-105), producing slightly different (typically more confident) predictions. The Ridge coefficients, optimized for the less-confident OOF predictions, now weight overly confident inputs.
 
-1. **Conformal prediction assumes exchangeability.** The calibration residuals must be exchangeable (i.i.d.-like). Horse racing residuals are heteroscedastic: high-odds horses have much larger prediction errors than low-odds horses. The race-condition-dependent quantile at lines 71-77 partially addresses this but only for `surface x distance_bin`, not for odds level.
-2. **The alpha threshold is a tuning parameter.** Setting alpha=0.1 means "exclude bets where the 90% lower bound of EV is below threshold." If you optimize this threshold on backtest ROI, you are doing exactly the parameter optimization that Pitfall 2 warns about.
-3. **The `conformal_confidence_score` at line 216 is a composite metric:** `ev_lower_secondary * (1 - normalized_width)`. This is reasonable but the normalization is within-race (`groupby race_id`). In a race with 3 strong candidates, all get high confidence scores even if they are mediocre in absolute terms.
+This is the classic stacking distribution shift: the meta-learner learns `weights` such that `Ridge(OOF_preds) ~ y`, but `OOF_preds` come from fold models that saw 67-80% of the data, while inference preds come from models that saw 100% of the data. The systematic difference means the meta-learner's output is calibrated for OOF predictions but not for inference predictions.
 
 **Why it happens:**
-- Conformal prediction provides valid coverage guarantees under exchangeability, but "valid coverage" does not mean "useful for filtering." The 90% lower bound may be so conservative that it filters out all but the safest bets, or so permissive that it passes everything.
-- The confidence score is relative within a race. A horse with confidence_score=0.5 in a weak race looks the same as a horse with confidence_score=0.5 in a strong race, but the absolute edge may differ by 2x.
+- Base models trained on more data tend to be more confident (lower log loss, sharper predictions).
+- The Ridge alpha=1.0 regularization at line 97 provides some protection but does not address systematic shifts.
+- The current K-fold uses expanding windows (lines 76-77: `val_start = int(n * (i+1) / (n_folds+1))`), which means early folds have less training data and later folds have more. The OOF predictions are heterogeneous in quality.
 
-**How to avoid:**
-1. **Use conformal filter as a safety net, not a primary selector.** Keep the existing `WinSelectionGateModel` as the primary bet selector. Use conformal confidence only to exclude bets where the confidence interval is so wide that the edge estimate is unreliable (e.g., `EV_lower_win_corrected < 0.5`).
-2. **Do not optimize the conformal alpha threshold.** Pick a conservative value (alpha=0.1, i.e., 90% confidence) and stick with it. Treat it as a fixed safety parameter, not a tuning knob.
-3. **Add absolute confidence floor.** In addition to the within-race normalized confidence, check that the absolute `EV_lower_win_corrected >= 0.8` (or some minimum) before allowing a bet. This prevents passing bets in weak races where all horses have high relative scores.
+**Consequences:**
+The ensemble's inference predictions are systematically biased compared to training predictions. This affects all downstream components: `ev_win_corrected`, `EV_lower_win_corrected`, `win_selection_prob`, and ultimately all filter decisions.
 
-**Warning signs:**
-- Conformal filter rejects >50% of WinSelectionGateModel-approved bets. The filter is too aggressive and may be throwing away genuine edge.
-- Conformal filter rejects <5% of bets. It is not doing anything useful and adds complexity without value.
-- The ROI of conformal-filtered bets is only marginally better than unfiltered bets. The filter is not adding discriminative power.
+**Prevention:**
+1. Monitor the ensemble's inference output distribution. Compare `p_win_pred` statistics from OOF predictions vs. inference predictions on the same data. If mean shifts by more than 0.02, consider adding calibration.
+2. Add isotonic regression or temperature scaling on top of the Ridge meta-learner, trained on the OOF predictions as a held-out calibration set. The training pipeline already has infrastructure for this (`win_isotonic_calibrator`, `win_temperature_scaler` in SubmodelSet).
+3. The `np.clip(output, 0, 1)` at line 127 prevents out-of-range predictions but does not address systematic bias.
 
-**Phase to address:**
-Phase 1 (confidence filter implementation).
+**Detection:**
+- Compare `p_win_pred.describe()` between OOF and inference on the same year's races. Mean shift > 0.02 is a warning sign.
+- If ensemble's `win_selection_edge` distribution is systematically shifted left compared to single-model on the same data, this confirms distribution mismatch.
+
+**Phase to address:** Check during WinSelectionGate retraining. If mismatch is large (>0.02 mean shift), add calibration step.
 
 ---
 
-### Pitfall 7: EV-Proportional Sizing Amplifies Tail Risk
+### Pitfall 6: SubmodelSet.use_ensemble Flag Inconsistency
 
 **What goes wrong:**
-EV-proportional sizing (stake proportional to EV) sounds logical: bet more when the edge is larger. But for win betting with high-odds horses, a small number of bets with very high EV dominate the bankroll exposure. For example:
-- Horse A: EV=1.50, odds=5.0 -> 50% edge, Kelly fraction ~12.5%, stake = 12,500 yen (capped at 10,000)
-- Horse B: EV=1.05, odds=2.0 -> 5% edge, Kelly fraction ~5%, stake = 5,000 yen
-
-Horse A gets 2x the stake of Horse B. If Horse A loses (80% probability at odds 5.0), the bankroll drops 10%. If this happens repeatedly in a cluster, the DD controller kicks in and reduces ALL subsequent bets. The system becomes dominated by a few high-EV bets.
-
-In this codebase, `StakeCalculator.calc_stake()` uses edge-based Kelly (`edge / (odds - 1)`), which already scales with EV. The `RACE_EXPOSURE_CAP = 0.02` (2% of bankroll) at `stake_calculator.py:28` and `check_race_exposure()` at lines 79-122 provide protection. But the cap is relative to bankroll, not to the EV distribution.
+`SubmodelSet.use_ensemble` (domain/models.py:245) controls serialization/deserialization paths. If the ensemble model is loaded from disk but this flag remains `False`, MLflow logging and model saving use the wrong code paths. While the `hit_model` IS a `StackedEnsemble` instance and will produce correct predictions, the loading logic in `StrategyOptimizer` (strategy_optimizer.py:137: `use_ensemble_override=True`) must correctly set this flag for all surfaces.
 
 **Why it happens:**
-- EV distribution for win bets is heavy-tailed. Most bets have EV 1.0-1.2, but a few have EV 1.5-3.0. EV-proportional sizing concentrates stake in the tail.
-- The 10,000 yen MAX_STAKE cap at line 30 provides some protection, but at a 100,000 yen bankroll, 10,000 yen is already 10% exposure on a single bet -- far above the 2% race cap.
+The flag is set in the training pipeline when `use_ensemble=True` is passed to `run()`. But when models are loaded via `ModelLoader.load_from_dir()`, the flag must be reconstructed from the saved state. If the model directory contains a mix of ensemble and non-ensemble artifacts, or if the loader logic has a code path that misses the flag, it stays `False`.
 
-**How to avoid:**
-1. **Cap EV-proportional scaling.** Instead of `stake = base * (ev / threshold)`, use `stake = base * min(ev / threshold, max_scale)` where `max_scale = 2.0`. This prevents extreme concentration.
-2. **Use log-EV scaling instead of linear.** `stake = base * log(ev) / log(threshold)`. This compresses the tail and prevents a few high-EV bets from dominating.
-3. **Enforce per-bet exposure cap independent of race cap.** Add `BET_EXPOSURE_CAP = 0.01` (1% of bankroll per bet) in addition to the existing 2% per-race cap.
-4. **Monitor concentration.** After backtest, compute the Herfindahl index of bet stakes. If HHI > 0.01 (equivalent to 100 equal bets), the sizing is too concentrated.
+**Consequences:**
+Predictions are correct (the StackedEnsemble is called), but diagnostic logging, model saving, and gate model loading may behave differently. This can cause confusion during debugging: the model appears to be an ensemble but logs suggest otherwise.
 
-**Warning signs:**
-- Top 10 bets by stake account for >20% of total stake. Sizing is too concentrated.
-- More than 3 bets hit the MAX_STAKE cap. The scaling function wants to bet more than the cap allows.
-- Removing the top-10 bets by stake changes ROI by >5 percentage points. The system is dependent on a few large bets.
+**Prevention:**
+1. After loading models, explicitly check `sub.use_ensemble` for each surface submodel. Log a warning if `False` but `isinstance(sub.win.hit_model, StackedEnsemble)`.
+2. Add a type check assertion at the start of backtest: `assert all(isinstance(sub.win.hit_model, StackedEnsemble) == sub.use_ensemble for sub in models.submodels.values())`.
 
-**Phase to address:**
-Phase 1 (EV-proportional sizing implementation).
+**Detection:**
+- If backtest results with `--ensemble` are identical to non-ensemble results, the flag is not being propagated.
+
+**Phase to address:** Verify at start of first v1.4 task. Quick sanity check.
 
 ---
 
-### Pitfall 8: Silent Interaction Between Multiple Filters
+### Pitfall 7: EVCorrectionModel Init_Score Dependency on Hit Model
 
 **What goes wrong:**
-v1.3 plans to add multiple filters in sequence: Conformal confidence filter -> odds band filter -> regime edge filter -> DD-adjusted sizing. Each filter individually makes sense, but their interaction can create unexpected behavior:
-
-1. **Cascading exclusion.** The Conformal filter removes 30% of bets. The odds band filter removes another 20% of remaining bets. The regime filter removes another 15%. Total removal: 30% + 14% + 10.5% = 54.5%. You end up with far fewer bets than any single filter would suggest, potentially below the minimum needed for statistical significance.
-2. **Correlated filters.** If the Conformal confidence score is correlated with odds (it likely is -- high-odds horses have wider confidence intervals), the odds band filter and Conformal filter are removing overlapping bet populations. The "additional" filtering from adding the second filter is much less than expected.
-3. **Order dependency.** Applying Conformal filter before regime filter gives different results than the reverse order, because regime parameters (edge_threshold) interact with the filtered population.
-
-In the current codebase, `BacktestEngine.run()` at lines 681-798 applies filters in this order: regime detection -> candidate selection (WinSelectionGate) -> bet generation -> settlement. The new filters would be inserted at various points in this chain.
+`EVCorrectionModel.train()` uses `init_score = logit(p_win_pred)` as the starting point for the P-correction LightGBM model (ev_correction_model.py:208-209). This means the P-correction model learns an additive adjustment on top of the raw prediction. When the hit model changes from single LightGBM to StackedEnsemble, `p_win_pred` changes distribution, and the init_score shifts. The P-correction model's learned margin is calibrated for the single-model's logit space, not the ensemble's.
 
 **Why it happens:**
-- Each filter is designed and tested in isolation. "Conformal filter improves ROI by 2pt." "Odds band filter improves ROI by 1.5pt." The naive expectation is 3.5pt combined, but the actual improvement may be 2.5pt due to overlap.
-- Filter order matters because each filter changes the population that subsequent filters see.
+The `init_score` mechanism in LightGBM allows incremental training -- the model only needs to learn the correction residual. But the correction residual's distribution depends on the base prediction. A margin of +0.1 in logit space means different probability adjustments depending on whether the base logit is -2.0 (low confidence) or +1.0 (high confidence).
 
-**How to avoid:**
-1. **Test filters in combination, not just individually.** Run backtest with all filters enabled simultaneously and measure the combined effect. Do not assume effects are additive.
-2. **Fix filter order and document it.** The recommended order: (1) Regime detection (sets parameters), (2) WinSelectionGate (primary selection), (3) Conformal confidence floor (safety net), (4) Odds band validation (optional post-filter), (5) Kelly sizing, (6) DD adjustment.
-3. **Monitor filter cascade metrics.** For each filter, log: number of bets before, number after, and the overlap with the previous filter's exclusion set. This reveals correlation between filters.
-4. **Set minimum bet count.** If the combined filters reduce bet count below 1,000 per year, the statistical power to detect genuine edge is very low. Add a guard that warns if bet count drops below this threshold.
+**Consequences:**
+`p_win_corrected` is systematically biased. If the ensemble's `p_win_pred` tends to be more moderate (pulled toward 0.5 by Ridge regularization), the init_score logit values are smaller in magnitude, and the P-correction model's learned margin overcorrects or undercorrects.
 
-**Warning signs:**
-- Combined filter improvement < sum of individual improvements. Filters are correlated.
-- Bet count drops below 2,000 per year. Too few bets for reliable ROI estimation.
-- Adding a new filter changes ROI by <0.5pt. The filter is not adding value.
+**Prevention:**
+1. The training pipeline handles this automatically: when `use_ensemble=True`, the ensemble `p_win_pred` feeds into `EVCorrectionModel.train()`, producing a correctly calibrated P-correction model.
+2. If loading pre-trained models via `ModelLoader`, verify the EVCorrectionModel was trained with the ensemble hit model, not the single model.
 
-**Phase to address:**
-Phase 1 (filter implementation and integration testing).
+**Detection:**
+- Compare `p_win_corrected` distribution between single-model and ensemble on the same data. Mean shift > 0.03 suggests the P-correction needs retraining.
+- Compare `ev_win_corrected` distributions. If the ensemble's mean is more than 0.05 different from single-model's, the correction pipeline needs retraining.
+
+**Phase to address:** Verify during WinSelectionGate retraining. Automatic with pipeline retraining using `use_ensemble=True`.
 
 ---
 
-## Technical Debt Patterns
+### Pitfall 8: RegimeDetector Sensitivity After Ensemble Switch
 
-Shortcuts that seem reasonable but create long-term problems.
+**What goes wrong:**
+The `RegimeDetector` uses `market_error_std` and `market_error_mean` as features (regime_detector.py:49-62). These are computed from `signed_log_error_win = log(p_market) - log(p_pred)`. When the ensemble produces different `p_pred` values, the log errors change, shifting these features. The RegimeDetector's LightGBM model was trained on single-model errors and may misclassify regime states when given ensemble errors.
 
-| Shortcut | Immediate Benefit | Long-term Cost | When Acceptable |
-|----------|-------------------|----------------|-----------------|
-| Hardcode regime thresholds | Quick implementation, no tuning infrastructure needed | Thresholds become stale as data distribution shifts; every threshold change requires manual backtest | MVP only. Must add config-driven thresholds before production. |
-| Single-pass backtest for filter validation | Fast iteration | No OOS validation of filter parameters; all improvements may be overfit | Never for final reporting. Acceptable for exploratory analysis only. |
-| Use PLACE-calibrated DD controller for WIN | No new code needed | DD reaction is too aggressive for WIN's lower hit rate; system may get trapped in REDUCED state | Only if WIN-specific calibration is planned for next phase |
-| Optimize all parameters simultaneously | Potentially larger ROI improvement | Massive overfitting risk; no way to attribute improvement to individual parameters | Never. Optimize one parameter at a time, validate each on OOS. |
-| Ignore filter interaction effects | Simpler implementation | Combined effect is unpredictable; may over- or under-filter | Acceptable in Phase 1 if combined test is done before Phase 2 |
+**Why it happens:**
+The ensemble's predictions are typically more accurate (lower log error variance) but may be more biased in certain probability ranges. The RegimeDetector was trained to classify market states based on the single model's error patterns. If the ensemble's errors have a different mean/variance relationship, the regime boundaries shift.
 
----
+**Consequences:**
+More races classified as COLLAPSED (causing excessive skip via the `skip=True` parameter) or fewer (causing bets in poor conditions). The regime distribution change cascades through the entire filter chain.
 
-## Integration Gotchas
+**Prevention:**
+1. The RegimeDetector is retrained automatically when the training pipeline runs with `use_ensemble=True`.
+2. After retraining, compare regime distributions: count races in each state for a historical period and compare single vs. ensemble. If COLLAPSED rate changes by more than 5%, investigate.
+3. The `regime_overrides` mechanism (injecting Optuna-optimized parameters into `_override_params`) should be re-evaluated for the ensemble regime distribution.
 
-Common mistakes when connecting new betting strategy components to existing infrastructure.
+**Detection:**
+- Log regime state distribution during backtest. If COLLAPSED rate jumps from ~10% to ~30%, the RegimeDetector needs retraining.
+- Monitor `n_collapsed_skipped` in `BacktestResult`. Dramatic changes after ensemble switch indicate this issue.
 
-| Integration Point | Common Mistake | Correct Approach |
-|-------------------|----------------|------------------|
-| StakeCalculator + DDController | DD adjusts stake AFTER Kelly cap, making effective cap unpredictable | Apply DD multiplier before rounding, then re-apply 100-yen floor and MAX_STAKE cap |
-| RegimeDetector + WinSelectionGate | Regime sets edge_threshold but gate model has its own min_edge; these may conflict | Regime should set high-level parameters (bet/not-bet), gate model should set fine-grained selection. Do not double-filter. |
-| ConformalEstimator + BacktestEngine | Conformal is calibrated on OOF data from training pipeline, but backtest uses different feature computation path | Verify conformal calibration is loaded from the same model checkpoint used in training. The `predict_interval()` call in `race_predictor.py:150` must use the calibrated quantiles. |
-| Odds band filter + WinSelectionGate | Gate model already encodes odds band information via `_odds_bin`. Adding a separate odds band filter double-counts odds information. | If WinSelectionGate is used, odds band filter should be redundant. Only add explicit odds band filter if gate model is disabled. |
-| Kelly sizing + race exposure cap | `check_race_exposure()` scales down all bets proportionally when cap is exceeded, but does not re-check minimum stake. Bets with stake < 100 after scaling are silently dropped. | After `check_race_exposure()`, filter out bets with `stake < 100` and log the count of dropped bets. Current code at `engine.py:227` does this correctly. |
-| DDController.update() + sequential bankroll | DD is updated per-bet, not per-race. A single race with 2 bets triggers 2 DD updates. | Consider updating DD once per race (aggregate result) rather than per-bet. This reduces DD noise from correlated within-race bets. |
+**Phase to address:** Verify during WinSelectionGate retraining. Automatic with pipeline retraining.
 
 ---
 
-## Performance Traps
+## Minor Pitfalls
 
-Patterns that work at the current scale but would fail with different parameter choices.
+### Pitfall 9: WinSelectionGate Soft Pass Buffer Constants
 
-| Trap | Symptoms | Prevention | When It Breaks |
-|------|----------|------------|----------------|
-| Per-race regime detection in backtest loop | Backtest takes >2x longer when regime detection is enabled | Cache regime state and only re-detect every N races instead of every race | With N=5000 races and LightGBM inference per race, regime detection adds ~1-2 minutes. Acceptable. Breaks if model is heavier. |
-| Grid search over strategy parameters | Parameter optimization takes hours for large grids | Limit grid to <=3 parameters with <=5 values each; use randomized search for larger spaces | With 5 params x 5 values = 3125 combinations x 57 min/backtest = 124 days. Never grid-search more than 3 params. |
-| DDController SMA+EWMA hybrid recalculated per bet | Each `get_multiplier()` call recalculates SMA over 150-element list | Use deque with rolling sum instead of `np.mean(list)` per call | At 9074 bets, this is 9074 * 150 = 1.36M operations. Marginal but noticeable. Breaks at 100K+ bets. |
-| DiagnosticLogger writing per-horse CSV | CSV grows linearly with bet count and feature count | Make diagnostics optional; only log for bet-relevant columns in production mode | At 9074 bets x 14 horses x 120 features = 15M cells. ~50MB CSV. Acceptable now, breaks at 50K+ bets. |
+**What goes wrong:**
+`WinSelectionGateModel` has hardcoded soft pass margins: `SOFT_PROB_BUFFER = 0.01`, `SOFT_EDGE_BUFFER = 0.02`, `SOFT_ODDS_BUFFER = 1.0` (lines 112-114). These were reasonable for the single model's distribution range. With the ensemble's typically narrower probability range, these buffers may be proportionally too large, letting in too many near-miss candidates.
+
+**Prevention:**
+Retune these constants after ensemble OOF training. Consider making them proportional to the distribution's standard deviation (e.g., `SOFT_PROB_BUFFER = 0.1 * std(prob_distribution)`).
+
+**Detection:**
+If `soft_gate` selection reason dominates in diagnostic logs after ensemble recalibration, the soft buffers are too generous.
+
+---
+
+### Pitfall 10: OddsBandFilter Band Boundary Sensitivity
+
+**What goes wrong:**
+The four fixed bands (1.0-3.0, 3.0-10.0, 10.0-30.0, 30.0+) may split a profitable region after the ensemble shifts which odds ranges produce edge. A band that was unprofitable under the single model might be profitable under the ensemble, or vice versa.
+
+**Prevention:**
+Log exact ROI and sample count per band. If a band has fewer than 100 samples, merge it with an adjacent band before deciding exclusion. Consider adding a minimum sample threshold (e.g., 200 bets) to the `calibrate()` method before marking a band as excluded.
+
+**Detection:**
+If `band_counts` in OddsBandFilter calibration shows a band with fewer than 50 samples, the band statistics are unreliable and should not be used for exclusion decisions.
 
 ---
 
-## "Looks Done But Isn't" Checklist
+### Pitfall 11: Kelly Fraction Interaction with Ensemble Probability Scale
 
-Things that appear complete when adding betting strategy optimization but are missing critical pieces.
+**What goes wrong:**
+`StakeCalculator.calc_stake()` computes `kelly_fraction = edge / (odds - 1.0)` (stake_calculator.py:59). The `edge` comes from `win_selection_edge = ev - 1.0`. If the ensemble's EV estimates are systematically different from the single model's, the Kelly fractions change proportionally. This affects stake sizing even if the fractional Kelly parameter is correctly tuned.
 
-- [ ] **Kelly criterion:** Often missing edge estimate validation -- verify that `edge` used in Kelly matches OOF-realized edge, not just in-sample edge. Check: compute realized edge per decile of predicted edge on OOF data.
-- [ ] **EV-proportional sizing:** Often missing concentration risk check -- verify that no single bet accounts for >5% of total annual exposure. Check: compute top-10 bet exposure share after sizing.
-- [ ] **Conformal filter:** Often missing calibration verification -- verify that `EV_lower_win_corrected` is actually a valid lower bound on OOS data (at least 90% of actual EVs should be above the lower bound). Check: compute coverage rate on OOS data.
-- [ ] **Odds band exclusion:** Often missing minimum sample check -- verify excluded bands have >200 bets on OOS data. Check: log bet count per band after filtering.
-- [ ] **Regime parameter update:** Often missing OOS validation -- verify regime parameters (ev_threshold, edge_threshold) are set on training data, not optimized on test data. Check: verify parameter_freeze_protocol covers regime parameters.
-- [ ] **DD controller WIN calibration:** Often missing hit-rate adjustment -- verify ROLLING_WINDOW and recovery thresholds are calibrated for ~10% hit rate (WIN) not ~30% (PLACE). Check: run DD controller in isolation and verify multiplier distribution.
-- [ ] **Filter cascade testing:** Often missing combined test -- verify all filters together on a held-out year that was NOT used for individual filter development. Check: reserve 2023 as "validation" year, develop filters on 2024, report 2023 results.
+**Prevention:**
+The Optuna optimization handles this by tuning `fractional_kelly` for each regime. Ensure the optimization runs after ensemble recalibration so it accounts for the new edge distribution.
+
+**Detection:**
+If average stake size changes by more than 30% after ensemble recalibration (without Kelly parameter changes), the edge distribution has shifted significantly and the Kelly calculation is affected.
 
 ---
+
+## Phase-Specific Warnings
+
+| Phase Topic | Likely Pitfall | Mitigation |
+|-------------|---------------|------------|
+| WinSelectionGate retraining | Pitfall 1: Quantile bin mismatch | Retrain gate with ensemble OOF predictions; never load single-model gate |
+| EV_lower dynamic threshold | Pitfall 2: Distribution shift + Pitfall 7: EVCorrectionModel dependency | Retrain confidence estimator with ensemble; compare EV_lower distributions |
+| OddsBandFilter rebuild | Pitfall 3: Look-ahead bias in training_bet_history | Generate training bets with default (non-optimized) strategy params |
+| Optuna 14-dim optimization | Pitfall 4: Overfitting to backtest period | Increase folds to 4+; add stability checks; round parameters |
+| Regime re-evaluation | Pitfall 8: RegimeDetector threshold sensitivity | Retrain RegimeDetector with ensemble predictions; compare regime distributions |
+| Pipeline integration | Pitfall 5: OOF/inference distribution mismatch | Compare OOF vs. inference prediction statistics |
+| Model loading | Pitfall 6: use_ensemble flag inconsistency | Explicitly verify flag after loading models |
+
+## Prevention Checklist
+
+Before starting v1.4 tasks, verify:
+
+- [ ] Training pipeline runs with `use_ensemble=True` and produces new models
+- [ ] WinSelectionGate `.joblib` file is from the ensemble run (check timestamp, compare prob_edges)
+- [ ] `RobustConfidenceEstimator` residuals are from ensemble predictions
+- [ ] `RegimeDetector` was trained with ensemble `signed_log_error_win` values
+- [ ] `EVCorrectionModel` was trained with ensemble `p_win_pred` init_scores
+- [ ] `training_bet_history` for OddsBandFilter uses default params, not Optuna params
+- [ ] Optuna optimization uses at least 4 folds with expanding windows
+- [ ] Ensemble prediction distribution is logged and compared to single-model distribution
+- [ ] `SubmodelSet.use_ensemble` flag is `True` after model loading
+
+## Warning Signs During Implementation
+
+| Symptom | Likely Root Cause | Immediate Check |
+|---------|-------------------|-----------------|
+| Ensemble backtest produces <20 bets/year | WinSelectionGate using single-model bins | Retrain gate with ensemble OOF data |
+| EV_lower excludes >80% of candidates | Confidence estimator trained on single model | Retrain confidence estimator with ensemble |
+| Optuna best ROI > 150% but validation ROI < 90% | Overfitting to backtest period | Increase folds, reduce search dimensions |
+| OddsBandFilter excludes all bands | Training bet history too small or biased | Check training bet count and params used for generation |
+| Regime stuck in COLLAPSED for >50% of races | RegimeDetector using single-model error stats | Retrain RegimeDetector with ensemble |
+| Identical results with and without --ensemble | use_ensemble flag not propagated | Check SubmodelSet.use_ensemble for all surfaces |
+| Win gate score == global_score for most candidates | Quantile bins not matching distribution | Verify prob_edges against current model output quantiles |
 
 ## Recovery Strategies
 
-When pitfalls occur despite prevention, how to recover.
-
 | Pitfall | Recovery Cost | Recovery Steps |
 |---------|---------------|----------------|
-| Kelly overbetting (bankroll loss) | MEDIUM | (1) Revert to flat 100-yen bets, (2) Reduce FRACTIONAL_KELLY to 0.25 (quarter-Kelly), (3) Recalibrate edge estimates on OOF data |
-| Look-ahead bias in parameters | LOW | (1) Identify which parameters were optimized on test data, (2) Revert to pre-optimization values or use separate validation period, (3) Re-run backtest with corrected parameters |
-| Regime overfitting | LOW | (1) Disable regime switching (force CONSERVATIVE), (2) Re-run backtest, (3) If ROI improves, regime was harmful and can be removed |
-| Odds band survivorship bias | LOW | (1) Remove odds band filter, (2) Re-run backtest, (3) If ROI drops significantly, the model edge genuinely varies by odds band -- but verify on 2+ OOS periods |
-| DD controller trapping | LOW | (1) Increase ROLLING_WINDOW to 500, (2) Lower RECOVERY_ROI_THRESHOLD to 0.90, (3) If still trapped, disable DD control and use fixed 100-yen flat bets |
-| Filter interaction surprise | LOW | (1) Remove the newest filter, (2) Re-run backtest to isolate the problematic interaction, (3) Fix filter order or remove redundant filter |
-| Concentration from EV-proportional sizing | MEDIUM | (1) Cap per-bet exposure at 1% of bankroll, (2) Use log-EV scaling instead of linear, (3) Verify Herfindahl index of bet stakes |
-
----
-
-## Pitfall-to-Phase Mapping
-
-How v1.3 phases should address these pitfalls.
-
-| Pitfall | Prevention Phase | Verification |
-|---------|------------------|--------------|
-| Kelly overbetting | Phase 1 (sizing) | Verify OOF realized edge vs predicted edge per decile. Confirm half-Kelly is used. |
-| Look-ahead bias | Phase 1 (parameter selection) | Use held-out 2023 as validation. Freeze strategy parameters before 2024 test. |
-| Regime overfitting | Phase 1 (regime calibration) | Count regime transitions on test period. Verify <50 per year. Test CONSERVATIVE-only as baseline. |
-| Odds band survivorship | Phase 1 (filter implementation) | Require >200 bets per band on OOS. Use shrinkage toward global mean. |
-| DD controller WIN mismatch | Phase 2 (DD tuning) | Verify ROLLING_WINDOW >= 400 for WIN. Check multiplier distribution: >70% of races at 1.0 is healthy. |
-| Conformal filter precision | Phase 1 (confidence filter) | Verify 90% coverage rate on OOS data. Confirm filter passes >60% of WinSelectionGate bets. |
-| EV-proportional tail risk | Phase 1 (sizing) | Compute top-10 exposure share. Verify <15% of total stake. |
-| Filter interaction | Phase 2 (integration testing) | Run combined filter backtest on validation year. Compare combined improvement vs sum of individual improvements. |
-
----
+| Stale WinSelectionGate bins | LOW | Re-run training pipeline with use_ensemble=True; retrain gate from OOF output |
+| EV_lower threshold too aggressive | LOW | Compute adaptive threshold from ensemble OOF winner distribution; retrain confidence estimator |
+| OddsBandFilter look-ahead bias | MEDIUM | Regenerate training bet history with default params; re-run Optuna with corrected pipeline |
+| Optuna overfitting | MEDIUM | Increase fold count; reduce search space; add stability checks across seeds |
+| Distribution mismatch (OOF vs inference) | LOW | Add isotonic/temperature calibration on meta-learner output |
+| Regime detector sensitivity | LOW | Pipeline retraining handles this automatically; verify regime distribution |
 
 ## Sources
 
-### HIGH confidence (codebase analysis + directly observable patterns + established domain knowledge)
-- `src/betting/stake_calculator.py:1-123` -- Kelly sizing implementation with half-Kelly, cap, and race exposure
-- `src/betting/drawdown_controller.py:1-181` -- DD controller with SMA+EWMA, hysteresis, per-N-bets rate limit
-- `src/models/regime_detector.py:1-240` -- 3-state regime with hysteresis counter, hardcoded strategy parameters
-- `src/backtest/engine.py:1-1175` -- backtest loop with per-race regime update, bet settlement, DD feedback
-- `src/backtest/race_predictor.py:1-900` -- candidate selection, bet generation, regime parameter application
-- `src/models/win_selection_gate.py:1-1113` -- WF OOF gate training with threshold surface, score tables
-- `src/models/robust_confidence_estimator.py:1-253` -- conformal prediction with race-condition quantiles
-- `src/betting/gate_keeper.py:1-42` -- edge-based final filter
-- `src/backtest/parameter_freeze_protocol.py:1-101` -- model parameter freezing (does NOT cover strategy params)
+### HIGH confidence (direct codebase analysis)
+- `src/models/stacked_ensemble.py:1-607` -- ensemble training, OOF generation, Ridge meta-learner
+- `src/models/win_selection_gate.py:1-1113` -- quantile binning, score tables, WF OOF training
+- `src/betting/odds_band_filter.py:1-112` -- band calibration and filtering
+- `src/tuning/strategy_optimizer.py:1-273` -- Optuna optimization, training bet history generation
+- `src/backtest/engine.py:1-1207` -- filter chain execution, OddsBandFilter integration
+- `src/backtest/race_predictor.py:1-925` -- EV filter, candidate selection, win bet generation
+- `src/models/ev_correction_model.py:1-575` -- P/E correction with init_score, sample weights
+- `src/models/regime_detector.py:1-264` -- regime classification features, strategy params
+- `src/pipelines/training_pipeline.py:1-1300+` -- ensemble wiring, use_ensemble flag propagation
+- `src/domain/models.py:1-283` -- SubmodelSet, TrainedModelsV5 dataclass definitions
+- `src/betting/drawdown_controller.py:1-165` -- DD control, hysteresis, stake adjustment
+- `src/backtest/parameter_freeze_protocol.py:1-187` -- parameter freezing, manifest verification
 
-### MEDIUM confidence (domain knowledge from web sources, needs empirical validation)
-- Kelly overbetting from overconfident ML edge estimates: [Common Mistakes with Kelly](https://kellycriterion.co.uk/sport-betting-guides/common-mistakes-to-avoid-when-using-the-kelly-criterion-in-sports-betting/), [Analytics.Bet on Kelly](https://analytics.bet/articles/reasons-to-ignore-the-kelly-criterion/), [Kelly Criterion Wikipedia](https://en.wikipedia.org/wiki/Kelly_criterion)
-- Drawdown control feedback loops: [On Kelly Betting Limitations (arXiv)](https://arxiv.org/pdf/1710.01787), [Risk-Constrained Kelly (Stanford)](https://web.stanford.edu/~boyd/papers/pdf/kelly.pdf)
-- Look-ahead bias in backtest optimization: [Backtesting Pitfalls (Quant Guild)](https://www.linkedin.com/posts/quant-guild_3-backtesting-pitfalls-that-ruin-your-trading-activity-7439369906346737664-qzwO), [Look-Ahead Bias Detection (Medium)](https://mikeharrisny.medium.com/look-ahead-bias-in-backtests-and-how-to-detect-it-ad5e42d97879)
-- Fractional Kelly practical guidance: [Why Fractional Kelly (simulations)](https://matthewdowney.github.io/uncertainty-kelly-criterion-optimal-bet-size.html), [Good and Bad Properties of Kelly (Berkeley)](https://www.stat.berkeley.edu/~aldous/157/Papers/Good_Bad_Kelly.pdf)
-- Regime detection overfitting: [Are most quant strategies overfit regime bets? (Reddit)](https://www.reddit.com/r/algotrading/comments/1r96n10/are_most_retail_quant_strategies_just_overfit/)
-
-### LOW confidence (extrapolated from related domains, flag for validation)
-- Odds band survivorship bias in horse racing: General statistical principle applied to this specific domain. The [Bookie Bashing odds band analysis](https://www.bookiebashing.net/2021/10/17/roi-of-bb-horse-racing-by-odds-bands-and-sp-2/) provides real-world data but the survivorship bias concern is inferred.
-- DD controller WIN-specific calibration: The analysis of 150-bet window being too short for WIN is based on statistical reasoning (10% hit rate -> 15 wins in 150 bets -> high variance). Needs empirical validation with actual WIN backtest data.
+### MEDIUM confidence (domain knowledge, needs empirical validation)
+- Ensemble stacking distribution shift: well-known in ML literature (Wolpert 1992, Ting & Witten 1999)
+- Conformal prediction exchangeability assumption: the ensemble's error distribution is different but may still satisfy approximate exchangeability
+- Optuna TPE overfitting risk with stochastic objectives: general Bayesian optimization theory
 
 ---
-*Pitfalls research for: Betting Strategy Optimization (v1.3)*
-*Researched: 2026-05-04*
+*Pitfalls research for: Ensemble Filter Recalibration (v1.4)*
+*Researched: 2026-05-05*
 *Ready for roadmap: yes*

@@ -1,9 +1,13 @@
-# Technology Stack: Betting Strategy Optimization (v1.3)
+# Technology Stack: Ensemble Filter Recalibration (v1.4)
 
-**Project:** keiba-ai v1.3 Betting Strategy Optimization
-**Researched:** 2026-05-04
-**Scope:** Kelly criterion, EV-proportional sizing, dynamic drawdown control, multi-criteria bet filtering, parameter sweep for threshold tuning
-**Supersedes:** v1.2 STACK.md (pipeline optimization -- all still current)
+**Project:** keiba-ai v1.4 Ensemble Filter Recalibration
+**Researched:** 2026-05-05
+**Scope:** Recalibrating WinSelectionGate for ensemble OOF predictions, dynamic EV_lower threshold, OddsBandFilter with ensemble bet_history, Optuna 14-dim parameter optimization
+**Supersedes:** v1.3 STACK.md (betting strategy optimization -- all still current, zero new dependencies needed for v1.4)
+
+## Verdict: No New Dependencies Required
+
+The existing stack already contains every capability needed for ensemble-aware filter recalibration. The work is entirely about **rewiring existing code** -- feeding ensemble OOF predictions into the filter training path, making thresholds derive from distribution statistics rather than hardcoded values, and running the already-built Optuna 14-dim optimizer against ensemble outputs.
 
 ## Current Installed Stack
 
@@ -20,212 +24,148 @@
 | pyarrow | (installed) | >=14.0 | Up to date |
 | mlflow | 3.10.1 | >=2.12 | Up to date |
 | optuna | 4.8.0 | >=3.5 | Up to date |
+| betacal | 1.0 | >=1.0 | Available |
 | joblib | (installed, transitive) | (transitive via sklearn) | Used for model persistence |
 
-## Recommended Stack
+## Recommended Stack for v1.4
 
 ### Production Dependencies: Zero New Additions
 
-| Technology | Version | Purpose | Why No Change |
-|------------|---------|---------|----------------|
-| numpy | >=1.26 (2.4.3) | Kelly criterion formula | `f* = p - (1-p)/(odds-1)` is a one-line vectorized numpy expression. No library needed for elementary arithmetic. The existing `StakeCalculator._calc_stake()` already implements the Kelly formula (`kelly_fraction = edge / (odds - 1.0)`), which is mathematically equivalent. |
-| numpy | >=1.26 (2.4.3) | EV-proportional sizing | `stake = base_fraction * bankroll * (ev - 1.0)` is trivial numpy. No library warranted. |
-| numpy | >=1.26 (2.4.3) | Drawdown calculation | `dd = (peak_bankroll - bankroll) / peak_bankroll` is a running-max operation via `np.maximum.accumulate()`. Already implemented in `DrawdownController`. |
-| pandas | >=2.2 (2.3.3) | Multi-criteria filtering | `df[(mask1) & (mask2) & (mask3)]` is native pandas boolean indexing. The existing `GateKeeper.filter_bets()` and `WinSelectionGateModel._pass_mask()` demonstrate this pattern. |
-| itertools.product | stdlib | Parameter grid enumeration | Already used in `training_pipeline.py:600` for hyperparameter grid search. Same pattern applies to bet-filter threshold sweeps. |
-| optuna | >=3.5 (4.8.0) | Smart parameter search | Already installed for model HP tuning. Can be reused for betting threshold optimization when grid search space is large. Uses TPE sampler to avoid exhaustive enumeration. |
-| scipy | 1.17.1 (transitive) | Optional constrained optimization | Available as transitive dependency of scikit-learn. `scipy.optimize.minimize_scalar` could optimize Kelly fraction or DD multiplier parameters if grid search proves insufficient. NOT added to pyproject.toml because it is already guaranteed available via sklearn. |
+| Technology | Version | Role in v1.4 | Why Sufficient |
+|------------|---------|-------------|----------------|
+| scipy.stats | 1.17.1 | `ks_2samp`, `wasserstein_distance` for distribution drift detection between single-model and ensemble OOF | Kolmogorov-Smirnov test quantifies whether ensemble OOF distribution differs from single-model OOF distribution. Wasserstein distance measures magnitude of shift. Both already available as transitive dependency of scikit-learn. |
+| scikit-learn | 1.8.0 | `calibration_curve`, `brier_score_loss`, `IsotonicRegression` for ensemble probability calibration validation | Already used in `win_benter_gate.py` for Beta vs Isotonic calibration comparison. Same code path works identically for ensemble probabilities. |
+| optuna | 4.8.0 | `TPESampler` + `MedianPruner` for 14-dim parameter search | `StrategyOptimizer` already defines the full 14-dim search space (6 regime + 5 DD control + 2 EV scaling + 1 OddsBandFilter). The optimizer loads models from `--models-dir` -- pointing it at ensemble models is a config change, not a code change. |
+| betacal | 1.0 | Beta calibration (3-param) for ensemble probability outputs | Already integrated in `compare_calibrations()` in `win_benter_gate.py`. Works identically whether fed single-model or ensemble probabilities. Ensemble `predict()` clips to [0,1], so input constraints are met. |
+| numpy | 2.4.3 | `np.percentile`, `np.quantile` for computing distribution-adaptive thresholds from ensemble OOF predictions | The core operation for dynamic thresholds. Already available. |
+| pandas | 2.3.3 | DataFrame manipulation in all filter/recalibration code | All existing filter code (`WinSelectionGateModel`, `OddsBandFilter`, `get_win_candidates`) operates on DataFrames. No change needed. |
+| joblib | (bundled) | Model serialization for `WinSelectionGateModel.save/load` | Already used. No change needed. |
 
-### Existing Code That Already Implements Target Features
+### NOT Needed (Explicitly Rejected)
 
-| Feature | Existing Implementation | Gap to Fill |
-|---------|------------------------|-------------|
-| Kelly criterion | `StakeCalculator.calc_stake()` -- half-Kelly with 12.5% cap, 100/10000 yen bounds | Already correct formula. Gap: expose fractional kelly, kelly cap, and EV-proportional as configurable parameters rather than class constants. |
-| Drawdown control | `DrawdownController` -- 3-state (NORMAL/REDUCED/RECOVERING), EWMA hybrid, 150-bet rolling window, max 15% adjustment per 20 bets | Already comprehensive. Gap: make DD table thresholds and recovery parameters configurable for sweep tuning. |
-| Regime-based filtering | `RegimeDetector` + `MetaSwitcher` -- 3-state (AGGRESSIVE/CONSERVATIVE/COLLAPSED) with hysteresis, per-regime `ev_threshold`, `edge_threshold`, `max_bets_per_race` | Already functional. Gap: allow `COLLAPSED` state to optionally skip all bets (currently just raises thresholds). |
-| Edge filtering | `GateKeeper.filter_bets()` -- filters on `bet.edge >= edge_threshold` | Already correct. Gap: edge_threshold is static per regime; needs to be sweepable. |
-| Conformal confidence | `RobustConfidenceEstimator` in `SubmodelSet.confidence` | Produces `confidence_score`. Gap: NOT wired into `WinStrategy.generate()` or `GateKeeper` as a filter criterion. Need a `confidence_score >= min_confidence` filter. |
-| Odds band analysis | `WinSelectionGateModel` has `_quantile_edges()` and `_bucketize()` | Generates odds bin edges and bucket scores. Gap: NOT used to exclude negative-ROI odds bands in the betting path. Need post-hoc ROI analysis per odds band + exclusion filter. |
+| Library | Purpose | Why Rejected |
+|---------|---------|-------------|
+| `torch` / `tensorflow` | Learned adaptive thresholds | Massive dependency for a problem that pandas quantile binning solves better. `WinSelectionGateModel` already uses quantile-based binning with smoothed scoring -- this is the right approach for ~50K rows of training data. |
+| `river` / `creme` | Online/streaming adaptive thresholds | The system is batch-mode (walk-forward validation on historical data). No streaming inference needed for recalibration. |
+| `bayesian-optimization` | Alternative optimizer to Optuna | Optuna is already installed and `StrategyOptimizer` is already built with the exact 14-dim search space. Replacing it adds risk with zero benefit. |
+| `polars` | Faster DataFrame operations | All filter code is pandas-based. Rewriting for Polars is out of scope and unnecessary -- the bottleneck is model inference, not DataFrame manipulation. |
+| `matplotlib` / `plotly` | Calibration visualization | Not needed for the recalibration logic itself -- this is a backend system. Implicitly available through sklearn/betacal if diagnostic plots are needed. |
+| `scipy.stats.entropy` (KL divergence) | Distribution shift measurement | `ks_2samp` is superior for continuous probability distributions. KL divergence requires density estimation (kernel density or histogram binning) which adds noise for small sample sizes. KS test is nonparametric, robust, and already available. |
+| `scipy.optimize` | Constrained threshold optimization | Optuna TPE already handles the 14-dim parameter space. Adding a second optimizer creates confusion. |
+| `emcee` / `dynesty` | Bayesian posterior sampling for threshold uncertainty | Overkill. The walk-forward validation in `WinSelectionGateModel` already provides robust threshold estimates. |
+| `statsmodels` | Statistical testing infrastructure | `scipy.stats` provides everything needed (KS test, Wasserstein distance). statsmodels adds no value for this use case. |
 
-### No New Dev Dependencies Needed
+## How Existing Tools Map to v1.4 Tasks
 
-The v1.2 dev dependency (pyinstrument) remains relevant if profiling the betting strategy sweep performance.
+### Task 1: WinSelectionGate Recalibration with Ensemble OOF
 
-## NOT Recommended
+**Tools used:** `numpy`, `pandas`, `scipy.stats.ks_2samp`, `scipy.stats.wasserstein_distance`, existing `WinSelectionGateModel`
 
-| Technology | Why Not |
-|------------|---------|
-| keeks (PyPI) | Provides `KellyCriterion`, `FractionalKellyCriterion`, `DrawdownAdjustedKelly` classes -- but all are 5-10 line functions our `StakeCalculator` already implements. Adds a dependency for trivial math. Version 0.2.0, small community (low GitHub stars), educational focus. Our domain has JRA-specific constraints (25% deduction rate, 100-yen units, 2% race exposure cap) that require custom logic anyway. |
-| bet-optimizer (PyPI) | Version 0.0.2, last updated Nov 2023. Provides only `kelly_criterion_bet(prob, odds, bankroll)` and `get_positive_odds(prob)` -- both one-liners. No drawdown control, no fractional Kelly, no regime awareness. Far too minimal. |
-| kelly-criterion (PyPI) | PyPI page fails to load properly. Small/niche package. The formula is `f* = (b*p - q) / b` which is identical to our existing implementation. |
-| scipy.optimize (direct) | Could use `minimize_scalar` or `minimize(method='trust-constr')` for optimizing Kelly fraction or DD parameters, but this is overkill. The parameter space is small (3-6 threshold values), grid search with `itertools.product` over ~100-500 combinations is fast enough and transparent. Optuna TPE is already available for larger spaces. |
-| vectorbt | High-performance backtesting library with native parameter sweeps. Excellent for financial strategies, but would require rewriting our entire backtest loop (1500+ lines in `engine.py` + `race_predictor.py`). Negative ROI for adding a single filtering/sizing layer. |
-| backtrader | Event-driven backtesting framework. Same rewrite problem as vectorbt. Our engine is already vectorized and batched. |
-| Cython/Numba for Kelly | The Kelly formula is 3 arithmetic operations. Speed is irrelevant -- the bottleneck is the per-race ML inference loop, not the stake calculation. |
+The `WinSelectionGateModel.train()` method (1113 lines in `win_selection_gate.py`) already implements the full pipeline:
+- Walk-forward fold generation (`_build_walk_forward_folds`)
+- Quantile-based binning of prob/edge/odds (`_quantile_edges`, `_bucketize`)
+- Smoothed ROI scoring with Bayesian prior (`_smoothed_score`)
+- Grid search for optimal threshold combination (`_build_threshold_grid`)
+- OOF score computation across folds (`_build_oof_scores`)
+- Second-horse reranker (`_fit_add_second_reranker`)
 
-## Recommended Implementation Approach
+**What changes:** The training DataFrame passed to `WinSelectionGateModel.train()` must contain ensemble OOF predictions (`p_win_final` from `StackedEnsemble.predict()`) instead of single LightGBM predictions. The distribution comparison (`ks_2samp`) is used to quantify the shift and verify the new quantile edges are appropriate for the ensemble distribution.
 
-### Kelly Criterion Enhancement (Modify Existing)
+**Distribution comparison approach:**
+```python
+from scipy.stats import ks_2samp, wasserstein_distance
 
-The existing `StakeCalculator` already has the correct Kelly formula. Enhancement is parameterization, not new math.
+# Compare single-model vs ensemble OOF probability distributions
+stat, pvalue = ks_2samp(single_model_oof_probs, ensemble_oof_probs)
+shift_magnitude = wasserstein_distance(single_model_oof_probs, ensemble_oof_probs)
+```
+
+This tells us whether the ensemble distribution is materially different. If the KS test rejects (p < 0.05), the quantile edges computed from the ensemble distribution will differ from the single-model edges, and the gate needs full retraining. If not, only threshold tuning is needed.
+
+### Task 2: Dynamic EV_lower Threshold
+
+**Tools used:** `numpy` (quantile computation), `pandas` (rolling/groupby), existing `get_win_candidates()` in `race_predictor.py`
+
+The current `EV_lower_win_corrected >= 1.0` filter in `race_predictor.py` (line 440) is hardcoded. Making it dynamic means computing the threshold from the ensemble OOF distribution characteristics.
+
+**Approach:** Use `np.quantile` to compute an ensemble-aware threshold that targets a specific selection rate (e.g., top 30% of candidates pass). The threshold is computed during `WinSelectionGateModel.train()` and stored alongside the existing threshold parameters.
 
 ```python
-# Current: hardcoded constants
-class StakeCalculator:
-    FRACTIONAL_KELLY: float = 0.5
-    KELLY_FRACTION_CAP: float = 0.25
-
-# Target: configurable via config or sweep
-@dataclass
-class KellyConfig:
-    fractional_kelly: float = 0.5      # 0.25 (quarter) to 1.0 (full)
-    kelly_cap: float = 0.25            # max fraction of bankroll
-    min_edge: float = 0.005            # skip bets below this edge
-    race_exposure_cap: float = 0.02    # max 2% per race
-    ev_proportional_weight: float = 0.0  # 0 = pure Kelly, 1 = pure EV-proportional
+# Compute dynamic EV_lower threshold from ensemble OOF distribution
+# Target: keep enough candidates for 100+ bets/year
+ev_lower_values = oof_df["EV_lower_win_corrected"].dropna()
+target_percentile = 0.30  # Keep top 30% by EV_lower
+dynamic_ev_threshold = float(np.quantile(ev_lower_values, target_percentile))
 ```
 
-The `ev_proportional_weight` parameter blends Kelly with EV-proportional:
-```python
-kelly_stake = bankroll * kelly_fraction
-ev_prop_stake = bankroll * ev_proportional_fraction * (ev - 1.0)
-blended = (1 - w) * kelly_stake + w * ev_prop_stake
-```
+This is pure numpy/pandas -- no new libraries.
 
-### Dynamic Drawdown Enhancement (Modify Existing)
+### Task 3: OddsBandFilter Rebuild with Ensemble training_bet_history
 
-The existing `DrawdownController.MULTIPLIER_TABLE` is hardcoded. Make it configurable:
+**Tools used:** Existing `OddsBandFilter.calibrate()`, `BacktestEngine.run()`
 
-```python
-@dataclass
-class DDConfig:
-    multiplier_table: list[tuple[float, float, float, float, float]]
-    rolling_window: int = 150
-    ewma_alpha: float = 0.1
-    recovery_roi_threshold: float = 0.98
-    max_adjustment_per_n_bets: int = 20
-    max_adjustment_amount: float = 0.15
-```
+The `OddsBandFilter.calibrate()` method (line 38 of `odds_band_filter.py`) already accepts a `bet_history: list[dict[str, Any]]`. The `StrategyOptimizer._run_single_backtest()` already generates `training_bet_history` from a training-phase backtest run (lines 151-169 of `strategy_optimizer.py`).
 
-### Multi-Criteria Filter Chain (New Component)
+**What changes:** The training-phase backtest must be run with ensemble models loaded. This is controlled by `use_ensemble_override=True` in `ModelLoader.load_from_dir()` (already present on line 137 of `strategy_optimizer.py`). The `roi_threshold` parameter is already in the Optuna search space (line 79).
 
-A new `BetFilterChain` that composes existing filters:
+**No new tools needed.** The pipeline is:
+1. Load ensemble models (already supported via `use_ensemble_override=True`)
+2. Run training-phase backtest (already implemented in `StrategyOptimizer`)
+3. Feed `training_bet_history` to `OddsBandFilter.calibrate()` (already wired in `BacktestEngine`)
+4. Run test-phase backtest with calibrated filter (already wired)
 
-```python
-class BetFilterChain:
-    """Composable multi-criteria bet filter for v1.3."""
+### Task 4: Optuna 14-dim Parameter Optimization
 
-    def __init__(self, filters: list[BetFilter]) -> None:
-        self.filters = filters
+**Tools used:** `optuna` 4.8.0 (already installed), existing `StrategyOptimizer`
 
-    def apply(self, candidates: pd.DataFrame, bankroll: float) -> pd.DataFrame:
-        df = candidates
-        for f in self.filters:
-            df = f(df, bankroll)
-            if df.empty:
-                break
-        return df
-```
+The 14-dimensional search space is already fully defined in `StrategyOptimizer._suggest_params()`:
+- 6 regime parameters: `fk_aggressive`, `ev_aggressive`, `edge_aggressive`, `fk_conservative`, `ev_conservative`, `edge_conservative`
+- 5 DD control parameters: `dd_threshold_1`, `dd_threshold_2`, `multiplier_reduced`, `rolling_window`, `min_stay_races`
+- 2 EV scaling parameters: `target_ev`, `max_scale`
+- 1 OddsBandFilter parameter: `roi_threshold`
 
-Each filter is a simple callable:
-- `ConformalConfidenceFilter(min_confidence=0.1)` -- uses existing `EV_lower_win` at alpha=0.1
-- `OddsBandFilter(excluded_bands=[(0, 2.0), (30.0, inf)])` -- post-hoc ROI analysis
-- `RegimeFilter(regime_detector)` -- skip bets when COLLAPSED
-- `EdgeFilter(min_edge=0.04)` -- existing `GateKeeper` logic
+**What changes:** Run the optimizer against ensemble models by pointing `--models-dir` at the ensemble model directory. The `MedianPruner` and `TPESampler` are already configured. The walk-forward 2-fold evaluation (2024 test, 2025 test) is already set up.
 
-### Parameter Sweep (Reuse Existing Patterns)
+## Integration Points Summary
 
-The existing `itertools.product` pattern from `training_pipeline.py:600-611`:
+| Integration Point | File | Change Type | New Dependency? |
+|-------------------|------|-------------|-----------------|
+| WinSelectionGate retraining | `models/win_selection_gate.py` | Feed ensemble OOF df to `.train()` | No |
+| EV_lower dynamic threshold | `backtest/race_predictor.py` (line 440) | Read dynamic threshold from gate model instead of hardcoded `1.0` | No |
+| Distribution comparison | New utility or inline in pipeline | `scipy.stats.ks_2samp` + `wasserstein_distance` | No (transitive dep) |
+| OddsBandFilter calibration | `betting/odds_band_filter.py` | No code change -- already accepts `bet_history` | No |
+| Training-phase backtest | `tuning/strategy_optimizer.py` | Already loads ensemble models via `use_ensemble_override=True` | No |
+| Optuna optimization | `tuning/strategy_optimizer.py` | Already supports 14-dim search with TPE + MedianPruner | No |
+| Model loading | `db/model_loader.py` | `use_ensemble_override=True` already parameterized | No |
 
-```python
-from itertools import product as iter_product
+## Key Design Decision: Why Not Add Libraries
 
-# Sweep grid for v1.3 threshold tuning
-alpha_grid = [0.05, 0.10, 0.15]           # conformal alpha
-edge_grid = [0.03, 0.04, 0.05, 0.06, 0.07]  # min edge
-kelly_frac_grid = [0.25, 0.375, 0.5]       # fractional kelly
-dd_cap_grid = [0.10, 0.15, 0.20, 0.25]     # DD multiplier cap
+The v1.4 milestone is fundamentally a **calibration and rewiring** task. The filters exist, the optimizer exists, the ensemble model exists. The gap is that:
+1. The gate was trained on single-model OOF predictions, not ensemble OOF
+2. The EV_lower threshold is hardcoded at 1.0, not distribution-aware
+3. The OddsBandFilter has never been calibrated against ensemble bet history
+4. The Optuna optimizer has never been run (default parameters only)
 
-for alpha, edge, kelly_frac, dd_cap in iter_product(
-    alpha_grid, edge_grid, kelly_frac_grid, dd_cap_grid
-):
-    result = backtest_with_params(alpha, edge, kelly_frac, dd_cap)
-    # ... record results ...
-```
-
-For larger search spaces, Optuna TPE is already available:
-```python
-import optuna
-
-def objective(trial: optuna.Trial) -> float:
-    kelly_frac = trial.suggest_float("kelly_frac", 0.2, 0.75)
-    min_edge = trial.suggest_float("min_edge", 0.02, 0.10)
-    confidence_alpha = trial.suggest_float("confidence_alpha", 0.05, 0.20)
-    dd_cap = trial.suggest_float("dd_cap", 0.10, 0.30)
-    result = backtest_with_params(kelly_frac, min_edge, confidence_alpha, dd_cap)
-    return result.total_roi
-
-study = optuna.create_study(direction="maximize")
-study.optimize(objective, n_trials=200)
-```
-
-## Integration Points with Existing Stack
-
-| Component | Integration Point | Change Type |
-|-----------|-------------------|-------------|
-| `StakeCalculator` | Add `KellyConfig` parameter | Modify (parameterize constants) |
-| `DrawdownController` | Add `DDConfig` parameter | Modify (parameterize table) |
-| `WinStrategy.generate()` | Add confidence filter after EV filter | Modify (add filter step) |
-| `GateKeeper.filter_bets()` | Add confidence + odds-band + regime filters | Modify (compose filters) |
-| `BacktestEngine.__init__()` | Accept `KellyConfig`, `DDConfig`, `FilterConfig` | Modify (add config params) |
-| `RacePredictor.select_bets()` | Wire new filters into bet selection | Modify (add filter chain) |
-| `config/settings.yaml` | Add `betting:` section with threshold defaults | Extend (new config section) |
-| `BacktestResult` | Add `filter_stats` field (bets filtered per criterion) | Extend (new field) |
-
-## Alternatives Considered
-
-| Category | Recommended | Alternative | Why Not |
-|----------|-------------|-------------|---------|
-| Kelly formula | Custom numpy (already implemented) | keeks library | Adds dependency for 3-line math; our JRA-specific constraints (100-yen units, 25% deduction) need custom logic anyway |
-| Kelly formula | Custom numpy | bet-optimizer PyPI | Version 0.0.2, trivial functionality, no fractional Kelly or cap support |
-| Kelly formula | Custom numpy | kelly-criterion PyPI | Niche package, same formula we already have |
-| Parameter sweep | itertools.product + Optuna | scipy.optimize | Overkill for 3-6 parameters; grid search is transparent and fast |
-| Parameter sweep | itertools.product + Optuna | vectorbt native sweeps | Would require rewriting 1500+ lines of backtest engine |
-| Drawdown control | Parameterize existing DrawdownController | keeks DrawdownAdjustedKelly | keeks implementation is simpler than our existing 3-state hysteresis system |
-| Filtering | pandas boolean indexing | Custom DSL / rule engine | 3-5 filter criteria is simple enough for direct pandas expressions |
-| Filter orchestration | New BetFilterChain class | No design pattern (inline) | Inline filtering in `WinStrategy.generate()` works but makes sweep harder; a composable chain lets each filter be independently toggled during sweep |
-
-## Installation
-
-```bash
-# No new production dependencies needed.
-# All required packages are already installed:
-#   numpy >= 1.26    -- Kelly formula, vectorization
-#   pandas >= 2.2    -- filtering
-#   optuna >= 3.5    -- parameter search (already used for model HP)
-#   scipy 1.17.1     -- available as sklearn transitive dependency
-
-# Dev dependencies (from v1.2, still relevant):
-pip install pyinstrument  # profiling sweep performance
-```
+All four gaps are addressed by **changing data flow** (what gets fed into existing code), not by adding new tools. Adding dependencies would increase surface area without addressing the actual problem.
 
 ## Confidence Assessment
 
-| Area | Confidence | Notes |
-|------|------------|-------|
-| Kelly formula (numpy sufficient) | HIGH | Formula is `f* = p - (1-p)/(odds-1)`, verified in existing `StakeCalculator` code. Mathematically proven, no library risk. |
-| EV-proportional sizing | HIGH | Linear scaling `stake = k * bankroll * (ev - 1)`, trivial arithmetic. |
-| Drawdown control | HIGH | Existing `DrawdownController` already implements EWMA + hysteresis + N-bet rate limiting. Only parameterization needed. |
-| No need for external Kelly libraries | HIGH | Inspected keeks (0.2.0), bet-optimizer (0.0.2), kelly-criterion (PyPI broken page). All provide trivial wrappers around basic arithmetic our code already implements. JRA-specific constraints (deduction rate, minimum bet units, exposure caps) require custom logic regardless. |
-| scipy for constrained optimization | MEDIUM | Available as transitive dependency. Not needed for current 3-6 parameter grid, but could be useful if Kelly fraction optimization requires non-linear constraints. Flag as optional. |
-| Optuna reuse for threshold sweep | HIGH | Already installed and used for model HP tuning. Same TPE sampler applies to betting threshold optimization. |
-| Filter chain pattern | HIGH | Standard composition pattern; `WinSelectionGateModel._pass_mask()` already demonstrates multi-condition filtering. |
+| Area | Confidence | Reason |
+|------|------------|--------|
+| scipy distribution tools sufficient | HIGH | Verified installed (1.17.1), `ks_2samp` and `wasserstein_distance` confirmed available via `python -c` test. Standard nonparametric tests, well-documented, stable API. |
+| sklearn calibration tools sufficient | HIGH | Already integrated in `win_benter_gate.py`. Same code path works for ensemble outputs. `calibration_curve` and `brier_score_loss` are stable sklearn APIs. |
+| Optuna 4.8 handles 14-dim search | HIGH | `StrategyOptimizer` already defines the full search space. TPESampler handles 14 dimensions routinely -- the Optuna docs show it used with 20+ dimensions. MedianPruner already wired. Verified via Context7 docs. |
+| No new dependencies needed | HIGH | Every v1.4 task maps to existing installed tools. The work is rewiring, not adding. Verified by reading 8 source files totaling ~3000 lines. |
+| betacal works with ensemble probs | MEDIUM | Already used for single-model calibration. Ensemble probabilities should be in [0,1] range (clipped by `StackedEnsemble.predict()` line 127). Should work, but ensemble meta-learner (Ridge) could produce more extreme probabilities that need additional clipping. Low risk. |
+| Dynamic threshold via numpy quantile | HIGH | `np.quantile` is a basic numpy function. The approach (compute percentile of OOF distribution) is standard practice. |
 
 ## Sources
 
-- [keeks GitHub](https://github.com/wdm0006/keeks) -- bankroll allocation library, v0.2.0, MIT license, implements Kelly/FractionalKelly/DrawdownAdjustedKelly. Reviewed: too minimal for our needs.
-- [bet-optimizer PyPI](https://pypi.org/project/bet-optimizer/) -- v0.0.2, last updated Nov 2023. Provides `kelly_criterion_bet()` and `get_positive_odds()` only. Reviewed: trivial, no JRA constraints.
-- [kelly-criterion PyPI](https://pypi.org/project/kelly-criterion/) -- PyPI page failed to load. Low confidence in package maintenance.
-- [Stack Overflow: scipy.optimize for Kelly](https://stackoverflow.com/questions/63617933/maximize-objective-using-scipy-by-kelly-criterium) -- demonstrates `scipy.optimize.minimize` for Kelly maximization with bounds. Not needed for our grid search approach.
-- [Emir's Blog: Kelly Fractions for Simultaneous Bets (Jan 2025)](https://emiruz.com/post/2025-01-05-sim-kelly/) -- independent simultaneous bet sizing. Relevant concept but our system bets max 1-2 per race, not truly simultaneous portfolio optimization.
-- Code analysis: `src/betting/stake_calculator.py`, `src/betting/drawdown_controller.py`, `src/betting/win_strategy.py`, `src/betting/orchestrator.py`, `src/betting/gate_keeper.py`, `src/betting/meta_switcher.py`, `src/models/regime_detector.py`, `src/models/win_selection_gate.py`, `src/backtest/engine.py`, `src/backtest/race_predictor.py`, `src/domain/models.py`, `pyproject.toml`
+- scipy 1.17.1 installed, `ks_2samp` and `wasserstein_distance` verified via `python -c` execution (HIGH confidence)
+- scikit-learn 1.8.0 installed, `calibration_curve`, `brier_score_loss`, `IsotonicRegression` verified (HIGH confidence)
+- optuna 4.8.0 installed, `TPESampler`, `MedianPruner` verified via Context7 docs (HIGH confidence)
+- betacal 1.0 installed and integrated in `src/models/win_benter_gate.py` lines 276-283 (HIGH confidence)
+- Context7 docs: Optuna TPE + MedianPruner examples from `optuna.readthedocs.io`
+- Context7 docs: scipy `ks_2samp` documentation from `scipy/scipy` repository
+- Context7 docs: sklearn `CalibratedClassifierCV`, `calibration_curve`, `brier_score_loss` from `scikit-learn.org`
+- Existing code analysis: `WinSelectionGateModel` (1113 lines), `OddsBandFilter` (112 lines), `StrategyOptimizer` (273 lines), `StackedEnsemble` (607 lines), `BacktestEngine` (relevant sections ~200 lines), `RacePredictor.get_win_candidates()` (~80 lines)

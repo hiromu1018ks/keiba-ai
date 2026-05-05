@@ -1,173 +1,166 @@
 # Project Research Summary
 
-**Project:** keiba-ai v1.3 -- Betting Strategy Optimization
-**Domain:** Horse racing ML prediction system -- bet selection and stake sizing optimization
-**Researched:** 2026-05-04
+**Project:** keiba-ai v1.4 -- Ensemble Filter Recalibration
+**Domain:** Betting filter recalibration for 3-model GBM stacking ensemble (horse racing ML prediction)
+**Researched:** 2026-05-05
 **Confidence:** HIGH
 
 ## Executive Summary
 
-keiba-ai v1.3 is not a greenfield project. It is a targeted optimization of an existing betting layer built on a mature ML pipeline (3-model GBM stacking, conformal prediction, regime detection, walk-forward gate model). The current system produces 89.0% ROI on 9,074 bets in the 2024 test year. The goal is to push past 100% ROI through better bet selection (which bets to take), stake sizing (how much to bet), and risk control (when to reduce exposure) -- without modifying the frozen ML model pipeline.
+keiba-ai v1.4 is a targeted rewiring effort on a mature ML betting system. The 3-model stacked ensemble (LightGBM + XGBoost + CatBoost, Ridge meta-learner) was integrated in v1.1, but the downstream betting filters (WinSelectionGate, EV_lower threshold, OddsBandFilter) were calibrated against single-LightGBM OOF predictions during Phase 11-12. The resulting probability distribution mismatch causes the EV_lower filter to exclude 3,594 candidates, producing only 7 bets/year at 0% ROI instead of the target 100+ bets/year at >100% ROI. The root cause is not missing algorithms or components -- it is stale calibration data flowing into existing filter training methods.
 
-The research consensus across all four domains is clear: the existing codebase already implements the correct foundations. `StakeCalculator` has a mathematically correct Kelly formula. `DrawdownController` has a sophisticated 3-state recovery FSM. `RegimeDetector` classifies market states. `RobustConfidenceEstimator` produces conformal confidence intervals. The gaps are not missing algorithms -- they are missing wiring. The conformal confidence score is computed but never used as a filter. The regime detector raises thresholds in COLLAPSED mode but never fully skips betting. The Kelly fraction is hardcoded rather than regime-dependent. The DD controller is calibrated for place betting (30% hit rate) rather than win betting (7-10% hit rate). Zero new production dependencies are needed.
+The recommended approach is a strict dependency-ordered recalibration: (1) retrain WinSelectionGate on ensemble OOF predictions so its quantile bins match the new distribution, (2) make the EV_lower threshold dynamic rather than hardcoded at 1.0, (3) rebuild OddsBandFilter calibration with ensemble-derived training bet history, and (4) execute the already-built Optuna 14-dim parameter search against the recalibrated pipeline. All four research files converge on the same conclusion: zero new dependencies or components are needed. The work is rewiring data flow, not adding capability.
 
-The primary risk is overfitting. The 9,074-bet test year provides limited statistical power, and the natural temptation to grid-search strategy parameters on backtest ROI will produce fictitious improvements. All four research files converge on the same mitigation: use walk-forward validation, freeze strategy parameters before out-of-sample evaluation, and treat parameter tuning with extreme conservatism. The recommended build order is filters-first (fix which bets to take), then sizing (optimize how much to bet), then parameter tuning (search for optimal thresholds on a held-out validation period).
+The primary risk is Optuna overfitting to a 2-fold walk-forward with 14 free parameters on a target dominated by a few longshot outcomes. Increasing fold count to 4+ and adding parameter stability checks across random seeds is essential. A secondary risk is look-ahead bias in the OddsBandFilter training pipeline, where the same Optuna-tuned strategy parameters are used to generate training bet history. The mitigations are well-understood and documented below.
 
 ## Key Findings
 
 ### Recommended Stack
 
-No new production dependencies required. The existing numpy, pandas, optuna, and scipy (transitive via sklearn) stack covers every v1.3 feature. External Kelly criterion libraries (keeks, bet-optimizer, kelly-criterion) were evaluated and rejected: all provide trivial wrappers around arithmetic the codebase already implements, and none handle JRA-specific constraints (25% deduction rate, 100-yen minimum units, 2% race exposure cap).
+Zero new production dependencies. Every v1.4 task maps to already-installed packages. The stack is scipy (ks_2samp, wasserstein_distance for distribution shift diagnostics), scikit-learn (calibration_curve, IsotonicRegression for probability validation), optuna 4.8 (TPESampler + MedianPruner for 14-dim search), betacal 1.0 (Beta calibration for ensemble probabilities), and numpy (quantile computation for dynamic thresholds). All verified installed and compatible.
 
 **Core technologies:**
-- **numpy >=1.26:** Kelly formula, EV-proportional scaling, drawdown calculations -- already installed and used in `StakeCalculator`
-- **pandas >=2.2:** Multi-criteria boolean filtering for bet selection -- already used throughout
-- **optuna >=3.5:** Threshold parameter search using TPE sampler -- already installed for model HP tuning, reusable for strategy parameters
-- **itertools.product (stdlib):** Exhaustive grid enumeration for small parameter spaces -- already used in `training_pipeline.py`
+- **scipy.stats (1.17.1):** ks_2samp + wasserstein_distance for quantifying distribution shift between single-model and ensemble OOF predictions -- already available as sklearn transitive dependency
+- **optuna (4.8.0):** TPE sampler for 14-dim parameter search -- already installed, StrategyOptimizer already defines full search space
+- **scikit-learn (1.8.0):** calibration_curve, brier_score_loss for ensemble probability validation -- already integrated in win_benter_gate.py
+- **betacal (1.0):** Beta calibration (3-param) for ensemble probability outputs -- already integrated, works identically for ensemble inputs
+- **numpy (2.4.3):** np.quantile for computing distribution-adaptive EV_lower thresholds from ensemble OOF -- standard operation
 
 ### Expected Features
 
 **Must have (table stakes):**
-- Conformal confidence filter -- reject bets where `EV_lower_win_corrected < 1.0` (90% CI does not clear breakeven). Data already computed by `RobustConfidenceEstimator`.
-- Regime COLLAPSED bet skip -- skip all betting in COLLAPSED regime rather than just raising thresholds. Likely the single highest-impact change.
-- Configurable Kelly fraction -- make `FRACTIONAL_KELLY` a parameter instead of hardcoded constant, vary by regime (AGGRESSIVE=0.50, CONSERVATIVE=0.25, COLLAPSED=0.0).
-- EV-proportional scaling -- optional multiplier on Kelly stake proportional to absolute EV. `final_stake = kelly_stake * min(ev / target_ev, max_scale)`.
-- Odds band ROI exclusion -- learn negative-ROI odds bands from backtest history and exclude them during candidate selection.
-- Win-specific DD control -- recalibrate `DrawdownController` for win betting's ~10% hit rate (vs current PLACE-tuned 30%).
+- **WinSelectionGate retrained on ensemble OOF** (TS-01) -- Gate score tables (combo_scores, pair_scores) use quantile edges computed from training distribution. Ensemble shifts these edges. Retraining is feeding the existing train() method with ensemble-derived DataFrame.
+- **EV_lower threshold recalibrated to ensemble distribution** (TS-02) -- RobustConfidenceEstimator conformal intervals are calibrated on single-model residuals. Retraining with ensemble residuals + making the threshold dynamic (not hardcoded 1.0) fixes the 3,594-exclusion problem.
+- **OddsBandFilter recalibrated with ensemble training_bet_history** (TS-03) -- Band ROI depends on model accuracy per band. Ensemble accuracy profile differs. Filter already has calibrate() that accepts arbitrary bet history -- just needs ensemble-generated history.
+- **Optuna 14-dim parameter optimization executed** (TS-04) -- All parameters are at hardcoded defaults, never tuned. StrategyOptimizer exists but has never been run. Must execute after TS-01/02/03 complete.
 
 **Should have (competitive):**
-- Confidence-weighted EV -- replace binary confidence threshold with continuous weighting: `weighted_ev = ev * max(confidence, 0.3)`.
-- Bankroll-relative stop-loss -- convert `SafetyGuard` from absolute yen limits to percentage-based limits.
-- Correlation-aware race exposure -- adjust per-race cap when multiple win bets are placed (anti-correlated diversification).
+- **Dynamic EV_lower threshold by regime** (D-01) -- Vary threshold by market regime: lower in AGGRESSIVE, higher in CONSERVATIVE. Natural extension of existing regime architecture.
+- **Ensemble-aware conformal confidence scoring** (D-02) -- Weight confidence intervals by base model agreement. Already have pairwise OOF correlations from _check_diversity().
 
-**Defer (v2+):**
-- ML-based stake sizing, Monte Carlo simulation, real-time odds re-evaluation, multi-race parlay betting -- all explicitly out of scope for v1.3.
+**Defer (post-v1.4):**
+- Walk-forward filter recalibration within backtest (D-04) -- too architecturally complex for this milestone.
+- Quantile-adaptive EV threshold per probability bin (D-03) -- would require gate architecture changes.
 
 ### Architecture Approach
 
-The backtest data flow goes through `BacktestEngine.run()` -> `RacePredictor` per race, not through `BettingOrchestrator` (which is for the live path). All v1.3 changes must target the `RacePredictor` path. The architecture is protocol-based with dependency injection: `StakeCalculatorProtocol`, `DrawdownControllerProtocol`, `GateKeeperProtocol`, `MetaSwitcherProtocol`. New components should follow the same pattern.
+The architecture change is purely data-flow rewiring within the existing backtest pipeline. No new components needed. The three filters (WinSelectionGate, EV_lower, OddsBandFilter) are all model-agnostic: they consume DataFrame columns (probabilities, edges, odds) without knowing which model produced them. The change is ensuring the DataFrames passed to their training/calibration methods contain ensemble-derived values. The Optuna parameter search wires everything together through the existing StrategyOptimizer -> BacktestEngine -> RacePredictor pipeline, which already loads ensemble models via use_ensemble_override=True.
 
-**Major components to modify:**
-1. **RacePredictor** (`backtest/race_predictor.py`) -- add conformal confidence filter and odds band filter in `get_win_candidates()` / `get_place_candidates()`; wire EV scaling in `select_bets()`
-2. **StakeCalculator** (`betting/stake_calculator.py`) -- make Kelly fraction configurable per regime; add `apply_ev_scaling()` method
-3. **DrawdownController** (`betting/drawdown_controller.py`) -- add win-specific multiplier table; increase `ROLLING_WINDOW` from 150 to 400+; lower recovery thresholds
-4. **MetaSwitcher** (`betting/meta_switcher.py`) -- add `betting_enabled`, `min_conformal_confidence`, `fractional_kelly`, `race_exposure_cap` to per-regime params
-
-**One new component:**
-5. **OddsBandFilter** (`betting/odds_band_filter.py`) -- lightweight filter that takes learned exclusion ranges and applies them during candidate selection
+**Major components:**
+1. **WinSelectionGateModel** (models/win_selection_gate.py) -- Retrain with ensemble OOF predictions; quantile bin edges and score tables adapt to new distribution automatically.
+2. **RacePredictor.get_win_candidates()** (backtest/race_predictor.py) -- Replace hardcoded EV_lower_win_corrected >= 1.0 with dynamic threshold from gate model or Optuna parameter.
+3. **OddsBandFilter** (betting/odds_band_filter.py) -- No code change; automatically recalibrated when StrategyOptimizer runs with ensemble models.
+4. **StrategyOptimizer** (tuning/strategy_optimizer.py) -- Execute existing optimization; optionally add ev_lower_threshold as 15th dimension.
 
 ### Critical Pitfalls
 
-1. **Kelly overbetting from overconfident edge estimates** -- ML models systematically overestimate probabilities for win bets (low base rate). Use half-Kelly or quarter-Kelly consistently. Never increase to full Kelly. Verify predicted vs actual win rate per decile on OOF data before trusting edge estimates.
+1. **WinSelectionGate quantile bin mismatch** -- The gate stores prob_edges/edge_edges/odds_edges from single-model OOF distribution. Ensemble probabilities have different quantiles, so candidates land in wrong bins and get garbage scores. Prevention: always retrain gate when switching models; never load single-model gate for ensemble inference.
 
-2. **Look-ahead bias in parameter optimization** -- Grid-searching strategy parameters on the test year and reporting the best ROI is textbook overfitting. Use nested walk-forward: tune on first half of test period, validate on second half. Or reserve 2023 as validation, develop on 2024, report 2023 results.
+2. **EV_lower threshold distribution shift** -- Conformal prediction bands computed from single-model residuals are miscalibrated for ensemble. Combined with hardcoded >= 1.0 threshold, this excludes 3,594 candidates. Prevention: retrain RobustConfidenceEstimator with ensemble residuals; make threshold dynamic from ensemble OOF winner distribution.
 
-3. **Regime detector state oscillation** -- The 5-race hysteresis counter allows ~1000 regime transitions per year, each changing bet selection. Increase hysteresis to 20-50 races. Count transitions after backtest; if >50, the detector is oscillating. Consider disabling regime switching for MVP and running in CONSERVATIVE-only mode.
+3. **OddsBandFilter look-ahead bias** -- StrategyOptimizer generates training_bet_history using the same Optuna-tuned parameters being optimized for test performance, leaking test information into filter calibration. Prevention: generate training bets with default (non-optimized) strategy parameters.
 
-4. **Odds band survivorship bias** -- High-odds bands have few bets, making ROI estimates unreliable. Require 200+ bets per band before excluding. Use shrinkage toward global mean. Validate on 2+ OOS periods. Do not exclude bands; downweight instead.
+4. **Optuna overfitting to 2-fold backtest** -- 14 dimensions with only 2 folds on a stochastic target (few longshot winners dominate ROI) allows fitting noise. Prevention: increase to 4+ folds with expanding windows; add parameter stability checks across top trials and random seeds.
 
-5. **DD controller feedback loop trapping** -- The 150-bet rolling window contains only ~15 wins at 10% hit rate, making ROI estimates too noisy. The 0.98 recovery threshold may never be reached, trapping the system in REDUCED state permanently. Increase window to 400-500 bets. Lower recovery threshold to 0.92-0.95.
-
-6. **Filter cascade interaction** -- Multiple filters applied sequentially may remove 50%+ of bets, reducing statistical power below minimum. Test filters in combination, not individually. Fix filter order: regime -> gate model -> conformal confidence -> odds band -> Kelly -> DD. Set minimum bet count guard at 1,000/year.
+5. **OOF/inference distribution mismatch** -- Stacked ensemble trains Ridge on fold-model OOF predictions (67-80% data) but inference uses full-data models (100%), producing systematically different probabilities. Prevention: compare OOF vs inference prediction statistics; add isotonic calibration if mean shift exceeds 0.02.
 
 ## Implications for Roadmap
 
-Based on combined research, the recommended phase structure follows the architectural build order from ARCHITECTURE.md: filters before sizing, sizing before tuning.
+Based on combined research, the recommended phase structure follows the strict dependency chain identified across all four research files: gate retraining must precede threshold changes, which must precede OddsBandFilter rebuild, which must precede Optuna execution.
 
-### Phase 1: Bet Selection Filters
+### Phase 1: WinSelectionGate Ensemble Retraining
+**Rationale:** The gate is the first filter in the candidate selection chain. Its quantile bins and score tables are distribution-specific. Everything downstream depends on the gate producing valid scores for ensemble predictions. This is the root cause of the 7-bets/year problem.
+**Delivers:** Gate model with ensemble-adapted thresholds, valid scores for ensemble candidates, restored candidate throughput.
+**Addresses:** TS-01 from FEATURES.md. Fixes Pitfall 1 (quantile bin mismatch).
+**Avoids:** Loading stale single-model gate for ensemble inference (anti-pattern 1 from ARCHITECTURE.md).
+**Estimated scope:** ~20 lines pipeline data routing. No new code in gate model itself.
 
-**Rationale:** Changing which bets to take is lower risk than changing how much to bet. A bad filter removes bets (reducing volume); bad sizing loses money. Filters are independently testable. The research consensus is that COLLAPSED-regime skipping and conformal confidence filtering are likely the highest-impact, lowest-risk changes.
-**Delivers:** Fewer but higher-quality bets. Measurable ROI improvement from bet pool refinement.
-**Addresses:** Conformal confidence filter, regime COLLAPSED skip, odds band exclusion.
-**Avoids:** Pitfall 1 (Kelly overbetting -- not touching sizing yet), Pitfall 2 (look-ahead bias -- filters use fixed thresholds from domain knowledge, not optimized), Pitfall 3 (regime oscillation -- adding skip logic is simpler than tuning regime detector), Pitfall 4 (odds band bias -- implementing minimum sample counts and shrinkage), Pitfall 6 (conformal precision -- using fixed alpha=0.1, not tuning it), Pitfall 8 (filter interaction -- testing combined filters against baseline).
-**Estimated scope:** ~60-80 LOC new/modified. New file: `odds_band_filter.py`. Modifications: `race_predictor.py`, `engine.py`, `meta_switcher.py`.
+### Phase 2: Dynamic EV_lower Threshold
+**Rationale:** After the gate is retrained, the EV_lower filter is the second exclusion mechanism. The hardcoded >= 1.0 threshold is calibrated for single-model EV_lower distribution and over-excludes ensemble candidates. Must be dynamic.
+**Delivers:** Adaptive EV_lower threshold computed from ensemble OOF winner distribution. Expected to restore 100+ bets/year from 7.
+**Addresses:** TS-02 from FEATURES.md. Fixes Pitfall 2 (distribution shift) and Pitfall 7 (EVCorrectionModel init_score dependency).
+**Uses:** numpy quantile computation, WinSelectionGateModel for threshold storage (Option A from ARCHITECTURE.md) or Optuna search dimension (Option B).
+**Implements:** Dynamic threshold in get_win_candidates(), replacing hardcoded >= 1.0.
+**Estimated scope:** ~30 lines calibration data routing + ~10 lines filter mask modification.
 
-### Phase 2: Stake Sizing Enhancement
+### Phase 3: OddsBandFilter Ensemble Recalibration
+**Rationale:** Band ROI statistics depend on model accuracy in each odds range. Ensemble accuracy profile differs from single model. The filter must be calibrated with ensemble-era bet history. The StrategyOptimizer already generates ensemble-derived training_bet_history, but it must use default params (not Optuna-tuned) to avoid look-ahead bias.
+**Delivers:** OddsBandFilter calibrated on ensemble performance per band. Band exclusions reflect actual ensemble ROI, not single-model ROI.
+**Addresses:** TS-03 from FEATURES.md. Fixes Pitfall 3 (look-ahead bias in training_bet_history).
+**Uses:** Existing OddsBandFilter.calibrate() method, BacktestEngine training-phase backtest.
+**Estimated scope:** ~10 lines to ensure default params for training bet generation. No changes to OddsBandFilter itself.
 
-**Rationale:** After the bet pool is refined, optimize stake amounts. Sizing changes depend on having a correct bet pool -- optimizing sizing on the wrong bets wastes effort. Kelly fraction configuration and EV-proportional scaling are the two sizing dimensions.
-**Delivers:** Regime-dependent Kelly fractions (AGGRESSIVE bets more, CONSERVATIVE bets less). EV-proportional scaling that rewards high-conviction bets with more capital.
-**Uses:** numpy for Kelly and EV arithmetic, existing `StakeCalculator` framework, `MetaSwitcher` params.
-**Implements:** Configurable Kelly parameters, EV-proportional scaling as `StakeCalculator.apply_ev_scaling()`.
-**Avoids:** Pitfall 1 (overbetting -- capping EV scaling at 2.0x, enforcing per-bet exposure cap), Pitfall 7 (tail risk -- log-EV scaling option, Herfindahl index monitoring).
-**Estimated scope:** ~40-50 LOC modified. No new files. Modifications: `stake_calculator.py`, `race_predictor.py`, `meta_switcher.py`.
+### Phase 4: Optuna 14-dim Parameter Optimization
+**Rationale:** All filters must be ensemble-calibrated before parameter tuning begins. Tuning on miscalibrated filters embeds structural deficiencies into optimal parameters. The StrategyOptimizer is fully implemented but has never been executed.
+**Delivers:** Optimal strategy parameters for production use. Quantified ROI improvement vs defaults.
+**Addresses:** TS-04 from FEATURES.md. Must manage Pitfall 4 (overfitting) with 4+ folds and stability checks.
+**Uses:** optuna TPE sampler, existing StrategyOptimizer, run_strategy_optimization.py.
+**Estimated scope:** ~0 code changes (execution only). Optionally ~5 lines to add ev_lower_threshold as 15th dimension.
 
-### Phase 3: Risk Control Calibration
-
-**Rationale:** DD controller must be calibrated after sizing is correct, because DD reacts to absolute stake amounts. Win-specific calibration (wider DD bands, longer rolling window, lower recovery threshold) is the final structural change.
-**Delivers:** Win-specific DD multiplier table, appropriate rolling window for 10% hit rate, calibrated recovery thresholds.
-**Uses:** Existing `DrawdownController` framework, `config/settings.yaml` for thresholds.
-**Implements:** Win-specific multiplier table, increased `ROLLING_WINDOW`, adjusted recovery thresholds.
-**Avoids:** Pitfall 5 (DD trapping -- longer window, lower threshold, maximum REDUCED duration guard).
-**Estimated scope:** ~40 LOC modified. No new files. Modifications: `drawdown_controller.py`, `config/settings.yaml`.
-
-### Phase 4: Parameter Sweep and Validation
-
-**Rationale:** Only after all structural changes are in place should parameter tuning begin. This phase is search, not code. It must use walk-forward validation on a held-out period to avoid look-ahead bias.
-**Delivers:** Optimal parameter combination for production use. Quantified ROI improvement vs baseline.
-**Uses:** optuna for TPE search, `itertools.product` for exhaustive grid on small spaces, `run_backtest.py` as evaluation harness.
-**Avoids:** Pitfall 2 (look-ahead bias -- nested walk-forward, held-out validation year), all pitfalls verified through OOS testing.
-**Estimated scope:** ~60 LOC for sweep script, ~80 LOC for test file. No production code changes.
+### Phase 5: Manifest Freeze and OOS Validation
+**Rationale:** After Optuna finds parameters, freeze them to prevent drift during out-of-sample evaluation. The ParameterFreezeProtocol already exists. OOS validation confirms generalization.
+**Delivers:** Frozen parameter manifest (JSON + SHA256). OOS ROI measurement on truly unseen data.
+**Uses:** Existing save_strategy_manifest() and verify_strategy_manifest().
+**Estimated scope:** ~0 code changes. Script execution and result analysis.
 
 ### Phase Ordering Rationale
 
-- Filters before sizing: Fixing bet selection first means sizing optimizations operate on a correct bet pool. The architectural analysis in ARCHITECTURE.md identifies this as "anti-pattern 4: sizing before filtering."
-- Sizing before DD calibration: DD controller reacts to absolute stake amounts, so sizing must be finalized first.
-- All structural changes before parameter tuning: Tuning before structural correctness gives false optima. The pitfalls research emphasizes that parameter optimization on incomplete implementations embeds structural deficiencies into "optimal" parameters.
-- Config-driven thresholds throughout: Every new threshold goes into `MetaSwitcher._default_params()` or `config/settings.yaml`, enabling Phase 4 sweep without code changes.
+- **Gate before EV_lower:** The gate candidate ranking affects which candidates reach the EV_lower filter. If gate scores are invalid (stale bins), EV_lower receives garbage input. Architecture analysis identifies this as anti-pattern 1.
+- **EV_lower before OddsBandFilter:** EV_lower is the dominant exclusion mechanism (3,594 exclusions). Fixing it first restores candidate volume, giving OddsBandFilter meaningful data to calibrate on.
+- **All filters before Optuna:** Tuning parameters on miscalibrated filters gives false optima. The pitfalls research emphasizes this as the highest-risk sequencing error.
+- **Optuna before manifest freeze:** Parameters must be optimized before they are frozen. The freeze-then-validate pattern from Phase 13 prevents post-hoc parameter tampering.
 
 ### Research Flags
 
 Phases likely needing deeper research during planning:
-- **Phase 1 (Odds band filter):** Needs analysis of historical backtest report to identify which bands have negative ROI with sufficient sample sizes. This is data-dependent and cannot be determined from code analysis alone.
-- **Phase 3 (DD calibration):** Win-specific DD thresholds need empirical calibration on actual backtest data. The research provides theoretical guidance (400-500 bet window, 0.92-0.95 recovery threshold) but optimal values require experimentation.
-- **Phase 4 (Parameter sweep):** The search space boundaries and validation methodology need careful design to avoid overfitting. Consider `/gsd-research-phase` for walk-forward validation best practices.
+- **Phase 2 (EV_lower dynamic threshold):** The exact percentile/range for the dynamic threshold is data-dependent. Research recommends 25th percentile of positive-edge ensemble OOF winners as a starting point, but optimal value requires empirical testing on actual ensemble predictions.
+- **Phase 4 (Optuna optimization):** The search space boundaries, fold count, trial count, and stability check thresholds need careful design. The current 2-fold setup is insufficient. Research recommends 4+ folds but the exact training window expansion strategy needs specification during planning.
+- **Phase 5 (OOS validation):** The choice of held-out validation year(s) and the acceptable ROI degradation threshold need definition. If 2022 is held out, the training data shrinks and may affect model quality.
 
 Phases with standard patterns (skip research-phase):
-- **Phase 1 (Conformal filter, regime skip):** Both are straightforward filter additions with well-documented patterns in the existing codebase.
-- **Phase 2 (Kelly config, EV scaling):** Both are parameterization of existing arithmetic. No new algorithms needed.
+- **Phase 1 (Gate retraining):** The gate train() method is already model-agnostic. Feeding it ensemble OOF data is a data routing change with well-documented column requirements.
+- **Phase 3 (OddsBandFilter rebuild):** The filter calibrate() already accepts arbitrary bet history. The change is ensuring default strategy params for training bet generation.
+- **Phase 5 (Manifest freeze):** The ParameterFreezeProtocol is fully implemented and tested from Phase 13.
 
 ## Confidence Assessment
 
 | Area | Confidence | Notes |
 |------|------------|-------|
-| Stack | HIGH | Zero new dependencies. All required packages verified installed. Kelly formula mathematically proven equivalent to existing code. External libraries evaluated and rejected with specific rationale. |
-| Features | HIGH | Full codebase audit of 7 key files (2000+ LOC total). Every feature mapped to specific existing component with identified gap. Anti-features explicitly scoped out. Dependency map complete. |
-| Architecture | HIGH | Data flow traced through actual backtest path. Protocol boundaries identified. Critical discovery: `BettingOrchestrator` is NOT in the backtest path. Build order derived from dependency analysis. |
-| Pitfalls | HIGH | 8 pitfalls identified from code analysis + domain expertise. Each mapped to specific code locations (line numbers). Prevention strategies and warning signs specified. Recovery strategies provided. |
+| Stack | HIGH | Zero new dependencies. All required packages verified installed at compatible versions. Every v1.4 task mapped to existing tool. |
+| Features | HIGH | Full codebase audit of 8+ key files (3000+ LOC total). Every feature mapped to specific component with identified gap. Feature dependencies well-understood. Anti-features explicitly scoped out. |
+| Architecture | HIGH | Data flow traced through actual backtest path with line references. Component boundaries verified. Three anti-patterns identified with specific code locations. Build order derived from dependency analysis. |
+| Pitfalls | HIGH | 11 pitfalls identified from direct code analysis with line numbers. Each has prevention strategy, detection method, and recovery steps. Phase-specific warnings provided. |
 
 **Overall confidence:** HIGH
 
-All research was grounded in direct codebase analysis with line-level references. No findings depend on assumptions or external documentation. The main uncertainty is empirical: the actual ROI impact of each feature on JRA data requires running backtests, which is the purpose of the implementation phases.
+All research was grounded in direct codebase analysis with line-level references across all four domains. No findings depend on assumptions. The main uncertainty is empirical: the actual ROI impact of each recalibration step requires running the pipeline, which is the purpose of the implementation phases.
 
 ### Gaps to Address
 
-- **Empirical ROI impact of each feature:** The research identifies what to build but cannot predict how much each feature improves ROI. Phase 4 addresses this, but Phases 1-3 should measure ROI delta after each change to validate or invalidate feature hypotheses.
-- **Optimal regime parameters for WIN betting:** Current regime parameters (`ev_threshold`, `edge_threshold`) were set for PLACE betting. The research recommends OOF-percentile-based calibration, but the actual percentile values need to be computed from training data during implementation.
-- **Conformal estimator coverage rate on WIN OOS data:** The research warns that conformal prediction assumes exchangeability, which may not hold for high-odds horses. The coverage rate (fraction of actual EVs above the lower bound) must be verified on OOS data before trusting the filter.
-- **DD controller WIN-specific multiplier table values:** The research recommends wider DD bands but the exact thresholds (0-15%, 15-25%, 25-35%, etc.) are theoretical. Calibration requires running the DD controller in isolation on WIN backtest data and analyzing the multiplier distribution.
+- **Dynamic EV_lower threshold value:** Research recommends distribution-adaptive threshold (e.g., 25th percentile of ensemble OOF winner EV_lower), but the exact percentile needs empirical tuning. The Optuna search (Phase 4) can optimize this, but Phase 2 needs a reasonable starting value.
+- **Optuna fold count and training window:** Research recommends 4+ folds over the current 2, but expanding training windows for earlier folds (2020-2021, 2020-2022) may produce models with insufficient data. The exact fold structure needs specification during Phase 4 planning.
+- **OOF vs inference distribution shift magnitude:** The stacking distribution shift (fold-model vs full-data model predictions) is theoretically expected but its magnitude in this specific ensemble is unknown. Phase 1 should measure this before deciding whether additional calibration is needed.
+- **RegimeDetector behavior under ensemble:** The regime classifier was trained on single-model error patterns. Ensemble errors may shift regime distributions, affecting COLLAPSED skip rates. Verify after pipeline retraining.
 
 ## Sources
 
 ### Primary (HIGH confidence)
-- Full codebase audit: `src/betting/stake_calculator.py`, `src/betting/drawdown_controller.py`, `src/betting/win_strategy.py`, `src/betting/orchestrator.py`, `src/betting/gate_keeper.py`, `src/betting/meta_switcher.py`, `src/models/regime_detector.py`, `src/models/win_selection_gate.py`, `src/models/robust_confidence_estimator.py`, `src/backtest/engine.py`, `src/backtest/race_predictor.py`, `pyproject.toml`
-- Kelly criterion equivalence proof: `edge/(odds-1) = (p*odds-1)/(odds-1) = p - (1-p)/(odds-1)` -- standard algebraic identity
-- PROJECT.md v1.3 milestone definition (6 target features specified)
-- Kelly Criterion literature: Thorp (2006), Benter (1994) -- foundational for stake sizing design
+- Full codebase audit: src/models/win_selection_gate.py (1113 lines), src/models/stacked_ensemble.py (607 lines), src/betting/odds_band_filter.py (112 lines), src/tuning/strategy_optimizer.py (273 lines), src/backtest/race_predictor.py (~925 lines), src/backtest/engine.py (~1207 lines), src/models/ev_correction_model.py (~575 lines), src/models/regime_detector.py (~264 lines)
+- Package verification: scipy 1.17.1, scikit-learn 1.8.0, optuna 4.8.0, betacal 1.0, numpy 2.4.3 -- all verified installed via python -c execution
+- Pipeline verification: use_ensemble_override=True in ModelLoader, ensemble OOF generation in training_pipeline.py, StrategyOptimizer parameter search space
 
 ### Secondary (MEDIUM confidence)
-- Pinnacle: Fractional Kelly -- half Kelly delivers ~75% of full Kelly growth with dramatically lower variance
-- Matthew Downey: Why Fractional Kelly -- fractional Kelly is optimal under probability estimation uncertainty
-- PLOS ONE: Statistical Theory of Optimal Decision-Making in Sports Betting -- confidence intervals for evaluating betting model performance
-- Reddit r/quant: Applying Kelly to Sports Betting -- real-world data showing 25% Kelly provides better risk-adjusted returns
-- arXiv: On Kelly Betting Limitations -- drawdown control feedback loop analysis
-- Stanford: Risk-Constrained Kelly -- formal treatment of drawdown-aware Kelly sizing
+- ScienceDirect: ML for sports betting -- calibration over accuracy -- confirms calibration-focused approach yields higher betting profits
+- arXiv: Systematic review of ML in sports betting -- surveys ML techniques in sports betting contexts
+- ResearchGate: ML for betting -- accuracy vs calibration -- optimizing for calibration leads to greater returns
+- Wolpert (1992), Ting & Witten (1999) -- stacking distribution shift theory
+- Benter (1994), Thorp (2006) -- foundational Kelly criterion and betting strategy literature
 
 ### Tertiary (LOW confidence)
-- Exact ROI impact of each feature on JRA data -- requires running backtests
-- Optimal Kelly fractions for JRA win betting specifically -- theoretical guidance only
-- Win betting hit rate variance profile on JRA data -- estimated at ~7-10% based on model characteristics
-- Odds band survivorship bias in horse racing -- general statistical principle applied to this specific domain
+- Exact ROI impact of each recalibration step on JRA data -- requires running backtests
+- Optimal Optuna trial count for 14-dim search on horse racing ROI -- theoretical guidance only
+- Ensemble agreement signal effectiveness for confidence scoring -- untested in this codebase
 
 ---
-*Research completed: 2026-05-04*
+*Research completed: 2026-05-05*
 *Ready for roadmap: yes*

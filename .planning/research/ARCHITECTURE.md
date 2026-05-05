@@ -1,445 +1,435 @@
-# Architecture: Betting Strategy Optimization Integration
+# Architecture: Ensemble Filter Recalibration (v1.4)
 
-**Project:** keiba-ai v1.3 -- Betting Strategy Optimization
-**Researched:** 2026-05-04
-**Scope:** How Kelly criterion sizing, EV-proportional sizing, dynamic drawdown control, and multi-criteria bet filtering integrate with the existing Strategy/Orchestrator/StakeCalculator/DDController architecture.
+**Project:** keiba-ai v1.4 -- Ensemble Filter Recalibration
+**Researched:** 2026-05-05
+**Scope:** How ensemble-aware betting filters integrate with existing architecture. Data flow changes needed for filter recalibration across model changes. Filter parameter management across single-model to ensemble transition.
+**Confidence:** HIGH (verified against full source code)
 
-## Current Architecture Map
+## Executive Summary
 
-The betting layer has a well-defined protocol-based architecture with clear dependency injection boundaries. The following diagram shows the current data flow during backtest (the primary integration point):
+The v1.4 milestone requires recalibrating three existing filters (WinSelectionGate, EV_lower threshold, OddsBandFilter) to work with the 3-model stacked ensemble instead of the single LightGBM model they were calibrated against in Phase 11-12. The core problem is a probability distribution mismatch: the ensemble outputs probabilities with different statistical properties than single LightGBM, causing the fixed thresholds to over-exclude ensemble candidates (only 7 bets/year vs the needed 100+).
+
+The architecture change is modest in scope but precise in placement. No new components are needed. The changes fall into three categories: (1) re-training `WinSelectionGateModel` with ensemble OOF predictions instead of single-model OOF, (2) making the EV_lower threshold dynamic by computing it from ensemble prediction statistics rather than hardcoding 1.0, and (3) re-calibrating `OddsBandFilter` with ensemble-derived `training_bet_history`. The Optuna 14-dimensional parameter search wires all of these together through the existing `StrategyOptimizer` -> `BacktestEngine` -> `RacePredictor` pipeline.
+
+## Recommended Architecture
+
+### Current Data Flow (Single Model, Phase 11-12)
 
 ```
-DataRepository
-    |
-    v
-FeatureEngine.build_all()          (14 modules, 100+ features)
-    |
-    v
-BacktestEngine.run()               <-- MAIN LOOP (per-race)
-    |
-    +---> RacePredictor.predict()   (inference: stage1 -> market -> win -> EV correction -> benter -> gate)
-    |         |
-    |         +---> RegimeDetector.detect()  (3-state: aggressive/conservative/collapsed)
-    |
-    +---> RacePredictor.get_win_candidates()   OR   get_place_candidates()
-    |         |
-    |         +---> WinSelectionGateModel.score() / PlaceSelectionGateModel.score()
-    |         +---> Candidate filtering + pruning (regime-dependent)
-    |
-    +---> RacePredictor.select_bets()
-    |         |
-    |         +---> StakeCalculator.calc_stake(edge, odds, bankroll, bet_type)
-    |         |         |
-    |         |         +---> Kelly fraction = edge / (odds - 1)
-    |         |         +---> x FRACTIONAL_KELLY (0.5)
-    |         |         +---> cap at KELLY_FRACTION_CAP (0.25)
-    |         |
-    |         +---> DrawdownController.adjust_stake(base_stake, bankroll)
-    |                   |
-    |                   +---> Multiplier from DD table (DD% x ROI)
-    |                   +---> Recovery state machine (NORMAL/REDUCED/RECOVERING)
-    |                   +---> N-bet rate limiter
-    |
-    +---> _settle_bet()              (final odds from payout map)
-    +---> DDController.update()      (feedback: bankroll + bet_return)
+TrainingPipelineV5
+  |
+  +-> stage1.add_ability_probs(df)     # LightGBM only: p_win_pred
+  +-> win.predict_ev(df)               # LightGBM only: ev_win, EV_lower_win_corrected
+  +-> ev_corrector.correct_ev(df)      # LightGBM only: ev_win_corrected
+  +-> confidence.predict_interval(df)  # LightGBM only: EV_lower_win_corrected
+  |
+  v
+RacePredictor.get_win_candidates(result_df)
+  |  Filter 1: win_selection_edge > 0.0    (fixed)
+  |  Filter 2: EV_lower_win_corrected >= 1.0  (hardcoded for single model)
+  |  Sort: win_gate_score DESC              (calibrated on single-model OOF)
+  |  Max: 2 candidates
+  v
+BacktestEngine.run()
+  |  Filter 3: COLLAPSED regime skip
+  |  Filter 4: OddsBandFilter.filter()     (calibrated from single-model bet history)
+  v
+select_bets() -> Bet objects
 ```
 
-### Existing Component Inventory
+### Target Data Flow (Ensemble, v1.4)
 
-| Component | File | Role | Protocol |
-|-----------|------|------|----------|
-| `BettingOrchestrator` | `betting/orchestrator.py` | 12-step race flow (NOT used in backtest) | Main entry |
-| `RacePredictor` | `backtest/race_predictor.py` | Per-race inference + bet selection | Core in backtest |
-| `StakeCalculator` | `betting/stake_calculator.py` | Kelly stake + race exposure cap | `StakeCalculatorProtocol` |
-| `DrawdownController` | `betting/drawdown_controller.py` | DD multiplier + recovery FSM | `DrawdownControllerProtocol` |
-| `GateKeeper` | `betting/gate_keeper.py` | Edge-based final filter | `GateKeeperProtocol` |
-| `MetaSwitcher` | `betting/meta_switcher.py` | Regime -> strategy params mapping | `MetaSwitcherProtocol` |
-| `WinStrategy` | `betting/win_strategy.py` | Win candidate generation (unused in backtest path) | `BetStrategyProtocol` |
-| `RegimeDetector` | `models/regime_detector.py` | 3-state market regime classifier | Used directly |
-| `WinSelectionGateModel` | `models/win_selection_gate.py` | OOF-learned score + threshold gate | Used via RacePredictor |
-| `RobustConfidenceEstimator` | `models/robust_confidence_estimator.py` | Conformal prediction intervals | Used via RacePredictor |
-
-### Critical Architecture Observation
-
-The `BettingOrchestrator` is **not used in the backtest path**. The backtest flow goes directly through `BacktestEngine` -> `RacePredictor`. The `BettingOrchestrator` is designed for the live/paper-trading path (12-step flow with t-3min cancellation). This means:
-
-- **Modifications for v1.3 must target `RacePredictor.select_bets()`** for backtest impact.
-- `BettingOrchestrator.process_race()` can be updated later for live path parity.
-- `WinStrategy` is also **not used in the backtest path** -- win candidates go through `RacePredictor.get_win_candidates()` directly.
-
----
-
-## Target Features (v1.3) and Integration Points
-
-### Feature 1: Conformal Confidence Filter
-
-**What:** Exclude bets where `conformal_confidence_score` at alpha=0.1 lower bound is below a threshold.
-
-**Integration point:** `RacePredictor.get_win_candidates()` and `RacePredictor.get_place_candidates()`.
-
-**Current state:** `conformal_confidence_score` is already computed by `RobustConfidenceEstimator.predict_interval()` during `RacePredictor.predict()`. It is used as a tertiary sort key in `get_win_candidates()`. But it is **never used as a filter**.
-
-**Approach:** Modify the candidate filter in `get_win_candidates()` and `get_place_candidates()` to add a conformal confidence floor.
-
-**Component to modify:** `RacePredictor` (add filter condition) + `MetaSwitcher._default_params()` (add `min_conformal_confidence` parameter per regime).
-
-**No new components needed.**
-
-### Feature 2: Odds Band ROI Filter
-
-**What:** Exclude bets in odds bands with historically negative ROI.
-
-**Integration point:** Same candidate filtering in `RacePredictor.get_win_candidates()` / `RacePredictor.get_place_candidates()`.
-
-**Current state:** `WinSelectionGateModel` already builds odds-bucket score tables (quantile-binned) with smoothed ROI estimates per (prob_bin, edge_bin, odds_bin) combination. The gate model's `score()` method returns a composite score, and `min_prob`, `min_edge`, `max_odds` thresholds are OOF-optimized. However, the **explicit "exclude this odds band entirely" logic** is not present -- it is implicit in the gate threshold.
-
-**Approach:** Two options:
-- (A) Add an explicit `odds_band_exclusion_ranges` parameter to `RacePredictor` that hard-excludes specific odds ranges. Simple, transparent, backtestable.
-- (B) Rely on `WinSelectionGateModel` threshold optimization to achieve the same effect implicitly.
-
-**Recommendation:** Option A is safer and more auditable. The gate model's threshold is a global cutoff, but we may want to exclude specific mid-range bands (e.g., odds 5-7 with negative ROI) while keeping higher odds that have positive ROI. This is not achievable with a single `max_odds` threshold.
-
-**New component needed:** `OddsBandFilter` -- a lightweight filter that takes learned exclusion ranges and applies them during candidate selection.
-
-### Feature 3: Regime-Dependent Bet Toggle
-
-**What:** In COLLAPSED regime, skip all bets (not just raise thresholds).
-
-**Integration point:** `BacktestEngine.run()` per-race loop, after `RegimeDetector.detect()`.
-
-**Current state:** COLLAPSED regime already sets very high thresholds (`ev_threshold=1.55`, `edge_threshold=0.10`, `max_bets_per_race=1`). This effectively stops most betting, but not all -- a horse with edge >= 0.10 and EV >= 1.55 could still get through.
-
-**Approach:** Add a `betting_enabled` boolean to `MetaSwitcher._default_params()` per regime. When `False`, skip the entire candidate selection and return empty bets.
-
-**Component to modify:** `MetaSwitcher._default_params()` (add `betting_enabled` field), `BacktestEngine.run()` (check `betting_enabled` before calling `get_win_candidates`).
-
-**No new components needed.**
-
-### Feature 4: Kelly Criterion Sizing (Enhanced)
-
-**What:** The standard Kelly formula `f* = p - (1-p)/(odds-1)` with proper probability input.
-
-**Integration point:** `StakeCalculator.calc_stake()` and `RacePredictor.select_bets()`.
-
-**Current state:** `StakeCalculator` already implements a value-betting Kelly variant: `kelly_fraction = edge / (odds - 1)`, with `FRACTIONAL_KELLY = 0.5` (half-Kelly) and `KELLY_FRACTION_CAP = 0.25`. The edge is `p_model * odds - 1`, so `edge / (odds - 1) = (p*odds - 1)/(odds - 1)` which IS mathematically equivalent to the standard Kelly formula.
-
-**The Kelly criterion is already implemented correctly.** The formula `f* = p - (1-p)/(odds-1)` simplifies to `(p*odds - 1)/(odds - 1)` which is exactly what `edge / (odds - 1)` computes.
-
-**What might need tuning:**
-- The `FRACTIONAL_KELLY = 0.5` and `KELLY_FRACTION_CAP = 0.25` are conservative. These could be regime-dependent.
-- The `RACE_EXPOSURE_CAP = 0.02` (2% per race) is very tight. For win bets with high edge, this may be too conservative.
-
-**Component to modify:** `StakeCalculator` (make fractional Kelly and exposure cap configurable per regime). `MetaSwitcher._default_params()` (add `fractional_kelly`, `race_exposure_cap` per regime).
-
-**No new components needed.** This is parameter tuning, not architectural change.
-
-### Feature 5: EV-Proportional Sizing
-
-**What:** Scale stake proportionally to expected value (higher EV = larger stake).
-
-**Integration point:** Between `StakeCalculator.calc_stake()` (base Kelly stake) and `DrawdownController.adjust_stake()` (DD adjustment).
-
-**Current state:** The current pipeline is:
 ```
-base_stake = StakeCalculator.calc_stake(edge, odds, bankroll, bet_type)
-final_stake = DDController.adjust_stake(base_stake, bankroll)
+TrainingPipelineV5 (--ensemble flag)
+  |
+  +-> stage1.add_ability_probs(df)        # StackedEnsemble: p_win_pred (Ridge blend of 3 GBM)
+  +-> win.predict_ev(df)                  # Ensemble probabilities feed EV computation
+  +-> ev_corrector.correct_ev(df)         # EV corrections use ensemble probabilities
+  +-> confidence.predict_interval(df)     # Conformal intervals adapted for ensemble
+  |
+  +-> [RETRAIN] WinSelectionGateModel.train(df)  # Retrained on ensemble OOF distribution
+  |     Uses: p_win_final (ensemble), ev_win_corrected (ensemble), tanoddslow
+  |     Produces: adaptive min_prob/min_edge/max_odds thresholds
+  |
+  v
+RacePredictor.get_win_candidates(result_df)
+  |  Filter 1: win_selection_edge > 0.0    (unchanged)
+  |  Filter 2: EV_lower_win_corrected >= dynamic_threshold  (was hardcoded 1.0)
+  |    dynamic_threshold from gate model or Optuna parameter
+  |  Sort: win_gate_score DESC              (retrained for ensemble distribution)
+  |  Max: 2 candidates
+  v
+BacktestEngine.run()
+  |  Filter 3: COLLAPSED regime skip       (unchanged)
+  |  Filter 4: OddsBandFilter.filter()     (re-calibrated from ensemble bet history)
+  v
+select_bets() -> Bet objects
+
+Optuna 14-dim search (or 15-dim with EV_lower threshold)
+  |
+  +-> StrategyOptimizer._run_single_backtest()
+       |_ training backtest -> training_bet_history (ensemble-derived)
+       |_ OddsBandFilter.calibrate(training_bet_history)  # auto-recalibrated
+       |_ test backtest with all filters active
+       |_ objective = mean ROI across WF folds
 ```
 
-Kelly sizing already scales with edge (higher edge -> larger Kelly fraction). But EV-proportional is a separate concept: it scales the FINAL stake by a factor proportional to `(ev - 1.0) / max_ev_range`. This allows differentiation among bets that all pass the Kelly threshold -- a bet with EV=1.8 gets a larger EV-multiplier than one with EV=1.2.
+## Component Boundaries
 
-**Approach:** Add an EV-scaling step between Kelly and DD:
+| Component | File | Responsibility | Current State | v1.4 Change |
+|-----------|------|----------------|---------------|-------------|
+| `StackedEnsemble` | `models/stacked_ensemble.py` | 3-model GBM stacking (LGBM+XGB+CatBoost -> Ridge) | Fully implemented | No change -- produces probabilities via `predict()` |
+| `WinTwoStageModel` | `models/two_stage_return_model.py` | P(hit) * E(odds\|hit) decomposition | Uses `hit_model` (single or ensemble) | No change -- delegates to `hit_model.predict()` |
+| `WinSelectionGateModel` | `models/win_selection_gate.py` | Learned OOF gate + reranker for win bet selection | Trained on single-model OOF | **RETRAIN** with ensemble OOF predictions |
+| `RacePredictor.get_win_candidates()` | `backtest/race_predictor.py` | Win candidate filtering (edge, EV, gate score) | Hardcoded EV_lower >= 1.0 | **MODIFY** threshold to be dynamic |
+| `EVCorrectionModel` | `models/ev_correction_model.py` | P-correction and E-correction for win EV | Calibrated for single model | Auto-adapts (uses ensemble p_win) |
+| `RobustConfidenceEstimator` | `models/robust_confidence_estimator.py` | Conformal prediction intervals | Produces EV_lower_win_corrected | Auto-adapts (wider intervals from ensemble) |
+| `OddsBandFilter` | `betting/odds_band_filter.py` | Dynamic odds band ROI exclusion | Calibrated from single-model bet history | **RECALIBRATE** from ensemble bet history |
+| `StrategyOptimizer` | `tuning/strategy_optimizer.py` | Optuna 14-dim parameter search | Fully implemented | **EXECUTE** (not yet run) |
+| `BacktestEngine` | `backtest/engine.py` | Historical simulation with filter pipeline | Integrated in Phase 11 | No structural change |
+| `RegimeDetector` | `models/regime_detector.py` | 3-state market regime classification | Independent of model type | No change |
+| `DrawdownController` | `betting/drawdown_controller.py` | DD%-based stake sizing | Independent of model type | No change |
+| `ModelLoader` | `db/model_loader.py` | Load models from disk/MLflow | Supports ensemble via `use_ensemble_override` | No change |
+
+## Data Flow Changes
+
+### CHANGE 1: WinSelectionGateModel Ensemble Retraining
+
+The `WinSelectionGateModel.train()` is already model-agnostic -- it takes a DataFrame with `win_selection_prob`, `win_selection_edge`, `tanoddslow`, `kakuteijyuni` columns and never touches the underlying model directly. When the upstream model changes from single to ensemble, the same `train()` method is called with ensemble-derived values in those columns. The gate model automatically adapts its thresholds to the new distribution.
+
 ```
-kelly_stake = StakeCalculator.calc_stake(edge, odds, bankroll, bet_type)
-ev_scaled_stake = EVScaler.scale(kelly_stake, ev, min_ev, max_ev)
-final_stake = DDController.adjust_stake(ev_scaled_stake, bankroll)
+TrainingPipelineV5.run() --ensemble
+  |
+  v
+ensemble OOF predictions (from StackedEnsemble.train() K-fold loop)
+  |
+  +-> df with p_win_final, ev_win_corrected, tanoddslow, kakuteijyuni
+  |
+  v
+WinSelectionGateModel.train(df)  <-- RECALLED with ensemble-derived df
+  |
+  +-> Walk-forward threshold grid search over (min_prob, min_edge, max_odds)
+  +-> Quantile binning of ensemble probability/edge/odds distributions
+  +-> Score tables: combo_scores, pair_scores, single_scores
+  +-> New thresholds: self.min_prob, self.min_edge, self.max_odds
+  +-> Save to win_selection_gate_{surface}.joblib
+  |
+  v
+ModelLoader.load_from_dir() loads retrained gate model
+  |
+  v
+RacePredictor.predict() -> win_gate_model.score(df) -> uses new thresholds
 ```
 
-**New component needed:** `EVScaler` -- simple proportional scaler that maps EV to [ev_scale_min, ev_scale_max] range. This could be a method on `StakeCalculator` rather than a new class, but extracting it keeps responsibilities clean.
+**Critical insight:** The gate model stores quantile bin edges (`prob_edges`, `edge_edges`, `odds_edges`) computed from the training distribution. If trained on single-model data but used with ensemble predictions, these bins would misclassify candidates because ensemble probabilities have a different distribution. This is the root cause of the 7-bets/year problem.
 
-**Recommendation:** Add as a method on `StakeCalculator` (`apply_ev_scaling`) rather than a separate class. It is a simple linear mapping, not complex enough for its own class.
+### CHANGE 2: Dynamic EV_lower Threshold
 
-### Feature 6: Dynamic Drawdown Control (Enhanced)
+Two viable approaches for making the EV_lower threshold adaptive:
 
-**What:** More responsive DD control with bankroll-varying risk.
+**Option A (Recommended): Gate Model-Managed Threshold**
+- During `WinSelectionGateModel.train()`, compute the ensemble EV_lower distribution from OOF predictions
+- Store the threshold as a gate model parameter (e.g., 25th percentile of positive-edge EV_lower values)
+- `get_win_candidates()` reads the threshold from the gate model instead of hardcoding 1.0
 
-**Integration point:** `DrawdownController.adjust_stake()`.
+**Option B: Optuna-Managed Threshold**
+- Add `ev_lower_threshold` as a 15th dimension in the Optuna search space (range 0.8 to 1.2)
+- StrategyOptimizer finds the optimal threshold across WF folds
+- Stored in `strategy_manifest.json` alongside the other 14 parameters
 
-**Current state:** `DrawdownController` already implements:
-- DD% x ROI multiplier table (8 entries)
-- 3-state recovery FSM (NORMAL -> REDUCED -> RECOVERING -> NORMAL)
-- EWMA + SMA hybrid rolling ROI
-- N-bet rate limiter (max 0.15 change per 20 bets)
-- Hysteresis transitions
+Both approaches are viable. Option A is simpler and self-contained within the gate model. Option B provides more search flexibility but adds another dimension to an already large search space.
 
-This is already sophisticated. What the v1.3 feature requests is making it **dynamic** -- responding to bankroll changes more smoothly and adapting risk parameters.
+```
+# Option A: In WinSelectionGateModel.train()
+ev_lower_positive = ev_lower[ev_lower.notna() & (ev_lower > 0)]
+self.ev_lower_threshold = float(ev_lower_positive.quantile(0.25)) if len(ev_lower_positive) > 50 else 1.0
 
-**Specific enhancements:**
-1. Regime-dependent DD thresholds (aggressive regime tolerates deeper DD)
-2. Bankroll-proportional base unit (as bankroll grows, base unit scales)
-3. Sharpe-adjusted multiplier (factor in risk-adjusted return, not just raw ROI)
+# In get_win_candidates():
+ev_lower_threshold = win_gate_model.ev_lower_threshold if win_gate_model else 1.0
+ev_mask = ev_lower.fillna(ev_lower_threshold) >= ev_lower_threshold
+```
 
-**Component to modify:** `DrawdownController` (add regime-aware multiplier table selection, bankroll-proportional base unit).
+### CHANGE 3: OddsBandFilter Ensemble Recalibration
 
-**No new components needed.** This is enhancement of an existing component.
+The `StrategyOptimizer._run_single_backtest()` (strategy_optimizer.py:118-192) already runs a training-phase backtest with ensemble models and passes the resulting `training_bet_history` to `OddsBandFilter.calibrate()`. This means the filter is automatically recalibrated for the ensemble when the optimizer runs.
 
----
+No code changes needed -- the existing wiring is correct. The key is ensuring the optimizer actually executes (it has not been run yet).
 
-## Recommended New Components
+```
+StrategyOptimizer._run_single_backtest()
+  |
+  +-> ModelLoader.load_from_dir(use_ensemble_override=True)  # loads ensemble models
+  +-> Training-phase backtest with ensemble
+  |     produces: training_bet_history (ensemble-derived odds/edges/outcomes)
+  |
+  v
+OddsBandFilter.calibrate(training_bet_history)
+  |
+  +-> Per-band ROI computed from ensemble bet outcomes
+  +-> Bands with ROI < roi_threshold excluded
+  |
+  v
+Test-phase backtest uses re-calibrated OddsBandFilter
+```
 
-Only one truly new component is needed:
+### CHANGE 4: Optuna 14-dim Parameter Execution
 
-### OddsBandFilter
+The `StrategyOptimizer` is fully implemented but has never been executed. Running it is the final step of v1.4.
 
+```
+StrategyOptimizer.optimize()
+  |
+  +-> TPE sampler explores 14 dimensions:
+  |     - fk_aggressive, fk_conservative (Kelly fractions)
+  |     - ev_aggressive, ev_conservative (EV thresholds)
+  |     - edge_aggressive, edge_conservative (edge thresholds)
+  |     - dd_threshold_1, dd_threshold_2 (DD control)
+  |     - multiplier_reduced, rolling_window, min_stay_races
+  |     - target_ev, max_scale (EV scaling)
+  |     - roi_threshold (OddsBandFilter)
+  |
+  +-> Each trial: build strategy_config -> WF backtest -> ROI
+  +-> Best params -> save_strategy_manifest() -> JSON + SHA256
+  |
+  v
+Verified manifest loaded for OOS validation
+```
+
+## Patterns to Follow
+
+### Pattern 1: Model-Agnostic Filter Interface
+
+**What:** Filters operate on DataFrame columns (probabilities, edges, odds) without knowing whether values came from a single model or ensemble.
+
+**When:** All filter components consume columns, not models.
+
+**Why:** The existing architecture already achieves this. `WinSelectionGateModel.train()` takes a DataFrame with `win_selection_prob`, `win_selection_edge`, `tanoddslow` -- it never touches the model directly. Similarly, `OddsBandFilter.calibrate()` takes bet history dicts. This means retraining is simply calling the same methods with ensemble-derived data.
+
+**Example:**
 ```python
-# betting/odds_band_filter.py
+# WinSelectionGateModel.train() is already model-agnostic:
+def train(self, df: pd.DataFrame) -> None:
+    prepared = self._prepare_training_frame(df)
+    # Uses: win_selection_prob, win_selection_edge, tanoddslow, kakuteijyuni
+    # All columns come from whatever model produced them
 
-class OddsBandFilter:
-    """Exclude specific odds bands with historically negative ROI."""
-
-    def __init__(self, exclusion_ranges: list[tuple[float, float]] | None = None) -> None:
-        self.exclusion_ranges = exclusion_ranges or []
-
-    def filter_candidates(
-        self,
-        candidates: pd.DataFrame,
-        odds_col: str = "tanodds",
-    ) -> pd.DataFrame:
-        """Remove candidates whose odds fall within exclusion ranges."""
-        if not self.exclusion_ranges or candidates.empty:
-            return candidates
-
-        odds = pd.to_numeric(candidates[odds_col], errors="coerce")
-        mask = pd.Series(True, index=candidates.index, dtype=bool)
-        for low, high in self.exclusion_ranges:
-            mask &= ~(odds.between(low, high))
-        return candidates.loc[mask].copy()
-
-    @classmethod
-    def from_backtest_analysis(
-        cls,
-        bet_history: list[dict],
-        n_bins: int = 10,
-        min_samples: int = 50,
-        roi_threshold: float = 0.95,
-    ) -> OddsBandFilter:
-        """Learn exclusion ranges from backtest bet history."""
-        # Bin by odds, compute per-band ROI, exclude bands below threshold
-        ...
+# For ensemble: the DataFrame just has different values in those columns
+# (wider probability distribution, different edge distribution)
+# The gate model adapts its thresholds to the new distribution automatically
 ```
 
----
+### Pattern 2: Training-Data-Driven Filter Calibration
 
-## Modified Components Summary
+**What:** Filters derive their parameters from training data, not hardcoded values. When the upstream model changes, filters re-calibrate from the new data distribution.
 
-| Component | Change Type | What Changes |
-|-----------|-------------|-------------|
-| `RacePredictor.get_win_candidates()` | Filter addition | Add conformal confidence floor + odds band exclusion |
-| `RacePredictor.get_place_candidates()` | Filter addition | Add conformal confidence floor + odds band exclusion |
-| `RacePredictor.select_bets()` | Sizing pipeline | Insert EV-proportional scaling step |
-| `StakeCalculator` | Method addition | Add `apply_ev_scaling()` method; make fractional Kelly configurable |
-| `DrawdownController` | Enhancement | Regime-aware multiplier tables; bankroll-proportional base unit |
-| `MetaSwitcher._default_params()` | Parameter expansion | Add `betting_enabled`, `min_conformal_confidence`, `fractional_kelly`, `race_exposure_cap` per regime |
-| `BacktestEngine.run()` | Guard addition | Check `betting_enabled` before candidate selection |
-| `BacktestEngine.run()` | Wiring | Pass `OddsBandFilter` instance to `RacePredictor` |
-| `RacePredictor.__init__()` | Dependency addition | Accept optional `OddsBandFilter` |
+**When:** `OddsBandFilter.calibrate()` and `WinSelectionGateModel.train()`.
 
----
-
-## Data Flow: After v1.3 Changes
-
+**Implementation:**
 ```
-DataRepository -> FeatureEngine -> BacktestEngine.run() [per race]
-    |
-    +---> RacePredictor.predict()
-    |         (unchanged: stage1 -> market -> win -> EV correction -> benter -> gate -> conformal)
-    |         Output: result_df with conformal_confidence_score, win_selection_edge, etc.
-    |
-    +---> RegimeDetector.detect() -> regime_params
-    |         NEW: regime_params includes betting_enabled, min_conformal_confidence,
-    |              fractional_kelly, race_exposure_cap
-    |
-    +---> [GUARD] if not regime_params["betting_enabled"]: skip race  <-- NEW
-    |
-    +---> RacePredictor.get_win_candidates()
-    |         NEW filters applied:
-    |         1. conformal_confidence_score >= min_conformal_confidence  <-- NEW
-    |         2. OddsBandFilter.filter_candidates()                      <-- NEW
-    |         3. (existing: edge > 0, odds >= 1.0)
-    |
-    +---> RacePredictor.select_bets(candidates)
-    |         Per candidate:
-    |         1. kelly_stake = StakeCalculator.calc_stake(edge, odds, bankroll)
-    |            (uses regime-dependent fractional_kelly)               <-- ENHANCED
-    |         2. ev_scaled = StakeCalculator.apply_ev_scaling(kelly_stake, ev) <-- NEW
-    |         3. final_stake = DDController.adjust_stake(ev_scaled, bankroll)
-    |            (uses regime-aware multiplier table)                   <-- ENHANCED
-    |         4. Race exposure cap (regime-dependent cap)              <-- ENHANCED
-    |
-    +---> _settle_bet() (unchanged)
-    +---> DDController.update() (unchanged feedback loop)
+Model change (single -> ensemble)
+  -> New probability distribution in OOF predictions
+  -> WinSelectionGateModel.train() adapts thresholds
+  -> BacktestEngine generates new training_bet_history
+  -> OddsBandFilter.calibrate() adapts excluded bands
 ```
 
----
+### Pattern 3: Optuna Parameter Freeze Protocol
 
-## Build Order (Dependency-Driven)
+**What:** After Optuna finds optimal parameters, freeze them with SHA256 manifest to prevent drift during OOS evaluation.
 
-### Phase 1: Filter Enhancements (No sizing changes, safe to test independently)
+**When:** After `StrategyOptimizer.optimize()` completes successfully.
 
-These changes affect WHICH bets are placed, not HOW MUCH is wagered. They are low-risk and independently testable.
+**Implementation:** Existing `save_strategy_manifest()` and `verify_strategy_manifest()` -- no changes needed.
 
-1. **Regime-dependent bet toggle** (MetaSwitcher + BacktestEngine guard)
-   - Modifies: `MetaSwitcher._default_params()`, `BacktestEngine.run()`
-   - Depends on: Nothing new
-   - Test: Verify COLLAPSED regime produces 0 bets
+### Pattern 4: Walk-Forward Validation for Filter Parameters
 
-2. **Conformal confidence filter** (RacePredictor candidate methods)
-   - Modifies: `RacePredictor.get_win_candidates()`, `RacePredictor.get_place_candidates()`
-   - Depends on: `conformal_confidence_score` already in result_df
-   - Test: Verify low-confidence candidates are excluded
+**What:** Filter thresholds are validated using walk-forward folds, not in-sample.
 
-3. **OddsBandFilter** (new component + wiring)
-   - Creates: `betting/odds_band_filter.py`
-   - Modifies: `RacePredictor.__init__()` (accept filter), `RacePredictor.get_win_candidates()`
-   - Depends on: Nothing new
-   - Test: Verify excluded odds ranges produce no bets
+**When:** `WinSelectionGateModel.train()` already implements this internally (`_build_walk_forward_folds`). `StrategyOptimizer` implements this externally (2-fold WF across years).
 
-**Milestone checkpoint:** Run backtest after Phase 1. Measure bet count reduction and ROI impact.
-
-### Phase 2: Sizing Enhancements (Changes HOW MUCH is wagered)
-
-These changes affect stake amounts. They should be built after filters are stable, because sizing changes are meaningless if we are betting on the wrong horses.
-
-4. **Configurable Kelly parameters** (StakeCalculator + MetaSwitcher)
-   - Modifies: `StakeCalculator` (accept config params), `MetaSwitcher._default_params()`
-   - Depends on: Phase 1 complete (correct bet pool)
-   - Test: Verify regime-dependent Kelly fractions produce expected stake ranges
-
-5. **EV-proportional scaling** (StakeCalculator new method + RacePredictor wiring)
-   - Modifies: `StakeCalculator.apply_ev_scaling()`, `RacePredictor.select_bets()`
-   - Depends on: Step 4 (Kelly params must be correct first)
-   - Test: Verify high-EV bets get proportionally larger stakes
-
-6. **Enhanced DD control** (DrawdownController)
-   - Modifies: `DrawdownController` (regime-aware tables, bankroll-proportional unit)
-   - Depends on: Steps 4-5 (sizing pipeline must be correct first)
-   - Test: Verify DD multiplier changes with regime transitions
-
-**Milestone checkpoint:** Run full backtest. Compare ROI with Phase 1 baseline.
-
-### Phase 3: Threshold Tuning (Grid search for optimal parameters)
-
-7. **Parameter sweep** -- Run backtests across parameter grid:
-   - `min_conformal_confidence`: [0.0, 0.3, 0.5, 0.7]
-   - `fractional_kelly`: [0.25, 0.375, 0.5, 0.625]
-   - `race_exposure_cap`: [0.02, 0.03, 0.04]
-   - `odds_band_exclusion_ranges`: [from ROI analysis]
-   - DD multiplier adjustments
-
-**This is search, not code.** But the architecture must support parameter injection via `MetaSwitcher`.
-
----
-
-## Key Design Decisions
-
-### Decision 1: Modify RacePredictor, Not BettingOrchestrator
-
-The backtest path goes through `RacePredictor`, not `BettingOrchestrator`. All v1.3 changes target the backtest ROI metric. The `BettingOrchestrator` path (live/paper trading) can be updated later by mirroring the same filters and sizing logic.
-
-### Decision 2: OddsBandFilter as Separate Component, Not Inside Gate Model
-
-The `WinSelectionGateModel` already has odds-bucket scoring. But it uses quantile bins internally and the exclusion is implicit (via threshold). An explicit `OddsBandFilter` gives:
-- Transparency: "we exclude odds 5-7" is auditable
-- Backtestability: easy to measure impact of specific exclusions
-- Separation of concerns: gate model scores, filter excludes
-
-### Decision 3: EV-Scaling as StakeCalculator Method, Not Separate Class
-
-EV-proportional scaling is a simple linear mapping: `stake * (ev - min_ev) / (max_ev - min_ev)`. This is 5 lines of code. A separate class would be over-engineering. Adding it as a method on `StakeCalculator` keeps the sizing pipeline in one place.
-
-### Decision 4: Keep DDController as Single Component (Enhance, Don't Replace)
-
-The existing `DrawdownController` is well-tested with a sophisticated recovery FSM. Enhancing it with regime-dependent tables is safer than replacing it with a new component. The risk of introducing bugs in DD control is high -- the current implementation handles edge cases (deadlock prevention at mult=0.05, rate limiting, hysteresis).
-
----
+**Why this matters for ensemble:** The ensemble has different overfitting characteristics than single LightGBM. Walk-forward validation ensures filter thresholds generalize.
 
 ## Anti-Patterns to Avoid
 
-### Anti-Pattern 1: Modifying BettingOrchestrator First
+### Anti-Pattern 1: Mixing Single-Model and Ensemble Gate Models
 
-The `BettingOrchestrator` is for the live path and is not exercised by backtests. Changes there would be untested. Always implement and validate in the `RacePredictor` path first.
+**What:** Loading a WinSelectionGateModel trained on single-model OOF while using ensemble predictions at inference time.
 
-### Anti-Pattern 2: Parameter Hardcoding
+**Why bad:** The quantile bins (`prob_edges`, `edge_edges`, `odds_edges`) and score tables (`combo_scores`, `pair_scores`) are calibrated to the single-model probability distribution. Ensemble probabilities have different quantiles -- the bins would misclassify candidates, producing garbage scores. This is the root cause of the current 7-bets/year problem.
 
-All new thresholds must be in `MetaSwitcher._default_params()` (regime-dependent) or configurable via `BacktestEngine.__init__()`. Hardcoded constants in `RacePredictor` would prevent grid search.
+**Instead:** Always retrain `WinSelectionGateModel` when switching from single model to ensemble.
 
-### Anti-Pattern 3: Overlapping Filters
+**Detection:** If `meta.json` has `use_ensemble=true` but `win_selection_gate_{surface}.joblib` was trained before ensemble was enabled, the gate model is stale.
 
-The `WinSelectionGateModel` already filters by prob/edge/odds thresholds. Adding conformal confidence and odds band filters must not duplicate what the gate model already does. The conformal filter should be applied BEFORE gate scoring (pre-filter), while odds band exclusion should be AFTER candidate selection (post-filter).
+### Anti-Pattern 2: Hardcoded EV_lower Threshold Across Model Changes
 
-### Anti-Pattern 4: Sizing Before Filtering
+**What:** Keeping `EV_lower_win_corrected >= 1.0` fixed regardless of whether the underlying model is single or ensemble.
 
-Changing stake sizes before fixing the bet pool is premature optimization. A 200-yen bet on a losing horse loses more than a 100-yen bet on the same horse. Fix selection first, then optimize sizing.
+**Why bad:** The ensemble produces different `EV_lower` values because conformal intervals are computed from ensemble residuals (different variance) and EV corrections use ensemble probabilities. The ensemble's `EV_lower` distribution is shifted relative to single model, so the same threshold over-excludes (current problem: 3,594 excluded, only 7 bets/year).
 
----
+**Instead:** Make the threshold dynamic -- either derived from ensemble distribution statistics or searched by Optuna.
+
+### Anti-Pattern 3: Calibrating OddsBandFilter with Wrong Model's Bet History
+
+**What:** Running a training-phase backtest with single-model, then passing that `training_bet_history` to an ensemble test-phase backtest.
+
+**Why bad:** Band ROI statistics would reflect single-model performance, not ensemble performance. Different models have different edge distributions across odds bands.
+
+**Instead:** `StrategyOptimizer._run_single_backtest()` already runs the training-phase backtest with the SAME models (ensemble) as the test-phase. The `training_bet_history` is always model-consistent.
+
+### Anti-Pattern 4: Bypassing Filters During Optuna Search
+
+**What:** Disabling filters during Optuna search to maximize bet count, then enabling them during OOS evaluation.
+
+**Why bad:** Optuna would optimize parameters for a configuration that never runs in production.
+
+**Instead:** Keep all filters active during Optuna search. The optimizer adjusts filter parameters themselves (roi_threshold, ev/edge thresholds) as part of the search space.
+
+## Detailed Integration Points
+
+### Integration Point 1: Training Pipeline -> WinSelectionGateModel
+
+**File to modify:** `src/training/pipeline.py` or equivalent training script
+
+The training pipeline must pass ensemble-derived DataFrame to `WinSelectionGateModel.train()`. The column flow is:
+
+```
+StackedEnsemble.predict(X) -> p_win_pred
+WinTwoStageModel.predict_ev(df) -> ev_win, p_win_combined
+EVCorrectionModel.correct_ev(df) -> ev_win_corrected
+RobustConfidenceEstimator.predict_interval(df) -> EV_lower_win_corrected
+ensure_win_selection_columns(df) -> win_selection_ev, win_selection_edge, win_selection_prob
+```
+
+The `win_selection_prob` column is what the gate model uses for quantile binning. It must reflect ensemble probabilities. This column comes from `p_win_final` (or `p_win_combined` or `p_win_corrected` -- whichever is available, see `ensure_win_selection_columns()` in win_selection_gate.py:33-54).
+
+### Integration Point 2: StrategyOptimizer -> BacktestEngine
+
+**File:** `src/tuning/strategy_optimizer.py` (already correct)
+
+Key insight: Line 137 already loads ensemble models:
+```python
+models, info = loader.load_from_dir(self.models_dir, use_ensemble_override=True)
+```
+
+This means:
+- Training bet history is ensemble-derived (correct for OddsBandFilter)
+- EV_lower values are ensemble-derived (correct for dynamic threshold)
+- Win gate scores come from retrained gate model (correct for candidate ranking)
+
+The StrategyOptimizer is already wired correctly. The missing piece is retraining `WinSelectionGateModel` with ensemble data BEFORE running the optimizer.
+
+### Integration Point 3: Optuna Search Space -> Filter Parameters
+
+**Current 14-dimensional search space (strategy_optimizer.py:51-81):**
+
+| Dimension | Parameter | Affected Component | Ensemble Impact |
+|-----------|-----------|-------------------|-----------------|
+| 1-2 | fk_aggressive, fk_conservative | StakeCalculator | Indirect (edge distribution changes) |
+| 3-4 | ev_aggressive, ev_conservative | RegimeDetector params | Direct (EV threshold shifts) |
+| 5-6 | edge_aggressive, edge_conservative | RegimeDetector params | Direct (edge distribution changes) |
+| 7-8 | dd_threshold_1, dd_threshold_2 | DrawdownController | Indirect |
+| 9 | multiplier_reduced | DrawdownController | Indirect |
+| 10-11 | rolling_window, min_stay_races | DrawdownController | Indirect |
+| 12-13 | target_ev, max_scale | StakeCalculator.apply_ev_scaling() | Direct (EV scaling) |
+| 14 | roi_threshold | OddsBandFilter | Direct (band exclusion threshold) |
+
+**Optional 15th dimension:** An explicit `ev_lower_threshold` parameter would allow Optuna to find the optimal EV_lower cutoff for the ensemble distribution. Currently hardcoded at 1.0 in `get_win_candidates()` (race_predictor.py:441).
+
+### Integration Point 4: ModelLoader -> WinSelectionGate Loading
+
+**File:** `src/db/model_loader.py` (no change needed)
+
+Lines 588-595 already load whatever gate model file exists:
+```python
+wsg_file = models_dir / f"win_selection_gate_{surface}.joblib"
+if wsg_file.is_file():
+    win_selection_gate = WinSelectionGateModel.load(wsg_file)
+```
+
+If retraining produces a new `.joblib` file with ensemble-calibrated parameters, it will be loaded automatically. The gate model serialization is model-agnostic (stores thresholds, bin edges, score tables -- not the underlying model).
+
+## Build Order (Dependency-Driven)
+
+### Phase 1: WinSelectionGate Ensemble Retraining
+**Dependencies:** Existing ensemble training pipeline
+**Changes:** Modify training pipeline to pass ensemble-derived DataFrame to `WinSelectionGateModel.train()`
+**Files:** Training script or pipeline module
+**Verification:** Gate model thresholds change from single-model values to ensemble-adapted values
+
+### Phase 2: Dynamic EV_lower Threshold
+**Dependencies:** Phase 1 (gate model retraining)
+**Changes:** Either (a) add `ev_lower_threshold` as a WinSelectionGateModel parameter computed during `train()`, or (b) add it as Optuna search dimension
+**Files:** `src/backtest/race_predictor.py` (~10 lines in filter mask), optionally `src/tuning/strategy_optimizer.py`
+**Verification:** Ensemble backtest produces 100+ bets/year (not 7)
+
+### Phase 3: OddsBandFilter Ensemble Recalibration
+**Dependencies:** Phase 1 (gate model retrained for correct candidate selection)
+**Changes:** None to OddsBandFilter itself -- it already receives ensemble-derived `training_bet_history` from StrategyOptimizer
+**Files:** None
+**Verification:** Band exclusion reflects ensemble ROI, not single-model ROI
+
+### Phase 4: Optuna 14-dim (or 15-dim) Execution
+**Dependencies:** Phases 1-3 (all filters ensemble-aware)
+**Changes:** Execute existing `StrategyOptimizer.optimize()`. Optionally add `ev_lower_threshold` as 15th dimension.
+**Files:** `scripts/run_strategy_optimization.py` (execution only)
+**Verification:** Best ROI across WF folds > 1.0 (target: ROI > 100%)
+
+### Phase 5: Manifest Freeze and OOS Validation
+**Dependencies:** Phase 4 (optimal parameters found)
+**Changes:** Freeze parameters via `save_strategy_manifest()`, run final OOS backtest with frozen params
+**Files:** None (existing protocol)
+**Verification:** `verify_strategy_manifest()` passes, OOS ROI > 100%
+
+## Modified vs New Components
+
+### Modified Components
+
+| File | Change | Scope |
+|------|--------|-------|
+| Training pipeline (pipeline.py or run_train.py) | Pass ensemble OOF df to `WinSelectionGateModel.train()` | ~20 lines wiring |
+| `src/backtest/race_predictor.py` | Dynamic EV_lower threshold in `get_win_candidates()` | ~10 lines in filter mask |
+| `src/tuning/strategy_optimizer.py` | Optionally add ev_lower_threshold as 15th dimension | ~5 lines |
+
+### New Components
+
+None. All required infrastructure exists from Phase 11-12 and v1.1 ensemble work.
+
+### Unchanged Components
+
+| File | Why Unchanged |
+|------|--------------|
+| `src/models/stacked_ensemble.py` | Already produces correct probabilities |
+| `src/models/win_selection_gate.py` | `train()` is already model-agnostic |
+| `src/betting/odds_band_filter.py` | Already takes bet_history as input |
+| `src/backtest/engine.py` | Filter pipeline already integrated |
+| `src/backtest/parameter_freeze_protocol.py` | Already handles parameter freezing |
+| `src/models/regime_detector.py` | Model-type independent |
+| `src/betting/drawdown_controller.py` | Model-type independent |
+| `src/domain/models.py` | No new data structures needed |
+| `src/db/model_loader.py` | Already loads ensemble models and gate models |
+| `config/settings.yaml` | No new configuration needed |
 
 ## Scalability Considerations
 
-| Concern | Current Scale | v1.3 Impact | Mitigation |
-|---------|--------------|-------------|------------|
-| Filter complexity | O(n) per race (n=18 horses max) | +2 O(n) passes (conformal, odds band) | Negligible. 18 horses x 2 passes = constant time |
-| OddsBandFilter memory | None | One list of (float, float) tuples | Negligible. <100 ranges max |
-| Parameter grid search | N/A | Backtest runs per parameter combo | ~200 combos x 57 min/backtest = significant. Use coarse grid first, then refine |
-| DD state complexity | 3-state FSM | Same 3 states, regime-dependent tables | No complexity increase |
-
----
-
-## Testing Strategy
-
-### Unit Tests (All mock-based, no DB required)
-
-For each modified component:
-
-1. **OddsBandFilter**: Test with various exclusion ranges, edge cases (empty, overlapping, single range)
-2. **StakeCalculator.apply_ev_scaling()**: Test EV mapping boundaries (min EV, max EV, out of range)
-3. **RacePredictor.get_win_candidates()**: Test conformal confidence filter, verify candidates excluded below threshold
-4. **DrawdownController**: Test regime-dependent multiplier selection
-5. **MetaSwitcher._default_params()**: Verify `betting_enabled=False` for COLLAPSED, `min_conformal_confidence` values
-
-### Integration Test (Full backtest)
-
-Run `scripts/run_backtest.py --years 2024` with:
-- Baseline (current params) -> record ROI, bet count, max DD
-- Each new filter enabled individually -> measure delta
-- All filters + sizing enabled -> compare to baseline
-- Parameter sweep -> find optimal combination
-
----
-
-## Files to Create/Modify
-
-### New Files
-
-| File | Purpose |
-|------|---------|
-| `src/betting/odds_band_filter.py` | Odds band exclusion filter |
-
-### Modified Files
-
-| File | Changes |
-|------|---------|
-| `src/betting/stake_calculator.py` | Add `apply_ev_scaling()` method; accept fractional_kelly/race_exposure_cap as init params |
-| `src/betting/drawdown_controller.py` | Add regime-aware multiplier table selection; bankroll-proportional base unit |
-| `src/betting/meta_switcher.py` | Add `betting_enabled`, `min_conformal_confidence`, `fractional_kelly`, `race_exposure_cap` to params |
-| `src/betting/__init__.py` | Export `OddsBandFilter` |
-| `src/backtest/race_predictor.py` | Accept `OddsBandFilter`; add conformal filter in `get_win_candidates()` / `get_place_candidates()`; wire EV scaling in `select_bets()` |
-| `src/backtest/engine.py` | Add `betting_enabled` guard; pass `OddsBandFilter` to `RacePredictor` |
-| `tests/test_odds_band_filter.py` | New test file |
-| `tests/test_stake_calculator.py` | New test for `apply_ev_scaling()` |
-
----
+| Concern | At current scale (~9K single-model bets/year) | At target (100+ ensemble bets/year) | At high volume (10K+ ensemble bets/year) |
+|---------|-----------------------------------------------|--------------------------------------|------------------------------------------|
+| WinSelectionGate retraining | ~30 seconds (100+ features, 200+ races) | Same -- retraining is one-time | May need subsampling for larger datasets |
+| OddsBandFilter calibration | O(n) single pass over bet_history | Same -- negligible | Same |
+| Optuna 100 trials x 2 folds | ~200 backtests (~57 min each = ~190 hours total) | Same -- this is the bottleneck | Consider parallel Optuna with n_jobs>1 |
+| Strategy manifest verification | O(1) SHA256 hash | Same | Same |
 
 ## Sources
 
-- Direct code analysis of `src/betting/*.py`, `src/backtest/race_predictor.py`, `src/backtest/engine.py`, `src/models/win_selection_gate.py`, `src/models/regime_detector.py`, `src/models/robust_confidence_estimator.py`
-- Kelly criterion equivalence: `edge/(odds-1) = (p*odds-1)/(odds-1) = p - (1-p)/(odds-1)` -- standard identity
-- Confidence level: HIGH (all analysis based on direct code reading, no external dependencies)
+- Code analysis: `src/models/stacked_ensemble.py` -- ensemble predict/produce interface, K-fold OOF generation
+- Code analysis: `src/models/win_selection_gate.py` -- OOF gate training, walk-forward threshold search, quantile binning
+- Code analysis: `src/backtest/race_predictor.py` -- get_win_candidates() filter chain, EV_lower hardcoded threshold
+- Code analysis: `src/backtest/engine.py` -- BacktestEngine.run() race loop with filter pipeline
+- Code analysis: `src/betting/odds_band_filter.py` -- calibrate/filter interface
+- Code analysis: `src/tuning/strategy_optimizer.py` -- Optuna parameter search, ensemble model loading
+- Code analysis: `src/db/model_loader.py` -- ensemble model loading, gate model loading, _load_hit_model
+- Code analysis: `src/backtest/parameter_freeze_protocol.py` -- manifest freeze/verify
+- Code analysis: `src/models/regime_detector.py` -- regime params independent of model type
+- Code analysis: `src/betting/drawdown_controller.py` -- DD control independent of model type
+- Code analysis: `.planning/phases/11-bet-selection-filters/11-RESEARCH.md` -- Phase 11 architecture decisions
+- Code analysis: `.planning/PROJECT.md` -- v1.4 milestone context (7 bets/year problem, 3,594 EV_lower exclusions)
