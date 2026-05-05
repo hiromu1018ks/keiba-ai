@@ -62,6 +62,8 @@ class DrawdownController:
     """
 
     def __init__(self, peak_bankroll: float, cfg: DDConfig | None = None) -> None:
+        if peak_bankroll <= 0:
+            raise ValueError(f"peak_bankroll must be > 0, got {peak_bankroll}")
         self.cfg = cfg or DDConfig()
         self.peak_bankroll = peak_bankroll
         self._state = RecoveryState.NORMAL
