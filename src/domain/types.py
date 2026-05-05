@@ -23,7 +23,7 @@ class RecoveryState(str, Enum):
 
     NORMAL = "normal"
     REDUCED = "reduced"
-    RECOVERING = "recovering"
+    STOP = "stop"
 
 
 class RegimeState(str, Enum):

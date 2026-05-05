@@ -29,7 +29,7 @@ class TestEnums:
     def test_recovery_state_values(self):
         assert RecoveryState.NORMAL.value == "normal"
         assert RecoveryState.REDUCED.value == "reduced"
-        assert RecoveryState.RECOVERING.value == "recovering"
+        assert RecoveryState.STOP.value == "stop"
 
     def test_regime_state_values(self):
         assert RegimeState.AGGRESSIVE.value == "aggressive"
@@ -261,7 +261,6 @@ class TestDDState:
     def test_create_dd_state(self):
         state = DDState(
             current_dd=0.08,
-            rolling_roi=1.05,
             n_bets_eval=150,
             recovery_state=RecoveryState.NORMAL,
         )
