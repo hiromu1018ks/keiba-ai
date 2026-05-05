@@ -132,7 +132,7 @@ A群改善 (リーク修正・体重特徴量・休養期間) に続き、予測
 python scripts/run_backtest.py \
   --train-start 20210101 --train-end 20241231 \
   --test-start 20250101 --test-end 20251231 \
-  --betting-mode flat --ensemble
+  --betting-mode flat --ensemble --report
 
 # バックテストの出力ファイル:
 #   data/backtest/bt_{year}_horse_features.parquet — 全馬の特徴量+予測値 (乖離分析用)
@@ -243,7 +243,7 @@ python scripts/run_paper_trading.py --mode dry-run --date 2024-07-13
    ├── JockeyTrainerComboFeatures.compute() — 騎手-調教師コンビ実績
    └── BloodlineFeatures.compute()    — 血統特徴量
 
-4. AI推論 (TwoStageReturnModel)
+4. AI推論 (WinTwoStageModel / PlaceTwoStageModel)
    ├── Stage1 (能力モデル) — p_place_pred: 複勝的中確率
    ├── Stage2 (返還モデル) — e_return_place_pred: 的中時払戻予測
    └── EV = p_place_pred × e_return_place_pred
@@ -402,25 +402,25 @@ predict → 発走5分前にベット生成 (各レース25秒)
 
 ### 追加ファイル一覧
 
-| ファイル | 行数 | 役割 |
-|----------|------|------|
-| `src/paper_trading/config.py` | 50 | PaperTradingConfig 設定クラス |
-| `src/paper_trading/predictor.py` | 179 | setup/predict_race オーケストレーション |
-| `src/paper_trading/reconciler.py` | 147 | 冪等性保証のベット確定処理 |
-| `src/paper_trading/watcher.py` | 141 | レース時刻待機 + リトライロジック |
-| `src/paper_trading/report.py` | 156 | HTMLレポート生成（Jinja2） |
-| `src/backtest/race_predictor.py` | 185 | BacktestEngineと共用の推論パイプライン |
-| `src/db/model_loader.py` | 177 | MLflow → TrainedModelsV5 復元 |
-| `src/db/everydb2_queries.py` | 160 | EveryDB2 PostgreSQL クエリラッパー |
-| `src/monitoring/notifier.py` | +57 | Slack通知機能（追加） |
-| `src/pipelines/training_pipeline.py` | +75 | MLflow ログ拡張（追加） |
-| `scripts/run_paper_trading.py` | 393 | CLI エントリーポイント |
-| `src/features/form_cycle_features.py` | 52 | フォームサイクル特徴量 (好調/不調トレンド) |
-| `src/features/jockey_trainer_combo.py` | 80 | 騎手-調教師コンビ実績特徴量 |
-| `src/models/stacked_ensemble.py` | 155 | スタックド・アンサンブル (LGBM+XGB+CB→Ridge) |
-| `src/tuning/optuna_tuner.py` | 85 | Optunaハイパーパラメータチューナー |
-| `src/tuning/__init__.py` | 0 | パッケージ初期化 |
-| `scripts/run_tuning.py` | 65 | Optunaチューニング CLI |
+| ファイル | 役割 |
+|----------|------|
+| `src/paper_trading/config.py` | PaperTradingConfig 設定クラス |
+| `src/paper_trading/predictor.py` | setup/predict_race オーケストレーション |
+| `src/paper_trading/reconciler.py` | 冪等性保証のベット確定処理 |
+| `src/paper_trading/watcher.py` | レース時刻待機 + リトライロジック |
+| `src/paper_trading/report.py` | HTMLレポート生成（Jinja2） |
+| `src/backtest/race_predictor.py` | BacktestEngineと共用の推論パイプライン |
+| `src/db/model_loader.py` | MLflow → TrainedModelsV5 復元 |
+| `src/db/everydb2_queries.py` | EveryDB2 PostgreSQL クエリラッパー |
+| `src/monitoring/notifier.py` | Slack通知機能 |
+| `src/pipelines/training_pipeline.py` | MLflow ログ拡張 |
+| `scripts/run_paper_trading.py` | CLI エントリーポイント |
+| `src/features/form_cycle_features.py` | フォームサイクル特徴量 (好調/不調トレンド) |
+| `src/features/jockey_trainer_combo.py` | 騎手-調教師コンビ実績特徴量 |
+| `src/models/stacked_ensemble.py` | スタックド・アンサンブル (LGBM+XGB+CB→Ridge) |
+| `src/tuning/optuna_tuner.py` | Optunaハイパーパラメータチューナー |
+| `src/tuning/__init__.py` | パッケージ初期化 |
+| `scripts/run_tuning.py` | Optunaチューニング CLI |
 
 ## ドキュメントマップ
 
