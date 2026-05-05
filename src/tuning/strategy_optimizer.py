@@ -141,13 +141,11 @@ class StrategyOptimizer:
         )
 
         # 2. RegimeDetector override (Plan 02成果)
+        # 既存の学習済みRegimeDetectorのoverride_paramsのみ更新する。
+        # 新規インスタンスで置き換えるとtrain()未呼び出しでAttributeErrorが発生する。
         regime_overrides = strategy_config.get("regime_overrides")
         if regime_overrides:
-            from models.regime_detector import RegimeDetector
-
-            models.regime_detector = RegimeDetector(
-                override_params=regime_overrides,
-            )
+            models.regime_detector._override_params = regime_overrides
 
         # 3. BacktestEngine構築 (strategy_params注入)
         engine = BacktestEngine(
