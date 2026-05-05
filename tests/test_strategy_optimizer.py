@@ -244,7 +244,7 @@ class TestRunSingleBacktest:
             assert result["n_bets"] == 5000
 
     def test_injects_regime_overrides(self, optimizer: StrategyOptimizer) -> None:
-        """regime_overridesがある場合RegimeDetectorを上書き"""
+        """regime_overridesがある場合、既存のRegimeDetectorの_override_paramsを更新"""
         mock_models = MagicMock()
         mock_info = MagicMock()
         mock_result = MagicMock()
@@ -255,8 +255,7 @@ class TestRunSingleBacktest:
         mock_result.max_drawdown = 0.10
 
         with patch("db.model_loader.ModelLoader") as MockLoader, \
-             patch("backtest.engine.BacktestEngine") as MockEngine, \
-             patch("models.regime_detector.RegimeDetector") as MockRD:
+             patch("backtest.engine.BacktestEngine") as MockEngine:
             MockLoader.return_value.load_from_dir.return_value = (mock_models, mock_info)
             MockEngine.return_value.run.return_value = mock_result
 
@@ -269,8 +268,5 @@ class TestRunSingleBacktest:
             })
             optimizer._run_single_backtest(config, "2024-01-01", "2024-12-31")
 
-            # RegimeDetectorがoverride_params付きで構築されたこと
-            MockRD.assert_called_once()
-            call_kwargs = MockRD.call_args.kwargs
-            assert "override_params" in call_kwargs
-            assert call_kwargs["override_params"]["aggressive"]["fractional_kelly"] == 0.6
+            # 既存のRegimeDetectorの_override_paramsが更新されたこと
+            assert mock_models.regime_detector._override_params["aggressive"]["fractional_kelly"] == 0.6
