@@ -2,9 +2,9 @@
 gsd_state_version: 1.0
 milestone: v1.4
 milestone_name: Ensemble Filter Recalibration
-status: roadmap_created
-last_updated: "2026-05-05T19:00:00Z"
-last_activity: 2026-05-05 — Roadmap created for v1.4
+status: phase_context_gathered
+last_updated: "2026-05-06T00:00:00Z"
+last_activity: 2026-05-06 — Phase 14 context gathered
 progress:
   total_phases: 5
   completed_phases: 0
@@ -26,8 +26,8 @@ See: .planning/PROJECT.md (updated 2026-05-05)
 
 Phase: 14 of 18 (Gate Recalibration)
 Plan: 0 of TBD in current phase
-Status: Roadmap created — ready to plan Phase 14
-Last activity: 2026-05-05 — Roadmap created for v1.4 (5 phases, 12 requirements mapped)
+Status: Phase 14 context gathered — ready to plan
+Last activity: 2026-05-06 — Phase 14 context gathered (3 areas discussed)
 
 Progress: [            ] 0%
 
@@ -62,6 +62,9 @@ Recent decisions affecting current work:
 - **EV_lower dynamic threshold starting value:** Data-dependent, research recommends 25th percentile of positive-edge ensemble OOF winners
 - **Optuna fold count:** Must be 4+ (not 2) to prevent overfitting with 14 free parameters
 - **Look-ahead bias fix:** strategy_optimizer.py must use default params for training_bet_history generation
+- **Drift diagnostics integrated in pipeline:** Pipeline-integrated ks_2samp/wasserstein_distance with JSON+console output (Phase 14 D-01 to D-04)
+- **use_ensemble propagation test:** Single integration test with mocks, True path only (Phase 14 D-05 to D-07)
+- **Gate retraining verification:** Unit test + pipeline assertion for edge value differences (Phase 14 D-08)
 
 ### Pending Todos
 
@@ -89,6 +92,6 @@ Items acknowledged and deferred at milestone close:
 
 ## Session Continuity
 
-Last session: 2026-05-05
-Stopped at: Roadmap created for v1.4 — ready to plan Phase 14
-Resume file: None
+Last session: 2026-05-06
+Stopped at: Phase 14 context gathered — ready to plan
+Resume file: .planning/phases/14-gate-recalibration/14-CONTEXT.md
