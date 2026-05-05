@@ -343,6 +343,7 @@ class BacktestEngine:
         betting_mode: str = "flat",
         diag_prefix: str = "bt",
         betting_target: str = "win",
+        strategy_params: dict[str, Any] | None = None,
     ) -> None:
         if betting_mode not in ("flat", "kelly"):
             raise ValueError(f"betting_mode must be 'flat' or 'kelly', got '{betting_mode}'")
@@ -354,6 +355,7 @@ class BacktestEngine:
         self.betting_mode = betting_mode
         self.diag_prefix = diag_prefix
         self.betting_target = betting_target
+        self.strategy_params = strategy_params
 
         # Phase 11: Bet selection filters
         self._odds_band_filter: OddsBandFilter | None = None
@@ -361,13 +363,29 @@ class BacktestEngine:
             self._odds_band_filter = OddsBandFilter()
 
         if betting_mode == "kelly":
-            from betting.drawdown_controller import DrawdownController
+            from betting.drawdown_controller import DDConfig, DrawdownController
             from betting.stake_calculator import StakeCalculator
+
+            if strategy_params is not None:
+                # Optuna最適化済みパラメータで注入
+                dd_cfg = strategy_params.get("dd_config", DDConfig())
+                stake_calc = StakeCalculator(
+                    fractional_kelly=strategy_params.get("fractional_kelly", 0.5),
+                    target_ev=strategy_params.get("target_ev", 1.10),
+                    max_scale=strategy_params.get("max_scale", 2.0),
+                )
+                dd_ctrl = DrawdownController(
+                    peak_bankroll=initial_bankroll,
+                    cfg=dd_cfg,
+                )
+            else:
+                stake_calc = StakeCalculator()
+                dd_ctrl = DrawdownController(peak_bankroll=initial_bankroll)
 
             self._race_predictor = RacePredictor(
                 models,
-                stake_calculator=StakeCalculator(),
-                dd_controller=DrawdownController(peak_bankroll=initial_bankroll),
+                stake_calculator=stake_calc,
+                dd_controller=dd_ctrl,
             )
         else:
             self._race_predictor = RacePredictor(models)

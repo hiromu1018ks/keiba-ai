@@ -85,6 +85,7 @@ class DrawdownController:
         if target != self._state:
             # ヒステリシス: 最低滞在レース数未満なら遷移しない
             if self._races_in_state < self.cfg.min_stay_races:
+                self._races_in_state += 1
                 return
             # 段階的リカバリ: STOP -> NORMAL への即時遷移を禁止
             if self._state == RecoveryState.STOP and target == RecoveryState.NORMAL:
