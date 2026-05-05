@@ -61,8 +61,14 @@ class RegimeDetector:
         "field_size_mean",
     ]
 
-    def __init__(self, cfg: RegimeConfig | None = None) -> None:
+    def __init__(
+        self,
+        cfg: RegimeConfig | None = None,
+        override_params: dict[str, dict[str, float]] | None = None,
+    ) -> None:
         self.cfg = cfg or RegimeConfig()
+        # override_params: {"aggressive": {"fractional_kelly": 0.6, ...}, ...}
+        self._override_params: dict[str, dict[str, float]] = override_params or {}
         self._current_regime: RegimeState = RegimeState.CONSERVATIVE
         self._regime_counter: int = 0
         self._transition_hysteresis: int = 5
@@ -183,7 +189,17 @@ class RegimeDetector:
         return self._current_regime
 
     def get_strategy_params(self, regime: RegimeState) -> dict[str, object]:
-        """レジームに応じた戦略パラメータを返す"""
+        """レジームに応じた戦略パラメータを返す (override_params 上書き付き)"""
+        params = self._get_base_params(regime)
+        regime_key = regime.value  # "aggressive", "conservative", "collapsed"
+        if regime_key in self._override_params:
+            for key in ("fractional_kelly", "ev_threshold", "edge_threshold"):
+                if key in self._override_params[regime_key]:
+                    params[key] = self._override_params[regime_key][key]
+        return params
+
+    def _get_base_params(self, regime: RegimeState) -> dict[str, object]:
+        """レジームに応じたハードコード戦略パラメータ (ベースライン)"""
         if regime == RegimeState.AGGRESSIVE:
             return {
                 "ev_threshold": 1.10,
