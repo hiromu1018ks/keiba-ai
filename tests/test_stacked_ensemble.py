@@ -61,6 +61,33 @@ class TestStackedEnsemble:
         assert ensemble.best_iteration == 0  # アンサンブルでは使用しない
 
 
+    def test_encode_cats_categorical_fillna(self):
+        """Categorical列の_encode_catsで未知カテゴリが-1になる (TypeError回帰)"""
+        ensemble = StackedEnsemble(cat_cols=["color"])
+        ensemble._cat_codes = {"color": {"red": 0, "blue": 1, "green": 2}}
+
+        X = pd.DataFrame({
+            "color": pd.Categorical(["red", "blue", "green", "red", "yellow"]),
+            "f1": [1.0, 2.0, 3.0, 4.0, 5.0],
+        })
+
+        result = ensemble._encode_cats(X)
+        assert result["color"].tolist() == [0.0, 1.0, 2.0, 0.0, -1.0]
+
+    def test_encode_cats_categorical_with_nan(self):
+        """Categorical列のNaN値が-1になる"""
+        ensemble = StackedEnsemble(cat_cols=["color"])
+        ensemble._cat_codes = {"color": {"red": 0, "blue": 1}}
+
+        X = pd.DataFrame({
+            "color": pd.Categorical(["red", None, "blue", None]),
+            "f1": [1.0, 2.0, 3.0, 4.0],
+        })
+
+        result = ensemble._encode_cats(X)
+        assert result["color"].tolist() == [0.0, -1.0, 1.0, -1.0]
+
+
 class TestOptunaTuning:
     """Task 1: Optuna HP最適化 + Early Stopping + 特徴量サブセット"""
 

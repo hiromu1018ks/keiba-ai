@@ -134,7 +134,7 @@ class StackedEnsemble:
         for col in self.cat_cols:
             if col in X_out.columns and col in self._cat_codes:
                 codes = self._cat_codes[col]
-                X_out[col] = X_out[col].map(codes).fillna(-1).astype(float)
+                X_out[col] = pd.to_numeric(X_out[col].map(codes), errors="coerce").fillna(-1)
             elif col in X_out.columns and X_out[col].dtype.name == "category":
                 X_out[col] = X_out[col].cat.codes.astype(float)
         return X_out
