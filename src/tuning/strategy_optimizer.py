@@ -15,6 +15,7 @@ import numpy as np
 import optuna
 from optuna.pruners import MedianPruner
 from optuna.samplers import TPESampler
+from optuna.trial import TrialState
 
 logger = logging.getLogger(__name__)
 
@@ -83,10 +84,16 @@ class StrategyOptimizer:
         """Optuna params -> BacktestEngine injection用dictに変換"""
         from betting.drawdown_controller import DDConfig
 
+        # T-13-06: dd_threshold_2 > dd_threshold_1 を保証 (DDConfig.__post_init__ 制約)
+        dd_t1 = params["dd_threshold_1"]
+        dd_t2 = params["dd_threshold_2"]
+        if dd_t2 <= dd_t1:
+            dd_t2 = dd_t1 + 0.01
+
         dd_config = DDConfig(
             rolling_window=params["rolling_window"],
-            dd_threshold_1=params["dd_threshold_1"],
-            dd_threshold_2=params["dd_threshold_2"],
+            dd_threshold_1=dd_t1,
+            dd_threshold_2=dd_t2,
             multiplier_reduced=params["multiplier_reduced"],
             min_stay_races=params["min_stay_races"],
         )
@@ -227,7 +234,7 @@ class StrategyOptimizer:
             "best_value": study.best_value,
             "n_trials": len(study.trials),
             "n_pruned": sum(
-                1 for t in study.trials if t.state == optuna.TrialState.PRUNED
+                1 for t in study.trials if t.state == TrialState.PRUNED
             ),
         }
 
