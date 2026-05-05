@@ -78,6 +78,49 @@
 
 ---
 
+## Milestone: v1.3 — Betting Strategy Optimization
+
+**Shipped:** 2026-05-05
+**Phases:** 3 | **Plans:** 7 | **Sessions:** ~2
+
+### What Was Built
+- OddsBandFilter (ROI<100%バンド除外) + EV_lower >= 1.0 フィルター + COLLAPSED regime skip
+- StakeCalculator コンストラクタ注入 + apply_ev_scaling() + レジーム別Kelly分数注入
+- DD再設計: ROI依存を排除したDD%のみ3段階制御 + DDConfig dataclass + ヒステリシス
+- RegimeDetector override_params外部化 + MetaSwitcher値乖離解消
+- ParameterFreezeProtocol: JSON manifest + SHA256改ざん検知
+- StrategyOptimizer: Optuna TPE 14次元最適化 + 軽量Walk-forward 2fold + CLI
+
+### What Worked
+- Phase 11→12→13の直列依存がデータフロー(フィルター→サイジング→チューニング)を明確にした
+- DDConfig dataclass化がDD制御のテスタビリティを劇的に向上(全パラメータ外部注入)
+- ヒステリシス付き状態機械がDD制御の安定性を担保(発振防止)
+- SHA256 manifestがルックアヘッドバイアス防止を機械的に保証
+
+### What Was Inefficient
+- REQUIREMENTS.mdのチェック更新が実装と同期していなかった(SUMMARY.mdでは完了だがREQUIREMENTS.md未更新)
+- Optuna 4.x互換性問題(TrialState importパス変更)にテスト実行時まで気づかなかった
+- テスト実行中に3つのバグを発見(Optuna import, DD閾値逆転, mock patch paths)
+
+### Patterns Established
+- コンストラクタ注入パターン: fractional_kelly/DDConfig/override_params 全て__init__で外部注入可能
+- フィルター適用順序: COLLAPSED skip (race-level) → EV filter (candidate-level) → OddsBandFilter (candidate-level)
+- JSON manifest + SHA256: sort_keys=True + indent=2 でdeterministic保証
+- Lazy import pattern: _run_single_backtest内でimport(model_loader依存分離)
+
+### Key Lessons
+1. Optuna 4.xでは `from optuna.trial import TrialState` を使う(`optuna.TrialState`は4.xで非公開)
+2. 独立範囲のサンプラーが閾値逆転を生成する可能性あり → _build_strategy_config内で補正が必要
+3. テストモックパスはlazy importの実際のソースモジュールにパッチする(モジュール属性に非依存)
+4. DD制御は的中率環境に合わせて設計する(10%的中率ではROIはノイズすぎる)
+
+### Cost Observations
+- Model mix: ~40% opus, ~40% sonnet, ~20% haiku
+- Sessions: ~2
+- Notable: Phase 13が最長(26分、3 plans)、Phase 12が最短(5分、2 plans)
+
+---
+
 ## Cross-Milestone Trends
 
 ### Process Evolution
@@ -86,6 +129,8 @@
 |-----------|----------|--------|------------|
 | v1.0 | ~3 | 4 | GSD workflow導入、TDD gate確立 |
 | v1.1 | ~2 | 3 | Optuna導入、post-model features確立 |
+| v1.2 | ~1 | 3 | バックテストパイプライン高速化 |
+| v1.3 | ~2 | 3 | ベット戦略最適化、コンストラクタ注入パターン確立 |
 
 ### Cumulative Quality
 
@@ -93,9 +138,11 @@
 |-----------|-------|----------|------------|
 | v1.0 | ~800 | mock-based | ~19,000 |
 | v1.1 | 1,113 | mock-based | ~20,773 |
+| v1.3 | 1,200+ | mock-based | ~18,820 |
 
 ### Top Lessons (Verified Across Milestones)
 
-1. TDD RED/GREEN gateは品質の最強の味方 — 全12プランで一貫して適用
-2. テストモックパスの不一致が両マイルストーンで発生 — ローカルimportに直接パッチするパターンを確立
-3. 自動deviation修正ルール(Rule 1-3)が2マイルストーン合計10件のバグを検出・修正
+1. TDD RED/GREEN gateは品質の最強の味方 — 全24プランで一貫して適用
+2. テストモックパスの不一致が複数マイルストーンで発生 — ローカルimportに直接パッチするパターンを確立
+3. 自動deviation修正ルール(Rule 1-3)が4マイルストーン合計14件のバグを検出・修正
+4. コンストラクタ注入パターンがテスタビリティを劇的に向上 — Optuna最適化の前提となる

@@ -122,25 +122,13 @@ Plans:
 
 </details>
 
-### ✅ v1.3 Betting Strategy Optimization (Completed 2026-05-05)
-
-**Milestone Goal:** バックテストROI 91.6% → 100%超えを達成するため、ベット選択の厳格化とステークサイジング最適化を実装する
-
-- [x] **Phase 11: Bet Selection Filters** - Conformal信頼区間・レジームスキップ・オッズバンド除外でベット対象を厳格化
-- [x] **Phase 12: Stake Sizing Enhancement** - レジーム別Kelly分数とEV比例乗算器で賭け金を最適化 (2026-05-05)
-- [x] **Phase 13: Risk Calibration & Parameter Optimization** - WIN向けDD調整 + パラメータ凍結 + Optuna最適化 (2026-05-05)
-
-## Phase Details
+<details>
+<summary>✅ v1.3 Betting Strategy Optimization (Phases 11-13) — SHIPPED 2026-05-05</summary>
 
 ### Phase 11: Bet Selection Filters
 **Goal**: 低信頼ベット・不安定レジーム・赤字オッズバンドを自動除外し、バックテストのベット品質が向上する
 **Depends on**: Phase 10 (v1.2 complete)
 **Requirements**: BSEL-01, BSEL-02, BSEL-03
-**Success Criteria** (what must be TRUE):
-  1. バックテスト実行時、EV_lower_win_corrected < 1.0 のベットが自動除外され、除外件数がログ/レポートに出力される (BSEL-01)
-  2. RegimeDetectorがCOLLAPSEDと判定したレースでベット数が0になり、スキップレース数がレポートに記録される (BSEL-02)
-  3. 過去バックテストROI分析で赤字のオッズバンドに該当するベットがOddsBandFilterで除外され、除外バンド・件数がレポートに出力される (BSEL-03)
-  4. 全フィルター適用後の残存ベット数が年間1,000件以上を維持する（フィルター過剰除外のガード）
 **Plans**: 2 plans
 
 Plans:
@@ -151,10 +139,6 @@ Plans:
 **Goal**: レジーム状態に応じたKelly分数とEV比例乗算器により、高確信ベットに重点配分された賭け金が算出される
 **Depends on**: Phase 11
 **Requirements**: SIZE-01, SIZE-02
-**Success Criteria** (what must be TRUE):
-  1. レジーム状態別にKelly分数が異なり、AGGRESSIVE > CONSERVATIVE > COLLAPSED(=0)の順で賭け金が計算される (SIZE-01)
-  2. 高EVベットの賭け金にEV比例乗算器(min(ev/target_ev, max_scale))が適用され、同一レジーム内でEVが高いほど賭け金が大きくなる (SIZE-02)
-  3. フィルター+サイジング変更後のバックテストROIがベースライン(89.0%)を上回る
 **Plans**: 2 plans
 
 Plans:
@@ -165,10 +149,6 @@ Plans:
 **Goal**: WIN向中率10%に最適化されたDD制御が動作し、ルックアヘッドバイアスを防いだ上で全戦略パラメータが最適化される
 **Depends on**: Phase 12
 **Requirements**: RISK-01, VAL-01, VAL-02
-**Success Criteria** (what must be TRUE):
-  1. DrawdownControllerのローリングウィンドウが400+に拡張され、WIN的中率10%環境でDD乗数がNORMAL/REDUCED/STOPを適切に遷移する (RISK-01)
-  2. ParameterFreezeProtocolが戦略パラメータ（Kelly分数・EV閾値・DD閾値・オッズバンド）を記録・固定し、最適化後のテスト期間でパラメータ変更を検出・警告する (VAL-01)
-  3. Optuna TPEで全戦略パラメータの同時最適化が実行され、最適設定のバックテストROIがベースライン(89.0%)を上回る (VAL-02)
 **Plans**: 3 plans
 
 Plans:
@@ -176,10 +156,9 @@ Plans:
 - [x] 13-02: RegimeDetector外部化 + ParameterFreezeProtocol JSON manifest (VAL-01)
 - [x] 13-03: StrategyOptimizer (Optuna TPE最適化・軽量WFループ・CLI) (VAL-02)
 
-## Progress
+</details>
 
-**Execution Order:**
-Phases execute in numeric order: 11 → 12 → 13
+## Progress
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|

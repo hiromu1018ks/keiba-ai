@@ -44,3 +44,29 @@
 
 - `.planning/milestones/v1.1-ROADMAP.md`
 - `.planning/milestones/v1.1-REQUIREMENTS.md`
+
+## v1.3 Betting Strategy Optimization — 2026-05-05
+
+**Status:** ✅ Shipped
+**Phases:** 3 (11-13) | **Plans:** 7 | **LOC:** ~18,820
+
+### Key Accomplishments
+
+1. OddsBandFilter + EV_lower フィルター — 赤字オッズバンド除外とEV下限フィルターでベット品質を向上
+2. COLLAPSED regime skip — 不安定市場でのベット完全スキップ + 除外カウンター統計
+3. Kelly基準レジーム別サイジング — AGGRESSIVE/CONSERVATIVE/COLLAPSED別fractional_kelly注入
+4. DD再設計 (DD%のみ3段階制御) — ROI依存を排除しヒステリシス付き状態機械に再設計
+5. Optuna TPE 14次元最適化 — 全戦略パラメータの同時最適化 + Walk-forward 2fold評価
+6. ParameterFreezeProtocol — JSON manifest + SHA256改ざん検知でルックアヘッドバイアス防止
+
+### Known Deferred Items
+
+- バックテストROI検証(run_backtest.py実行、PostgreSQL環境必要)
+- Look-ahead bias risk in parameter optimization — walk-forward validation required
+- Regime detector oscillation risk — hysteresis counter may need adjustment
+- PostgreSQL環境が必要な検証が複数残存(WF検証、バックテスト)
+
+### Archive
+
+- `.planning/milestones/v1.3-ROADMAP.md`
+- `.planning/milestones/v1.3-REQUIREMENTS.md`
