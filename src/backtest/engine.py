@@ -64,7 +64,6 @@ class BacktestResult:
     total_roi: float = 0.0
     max_drawdown: float = 0.0
     final_bankroll: float = 0.0
-    monthly_returns: dict[str, float] = field(default_factory=dict)
     bet_history: list[dict[str, Any]] = field(default_factory=list)
     n_pre_post_odds_bets: int = 0   # 発走前オッズでベットした件数
     n_fallback_odds_bets: int = 0   # フォールバック（確定オッズ）でベットした件数
@@ -80,6 +79,28 @@ class BacktestResult:
     @property
     def profit(self) -> float:
         return self.total_return - self.total_stake
+
+    @property
+    def monthly_returns(self) -> dict[str, float]:
+        """bet_historyから月別ROIを集計して返す。"""
+        if not self.bet_history:
+            return {}
+        monthly: dict[str, list[float]] = {}
+        for b in self.bet_history:
+            date_str = b.get("race_date", "")
+            month_key = date_str[:7]  # "YYYY-MM"
+            if not month_key:
+                continue
+            if month_key not in monthly:
+                monthly[month_key] = [0.0, 0.0]  # [total_stake, total_return]
+            monthly[month_key][0] += b.get("stake", 0)
+            result_val = b.get("result", 0)
+            if result_val > 0:
+                monthly[month_key][1] += result_val
+        return {
+            k: (ret / stk if stk > 0 else 0.0)
+            for k, (stk, ret) in monthly.items()
+        }
 
     def summary(self) -> str:
         lines = [
@@ -624,7 +645,6 @@ class BacktestEngine:
         peak_bankroll = bankroll
         max_dd = 0.0
         bet_history: list[dict[str, Any]] = []
-        monthly_returns: dict[str, float] = {}
         n_pre_post_odds_bets = 0
         n_fallback_odds_bets = 0
 
@@ -1101,7 +1121,6 @@ class BacktestEngine:
             total_roi=total_return / total_stake if total_stake > 0 else 0.0,
             max_drawdown=max_dd,
             final_bankroll=bankroll,
-            monthly_returns=monthly_returns,
             bet_history=bet_history,
             n_pre_post_odds_bets=n_pre_post_odds_bets,
             n_fallback_odds_bets=n_fallback_odds_bets,
