@@ -18,7 +18,7 @@ class DDConfig:
     __post_init__ で閾値整合性を検証し、不正な設定値を拒否する。
     """
 
-    rolling_window: int = 400
+    rolling_window: int = 400  # reserved: 将来のローリングウィンドウDD追跡用 (現状未使用)
     dd_threshold_1: float = 0.10  # NORMAL -> REDUCED 境界
     dd_threshold_2: float = 0.20  # REDUCED -> STOP 境界
     multiplier_normal: float = 1.0
