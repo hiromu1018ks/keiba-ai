@@ -225,7 +225,8 @@ class TestOptimize:
 
 class TestRunSingleBacktest:
     def test_calls_model_loader(self, optimizer: StrategyOptimizer) -> None:
-        """_run_single_backtestがModelLoader.load_from_dirを呼ぶ"""
+        """_run_single_backtestがModelLoader.load_from_dirを呼び、
+        トレーニング期間バックテスト + テスト期間バックテストの2回Engineを構築する"""
         mock_models = MagicMock()
         mock_info = MagicMock()
         mock_result = MagicMock()
@@ -234,6 +235,7 @@ class TestRunSingleBacktest:
         mock_result.total_stake = 500000
         mock_result.total_return = 550000
         mock_result.max_drawdown = 0.15
+        mock_result.bet_history = [{"race_id": "1", "odds": 5.0, "result": 500, "stake": 100}]
 
         with patch("db.model_loader.ModelLoader") as MockLoader, \
              patch("backtest.engine.BacktestEngine") as MockEngine:
@@ -250,10 +252,18 @@ class TestRunSingleBacktest:
             result = optimizer._run_single_backtest(config, "2024-01-01", "2024-12-31")
 
             MockLoader.return_value.load_from_dir.assert_called_once()
-            MockEngine.assert_called_once()
-            # strategy_paramsがengineに渡されたこと
-            call_kwargs = MockEngine.call_args
-            assert call_kwargs.kwargs.get("strategy_params") is not None
+            # トレーニング期間用 + テスト期間用の2回BacktestEngineが構築される
+            assert MockEngine.call_count == 2
+
+            # テスト期間用のengine (2回目のcall) にstrategy_paramsが渡されたこと
+            test_engine_call = MockEngine.call_args_list[-1]
+            assert test_engine_call.kwargs.get("strategy_params") is not None
+
+            # 最後のrun()呼び出しにtraining_bet_historyが渡されたこと
+            last_run_call = MockEngine.return_value.run.call_args
+            assert "training_bet_history" in last_run_call.kwargs
+            assert last_run_call.kwargs["training_bet_history"] is not None
+
             assert result["roi"] == 1.10
             assert result["n_bets"] == 5000
 
@@ -267,6 +277,7 @@ class TestRunSingleBacktest:
         mock_result.total_stake = 200000
         mock_result.total_return = 210000
         mock_result.max_drawdown = 0.10
+        mock_result.bet_history = []
 
         with patch("db.model_loader.ModelLoader") as MockLoader, \
              patch("backtest.engine.BacktestEngine") as MockEngine:

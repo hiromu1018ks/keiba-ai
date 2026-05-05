@@ -15,6 +15,7 @@
     --betting-mode flat|kelly   (デフォルト: flat)
     --ensemble                  (アンサンブル有効化)
     --report                    (HTMLレポート + JSON + parquet 生成)
+    --strategy-manifest PATH    (Optuna最適化済み戦略パラメータJSON)
 """
 
 from __future__ import annotations
@@ -100,6 +101,12 @@ def build_parser() -> argparse.ArgumentParser:
         default=False,
         help="Enable pyinstrument profiling (outputs to data/profiles/)",
     )
+    parser.add_argument(
+        "--strategy-manifest",
+        type=str,
+        default=None,
+        help="Optuna最適化済み戦略パラメータ manifest JSON (parameter_freeze_protocol形式)",
+    )
     return parser
 
 
@@ -158,6 +165,120 @@ def _get_model_dir(base_dir: Path, test_year: int | None = None) -> Path:
         f"(test_year={test_year} の meta.json が存在しません。"
         f"先に --skip-train なしで実行してください。)"
     )
+
+
+def _load_strategy_params(manifest_path: str | None) -> dict[str, Any] | None:
+    """--strategy-manifest から戦略パラメータをロード。
+
+    Args:
+        manifest_path: manifest JSON ファイルパス (None の場合は None を返す)
+
+    Returns:
+        strategy_params dict、または None
+    """
+    if manifest_path is None:
+        return None
+
+    path = Path(manifest_path)
+    if not path.exists():
+        logger.warning("Strategy manifest が見つかりません: %s — デフォルトパラメータを使用", path)
+        return None
+
+    try:
+        from backtest.parameter_freeze_protocol import verify_strategy_manifest
+
+        params = verify_strategy_manifest(path)
+        logger.info("Strategy manifest ロード完了: %s (SHA256検証OK)", path)
+        return params
+    except (ValueError, FileNotFoundError) as e:
+        logger.warning("Strategy manifest 検証失敗: %s — デフォルトパラメータを使用", e)
+        return None
+
+
+def _build_strategy_config_from_manifest(
+    params: dict[str, Any],
+) -> dict[str, Any]:
+    """manifest params (Optuna best_params 形式) を BacktestEngine strategy_config に変換。
+
+    StrategyOptimizer._build_strategy_config と同じロジック。
+    """
+    from betting.drawdown_controller import DDConfig
+
+    # dd_threshold_2 > dd_threshold_1 を保証
+    dd_t1 = params.get("dd_threshold_1", 0.10)
+    dd_t2 = params.get("dd_threshold_2", 0.25)
+    if dd_t2 <= dd_t1:
+        dd_t2 = dd_t1 + 0.01
+
+    dd_config = DDConfig(
+        rolling_window=params.get("rolling_window", 400),
+        dd_threshold_1=dd_t1,
+        dd_threshold_2=dd_t2,
+        multiplier_reduced=params.get("multiplier_reduced", 0.5),
+        min_stay_races=params.get("min_stay_races", 15),
+    )
+
+    regime_overrides = {}
+    for regime in ("aggressive", "conservative"):
+        regime_overrides[regime] = {
+            "fractional_kelly": params.get(f"fk_{regime}", 0.5),
+            "ev_threshold": params.get(f"ev_{regime}", 1.10),
+            "edge_threshold": params.get(f"edge_{regime}", 0.05),
+        }
+
+    return {
+        "dd_config": dd_config,
+        "regime_overrides": regime_overrides,
+        "fractional_kelly": params.get("fk_aggressive", 0.5),
+        "target_ev": params.get("target_ev", 1.10),
+        "max_scale": params.get("max_scale", 2.0),
+        "roi_threshold": params.get("roi_threshold", 1.0),
+    }
+
+
+def _collect_training_bet_history(
+    models: Any,
+    store: Any,
+    train_start: str,
+    train_end: str,
+    betting_mode: str,
+    betting_target: str,
+    strategy_params: dict[str, Any] | None,
+) -> list[dict[str, Any]]:
+    """トレーニング期間のバックテストを実行し、OddsBandFilter キャリブレーション用の
+    bet_history を収集する。
+
+    Args:
+        models: 学習済みモデル
+        store: ParquetStore
+        train_start: 学習開始日 (YYYY-MM-DD)
+        train_end: 学習終了日 (YYYY-MM-DD)
+        betting_mode: ベッティングモード
+        betting_target: ベッティング対象
+        strategy_params: 戦略パラメータ (None の場合はデフォルト)
+
+    Returns:
+        bet_history list
+    """
+    from backtest.engine import BacktestEngine
+
+    logger.info("トレーニング期間バックテスト (OddsBandFilter キャリブレーション用): %s ~ %s",
+                train_start, train_end)
+    train_engine = BacktestEngine(
+        models=models,
+        store=store,
+        betting_mode=betting_mode,
+        diag_prefix="bt_train",
+        betting_target=betting_target,
+        strategy_params=strategy_params,
+    )
+    train_result = train_engine.run(train_start, train_end)
+    logger.info(
+        "トレーニング期間バックテスト完了: %d bets, ROI=%.1f%%",
+        train_result.total_bets,
+        train_result.total_roi * 100,
+    )
+    return train_result.bet_history
 
 
 def save_year_parquet(year: int, result: BacktestResult) -> None:
@@ -307,6 +428,11 @@ def _run_single_year(args: argparse.Namespace) -> None:
         logger.error("Parquetデータが見つかりません。先に run_etl.py を実行してください。")
         sys.exit(1)
 
+    # Strategy manifest ロード
+    strategy_params = _load_strategy_params(args.strategy_manifest)
+    if strategy_params is not None:
+        strategy_params = _build_strategy_config_from_manifest(strategy_params)
+
     # 学習 または キャッシュロード
     t0 = time.time()
     model_dir = Path("data/models-backtest")
@@ -337,6 +463,17 @@ def _run_single_year(args: argparse.Namespace) -> None:
         elapsed_train = time.time() - t0
         logger.info("学習完了 (%.0f秒)", elapsed_train)
 
+    # トレーニング期間 bet_history 収集 (OddsBandFilter キャリブレーション用)
+    training_bet_history = _collect_training_bet_history(
+        models=models,
+        store=store,
+        train_start=train_start,
+        train_end=train_end,
+        betting_mode=args.betting_mode,
+        betting_target=args.betting_target,
+        strategy_params=strategy_params,
+    )
+
     # バックテスト
     logger.info("=" * 50)
     logger.info("  テスト期間: %s ~ %s", test_start, test_end)
@@ -352,8 +489,9 @@ def _run_single_year(args: argparse.Namespace) -> None:
         betting_mode=args.betting_mode,
         diag_prefix=f"bt_{test_year}",
         betting_target=args.betting_target,
+        strategy_params=strategy_params,
     )
-    result = engine.run(test_start, test_end)
+    result = engine.run(test_start, test_end, training_bet_history=training_bet_history)
     elapsed_test = time.time() - t1
     logger.info("バックテスト完了 (%.0f秒)", elapsed_test)
 
@@ -421,6 +559,11 @@ def _run_multi_year(args: argparse.Namespace) -> None:
 
     logger.info("ParquetStore OK")
 
+    # Strategy manifest ロード
+    strategy_params = _load_strategy_params(args.strategy_manifest)
+    if strategy_params is not None:
+        strategy_params = _build_strategy_config_from_manifest(strategy_params)
+
     all_results: dict[int, Any] = {}
     all_metadata: dict[int, dict[str, str]] = {}
     base_model_dir = Path("data/models-backtest")
@@ -466,6 +609,17 @@ def _run_multi_year(args: argparse.Namespace) -> None:
                 continue
             elapsed_train = time.time() - t0
 
+        # トレーニング期間 bet_history 収集 (OddsBandFilter キャリブレーション用)
+        training_bet_history = _collect_training_bet_history(
+            models=models,
+            store=store,
+            train_start=train_start,
+            train_end=train_end,
+            betting_mode=args.betting_mode,
+            betting_target=args.betting_target,
+            strategy_params=strategy_params,
+        )
+
         # バックテスト
         t1 = time.time()
         try:
@@ -477,8 +631,9 @@ def _run_multi_year(args: argparse.Namespace) -> None:
                 betting_mode=args.betting_mode,
                 diag_prefix=f"bt_{test_year}",
                 betting_target=args.betting_target,
+                strategy_params=strategy_params,
             )
-            result = engine.run(test_start, test_end)
+            result = engine.run(test_start, test_end, training_bet_history=training_bet_history)
         except Exception as e:
             logger.error("%d年 テスト失敗: %s — スキップ", test_year, e)
             continue

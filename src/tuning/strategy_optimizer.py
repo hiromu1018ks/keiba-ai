@@ -147,7 +147,30 @@ class StrategyOptimizer:
         if regime_overrides:
             models.regime_detector._override_params = regime_overrides
 
-        # 3. BacktestEngine構築 (strategy_params注入)
+        # 3. トレーニング期間バックテスト (OddsBandFilter キャリブレーション用)
+        train_start = info.train_start
+        train_end = info.train_end
+        training_bet_history: list[dict[str, Any]] | None = None
+        try:
+            train_engine = BacktestEngine(
+                models=models,
+                initial_bankroll=self.initial_bankroll,
+                betting_mode="kelly",
+                diag_prefix=f"opt_train_fold{fold_idx}",
+                betting_target="win",
+                strategy_params=strategy_config,
+            )
+            train_result = train_engine.run(train_start, train_end)
+            training_bet_history = train_result.bet_history
+            logger.info(
+                "Fold %d: training-phase backtest completed (%d bets, ROI=%.1f%%)",
+                fold_idx, train_result.total_bets, train_result.total_roi * 100,
+            )
+        except Exception as e:
+            logger.warning("Fold %d: training-phase backtest failed: %s — skipping calibration",
+                           fold_idx, e)
+
+        # 4. BacktestEngine構築 (strategy_params注入)
         engine = BacktestEngine(
             models=models,
             initial_bankroll=self.initial_bankroll,
@@ -157,8 +180,8 @@ class StrategyOptimizer:
             strategy_params=strategy_config,
         )
 
-        # 4. バックテスト実行
-        result = engine.run(test_start, test_end)
+        # 5. バックテスト実行 (training_bet_history を OddsBandFilter キャリブレーションに使用)
+        result = engine.run(test_start, test_end, training_bet_history=training_bet_history)
 
         return {
             "roi": result.total_roi,
