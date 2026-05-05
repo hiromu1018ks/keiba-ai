@@ -111,31 +111,26 @@ pip install -e ".[dev]"
 Optuna Study (100 trials)
     |
     v
-StrategyOptimizer._suggest_params(trial) → params dict (~16 dims)
+StrategyOptimizer._suggest_params(trial) -> params dict (~16 dims)
     |
     v
-WalkForwardCV.run(start, end, strategy_params=params)
+StrategyOptimizer._run_single_backtest(strategy_config, test_start, test_end)
     |
-    +-- Fold 1: train → freeze → test(with params injected)
+    +-- ModelLoader.load_from_dir() -> TrainedModelsV5
+    +-- BacktestEngine(models, strategy_params=config) -> construct with injected params
+    |       |
+    |       +-- DDController(DDConfig from config)
+    |       +-- StakeCalculator(fractional_kelly, target_ev, max_scale from config)
+    |       +-- RegimeDetector(override_params from config)
     |       |
     |       v
-    |   BacktestEngine(models, params)
-    |       |
-    |       +-- WIN DDController(params_dd_win)
-    |       +-- PLACE DDController(params_dd_place)
-    |       +-- StakeCalculator(fractional_kelly, target_ev, max_scale)
-    |       +-- RegimeDetector(fractional_kelly, ev_threshold, edge_threshold per regime)
-    |       |
-    |       v
-    |   ROI + bet_count → objective score
-    |
-    +-- Fold 2: same flow
+    |   ROI + bet_count -> result dict
     |
     v
-Mean ROI (objective) → Optuna maximizes
+Mean ROI (objective) -> Optuna maximizes
     |
     v
-Best params → JSON manifest (SHA256 hash) → ParameterFreezeProtocol
+Best params -> JSON manifest (SHA256 hash) -> ParameterFreezeProtocol
 ```
 
 ### Recommended Project Structure
@@ -147,9 +142,9 @@ src/
 │   └── meta_switcher.py          # 値揃えのみ(最小変更)
 ├── models/
 │   ├── regime_detector.py        # 主要3パラメータ外部化
-│   └── walk_forward_cv.py        # 戦略パラメータ注入追加
+│   └── walk_forward_cv.py        # 変更なし(StrategyOptimizerは独自WFループ)
 ├── backtest/
-│   ├── engine.py                 # WIN/PLACE別DDController管理
+│   ├── engine.py                 # strategy_params対応 + WIN/PLACE別DDController管理
 │   ├── parameter_freeze_protocol.py  # JSON manifest追加
 │   └── race_predictor.py         # 変更なし(Phase 12完了)
 ├── tuning/
@@ -199,25 +194,37 @@ class DrawdownController:
         # bet_history は不要 (ROI計算用だったため)
 ```
 
-### Pattern 2: WalkForwardCV戦略パラメータ注入
+### Pattern 2: BacktestEngine strategy_params注入
 
-**What:** WalkForwardCV.run()にstrategy_params引数を追加し、各foldのBacktestEngineに注入
-**When to use:** Optuna目的関数内でWF評価する場合
+**What:** BacktestEngine.__init__()にstrategy_params引数を追加し、内部でDDConfig/StakeCalculator/RegimeDetectorを構築
+**When to use:** Optuna目的関数内でパラメータ注入済みengineを生成する場合
 
 ```python
-# walk_forward_cv.py: run()メソッド拡張
-def run(
+# engine.py: __init__()拡張
+def __init__(
     self,
-    start_date: str,
-    end_date: str,
-    strategy_params: dict[str, Any] | None = None,  # 追加
-) -> CVResult:
-    for fold in folds:
-        models = self.pipeline.run(fold.train_start, fold.train_end)
-        # 戦略パラメータを注入したengine生成
-        engine = self.backtest_engine_factory(models, strategy_params)
-        fold_result = engine.run(fold.test_start, fold.test_end)
-        ...
+    models: TrainedModelsV5,
+    initial_bankroll: float = 100_000,
+    store: ParquetStore | None = None,
+    betting_mode: str = "flat",
+    diag_prefix: str = "bt",
+    betting_target: str = "win",
+    strategy_params: dict[str, Any] | None = None,  # Plan 01で追加
+) -> None:
+    ...
+    if betting_mode == "kelly":
+        if strategy_params is not None:
+            # Optuna最適化済みパラメータで注入
+            dd_cfg = strategy_params.get("dd_config", DDConfig())
+            stake_calc = StakeCalculator(
+                fractional_kelly=strategy_params.get("fractional_kelly", 0.5),
+                target_ev=strategy_params.get("target_ev", 1.10),
+                max_scale=strategy_params.get("max_scale", 2.0),
+            )
+            dd_ctrl = DrawdownController(peak_bankroll=initial_bankroll, cfg=dd_cfg)
+        else:
+            stake_calc = StakeCalculator()
+            dd_ctrl = DrawdownController(peak_bankroll=initial_bankroll)
 ```
 
 ### Pattern 3: ParameterFreezeProtocol JSON Manifest拡張
@@ -258,6 +265,7 @@ def verify_strategy_manifest(path: Path) -> dict[str, Any]:
 - **Optuna最適化でrandom sampler使用:** 16次元空間にはTPEが必要。RandomSamplerでは100トライアルで十分な探索不可 [CITED: optuna docs - TPESampler]
 - **目的関数をROIのみにする:** 過度なフィルタリング→ベット数激減→統計的有意性喪失の危険。ベット数制約(年間1000件以上)必須 [VERIFIED: CONTEXT.md D-09]
 - **WalkForwardCVなしでOptuna評価:** ルックアヘッドバイアスが混入する。必ずWF枠組みで評価 [VERIFIED: STATE.md pending concern]
+- **WalkForwardCV自体を変更してStrategyOptimizerに対応:** WalkForwardCVはpipeline.run()が必須で変更リスクが高い。StrategyOptimizerは独自軽量WFループを実装しWalkForwardCVは変更しない [RESOLVED: Open Question 1]
 
 ## Don't Hand-Roll
 
@@ -268,8 +276,9 @@ def verify_strategy_manifest(path: Path) -> dict[str, Any]:
 | パラメータハッシュ | カスタムチェックサム | hashlib.sha256 | 既存PFPで実績あり。SHA256は暗号学的に安全 [VERIFIED: parameter_freeze_protocol.py line 98] |
 | 時系列CV分割 | カスタムfold生成 | WalkForwardCV.generate_folds() | 既存実装あり。train/test期間の正確な計算を保証 [VERIFIED: walk_forward_cv.py lines 84-128] |
 | JSON manifest | カスタムバイナリフォーマット | json + hashlib | 人間可読 + diff容易。CONTEXT.md D-13で決定済み |
+| モデルロード | カスタムローダー | ModelLoader.load_from_dir() | 既存実装あり。meta.json + LGB/JoblibファイルからTrainedModelsV5構築 [VERIFIED: model_loader.py] |
 
-**Key insight:** 既存のOptunaTuner、WalkForwardCV、ParameterFreezeProtocolは全て再利用・拡張可能。新規にゼロから構築する必要があるのはstrategy_optimizer.pyのみ。
+**Key insight:** 既存のOptunaTuner、ModelLoader、ParameterFreezeProtocolは全て再利用可能。WalkForwardCVは参照のみ(generate_foldsパターン)で、StrategyOptimizerは独自軽量WFループを実装する。新規にゼロから構築する必要があるのはstrategy_optimizer.pyのみ。
 
 ## Common Pitfalls
 
@@ -279,16 +288,16 @@ def verify_strategy_manifest(path: Path) -> dict[str, Any]:
 **How to avoid:** update()のシグネチャを`update(bankroll, bet_return)`から`update(bankroll)`に変更。テストはbet_returnに依存するROI計算をテストしているため、ROI関連テストは全て書き直し。DD%閾値ベースの新テストに置き換える
 **Warning signs:** 既存テストで`ctrl.update(bankroll, 0.5)`や`rolling_roi`への言及がある場合
 
-### Pitfall 2: WalkForwardCV注入時のBacktestEngine生成
-**What goes wrong:** WalkForwardCV.backtest_engine_factoryが`lambda models: BacktestEngine(models)`のシグネチャで、戦略パラメータを受け取れない
-**Why it happens:** 既存factoryはTrainedModelsV5のみを受け取る。戦略パラメータ注入にはfactoryシグネチャの変更が必要
-**How to avoid:** factoryを`Callable[[TrainedModelsV5, dict | None], BacktestEngine]`に拡張。後方互換のためstrategy_params=Noneをデフォルトにする
-**Warning signs:** factory内でStakeCalculator()やDrawdownController()をハードコード生成している箇所
+### Pitfall 2: BacktestEngine strategy_params注入シグネチャ
+**What goes wrong:** BacktestEngine.__init__にstrategy_paramsを追加しないと、StrategyOptimizerがパラメータ注入済みengineを生成できない
+**Why it happens:** 既存のkelly modeセクションはStakeCalculator()とDrawdownController()をデフォルト値でハードコード生成している
+**How to avoid:** engine.__init__にstrategy_params: dict[str, Any] | None = Noneを追加。strategy_paramsが提供された場合、DDConfig/StakeCalculator/RegimeDetectorをその値で構築する
+**Warning signs:** engine.pyのkelly modeセクションでstrategy_paramsを参照していない場合
 
 ### Pitfall 3: Optuna目的関数内での重いWF評価
 **What goes wrong:** 各トライアルでWF 2fold評価(各fold = 学習 + バックテスト)を実行すると、1トライアルあたり~4時間(Phase 12の記録より)。100トライアルで400時間
 **Why it happens:** WalkForwardCV.run()はpipeline.run()で学習も実行する。戦略パラメータ最適化では学習は不要(モデル固定)なのに毎回学習している
-**How to avoid:** strategy_optimizerでは学習済みモデルをロードしてバックテストのみ実行。WalkForwardCVのpipeline=Noneでfactoryのみ使用するパターン、あるいはStrategyOptimizer独自の軽量WFループを実装
+**How to avoid:** StrategyOptimizer独自の軽量WFループを実装。WalkForwardCV.generate_folds()のパターンを踏襲してfold定義を生成し、各foldでModelLoader.load_from_dir()で学習済みモデルをロード→BacktestEngineにstrategy_paramsを注入してバックテストのみ実行。WalkForwardCV自体は変更しない
 **Warning signs:** Optuna目的関数内でpipeline.run()を呼んでいる場合
 
 ### Pitfall 4: DrawdownState enumのRECOVERING→STOP変更の影響範囲
@@ -397,14 +406,26 @@ class StrategyOptimizer:
 
     def _objective(self, trial: optuna.Trial) -> float:
         params = self._suggest_params(trial)
+        strategy_config = self._build_strategy_config(params)
         # WalkForwardCV評価 (学習済みモデルでバックテストのみ)
-        wf_result = self._run_wf_backtest(params, trial)
-        roi = wf_result.mean_roi
-        n_bets = wf_result.total_bets
+        folds = self._generate_folds()
+        rois = []
+        total_bets = 0
+        for fold_idx, (test_start, test_end) in enumerate(folds):
+            result = self._run_single_backtest(
+                strategy_config, test_start, test_end, trial, fold_idx
+            )
+            rois.append(result.get("roi", 0.0))
+            total_bets += result.get("n_bets", 0)
+            if trial is not None:
+                trial.report(result.get("roi", 0.0), step=fold_idx)
+                if trial.should_prune():
+                    raise optuna.TrialPruned()
+        mean_roi = float(np.mean(rois)) if rois else 0.0
         # D-09: ベット数制約
-        if n_bets < self.min_bets:
+        if total_bets / max(len(folds), 1) < self.min_bets:
             return -1.0  # ペナルティ
-        return roi
+        return mean_roi
 
     def optimize(self, n_trials: int = 100) -> dict[str, Any]:
         sampler = TPESampler(seed=42)
@@ -422,35 +443,51 @@ class StrategyOptimizer:
         }
 ```
 
-### BacktestEngine WIN/PLACE別DDController管理
+### BacktestEngine strategy_params注入パターン
 ```python
-# Source: engine.py lines 363-371 の変更ポイント
-if betting_mode == "kelly":
-    from betting.drawdown_controller import DDConfig, DrawdownController
-    from betting.stake_calculator import StakeCalculator
+# Source: engine.py lines 338-371 の変更ポイント
+class BacktestEngine:
+    def __init__(
+        self,
+        models: TrainedModelsV5,
+        initial_bankroll: float = 100_000,
+        store: ParquetStore | None = None,
+        betting_mode: str = "flat",
+        diag_prefix: str = "bt",
+        betting_target: str = "win",
+        strategy_params: dict[str, Any] | None = None,  # Plan 01で追加
+    ) -> None:
+        ...
+        if betting_mode == "kelly":
+            from betting.drawdown_controller import DDConfig, DrawdownController
+            from betting.stake_calculator import StakeCalculator
 
-    # D-05: WIN用とPLACE用で別DDConfig
-    dd_cfg_win = strategy_params.get("dd_config_win") if strategy_params else None
-    dd_cfg_place = strategy_params.get("dd_config_place") if strategy_params else None
+            if strategy_params is not None:
+                # Optuna最適化済みパラメータで注入
+                dd_cfg = strategy_params.get("dd_config", DDConfig())
+                stake_calc = StakeCalculator(
+                    fractional_kelly=strategy_params.get("fractional_kelly", 0.5),
+                    target_ev=strategy_params.get("target_ev", 1.10),
+                    max_scale=strategy_params.get("max_scale", 2.0),
+                )
+                dd_ctrl = DrawdownController(
+                    peak_bankroll=initial_bankroll, cfg=dd_cfg,
+                )
+                # RegimeDetector override (Plan 02成果)
+                regime_overrides = strategy_params.get("regime_overrides")
+                if regime_overrides:
+                    models.regime_detector = RegimeDetector(
+                        override_params=regime_overrides,
+                    )
+            else:
+                stake_calc = StakeCalculator()
+                dd_ctrl = DrawdownController(peak_bankroll=initial_bankroll)
 
-    # 注: 現在の実装ではbetting_targetは"win"または"place"
-    # 両方同時にベットするモードはないため、実際は1つのDDControllerのみ生成
-    dd_cfg = dd_cfg_win if betting_target == "win" else dd_cfg_place
-    dd_controller = DrawdownController(
-        peak_bankroll=initial_bankroll,
-        cfg=dd_cfg or DDConfig(),
-    )
-    stake_calc = StakeCalculator(
-        fractional_kelly=strategy_params.get("fk_default", 0.5) if strategy_params else 0.5,
-        target_ev=strategy_params.get("target_ev", 1.10) if strategy_params else 1.10,
-        max_scale=strategy_params.get("max_scale", 2.0) if strategy_params else 2.0,
-    )
-
-    self._race_predictor = RacePredictor(
-        models,
-        stake_calculator=stake_calc,
-        dd_controller=dd_controller,
-    )
+            self._race_predictor = RacePredictor(
+                models,
+                stake_calculator=stake_calc,
+                dd_controller=dd_ctrl,
+            )
 ```
 
 ## State of the Art
@@ -481,22 +518,20 @@ if betting_mode == "kelly":
 
 **If this table is empty:** All claims in this research were verified or cited -- no user confirmation needed.
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **WalkForwardCV学習スキップの正確な実装方法**
+1. **WalkForwardCV学習スキップの正確な実装方法** (RESOLVED)
    - What we know: WalkForwardCV.run()はpipeline.run()で学習→factoryでバックテスト。pipeline=NoneでRuntimeError
-   - What's unclear: pipelineを省略してfactoryのみ(学習済みモデルロード)で実行する拡張方法
-   - Recommendation: StrategyOptimizer内で独自の軽量WFループを実装(学習済みモデルをロードしてfactoryのみ呼び出し)。WalkForwardCV自体の変更は最小化
+   - Resolution: **StrategyOptimizer独自の軽量WFループを実装。WalkForwardCV自体は変更しない。** ModelLoader.load_from_dir()で学習済みモデルをロードし、BacktestEngineにstrategy_paramsを注入してバックテストのみ実行。WalkForwardCV.generate_folds()のfold定義パターンのみ参照する。
+   - Why not modify WalkForwardCV: pipeline.run()が必須の設計を変更すると既存WF検証への影響範囲が大きい。StrategyOptimizerの独自ループの方が安全。
 
-2. **Optuna目的関数内でのbankroll初期値とテスト期間**
+2. **Optuna目的関数内でのbankroll初期値とテスト期間** (RESOLVED)
    - What we know: バックテストはinitial_bankroll=100000。テスト期間は2024年(1年)
-   - What's unclear: WF 2foldの具体的なfold定義(2020-2023 train/2024 test、2021-2024 train/2025 testで良いか)
-   - Recommendation: run_wf_validation.pyのFOLDS定義を踏襲
+   - Resolution: **run_wf_validation.pyのFOLDS定義を踏襲。** デフォルトfold: ("2024-01-01", "2024-12-31"), ("2025-01-01", "2025-12-31")。CLI引数で上書き可能。initial_bankroll=100000固定。
 
-3. **ベット数制約の具体的な閾値**
+3. **ベット数制約の具体的な閾値** (RESOLVED)
    - What we know: D-09で「年間1000件以上」と記載。2024年テストでは9,074件
-   - What's unclear: WF 2fold(各1年テスト)の場合、1foldあたり1000件以上か、2fold合計で1000件以上か
-   - Recommendation: 1foldあたりのベット数で評価(年間1000件以上)。各foldが独立した評価単位
+   - Resolution: **1foldあたりのベット数で評価(年間1000件以上)。** 各foldが独立した評価単位。avg_bets_per_fold = total_bets / n_folds >= min_bets_per_fold。
 
 ## Environment Availability
 
@@ -526,8 +561,9 @@ if betting_mode == "kelly":
 - src/backtest/parameter_freeze_protocol.py - 全行確認(SHA256ハッシュパターン)
 - src/models/walk_forward_cv.py - 全行確認(WF run/generate_folds)
 - src/tuning/optuna_tuner.py - 全行確認(Optuna参照実装)
+- src/db/model_loader.py - load_from_dir確認(学習済みモデルロードパターン)
 - src/domain/types.py - 確認(RecoveryState enum)
-- src/domain/models.py - DDState/RegimeConfig確認
+- src/domain/models.py - DDState/RegimeConfig/TrainedModelsV5確認
 - tests/test_drawdown_controller.py - 全15テスト確認
 - tests/test_parameter_freeze.py - 全6テスト確認
 - tests/test_optuna_tuner.py - 全3テスト確認
