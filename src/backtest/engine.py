@@ -949,10 +949,9 @@ class BacktestEngine:
                 if bet_result > 0:
                     bankroll += bet_result
 
-                # A4: DD Controller に ROI 比 (bet_result / stake) をフィードバック
+                # A4: DD Controller にバンクロールをフィードバック
                 if self._race_predictor.dd_ctrl is not None:
-                    roi = bet_result / bet.stake if bet.stake > 0 else 0.0
-                    self._race_predictor.dd_ctrl.update(bankroll, roi)
+                    self._race_predictor.dd_ctrl.update(bankroll)
 
                 horse_rows = result_df[result_df["umaban"] == bet.umaban]
                 pop_val = (

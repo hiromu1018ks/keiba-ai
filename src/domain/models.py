@@ -191,7 +191,6 @@ class DDState:
     """ドローダウン状態（§9 DDコントローラー用）"""
 
     current_dd: float
-    rolling_roi: float
     n_bets_eval: int
     recovery_state: RecoveryState = RecoveryState.NORMAL
 
