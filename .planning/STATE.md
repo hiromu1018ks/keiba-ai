@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.3
 milestone_name: Betting Strategy Optimization
 status: executing
-last_updated: "2026-05-05T00:00:00Z"
-last_activity: 2026-05-05 — Phase 12 planned (2 plans)
+last_updated: "2026-05-05T12:00:00Z"
+last_activity: 2026-05-05 — Phase 12 complete (2/2 plans, human_needed)
 progress:
   total_phases: 3
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 8
-  completed_plans: 2
-  percent: 25
+  completed_plans: 4
+  percent: 50
 ---
 
 # Project State
@@ -20,16 +20,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-05-04)
 
 **Core value:** 単勝モデルのバックテストROIを100%超えにすること
-**Current focus:** Phase 12 — Stake Sizing Enhancement (ready to execute)
+**Current focus:** Phase 13 — Risk Calibration & Parameter Optimization (next up)
 
 ## Current Position
 
-Phase: 12 of 13 (Stake Sizing Enhancement)
-Plan: 2 plans (12-01, 12-02) in 2 waves
-Status: Ready to execute
-Last activity: 2026-05-05 — Phase 12 planned (2 plans)
+Phase: 13 of 13 (Risk Calibration & Parameter Optimization)
+Plan: TBD
+Status: Ready to plan
+Last activity: 2026-05-05 — Phase 12 complete (2/2 plans, human_needed)
 
-Progress: [===       ] 33%
+Progress: [======    ] 67%
 
 ## Performance Metrics
 
@@ -37,14 +37,14 @@ Progress: [===       ] 33%
 - v1.0: 4 phases, 7 plans, ~3 sessions
 - v1.1: 3 phases, 5 plans, ~2 sessions
 - v1.2: 3 phases, 5 plans, ~1 session
-- v1.3: Phase 11 done (2 plans, ~13min)
-- Total plans completed: 19 (v1.0 + v1.1 + v1.2 + v1.3 partial)
+- v1.3: Phase 11 done (2 plans), Phase 12 done (2 plans)
+- Total plans completed: 21 (v1.0 + v1.1 + v1.2 + v1.3 partial)
 - Average duration: ~12min/plan
 
 **Cumulative:**
 - LOC (src/): ~21,500
-- Tests: 1,183
-- Total features implemented: 18+ new features across 3 milestones
+- Tests: 1,203
+- Total features implemented: 20+ new features across 3 milestones
 
 ## Accumulated Context
 
@@ -61,6 +61,7 @@ Recent decisions affecting v1.3:
 - Build order: Filters first → Sizing second → Tuning third (avoids sizing-on-wrong-bets anti-pattern)
 - No new production dependencies needed (numpy/pandas/optuna sufficient)
 - EV exclusion count propagated via DataFrame.attrs (gap fix in Phase 11)
+- StakeCalculator now supports constructor injection for fractional_kelly, enabling regime-based dynamic sizing (Phase 12)
 
 ### Pending Todos
 
@@ -83,6 +84,6 @@ Items acknowledged and deferred at milestone close on 2026-05-04:
 
 ## Session Continuity
 
-Last session: 2026-05-04
-Stopped at: Phase 12 context gathered — ready for planning
+Last session: 2026-05-05
+Stopped at: Phase 12 complete — ready for Phase 13
 Resume file: .planning/phases/12-stake-sizing-enhancement/12-CONTEXT.md

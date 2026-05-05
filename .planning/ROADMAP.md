@@ -127,7 +127,7 @@ Plans:
 **Milestone Goal:** バックテストROI 91.6% → 100%超えを達成するため、ベット選択の厳格化とステークサイジング最適化を実装する
 
 - [x] **Phase 11: Bet Selection Filters** - Conformal信頼区間・レジームスキップ・オッズバンド除外でベット対象を厳格化
-- [ ] **Phase 12: Stake Sizing Enhancement** - レジーム別Kelly分数とEV比例乗算器で賭け金を最適化
+- [x] **Phase 12: Stake Sizing Enhancement** - レジーム別Kelly分数とEV比例乗算器で賭け金を最適化 (2026-05-05)
 - [ ] **Phase 13: Risk Calibration & Parameter Optimization** - WIN向けDD調整 + パラメータ凍結 + Optuna最適化
 
 ## Phase Details
@@ -158,8 +158,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 12-01: StakeCalculator コンストラクタ注入リファクタリング + apply_ev_scaling() 実装 (SIZE-01, SIZE-02)
-- [ ] 12-02: RegimeDetector/MetaSwitcher パラメータ追加 + Kelly→EV乗算→DD パイプライン統合 (SIZE-01, SIZE-02)
+- [x] 12-01: StakeCalculator コンストラクタ注入リファクタリング + apply_ev_scaling() 実装 (SIZE-01, SIZE-02)
+- [x] 12-02: RegimeDetector/MetaSwitcher パラメータ追加 + Kelly→EV乗算→DD パイプライン統合 (SIZE-01, SIZE-02)
 
 ### Phase 13: Risk Calibration & Parameter Optimization
 **Goal**: WIN向中率10%に最適化されたDD制御が動作し、ルックアヘッドバイアスを防いだ上で全戦略パラメータが最適化される
@@ -189,5 +189,5 @@ Phases execute in numeric order: 11 → 12 → 13
 | 9. Win Reporting | v1.2 | 1/1 | Complete | 2026-05-04 |
 | 10. Pipeline Performance | v1.2 | 2/2 | Complete | 2026-05-04 |
 | 11. Bet Selection Filters | v1.3 | 2/2 | Complete | 2026-05-04 |
-| 12. Stake Sizing Enhancement | v1.3 | 0/2 | Ready to execute | - |
+| 12. Stake Sizing Enhancement | v1.3 | 2/2 | Complete | 2026-05-05 |
 | 13. Risk Calibration & Parameter Optimization | v1.3 | 0/? | Not started | - |
