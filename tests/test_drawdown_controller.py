@@ -94,6 +94,16 @@ class TestDDConfig:
 # ---------------------------------------------------------------------------
 
 
+class TestDrawdownControllerInit:
+    def test_init_rejects_zero_peak_bankroll(self) -> None:
+        with pytest.raises(ValueError, match="peak_bankroll"):
+            DrawdownController(peak_bankroll=0)
+
+    def test_init_rejects_negative_peak_bankroll(self) -> None:
+        with pytest.raises(ValueError, match="peak_bankroll"):
+            DrawdownController(peak_bankroll=-100)
+
+
 class TestDrawdownControllerCore:
     def test_initial_state_is_normal(self, ctrl: DrawdownController) -> None:
         assert ctrl._state == RecoveryState.NORMAL

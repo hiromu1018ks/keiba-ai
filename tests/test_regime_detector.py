@@ -164,6 +164,32 @@ class TestRegimeDetector:
         params = detector.get_strategy_params(RegimeState.AGGRESSIVE)
         assert params.get("skip") is not True
 
+    def test_override_params_injects_values(self) -> None:
+        """override_params で主要3パラメータが上書きされる"""
+        detector = RegimeDetector(
+            override_params={
+                "aggressive": {"fractional_kelly": 0.8, "ev_threshold": 1.5, "edge_threshold": 0.12},
+                "conservative": {"fractional_kelly": 0.3},
+            }
+        )
+        agg = detector.get_strategy_params(RegimeState.AGGRESSIVE)
+        assert agg["fractional_kelly"] == 0.8
+        assert agg["ev_threshold"] == 1.5
+        assert agg["edge_threshold"] == 0.12
+
+        con = detector.get_strategy_params(RegimeState.CONSERVATIVE)
+        assert con["fractional_kelly"] == 0.3
+
+    def test_override_params_does_not_affect_unoverridden_regime(self) -> None:
+        """override_params がないレジームはデフォルト値のまま"""
+        detector = RegimeDetector(
+            override_params={"aggressive": {"fractional_kelly": 0.8}}
+        )
+        col = detector.get_strategy_params(RegimeState.COLLAPSED)
+        detector_default = RegimeDetector()
+        col_default = detector_default.get_strategy_params(RegimeState.COLLAPSED)
+        assert col["fractional_kelly"] == col_default["fractional_kelly"]
+
     def test_train_uses_pre_race_features_for_labels(self) -> None:
         """train() の教師ラベルが PRE_RACE 指標のみで計算される"""
         detector = RegimeDetector()

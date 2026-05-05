@@ -115,6 +115,20 @@ class TestBuildStrategyConfig:
         assert "max_scale" in config
         assert "fractional_kelly" in config
 
+    def test_auto_corrects_dd_threshold_2_when_leq_threshold_1(self, optimizer: StrategyOptimizer) -> None:
+        """dd_threshold_2 <= dd_threshold_1 の場合に自動補正される"""
+        params = {
+            "rolling_window": 400, "dd_threshold_1": 0.20, "dd_threshold_2": 0.15,
+            "multiplier_reduced": 0.5, "min_stay_races": 10,
+            "fk_aggressive": 0.5, "ev_aggressive": 1.1, "edge_aggressive": 0.05,
+            "fk_conservative": 0.25, "ev_conservative": 1.3, "edge_conservative": 0.06,
+            "target_ev": 1.1, "max_scale": 2.0, "roi_threshold": 1.0,
+        }
+        config = optimizer._build_strategy_config(params)
+        dd_cfg = config["dd_config"]
+        assert dd_cfg.dd_threshold_2 > dd_cfg.dd_threshold_1
+        assert dd_cfg.dd_threshold_2 == pytest.approx(0.21, abs=0.001)
+
 
 class TestObjective:
     def test_penalty_when_bets_below_minimum(self, optimizer: StrategyOptimizer) -> None:

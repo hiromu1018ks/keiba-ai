@@ -66,3 +66,22 @@ class TestMetaSwitcher:
         """description フィールドが存在する"""
         params = switcher.get_strategy_params()
         assert "description" in params
+
+    @pytest.mark.parametrize(
+        "regime",
+        [RegimeState.AGGRESSIVE, RegimeState.CONSERVATIVE, RegimeState.COLLAPSED],
+    )
+    def test_default_params_match_regime_detector(self, regime: RegimeState) -> None:
+        """MetaSwitcher._default_params() の ev_threshold/edge_threshold が RegimeDetector と一致"""
+        from models.regime_detector import RegimeDetector
+
+        rd = RegimeDetector()
+        rd_params = rd.get_strategy_params(regime)
+
+        mock_rd = MagicMock()
+        mock_rd.current_regime = regime
+        ms = MetaSwitcher(mock_rd)
+        ms_params = ms.get_strategy_params()
+
+        assert ms_params["ev_threshold"] == rd_params["ev_threshold"]
+        assert ms_params["edge_threshold"] == rd_params["edge_threshold"]
