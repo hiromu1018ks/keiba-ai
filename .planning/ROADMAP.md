@@ -169,7 +169,12 @@ Plans:
   1. DrawdownControllerのローリングウィンドウが400+に拡張され、WIN的中率10%環境でDD乗数がNORMAL/REDUCED/STOPを適切に遷移する (RISK-01)
   2. ParameterFreezeProtocolが戦略パラメータ（Kelly分数・EV閾値・DD閾値・オッズバンド）を記録・固定し、最適化後のテスト期間でパラメータ変更を検出・警告する (VAL-01)
   3. Optuna TPEで全戦略パラメータの同時最適化が実行され、最適設定のバックテストROIがベースライン(89.0%)を上回る (VAL-02)
-**Plans**: TBD
+**Plans**: 3 plans
+
+Plans:
+- [ ] 13-01: DrawdownController再設計 (ROI除去・3段階制御・コンストラクタ注入・ヒステリシス) (RISK-01)
+- [ ] 13-02: RegimeDetector外部化 + ParameterFreezeProtocol JSON manifest (VAL-01)
+- [ ] 13-03: StrategyOptimizer (Optuna TPE最適化・軽量WFループ・CLI) (VAL-02)
 
 ## Progress
 
@@ -190,4 +195,4 @@ Phases execute in numeric order: 11 → 12 → 13
 | 10. Pipeline Performance | v1.2 | 2/2 | Complete | 2026-05-04 |
 | 11. Bet Selection Filters | v1.3 | 2/2 | Complete | 2026-05-04 |
 | 12. Stake Sizing Enhancement | v1.3 | 2/2 | Complete | 2026-05-05 |
-| 13. Risk Calibration & Parameter Optimization | v1.3 | 0/? | Not started | - |
+| 13. Risk Calibration & Parameter Optimization | v1.3 | 0/3 | Not started | - |
