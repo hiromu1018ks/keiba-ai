@@ -242,7 +242,7 @@ Phases execute in numeric order: 14 → 15 → 16 → 17 → 18
 | 11. Bet Selection Filters | v1.3 | 2/2 | Complete | 2026-05-04 |
 | 12. Stake Sizing Enhancement | v1.3 | 2/2 | Complete | 2026-05-05 |
 | 13. Risk Calibration & Parameter Optimization | v1.3 | 3/3 | Complete | 2026-05-05 |
-| 14. Gate Recalibration | v1.4 | 0/2 | Planning | - |
+| 14. Gate Recalibration | v1.4 | 0/2 | Planned | - |
 | 15. EV Filter Enhancement | v1.4 | 0/? | Not started | - |
 | 16. Odds Band Rebuild | v1.4 | 0/? | Not started | - |
 | 17. Optuna Optimization | v1.4 | 0/? | Not started | - |
