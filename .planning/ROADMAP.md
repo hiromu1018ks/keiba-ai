@@ -5,7 +5,7 @@
 - ✅ **v1.0 Win Model** - Phases 1-4 (shipped 2026-05-03)
 - ✅ **v1.1 ROI Advanced Model** - Phases 5-7 (shipped 2026-05-03)
 - ✅ **v1.2 Win Backtest Validation** - Phases 8-10 (shipped 2026-05-04)
-- 🚧 **v1.3 Betting Strategy Optimization** - Phases 11-13 (in progress)
+- ✅ **v1.3 Betting Strategy Optimization** - Phases 11-13 (shipped 2026-05-05)
 
 ## Phases
 
@@ -122,13 +122,13 @@ Plans:
 
 </details>
 
-### 🚧 v1.3 Betting Strategy Optimization (In Progress)
+### ✅ v1.3 Betting Strategy Optimization (Completed 2026-05-05)
 
 **Milestone Goal:** バックテストROI 91.6% → 100%超えを達成するため、ベット選択の厳格化とステークサイジング最適化を実装する
 
 - [x] **Phase 11: Bet Selection Filters** - Conformal信頼区間・レジームスキップ・オッズバンド除外でベット対象を厳格化
 - [x] **Phase 12: Stake Sizing Enhancement** - レジーム別Kelly分数とEV比例乗算器で賭け金を最適化 (2026-05-05)
-- [ ] **Phase 13: Risk Calibration & Parameter Optimization** - WIN向けDD調整 + パラメータ凍結 + Optuna最適化
+- [x] **Phase 13: Risk Calibration & Parameter Optimization** - WIN向けDD調整 + パラメータ凍結 + Optuna最適化 (2026-05-05)
 
 ## Phase Details
 
@@ -172,9 +172,9 @@ Plans:
 **Plans**: 3 plans
 
 Plans:
-- [ ] 13-01: DrawdownController再設計 (ROI除去・3段階制御・コンストラクタ注入・ヒステリシス) (RISK-01)
-- [ ] 13-02: RegimeDetector外部化 + ParameterFreezeProtocol JSON manifest (VAL-01)
-- [ ] 13-03: StrategyOptimizer (Optuna TPE最適化・軽量WFループ・CLI) (VAL-02)
+- [x] 13-01: DrawdownController再設計 (ROI除去・3段階制御・コンストラクタ注入・ヒステリシス) (RISK-01)
+- [x] 13-02: RegimeDetector外部化 + ParameterFreezeProtocol JSON manifest (VAL-01)
+- [x] 13-03: StrategyOptimizer (Optuna TPE最適化・軽量WFループ・CLI) (VAL-02)
 
 ## Progress
 
@@ -195,4 +195,4 @@ Phases execute in numeric order: 11 → 12 → 13
 | 10. Pipeline Performance | v1.2 | 2/2 | Complete | 2026-05-04 |
 | 11. Bet Selection Filters | v1.3 | 2/2 | Complete | 2026-05-04 |
 | 12. Stake Sizing Enhancement | v1.3 | 2/2 | Complete | 2026-05-05 |
-| 13. Risk Calibration & Parameter Optimization | v1.3 | 0/3 | Ready to execute | - |
+| 13. Risk Calibration & Parameter Optimization | v1.3 | 3/3 | Complete | 2026-05-05 |

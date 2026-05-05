@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.3
 milestone_name: Betting Strategy Optimization
-status: executing
-last_updated: "2026-05-05T14:00:00Z"
-last_activity: 2026-05-05 — Phase 13 planned (3 plans in 2 waves)
+status: complete
+last_updated: "2026-05-05T16:30:00Z"
+last_activity: 2026-05-05 — Phase 13 complete (3/3 plans), milestone v1.3 shipped
 progress:
   total_phases: 3
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 11
-  completed_plans: 4
-  percent: 67
+  completed_plans: 7
+  percent: 100
 ---
 
 # Project State
@@ -20,16 +20,15 @@ progress:
 See: .planning/PROJECT.md (updated 2026-05-04)
 
 **Core value:** 単勝モデルのバックテストROIを100%超えにすること
-**Current focus:** Phase 13 — Risk Calibration & Parameter Optimization (next up)
+**Current focus:** v1.3 milestone complete — all phases shipped
 
 ## Current Position
 
-Phase: 13 of 13 (Risk Calibration & Parameter Optimization)
-Plan: 3 plans (13-01, 13-02, 13-03) in 2 waves
-Status: Ready to execute
-Last activity: 2026-05-05 — Phase 13 planned (3 plans in 2 waves)
+Phase: 13 of 13 (Risk Calibration & Parameter Optimization) — COMPLETE
+Status: Milestone v1.3 shipped
+Last activity: 2026-05-05 — Phase 13 complete (3/3 plans), milestone v1.3 shipped
 
-Progress: [=======   ] 67%
+Progress: [==========] 100%
 
 ## Performance Metrics
 
