@@ -98,8 +98,9 @@ class ParameterFreezeProtocol:
         try:
             data = pickle.dumps(obj, protocol=pickle.HIGHEST_PROTOCOL)
             return hashlib.sha256(data).digest()
-        except (pickle.PicklingError, TypeError):
-            # pickle 不可なオブジェクトは repr のハッシュを使用
+        except Exception:
+            # pickleはAttributeError, RuntimeError等も発生しうる。
+            # pickle不可なオブジェクトはreprのハッシュを使用
             return hashlib.sha256(repr(obj).encode()).digest()
 
 
