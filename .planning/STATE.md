@@ -1,16 +1,16 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.3
-milestone_name: Betting Strategy Optimization
-status: complete
-last_updated: "2026-05-05T17:00:00Z"
-last_activity: 2026-05-05 — Milestone v1.3 archived, ready for next milestone
+milestone: v1.4
+milestone_name: Ensemble Filter Recalibration
+status: planning
+last_updated: "2026-05-05T18:00:00Z"
+last_activity: 2026-05-05 — Milestone v1.4 started
 progress:
-  total_phases: 3
-  completed_phases: 3
-  total_plans: 7
-  completed_plans: 7
-  percent: 100
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
@@ -20,15 +20,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-05-05)
 
 **Core value:** 単勝モデルのバックテストROIを100%超えにすること
-**Current focus:** v1.3 milestone archived — planning next milestone
+**Current focus:** v1.4 Ensemble Filter Recalibration — defining requirements
 
 ## Current Position
 
-Phase: 13 of 13 (Risk Calibration & Parameter Optimization) — COMPLETE
-Status: Milestone v1.3 archived
-Last activity: 2026-05-05 — Milestone v1.3 archived, ready for next milestone
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-05-05 — Milestone v1.4 started
 
-Progress: [==========] 100%
+Progress: [            ] 0%
 
 ## Performance Metrics
 
@@ -81,4 +82,4 @@ Items acknowledged and deferred at milestone close:
 ## Session Continuity
 
 Last session: 2026-05-05
-Stopped at: Milestone v1.3 archived — ready for `/gsd-new-milestone`
+Stopped at: Milestone v1.4 started — defining requirements

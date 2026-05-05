@@ -42,7 +42,10 @@ MLflow で実験管理。PostgreSQL (EveryDB2/JRA-VAN DataLab) をデータソ�
 
 ### Active
 
-(None — next milestone TBD)
+- [ ] WinSelectionGateをアンサンブルOOF予測で再学習・閾値適正化 — v1.4
+- [ ] EV_lower閾値をアンサンブル分布に動的適合 — v1.4
+- [ ] OddsBandFilterをアンサンブルベースtraining_bet_historyで再構築 — v1.4
+- [ ] Optuna 14次元パラメータ最適化の実行 — v1.4
 
 ### Out of Scope
 
@@ -59,13 +62,27 @@ MLflow で実験管理。PostgreSQL (EveryDB2/JRA-VAN DataLab) をデータソ�
 | 外部Kellyライブラリ導入 | 既存StakeCalculatorで十分、JRA固有制約はカスタム実装が必要 |
 | モデル再学習 | 既存3モデルスタッキングをそのまま使用 |
 
+## Current Milestone: v1.4 Ensemble Filter Recalibration
+
+**Goal:** アンサンブルモデルの出力分布にフィルター群を適合させ、年間100+ベット・ROI>100%を達成する
+
+**Target features:**
+- WinSelectionGate のアンサンブルOOF再学習・閾値適正化
+- EV_lower閾値の動的化・アンサンブル分布適合
+- OddsBandFilter のアンサンブルベースtraining_bet_history再構築
+- Optuna 14次元パラメータ最適化の実行
+
+**Success criteria:** アンサンブルバックテストで年間100+ベット・ROI>100%
+
 ## Context
 
 ### 現状の課題
 
-- バックテストROI 91.6%確認済み (9,074ベット) → 戦略最適化後のROI検証が未実施
-- v1.3でフィルター+サイジング+DD制御+パラメータ最適化を実装済み
-- PostgreSQL環境でのバックテスト再実行が保留中
+- アンサンブル(--ensemble)バックテスト: 年間7ベット/ROI 0% (フィルター過剰除外)
+- ベースライン(単一LightGBM): ROI 63.8% — 100%未満
+- Phase 11-12フィルター群が単一LightGBM出力分布でキャリブレーション済み
+- アンサンブル確率分布とのミスマッチでEV_lower除外3,594件
+- Optuna最適化未実行でデフォルト値動作
 
 ### 技術背景
 
@@ -131,4 +148,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-05 after v1.3 milestone completion*
+*Last updated: 2026-05-05 after v1.4 milestone initiated*
