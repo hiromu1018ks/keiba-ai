@@ -6,12 +6,12 @@ This document describes all configuration mechanisms for the keiba-ai prediction
 
 ## Environment Variables
 
-The project uses `python-dotenv` to load variables from a `.env` file at the project root. Only two environment variables are referenced in the codebase.
+The project uses `python-dotenv` to load variables from a `.env` file at the project root. Two environment variables are referenced in the codebase.
 
 | Variable | Required | Default | Description |
 |---|---|---|---|
-| `PGPASSWORD` | Yes (for ETL/paper trading) | `""` (empty) | PostgreSQL password. Overrides the empty `password` field in `config/settings.yaml`. Used by `DatabaseConnection` and `run_paper_trading.py`. |
-| `SLACK_WEBHOOK_URL` | No | `""` (empty) | Slack Incoming Webhook URL for paper trading notifications. When empty, Slack notifications are disabled with a warning. |
+| `PGPASSWORD` | Yes (for ETL/paper trading) | `""` (empty) | PostgreSQL password. Overrides the empty `password` field in `config/settings.yaml`. Used by `DatabaseConnection` (`src/db/connection.py`) and `run_paper_trading.py`. |
+| `SLACK_WEBHOOK_URL` | No | `""` (empty) | Slack Incoming Webhook URL for paper trading notifications. Read via `os.environ.get("SLACK_WEBHOOK_URL", "")` in `scripts/run_paper_trading.py`. When empty, Slack notifications are disabled with a warning. |
 
 The `.env.example` file at the project root contains only `PGPASSWORD=` as a template.
 
@@ -91,9 +91,9 @@ Defines 103 tables (53 `n_` full-load tables + 50 `s_` delta tables) for the Eve
 
 Loaded by `src/db/etl.py` via the `load_table_config()` function.
 
-### `config/backtest_config.yaml` -- Backtest Validation Criteria
+### `config/backtest_config.yaml` -- Backtest Validation Criteria (Reference)
 
-Defines pass/fail thresholds for the backtest validation suite (`src/backtest/validation_suite.py`).
+Defines pass/fail thresholds for the backtest validation suite (`src/backtest/validation_suite.py`). This file is **a reference document** -- the actual values are hardcoded in `BacktestValidationSuite.check_holdout_criteria()`. The YAML file is not loaded at runtime.
 
 ```yaml
 walk_forward:
@@ -136,7 +136,7 @@ validation:
 
 | Setting | Default Behavior |
 |---|---|
-| `SLACK_WEBHOOK_URL` | Slack notifications disabled; warning logged |
+| `SLACK_WEBHOOK_URL` | Slack notifications disabled; warning logged in `run_paper_trading.py` |
 | `settings.yaml password` field | Empty string; expects `PGPASSWORD` env var override |
 | `mlflow_tracking_uri` | Defaults to `"file:///mlruns"` in `ModelLoader` and `PaperTradingConfig` |
 
@@ -180,6 +180,22 @@ Several configuration objects use Python dataclass defaults rather than YAML fil
 | `max_weekly_loss` | `30000.0` | Maximum weekly loss before stop (yen) |
 | `max_consecutive_losses` | `10` | Maximum consecutive losses before stop |
 
+**`DDConfig`** (`src/betting/drawdown_controller.py`):
+
+| Parameter | Default | Description |
+|---|---|---|
+| `rolling_window` | `400` | Reserved: rolling window for DD tracking (currently unused) |
+| `dd_threshold_1` | `0.10` | NORMAL to REDUCED threshold (10% drawdown) |
+| `dd_threshold_2` | `0.20` | REDUCED to STOP threshold (20% drawdown) |
+| `multiplier_normal` | `1.0` | Stake multiplier in NORMAL state |
+| `multiplier_reduced` | `0.50` | Stake multiplier in REDUCED state |
+| `multiplier_stop` | `0.0` | Stake multiplier in STOP state (betting halted) |
+| `min_stay_races` | `10` | Minimum races in a state before transition (hysteresis) |
+| `max_adjustment_per_n_bets` | `20` | Adjustment window size for multiplier rate-of-change |
+| `max_adjustment_amount` | `0.15` | Maximum multiplier change per window |
+
+The `DDConfig.__post_init__` method validates that `dd_threshold_2 > dd_threshold_1`, `multiplier_normal > 0`, and `0 <= multiplier_reduced < multiplier_normal`. Invalid values raise `ValueError`.
+
 **`StakeCalculator`** (`src/betting/stake_calculator.py`):
 
 | Parameter | Default | Description |
@@ -197,6 +213,8 @@ Several configuration objects use Python dataclass defaults rather than YAML fil
 
 | Parameter | Default | Description |
 |---|---|---|
+| `slack_webhook_url` | (required) | Slack Incoming Webhook URL. No default -- passed from `SLACK_WEBHOOK_URL` env var. |
+| `everydb2_connection_string` | (required) | PostgreSQL connection string for EveryDB2. No default -- constructed from `PGPASSWORD` env var. |
 | `mlflow_run_id` | `None` | MLflow run ID (uses latest if None) |
 | `mlflow_tracking_uri` | `"file:///mlruns"` | MLflow tracking URI |
 | `ev_threshold` | `1.0` | Minimum EV for paper trading bets |
@@ -212,6 +230,8 @@ Several configuration objects use Python dataclass defaults rather than YAML fil
 
 The `RegimeDetector` (`src/models/regime_detector.py`) returns hardcoded strategy parameters per regime state. These are defined in `_get_base_params()` and can be overridden at runtime via the `override_params` constructor argument.
 
+**Core parameters** (present in all regimes):
+
 | Parameter | Aggressive | Conservative | Collapsed |
 |---|---|---|---|
 | `ev_threshold` | 1.10 | 1.30 | 1.50 |
@@ -222,6 +242,40 @@ The `RegimeDetector` (`src/models/regime_detector.py`) returns hardcoded strateg
 | `wide_enabled` | false | false | false |
 | `score_threshold` | 0.010 | 0.020 | 0.050 |
 | `max_bets_per_race` | 1 | 1 | 1 |
+| `weak_prob_prune_threshold` | 0.35 | 0.35 | 0.35 |
+
+**Additional parameters (Aggressive only):**
+
+| Parameter | Value | Description |
+|---|---|---|
+| `soft_gate_second_margin` | `0.50` | Margin threshold for soft-track second candidate gate |
+| `soft_gate_second_min_edge` | `0.03` | Minimum edge for soft-track second candidate |
+| `quality_second_margin` | `1.00` | Margin threshold for quality-race second candidate gate |
+| `quality_second_min_edge` | `0.06` | Minimum edge for quality-race second candidate |
+| `quality_second_min_prob` | `0.25` | Minimum probability for quality-race second candidate |
+| `runner_up_rescue_margin` | `0.25` | Margin for runner-up rescue candidate |
+| `runner_up_rescue_min_edge` | `0.04` | Minimum edge for runner-up rescue |
+| `runner_up_rescue_min_prob` | `0.25` | Minimum probability for runner-up rescue |
+| `runner_up_rerank_market_condition_max` | `0.20` | Max market condition for rerank eligibility |
+| `runner_up_rerank_entropy_min` | `1.80` | Minimum entropy for rerank eligibility |
+| `runner_up_rerank_entropy_max` | `2.30` | Maximum entropy for rerank eligibility |
+| `runner_up_rerank_min_edge` | `0.01` | Minimum edge for rerank |
+| `runner_up_rerank_min_prob` | `0.10` | Minimum probability for rerank |
+| `runner_up_rerank_max_odds` | `12.0` | Maximum odds for rerank |
+| `add_second_keep_min_edge` | `0.10` | Minimum edge to keep a second bet |
+| `add_second_keep_max_edge` | `0.20` | Maximum edge to keep a second bet |
+
+**Additional parameters (Conservative only):**
+
+| Parameter | Value | Description |
+|---|---|---|
+| `prune_turf_candidates` | `true` | Whether to prune turf candidates in conservative mode |
+
+**Additional parameters (Collapsed only):**
+
+| Parameter | Value | Description |
+|---|---|---|
+| `skip` | `true` | COLLAPSED regime skip flag -- betting is effectively halted |
 
 The `settings.yaml` `betting_strategy.regime_fractions` section provides parallel values (`aggressive: 0.50`, `conservative: 0.25`, `collapsed: 0.00`) that correspond to the `fractional_kelly` in each regime.
 
@@ -229,7 +283,7 @@ The `settings.yaml` `betting_strategy.regime_fractions` section provides paralle
 
 The project does not use per-environment config files (no `.env.development` / `.env.production` / `.env.test` files exist). Environment-specific behavior is controlled through:
 
-1. **`PGPASSWORD` environment variable** -- The only runtime override. Set differently per environment to point to the correct PostgreSQL instance.
+1. **`PGPASSWORD` environment variable** -- The primary runtime override. Set differently per environment to point to the correct PostgreSQL instance. <!-- VERIFY: Production PostgreSQL host/port/dbname may differ from defaults -->
 
 2. **MLflow tracking URI** -- Configurable in `settings.yaml` (`paths.mlflow_tracking_uri`) and as a default in `ModelLoader` and `PaperTradingConfig`. The default `"file:///mlruns"` uses local filesystem storage.
 
@@ -243,7 +297,7 @@ The project does not use per-environment config files (no `.env.development` / `
 config/
   settings.yaml          # Primary config (database, paths, logging, features, betting)
   etl_tables.yaml        # ETL table definitions (103 tables)
-  backtest_config.yaml   # Backtest pass/fail criteria
+  backtest_config.yaml   # Backtest pass/fail criteria (reference document)
 
 .env                     # Environment variables (PGPASSWORD, SLACK_WEBHOOK_URL)
 .env.example             # Template for .env

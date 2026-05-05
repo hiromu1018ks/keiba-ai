@@ -35,7 +35,7 @@ This guide walks you through setting up the keiba-ai prediction system from a fr
    pip install -e ".[dev]"
    ```
 
-   This installs all runtime dependencies (pandas, LightGBM, scikit-learn, MLflow, etc.) plus dev tools (ruff, mypy, ipykernel).
+   This installs all runtime dependencies (pandas, LightGBM, XGBoost, CatBoost, scikit-learn, MLflow, etc.) plus dev tools (ruff, mypy, ipykernel).
 
 4. **Configure environment variables**
 
@@ -50,7 +50,11 @@ This guide walks you through setting up the keiba-ai prediction system from a fr
    Alternatively, export it directly:
 
    ```bash
+   # Linux/macOS
    export PGPASSWORD=<your-password>
+
+   # Windows PowerShell
+   $env:PGPASSWORD = "<your-password>"
    ```
 
 5. **Verify installation**
@@ -79,7 +83,7 @@ If you have Parquet data files in the `data/` directory, you can run the ML pipe
 
 ```bash
 # Step 1: ETL — Only if you need to extract fresh data from PostgreSQL
-python scripts/run_etl.py --start 20140101 --end 20231231
+python scripts/run_etl.py --mode full --start 20140101 --end 20231231
 
 # Step 2: Train the model
 python scripts/run_train.py --start 20200101 --end 20231231
@@ -88,6 +92,41 @@ python scripts/run_train.py --start 20200101 --end 20231231
 python scripts/run_backtest.py \
   --train-start 20200101 --train-end 20231231 \
   --test-start 20240101 --test-end 20241231
+```
+
+> **Note:** The `--mode` flag is **required** for `run_etl.py`. Use `--mode full` for initial data extraction with `--start` and `--end` dates, or `--mode delta` for incremental updates (no date arguments needed).
+
+### Option C: Run with ensemble (recommended for best results)
+
+The ensemble mode (LightGBM + XGBoost + CatBoost with a Ridge meta-learner) typically yields higher ROI:
+
+```bash
+# Train with ensemble enabled
+python scripts/run_train.py --start 20210101 --end 20241231 --ensemble
+
+# Backtest with ensemble + Kelly stake sizing
+python scripts/run_backtest.py \
+  --train-start 20210101 --train-end 20241231 \
+  --test-start 20250101 --test-end 20251231 \
+  --betting-mode kelly --ensemble --report
+```
+
+### Option D: Paper trading (real-time prediction)
+
+For real-time race-day predictions using a trained model:
+
+```bash
+# Delta ETL to refresh Parquet data
+python scripts/run_etl.py --mode delta
+
+# Check today's race schedule
+python scripts/run_paper_trading.py --mode setup --date 2026-04-12
+
+# Generate predictions (run ~5 minutes before race start)
+python scripts/run_paper_trading.py --mode predict --date 2026-04-12 --ensemble
+
+# Reconcile results after all races finish
+python scripts/run_paper_trading.py --mode reconcile --date 2026-04-12
 ```
 
 ## Common Setup Issues
@@ -104,20 +143,38 @@ source .venv/bin/activate  # Linux/macOS
 pip install -e ".[dev]"
 ```
 
-### 2. `PGPASSWORD` not set when running ETL
+### 2. Missing `--mode` flag when running ETL
+
+The `run_etl.py` script requires the `--mode` argument. Running without it produces an error. Use:
+
+- `--mode full --start YYYYMMDD --end YYYYMMDD` for initial extraction
+- `--mode delta` for incremental updates (no date arguments)
+
+### 3. `PGPASSWORD` not set when running ETL
 
 The `run_etl.py` script connects to PostgreSQL at `localhost:5432/everydb2`. If `PGPASSWORD` is empty, the connection will fail. Set it in `.env` or export it before running the script. This is not needed for training, backtesting, or tests.
 
-### 3. Missing Parquet data files
+> **Windows PowerShell:** The `PGPASSWORD=xxx command` syntax does not work. Set the variable first: `$env:PGPASSWORD = "xxx"`, then run the command.
+
+### 4. Missing Parquet data files
 
 The ML pipeline expects Parquet files under `data/raw/`, `data/odds/`, and `data/features/`. If these directories are empty, run the ETL step first, or obtain pre-built Parquet data files. Running tests does not require any data files.
 
-### 4. `pip install` fails on LightGBM or psycopg2-binary
+### 5. `pip install` fails on LightGBM or psycopg2-binary
 
 On some platforms, LightGBM or psycopg2-binary may require system-level build tools. On Windows, install the Visual C++ Build Tools. On Linux, install `libpq-dev` and `build-essential`.
 
+### 6. Career stats features are all NaN
+
+If you modify `src/features/horse_career_stats.py`, you must re-run the precomputation step before training. Otherwise new feature columns will be NaN:
+
+```bash
+python scripts/precompute_career_stats.py
+```
+
 ## Next Steps
 
-- **ARCHITECTURE.md** — Understand the system components and data flow.
-- **CONFIGURATION.md** — Learn about all configuration options in `config/settings.yaml`.
-- **DEVELOPMENT.md** — Set up your development environment with linting, formatting, and type checking.
+- **ARCHITECTURE.md** -- Understand the system components and data flow.
+- **CONFIGURATION.md** -- Learn about all configuration options in `config/settings.yaml`.
+- **DEVELOPMENT.md** -- Set up your development environment with linting, formatting, and type checking.
+- **TESTING.md** -- Learn how to run tests and write new ones.
