@@ -9,6 +9,10 @@ import joblib
 import numpy as np
 import pandas as pd
 
+from logging import getLogger
+
+logger = getLogger(__name__)
+
 
 def _numeric_or_nan(df: pd.DataFrame, col: str) -> pd.Series:
     if col not in df.columns:
@@ -804,6 +808,7 @@ class WinSelectionGateModel:
     def train(self, df: pd.DataFrame) -> None:
         prepared = self._prepare_training_frame(df)
         if prepared.empty:
+            logger.debug("WinSelectionGate: no data after preparation, skipping")
             return
 
         race_order = (
@@ -814,6 +819,11 @@ class WinSelectionGateModel:
         )
         folds = self._build_walk_forward_folds(len(race_order))
         if not folds:
+            logger.debug(
+                "WinSelectionGate: only %d races (min_train_races=%d), skipping",
+                len(race_order),
+                self.min_train_races,
+            )
             return
 
         prob_grid, edge_grid, odds_grid = self._build_threshold_grid(prepared)
@@ -860,6 +870,7 @@ class WinSelectionGateModel:
                         best_params = (min_prob, min_edge, max_odds)
 
         if best_params is None:
+            logger.debug("WinSelectionGate: no profitable threshold combination found, skipping")
             return
 
         self.min_prob, self.min_edge, self.max_odds = best_params

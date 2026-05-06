@@ -807,16 +807,12 @@ class TrainingPipelineV5:
             win_selection_gate.train(wsg_train_df)
 
         # --- D-08 Part 2: Runtime check (ensemble mode only) ---
-        if use_ensemble:
-            if not win_selection_gate.is_trained:
-                logger.warning(
-                    "WinSelectionGate did not train for surface=%s (no profitable threshold found)",
-                    surface,
-                )
-            elif not win_selection_gate.prob_edges:
-                logger.warning(
-                    "WinSelectionGate trained but prob_edges empty for surface=%s", surface
-                )
+        if use_ensemble and not win_selection_gate.is_trained:
+            logger.warning(
+                "WinSelectionGate did not train for surface=%s "
+                "(check debug logs for reason: empty data / insufficient races / no profitable threshold)",
+                surface,
+            )
 
         return SubmodelSet(
             market=market,
