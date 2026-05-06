@@ -152,8 +152,7 @@ def test_recommendations_on_drift() -> None:
     df_oof = _build_oof_df(n_rows=300, prob_mean=0.20, prob_std=0.05, seed=0, surface=None)
     df_baseline = _build_oof_df(n_rows=300, prob_mean=0.50, prob_std=0.15, seed=1, surface=None)
 
-    with pytest.warns(None) as _:  # ログが例外を起こさないこと
-        result = compute_drift_diagnostics(df_oof, df_baseline=df_baseline)
+    result = compute_drift_diagnostics(df_oof, df_baseline=df_baseline)
 
     assert result["drift_detected"] is True
     assert "recommendations" in result
