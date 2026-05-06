@@ -252,6 +252,9 @@ class SubmodelSet:
     win_temperature_scaler: TemperatureScaling | None = None
     # Win Selection Gate (Phase 3, SELC-01)
     win_selection_gate: WinSelectionGateModel | None = None
+    # EV_lower dynamic threshold (D-01/D-02, EVF-01)
+    ev_lower_threshold_turf: float = 1.0
+    ev_lower_threshold_dirt: float = 1.0
 
 
 @dataclass
