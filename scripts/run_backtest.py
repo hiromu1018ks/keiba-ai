@@ -114,6 +114,8 @@ def validate_args(parser: argparse.ArgumentParser, args: argparse.Namespace) -> 
     """引数の排他バリデーション"""
     if args.skip_train and not args.ensemble:
         parser.error("--skip-train requires --ensemble (キャッシュモデルはensemble前提)")
+    if args.strategy_manifest and not args.ensemble:
+        parser.error("--strategy-manifest requires --ensemble (manifest検証はアンサンブル前提)")
     if args.years:
         return  # マルチ年度モード — OK
     single_year_args = [args.train_start, args.train_end, args.test_start, args.test_end]
@@ -468,6 +470,7 @@ def _run_single_year(args: argparse.Namespace) -> None:
         diag_prefix=f"bt_{test_year}",
         betting_target=args.betting_target,
         strategy_params=strategy_params,
+        manifest_path=Path(args.strategy_manifest) if args.strategy_manifest else None,
     )
     result = engine.run(test_start, test_end, training_bet_history=training_bet_history)
     elapsed_test = time.time() - t1
@@ -610,6 +613,7 @@ def _run_multi_year(args: argparse.Namespace) -> None:
                 diag_prefix=f"bt_{test_year}",
                 betting_target=args.betting_target,
                 strategy_params=strategy_params,
+                manifest_path=Path(args.strategy_manifest) if args.strategy_manifest else None,
             )
             result = engine.run(test_start, test_end, training_bet_history=training_bet_history)
         except Exception as e:
