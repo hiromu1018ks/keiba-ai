@@ -257,5 +257,5 @@ Phases execute in numeric order: 14 → 15 → 16 → 17 → 18
 | 14. Gate Recalibration | v1.4 | 2/2 | Complete | 2026-05-06 |
 | 15. EV Filter Enhancement | v1.4 | 2/2 | Complete | 2026-05-06 |
 | 16. Odds Band Rebuild | v1.4 | 2/2 | Complete    | 2026-05-06 |
-| 17. Optuna Optimization | v1.4 | 0/2 | Planned | - |
+| 17. Optuna Optimization | v1.4 | 0/2 | Planned | 2026-05-06 |
 | 18. Validation & Freeze | v1.4 | 0/? | Not started | - |
