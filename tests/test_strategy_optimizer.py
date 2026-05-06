@@ -223,6 +223,18 @@ class TestOptimize:
         assert isinstance(result["n_pruned"], int)
 
 
+class TestBuildDefaultConfig:
+    def test_delegates_to_default_strategy(self, optimizer: StrategyOptimizer) -> None:
+        """_build_default_config()がbuild_default_strategy_config()にデリゲートする"""
+        from betting.default_strategy import build_default_strategy_config
+        expected = build_default_strategy_config()
+        actual = optimizer._build_default_config()
+        assert actual["fractional_kelly"] == expected["fractional_kelly"]
+        assert actual["target_ev"] == expected["target_ev"]
+        assert actual["max_scale"] == expected["max_scale"]
+        assert actual["roi_threshold"] == expected["roi_threshold"]
+
+
 class TestRunSingleBacktest:
     def test_calls_model_loader(self, optimizer: StrategyOptimizer) -> None:
         """_run_single_backtestがModelLoader.load_from_dirを呼び、
@@ -295,3 +307,75 @@ class TestRunSingleBacktest:
 
             # 既存のRegimeDetectorの_override_paramsが更新されたこと
             assert mock_models.regime_detector._override_params["aggressive"]["fractional_kelly"] == 0.6
+
+    def test_training_uses_default_config_not_optuna(self, optimizer: StrategyOptimizer) -> None:
+        """D-04: training backtest が default_config を使用し、test backtest が
+        Optuna提案のstrategy_configを使用することを検証 (ルックアヘッド防止)"""
+        mock_models = MagicMock()
+        mock_info = MagicMock()
+        mock_result = MagicMock()
+        mock_result.total_roi = 1.10
+        mock_result.total_bets = 5000
+        mock_result.total_stake = 500000
+        mock_result.total_return = 550000
+        mock_result.max_drawdown = 0.15
+        mock_result.bet_history = [{"race_id": "1", "odds": 5.0, "result": 500, "stake": 100}]
+
+        with patch("db.model_loader.ModelLoader") as MockLoader, \
+             patch("backtest.engine.BacktestEngine") as MockEngine:
+            MockLoader.return_value.load_from_dir.return_value = (mock_models, mock_info)
+            MockEngine.return_value.run.return_value = mock_result
+
+            optuna_config = optimizer._build_strategy_config({
+                "rolling_window": 400, "dd_threshold_1": 0.10, "dd_threshold_2": 0.20,
+                "multiplier_reduced": 0.5, "min_stay_races": 10,
+                "fk_aggressive": 0.6, "ev_aggressive": 1.2, "edge_aggressive": 0.08,
+                "fk_conservative": 0.3, "ev_conservative": 1.4, "edge_conservative": 0.07,
+                "target_ev": 1.15, "max_scale": 2.5, "roi_threshold": 0.95,
+            })
+            optimizer._run_single_backtest(optuna_config, "2024-01-01", "2024-12-31")
+
+            assert MockEngine.call_count == 2
+            # ステップ3 (train_engine): default_config を使用
+            train_call = MockEngine.call_args_list[0]
+            train_params = train_call.kwargs.get("strategy_params", {})
+            default_config = optimizer._build_default_config()
+            assert train_params["fractional_kelly"] == default_config["fractional_kelly"]
+            assert train_params["target_ev"] == default_config["target_ev"]
+            # ステップ4 (test_engine): Optuna提案のstrategy_config を使用
+            test_call = MockEngine.call_args_list[1]
+            test_params = test_call.kwargs.get("strategy_params", {})
+            assert test_params["fractional_kelly"] == optuna_config["fractional_kelly"]
+            assert test_params["target_ev"] == optuna_config["target_ev"]
+
+    def test_regime_overrides_switched_between_train_and_test(self, optimizer: StrategyOptimizer) -> None:
+        """D-09: デフォルトregime_overridesがtrain用に注入され、
+        その後Optuna regime_overridesで上書きされることを検証"""
+        mock_models = MagicMock()
+        mock_info = MagicMock()
+        mock_result = MagicMock()
+        mock_result.total_roi = 1.05
+        mock_result.total_bets = 2000
+        mock_result.total_stake = 200000
+        mock_result.total_return = 210000
+        mock_result.max_drawdown = 0.10
+        mock_result.bet_history = []
+
+        with patch("db.model_loader.ModelLoader") as MockLoader, \
+             patch("backtest.engine.BacktestEngine") as MockEngine:
+            MockLoader.return_value.load_from_dir.return_value = (mock_models, mock_info)
+            MockEngine.return_value.run.return_value = mock_result
+
+            optuna_config = optimizer._build_strategy_config({
+                "rolling_window": 400, "dd_threshold_1": 0.10, "dd_threshold_2": 0.20,
+                "multiplier_reduced": 0.5, "min_stay_races": 10,
+                "fk_aggressive": 0.6, "ev_aggressive": 1.2, "edge_aggressive": 0.08,
+                "fk_conservative": 0.3, "ev_conservative": 1.4, "edge_conservative": 0.07,
+                "target_ev": 1.15, "max_scale": 2.5, "roi_threshold": 0.95,
+            })
+            optimizer._run_single_backtest(optuna_config, "2024-01-01", "2024-12-31")
+
+            # 最終的にOptuna値で上書きされていること
+            final_overrides = mock_models.regime_detector._override_params
+            assert final_overrides["aggressive"]["fractional_kelly"] == 0.6
+            assert final_overrides["conservative"]["fractional_kelly"] == 0.3
