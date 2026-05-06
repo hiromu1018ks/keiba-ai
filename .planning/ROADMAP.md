@@ -166,7 +166,7 @@ Plans:
 - [x] **Phase 14: Gate Recalibration** - WinSelectionGateをアンサンブルOOF予測で再学習し、分布ドリフト診断とフラグ伝播検証を完了する
 - [x] **Phase 15: EV Filter Enhancement** - EV_lower閾値をアンサンブルOOF分布に動的適合させ、EV推定精度を診断する (completed 2026-05-06)
 - [x] **Phase 16: Odds Band Rebuild** - ルックアヘッドバイアス修正後、アンサンブルベースtraining_bet_historyでOddsBandFilterを再キャリブレーションする (completed 2026-05-06)
-- [x] **Phase 17: Optuna Optimization** - アンサンブルモデルで14次元Optuna最適化を実行し、fold増強とパラメータ安定性検証を完了する (completed 2026-05-06)
+- [x] **Phase 17: Optuna Optimization** - アンサンブルモデルで14次元Optuna最適化を実行し、fold増強とパラメータ安定性検証を完了する (completed 2026-05-06)
 - [ ] **Phase 18: Validation & Freeze** - アンサンブルバックテストでROI>100%を確認し、パラメータを固定・改ざん検知を適用する
 
 ## Phase Details
@@ -232,7 +232,11 @@ Plans:
 **Success Criteria** (what must be TRUE):
   1. アンサンブルバックテスト(--ensemble)の結果が年間100+ベットを生成し、ROIが100%を超えている
   2. ParameterFreezeProtocolが最適化済みパラメータをJSON manifestに固定し、SHA256ハッシュで改ざん検知が有効になっている
-**Plans**: TBD
+**Plans**: 2 plans
+
+Plans:
+- [ ] 18-01: BacktestEngine PFP二重検証 + run_backtest.py manifest_path配線 (VAL-02)
+- [ ] 18-02: 検証レポート生成モジュール + 原因分析 + テスト (VAL-01, VAL-02)
 
 ## Progress
 
@@ -258,4 +262,4 @@ Phases execute in numeric order: 14 → 15 → 16 → 17 → 18
 | 15. EV Filter Enhancement | v1.4 | 2/2 | Complete | 2026-05-06 |
 | 16. Odds Band Rebuild | v1.4 | 2/2 | Complete    | 2026-05-06 |
 | 17. Optuna Optimization | v1.4 | 2/2 | Complete    | 2026-05-06 |
-| 18. Validation & Freeze | v1.4 | 0/? | Not started | - |
+| 18. Validation & Freeze | v1.4 | 0/2 | Not started | - |
