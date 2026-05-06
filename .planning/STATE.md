@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.4
 milestone_name: Ensemble Filter Recalibration
-status: executing
+status: ready_to_plan
 stopped_at: Phase 16 context gathered
 last_updated: "2026-05-06T10:26:30.669Z"
 last_activity: 2026-05-06 -- Phase 16 execution started
 progress:
   total_phases: 5
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 6
   completed_plans: 4
-  percent: 67
+  percent: 60
 ---
 
 # Project State
@@ -25,10 +25,10 @@ See: .planning/PROJECT.md (updated 2026-05-05)
 
 ## Current Position
 
-Phase: 16 (odds-band-rebuild) — EXECUTING
-Plan: 1 of 2
-Status: Executing Phase 16
-Last activity: 2026-05-06 -- Phase 16 execution started
+Phase: 17
+Plan: Not started
+Status: Ready to plan
+Last activity: 2026-05-06
 
 Progress: [====        ] 40%
 
@@ -40,7 +40,7 @@ Progress: [====        ] 40%
 - v1.1: 3 phases, 5 plans, ~2 sessions
 - v1.2: 3 phases, 5 plans, ~1 session
 - v1.3: 3 phases, 7 plans, ~2 sessions
-- Total plans completed: 24 (v1.0 + v1.1 + v1.2 + v1.3)
+- Total plans completed: 26 (v1.0 + v1.1 + v1.2 + v1.3)
 - Average duration: ~12min/plan
 
 **Cumulative:**

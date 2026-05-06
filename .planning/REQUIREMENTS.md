@@ -18,8 +18,8 @@
 
 ### Odds Band Rebuild
 
-- [ ] **ODDS-01**: アンサンブルモデルでtraining_bet_historyを再生成し、OddsBandFilter.calibrate()でバンド別ROIを再計算する
-- [ ] **ODDS-02**: strategy_optimizer.pyのルックアヘッドバイアスを修正し、training_bet_history生成にデフォルトパラメータを使用する
+- [x] **ODDS-01**: アンサンブルモデルでtraining_bet_historyを再生成し、OddsBandFilter.calibrate()でバンド別ROIを再計算する
+- [x] **ODDS-02**: strategy_optimizer.pyのルックアヘッドバイアスを修正し、training_bet_history生成にデフォルトパラメータを使用する
 
 ### Optuna Optimization
 
@@ -61,8 +61,8 @@
 | GATE-03 | Phase 14 | Pending |
 | EVF-01 | Phase 15 | Pending |
 | EVF-02 | Phase 15 | Pending |
-| ODDS-01 | Phase 16 | Pending |
-| ODDS-02 | Phase 16 | Pending |
+| ODDS-01 | Phase 16 | Complete |
+| ODDS-02 | Phase 16 | Complete |
 | OPT-01 | Phase 17 | Pending |
 | OPT-02 | Phase 17 | Pending |
 | OPT-03 | Phase 17 | Pending |
