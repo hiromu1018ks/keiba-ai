@@ -788,8 +788,28 @@ class TrainingPipelineV5:
             if "EV_lower_win_corrected" in wsg_win_df.columns:
                 wsg_train_df["EV_lower_win_corrected"] = wsg_win_df["EV_lower_win_corrected"].values
             wsg_train_df = ensure_win_selection_columns(wsg_train_df)
+
+        # --- Drift diagnostics (GATE-02, D-01/D-02/D-03) ---
+        if use_ensemble:
+            with TimingContext(f"{surface}/drift_diagnostics"):
+                from models.drift_diagnostics import compute_drift_diagnostics, console_summary
+
+                drift_output_path = Path("data/backtest") / f"drift_diagnostics_{surface}.json"
+                drift_result = compute_drift_diagnostics(
+                    wsg_train_df,
+                    output_path=drift_output_path,
+                    surface=surface,
+                )
+                console_summary(drift_result)
+
+        with TimingContext(f"{surface}/win_selection_gate_train"):
             win_selection_gate = WinSelectionGateModel()
             win_selection_gate.train(wsg_train_df)
+
+        # --- D-08 Part 2: Runtime assertion (ensemble mode only) ---
+        if use_ensemble:
+            assert win_selection_gate.is_trained, "Gate failed to train in ensemble mode"
+            assert len(win_selection_gate.prob_edges) > 0, "Gate edges empty after training"
 
         return SubmodelSet(
             market=market,

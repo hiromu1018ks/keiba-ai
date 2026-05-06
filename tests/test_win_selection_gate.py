@@ -5,6 +5,7 @@ from __future__ import annotations
 import tempfile
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -226,3 +227,78 @@ def test_win_selection_gate_soft_pass_mask() -> None:
 
     # R1: horse 1 is top-ranked by score, near threshold, should be rescued
     assert mask.tolist() == [True, False, False, False]
+
+
+def _build_gate_fixture_rows(
+    prob_mean: float,
+    prob_std: float,
+    edge_base: float,
+    seed: int = 42,
+) -> list[dict[str, object]]:
+    """ゲート学習用fixtureデータ生成ヘルパー.
+
+    120 races x 3 horses = 360 rows。
+    """
+    rng = np.random.RandomState(seed)
+    rows: list[dict[str, object]] = []
+    for race_idx in range(120):
+        race_id = f"R{race_idx:04d}"
+        race_date = pd.Timestamp("2024-01-01") + pd.Timedelta(days=race_idx)
+        for umaban in range(1, 4):
+            prob = float(np.clip(rng.normal(prob_mean, prob_std), 0.01, 0.99))
+            edge = float(edge_base + rng.normal(0, 0.02))
+            odds = float(np.clip(1.0 / max(prob, 0.01), 1.0, 100.0))
+            finish: int
+            if umaban == 1 and race_idx % 10 == 0:
+                finish = 1
+            else:
+                finish = int(rng.randint(2, 9))
+            rows.append(
+                {
+                    "race_id": race_id,
+                    "race_date": race_date,
+                    "umaban": umaban,
+                    "kakuteijyuni": finish,
+                    "tanoddslow": odds,
+                    "win_selection_prob": prob,
+                    "win_selection_edge": edge,
+                }
+            )
+    return rows
+
+
+def test_gate_edges_differ_between_single_and_ensemble_oof() -> None:
+    """D-08 Part 1: 単一モデルOOFとアンサンブルOOFで異なるedgesになることを検証."""
+    from models.win_selection_gate import WinSelectionGateModel
+
+    np.random.seed(42)
+
+    # 単一モデルOOF: 狭い分布
+    single_rows = _build_gate_fixture_rows(
+        prob_mean=0.20, prob_std=0.05, edge_base=0.02, seed=42
+    )
+    df_single = pd.DataFrame(single_rows)
+
+    # アンサンブルOOF: 広い分布、シャープな予測
+    ensemble_rows = _build_gate_fixture_rows(
+        prob_mean=0.28, prob_std=0.12, edge_base=0.08, seed=42
+    )
+    df_ensemble = pd.DataFrame(ensemble_rows)
+
+    gate_single = WinSelectionGateModel(min_train_races=40, min_fold_races=20, max_folds=3)
+    gate_single.train(df_single)
+
+    gate_ensemble = WinSelectionGateModel(min_train_races=40, min_fold_races=20, max_folds=3)
+    gate_ensemble.train(df_ensemble)
+
+    # 両方学習済み
+    assert gate_single.is_trained is True
+    assert gate_ensemble.is_trained is True
+
+    # edgesが異なることを確定的に検証
+    assert gate_single.prob_edges != gate_ensemble.prob_edges, (
+        "prob_edges should differ between single-model and ensemble OOF distributions"
+    )
+    assert gate_single.edge_edges != gate_ensemble.edge_edges, (
+        "edge_edges should differ between single-model and ensemble OOF distributions"
+    )
