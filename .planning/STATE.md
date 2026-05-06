@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.4
 milestone_name: Ensemble Filter Recalibration
-status: ready_to_execute
+status: executing
 last_updated: "2026-05-06T00:00:00Z"
-last_activity: 2026-05-06 — Phase 14 planned (2 plans, wave 1)
+last_activity: 2026-05-06 — Phase 14 executed (2/2 plans complete)
 progress:
   total_phases: 5
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 2
-  completed_plans: 0
-  percent: 0
+  completed_plans: 2
+  percent: 20
 ---
 
 # Project State
@@ -25,11 +25,11 @@ See: .planning/PROJECT.md (updated 2026-05-05)
 ## Current Position
 
 Phase: 14 of 18 (Gate Recalibration)
-Plan: 0 of 2 in current phase
-Status: Phase 14 planned — ready to execute
-Last activity: 2026-05-06 — Phase 14 planned (2 plans, wave 1)
+Plan: 2 of 2 in current phase
+Status: Phase 14 executed — verification pending
+Last activity: 2026-05-06 — Phase 14 executed (2/2 plans complete)
 
-Progress: [            ] 0%
+Progress: [==          ] 20%
 
 ## Performance Metrics
 

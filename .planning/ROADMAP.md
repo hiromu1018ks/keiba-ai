@@ -163,7 +163,7 @@ Plans:
 
 **Milestone Goal:** アンサンブルモデルの出力分布にフィルター群を適合させ、年間100+ベット・ROI>100%を達成する
 
-- [ ] **Phase 14: Gate Recalibration** - WinSelectionGateをアンサンブルOOF予測で再学習し、分布ドリフト診断とフラグ伝播検証を完了する
+- [x] **Phase 14: Gate Recalibration** - WinSelectionGateをアンサンブルOOF予測で再学習し、分布ドリフト診断とフラグ伝播検証を完了する
 - [ ] **Phase 15: EV Filter Enhancement** - EV_lower閾値をアンサンブルOOF分布に動的適合させ、EV推定精度を診断する
 - [ ] **Phase 16: Odds Band Rebuild** - ルックアヘッドバイアス修正後、アンサンブルベースtraining_bet_historyでOddsBandFilterを再キャリブレーションする
 - [ ] **Phase 17: Optuna Optimization** - アンサンブルモデルで14次元Optuna最適化を実行し、fold増強とパラメータ安定性検証を完了する
@@ -182,8 +182,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 14-01: ドリフト診断モジュール作成 + パイプライン統合 + ゲート再学習検証テスト (GATE-01, GATE-02)
-- [ ] 14-02: use_ensembleフラグ伝播統合テスト (GATE-03)
+- [x] 14-01: ドリフト診断モジュール作成 + パイプライン統合 + ゲート再学習検証テスト (GATE-01, GATE-02)
+- [x] 14-02: use_ensembleフラグ伝播統合テスト (GATE-03)
 
 ### Phase 15: EV Filter Enhancement
 **Goal**: EV_lower閾値がアンサンブルOOF分布に基づく動的閾値に置き換わり、過剰除外が解消されるとともにEV推定精度が可視化されている状態になる
@@ -242,7 +242,7 @@ Phases execute in numeric order: 14 → 15 → 16 → 17 → 18
 | 11. Bet Selection Filters | v1.3 | 2/2 | Complete | 2026-05-04 |
 | 12. Stake Sizing Enhancement | v1.3 | 2/2 | Complete | 2026-05-05 |
 | 13. Risk Calibration & Parameter Optimization | v1.3 | 3/3 | Complete | 2026-05-05 |
-| 14. Gate Recalibration | v1.4 | 0/2 | Planned | - |
+| 14. Gate Recalibration | v1.4 | 2/2 | Complete | 2026-05-06 |
 | 15. EV Filter Enhancement | v1.4 | 0/? | Not started | - |
 | 16. Odds Band Rebuild | v1.4 | 0/? | Not started | - |
 | 17. Optuna Optimization | v1.4 | 0/? | Not started | - |
