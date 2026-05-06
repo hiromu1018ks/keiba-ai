@@ -192,7 +192,11 @@ Plans:
 **Success Criteria** (what must be TRUE):
   1. バックテスト実行時にEV_lower閾値が固定1.0ではなくアンサンブルOOF分布の分位点から計算された動的値を使用し、除外件数が3,594件から大幅に減少する
   2. OOF EV推定値と実際の払戻額を比較した診断レポートが出力され、EV推定の過大/過小評価が定量化されている
-**Plans**: TBD
+**Plans**: 2 plans
+
+Plans:
+- [ ] 15-01: 動的EV_lower閾値計算 + SubmodelSet格納 + フィルター適用 (EVF-01)
+- [ ] 15-02: EV診断モジュール(ECE/Brier/Reliability/時系列ドリフト) + パイプライン統合 (EVF-02)
 
 ### Phase 16: Odds Band Rebuild
 **Goal**: strategy_optimizer.pyのルックアヘッドバイアスが修正され、アンサンブルモデルで生成されたtraining_bet_historyに基づいてOddsBandFilterが正しく再キャリブレーションされている状態になる
@@ -243,7 +247,7 @@ Phases execute in numeric order: 14 → 15 → 16 → 17 → 18
 | 12. Stake Sizing Enhancement | v1.3 | 2/2 | Complete | 2026-05-05 |
 | 13. Risk Calibration & Parameter Optimization | v1.3 | 3/3 | Complete | 2026-05-05 |
 | 14. Gate Recalibration | v1.4 | 2/2 | Complete | 2026-05-06 |
-| 15. EV Filter Enhancement | v1.4 | 0/? | Not started | - |
+| 15. EV Filter Enhancement | v1.4 | 0/2 | Not started | - |
 | 16. Odds Band Rebuild | v1.4 | 0/? | Not started | - |
 | 17. Optuna Optimization | v1.4 | 0/? | Not started | - |
 | 18. Validation & Freeze | v1.4 | 0/? | Not started | - |
