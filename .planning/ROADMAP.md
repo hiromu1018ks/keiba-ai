@@ -164,7 +164,7 @@ Plans:
 **Milestone Goal:** アンサンブルモデルの出力分布にフィルター群を適合させ、年間100+ベット・ROI>100%を達成する
 
 - [x] **Phase 14: Gate Recalibration** - WinSelectionGateをアンサンブルOOF予測で再学習し、分布ドリフト診断とフラグ伝播検証を完了する
-- [ ] **Phase 15: EV Filter Enhancement** - EV_lower閾値をアンサンブルOOF分布に動的適合させ、EV推定精度を診断する
+- [x] **Phase 15: EV Filter Enhancement** - EV_lower閾値をアンサンブルOOF分布に動的適合させ、EV推定精度を診断する (completed 2026-05-06)
 - [ ] **Phase 16: Odds Band Rebuild** - ルックアヘッドバイアス修正後、アンサンブルベースtraining_bet_historyでOddsBandFilterを再キャリブレーションする
 - [ ] **Phase 17: Optuna Optimization** - アンサンブルモデルで14次元Optuna最適化を実行し、fold増強とパラメータ安定性検証を完了する
 - [ ] **Phase 18: Validation & Freeze** - アンサンブルバックテストでROI>100%を確認し、パラメータを固定・改ざん検知を適用する
@@ -195,8 +195,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 15-01: 動的EV_lower閾値計算 + SubmodelSet格納 + フィルター適用 (EVF-01)
-- [ ] 15-02: EV診断モジュール(ECE/Brier/Reliability/時系列ドリフト) + パイプライン統合 (EVF-02)
+- [x] 15-01: 動的EV_lower閾値計算 + SubmodelSet格納 + フィルター適用 (EVF-01)
+- [x] 15-02: EV診断モジュール(ECE/Brier/Reliability/時系列ドリフト) + パイプライン統合 (EVF-02)
 
 ### Phase 16: Odds Band Rebuild
 **Goal**: strategy_optimizer.pyのルックアヘッドバイアスが修正され、アンサンブルモデルで生成されたtraining_bet_historyに基づいてOddsBandFilterが正しく再キャリブレーションされている状態になる
@@ -247,7 +247,7 @@ Phases execute in numeric order: 14 → 15 → 16 → 17 → 18
 | 12. Stake Sizing Enhancement | v1.3 | 2/2 | Complete | 2026-05-05 |
 | 13. Risk Calibration & Parameter Optimization | v1.3 | 3/3 | Complete | 2026-05-05 |
 | 14. Gate Recalibration | v1.4 | 2/2 | Complete | 2026-05-06 |
-| 15. EV Filter Enhancement | v1.4 | 0/2 | Not started | - |
+| 15. EV Filter Enhancement | v1.4 | 2/2 | Complete | 2026-05-06 |
 | 16. Odds Band Rebuild | v1.4 | 0/? | Not started | - |
 | 17. Optuna Optimization | v1.4 | 0/? | Not started | - |
 | 18. Validation & Freeze | v1.4 | 0/? | Not started | - |
