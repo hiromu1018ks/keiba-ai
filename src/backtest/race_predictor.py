@@ -430,23 +430,34 @@ class RacePredictor:
         mask = selection_edge.fillna(0.0) > 0.0
         mask &= odds.fillna(0.0) >= 1.0
 
-        # D-01: EV lower bound filter (dual with edge > 0)
+        # D-01/D-02: Dynamic EV_lower threshold from SubmodelSet
         ev_lower_col = "EV_lower_win_corrected"
         n_before_ev = int(mask.sum())
         _n_ev_excluded = 0
         if ev_lower_col in race_df.columns:
             ev_lower = pd.to_numeric(race_df[ev_lower_col], errors="coerce")
-            # D-03: NaN -> True (fallback to edge-only, fillna(1.0) passes >= 1.0)
-            ev_mask = ev_lower.fillna(1.0) >= 1.0
+            # Resolve threshold from submodel (surface-specific, D-02)
+            threshold = 1.0  # default for unknown surface
+            if "surface" in race_df.columns and not race_df.empty:
+                surf_key = str(race_df["surface"].iloc[0])
+                _sm = self.models.submodels.get(surf_key)
+                if _sm is not None:
+                    if surf_key == "turf":
+                        threshold = float(getattr(_sm, "ev_lower_threshold_turf", 1.0))
+                    elif surf_key == "dirt":
+                        threshold = float(getattr(_sm, "ev_lower_threshold_dirt", 1.0))
+            # D-03: NaN fallback to surface-specific threshold (not fillna(1.0))
+            ev_mask = ev_lower.fillna(threshold) >= threshold
             mask &= ev_mask
             _n_ev_excluded = n_before_ev - int(mask.sum())
             if _n_ev_excluded > 0:
                 ev_total = len(race_df)
                 logger.info(
                     "EV filter: excluded %d candidates (%.1f%%), "
-                    "EV_lower < 1.0 in race %s",
+                    "EV_lower < %.4f (threshold) in race %s",
                     _n_ev_excluded,
                     100.0 * _n_ev_excluded / max(ev_total, 1),
+                    threshold,
                     race_df["race_id"].iloc[0] if "race_id" in race_df.columns else "?",
                 )
 
