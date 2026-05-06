@@ -21,7 +21,7 @@ def optimizer() -> StrategyOptimizer:
 
 class TestSuggestParams:
     def test_suggest_returns_all_dimensions(self, optimizer: StrategyOptimizer) -> None:
-        """_suggest_params が16+次元を返す"""
+        """_suggest_params が16次元を返す (14 + ev_lower_threshold_turf/dirt)"""
         study = optuna.create_study(direction="maximize")
         trial = study.ask()
         params = optimizer._suggest_params(trial)
@@ -44,8 +44,11 @@ class TestSuggestParams:
         assert "max_scale" in params
         # OddsBandFilter: 1
         assert "roi_threshold" in params
-        # Total: 14+
-        assert len(params) >= 14
+        # EV_lower閾値: 2 (15-16次元目)
+        assert "ev_lower_threshold_turf" in params
+        assert "ev_lower_threshold_dirt" in params
+        # Total: 16
+        assert len(params) == 16
 
     def test_param_ranges_valid(self, optimizer: StrategyOptimizer) -> None:
         """パラメータが妥当な範囲内"""
@@ -58,6 +61,43 @@ class TestSuggestParams:
         assert 0.15 <= params["dd_threshold_2"] <= 0.35
         assert 200 <= params["rolling_window"] <= 800
         assert 1.05 <= params["target_ev"] <= 1.50
+
+    def test_ev_lower_thresholds_in_range(self, optimizer: StrategyOptimizer) -> None:
+        """EV_lower閾値が[0.5, 1.5]の範囲内"""
+        study = optuna.create_study(direction="maximize")
+        trial = study.ask()
+        params = optimizer._suggest_params(trial)
+        assert 0.5 <= params["ev_lower_threshold_turf"] <= 1.5
+        assert 0.5 <= params["ev_lower_threshold_dirt"] <= 1.5
+
+
+class TestGenerateFolds:
+    def test_4fold_default(self) -> None:
+        """n_folds=4, fold_start_year=2022で4fold動的生成"""
+        opt = StrategyOptimizer(n_folds=4, fold_start_year=2022)
+        folds = opt._generate_folds()
+        assert len(folds) == 4
+        assert folds[0] == ("2022-01-01", "2022-12-31")
+        assert folds[1] == ("2023-01-01", "2023-12-31")
+        assert folds[2] == ("2024-01-01", "2024-12-31")
+        assert folds[3] == ("2025-01-01", "2025-12-31")
+
+    def test_2fold_backward_compat(self) -> None:
+        """n_folds=2で2foldを返す(後方互換)"""
+        opt = StrategyOptimizer(n_folds=2, fold_start_year=2024)
+        folds = opt._generate_folds()
+        assert len(folds) == 2
+        assert folds[0] == ("2024-01-01", "2024-12-31")
+        assert folds[1] == ("2025-01-01", "2025-12-31")
+
+    def test_custom_start_year(self) -> None:
+        """カスタムfold_start_yearで正しいfold生成"""
+        opt = StrategyOptimizer(n_folds=3, fold_start_year=2021)
+        folds = opt._generate_folds()
+        assert len(folds) == 3
+        assert folds[0] == ("2021-01-01", "2021-12-31")
+        assert folds[1] == ("2022-01-01", "2022-12-31")
+        assert folds[2] == ("2023-01-01", "2023-12-31")
 
 
 class TestBuildStrategyConfig:
@@ -134,58 +174,190 @@ class TestObjective:
     def test_penalty_when_bets_below_minimum(self, optimizer: StrategyOptimizer) -> None:
         """ベット数不足時は-1.0ペナルティ"""
 
-        def mock_backtest(cfg, test_start, test_end, trial=None, fold_idx=0):
+        def mock_backtest_with_models(
+            models, strategy_config, test_start, test_end,
+            training_bet_history, fold_idx=0,
+        ):
             return {"roi": 1.5, "n_bets": 50}  # 50 < 100 (min_bets)
 
-        optimizer._run_single_backtest = mock_backtest
+        optimizer._run_single_backtest_with_models = mock_backtest_with_models
 
         study = optuna.create_study(direction="maximize")
         trial = study.ask()
-        result = optimizer._objective(trial)
+        with patch("db.model_loader.ModelLoader") as MockLoader, \
+             patch.object(optimizer, "_generate_training_bet_history", return_value=[]):
+            MockLoader.return_value.load_from_dir.return_value = (MagicMock(), MagicMock())
+            result = optimizer._objective(trial)
         assert result == -1.0
 
     def test_returns_roi_when_sufficient_bets(self, optimizer: StrategyOptimizer) -> None:
         """ベット数十分時はROIを返す"""
 
-        def mock_backtest(cfg, test_start, test_end, trial=None, fold_idx=0):
+        def mock_backtest_with_models(
+            models, strategy_config, test_start, test_end,
+            training_bet_history, fold_idx=0,
+        ):
             return {"roi": 1.15, "n_bets": 2000}
 
-        optimizer._run_single_backtest = mock_backtest
+        optimizer._run_single_backtest_with_models = mock_backtest_with_models
 
         study = optuna.create_study(direction="maximize")
         trial = study.ask()
-        result = optimizer._objective(trial)
+        with patch("db.model_loader.ModelLoader") as MockLoader, \
+             patch.object(optimizer, "_generate_training_bet_history", return_value=[]):
+            MockLoader.return_value.load_from_dir.return_value = (MagicMock(), MagicMock())
+            result = optimizer._objective(trial)
         assert result == pytest.approx(1.15, abs=0.01)
 
     def test_pruning_on_bad_fold(self, optimizer: StrategyOptimizer) -> None:
         """MedianPrunerがfold間reportで動作する"""
         call_count = 0
 
-        def mock_backtest(cfg, test_start, test_end, trial=None, fold_idx=0):
+        def mock_backtest_with_models(
+            models, strategy_config, test_start, test_end,
+            training_bet_history, fold_idx=0,
+        ):
             nonlocal call_count
             call_count += 1
-            # 最初のfoldで非常に悪いROI -> prunerがpruneする可能性
             return {"roi": 0.3, "n_bets": 2000}
 
-        optimizer._run_single_backtest = mock_backtest
+        optimizer._run_single_backtest_with_models = mock_backtest_with_models
 
         study = optuna.create_study(direction="maximize")
         trial = study.ask()
-        optimizer._objective(trial)
-        # reportが呼ばれたことのみ確認(prunerの実際のpruneは確率的)
+        with patch("db.model_loader.ModelLoader") as MockLoader, \
+             patch.object(optimizer, "_generate_training_bet_history", return_value=[]):
+            MockLoader.return_value.load_from_dir.return_value = (MagicMock(), MagicMock())
+            optimizer._objective(trial)
         assert call_count >= 1
+
+    def test_model_load_optimization(self, optimizer: StrategyOptimizer) -> None:
+        """_objective()内でModelLoader.load_from_dir()が1回のみ呼ばれる"""
+
+        def mock_backtest_with_models(
+            models, strategy_config, test_start, test_end,
+            training_bet_history, fold_idx=0,
+        ):
+            return {"roi": 1.05, "n_bets": 2000}
+
+        optimizer._run_single_backtest_with_models = mock_backtest_with_models
+
+        study = optuna.create_study(direction="maximize")
+        trial = study.ask()
+        with patch("db.model_loader.ModelLoader") as MockLoader, \
+             patch.object(optimizer, "_generate_training_bet_history", return_value=[]):
+            MockLoader.return_value.load_from_dir.return_value = (MagicMock(), MagicMock())
+            optimizer._objective(trial)
+            # D-05: ModelLoader.load_from_dir()はtrial内1回のみ
+            MockLoader.return_value.load_from_dir.assert_called_once()
+
+    def test_training_bet_history_cached_once(self, optimizer: StrategyOptimizer) -> None:
+        """_objective()内でtraining_bet_history生成が1回のみ実行される"""
+        call_count = 0
+
+        def mock_generate_training_bet_history(models, info, default_config):
+            nonlocal call_count
+            call_count += 1
+            return []
+
+        optimizer._generate_training_bet_history = mock_generate_training_bet_history
+
+        def mock_backtest_with_models(
+            models, strategy_config, test_start, test_end,
+            training_bet_history, fold_idx=0,
+        ):
+            return {"roi": 1.05, "n_bets": 2000}
+
+        optimizer._run_single_backtest_with_models = mock_backtest_with_models
+
+        study = optuna.create_study(direction="maximize")
+        trial = study.ask()
+        with patch("db.model_loader.ModelLoader") as MockLoader:
+            MockLoader.return_value.load_from_dir.return_value = (MagicMock(), MagicMock())
+            optimizer._objective(trial)
+        assert call_count == 1
+
+    def test_regime_reset_per_fold(self, optimizer: StrategyOptimizer) -> None:
+        """複数fold実行時に各fold開始前にRegimeDetector状態がリセットされる"""
+        mock_models = MagicMock()
+        mock_info = MagicMock()
+
+        regime_states: list[dict] = []
+
+        def mock_backtest_with_models(
+            models, strategy_config, test_start, test_end,
+            training_bet_history, fold_idx=0,
+        ):
+            # リセット後の状態をキャプチャ
+            regime_states.append({
+                "_current_regime": models.regime_detector._current_regime,
+                "_regime_counter": models.regime_detector._regime_counter,
+                "_pending_regime": models.regime_detector._pending_regime,
+                "_collapsed_consecutive": models.regime_detector._collapsed_consecutive,
+            })
+            return {"roi": 1.05, "n_bets": 2000}
+
+        optimizer._run_single_backtest_with_models = mock_backtest_with_models
+
+        study = optuna.create_study(direction="maximize")
+        trial = study.ask()
+        with patch("db.model_loader.ModelLoader") as MockLoader, \
+             patch.object(optimizer, "_generate_training_bet_history", return_value=[]):
+            MockLoader.return_value.load_from_dir.return_value = (mock_models, mock_info)
+            optimizer._objective(trial)
+
+        # 各foldでリセットされていることを確認
+        from domain.types import RegimeState
+        for state in regime_states:
+            assert state["_current_regime"] == RegimeState.CONSERVATIVE
+            assert state["_regime_counter"] == 0
+            assert state["_pending_regime"] is None
+            assert state["_collapsed_consecutive"] == 0
+
+    def test_ev_lower_set_on_submodels(self, optimizer: StrategyOptimizer) -> None:
+        """EV_lower閾値がSubmodelSet属性(turf/dirt)に設定される"""
+        mock_turf = MagicMock()
+        mock_dirt = MagicMock()
+        mock_models = MagicMock()
+        mock_models.submodels = {"turf": mock_turf, "dirt": mock_dirt}
+        mock_info = MagicMock()
+
+        def mock_backtest_with_models(
+            models, strategy_config, test_start, test_end,
+            training_bet_history, fold_idx=0,
+        ):
+            return {"roi": 1.05, "n_bets": 2000}
+
+        optimizer._run_single_backtest_with_models = mock_backtest_with_models
+
+        study = optuna.create_study(direction="maximize")
+        trial = study.ask()
+        with patch("db.model_loader.ModelLoader") as MockLoader, \
+             patch.object(optimizer, "_generate_training_bet_history", return_value=[]):
+            MockLoader.return_value.load_from_dir.return_value = (mock_models, mock_info)
+            optimizer._objective(trial)
+
+        # EV_lower閾値が設定されていることを確認
+        assert mock_turf.ev_lower_threshold_turf is not None
+        assert mock_dirt.ev_lower_threshold_dirt is not None
 
 
 class TestOptimize:
     def test_optimize_returns_best_params(self, optimizer: StrategyOptimizer) -> None:
         """optimize() がbest_params, best_value, n_trialsを返す"""
 
-        def mock_backtest(cfg, test_start, test_end, trial=None, fold_idx=0):
+        def mock_backtest_with_models(
+            models, strategy_config, test_start, test_end,
+            training_bet_history, fold_idx=0,
+        ):
             return {"roi": 1.05, "n_bets": 2000}
 
-        optimizer._run_single_backtest = mock_backtest
+        optimizer._run_single_backtest_with_models = mock_backtest_with_models
 
-        result = optimizer.optimize(n_trials=5, seed=42)
+        with patch("db.model_loader.ModelLoader") as MockLoader, \
+             patch.object(optimizer, "_generate_training_bet_history", return_value=[]):
+            MockLoader.return_value.load_from_dir.return_value = (MagicMock(), MagicMock())
+            result = optimizer.optimize(n_trials=5, seed=42)
         assert "best_params" in result
         assert "best_value" in result
         assert "n_trials" in result
@@ -194,13 +366,19 @@ class TestOptimize:
     def test_optimize_saves_manifest(self, optimizer: StrategyOptimizer, tmp_path: Path) -> None:
         """optimize() がJSON manifestを保存"""
 
-        def mock_backtest(cfg, test_start, test_end, trial=None, fold_idx=0):
+        def mock_backtest_with_models(
+            models, strategy_config, test_start, test_end,
+            training_bet_history, fold_idx=0,
+        ):
             return {"roi": 1.05, "n_bets": 2000}
 
-        optimizer._run_single_backtest = mock_backtest
+        optimizer._run_single_backtest_with_models = mock_backtest_with_models
 
         manifest_path = tmp_path / "strategy_manifest.json"
-        result = optimizer.optimize(n_trials=3, output_path=manifest_path)
+        with patch("db.model_loader.ModelLoader") as MockLoader, \
+             patch.object(optimizer, "_generate_training_bet_history", return_value=[]):
+            MockLoader.return_value.load_from_dir.return_value = (MagicMock(), MagicMock())
+            result = optimizer.optimize(n_trials=3, output_path=manifest_path)
         assert manifest_path.exists()
 
         import json
@@ -212,12 +390,18 @@ class TestOptimize:
     def test_pruning_works(self, optimizer: StrategyOptimizer) -> None:
         """MedianPrunerが一部トライアルをpruneする"""
 
-        def mock_backtest(cfg, test_start, test_end, trial=None, fold_idx=0):
+        def mock_backtest_with_models(
+            models, strategy_config, test_start, test_end,
+            training_bet_history, fold_idx=0,
+        ):
             return {"roi": 0.5, "n_bets": 2000}
 
-        optimizer._run_single_backtest = mock_backtest
+        optimizer._run_single_backtest_with_models = mock_backtest_with_models
 
-        result = optimizer.optimize(n_trials=10, seed=42)
+        with patch("db.model_loader.ModelLoader") as MockLoader, \
+             patch.object(optimizer, "_generate_training_bet_history", return_value=[]):
+            MockLoader.return_value.load_from_dir.return_value = (MagicMock(), MagicMock())
+            result = optimizer.optimize(n_trials=10, seed=42)
         assert "n_pruned" in result
         # pruned数が記録されていること
         assert isinstance(result["n_pruned"], int)
