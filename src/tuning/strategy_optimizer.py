@@ -1,10 +1,9 @@
 """Optuna戦略パラメータ最適化 (D-07, D-12)
 
-Walk-forward枠組みで~16次元戦略パラメータをOptuna TPE最適化。
+Walk-forward枠組みで16次元戦略パラメータをOptuna TPE最適化。
 学習済みモデルをModelLoader.load_from_dir()でロードしてバックテストのみ実行。
 WalkForwardCVは使用せず、独自軽量WFループでfold評価(pipeline.run回避)。
 """
-
 from __future__ import annotations
 
 import logging
@@ -24,7 +23,7 @@ class StrategyOptimizer:
     """全戦略パラメータのOptuna TPE最適化
 
     D-07: 全パラメータ一括最適化
-    D-08: ~16次元探索空間
+    D-08: 16次元探索空間
     D-09: ROI主 + ベット数制約
     D-10: Walk-forward枠組み (独自軽量ループ)
     D-11: 100トライアル + MedianPruner
@@ -35,10 +34,11 @@ class StrategyOptimizer:
         models_dir: Path | str = "data/models",
         data_dir: Path | str = "data",
         initial_bankroll: float = 100_000,
-        n_folds: int = 2,
+        n_folds: int = 4,
         train_years: int = 4,
         test_years: int = 1,
         min_bets_per_fold: int = 1000,
+        fold_start_year: int = 2022,
     ) -> None:
         self.models_dir = Path(models_dir)
         self.data_dir = Path(data_dir)
@@ -47,9 +47,10 @@ class StrategyOptimizer:
         self.train_years = train_years
         self.test_years = test_years
         self.min_bets_per_fold = min_bets_per_fold
+        self.fold_start_year = fold_start_year
 
     def _suggest_params(self, trial: optuna.Trial) -> dict[str, Any]:
-        """D-08: ~16次元探索空間"""
+        """D-08: 16次元探索空間"""
         params: dict[str, Any] = {}
 
         # レジーム別パラメータ (AGGRESSIVE, CONSERVATIVEのみ。COLLAPSEDはfk=0固定)
@@ -77,6 +78,14 @@ class StrategyOptimizer:
 
         # OddsBandFilter ROI閾値
         params["roi_threshold"] = trial.suggest_float("roi_threshold", 0.8, 1.2)
+
+        # D-07: EV_lower閾値 15-16次元目 (サーフェス別)
+        params["ev_lower_threshold_turf"] = trial.suggest_float(
+            "ev_lower_threshold_turf", 0.5, 1.5,
+        )
+        params["ev_lower_threshold_dirt"] = trial.suggest_float(
+            "ev_lower_threshold_dirt", 0.5, 1.5,
+        )
 
         return params
 
@@ -185,24 +194,110 @@ class StrategyOptimizer:
             "max_drawdown": result.max_drawdown,
         }
 
+    def _generate_training_bet_history(
+        self,
+        models: Any,
+        info: Any,
+        default_config: dict[str, Any],
+    ) -> list[dict[str, Any]] | None:
+        """D-05: training_bet_historyをデフォルトパラメータで1回生成"""
+        from backtest.engine import BacktestEngine
+        try:
+            train_engine = BacktestEngine(
+                models=models,
+                initial_bankroll=self.initial_bankroll,
+                betting_mode="kelly",
+                diag_prefix="opt_train",
+                betting_target="win",
+                strategy_params=default_config,
+            )
+            train_result = train_engine.run(info.train_start, info.train_end)
+            return train_result.bet_history
+        except Exception as e:
+            logger.warning("Training-phase backtest failed: %s — skipping calibration", e)
+            return None
+
+    def _run_single_backtest_with_models(
+        self,
+        models: Any,
+        strategy_config: dict[str, Any],
+        test_start: str,
+        test_end: str,
+        training_bet_history: list[dict[str, Any]] | None,
+        fold_idx: int = 0,
+    ) -> dict[str, Any]:
+        """D-05: モデル共有版バックテスト実行"""
+        from backtest.engine import BacktestEngine
+        engine = BacktestEngine(
+            models=models,
+            initial_bankroll=self.initial_bankroll,
+            betting_mode="kelly",
+            diag_prefix=f"opt_fold{fold_idx}",
+            betting_target="win",
+            strategy_params=strategy_config,
+        )
+        result = engine.run(test_start, test_end, training_bet_history=training_bet_history)
+        return {
+            "roi": result.total_roi,
+            "n_bets": result.total_bets,
+            "total_stake": result.total_stake,
+            "total_return": result.total_return,
+            "max_drawdown": result.max_drawdown,
+        }
+
     def _objective(self, trial: optuna.Trial) -> float:
         """D-09: ROI主 + ベット数制約"""
         params = self._suggest_params(trial)
         strategy_config = self._build_strategy_config(params)
 
-        # Walk-forward 2fold評価
+        # D-05: モデルロード最適化 — trial内1回
+        from db.model_loader import ModelLoader
+        loader = ModelLoader()
+        models, info = loader.load_from_dir(self.models_dir, use_ensemble_override=True)
+
+        # D-05: training_bet_historyキャッシュ — trial内1回
+        default_config = self._build_default_config()
+        default_regime_overrides = default_config.get("regime_overrides")
+        if default_regime_overrides:
+            models.regime_detector._override_params = default_regime_overrides
+        training_bet_history = self._generate_training_bet_history(
+            models, info, default_config,
+        )
+
+        # D-07: EV_lower閾値をSubmodelSet属性に設定
+        ev_lower_turf = params.get("ev_lower_threshold_turf", 1.0)
+        ev_lower_dirt = params.get("ev_lower_threshold_dirt", 1.0)
+        for surf_key, sm in models.submodels.items():
+            if surf_key == "turf":
+                sm.ev_lower_threshold_turf = ev_lower_turf
+            elif surf_key == "dirt":
+                sm.ev_lower_threshold_dirt = ev_lower_dirt
+
+        # Walk-forward fold評価
         folds = self._generate_folds()
         rois: list[float] = []
         total_bets = 0
 
         for fold_idx, (test_start, test_end) in enumerate(folds):
-            result = self._run_single_backtest(
-                strategy_config, test_start, test_end, trial, fold_idx,
+            # CR-01: RegimeDetector状態リセット
+            from domain.types import RegimeState
+            models.regime_detector._current_regime = RegimeState.CONSERVATIVE
+            models.regime_detector._regime_counter = 0
+            models.regime_detector._pending_regime = None
+            models.regime_detector._collapsed_consecutive = 0
+
+            # regime_overridesをOptuna値で上書き
+            regime_overrides = strategy_config.get("regime_overrides")
+            if regime_overrides:
+                models.regime_detector._override_params = regime_overrides
+
+            result = self._run_single_backtest_with_models(
+                models, strategy_config, test_start, test_end,
+                training_bet_history, fold_idx,
             )
             rois.append(result.get("roi", 0.0))
             total_bets += result.get("n_bets", 0)
 
-            # D-11: MedianPruner用中間報告
             if trial is not None:
                 trial.report(result.get("roi", 0.0), step=fold_idx)
                 if trial.should_prune():
@@ -218,15 +313,12 @@ class StrategyOptimizer:
         return mean_roi
 
     def _generate_folds(self) -> list[tuple[str, str]]:
-        """WF fold定義。run_wf_validation.pyのパターンを踏襲。
-
-        デフォルト: 2024年テスト、2025年テストの2fold。
-        CLI引数で上書き可能。
-        """
-        return [
-            ("2024-01-01", "2024-12-31"),
-            ("2025-01-01", "2025-12-31"),
-        ]
+        """D-02: 年次fold動的生成 (コンストラクタ引数ベース)"""
+        folds: list[tuple[str, str]] = []
+        for i in range(self.n_folds):
+            year = self.fold_start_year + i
+            folds.append((f"{year}-01-01", f"{year}-12-31"))
+        return folds
 
     def optimize(
         self,
@@ -236,7 +328,12 @@ class StrategyOptimizer:
     ) -> dict[str, Any]:
         """D-11: Optuna最適化実行 + D-14: manifest自動生成"""
         sampler = TPESampler(seed=seed)
-        pruner = MedianPruner()
+        pruner = MedianPruner(
+            n_startup_trials=10,
+            n_warmup_steps=0,
+            interval_steps=1,
+            n_min_trials=1,
+        )
         study = optuna.create_study(
             direction="maximize",
             sampler=sampler,

@@ -21,7 +21,7 @@ def optimizer() -> StrategyOptimizer:
 
 class TestSuggestParams:
     def test_suggest_returns_all_dimensions(self, optimizer: StrategyOptimizer) -> None:
-        """_suggest_params が16次元を返す (14既存 + ev_lower_threshold_turf + ev_lower_threshold_dirt)"""
+        """_suggest_params が16次元を返す (14 + ev_lower_threshold_turf/dirt)"""
         study = optuna.create_study(direction="maximize")
         trial = study.ask()
         params = optimizer._suggest_params(trial)
@@ -346,12 +346,18 @@ class TestOptimize:
     def test_optimize_returns_best_params(self, optimizer: StrategyOptimizer) -> None:
         """optimize() がbest_params, best_value, n_trialsを返す"""
 
-        def mock_backtest(cfg, test_start, test_end, trial=None, fold_idx=0):
+        def mock_backtest_with_models(
+            models, strategy_config, test_start, test_end,
+            training_bet_history, fold_idx=0,
+        ):
             return {"roi": 1.05, "n_bets": 2000}
 
-        optimizer._run_single_backtest = mock_backtest
+        optimizer._run_single_backtest_with_models = mock_backtest_with_models
 
-        result = optimizer.optimize(n_trials=5, seed=42)
+        with patch("db.model_loader.ModelLoader") as MockLoader, \
+             patch.object(optimizer, "_generate_training_bet_history", return_value=[]):
+            MockLoader.return_value.load_from_dir.return_value = (MagicMock(), MagicMock())
+            result = optimizer.optimize(n_trials=5, seed=42)
         assert "best_params" in result
         assert "best_value" in result
         assert "n_trials" in result
@@ -360,13 +366,19 @@ class TestOptimize:
     def test_optimize_saves_manifest(self, optimizer: StrategyOptimizer, tmp_path: Path) -> None:
         """optimize() がJSON manifestを保存"""
 
-        def mock_backtest(cfg, test_start, test_end, trial=None, fold_idx=0):
+        def mock_backtest_with_models(
+            models, strategy_config, test_start, test_end,
+            training_bet_history, fold_idx=0,
+        ):
             return {"roi": 1.05, "n_bets": 2000}
 
-        optimizer._run_single_backtest = mock_backtest
+        optimizer._run_single_backtest_with_models = mock_backtest_with_models
 
         manifest_path = tmp_path / "strategy_manifest.json"
-        result = optimizer.optimize(n_trials=3, output_path=manifest_path)
+        with patch("db.model_loader.ModelLoader") as MockLoader, \
+             patch.object(optimizer, "_generate_training_bet_history", return_value=[]):
+            MockLoader.return_value.load_from_dir.return_value = (MagicMock(), MagicMock())
+            result = optimizer.optimize(n_trials=3, output_path=manifest_path)
         assert manifest_path.exists()
 
         import json
@@ -378,12 +390,18 @@ class TestOptimize:
     def test_pruning_works(self, optimizer: StrategyOptimizer) -> None:
         """MedianPrunerが一部トライアルをpruneする"""
 
-        def mock_backtest(cfg, test_start, test_end, trial=None, fold_idx=0):
+        def mock_backtest_with_models(
+            models, strategy_config, test_start, test_end,
+            training_bet_history, fold_idx=0,
+        ):
             return {"roi": 0.5, "n_bets": 2000}
 
-        optimizer._run_single_backtest = mock_backtest
+        optimizer._run_single_backtest_with_models = mock_backtest_with_models
 
-        result = optimizer.optimize(n_trials=10, seed=42)
+        with patch("db.model_loader.ModelLoader") as MockLoader, \
+             patch.object(optimizer, "_generate_training_bet_history", return_value=[]):
+            MockLoader.return_value.load_from_dir.return_value = (MagicMock(), MagicMock())
+            result = optimizer.optimize(n_trials=10, seed=42)
         assert "n_pruned" in result
         # pruned数が記録されていること
         assert isinstance(result["n_pruned"], int)
