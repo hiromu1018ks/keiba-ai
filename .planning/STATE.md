@@ -2,9 +2,9 @@
 gsd_state_version: 1.0
 milestone: v1.4
 milestone_name: Ensemble Filter Recalibration
-status: executing
+status: phase_complete
 last_updated: "2026-05-06T00:00:00Z"
-last_activity: 2026-05-06 — Phase 14 executed (2/2 plans complete)
+last_activity: 2026-05-06 — Phase 14 verified and complete, ready for Phase 15
 progress:
   total_phases: 5
   completed_phases: 1
@@ -20,14 +20,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-05-05)
 
 **Core value:** 単勝モデルのバックテストROIを100%超えにすること
-**Current focus:** Phase 14 — Gate Recalibration
+**Current focus:** Phase 15 — EV Filter Enhancement
 
 ## Current Position
 
-Phase: 14 of 18 (Gate Recalibration)
-Plan: 2 of 2 in current phase
-Status: Phase 14 executed — verification pending
-Last activity: 2026-05-06 — Phase 14 executed (2/2 plans complete)
+Phase: 15 of 18 (EV Filter Enhancement)
+Plan: 0 of ? in current phase
+Status: Phase 14 complete — ready for Phase 15
+Last activity: 2026-05-06 — Phase 14 verified and complete
 
 Progress: [==          ] 20%
 
