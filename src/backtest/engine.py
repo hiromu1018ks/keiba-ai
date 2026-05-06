@@ -14,6 +14,10 @@ import numpy as np
 import pandas as pd
 
 from backtest.diagnostic_logger import DiagnosticLogger
+from backtest.parameter_freeze_protocol import (
+    ParameterFreezeProtocol,
+    verify_strategy_manifest,
+)
 from backtest.race_predictor import RacePredictor
 from betting.odds_band_filter import OddsBandFilter
 from db.parquet_store import ParquetStore
@@ -365,6 +369,7 @@ class BacktestEngine:
         diag_prefix: str = "bt",
         betting_target: str = "win",
         strategy_params: dict[str, Any] | None = None,
+        manifest_path: Path | None = None,
     ) -> None:
         if betting_mode not in ("flat", "kelly"):
             raise ValueError(f"betting_mode must be 'flat' or 'kelly', got '{betting_mode}'")
@@ -377,6 +382,8 @@ class BacktestEngine:
         self.diag_prefix = diag_prefix
         self.betting_target = betting_target
         self.strategy_params = strategy_params
+        self._manifest_path = manifest_path
+        self._pfp: ParameterFreezeProtocol | None = None
 
         # Phase 11: Bet selection filters
         self._odds_band_filter: OddsBandFilter | None = None
@@ -480,6 +487,17 @@ class BacktestEngine:
                 self._odds_band_filter.calibrate(training_bet_history)
         return training_bet_history
 
+    def _verify_pfp(self) -> None:
+        """D-03(2): PFP verify -- OOS期間終了時のモデル不変性確認。
+
+        失敗時はRuntimeError(D-04)。run()の各returnパスで呼び出す。
+        """
+        if self._pfp is not None:
+            pfp_result = self._pfp.verify()
+            if not pfp_result["passed"]:
+                raise RuntimeError(pfp_result["message"])  # D-04: 即時停止
+            logger.info("PFP verification passed: %s", pfp_result["message"])
+
     def run(
         self,
         test_start: str,
@@ -496,6 +514,16 @@ class BacktestEngine:
         Returns:
             BacktestResult
         """
+        # --- D-03: PFP二重検証 (SHA256 + ParameterFreezeProtocol) ---
+        if self._manifest_path is not None:
+            # D-03(1): SHA256再検証
+            verify_strategy_manifest(self._manifest_path)
+            logger.info("Manifest SHA256 verified in engine.run(): %s", self._manifest_path)
+
+            # D-03(2): PFP freeze -- OOS期間開始時のモデルスナップショット
+            self._pfp = ParameterFreezeProtocol(self.models)
+            self._pfp.freeze()
+
         # 1. データロード
         start = test_start.replace("-", "")
         end = test_end.replace("-", "")
@@ -505,6 +533,7 @@ class BacktestEngine:
 
         if race_df.empty:
             logger.warning(f"No races found in {test_start} ~ {test_end}")
+            self._verify_pfp()
             return BacktestResult(final_bankroll=self.initial_bankroll)
 
         if "jyocd" in race_df.columns:
@@ -530,12 +559,14 @@ class BacktestEngine:
             logger.warning(
                 "No time-series odds data for %s ~ %s, skipping all races", test_start, test_end
             )
+            self._verify_pfp()
             return BacktestResult(final_bankroll=self.initial_bankroll)
 
         if "hassotime" not in race_df.columns:
             logger.warning(
                 "hassotime column missing, cannot extract pre-race odds, skipping all races"
             )
+            self._verify_pfp()
             return BacktestResult(final_bankroll=self.initial_bankroll)
 
         pre_post_odds = extract_pre_post_odds(odds_ts_df, race_df, minutes_before=5)
@@ -545,6 +576,7 @@ class BacktestEngine:
                 test_start,
                 test_end,
             )
+            self._verify_pfp()
             return BacktestResult(final_bankroll=self.initial_bankroll)
 
         # 確定オッズマップを構築（精算用。FeatureEngine の列フィルタ回避）
@@ -1181,6 +1213,9 @@ class BacktestEngine:
                     "Consider parameter adjustment in Phase 13.",
                     bets_per_year,
                 )
+
+        # --- D-03(2): PFP verify -- OOS期間終了時のモデル不変性確認 ---
+        self._verify_pfp()
 
         return BacktestResult(
             total_bets=total_bets,

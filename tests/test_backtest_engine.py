@@ -1865,3 +1865,188 @@ class TestStakeSizingIntegration:
         )
 
         assert len(bets) == 0
+
+
+class TestBacktestEnginePFPIntegration:
+    """BacktestEngine への PFP freeze/verify 二重検証統合テスト (Phase 18, VAL-02)"""
+
+    @patch("backtest.engine.load_odds_snapshots")
+    @patch("backtest.engine.load_entries")
+    @patch("backtest.engine.load_races")
+    def test_manifest_path_triggers_verify_strategy_manifest(
+        self,
+        mock_load_races: MagicMock,
+        mock_load_entries: MagicMock,
+        mock_load_odds: MagicMock,
+        mock_models: MagicMock,
+    ) -> None:
+        """Test 1: manifest_path を渡すと verify_strategy_manifest() が呼ばれる"""
+        from pathlib import Path
+
+        mock_load_races.return_value = pd.DataFrame()
+        mock_load_entries.return_value = pd.DataFrame()
+        mock_load_odds.return_value = pd.DataFrame()
+
+        from backtest.engine import BacktestEngine
+
+        mock_store = MagicMock()
+
+        with patch("backtest.engine.verify_strategy_manifest") as mock_verify, \
+             patch("backtest.engine.ParameterFreezeProtocol") as mock_pfp_cls:
+            mock_verify.return_value = {"fk_aggressive": 0.5}
+            mock_pfp_inst = MagicMock()
+            mock_pfp_inst.verify.return_value = {"passed": True, "message": "OK"}
+            mock_pfp_cls.return_value = mock_pfp_inst
+
+            engine = BacktestEngine(
+                models=mock_models,
+                store=mock_store,
+                manifest_path=Path("/tmp/test_manifest.json"),
+            )
+            engine.run("2024-01-01", "2024-12-31")
+
+            mock_verify.assert_called_once_with(Path("/tmp/test_manifest.json"))
+
+    @patch("backtest.engine.load_odds_snapshots")
+    @patch("backtest.engine.load_entries")
+    @patch("backtest.engine.load_races")
+    def test_manifest_path_triggers_pfp_freeze_and_verify(
+        self,
+        mock_load_races: MagicMock,
+        mock_load_entries: MagicMock,
+        mock_load_odds: MagicMock,
+        mock_models: MagicMock,
+    ) -> None:
+        """Test 2: manifest_path を渡すと PFP freeze() と verify() が順番に呼ばれる"""
+        from pathlib import Path
+
+        mock_load_races.return_value = pd.DataFrame()
+        mock_load_entries.return_value = pd.DataFrame()
+        mock_load_odds.return_value = pd.DataFrame()
+
+        from backtest.engine import BacktestEngine
+
+        mock_store = MagicMock()
+
+        with patch("backtest.engine.verify_strategy_manifest") as mock_verify, \
+             patch("backtest.engine.ParameterFreezeProtocol") as mock_pfp_cls:
+            mock_verify.return_value = {"fk_aggressive": 0.5}
+            mock_pfp_inst = MagicMock()
+            mock_pfp_inst.verify.return_value = {"passed": True, "message": "OK"}
+            mock_pfp_cls.return_value = mock_pfp_inst
+
+            engine = BacktestEngine(
+                models=mock_models,
+                store=mock_store,
+                manifest_path=Path("/tmp/test_manifest.json"),
+            )
+            engine.run("2024-01-01", "2024-12-31")
+
+            mock_pfp_cls.assert_called_once_with(mock_models)
+            mock_pfp_inst.freeze.assert_called_once()
+            mock_pfp_inst.verify.assert_called_once()
+
+    @patch("backtest.engine.load_odds_snapshots")
+    @patch("backtest.engine.load_entries")
+    @patch("backtest.engine.load_races")
+    def test_pfp_verify_failure_raises_runtime_error(
+        self,
+        mock_load_races: MagicMock,
+        mock_load_entries: MagicMock,
+        mock_load_odds: MagicMock,
+        mock_models: MagicMock,
+    ) -> None:
+        """Test 3: PFP verify() が passed=False を返した場合、RuntimeError を送出 (D-04)"""
+        from pathlib import Path
+
+        mock_load_races.return_value = pd.DataFrame()
+        mock_load_entries.return_value = pd.DataFrame()
+        mock_load_odds.return_value = pd.DataFrame()
+
+        from backtest.engine import BacktestEngine
+
+        mock_store = MagicMock()
+
+        with patch("backtest.engine.verify_strategy_manifest") as mock_verify, \
+             patch("backtest.engine.ParameterFreezeProtocol") as mock_pfp_cls:
+            mock_verify.return_value = {"fk_aggressive": 0.5}
+            mock_pfp_inst = MagicMock()
+            mock_pfp_inst.verify.return_value = {
+                "passed": False,
+                "message": "Parameters changed during frozen period (Rule 7 VIOLATION)",
+            }
+            mock_pfp_cls.return_value = mock_pfp_inst
+
+            engine = BacktestEngine(
+                models=mock_models,
+                store=mock_store,
+                manifest_path=Path("/tmp/test_manifest.json"),
+            )
+            with pytest.raises(RuntimeError, match="Rule 7 VIOLATION"):
+                engine.run("2024-01-01", "2024-12-31")
+
+    @patch("backtest.engine.load_odds_snapshots")
+    @patch("backtest.engine.load_entries")
+    @patch("backtest.engine.load_races")
+    def test_no_manifest_path_no_pfp_code(
+        self,
+        mock_load_races: MagicMock,
+        mock_load_entries: MagicMock,
+        mock_load_odds: MagicMock,
+        mock_models: MagicMock,
+    ) -> None:
+        """Test 4: manifest_path=None の場合、PFP/verify関連コードが一切実行されない"""
+        mock_load_races.return_value = pd.DataFrame()
+        mock_load_entries.return_value = pd.DataFrame()
+        mock_load_odds.return_value = pd.DataFrame()
+
+        from backtest.engine import BacktestEngine
+
+        mock_store = MagicMock()
+
+        with patch("backtest.engine.verify_strategy_manifest") as mock_verify, \
+             patch("backtest.engine.ParameterFreezeProtocol") as mock_pfp_cls:
+            engine = BacktestEngine(
+                models=mock_models,
+                store=mock_store,
+                manifest_path=None,
+            )
+            engine.run("2024-01-01", "2024-12-31")
+
+            mock_verify.assert_not_called()
+            mock_pfp_cls.assert_not_called()
+
+    @patch("backtest.engine.load_odds_snapshots")
+    @patch("backtest.engine.load_entries")
+    @patch("backtest.engine.load_races")
+    def test_manifest_missing_path_raises_file_not_found(
+        self,
+        mock_load_races: MagicMock,
+        mock_load_entries: MagicMock,
+        mock_load_odds: MagicMock,
+        mock_models: MagicMock,
+    ) -> None:
+        """Test 5: manifest_path が存在しないパスの場合、FileNotFoundError を送出 (D-04)"""
+        from pathlib import Path
+
+        mock_load_races.return_value = pd.DataFrame()
+        mock_load_entries.return_value = pd.DataFrame()
+        mock_load_odds.return_value = pd.DataFrame()
+
+        from backtest.engine import BacktestEngine
+
+        mock_store = MagicMock()
+
+        nonexistent = Path("/tmp/nonexistent_manifest_12345.json")
+
+        with patch("backtest.engine.verify_strategy_manifest") as mock_verify:
+            mock_verify.side_effect = FileNotFoundError(
+                f"Strategy manifest not found: {nonexistent}"
+            )
+            engine = BacktestEngine(
+                models=mock_models,
+                store=mock_store,
+                manifest_path=nonexistent,
+            )
+            with pytest.raises(FileNotFoundError, match="Strategy manifest not found"):
+                engine.run("2024-01-01", "2024-12-31")
