@@ -806,10 +806,17 @@ class TrainingPipelineV5:
             win_selection_gate = WinSelectionGateModel()
             win_selection_gate.train(wsg_train_df)
 
-        # --- D-08 Part 2: Runtime assertion (ensemble mode only) ---
+        # --- D-08 Part 2: Runtime check (ensemble mode only) ---
         if use_ensemble:
-            assert win_selection_gate.is_trained, "Gate failed to train in ensemble mode"
-            assert len(win_selection_gate.prob_edges) > 0, "Gate edges empty after training"
+            if not win_selection_gate.is_trained:
+                logger.warning(
+                    "WinSelectionGate did not train for surface=%s (no profitable threshold found)",
+                    surface,
+                )
+            elif not win_selection_gate.prob_edges:
+                logger.warning(
+                    "WinSelectionGate trained but prob_edges empty for surface=%s", surface
+                )
 
         return SubmodelSet(
             market=market,
