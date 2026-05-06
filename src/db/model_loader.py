@@ -692,6 +692,7 @@ class ModelLoader:
                 wide=wide,
                 confidence=confidence,
                 place_selection_gate=place_selection_gate,
+                use_ensemble=use_ensemble,
                 benter_combo=benter_combo,
                 isotonic_calibrator=isotonic_calibrator,
                 temperature_scaler=temperature_scaler,
