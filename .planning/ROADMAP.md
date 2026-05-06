@@ -166,7 +166,7 @@ Plans:
 - [x] **Phase 14: Gate Recalibration** - WinSelectionGateをアンサンブルOOF予測で再学習し、分布ドリフト診断とフラグ伝播検証を完了する
 - [x] **Phase 15: EV Filter Enhancement** - EV_lower閾値をアンサンブルOOF分布に動的適合させ、EV推定精度を診断する (completed 2026-05-06)
 - [x] **Phase 16: Odds Band Rebuild** - ルックアヘッドバイアス修正後、アンサンブルベースtraining_bet_historyでOddsBandFilterを再キャリブレーションする (completed 2026-05-06)
-- [ ] **Phase 17: Optuna Optimization** - アンサンブルモデルで14次元Optuna最適化を実行し、fold増強とパラメータ安定性検証を完了する
+- [x] **Phase 17: Optuna Optimization** - アンサンブルモデルで14次元Optuna最適化を実行し、fold増強とパラメータ安定性検証を完了する (completed 2026-05-06)
 - [ ] **Phase 18: Validation & Freeze** - アンサンブルバックテストでROI>100%を確認し、パラメータを固定・改ざん検知を適用する
 
 ## Phase Details
@@ -222,8 +222,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 17-01: StrategyOptimizer 4fold化 + EV_lower 2次元追加 + モデルロード最適化 (OPT-01, OPT-02)
-- [ ] 17-02: Multi-seed安定性検証 + 安定性レポートJSON + CLI --seeds拡張 (OPT-03)
+- [x] 17-01: StrategyOptimizer 4fold化 + EV_lower 2次元追加 + モデルロード最適化 (OPT-01, OPT-02)
+- [x] 17-02: Multi-seed安定性検証 + 安定性レポートJSON + CLI --seeds拡張 (OPT-03)
 
 ### Phase 18: Validation & Freeze
 **Goal**: アンサンブルバックテストで年間100+ベットかつROI>100%が確認され、最適化済みパラメータが改ざん検知付きで固定されている状態になる
@@ -257,5 +257,5 @@ Phases execute in numeric order: 14 → 15 → 16 → 17 → 18
 | 14. Gate Recalibration | v1.4 | 2/2 | Complete | 2026-05-06 |
 | 15. EV Filter Enhancement | v1.4 | 2/2 | Complete | 2026-05-06 |
 | 16. Odds Band Rebuild | v1.4 | 2/2 | Complete    | 2026-05-06 |
-| 17. Optuna Optimization | v1.4 | 0/2 | Planned | 2026-05-06 |
+| 17. Optuna Optimization | v1.4 | 2/2 | Complete    | 2026-05-06 |
 | 18. Validation & Freeze | v1.4 | 0/? | Not started | - |

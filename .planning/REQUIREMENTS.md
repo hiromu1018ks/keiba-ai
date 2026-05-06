@@ -23,9 +23,9 @@
 
 ### Optuna Optimization
 
-- [ ] **OPT-01**: アンサンブルモデルで既存14次元Optuna最適化を実行する(フィルター再キャリブレーション完了後)
-- [ ] **OPT-02**: walk-forward fold数を2→4に増やし過学習リスクを軽減する
-- [ ] **OPT-03**: 複数seedでOptuna最適化を実行し、パラメータ安定性を検証して不安定な次元を検出する
+- [x] **OPT-01**: アンサンブルモデルで既存14次元Optuna最適化を実行する(フィルター再キャリブレーション完了後)
+- [x] **OPT-02**: walk-forward fold数を2→4に増やし過学習リスクを軽減する
+- [x] **OPT-03**: 複数seedでOptuna最適化を実行し、パラメータ安定性を検証して不安定な次元を検出する
 
 ### Validation
 
@@ -63,9 +63,9 @@
 | EVF-02 | Phase 15 | Pending |
 | ODDS-01 | Phase 16 | Complete |
 | ODDS-02 | Phase 16 | Complete |
-| OPT-01 | Phase 17 | Pending |
-| OPT-02 | Phase 17 | Pending |
-| OPT-03 | Phase 17 | Pending |
+| OPT-01 | Phase 17 | Complete |
+| OPT-02 | Phase 17 | Complete |
+| OPT-03 | Phase 17 | Complete |
 | VAL-01 | Phase 18 | Pending |
 | VAL-02 | Phase 18 | Pending |
 
