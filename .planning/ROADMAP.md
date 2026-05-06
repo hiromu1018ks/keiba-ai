@@ -165,7 +165,7 @@ Plans:
 
 - [x] **Phase 14: Gate Recalibration** - WinSelectionGateをアンサンブルOOF予測で再学習し、分布ドリフト診断とフラグ伝播検証を完了する
 - [x] **Phase 15: EV Filter Enhancement** - EV_lower閾値をアンサンブルOOF分布に動的適合させ、EV推定精度を診断する (completed 2026-05-06)
-- [ ] **Phase 16: Odds Band Rebuild** - ルックアヘッドバイアス修正後、アンサンブルベースtraining_bet_historyでOddsBandFilterを再キャリブレーションする
+- [x] **Phase 16: Odds Band Rebuild** - ルックアヘッドバイアス修正後、アンサンブルベースtraining_bet_historyでOddsBandFilterを再キャリブレーションする (completed 2026-05-06)
 - [ ] **Phase 17: Optuna Optimization** - アンサンブルモデルで14次元Optuna最適化を実行し、fold増強とパラメータ安定性検証を完了する
 - [ ] **Phase 18: Validation & Freeze** - アンサンブルバックテストでROI>100%を確認し、パラメータを固定・改ざん検知を適用する
 
@@ -208,8 +208,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 16-01: _build_default_config()追加 + _run_single_backtest()ステップ3修正 + テスト (ODDS-02)
-- [ ] 16-02: run_backtest.py デフォルトパラメータ使用 + テスト (ODDS-01)
+- [x] 16-01: _build_default_config()追加 + _run_single_backtest()ステップ3修正 + テスト (ODDS-02)
+- [x] 16-02: run_backtest.py デフォルトパラメータ使用 + テスト (ODDS-01)
 
 ### Phase 17: Optuna Optimization
 **Goal**: アンサンブルモデルで再キャリブレーション済みのフィルター群に対してOptuna 14次元最適化が実行され、fold増強とmulti-seed安定性検証を経て過学習耐性のある最適パラメータが導出されている状態になる
@@ -252,6 +252,6 @@ Phases execute in numeric order: 14 → 15 → 16 → 17 → 18
 | 13. Risk Calibration & Parameter Optimization | v1.3 | 3/3 | Complete | 2026-05-05 |
 | 14. Gate Recalibration | v1.4 | 2/2 | Complete | 2026-05-06 |
 | 15. EV Filter Enhancement | v1.4 | 2/2 | Complete | 2026-05-06 |
-| 16. Odds Band Rebuild | v1.4 | 0/2 | Not started | - |
+| 16. Odds Band Rebuild | v1.4 | 2/2 | Complete   | 2026-05-06 |
 | 17. Optuna Optimization | v1.4 | 0/? | Not started | - |
 | 18. Validation & Freeze | v1.4 | 0/? | Not started | - |

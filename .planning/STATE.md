@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.4
 milestone_name: Ensemble Filter Recalibration
-status: completed
+status: executing
 stopped_at: Phase 16 context gathered
-last_updated: "2026-05-06T09:35:33.045Z"
-last_activity: 2026-05-06 — Phase 15 complete (EV filter enhancement verified)
+last_updated: "2026-05-06T10:26:30.669Z"
+last_activity: 2026-05-06 -- Phase 16 execution started
 progress:
   total_phases: 5
   completed_phases: 2
-  total_plans: 4
+  total_plans: 6
   completed_plans: 4
-  percent: 100
+  percent: 67
 ---
 
 # Project State
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-05-05)
 
 **Core value:** 単勝モデルのバックテストROIを100%超えにすること
-**Current focus:** Phase 16 — Odds Band Rebuild
+**Current focus:** Phase 16 — odds-band-rebuild
 
 ## Current Position
 
-Phase: 16 of 18 (Odds Band Rebuild)
-Plan: 0 of ? in current phase
-Status: Phase 15 complete — ready for Phase 16
-Last activity: 2026-05-06 — Phase 15 complete (EV filter enhancement verified)
+Phase: 16 (odds-band-rebuild) — EXECUTING
+Plan: 1 of 2
+Status: Executing Phase 16
+Last activity: 2026-05-06 -- Phase 16 execution started
 
 Progress: [====        ] 40%
 
