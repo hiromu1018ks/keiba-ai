@@ -200,40 +200,10 @@ def _build_strategy_config_from_manifest(
 ) -> dict[str, Any]:
     """manifest params (Optuna best_params 形式) を BacktestEngine strategy_config に変換。
 
-    StrategyOptimizer._build_strategy_config と同じロジック。
+    betting.default_strategy.build_strategy_config_from_params に委譲。
     """
-    from betting.drawdown_controller import DDConfig
-
-    # dd_threshold_2 > dd_threshold_1 を保証
-    dd_t1 = params.get("dd_threshold_1", 0.10)
-    dd_t2 = params.get("dd_threshold_2", 0.25)
-    if dd_t2 <= dd_t1:
-        dd_t2 = dd_t1 + 0.01
-
-    dd_config = DDConfig(
-        rolling_window=params.get("rolling_window", 400),
-        dd_threshold_1=dd_t1,
-        dd_threshold_2=dd_t2,
-        multiplier_reduced=params.get("multiplier_reduced", 0.5),
-        min_stay_races=params.get("min_stay_races", 15),
-    )
-
-    regime_overrides = {}
-    for regime in ("aggressive", "conservative"):
-        regime_overrides[regime] = {
-            "fractional_kelly": params.get(f"fk_{regime}", 0.5),
-            "ev_threshold": params.get(f"ev_{regime}", 1.10),
-            "edge_threshold": params.get(f"edge_{regime}", 0.05),
-        }
-
-    return {
-        "dd_config": dd_config,
-        "regime_overrides": regime_overrides,
-        "fractional_kelly": params.get("fk_aggressive", 0.5),
-        "target_ev": params.get("target_ev", 1.10),
-        "max_scale": params.get("max_scale", 2.0),
-        "roi_threshold": params.get("roi_threshold", 1.0),
-    }
+    from betting.default_strategy import build_strategy_config_from_params
+    return build_strategy_config_from_params(params)
 
 
 def _collect_training_bet_history(

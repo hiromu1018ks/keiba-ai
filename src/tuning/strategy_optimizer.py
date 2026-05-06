@@ -82,38 +82,8 @@ class StrategyOptimizer:
 
     def _build_strategy_config(self, params: dict[str, Any]) -> dict[str, Any]:
         """Optuna params -> BacktestEngine injection用dictに変換"""
-        from betting.drawdown_controller import DDConfig
-
-        # T-13-06: dd_threshold_2 > dd_threshold_1 を保証 (DDConfig.__post_init__ 制約)
-        dd_t1 = params["dd_threshold_1"]
-        dd_t2 = params["dd_threshold_2"]
-        if dd_t2 <= dd_t1:
-            dd_t2 = dd_t1 + 0.01
-
-        dd_config = DDConfig(
-            rolling_window=params["rolling_window"],
-            dd_threshold_1=dd_t1,
-            dd_threshold_2=dd_t2,
-            multiplier_reduced=params["multiplier_reduced"],
-            min_stay_races=params["min_stay_races"],
-        )
-
-        regime_overrides = {}
-        for regime in ("aggressive", "conservative"):
-            regime_overrides[regime] = {
-                "fractional_kelly": params[f"fk_{regime}"],
-                "ev_threshold": params[f"ev_{regime}"],
-                "edge_threshold": params[f"edge_{regime}"],
-            }
-
-        return {
-            "dd_config": dd_config,
-            "regime_overrides": regime_overrides,
-            "fractional_kelly": params.get("fk_aggressive", 0.5),
-            "target_ev": params["target_ev"],
-            "max_scale": params["max_scale"],
-            "roi_threshold": params["roi_threshold"],
-        }
+        from betting.default_strategy import build_strategy_config_from_params
+        return build_strategy_config_from_params(params)
 
     def _build_default_config(self) -> dict[str, Any]:
         """RegimeDetector既定値からデフォルトstrategy_configを構築 (ルックアヘッド防止)
