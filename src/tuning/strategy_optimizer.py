@@ -142,6 +142,7 @@ class StrategyOptimizer:
         """
         from backtest.engine import BacktestEngine
         from db.model_loader import ModelLoader
+        from domain.types import RegimeState
 
         # 1. 学習済みモデルをロード (学習はしない)
         loader = ModelLoader()
@@ -186,6 +187,12 @@ class StrategyOptimizer:
         regime_overrides = strategy_config.get("regime_overrides")
         if regime_overrides:
             models.regime_detector._override_params = regime_overrides
+
+        # CR-01: Reset mutable state to prevent training-to-test leakage
+        models.regime_detector._current_regime = RegimeState.CONSERVATIVE
+        models.regime_detector._regime_counter = 0
+        models.regime_detector._pending_regime = None
+        models.regime_detector._collapsed_consecutive = 0
 
         # 4. BacktestEngine構築 (strategy_params注入)
         engine = BacktestEngine(
