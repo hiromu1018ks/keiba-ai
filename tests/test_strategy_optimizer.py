@@ -21,7 +21,7 @@ def optimizer() -> StrategyOptimizer:
 
 class TestSuggestParams:
     def test_suggest_returns_all_dimensions(self, optimizer: StrategyOptimizer) -> None:
-        """_suggest_params が16次元を返す (14 + ev_lower_threshold_turf/dirt)"""
+        """_suggest_params が16次元を返す (14既存 + ev_lower_threshold_turf + ev_lower_threshold_dirt)"""
         study = optuna.create_study(direction="maximize")
         trial = study.ask()
         params = optimizer._suggest_params(trial)
@@ -282,7 +282,7 @@ class TestObjective:
         mock_models = MagicMock()
         mock_info = MagicMock()
 
-        regime_states: list[dict] = []
+        regime_states = []
 
         def mock_backtest_with_models(
             models, strategy_config, test_start, test_end,
