@@ -105,7 +105,11 @@ class TestGenerateTrainingBetHistory:
 
 
 class TestAutoCalibrateE2E:
-    """E2E: run() -> _generate_training_bet_history() -> calibrate() フロー検証"""
+    """E2E: _calibrate_odds_band_filter() -> _generate_training_bet_history() -> calibrate() フロー検証
+
+    実際のengineメソッド (_calibrate_odds_band_filter) を呼び出し、
+    side effect を patch.object で検証する。
+    """
 
     def _make_mock_engine(self, train_period=("2020-01-01", "2023-12-31")):
         from backtest.engine import BacktestEngine
@@ -121,8 +125,8 @@ class TestAutoCalibrateE2E:
             strategy_params={"roi_threshold": 1.0},
         )
 
-    def test_run_auto_generates_and_calibrates(self):
-        """E2E: run()がtraining_bet_history=Noneの場合に
+    def test_auto_generates_and_calibrates(self):
+        """E2E: training_bet_history=Noneの場合に
         _generate_training_bet_history()を呼び出し、
         その結果がOddsBandFilter.calibrate()に渡される"""
         engine = self._make_mock_engine()
@@ -136,24 +140,14 @@ class TestAutoCalibrateE2E:
              patch.object(engine, "_odds_band_filter") as mock_filter:
             mock_gen.return_value = generated_history
 
-            # run()内のロジックをシミュレート:
-            # if self._odds_band_filter is not None:
-            #     if training_bet_history is None:
-            #         training_bet_history = self._generate_training_bet_history()
-            #     if training_bet_history:
-            #         self._odds_band_filter.calibrate(training_bet_history)
-            training_bet_history = None
-            if engine._odds_band_filter is not None:
-                if training_bet_history is None:
-                    training_bet_history = engine._generate_training_bet_history()
-                if training_bet_history:
-                    engine._odds_band_filter.calibrate(training_bet_history)
+            # 実際のengineメソッドを呼び出す
+            engine._calibrate_odds_band_filter(training_bet_history=None)
 
             mock_gen.assert_called_once()
             mock_filter.calibrate.assert_called_once_with(generated_history)
 
-    def test_run_uses_provided_history_without_generate(self):
-        """E2E: run()がtraining_bet_historyを受け取った場合、
+    def test_uses_provided_history_without_generate(self):
+        """E2E: training_bet_historyを受け取った場合、
         _generate_training_bet_history()を呼ばず、
         渡されたhistoryをcalibrate()に渡す"""
         engine = self._make_mock_engine()
@@ -162,18 +156,13 @@ class TestAutoCalibrateE2E:
 
         with patch.object(engine, "_generate_training_bet_history") as mock_gen, \
              patch.object(engine, "_odds_band_filter") as mock_filter:
-            # run()内のロジックをシミュレート:
-            training_bet_history = provided_history
-            if engine._odds_band_filter is not None:
-                if training_bet_history is None:
-                    training_bet_history = engine._generate_training_bet_history()
-                if training_bet_history:
-                    engine._odds_band_filter.calibrate(training_bet_history)
+            # 実際のengineメソッドを呼び出す
+            engine._calibrate_odds_band_filter(training_bet_history=provided_history)
 
             mock_gen.assert_not_called()
             mock_filter.calibrate.assert_called_once_with(provided_history)
 
-    def test_run_skips_calibrate_when_generate_returns_none(self):
+    def test_skips_calibrate_when_generate_returns_none(self):
         """E2E: _generate_training_bet_history()がNoneを返した場合、
         calibrate()が呼ばれない"""
         engine = self._make_mock_engine()
@@ -182,12 +171,8 @@ class TestAutoCalibrateE2E:
              patch.object(engine, "_odds_band_filter") as mock_filter:
             mock_gen.return_value = None
 
-            training_bet_history = None
-            if engine._odds_band_filter is not None:
-                if training_bet_history is None:
-                    training_bet_history = engine._generate_training_bet_history()
-                if training_bet_history:
-                    engine._odds_band_filter.calibrate(training_bet_history)
+            # 実際のengineメソッドを呼び出す
+            engine._calibrate_odds_band_filter(training_bet_history=None)
 
             mock_gen.assert_called_once()
             mock_filter.calibrate.assert_not_called()

@@ -454,6 +454,32 @@ class BacktestEngine:
             )
             return None
 
+    def _calibrate_odds_band_filter(
+        self,
+        training_bet_history: list[dict[str, Any]] | None = None,
+    ) -> list[dict[str, Any]] | None:
+        """OddsBandFilterキャリブレーションを実行。
+
+        D-05/D-06/D-07: training_bet_historyがNoneの場合はengine内で自動生成する。
+        キャリブレーション後のtraining_bet_historyを返す (後続処理で使用しないが、
+        テストで呼び出しを検証可能にするため)。
+
+        Args:
+            training_bet_history: 外部から提供されたbet_history。Noneの場合は自動生成。
+
+        Returns:
+            キャリブレーションに使用したtraining_bet_history、またはNone
+        """
+        if self._odds_band_filter is not None:
+            if training_bet_history is None:
+                # D-05: run()内で自動的にtraining_bet_historyを生成
+                # D-06: engine.py内部で完結させる
+                # D-07: トレーニング期間はmodels.train_periodから取得
+                training_bet_history = self._generate_training_bet_history()
+            if training_bet_history:
+                self._odds_band_filter.calibrate(training_bet_history)
+        return training_bet_history
+
     def run(
         self,
         test_start: str,
@@ -702,14 +728,7 @@ class BacktestEngine:
 
         # D-05/D-06/D-07: OddsBandFilter キャリブレーション
         # training_bet_historyがNoneの場合、engine内で自動生成する
-        if self._odds_band_filter is not None:
-            if training_bet_history is None:
-                # D-05: run()内で自動的にtraining_bet_historyを生成
-                # D-06: engine.py内部で完結させる
-                # D-07: トレーニング期間はmodels.train_periodから取得
-                training_bet_history = self._generate_training_bet_history()
-            if training_bet_history:
-                self._odds_band_filter.calibrate(training_bet_history)
+        training_bet_history = self._calibrate_odds_band_filter(training_bet_history)
 
         for race_id in race_ids:
             race_id = str(race_id)
