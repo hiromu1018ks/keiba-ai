@@ -28,6 +28,8 @@ def _make_submodel_mock() -> MagicMock:
     sm.win_isotonic_calibrator = None
     sm.win_temperature_scaler = None
     sm.win_selection_gate = None
+    sm.ev_lower_threshold_turf = 1.0
+    sm.ev_lower_threshold_dirt = 1.0
     return sm
 
 
@@ -1483,6 +1485,55 @@ class TestGetWinCandidates:
         )
         result = predictor.get_win_candidates(race_df)
         assert len(result) == 2  # max 2
+
+    def test_ev_lower_dynamic_threshold_turf(self, mock_models: MagicMock) -> None:
+        """D-01/D-02: turf SubmodelSet閾値0.85の時、EV_lower 0.90は合格"""
+        from backtest.race_predictor import RacePredictor
+
+        # Set dynamic threshold for turf
+        mock_models.submodels["turf"].ev_lower_threshold_turf = 0.85
+        predictor = RacePredictor(models=mock_models)
+        race_df = self._make_win_race_df(
+            n=3,
+            surface=["turf"] * 3,
+            EV_lower_win_corrected=[0.90, 0.80, 1.5],  # 0.90 >= 0.85 pass, 0.80 < 0.85 fail
+        )
+        result = predictor.get_win_candidates(race_df)
+        # 0.90 passes (>= 0.85), 0.80 fails (< 0.85), 1.5 passes
+        assert len(result) == 2
+        assert set(result["umaban"].tolist()) == {1, 3}
+
+    def test_ev_lower_dynamic_threshold_dirt(self, mock_models: MagicMock) -> None:
+        """D-02: dirt SubmodelSet閾値0.70の時、EV_lower 0.65は除外"""
+        from backtest.race_predictor import RacePredictor
+
+        sm = _make_submodel_mock()
+        sm.ev_lower_threshold_dirt = 0.70
+        mock_models.submodels["dirt"] = sm
+        predictor = RacePredictor(models=mock_models)
+        race_df = self._make_win_race_df(
+            n=3,
+            surface=["dirt"] * 3,
+            EV_lower_win_corrected=[0.75, 0.65, 1.2],  # 0.75 >= 0.70 pass
+        )
+        result = predictor.get_win_candidates(race_df)
+        assert len(result) == 2
+        assert set(result["umaban"].tolist()) == {1, 3}
+
+    def test_ev_lower_nan_uses_surface_fallback(self, mock_models: MagicMock) -> None:
+        """D-03: EV_lower NaNの場合、サーフェス別デフォルト閾値でフォールバック"""
+        from backtest.race_predictor import RacePredictor
+
+        mock_models.submodels["turf"].ev_lower_threshold_turf = 0.80
+        predictor = RacePredictor(models=mock_models)
+        race_df = self._make_win_race_df(
+            n=2,
+            surface=["turf"] * 2,
+            EV_lower_win_corrected=[float("nan"), float("nan")],
+        )
+        result = predictor.get_win_candidates(race_df)
+        # NaN -> fillna(0.80) -> 0.80 >= 0.80 -> both pass
+        assert len(result) == 2
 
 
 class TestSelectBetsWinPath:

@@ -280,6 +280,47 @@ class TrainingPipelineV5:
             train_period=(train_start, train_end),
         )
 
+    @staticmethod
+    def _compute_ev_threshold(
+        df_oof: pd.DataFrame,
+        surface: str,
+        fallback: float = 1.0,
+    ) -> float:
+        """D-01/D-02: OOF positive-edge winnersの25th percentileから動的閾値を計算.
+
+        positive-edge winners = kakuteijyuni==1 AND win_selection_edge > 0
+        """
+        surf_df = df_oof[df_oof["surface"] == surface]
+        if "EV_lower_win_corrected" not in surf_df.columns:
+            return fallback
+        winners = surf_df[
+            (surf_df["kakuteijyuni"] == 1)
+            & (surf_df["win_selection_edge"] > 0)
+        ]
+        ev_lower_values = pd.to_numeric(
+            winners["EV_lower_win_corrected"], errors="coerce"
+        ).dropna()
+        if len(ev_lower_values) < 30:
+            logger.info(
+                "EV threshold for %s: too few positive-edge winners (%d), using fallback %.2f",
+                surface,
+                len(ev_lower_values),
+                fallback,
+            )
+            return fallback
+        threshold = float(ev_lower_values.quantile(0.25))
+        logger.info(
+            "EV threshold for %s: %.4f (from %d positive-edge winners, "
+            "q25=%.4f q50=%.4f q75=%.4f)",
+            surface,
+            threshold,
+            len(ev_lower_values),
+            float(ev_lower_values.quantile(0.25)),
+            float(ev_lower_values.quantile(0.50)),
+            float(ev_lower_values.quantile(0.75)),
+        )
+        return threshold
+
     def _train_submodel(
         self, df: pd.DataFrame, *, num_threads: int = 0, use_ensemble: bool = False
     ) -> SubmodelSet:
@@ -814,6 +855,16 @@ class TrainingPipelineV5:
                 surface,
             )
 
+        # --- D-01/D-02: Dynamic EV_lower threshold from OOF winners ---
+        # D-03 fallback values: conservative defaults below 1.0
+        # wsg_train_df contains EV_lower_win_corrected from confidence estimator
+        ev_threshold_turf = self._compute_ev_threshold(
+            wsg_train_df, surface="turf", fallback=0.8,
+        )
+        ev_threshold_dirt = self._compute_ev_threshold(
+            wsg_train_df, surface="dirt", fallback=0.7,
+        )
+
         return SubmodelSet(
             market=market,
             stage1=stage1,
@@ -833,6 +884,8 @@ class TrainingPipelineV5:
             win_isotonic_calibrator=win_isotonic_cal,
             win_temperature_scaler=win_temp_scaler,
             win_selection_gate=win_selection_gate,
+            ev_lower_threshold_turf=ev_threshold_turf,
+            ev_lower_threshold_dirt=ev_threshold_dirt,
         )
 
     def _build_race_level_features(self, feat_df: pd.DataFrame) -> pd.DataFrame:
