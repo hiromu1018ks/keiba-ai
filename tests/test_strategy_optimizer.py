@@ -686,7 +686,7 @@ class TestMultiSeedStability:
 
         optimizer.optimize = mock_optimize  # type: ignore[assignment]
 
-        report = optimizer.optimize_multi_seed(
+        optimizer.optimize_multi_seed(
             n_trials=10, seeds=[42], output_dir=tmp_path,
         )
         report_path = tmp_path / "stability_report.json"
