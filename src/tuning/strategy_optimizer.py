@@ -115,6 +115,17 @@ class StrategyOptimizer:
             "roi_threshold": params["roi_threshold"],
         }
 
+    def _build_default_config(self) -> dict[str, Any]:
+        """RegimeDetector既定値からデフォルトstrategy_configを構築 (ルックアヘッド防止)
+
+        D-01: デフォルトパラメータソースはRegimeDetector._get_base_params()のハードコード既定値
+        D-02: 16次元全てを適用
+        D-03: _build_strategy_config()と並存
+        Warning 1修正: default_strategy.pyにデリゲート (重複実装排除)
+        """
+        from betting.default_strategy import build_default_strategy_config
+        return build_default_strategy_config()
+
     def _run_single_backtest(
         self,
         strategy_config: dict[str, Any],
@@ -140,14 +151,15 @@ class StrategyOptimizer:
             fold_idx, self.models_dir, info.train_start, info.train_end,
         )
 
-        # 2. RegimeDetector override (Plan 02成果)
-        # 既存の学習済みRegimeDetectorのoverride_paramsのみ更新する。
-        # 新規インスタンスで置き換えるとtrain()未呼び出しでAttributeErrorが発生する。
-        regime_overrides = strategy_config.get("regime_overrides")
-        if regime_overrides:
-            models.regime_detector._override_params = regime_overrides
+        # 2. デフォルトconfigでtraining_bet_history生成 (D-04: ルックアヘッド防止)
+        default_config = self._build_default_config()
 
-        # 3. トレーニング期間バックテスト (OddsBandFilter キャリブレーション用)
+        # 2a. デフォルトregime_overridesを一時的に注入
+        default_regime_overrides = default_config.get("regime_overrides")
+        if default_regime_overrides:
+            models.regime_detector._override_params = default_regime_overrides
+
+        # 3. トレーニング期間バックテスト (デフォルトパラメータで実行)
         train_start = info.train_start
         train_end = info.train_end
         training_bet_history: list[dict[str, Any]] | None = None
@@ -158,7 +170,7 @@ class StrategyOptimizer:
                 betting_mode="kelly",
                 diag_prefix=f"opt_train_fold{fold_idx}",
                 betting_target="win",
-                strategy_params=strategy_config,
+                strategy_params=default_config,
             )
             train_result = train_engine.run(train_start, train_end)
             training_bet_history = train_result.bet_history
@@ -169,6 +181,11 @@ class StrategyOptimizer:
         except Exception as e:
             logger.warning("Fold %d: training-phase backtest failed: %s — skipping calibration",
                            fold_idx, e)
+
+        # 2b. Optuna値のregime_overridesで上書き (テスト期間用)
+        regime_overrides = strategy_config.get("regime_overrides")
+        if regime_overrides:
+            models.regime_detector._override_params = regime_overrides
 
         # 4. BacktestEngine構築 (strategy_params注入)
         engine = BacktestEngine(
