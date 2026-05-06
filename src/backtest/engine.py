@@ -1248,8 +1248,5 @@ class BacktestEngine:
         if bet.bet_type == BetType.PLACE:
             if 1 <= finish_pos <= 3:
                 return float(bet.stake * settle_odds)
-        elif bet.bet_type == BetType.WIN:
-            if finish_pos == 1:
-                return float(bet.stake * settle_odds)
 
         return 0.0
