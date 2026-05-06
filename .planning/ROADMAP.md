@@ -212,14 +212,18 @@ Plans:
 - [x] 16-02: run_backtest.py デフォルトパラメータ使用 + テスト (ODDS-01)
 
 ### Phase 17: Optuna Optimization
-**Goal**: アンサンブルモデルで再キャリブレーション済みのフィルター群に対してOptuna 14次元最適化が実行され、fold増強とmulti-seed安定性検証を経て過学習耐性のある最適パラメータが導出されている状態になる
+**Goal**: アンサンブルモデルで再キャリブレーション済みのフィルター群に対してOptuna 16次元最適化が実行され、4fold増強とmulti-seed安定性検証を経て過学習耐性のある最適パラメータが導出されている状態になる
 **Depends on**: Phase 16
 **Requirements**: OPT-01, OPT-02, OPT-03
 **Success Criteria** (what must be TRUE):
-  1. Optuna TPE最適化がアンサンブルモデル + 再キャリブレーション済みフィルターで14次元探索を完了し、デフォルト値を上回るROIを達成する
-  2. walk-forward fold数が2から4以上に増加し、過学習リスクが軽減されている（fold間ROI分散が閾値以下）
-  3. 複数seedで最適化を実行した結果、上位パラメータの安定性が検証され、不安定な次元が特定・報告されている
-**Plans**: TBD
+  1. Optuna TPE最適化がアンサンブルモデル + 再キャリブレーション済みフィルターで16次元探索を完了し、デフォルト値を上回るROIを達成する
+  2. walk-forward fold数が2から4に増加し、過学習リスクが軽減されている（fold間ROI分散が閾値以下）
+  3. 複数seed(42/43/44)で最適化を実行した結果、上位パラメータの安定性がCV(変動係数)で検証され、不安定な次元が特定・報告されている
+**Plans**: 2 plans
+
+Plans:
+- [ ] 17-01: StrategyOptimizer 4fold化 + EV_lower 2次元追加 + モデルロード最適化 (OPT-01, OPT-02)
+- [ ] 17-02: Multi-seed安定性検証 + 安定性レポートJSON + CLI --seeds拡張 (OPT-03)
 
 ### Phase 18: Validation & Freeze
 **Goal**: アンサンブルバックテストで年間100+ベットかつROI>100%が確認され、最適化済みパラメータが改ざん検知付きで固定されている状態になる
@@ -253,5 +257,5 @@ Phases execute in numeric order: 14 → 15 → 16 → 17 → 18
 | 14. Gate Recalibration | v1.4 | 2/2 | Complete | 2026-05-06 |
 | 15. EV Filter Enhancement | v1.4 | 2/2 | Complete | 2026-05-06 |
 | 16. Odds Band Rebuild | v1.4 | 2/2 | Complete    | 2026-05-06 |
-| 17. Optuna Optimization | v1.4 | 0/? | Not started | - |
+| 17. Optuna Optimization | v1.4 | 0/2 | Planned | - |
 | 18. Validation & Freeze | v1.4 | 0/? | Not started | - |
