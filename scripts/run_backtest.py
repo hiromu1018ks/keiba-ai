@@ -248,6 +248,10 @@ def _collect_training_bet_history(
     """トレーニング期間のバックテストを実行し、OddsBandFilter キャリブレーション用の
     bet_history を収集する。
 
+    常にデフォルトパラメータ (build_default_strategy_config) を使用する。
+    strategy_params引数は呼び出し側インターフェース互換のために保持するが、
+    関数内部では使用しない (ルックアヘッド防止)。
+
     Args:
         models: 学習済みモデル
         store: ParquetStore
@@ -255,12 +259,16 @@ def _collect_training_bet_history(
         train_end: 学習終了日 (YYYY-MM-DD)
         betting_mode: ベッティングモード
         betting_target: ベッティング対象
-        strategy_params: 戦略パラメータ (None の場合はデフォルト)
+        strategy_params: 戦略パラメータ (使用しない — デフォルトパラメータ優先)
 
     Returns:
         bet_history list
     """
     from backtest.engine import BacktestEngine
+    from betting.default_strategy import build_default_strategy_config
+
+    # D-07: デフォルトパラメータでtraining_bet_historyを生成 (ルックアヘッド防止)
+    default_train_config = build_default_strategy_config()
 
     logger.info("トレーニング期間バックテスト (OddsBandFilter キャリブレーション用): %s ~ %s",
                 train_start, train_end)
@@ -270,7 +278,7 @@ def _collect_training_bet_history(
         betting_mode=betting_mode,
         diag_prefix="bt_train",
         betting_target=betting_target,
-        strategy_params=strategy_params,
+        strategy_params=default_train_config,
     )
     train_result = train_engine.run(train_start, train_end)
     logger.info(

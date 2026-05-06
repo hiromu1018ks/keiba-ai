@@ -412,6 +412,48 @@ class BacktestEngine:
         else:
             self._race_predictor = RacePredictor(models)
 
+    def _generate_training_bet_history(
+        self,
+    ) -> list[dict[str, Any]] | None:
+        """デフォルトパラメータでトレーニング期間バックテストを実行し、bet_historyを生成。
+
+        D-05/D-06: run()内でtraining_bet_historyがNoneの場合に自動呼び出し。
+        D-07: トレーニング期間はself.models.train_periodから取得 (test_start/test_endは使用しない)。
+        Pitfall 3回避: 内部BacktestEngineはbetting_target="place"で構築し、
+        OddsBandFilterを持たせない（再帰calibrate防止）。
+        """
+        from betting.default_strategy import build_default_strategy_config
+
+        try:
+            # D-07: models.train_periodからトレーニング期間を取得
+            # TrainedModelsV5.train_period = (train_start, train_end)
+            train_start, train_end = self.models.train_period
+            default_config = build_default_strategy_config()
+            # Pitfall 3: 内部エンジンはOddsBandFilterを持たない
+            # betting_target="place"を指定して_odds_band_filter=Noneにする
+            inner_engine = BacktestEngine(
+                models=self.models,
+                initial_bankroll=self.initial_bankroll,
+                store=self.store,
+                betting_mode=self.betting_mode,
+                diag_prefix=f"{self.diag_prefix}_train",
+                betting_target="place",  # OddsBandFilterはwin専用 -> 再帰防止
+                strategy_params=default_config,
+            )
+            train_result = inner_engine.run(train_start, train_end)
+            logger.info(
+                "自動training_bet_history生成完了: %d bets, ROI=%.1f%% (%s ~ %s)",
+                train_result.total_bets,
+                train_result.total_roi * 100,
+                train_start, train_end,
+            )
+            return train_result.bet_history
+        except Exception as e:
+            logger.warning(
+                "自動training_bet_history生成失敗: %s — OddsBandFilterキャリブレーションスキップ", e,
+            )
+            return None
+
     def run(
         self,
         test_start: str,
@@ -658,9 +700,16 @@ class BacktestEngine:
         n_odds_band_excluded = 0
         n_total_candidates = 0
 
-        # D-05: OddsBandFilter キャリブレーション (トレーニング期間データ)
-        if self._odds_band_filter is not None and training_bet_history:
-            self._odds_band_filter.calibrate(training_bet_history)
+        # D-05/D-06/D-07: OddsBandFilter キャリブレーション
+        # training_bet_historyがNoneの場合、engine内で自動生成する
+        if self._odds_band_filter is not None:
+            if training_bet_history is None:
+                # D-05: run()内で自動的にtraining_bet_historyを生成
+                # D-06: engine.py内部で完結させる
+                # D-07: トレーニング期間はmodels.train_periodから取得
+                training_bet_history = self._generate_training_bet_history()
+            if training_bet_history:
+                self._odds_band_filter.calibrate(training_bet_history)
 
         for race_id in race_ids:
             race_id = str(race_id)
