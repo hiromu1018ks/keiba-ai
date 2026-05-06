@@ -718,6 +718,47 @@ def _run_multi_year(args: argparse.Namespace) -> None:
         bets_path.write_text(json.dumps(all_bets, indent=2, ensure_ascii=False), encoding="utf-8")
         print(f"  bet_history保存: {bets_path}")
 
+    # D-08: マルチ年度検証レポート (reportの有無に関わらず出力)
+    try:
+        from backtest.engine import BacktestResult as _BR
+        from backtest.validation_report import generate_validation_report
+
+        all_bet_history: list[dict[str, Any]] = []
+        for year, r in all_results.items():
+            all_bet_history.extend(r.bet_history)
+
+        multi_report = generate_validation_report(
+            result=_BR(
+                total_bets=total_bets,
+                total_stake=total_stake,
+                total_return=total_return,
+                winning_bets=sum(r.winning_bets for r in all_results.values()),
+                total_roi=total_roi,
+                max_drawdown=max(r.max_drawdown for r in all_results.values()),
+                final_bankroll=(
+                    sum(r.final_bankroll for r in all_results.values())
+                    - (len(all_results) - 1) * 100_000
+                ),
+                bet_history=all_bet_history,
+            ),
+            test_start=f"{min(args.years)}-01-01",
+            test_end=f"{max(args.years)}-12-31",
+            train_start="",  # マルチ年度では年度別に異なる
+            train_end="",
+            manifest_path=Path(args.strategy_manifest) if args.strategy_manifest else None,
+        )
+
+        validation_dir = Path(ROOT) / "data" / "validation"
+        validation_dir.mkdir(parents=True, exist_ok=True)
+        multi_report_path = validation_dir / "multi_year_validation_report.json"
+        multi_report_path.write_text(
+            json.dumps(multi_report, indent=2, ensure_ascii=False, default=str),
+            encoding="utf-8",
+        )
+        print(f"  検証レポート: {multi_report_path}")
+    except Exception as e:
+        logger.warning("マルチ年度検証レポート生成失敗: %s", e)
+
 
 def main() -> None:
     parser = build_parser()

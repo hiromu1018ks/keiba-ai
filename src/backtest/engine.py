@@ -1215,9 +1215,14 @@ class BacktestEngine:
                 )
 
         # --- D-03(2): PFP verify -- OOS期間終了時のモデル不変性確認 ---
-        self._verify_pfp()
+        pfp_result: dict[str, Any] | None = None
+        if self._pfp is not None:
+            pfp_result = self._pfp.verify()
+            if not pfp_result["passed"]:
+                raise RuntimeError(pfp_result["message"])  # D-04: 即時停止
+            logger.info("PFP verification passed: %s", pfp_result["message"])
 
-        return BacktestResult(
+        backtest_result = BacktestResult(
             total_bets=total_bets,
             total_stake=total_stake,
             total_return=total_return,
@@ -1246,6 +1251,40 @@ class BacktestEngine:
                 ),
             },
         )
+
+        # --- D-07/D-08: 検証結果JSON出力 ---
+        try:
+            from backtest.validation_report import generate_validation_report
+
+            train_start_val = ""
+            train_end_val = ""
+            if hasattr(self.models, "train_period") and self.models.train_period:
+                train_start_val, train_end_val = self.models.train_period
+
+            report = generate_validation_report(
+                result=backtest_result,
+                test_start=test_start,
+                test_end=test_end,
+                train_start=train_start_val,
+                train_end=train_end_val,
+                manifest_path=self._manifest_path,
+                pfp_result=pfp_result,
+            )
+
+            validation_dir = Path("data/validation")
+            validation_dir.mkdir(parents=True, exist_ok=True)
+            report_path = validation_dir / "validation_report.json"
+            import json as _json
+
+            report_path.write_text(
+                _json.dumps(report, indent=2, ensure_ascii=False, default=str),
+                encoding="utf-8",
+            )
+            logger.info("Validation report saved: %s", report_path)
+        except Exception as e:
+            logger.warning("Validation report generation failed: %s", e)
+
+        return backtest_result
 
     def _settle_bet(self, bet: Bet, race_df: pd.DataFrame) -> float:
         """ベットの結果を判定"""
