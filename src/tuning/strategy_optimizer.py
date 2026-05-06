@@ -312,6 +312,186 @@ class StrategyOptimizer:
 
         return mean_roi
 
+    def optimize_multi_seed(
+        self,
+        n_trials: int = 100,
+        seeds: list[int] | None = None,
+        output_dir: Path | str | None = None,
+    ) -> dict[str, Any]:
+        """D-08/D-09/D-10: multi-seed安定性検証
+
+        Args:
+            n_trials: 主seedの試行回数。追加seedはn_trials//2
+            seeds: seedリスト。デフォルト[42, 43, 44]
+            output_dir: 安定性レポート出力ディレクトリ
+
+        Returns:
+            安定性レポートdict
+        """
+        import json as _json
+        from datetime import datetime, timezone
+
+        if seeds is None:
+            seeds = [42, 43, 44]
+
+        # D-08: 各seedで最適化実行
+        seed_results: dict[int, dict[str, Any]] = {}
+        for i, seed in enumerate(seeds):
+            n = n_trials if i == 0 else n_trials // 2  # D-08: 主100 + 追加50
+            logger.info(
+                "Multi-seed optimization: seed=%d, n_trials=%d (%d/%d)",
+                seed, n, i + 1, len(seeds),
+            )
+            result = self.optimize(n_trials=n, seed=seed)
+            seed_results[seed] = result
+
+        # D-09: 安定性分析
+        stability_report = self._compute_stability_report(seed_results)
+        stability_report["version"] = "1.0"
+        stability_report["timestamp"] = datetime.now(timezone.utc).isoformat()
+        stability_report["seeds"] = seeds
+
+        # D-10: 不安定次元の固定化と再最適化
+        unstable_dims = [
+            d for d, info in stability_report["dimensions"].items()
+            if info["is_unstable"]
+        ]
+        if unstable_dims:
+            logger.info(
+                "Unstable dimensions detected: %s — running reoptimization",
+                unstable_dims,
+            )
+            fixed_report = self._optimize_with_fixed_dims(
+                unstable_dims, seed_results[seeds[0]], n_trials, seeds,
+            )
+            stability_report["reoptimization"] = fixed_report
+        else:
+            stability_report["reoptimization"] = None
+            logger.info("All dimensions stable across seeds")
+
+        # レポート出力
+        if output_dir is not None:
+            output_path = Path(output_dir)
+            output_path.mkdir(parents=True, exist_ok=True)
+            report_path = output_path / "stability_report.json"
+            report_path.write_text(
+                _json.dumps(stability_report, indent=2, default=str),
+                encoding="utf-8",
+            )
+            logger.info("Stability report saved: %s", report_path)
+
+            # 最良パラメータのmanifest保存
+            best_seed = max(
+                stability_report["best_roi_by_seed"].items(), key=lambda x: x[1],
+            )
+            manifest_path = output_path / "strategy_manifest.json"
+            from backtest.parameter_freeze_protocol import save_strategy_manifest
+
+            save_strategy_manifest(
+                seed_results[int(best_seed[0])]["best_params"], manifest_path,
+            )
+
+        return stability_report
+
+    def _compute_stability_report(
+        self,
+        seed_results: dict[int, dict[str, Any]],
+    ) -> dict[str, Any]:
+        """D-09: 3 seed間のパラメータ安定性分析
+
+        CV(変動係数) = std/mean で各次元の安定性を評価。
+        CV > 0.20 を「不安定」と判定。
+        """
+        seeds = list(seed_results.keys())
+        all_param_names = list(seed_results[seeds[0]]["best_params"].keys())
+
+        dimensions: dict[str, dict[str, Any]] = {}
+        for param_name in all_param_names:
+            values = [
+                seed_results[s]["best_params"].get(param_name, 0.0)
+                for s in seeds
+            ]
+            mean_val = float(np.mean(values))
+            std_val = float(np.std(values))
+            cv = std_val / mean_val if abs(mean_val) > 1e-10 else 0.0
+
+            dimensions[param_name] = {
+                "values": values,
+                "mean": mean_val,
+                "std": std_val,
+                "cv": cv,
+                "is_unstable": cv > 0.20,
+            }
+
+        best_roi_by_seed: dict[str, float] = {
+            str(s): seed_results[s]["best_value"]
+            for s in seeds
+        }
+
+        return {
+            "dimensions": dimensions,
+            "best_roi_by_seed": best_roi_by_seed,
+            "mean_best_roi": float(np.mean(list(best_roi_by_seed.values()))),
+        }
+
+    def _optimize_with_fixed_dims(
+        self,
+        unstable_dims: list[str],
+        primary_result: dict[str, Any],
+        n_trials: int,
+        seeds: list[int],
+    ) -> dict[str, Any]:
+        """D-10: 不安定次元をデフォルト値に固定し再最適化
+
+        1回のみ再実行(Pitfall 5回避)。残りの不安定次元は
+        レポートで報告しPhase 18の最終検証に委ねる。
+        """
+        # 主seedのbest_paramsをベースに固定次元を設定
+        fixed_params = dict(primary_result["best_params"])
+
+        # 不安定次元をデフォルト値に固定
+        # T-17-07: デフォルト値をハードコード(RegimeDetector._get_base_params()と一致)
+        default_param_values: dict[str, float] = {
+            "fk_aggressive": 0.45, "fk_conservative": 0.30,
+            "ev_aggressive": 1.10, "ev_conservative": 1.30,
+            "edge_aggressive": 0.05, "edge_conservative": 0.06,
+            "dd_threshold_1": 0.10, "dd_threshold_2": 0.25,
+            "multiplier_reduced": 0.5, "rolling_window": 400,
+            "min_stay_races": 10, "target_ev": 1.10,
+            "max_scale": 2.0, "roi_threshold": 1.0,
+            "ev_lower_threshold_turf": 1.0,
+            "ev_lower_threshold_dirt": 1.0,
+        }
+        for dim in unstable_dims:
+            fixed_params[dim] = default_param_values.get(dim, 1.0)
+
+        # 固定次元を考慮した_objective_fixed()で再最適化
+        original_suggest = self._suggest_params
+
+        def _suggest_fixed(trial: optuna.Trial) -> dict[str, Any]:
+            params = original_suggest(trial)
+            for dim in unstable_dims:
+                if dim in params:
+                    del params[dim]
+            for dim in unstable_dims:
+                params[dim] = fixed_params[dim]
+            return params
+
+        # 一時的に_suggest_paramsを差し替え
+        self._suggest_params = _suggest_fixed  # type: ignore[assignment]
+
+        try:
+            reopt_result = self.optimize(n_trials=n_trials, seed=seeds[0])
+        finally:
+            self._suggest_params = original_suggest  # type: ignore[assignment]
+
+        return {
+            "fixed_dimensions": unstable_dims,
+            "fixed_values": {d: fixed_params[d] for d in unstable_dims},
+            "reoptimized_best_params": reopt_result["best_params"],
+            "reoptimized_best_roi": reopt_result["best_value"],
+        }
+
     def _generate_folds(self) -> list[tuple[str, str]]:
         """D-02: 年次fold動的生成 (コンストラクタ引数ベース)"""
         folds: list[tuple[str, str]] = []

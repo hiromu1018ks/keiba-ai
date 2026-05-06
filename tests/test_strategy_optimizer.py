@@ -563,3 +563,178 @@ class TestRunSingleBacktest:
             final_overrides = mock_models.regime_detector._override_params
             assert final_overrides["aggressive"]["fractional_kelly"] == 0.6
             assert final_overrides["conservative"]["fractional_kelly"] == 0.3
+
+
+class TestMultiSeedStability:
+    """multi-seed安定性検証テスト (OPT-03)"""
+
+    def test_optimize_multi_seed_returns_stability_report(
+        self, optimizer: StrategyOptimizer,
+    ) -> None:
+        """optimize_multi_seed()が安定性レポートを返す"""
+
+        def mock_optimize(
+            n_trials: int, seed: int, output_path: Path | None = None,
+        ) -> dict:
+            return {
+                "best_params": {
+                    "fk_aggressive": 0.45 + seed * 0.01,
+                    "fk_conservative": 0.30,
+                    "ev_aggressive": 1.10,
+                    "ev_conservative": 1.30,
+                    "edge_aggressive": 0.05,
+                    "edge_conservative": 0.06,
+                    "dd_threshold_1": 0.10,
+                    "dd_threshold_2": 0.25,
+                    "multiplier_reduced": 0.5,
+                    "rolling_window": 400,
+                    "min_stay_races": 10,
+                    "target_ev": 1.10,
+                    "max_scale": 2.0,
+                    "roi_threshold": 1.0,
+                    "ev_lower_threshold_turf": 1.0,
+                    "ev_lower_threshold_dirt": 1.0,
+                },
+                "best_value": 1.10 + seed * 0.01,
+                "n_trials": n_trials,
+                "n_pruned": 0,
+            }
+
+        optimizer.optimize = mock_optimize  # type: ignore[assignment]
+        report = optimizer.optimize_multi_seed(n_trials=10, seeds=[42, 43, 44])
+        assert "dimensions" in report
+        assert "best_roi_by_seed" in report
+        assert "mean_best_roi" in report
+        assert report["version"] == "1.0"
+        assert report["seeds"] == [42, 43, 44]
+
+    def test_stability_report_detects_unstable_dims(
+        self, optimizer: StrategyOptimizer,
+    ) -> None:
+        """CV>0.20の次元を不安定として検出する"""
+        seed_results = {
+            42: {"best_params": {"fk_aggressive": 0.45, "fk_conservative": 0.30},
+                 "best_value": 1.10, "n_trials": 10, "n_pruned": 0},
+            43: {"best_params": {"fk_aggressive": 0.70, "fk_conservative": 0.31},
+                 "best_value": 1.08, "n_trials": 10, "n_pruned": 0},
+            44: {"best_params": {"fk_aggressive": 0.20, "fk_conservative": 0.29},
+                 "best_value": 1.09, "n_trials": 10, "n_pruned": 0},
+        }
+        report = optimizer._compute_stability_report(seed_results)
+        # fk_aggressive: values=[0.45, 0.70, 0.20], mean=0.45, std~0.204, cv~0.45 > 0.20
+        assert report["dimensions"]["fk_aggressive"]["is_unstable"] is True
+        # fk_conservative: values=[0.30, 0.31, 0.29], mean~0.30, std~0.008, cv~0.027 < 0.20
+        assert report["dimensions"]["fk_conservative"]["is_unstable"] is False
+
+    def test_stability_report_no_unstable_skips_reopt(
+        self, optimizer: StrategyOptimizer,
+    ) -> None:
+        """不安定次元なしの場合、reoptimization=None"""
+
+        def mock_optimize(
+            n_trials: int, seed: int, output_path: Path | None = None,
+        ) -> dict:
+            return {
+                "best_params": {
+                    "fk_aggressive": 0.45, "fk_conservative": 0.30,
+                    "ev_aggressive": 1.10, "ev_conservative": 1.30,
+                    "edge_aggressive": 0.05, "edge_conservative": 0.06,
+                    "dd_threshold_1": 0.10, "dd_threshold_2": 0.25,
+                    "multiplier_reduced": 0.5, "rolling_window": 400,
+                    "min_stay_races": 10, "target_ev": 1.10,
+                    "max_scale": 2.0, "roi_threshold": 1.0,
+                    "ev_lower_threshold_turf": 1.0,
+                    "ev_lower_threshold_dirt": 1.0,
+                },
+                "best_value": 1.10, "n_trials": n_trials, "n_pruned": 0,
+            }
+
+        optimizer.optimize = mock_optimize  # type: ignore[assignment]
+        report = optimizer.optimize_multi_seed(n_trials=10, seeds=[42, 43, 44])
+        assert report["reoptimization"] is None
+
+    def test_primary_seed_gets_full_trials(
+        self, optimizer: StrategyOptimizer,
+    ) -> None:
+        """D-08: 主seed(42)が100 trials、追加seed(43/44)が50 trials"""
+        trial_counts: list[tuple[int, int]] = []
+
+        def mock_optimize(
+            n_trials: int, seed: int, output_path: Path | None = None,
+        ) -> dict:
+            trial_counts.append((seed, n_trials))
+            return {"best_params": {}, "best_value": 1.0,
+                    "n_trials": n_trials, "n_pruned": 0}
+
+        optimizer.optimize = mock_optimize  # type: ignore[assignment]
+        optimizer.optimize_multi_seed(n_trials=100, seeds=[42, 43, 44])
+
+        assert trial_counts[0] == (42, 100)
+        assert trial_counts[1] == (43, 50)
+        assert trial_counts[2] == (44, 50)
+
+    def test_saves_stability_report_json(
+        self, optimizer: StrategyOptimizer, tmp_path: Path,
+    ) -> None:
+        """安定性レポートがJSONで保存される"""
+
+        def mock_optimize(
+            n_trials: int, seed: int, output_path: Path | None = None,
+        ) -> dict:
+            return {"best_params": {}, "best_value": 1.0,
+                    "n_trials": n_trials, "n_pruned": 0}
+
+        optimizer.optimize = mock_optimize  # type: ignore[assignment]
+
+        optimizer.optimize_multi_seed(
+            n_trials=10, seeds=[42], output_dir=tmp_path,
+        )
+        report_path = tmp_path / "stability_report.json"
+        assert report_path.exists()
+        import json
+        data = json.loads(report_path.read_text())
+        assert "version" in data
+        assert "dimensions" in data
+
+    def test_reoptimization_with_unstable_dims(
+        self, optimizer: StrategyOptimizer,
+    ) -> None:
+        """不安定次元がある場合、再最適化が実行される"""
+        call_count = 0
+
+        def mock_optimize(
+            n_trials: int, seed: int, output_path: Path | None = None,
+        ) -> dict:
+            nonlocal call_count
+            call_count += 1
+            # seed=42: extreme fk_aggressive values to force instability
+            return {
+                "best_params": {
+                    "fk_aggressive": 0.15 if seed == 42 else (0.75 if seed == 43 else 0.20),
+                    "fk_conservative": 0.30,
+                    "ev_aggressive": 1.10,
+                    "ev_conservative": 1.30,
+                    "edge_aggressive": 0.05,
+                    "edge_conservative": 0.06,
+                    "dd_threshold_1": 0.10,
+                    "dd_threshold_2": 0.25,
+                    "multiplier_reduced": 0.5,
+                    "rolling_window": 400,
+                    "min_stay_races": 10,
+                    "target_ev": 1.10,
+                    "max_scale": 2.0,
+                    "roi_threshold": 1.0,
+                    "ev_lower_threshold_turf": 1.0,
+                    "ev_lower_threshold_dirt": 1.0,
+                },
+                "best_value": 1.10 + seed * 0.01,
+                "n_trials": n_trials,
+                "n_pruned": 0,
+            }
+
+        optimizer.optimize = mock_optimize  # type: ignore[assignment]
+        report = optimizer.optimize_multi_seed(n_trials=10, seeds=[42, 43, 44])
+        # 不安定次元あり → reoptimization実行 (optimizeが4回以上呼ばれる: 3 seeds + 1 reopt)
+        assert report["reoptimization"] is not None
+        assert "fixed_dimensions" in report["reoptimization"]
+        assert "fk_aggressive" in report["reoptimization"]["fixed_dimensions"]

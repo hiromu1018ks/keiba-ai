@@ -42,6 +42,10 @@ def main() -> None:
         "--min-bets", type=int, default=1000,
         help="1foldあたりの最低ベット数 (default: 1000)",
     )
+    parser.add_argument(
+        "--seeds", type=str, default=None,
+        help="Multi-seed安定性検証用のカンマ区切りseedリスト (例: 42,43,44)",
+    )
     args = parser.parse_args()
 
     optimizer = StrategyOptimizer(
@@ -49,19 +53,32 @@ def main() -> None:
         min_bets_per_fold=args.min_bets,
     )
 
-    logger.info(f"Starting strategy optimization: n_trials={args.n_trials}")
-    result = optimizer.optimize(
-        n_trials=args.n_trials,
-        seed=args.seed,
-        output_path=Path(args.output),
-    )
+    if args.seeds is not None:
+        seeds = [int(s.strip()) for s in args.seeds.split(",")]
+        logger.info("Multi-seed stability optimization: seeds=%s", seeds)
+        result = optimizer.optimize_multi_seed(
+            n_trials=args.n_trials,
+            seeds=seeds,
+            output_dir=Path(args.output).parent,
+        )
+        logger.info(
+            "Stability report generated. Mean best ROI: %.4f",
+            result.get("mean_best_roi", 0.0),
+        )
+    else:
+        logger.info(f"Starting strategy optimization: n_trials={args.n_trials}")
+        result = optimizer.optimize(
+            n_trials=args.n_trials,
+            seed=args.seed,
+            output_path=Path(args.output),
+        )
 
-    logger.info(
-        f"Best ROI: {result['best_value']:.4f}, "
-        f"Best params: {result['best_params']}, "
-        f"Trials: {result['n_trials']}, "
-        f"Pruned: {result['n_pruned']}"
-    )
+        logger.info(
+            f"Best ROI: {result['best_value']:.4f}, "
+            f"Best params: {result['best_params']}, "
+            f"Trials: {result['n_trials']}, "
+            f"Pruned: {result['n_pruned']}"
+        )
 
 
 if __name__ == "__main__":
