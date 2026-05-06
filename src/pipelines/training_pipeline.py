@@ -843,6 +843,20 @@ class TrainingPipelineV5:
                 )
                 console_summary(drift_result)
 
+        # --- EV diagnostics (EVF-02, D-04/D-05) ---
+        if use_ensemble:
+            with TimingContext(f"{surface}/ev_diagnostics"):
+                from models.ev_diagnostics import compute_ev_diagnostics as compute_ev_diag
+                from models.ev_diagnostics import console_summary as ev_console_summary
+
+                ev_output_path = Path("data/backtest") / f"ev_diagnostics_{surface}.json"
+                ev_result = compute_ev_diag(
+                    wsg_train_df,
+                    output_path=ev_output_path,
+                    surface=surface,
+                )
+                ev_console_summary(ev_result)
+
         with TimingContext(f"{surface}/win_selection_gate_train"):
             win_selection_gate = WinSelectionGateModel()
             win_selection_gate.train(wsg_train_df)
