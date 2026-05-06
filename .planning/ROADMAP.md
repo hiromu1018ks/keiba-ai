@@ -205,7 +205,11 @@ Plans:
 **Success Criteria** (what must be TRUE):
   1. strategy_optimizer.pyがtraining_bet_history生成にデフォルトパラメータを使用し、Optuna最適化済みパラメータが学習データに漏洩していないことをテストで確認できる
   2. OddsBandFilter.calibrate()がアンサンブルモデル由来のtraining_bet_historyで実行され、各オッズバンドのROIがアンサンブルの実際の精度を反映している
-**Plans**: TBD
+**Plans**: 2 plans
+
+Plans:
+- [ ] 16-01: _build_default_config()追加 + _run_single_backtest()ステップ3修正 + テスト (ODDS-02)
+- [ ] 16-02: run_backtest.py デフォルトパラメータ使用 + テスト (ODDS-01)
 
 ### Phase 17: Optuna Optimization
 **Goal**: アンサンブルモデルで再キャリブレーション済みのフィルター群に対してOptuna 14次元最適化が実行され、fold増強とmulti-seed安定性検証を経て過学習耐性のある最適パラメータが導出されている状態になる
@@ -248,6 +252,6 @@ Phases execute in numeric order: 14 → 15 → 16 → 17 → 18
 | 13. Risk Calibration & Parameter Optimization | v1.3 | 3/3 | Complete | 2026-05-05 |
 | 14. Gate Recalibration | v1.4 | 2/2 | Complete | 2026-05-06 |
 | 15. EV Filter Enhancement | v1.4 | 2/2 | Complete | 2026-05-06 |
-| 16. Odds Band Rebuild | v1.4 | 0/? | Not started | - |
+| 16. Odds Band Rebuild | v1.4 | 0/2 | Not started | - |
 | 17. Optuna Optimization | v1.4 | 0/? | Not started | - |
 | 18. Validation & Freeze | v1.4 | 0/? | Not started | - |
