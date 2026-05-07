@@ -3,7 +3,7 @@ status: complete
 phase: 07-ensemble-enhancement
 source: 07-01-SUMMARY.md
 started: 2026-05-04T12:00:00Z
-updated: 2026-05-04T20:05:00Z
+updated: 2026-05-05T21:00:00Z
 ---
 
 ## Current Test
@@ -38,11 +38,25 @@ result: issue
 reported: "ruff check で N803/N806 エラー42件（X_train等のML標準命名規約）。機能的影響はないが、ruff --select E/F/I/N/W でエラーになる"
 severity: cosmetic
 
+### 7. アンサンブル実データ統合テスト (--ensemble付きバックテスト)
+expected: python scripts/run_backtest.py --ensemble で学習〜バックテストがエラーなく完了する
+result: issue (fixed)
+reported: "_encode_cats() で Categorical 列の fillna(-1) が TypeError。pd.to_numeric() で修正済み。"
+severity: blocking
+fixed: "pd.to_numeric(X_out[col].map(codes), errors='coerce').fillna(-1) に変更"
+
+### 8. WF検証でのアンサンブル対応
+expected: python scripts/run_wf_validation.py --ensemble でfeature importance抽出が完了する
+result: issue (fixed)
+reported: "extract_feature_ranking() が StackedEnsemble.feature_name() を呼び出せず AttributeError。--ensemble オプション自体も未実装だった。"
+severity: blocking
+fixed: "run_wf_validation.py に --ensemble 追加 + extract_feature_ranking を StackedEnsemble 対応"
+
 ## Summary
 
-total: 6
+total: 8
 passed: 5
-issues: 1
+issues: 3
 pending: 0
 skipped: 0
 
@@ -50,13 +64,27 @@ skipped: 0
 
 - truth: "ruff check src/models/stacked_ensemble.py がエラーなしで完了する"
   status: failed
-  reason: "N803/N806 エラー42件 — X_train, X_tr 等 ML標準の大文字X命名規約"
+  reason: "N803/N806 エラー38箇所 — X_train, X_tr 等 ML標準の大文字X命名規約"
   severity: cosmetic
   test: 6
   root_cause: "ML標準のX_train命名がRuff N803/N806ルールに違反。他のMLモジュールも同じパターン。"
   artifacts:
     - path: "src/models/stacked_ensemble.py"
-      issue: "42箇所のN803/N806エラー（X_train, X_tr, X_va等）"
+      issue: "38箇所のN803/N806エラー（X_train, X_tr, X_va等）"
   missing:
     - "ruff per-file-ignores でN803/N806を無視するか、各X使用箇所にnoqa付与"
+  debug_session: ""
+
+- truth: "--ensemble 付きバックテストが正常完了する"
+  status: fixed
+  test: 7
+  root_cause: "Categorical列をmap後、fillna(-1)でTypeError"
+  fix: "pd.to_numeric() を挟んでfloat化してからfillna"
+  debug_session: ""
+
+- truth: "--ensemble 付きWF検証が正常完了する"
+  status: fixed
+  test: 8
+  root_cause: "StackedEnsembleにfeature_name()がなく + --ensembleフラグが未実装"
+  fix: "--ensemble追加 + extract_feature_ranking対応"
   debug_session: ""

@@ -387,7 +387,7 @@ ev_mask = ev_lower.fillna(threshold) >= threshold  # D-03: NaN uses surface defa
 
 **Validation needed:** A1 should be verified by tracing the data flow in `_train_submodel()` -- when `use_ensemble=True`, the ensemble replaces hit_model at line 468, so by line 762 the df_oof should contain ensemble-predicted values. A4 is verified by checking Phase 14's drift_diagnostics.py which uses "turf"/"dirt" strings.
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Positive-edge winner definition for threshold computation (Claude's Discretion)**
    - What we know: D-01 says "25th percentile of positive-edge OOF winners"

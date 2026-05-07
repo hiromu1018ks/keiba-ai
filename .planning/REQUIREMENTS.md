@@ -7,14 +7,14 @@
 
 ### Gate Recalibration
 
-- [ ] **GATE-01**: WinSelectionGateをアンサンブルOOF予測で再学習し、prob_edges/edge_edges/odds_edgesを再計算する
-- [ ] **GATE-02**: 単一モデルとアンサンブルのOOF確率分布をks_2samp/wasserstein_distanceで比較し、ドリフトを定量化する診断機能を追加する
-- [ ] **GATE-03**: use_ensembleフラグがModelLoader→RacePredictor→BacktestEngine全体で正しく伝播されていることを検証する
+- [x] **GATE-01**: WinSelectionGateをアンサンブルOOF予測で再学習し、prob_edges/edge_edges/odds_edgesを再計算する
+- [x] **GATE-02**: 単一モデルとアンサンブルのOOF確率分布をks_2samp/wasserstein_distanceで比較し、ドリフトを定量化する診断機能を追加する
+- [x] **GATE-03**: use_ensembleフラグがModelLoader→RacePredictor→BacktestEngine全体で正しく伝播されていることを検証する
 
 ### EV Filter Enhancement
 
-- [ ] **EVF-01**: EV_lower閾値を固定1.0からアンサンブルOOF分布の分位点に基づく動的閾値に変更する
-- [ ] **EVF-02**: OOF EV推定値と実際の払戻額を比較し、EV推定精度を評価する診断機能を追加する
+- [x] **EVF-01**: EV_lower閾値を固定1.0からアンサンブルOOF分布の分位点に基づく動的閾値に変更する
+- [x] **EVF-02**: OOF EV推定値と実際の払戻額を比較し、EV推定精度を評価する診断機能を追加する
 
 ### Odds Band Rebuild
 
@@ -30,7 +30,7 @@
 ### Validation
 
 - [ ] **VAL-01**: アンサンブルバックテストで年間100+ベットかつROI>100%を達成することを確認する
-- [ ] **VAL-02**: ParameterFreezeProtocolで最適化済みパラメータを固定し、SHA256改ざん検知を適用する
+- [x] **VAL-02**: ParameterFreezeProtocolで最適化済みパラメータを固定し、SHA256改ざん検知を適用する
 
 ## Future Requirements
 
@@ -56,18 +56,18 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| GATE-01 | Phase 14 | Pending |
-| GATE-02 | Phase 14 | Pending |
-| GATE-03 | Phase 14 | Pending |
-| EVF-01 | Phase 15 | Pending |
-| EVF-02 | Phase 15 | Pending |
+| GATE-01 | Phase 14 | Complete |
+| GATE-02 | Phase 14 | Complete |
+| GATE-03 | Phase 14 | Complete |
+| EVF-01 | Phase 15 | Complete |
+| EVF-02 | Phase 15 | Complete |
 | ODDS-01 | Phase 16 | Complete |
 | ODDS-02 | Phase 16 | Complete |
 | OPT-01 | Phase 17 | Complete |
 | OPT-02 | Phase 17 | Complete |
 | OPT-03 | Phase 17 | Complete |
 | VAL-01 | Phase 18 | Pending |
-| VAL-02 | Phase 18 | Pending |
+| VAL-02 | Phase 18 | Complete |
 
 **Coverage:**
 - v1 requirements: 12 total

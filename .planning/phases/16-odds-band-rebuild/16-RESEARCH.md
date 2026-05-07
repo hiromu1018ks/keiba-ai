@@ -347,20 +347,23 @@ def _run_single_backtest(self, strategy_config, test_start, test_end, trial=None
 
 ## Open Questions
 
-1. **BacktestEngine.run()内自動生成のトレードオフ (D-05/D-06)**
+1. **(RESOLVED) BacktestEngine.run()内自動生成のトレードオフ (D-05/D-06)**
    - What we know: BacktestEngine.run()はすでにtraining_bet_historyパラメータを受け取る。D-05/D-06はengine内部で自動生成する要件。
    - What's unclear: 自動生成のタイミング -- run()の冒頭で生成するか、__init__で準備するか。run()の冒頭が最もシンプル（データアクセスがrun内で完結）。
    - Recommendation: run()の冒頭（OddsBandFilter.calibrate()の直前、line 661の前）で、training_bet_historyがNoneの場合のみ自動生成する設計。
+   - **Resolution:** Plan 02で採用。run()内のOddsBandFilter.calibrate()直前でtraining_bet_history=Noneの場合に_generate_training_bet_history()を呼び出す設計。Pitfall 3回避のため内部エンジンはbetting_target="place"で構築。
 
-2. **_build_default_config()でのRegimeDetectorインスタンス生成コスト**
+2. **(RESOLVED) _build_default_config()でのRegimeDetectorインスタンス生成コスト**
    - What we know: RegimeDetector.__init__()は軽量（dictとカウンタの初期化のみ）。train()は呼ばない。
    - What's unclear: _run_single_backtest()が100トライアル x 2fold = 200回呼ばれるため、毎回newするオーバーヘッド。
    - Recommendation: __init__で1回だけRegimeDetectorインスタンスを作成し_build_default_config()で使い回す。または_build_default_config()の結果をキャッシュする。
+   - **Resolution:** 共通ユーティリティ(src/betting/default_strategy.py)に抽出。Plan 02のexecutorが実装時にキャッシュを検討可能。RegimeDetector.__init__()が軽量なため、現時点では毎回生成でも問題なし。
 
-3. **AGGRESSIVEレジームの多数パラメータの扱い**
+3. **(RESOLVED) AGGRESSIVEレジームの多数パラメータの扱い**
    - What we know: AGGRESSIVEは20+のパラメータを持つが、_build_strategy_config()が変換するのはfk, ev, edgeの3つのみ。他のパラメータ（score_threshold等）はBacktestEngineのRacePredictor内で使用される。
    - What's unclear: _build_default_config()はregime_overridesとしてfk, ev, edgeのみ返すが、これで十分か。
    - Recommendation: 十分。_get_base_params()の他のパラメータ（score_threshold等）はBacktestEngineのRacePredictor内でregime_paramsから読み込まれ、regime_overridesの3パラメータはそれらを上書きする形。デフォルトではregime_overridesが適用された後も_get_base_params()の残りパラメータは有効。
+   - **Resolution:** Recommendationを採用。regime_overridesはfk, ev, edgeの3パラメータのみで十分。残りのパラメータは_get_base_params()のハードコード値が有効なため。
 
 ## Environment Availability
 
