@@ -70,7 +70,6 @@ class ModelLoader:
             )
 
         surfaces = ["turf", "dirt"]
-        artifact_uri = mlflow.get_artifact_uri(run_id)
 
         from domain.models import SubmodelSet, TrainedModelsV5
         from models.ev_correction_model import EVCorrectionModel, PlaceEVCorrectionModel
@@ -307,6 +306,10 @@ class ModelLoader:
                     ev_odds_band_scales = json.load(f)
             except Exception:
                 pass
+
+            # Wire EV Isotonic + band scales into EVCorrectionModel instance
+            ev_corr.ev_isotonic_calibrator = ev_isotonic_calibrator
+            ev_corr.ev_odds_band_scales = ev_odds_band_scales
 
             submodels[surface] = SubmodelSet(
                 market=market,
@@ -723,6 +726,10 @@ class ModelLoader:
                 except Exception:
                     logger.warning("Failed to load %s, skipping", band_file)
 
+            # Wire EV Isotonic + band scales into EVCorrectionModel instance
+            ev_corr.ev_isotonic_calibrator = ev_isotonic_calibrator
+            ev_corr.ev_odds_band_scales = ev_odds_band_scales
+
             submodels[surface] = SubmodelSet(
                 market=market,
                 stage1=ability,
@@ -745,10 +752,6 @@ class ModelLoader:
                 ev_isotonic_calibrator=ev_isotonic_calibrator,
                 ev_odds_band_scales=ev_odds_band_scales,
             )
-
-        # RaceQualityScreener
-        quality = RaceQualityScreener()
-        quality.model = self._load_lgbm(str(models_dir / "race_quality.lgb"))
         with open(models_dir / "meta.json", encoding="utf-8") as f:
             quality.threshold = float(json.load(f).get("quality_threshold", 0.0))
 
