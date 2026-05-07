@@ -255,6 +255,9 @@ class SubmodelSet:
     # EV_lower dynamic threshold (D-01/D-02, EVF-01)
     ev_lower_threshold_turf: float = 1.0
     ev_lower_threshold_dirt: float = 1.0
+    # Phase 19: EV Isotonic calibration + odds band residual scaling (EVC-01/EVC-02)
+    ev_isotonic_calibrator: IsotonicRegression | None = None
+    ev_odds_band_scales: dict[str, float] | None = None  # {"1.0-3.0": 0.95, "3.0-10.0": 1.02, ...}
 
 
 @dataclass
