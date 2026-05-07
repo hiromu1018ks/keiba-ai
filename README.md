@@ -67,9 +67,138 @@ python scripts/run_backtest.py \
 | `scripts/precompute_career_stats.py` | 各馬×各レース時点での累積成績を事前計算（PIT安全） | ~2分 |
 | `scripts/run_etl.py` | PostgreSQL (EveryDB2) → Parquetファイル群へのETL | ~10分 (full) |
 | `scripts/run_train.py` | HorseHistoryFeatures生成 + LightGBM Ranker + 補正モデル学習 | ~17分 |
-| `scripts/run_backtest.py` | 学習 → テスト期間でレース毎にシミュレーション → ROI計算 | ~57分 |
+| `scripts/run_backtest.py` | 学習→バックテスト（単一年度/マルチ年度、アンサンブル/Kelly/manifest対応） | ~57分/年 |
+| `scripts/run_wf_validation.py` | 2-fold ウォークフォワード検証（過学習検出 + feature importance安定性） | ~4時間 |
+| `scripts/run_strategy_optimization.py` | Optuna 16次元戦略パラメータ最適化（multi-seed安定性検証対応） | ~2.5h/trial |
 | `scripts/run_paper_trading.py` | リアルタイム予測・結果照合（setup/predict/reconcile/dry-run） | ~25秒/日 |
 | `scripts/run_tuning.py` | Optuna によるハイパーパラメータチューニング | ~30分 (50trials) |
+
+### スクリプト引数詳細
+
+#### run_etl.py
+
+```bash
+python scripts/run_etl.py --mode full --start 20140101 --end 20251231  # 全量抽出
+python scripts/run_etl.py --mode delta                                 # 差分マージ
+```
+
+| 引数 | 型 | デフォルト | 説明 |
+|------|-----|-----------|------|
+| `--mode` | `full`\|`delta` | **必須** | `full`=全量抽出、`delta`=差分マージ |
+| `--start` | YYYYMMDD | — | 開始日 (`full`で必須) |
+| `--end` | YYYYMMDD | — | 終了日 (`full`で必須) |
+| `--tables` | list[str] | — | 対象テーブル (省略時は全テーブル) |
+
+#### run_train.py
+
+```bash
+python scripts/run_train.py --start 20200101 --end 20231231 --ensemble
+```
+
+| 引数 | 型 | デフォルト | 説明 |
+|------|-----|-----------|------|
+| `--start` | YYYYMMDD | **必須** | 学習開始日 |
+| `--end` | YYYYMMDD | **必須** | 学習終了日 |
+| `--ensemble` | flag | False | StackedEnsemble有効化 (LGBM+XGB+CB→Ridge) |
+| `--experiment` | str | `keiba-v5` | MLflow実験名 |
+
+#### run_backtest.py
+
+学習→テスト期間の投資シミュレーション。毎回学習し直す設計（再現性保証）。モデルは `data/models-backtest/` に保存。
+
+```bash
+# 単一年度
+python scripts/run_backtest.py \
+  --train-start 20200101 --train-end 20231231 \
+  --test-start 20240101 --test-end 20241231 --ensemble
+
+# マルチ年度
+python scripts/run_backtest.py --years 2023 2024 2025 --train-window 4 --ensemble
+
+# Optuna最適化済みパラメータで検証
+python scripts/run_backtest.py \
+  --ensemble --strategy-manifest data/strategy_manifest.json \
+  --train-start 20200101 --train-end 20231231 \
+  --test-start 20240101 --test-end 20241231
+```
+
+| 引数 | 型 | デフォルト | 説明 |
+|------|-----|-----------|------|
+| `--train-start` | YYYYMMDD | — | 学習開始日 (単一年度モード) |
+| `--train-end` | YYYYMMDD | — | 学習終了日 (単一年度モード) |
+| `--test-start` | YYYYMMDD | — | テスト開始日 (単一年度モード) |
+| `--test-end` | YYYYMMDD | — | テスト終了日 (単一年度モード) |
+| `--years` | list[int] | — | テスト年度リスト (マルチ年度モード) |
+| `--train-window` | int | 4 | 学習年数 (マルチ年度モード) |
+| `--ensemble` | flag | False | アンサンブルモデル有効化 |
+| `--betting-mode` | `flat`\|`kelly` | `flat` | `flat`=100円固定、`kelly`=Fractional Kelly |
+| `--betting-target` | `win`\|`place`\|`wide` | `win` | 投票対象 |
+| `--report` | flag | False | HTMLレポート + parquet出力 |
+| `--skip-train` | flag | False | 学習スキップ (キャッシュモデル使用、`--ensemble`必須) |
+| `--profile` | flag | False | pyinstrumentプロファイリング (`data/profiles/`) |
+| `--strategy-manifest` | str | — | Optuna最適化済みmanifest JSON (`--ensemble`必須) |
+
+**モード切替:** `--years`指定→マルチ年度、4つのtrain/test指定→単一年度。いずれか必須。
+**出力:** `backtest_result.json`、`data/validation/validation_report.json`、`data/backtest/bt_{year}_*.{csv,parquet}`
+
+#### run_wf_validation.py
+
+2-fold WF検証で過学習を検出。Feature importance安定性 (Spearman rho) とROI gapを測定。
+
+```bash
+python scripts/run_wf_validation.py --ensemble
+```
+
+| 引数 | 型 | デフォルト | 説明 |
+|------|-----|-----------|------|
+| `--ensemble` | flag | False | アンサンブルモデル有効化 |
+| `--betting-target` | `win`\|`place`\|`wide` | `win` | 投票対象 |
+| `--profile` | flag | False | pyinstrumentプロファイリング |
+
+**Fold定義 (ハードコード):** Fold0=train 2020-2023/test 2024、Fold1=train 2021-2024/test 2025
+**出力:** `data/backtest/wf_validation_result.json`
+**判定:** `roi_gap_verdict`, `consistency_verdict`, `stability_verdict`, `overall_verdict`
+
+#### run_strategy_optimization.py
+
+学習済みモデルに対して16次元戦略パラメータをOptuna TPEで最適化。
+
+```bash
+# 単一seed
+python scripts/run_strategy_optimization.py \
+  --n-trials 100 --models-dir data/models-backtest \
+  --output data/strategy_manifest.json
+
+# multi-seed安定性検証
+python scripts/run_strategy_optimization.py \
+  --n-trials 100 --seeds 42,43,44 \
+  --models-dir data/models-backtest \
+  --output data/stability/strategy_manifest.json
+```
+
+| 引数 | 型 | デフォルト | 説明 |
+|------|-----|-----------|------|
+| `--n-trials` | int | 100 | Optuna試行回数 |
+| `--seed` | int | 42 | TPESampler乱数シード (単一seed時) |
+| `--models-dir` | str | `data/models` | 学習済みモデルディレクトリ |
+| `--output` | str | `data/strategy_manifest.json` | 出力manifestパス |
+| `--min-bets` | int | 1000 | 1foldあたりの最低ベット数 |
+| `--seeds` | str | — | multi-seed安定性検証 (カンマ区切り、例: `42,43,44`) |
+
+**16次元:** fk_aggressive/conservative, ev_aggressive/conservative, edge_aggressive/conservative, dd_threshold_1/2, multiplier_reduced, rolling_window, min_stay_races, target_ev, max_scale, roi_threshold, ev_lower_threshold_turf/dirt
+
+#### run_tuning.py
+
+```bash
+python scripts/run_tuning.py --model win_hit --start 20200101 --end 20231231 --trials 50
+```
+
+| 引数 | 型 | デフォルト | 説明 |
+|------|-----|-----------|------|
+| `--model` | `win_hit`\|`win_return`\|`place_hit`\|`place_return`\|`ability` | **必須** | 対象モデル |
+| `--start` | YYYYMMDD | **必須** | 学習開始日 |
+| `--end` | YYYYMMDD | **必須** | 学習終了日 |
+| `--trials` | int | 50 | Optuna試行回数 |
 
 ### precompute_career_stats.py について
 
