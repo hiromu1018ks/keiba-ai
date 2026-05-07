@@ -932,6 +932,11 @@ class TrainingPipelineV5:
             ev_odds_band_scales=ev_odds_band_scales,
         )
 
+        # Wire Isotonic + band scales into ev_corrector for correct_ev() to apply
+        sub.ev_corrector.ev_isotonic_calibrator = ev_isotonic_calibrator
+        sub.ev_corrector.ev_odds_band_scales = ev_odds_band_scales
+        return sub
+
     @staticmethod
     def generate_ev_oof_predictions(
         df: pd.DataFrame,
