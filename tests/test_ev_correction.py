@@ -7,6 +7,7 @@ from unittest.mock import MagicMock
 import numpy as np
 import pandas as pd
 import pytest
+from sklearn.isotonic import IsotonicRegression
 
 from models.ev_correction_model import EVCorrectionModel
 
@@ -180,6 +181,66 @@ class TestEVCorrectionModel:
         model.correct_ev(pre_ev_df)
         assert mock_p.predict.call_args.kwargs.get("num_iteration") is None
         assert mock_e.predict.call_args.kwargs.get("num_iteration") is None
+
+    def test_correct_ev_produces_ev_win_calibrated(
+        self,
+        trained_ev_model: EVCorrectionModel,
+        pre_ev_df: pd.DataFrame,
+    ) -> None:
+        """correct_ev()がev_win_calibrated列を生成する (Isotonic未設定時はfallback)"""
+        result = trained_ev_model.correct_ev(pre_ev_df)
+        assert "ev_win_calibrated" in result.columns
+
+    def test_correct_ev_calibrated_equals_corrected_without_isotonic(
+        self,
+        trained_ev_model: EVCorrectionModel,
+        pre_ev_df: pd.DataFrame,
+    ) -> None:
+        """Isotonicなしのcorrect_ev()でev_win_calibratedがev_win_correctedと等しい"""
+        result = trained_ev_model.correct_ev(pre_ev_df)
+        assert np.allclose(
+            result["ev_win_calibrated"].values,
+            result["ev_win_corrected"].values,
+            atol=1e-10,
+        )
+
+    def test_correct_ev_with_isotonic_produces_different_calibrated(
+        self,
+        trained_ev_model: EVCorrectionModel,
+        pre_ev_df: pd.DataFrame,
+    ) -> None:
+        """Isotonic付きのEVCorrectionModelでev_win_calibratedがev_win_correctedと異なる"""
+        iso = IsotonicRegression(y_min=0, out_of_bounds="clip")
+        iso.fit(
+            np.array([0.5, 1.0, 1.5, 2.0, 3.0]),
+            np.array([0.3, 0.7, 0.9, 1.0, 1.1]),
+        )
+        model = EVCorrectionModel(ev_isotonic_calibrator=iso)
+        model.p_correction_model = trained_ev_model.p_correction_model
+        model.e_correction_model = trained_ev_model.e_correction_model
+        result = model.correct_ev(pre_ev_df)
+        assert "ev_win_calibrated" in result.columns
+        assert not np.allclose(
+            result["ev_win_calibrated"].values,
+            result["ev_win_corrected"].values,
+        )
+
+    def test_correct_ev_calibrated_non_negative(
+        self,
+        trained_ev_model: EVCorrectionModel,
+        pre_ev_df: pd.DataFrame,
+    ) -> None:
+        """Isotonic付きのcorrect_ev()で全ev_win_calibrated >= 0"""
+        iso = IsotonicRegression(y_min=0, out_of_bounds="clip")
+        iso.fit(
+            np.array([0.5, 1.0, 1.5, 2.0, 3.0]),
+            np.array([0.3, 0.7, 0.9, 1.0, 1.1]),
+        )
+        model = EVCorrectionModel(ev_isotonic_calibrator=iso)
+        model.p_correction_model = trained_ev_model.p_correction_model
+        model.e_correction_model = trained_ev_model.e_correction_model
+        result = model.correct_ev(pre_ev_df)
+        assert (result["ev_win_calibrated"] >= 0).all()
 
 
 @pytest.fixture
