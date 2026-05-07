@@ -287,6 +287,27 @@ class ModelLoader:
             except Exception:
                 pass
 
+            # Phase 19: EV Isotonic Calibrator (MLflow)
+            ev_isotonic_calibrator = None
+            try:
+                eviso_path = mlflow.artifacts.download_artifacts(
+                    f"runs:/{run_id}/ev_isotonic_{surface}.joblib"
+                )
+                ev_isotonic_calibrator = joblib.load(eviso_path)
+            except Exception:
+                pass
+
+            # Phase 19: EV Odds Band Scales (MLflow)
+            ev_odds_band_scales = None
+            try:
+                band_path = mlflow.artifacts.download_artifacts(
+                    f"runs:/{run_id}/ev_odds_band_scales_{surface}.json"
+                )
+                with open(band_path) as f:
+                    ev_odds_band_scales = json.load(f)
+            except Exception:
+                pass
+
             submodels[surface] = SubmodelSet(
                 market=market,
                 stage1=ability,
@@ -305,6 +326,8 @@ class ModelLoader:
                 win_isotonic_calibrator=win_isotonic_calibrator,
                 win_temperature_scaler=win_temperature_scaler,
                 win_selection_gate=win_selection_gate,
+                ev_isotonic_calibrator=ev_isotonic_calibrator,
+                ev_odds_band_scales=ev_odds_band_scales,
             )
 
         # RaceQualityScreener
@@ -681,6 +704,25 @@ class ModelLoader:
                 except Exception:
                     logger.warning("Failed to load %s, skipping", win_temp_file)
 
+            # Phase 19: EV Isotonic Calibrator (joblib)
+            ev_isotonic_calibrator = None
+            ev_iso_file = models_dir / f"ev_isotonic_{surface}.joblib"
+            if ev_iso_file.is_file():
+                try:
+                    ev_isotonic_calibrator = joblib.load(ev_iso_file)
+                except Exception:
+                    logger.warning("Failed to load %s, skipping", ev_iso_file)
+
+            # Phase 19: EV Odds Band Scales (JSON)
+            ev_odds_band_scales = None
+            band_file = models_dir / f"ev_odds_band_scales_{surface}.json"
+            if band_file.is_file():
+                try:
+                    with open(band_file) as f:
+                        ev_odds_band_scales = json.load(f)
+                except Exception:
+                    logger.warning("Failed to load %s, skipping", band_file)
+
             submodels[surface] = SubmodelSet(
                 market=market,
                 stage1=ability,
@@ -700,6 +742,8 @@ class ModelLoader:
                 win_isotonic_calibrator=win_isotonic_calibrator,
                 win_temperature_scaler=win_temperature_scaler,
                 win_selection_gate=win_selection_gate,
+                ev_isotonic_calibrator=ev_isotonic_calibrator,
+                ev_odds_band_scales=ev_odds_band_scales,
             )
 
         # RaceQualityScreener
