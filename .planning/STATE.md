@@ -1,17 +1,17 @@
 ---
 gsd_state_version: 1.0
-milestone: none
-milestone_name: ""
-status: between_milestones
-stopped_at: v1.4 archived — ready for next milestone
-last_updated: "2026-05-07T13:00:00.000Z"
+milestone: v1.5
+milestone_name: "Model Accuracy Improvement"
+status: between_phases
+stopped_at: "v1.5 milestone initialized — ready for Phase 19"
+last_updated: "2026-05-07T14:00:00.000Z"
 last_activity: 2026-05-07
 progress:
-  total_phases: 18
+  total_phases: 22
   completed_phases: 18
   total_plans: 38
   completed_plans: 38
-  percent: 100
+  percent: 82
 ---
 
 # Project State
@@ -21,16 +21,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-05-07)
 
 **Core value:** 単勝モデルのバックテストROIを100%超えにすること
-**Current focus:** v1.4 archived — planning next milestone
+**Current focus:** v1.5 Model Accuracy Improvement — EV推定2.42倍過大評価の解消
 
 ## Current Position
 
-Phase: 18 (complete, archived)
-Plan: —
-Status: Between milestones
+Phase: 19 (next)
+Plan: 19-01 (next)
+Status: Between phases (milestone initialized)
 Last activity: 2026-05-07
 
-Progress: [===========] 100%
+Progress: [==============    ] 82%
 
 ## Performance Metrics
 
@@ -67,10 +67,11 @@ Historical decisions archived in:
 - バックテストROI検証(実行に~57分/年、PostgreSQL環境必要) — deferred to manual execution
 - WF検証スクリプトの実際の実行(PostgreSQL環境必要、~4時間) — deferred
 - Human UAT 5項目 (v1.4, PostgreSQL依存) — deferred
+- v1.5バックテストROI検証 — pending Phase 22
 
 ### Blockers/Concerns
 
-None — between milestones
+None — ready to start Phase 19
 
 ## Deferred Items
 
@@ -84,5 +85,5 @@ Items acknowledged and deferred at milestone close:
 
 ## Session Continuity
 
-Last session: 2026-05-07T13:00:00.000Z
-Stopped at: v1.4 milestone archived — ready for /gsd-new-milestone
+Last session: 2026-05-07T14:00:00.000Z
+Stopped at: v1.5 milestone initialized — start /gsd-plan-phase 19

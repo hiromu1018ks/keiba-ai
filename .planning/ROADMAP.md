@@ -7,6 +7,7 @@
 - ✅ **v1.2 Win Backtest Validation** - Phases 8-10 (shipped 2026-05-04)
 - ✅ **v1.3 Betting Strategy Optimization** - Phases 11-13 (shipped 2026-05-05)
 - ✅ **v1.4 Ensemble Filter Recalibration** - Phases 14-18 (shipped 2026-05-07)
+- 🔄 **v1.5 Model Accuracy Improvement** - Phases 19-22 (active)
 
 ## Phases
 
@@ -176,6 +177,75 @@ _(v1.0-v1.3 phase details archived in respective milestone archives)_
 
 _(v1.4 phase details archived in .planning/milestones/v1.4-ROADMAP.md)_
 
+<details open>
+<summary>🔄 v1.5 Model Accuracy Improvement (Phases 19-22) — ACTIVE</summary>
+
+### Phase 19: EV推定キャリブレーション
+
+**Goal**: P×E分解の独立性仮定に依存せず、OOF予測ベースでEVを直接キャリブレーションし、全セグメントのEV過大評価倍率を1.0±0.2に収束させる
+**Depends on**: Phase 18 (v1.4 complete)
+**Requirements**: EVC-01, EVC-02, EVC-03
+**Plans**: 2 plans
+
+Plans:
+- [ ] 19-01: OOF予測ベースのIsotonic EVキャリブレーション + オッズバンド別補正層 (EVC-01, EVC-02)
+- [ ] 19-02: EVCorrectionModel統合 + パイプライン適用 + テスト (EVC-03)
+
+**Success Criteria:**
+  1. IsotonicRegression で OOF ev_win を actual_return にキャリブレーションし、ECEが改善
+  2. 高オッズ帯(20+)のEV過大評価倍率が2.08から1.2以下に改善
+  3. 全セグメントのEV過大評価倍率が1.0±0.2に収束
+
+### Phase 20: 高オッズ的中パターン特徴量
+
+**Goal**: 高オッズ帯(20+)の的中率を2.1%から3%+に引き上げる新特徴量を追加し、AbilityModelとWinTwoStageModelに統合する
+**Depends on**: Phase 18 (v1.4 complete) — Phase 19と並行可能
+**Requirements**: HODDS-01, HODDS-02, HODDS-03, HODDS-04, HODDS-05
+**Plans**: 3 plans
+
+Plans:
+- [ ] 20-01: 高オッズ的中パターン分析 + クラストラジェクトリ/フォーム改善率特徴量 (HODDS-01, HODDS-02, HODDS-03)
+- [ ] 20-02: 環境変化適性特徴量 + FeatureEngine統合 (HODDS-04, HODDS-05)
+- [ ] 20-03: Feature importance分析 + モデルFEATURE_COLS更新 (HODDS-05)
+
+**Success Criteria:**
+  1. 10+新特徴量が生成され、欠損率10%以下
+  2. Feature importance上位50%に新特徴量が含まれる
+  3. 高オッズ帯(20+)のOOF予測AUCが改善 (ベースライン比較)
+
+### Phase 21: Conformal EV予測区間
+
+**Goal**: EV推定の不確実性をConformal Predictionで定量化し、信頼区間下界に基づくベット選択により、EV_excluded=0の問題を解消する
+**Depends on**: Phase 19 (EV Calibration complete)
+**Requirements**: CONF-01, CONF-02, CONF-03
+**Plans**: 2 plans
+
+Plans:
+- [ ] 21-01: Conformal Prediction EV区間実装 + 動的フィルタリング (CONF-01, CONF-02)
+- [ ] 21-02: パイプライン統合 + 診断レポート更新 (CONF-03)
+
+**Success Criteria:**
+  1. 90%信頼区間のカバレッジ率が90%以上
+  2. EV_lower_bound < 1.0 のベットが除外され、EV_excluded > 0
+  3. 従来フィルターとの互換性が維持
+
+### Phase 22: 統合検証とバックテスト
+
+**Goal**: 全改善を適用したバックテストでROI改善を確認する
+**Depends on**: Phase 19, Phase 20, Phase 21
+**Requirements**: VAL-01, VAL-02
+**Plans**: 1 plan
+
+Plans:
+- [ ] 22-01: 統合バックテスト + EV診断 + セグメント別ROI検証 (VAL-01, VAL-02)
+
+**Success Criteria:**
+  1. バックテストROIが95%以上に改善
+  2. 高オッズ帯(20+)のROIが50%以上に改善
+  3. 既存テスト全通過 (回帰なし)
+
+</details>
+
 ## Progress
 
 **Execution Order:**
@@ -201,3 +271,7 @@ Phases execute in numeric order: 14 → 15 → 16 → 17 → 18
 | 16. Odds Band Rebuild | v1.4 | 2/2 | Complete    | 2026-05-06 |
 | 17. Optuna Optimization | v1.4 | 2/2 | Complete    | 2026-05-06 |
 | 18. Validation & Freeze | v1.4 | 2/2 | Complete | 2026-05-07 |
+| 19. EV推定キャリブレーション | v1.5 | 0/2 | Active | — |
+| 20. 高オッズ的中パターン特徴量 | v1.5 | 0/3 | Active | — |
+| 21. Conformal EV予測区間 | v1.5 | 0/2 | Active | — |
+| 22. 統合検証とバックテスト | v1.5 | 0/1 | Active | — |

@@ -48,7 +48,19 @@ MLflow で実験管理。PostgreSQL (EveryDB2/JRA-VAN DataLab) をデータソ�
 
 ### Active
 
-_(Next milestone requirements will be defined via /gsd-new-milestone)_
+- ⬚ EVC-01: OOF予測ベースのIsotonic EVキャリブレーション — v1.5
+- ⬚ EVC-02: オッズバンド別EV補正層 — v1.5
+- ⬚ EVC-03: EVCorrectionModel統合 — v1.5
+- ⬚ HODDS-01: 高オッズ的中パターン分析モジュール — v1.5
+- ⬚ HODDS-02: クラストラジェクトリ特徴量 — v1.5
+- ⬚ HODDS-03: フォーム改善率特徴量 — v1.5
+- ⬚ HODDS-04: 環境変化適性特徴量 — v1.5
+- ⬚ HODDS-05: 新特徴量のモデル統合 — v1.5
+- ⬚ CONF-01: Conformal Prediction EV区間実装 — v1.5
+- ⬚ CONF-02: EV信頼区間ベースの動的フィルタリング — v1.5
+- ⬚ CONF-03: ConformalEVのパイプライン統合 — v1.5
+- ⬚ VAL-01: 全改善適用後のバックテスト実行 — v1.5
+- ⬚ VAL-02: EVキャリブレーション品質検証 — v1.5
 
 ### Out of Scope
 
@@ -71,17 +83,17 @@ _(Next milestone requirements will be defined via /gsd-new-milestone)_
 **Phases:** 18 total (v1.0-v1.4)
 **LOC:** ~19,300 (src/)
 **Tests:** 1,327 passed, 0 failed
-**Next:** Planning next milestone
+**Next:** v1.5 Model Accuracy Improvement — Phases 19-22
 
 ## Context
 
-### 現状 (v1.4完了後)
+### 現状 (v1.5開始)
 
 - 5マイルストーン18フェーズ完了 (v1.0〜v1.4)
-- アンサンブルフィルター群が完全再キャリブレーション済み
-- 動的EV_lower + アンサンブルベースOddsBandFilter + 16次元Optuna最適化
-- PFP二重検証 + 自動検証レポート生成搭載
-- テスト1,327件全通過、回帰なし
+- バックテスト結果: ROI 83.1%、EV過大評価2.42倍
+- 高オッズ帯(20+)のP過大評価1.98倍が最大の課題
+- EV_excluded=0、COLLAPSED_skipped=0 → フィルター不活性
+- Phase 19/20は並行開発可能
 
 ### 残存課題
 
@@ -155,4 +167,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-07 after v1.4 milestone*
+*Last updated: 2026-05-07 after v1.5 milestone start*
