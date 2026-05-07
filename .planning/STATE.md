@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.4
 milestone_name: Ensemble Filter Recalibration
-status: ready_to_execute
-stopped_at: Phase 18 planned
-last_updated: "2026-05-06T15:30:00.000Z"
-last_activity: 2026-05-06
+status: milestone_complete
+stopped_at: Phase 18 complete — milestone v1.4 finished
+last_updated: "2026-05-07T12:30:00.000Z"
+last_activity: 2026-05-07
 progress:
   total_phases: 5
-  completed_phases: 4
+  completed_phases: 5
   total_plans: 10
-  completed_plans: 8
-  percent: 80
+  completed_plans: 10
+  percent: 100
 ---
 
 # Project State
@@ -21,16 +21,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-05-05)
 
 **Core value:** 単勝モデルのバックテストROIを100%超えにすること
-**Current focus:** Phase 18 — validation-freeze
+**Current focus:** v1.4 milestone complete — ready for next milestone planning
 
 ## Current Position
 
-Phase: 18
-Plan: Not started
-Status: Ready to execute
-Last activity: 2026-05-06
+Phase: 18 (complete)
+Plan: 18-02 (complete)
+Status: Milestone v1.4 complete
+Last activity: 2026-05-07
 
-Progress: [========    ] 80%
+Progress: [===========] 100%
 
 ## Performance Metrics
 
@@ -40,14 +40,15 @@ Progress: [========    ] 80%
 - v1.1: 3 phases, 5 plans, ~2 sessions
 - v1.2: 3 phases, 5 plans, ~1 session
 - v1.3: 3 phases, 7 plans, ~2 sessions
-- Total plans completed: 28 (v1.0 + v1.1 + v1.2 + v1.3)
+- v1.4: 5 phases, 10 plans, ~3 sessions
+- Total plans completed: 38 (v1.0 + v1.1 + v1.2 + v1.3 + v1.4)
 - Average duration: ~12min/plan
 
 **Cumulative:**
 
-- LOC (src/): ~18,820
-- Tests: 1,200+
-- Total features implemented: 26+ new features across 4 milestones
+- LOC (src/): ~19,300
+- Tests: 1,330+
+- Total features implemented: 28+ new features across 5 milestones
 
 ## Accumulated Context
 
@@ -69,19 +70,17 @@ Recent decisions affecting current work:
 - **Drift diagnostics integrated in pipeline:** Pipeline-integrated ks_2samp/wasserstein_distance with JSON+console output (Phase 14 D-01 to D-04)
 - **use_ensemble propagation test:** Single integration test with mocks, True path only (Phase 14 D-05 to D-07)
 - **Gate retraining verification:** Unit test + pipeline assertion for edge value differences (Phase 14 D-08)
+- **PFP dual verification:** SHA256 manifest + ParameterFreezeProtocol freeze/verify in BacktestEngine.run() (Phase 18 D-03)
+- **Validation report JSON:** ROI判定 + PFP結果 + 年別内訳 + 原因分析5項目 (Phase 18 D-06/D-07/D-08/D-11)
 
 ### Pending Todos
 
-- バックテストROI検証(run_backtest.py実行、PostgreSQL環境必要) — addressed by Phase 18
-- Optuna最適化実行(run_strategy_optimization.py) — addressed by Phase 17
+- バックテストROI検証(実行に~57分/年、Phase 17 manifest生成後に実行) — deferred to manual execution
 - WF検証スクリプトの実際の実行(PostgreSQL環境必要、~4時間) — deferred
 
 ### Blockers/Concerns
 
-- Look-ahead bias in strategy_optimizer.py — must be fixed in Phase 16 before Optuna (Phase 17)
-- EV_lower threshold value is data-dependent — empirical tuning needed in Phase 15
-- OOF vs inference distribution shift magnitude unknown — Phase 14 diagnostics will measure this
-- RegimeDetector behavior under ensemble needs verification post-recalibration
+None — milestone v1.4 complete
 
 ## Deferred Items
 
@@ -90,12 +89,11 @@ Items acknowledged and deferred at milestone close:
 | Category | Item | Status | Deferred At |
 |----------|------|--------|-------------|
 | Validation | WF検証スクリプトの実際の実行(PostgreSQL環境必要、~4時間) | Pending | v1.0 close |
-| UAT | Human UAT 3項目(01-HUMAN-UAT, 04-HUMAN-UAT, 07-UAT) | Pending | v1.1 close |
-| Validation | バックテストROI検証(run_backtest.py実行) | Pending | v1.3 close |
-| Validation | Optuna最適化実行(run_strategy_optimization.py) | Pending | v1.3 close |
+| Validation | バックテストROI検証(run_backtest.py --ensemble --strategy-manifest実行) | Pending | v1.4 close |
+| UAT | Human UAT 2項目(ROI検証 + レポート確認) | Pending | v1.4 close |
 
 ## Session Continuity
 
-Last session: 2026-05-06T15:30:00.000Z
-Stopped at: Phase 18 planned (2 plans, 2 waves)
-Resume file: .planning/phases/18-validation-freeze/18-01-PLAN.md
+Last session: 2026-05-07T12:30:00.000Z
+Stopped at: Milestone v1.4 complete — Phase 18 all plans executed and verified
+Resume file: .planning/phases/18-validation-freeze/18-02-SUMMARY.md

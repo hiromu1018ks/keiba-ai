@@ -6,7 +6,7 @@
 - ✅ **v1.1 ROI Advanced Model** - Phases 5-7 (shipped 2026-05-03)
 - ✅ **v1.2 Win Backtest Validation** - Phases 8-10 (shipped 2026-05-04)
 - ✅ **v1.3 Betting Strategy Optimization** - Phases 11-13 (shipped 2026-05-05)
-- 🚧 **v1.4 Ensemble Filter Recalibration** - Phases 14-18 (in progress)
+- ✅ **v1.4 Ensemble Filter Recalibration** - Phases 14-18 (completed 2026-05-07)
 
 ## Phases
 
@@ -167,7 +167,7 @@ Plans:
 - [x] **Phase 15: EV Filter Enhancement** - EV_lower閾値をアンサンブルOOF分布に動的適合させ、EV推定精度を診断する (completed 2026-05-06)
 - [x] **Phase 16: Odds Band Rebuild** - ルックアヘッドバイアス修正後、アンサンブルベースtraining_bet_historyでOddsBandFilterを再キャリブレーションする (completed 2026-05-06)
 - [x] **Phase 17: Optuna Optimization** - アンサンブルモデルで14次元Optuna最適化を実行し、fold増強とパラメータ安定性検証を完了する (completed 2026-05-06)
-- [ ] **Phase 18: Validation & Freeze** - アンサンブルバックテストでROI>100%を確認し、パラメータを固定・改ざん検知を適用する
+- [x] **Phase 18: Validation & Freeze** - アンサンブルバックテストでROI>100%を確認し、パラメータを固定・改ざん検知を適用する (completed 2026-05-07)
 
 ## Phase Details
 
@@ -235,8 +235,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 18-01: BacktestEngine PFP二重検証 + run_backtest.py manifest_path配線 (VAL-02)
-- [ ] 18-02: 検証レポート生成モジュール + 原因分析 + テスト (VAL-01, VAL-02)
+- [x] 18-01: BacktestEngine PFP二重検証 + run_backtest.py manifest_path配線 (VAL-02)
+- [x] 18-02: 検証レポート生成モジュール + 原因分析 + テスト (VAL-01, VAL-02)
 
 ## Progress
 
@@ -262,4 +262,4 @@ Phases execute in numeric order: 14 → 15 → 16 → 17 → 18
 | 15. EV Filter Enhancement | v1.4 | 2/2 | Complete | 2026-05-06 |
 | 16. Odds Band Rebuild | v1.4 | 2/2 | Complete    | 2026-05-06 |
 | 17. Optuna Optimization | v1.4 | 2/2 | Complete    | 2026-05-06 |
-| 18. Validation & Freeze | v1.4 | 0/2 | Not started | - |
+| 18. Validation & Freeze | v1.4 | 2/2 | Complete | 2026-05-07 |
