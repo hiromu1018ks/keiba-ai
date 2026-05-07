@@ -2,18 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.5
 milestone_name: Model Accuracy Improvement
-status: Ready to execute
+status: executing
 stopped_at: Phase 19 planned
-last_updated: "2026-05-07T12:00:00.000Z"
-last_activity: 2026-05-07
+last_updated: "2026-05-07T11:58:23.977Z"
+last_activity: 2026-05-07 -- Phase 19 execution started
 progress:
-  total_phases: 22
-  completed_phases: 18
-  total_plans: 38
-  completed_plans: 38
-  percent: 82
-
-19-phase-plans: 2
+  total_phases: 4
+  completed_phases: 0
+  total_plans: 2
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
@@ -23,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-05-07)
 
 **Core value:** 単勝モデルのバックテストROIを100%超えにすること
-**Current focus:** v1.5 Model Accuracy Improvement — EV推定2.42倍過大評価の解消
+**Current focus:** Phase 19 — ev-calibration
 
 ## Current Position
 
-Phase: 19 (active)
-Plan: 19-01 (next)
-Status: Ready to execute
-Last activity: 2026-05-07
+Phase: 19 (ev-calibration) — EXECUTING
+Plan: 1 of 2
+Status: Executing Phase 19
+Last activity: 2026-05-07 -- Phase 19 execution started
 
 Progress: [==============    ] 82%
 

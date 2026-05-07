@@ -188,7 +188,7 @@ _(v1.4 phase details archived in .planning/milestones/v1.4-ROADMAP.md)_
 **Plans**: 2 plans
 
 Plans:
-- [ ] 19-01: OOF予測ベースのIsotonic EVキャリブレーション + オッズバンド別補正層 (EVC-01, EVC-02)
+- [x] 19-01: OOF予測ベースのIsotonic EVキャリブレーション + オッズバンド別補正層 (EVC-01, EVC-02)
 - [ ] 19-02: EVCorrectionModel統合 + パイプライン適用 + テスト (EVC-03)
 
 **Success Criteria:**
@@ -271,7 +271,7 @@ Phases execute in numeric order: 14 → 15 → 16 → 17 → 18
 | 16. Odds Band Rebuild | v1.4 | 2/2 | Complete    | 2026-05-06 |
 | 17. Optuna Optimization | v1.4 | 2/2 | Complete    | 2026-05-06 |
 | 18. Validation & Freeze | v1.4 | 2/2 | Complete | 2026-05-07 |
-| 19. EV推定キャリブレーション | v1.5 | 0/2 | Active | — |
+| 19. EV推定キャリブレーション | v1.5 | 1/2 | In Progress|  |
 | 20. 高オッズ的中パターン特徴量 | v1.5 | 0/3 | Active | — |
 | 21. Conformal EV予測区間 | v1.5 | 0/2 | Active | — |
 | 22. 統合検証とバックテスト | v1.5 | 0/1 | Active | — |
