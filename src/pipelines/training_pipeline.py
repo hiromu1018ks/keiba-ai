@@ -547,6 +547,34 @@ class TrainingPipelineV5:
             ev_corrector.train(df_oof, num_threads=num_threads)
             df_oof = ev_corrector.correct_ev(df_oof)
 
+        # --- Phase 19: EV Isotonic Calibration + Odds Band Residual Scaling (EVC-01/EVC-02) ---
+        ev_isotonic_calibrator = None
+        ev_odds_band_scales = None
+        if len(df_oof) >= 500 and "confirmed_odds" in df_oof.columns:
+            with TimingContext(f"{surface}/ev_isotonic_oof"):
+                oof_ev, oof_actual, oof_odds = self.generate_ev_oof_predictions(
+                    df_oof, n_splits=5, num_threads=num_threads,
+                )
+            if np.isfinite(oof_ev).sum() >= 200:
+                with TimingContext(f"{surface}/ev_isotonic_fit"):
+                    ev_isotonic_calibrator, ev_odds_band_scales = self.fit_ev_calibration(
+                        oof_ev, oof_actual, oof_odds,
+                    )
+                logger.info(
+                    "EV Isotonic fitted for %s: %d OOF samples, band_scales=%s",
+                    surface, int(np.isfinite(oof_ev).sum()), ev_odds_band_scales,
+                )
+            else:
+                logger.warning(
+                    "EV Isotonic: insufficient valid OOF samples (%d) for %s",
+                    int(np.isfinite(oof_ev).sum()), surface,
+                )
+        else:
+            logger.info(
+                "Skipping EV Isotonic for %s: len=%d, has_confirmed_odds=%s",
+                surface, len(df_oof), "confirmed_odds" in df_oof.columns,
+            )
+
         # 5. 複勝 2段階モデル
         place_2s = PlaceTwoStageModel()
         if use_ensemble:
@@ -900,7 +928,90 @@ class TrainingPipelineV5:
             win_selection_gate=win_selection_gate,
             ev_lower_threshold_turf=ev_threshold_turf,
             ev_lower_threshold_dirt=ev_threshold_dirt,
+            ev_isotonic_calibrator=ev_isotonic_calibrator,
+            ev_odds_band_scales=ev_odds_band_scales,
         )
+
+    @staticmethod
+    def generate_ev_oof_predictions(
+        df: pd.DataFrame,
+        *,
+        n_splits: int = 5,
+        num_threads: int = 0,
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """EVC-01/D-05/D-09: OOF EV予測をK-foldで生成.
+
+        学習チェーン: WinTwoStage predict_ev → EVCorrection correct_ev
+        Returns: (oof_ev_corrected, oof_actual_return, oof_odds) — NaN-masked arrays
+        """
+        from sklearn.model_selection import KFold
+
+        df = df.sort_values("race_date").reset_index(drop=True)
+        kfold = KFold(n_splits=n_splits, shuffle=False)
+        oof_ev_corrected = np.full(len(df), np.nan)
+        oof_actual_return = np.full(len(df), np.nan)
+        oof_odds = np.full(len(df), np.nan)
+
+        for train_idx, val_idx in kfold.split(df):
+            fold_win = WinTwoStageModel()
+            fold_win.train_hit_model(df.iloc[train_idx], num_threads=num_threads)
+            fold_win.train_return_model(df.iloc[train_idx], num_threads=num_threads)
+            fold_val = fold_win.predict_ev(df.iloc[val_idx].copy())
+
+            fold_ev_corr = EVCorrectionModel()
+            fold_ev_corr.train(fold_val, num_threads=num_threads)
+            fold_val = fold_ev_corr.correct_ev(fold_val)
+
+            oof_ev_corrected[val_idx] = fold_val["ev_win_corrected"].values
+
+            odds_col = "confirmed_odds" if "confirmed_odds" in fold_val.columns else "odds"
+            odds_vals = fold_val.get(odds_col, pd.Series(0.0, index=fold_val.index))
+            oof_odds[val_idx] = pd.to_numeric(odds_vals, errors="coerce").values
+            oof_actual_return[val_idx] = (
+                pd.to_numeric(odds_vals, errors="coerce")
+                * (fold_val["kakuteijyuni"] == 1).astype(float)
+            ).values
+
+        return oof_ev_corrected, oof_actual_return, oof_odds
+
+    @staticmethod
+    def fit_ev_calibration(
+        oof_ev: np.ndarray,
+        oof_actual: np.ndarray,
+        oof_odds: np.ndarray,
+    ) -> tuple[IsotonicRegression, dict[str, float]]:
+        """EVC-01/EVC-02: OOF EV→actual_returnのIsotonicキャリブレーション + オッズバンド別残差スケーリング.
+
+        Returns: (isotonic_model, odds_band_scales)
+        """
+        from sklearn.isotonic import IsotonicRegression
+
+        from betting.odds_band_filter import OddsBandFilter
+
+        valid = np.isfinite(oof_ev) & np.isfinite(oof_actual) & (oof_ev > 0)
+
+        # Isotonic fit (D-01/D-03/D-04)
+        iso = IsotonicRegression(y_min=0, out_of_bounds="clip")
+        iso.fit(oof_ev[valid], oof_actual[valid])
+
+        ev_calibrated = np.copy(oof_ev)
+        ev_calibrated[valid] = iso.transform(oof_ev[valid])
+
+        # オッズバンド別残差スケーリング (D-10, Pattern 3 from RESEARCH)
+        BANDS = OddsBandFilter.BANDS
+        BAND_NAMES = OddsBandFilter.BAND_NAMES
+        MIN_SAMPLES = 50
+
+        band_scales: dict[str, float] = {}
+        for band_name, (lo, hi) in zip(BAND_NAMES, BANDS):
+            mask = (oof_odds >= lo) & (oof_odds < hi) & valid
+            if mask.sum() >= MIN_SAMPLES:
+                residual_ratio = oof_actual[mask] / np.clip(ev_calibrated[mask], 1e-6, None)
+                band_scales[band_name] = float(np.median(residual_ratio))
+            else:
+                band_scales[band_name] = 1.0
+
+        return iso, band_scales
 
     def _build_race_level_features(self, feat_df: pd.DataFrame) -> pd.DataFrame:
         """馬レベル特徴量 → レースレベル特徴量に集約
@@ -1331,6 +1442,18 @@ class TrainingPipelineV5:
                 sub.win_temperature_scaler.save(
                     models_dir / f"temp_scale_win_{surface}.json"
                 )
+
+            # Phase 19: EV Isotonic Calibrator (joblib)
+            if sub.ev_isotonic_calibrator is not None:
+                joblib.dump(
+                    sub.ev_isotonic_calibrator,
+                    models_dir / f"ev_isotonic_{surface}.joblib",
+                )
+
+            # Phase 19: EV Odds Band Scales (JSON)
+            if sub.ev_odds_band_scales is not None:
+                with open(models_dir / f"ev_odds_band_scales_{surface}.json", "w") as f:
+                    json.dump(sub.ev_odds_band_scales, f, indent=2)
 
         saved["race_quality"] = quality_screen.model
         saved["regime_detector"] = regime_det.model

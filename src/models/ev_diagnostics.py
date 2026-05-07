@@ -19,7 +19,7 @@ from sklearn.metrics import brier_score_loss
 logger = logging.getLogger("models.ev_diagnostics")
 
 # 診断対象列
-EV_PRED_COLUMN = "ev_win_corrected"
+EV_PRED_COLUMN = "ev_win_calibrated"
 EV_ACTUAL_COLUMN = "actual_ev_win"
 EV_LOWER_COLUMN = "EV_lower_win_corrected"
 EDGE_COLUMN = "win_selection_edge"
@@ -181,6 +181,24 @@ def compute_ev_diagnostics(
     surface_label = surface or "all"
     result: dict = {"surface": surface_label}
 
+    # Phase 19: ev_win_calibrated がなければ ev_win_corrected にフォールバック
+    if EV_PRED_COLUMN not in df_oof.columns and "ev_win_corrected" in df_oof.columns:
+        ev_pred_col = "ev_win_corrected"
+    else:
+        ev_pred_col = EV_PRED_COLUMN
+
+    # Phase 19: EV_lower フォールバック
+    if EV_LOWER_COLUMN not in df_oof.columns and "EV_lower_win" in df_oof.columns:
+        ev_lower_col = "EV_lower_win"
+    else:
+        ev_lower_col = EV_LOWER_COLUMN
+
+    # Phase 19: edge フォールバック
+    if EDGE_COLUMN not in df_oof.columns and "edge_win" in df_oof.columns:
+        edge_col = "edge_win"
+    else:
+        edge_col = EDGE_COLUMN
+
     # actual_ev_win列がなければ計算
     if EV_ACTUAL_COLUMN not in df_oof.columns:
         if "confirmed_odds" in df_oof.columns and WIN_COLUMN in df_oof.columns:
@@ -194,7 +212,7 @@ def compute_ev_diagnostics(
             return result
 
     # 有効データ抽出
-    pred = pd.to_numeric(df_oof[EV_PRED_COLUMN], errors="coerce")
+    pred = pd.to_numeric(df_oof[ev_pred_col], errors="coerce")
     actual = pd.to_numeric(df_oof[EV_ACTUAL_COLUMN], errors="coerce")
     valid_mask = pred.notna() & actual.notna()
     n_valid = int(valid_mask.sum())
@@ -268,7 +286,7 @@ def compute_ev_diagnostics(
     # 5. 時系列ドリフト (年度別)
     result["temporal_drift"] = _temporal_drift(
         df_oof.loc[valid_mask].copy(),
-        EV_PRED_COLUMN,
+        ev_pred_col,
         EV_ACTUAL_COLUMN,
     )
 
