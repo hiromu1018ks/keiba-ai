@@ -141,6 +141,7 @@ class EVCorrectionModel:
     ) -> None:
         self.ev_isotonic_calibrator = ev_isotonic_calibrator
         self.ev_odds_band_scales = ev_odds_band_scales
+        self._trained: bool = False
         # 遅延import (循環依存回避)
         from betting.odds_band_filter import OddsBandFilter
         self._odds_band_filter_cls = OddsBandFilter
@@ -303,13 +304,26 @@ class EVCorrectionModel:
             callbacks=[lgb.early_stopping(100, verbose=False)],
         )
 
+        self._trained = True
+
     def correct_ev(self, df: pd.DataFrame) -> pd.DataFrame:
         """
         全馬のEVをP補正×E補正で補正する。
         P_corrected = sigmoid(logit(P_pred) + correction_margin) を race 内で再正規化
         E_corrected = e_return_win_pred × exp(log_e_correction)
         EV_corrected = P_corrected × E_corrected
+
+        未学習時 (_trained=False): 元予測を補正済み列へ写像する。
         """
+        if not self._trained:
+            df = df.copy()
+            df["p_win_corrected"] = _normalize_probability_by_race(
+                df, "p_win_pred", target_sum=1.0,
+            )
+            df["e_return_win_corrected"] = df["e_return_win_pred"].copy()
+            df["ev_win_corrected"] = df["p_win_corrected"] * df["e_return_win_corrected"]
+            df["ev_win_calibrated"] = df["ev_win_corrected"].copy()
+            return df
         df = df.copy()
         df = self._add_interaction_features(df)
         features = self._prepare_features(df)

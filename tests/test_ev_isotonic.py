@@ -83,6 +83,19 @@ def band_scales() -> dict[str, float]:
     }
 
 
+def _setup_mock_boosters(
+    model: EVCorrectionModel, n: int
+) -> None:
+    """テスト用にmock boosterを設定して_trainedフラグを立てる"""
+    model.p_correction_model = MagicMock()
+    model.p_correction_model.best_iteration = 100
+    model.p_correction_model.predict.return_value = np.zeros(n)
+    model.e_correction_model = MagicMock()
+    model.e_correction_model.best_iteration = 80
+    model.e_correction_model.predict.return_value = np.zeros(n)
+    model._trained = True
+
+
 # ── TestEVIsotonicCalibration ─────────────────────────────────
 
 
@@ -96,13 +109,7 @@ class TestEVIsotonicCalibration:
     ) -> None:
         """Isotonic設定時、ev_win_calibrated列が生成される"""
         model = EVCorrectionModel(ev_isotonic_calibrator=mock_isotonic)
-        # correct_evのPxE補正にはmock boosterが必要
-        model.p_correction_model = MagicMock()
-        model.p_correction_model.best_iteration = 100
-        model.p_correction_model.predict.return_value = np.zeros(len(ev_corrected_df))
-        model.e_correction_model = MagicMock()
-        model.e_correction_model.best_iteration = 80
-        model.e_correction_model.predict.return_value = np.zeros(len(ev_corrected_df))
+        _setup_mock_boosters(model, len(ev_corrected_df))
 
         result = model.correct_ev(ev_corrected_df)
         assert "ev_win_calibrated" in result.columns
@@ -114,12 +121,7 @@ class TestEVIsotonicCalibration:
     ) -> None:
         """Isotonic適用後の高EV値が補正前より低いことを確認"""
         model = EVCorrectionModel(ev_isotonic_calibrator=mock_isotonic)
-        model.p_correction_model = MagicMock()
-        model.p_correction_model.best_iteration = 100
-        model.p_correction_model.predict.return_value = np.zeros(len(ev_corrected_df))
-        model.e_correction_model = MagicMock()
-        model.e_correction_model.best_iteration = 80
-        model.e_correction_model.predict.return_value = np.zeros(len(ev_corrected_df))
+        _setup_mock_boosters(model, len(ev_corrected_df))
 
         result = model.correct_ev(ev_corrected_df)
         # 高EV値 (ev_win_corrected >= 1.5) では Isotonic が押し下げる
@@ -136,12 +138,7 @@ class TestEVIsotonicCalibration:
     ) -> None:
         """ev_win_calibrated >= 0 (y_min=0制約)"""
         model = EVCorrectionModel(ev_isotonic_calibrator=mock_isotonic)
-        model.p_correction_model = MagicMock()
-        model.p_correction_model.best_iteration = 100
-        model.p_correction_model.predict.return_value = np.zeros(len(ev_corrected_df))
-        model.e_correction_model = MagicMock()
-        model.e_correction_model.best_iteration = 80
-        model.e_correction_model.predict.return_value = np.zeros(len(ev_corrected_df))
+        _setup_mock_boosters(model, len(ev_corrected_df))
 
         result = model.correct_ev(ev_corrected_df)
         assert (result["ev_win_calibrated"] >= 0).all()
@@ -153,12 +150,7 @@ class TestEVIsotonicCalibration:
     ) -> None:
         """ev_win_correctedの順序がev_win_calibratedでも維持される (単調増加)"""
         model = EVCorrectionModel(ev_isotonic_calibrator=mock_isotonic)
-        model.p_correction_model = MagicMock()
-        model.p_correction_model.best_iteration = 100
-        model.p_correction_model.predict.return_value = np.zeros(len(ev_corrected_df))
-        model.e_correction_model = MagicMock()
-        model.e_correction_model.best_iteration = 80
-        model.e_correction_model.predict.return_value = np.zeros(len(ev_corrected_df))
+        _setup_mock_boosters(model, len(ev_corrected_df))
 
         result = model.correct_ev(ev_corrected_df)
         # IsotonicRegression は単調変換
@@ -177,12 +169,7 @@ class TestEVIsotonicCalibration:
     ) -> None:
         """Isotonic未設定時、ev_win_calibrated == ev_win_corrected"""
         model = EVCorrectionModel()  # no isotonic
-        model.p_correction_model = MagicMock()
-        model.p_correction_model.best_iteration = 100
-        model.p_correction_model.predict.return_value = np.zeros(len(ev_corrected_df))
-        model.e_correction_model = MagicMock()
-        model.e_correction_model.best_iteration = 80
-        model.e_correction_model.predict.return_value = np.zeros(len(ev_corrected_df))
+        _setup_mock_boosters(model, len(ev_corrected_df))
 
         result = model.correct_ev(ev_corrected_df)
         assert "ev_win_calibrated" in result.columns
@@ -210,17 +197,13 @@ class TestOddsBandScaling:
             ev_isotonic_calibrator=mock_isotonic,
             ev_odds_band_scales=band_scales,
         )
-        model.p_correction_model = MagicMock()
-        model.p_correction_model.best_iteration = 100
-        model.p_correction_model.predict.return_value = np.zeros(len(ev_corrected_df))
-        model.e_correction_model = MagicMock()
-        model.e_correction_model.best_iteration = 80
-        model.e_correction_model.predict.return_value = np.zeros(len(ev_corrected_df))
+        _setup_mock_boosters(model, len(ev_corrected_df))
 
         # Isotonicのみのモデル (band_scalesなし) との比較
         model_iso_only = EVCorrectionModel(ev_isotonic_calibrator=mock_isotonic)
         model_iso_only.p_correction_model = model.p_correction_model
         model_iso_only.e_correction_model = model.e_correction_model
+        model_iso_only._trained = True
 
         result = model.correct_ev(ev_corrected_df)
         result_iso_only = model_iso_only.correct_ev(ev_corrected_df.copy())
@@ -240,12 +223,7 @@ class TestOddsBandScaling:
     ) -> None:
         """band_scales未設定時、ev_win_calibratedがIsotonic結果と同じ"""
         model = EVCorrectionModel(ev_isotonic_calibrator=mock_isotonic)
-        model.p_correction_model = MagicMock()
-        model.p_correction_model.best_iteration = 100
-        model.p_correction_model.predict.return_value = np.zeros(len(ev_corrected_df))
-        model.e_correction_model = MagicMock()
-        model.e_correction_model.best_iteration = 80
-        model.e_correction_model.predict.return_value = np.zeros(len(ev_corrected_df))
+        _setup_mock_boosters(model, len(ev_corrected_df))
 
         result = model.correct_ev(ev_corrected_df)
         # band_scales が None → Isotonic 結果がそのまま ev_win_calibrated に入る
@@ -268,12 +246,7 @@ class TestOddsBandScaling:
             ev_isotonic_calibrator=mock_isotonic,
             ev_odds_band_scales=band_scales,
         )
-        model.p_correction_model = MagicMock()
-        model.p_correction_model.best_iteration = 100
-        model.p_correction_model.predict.return_value = np.zeros(len(ev_corrected_df))
-        model.e_correction_model = MagicMock()
-        model.e_correction_model.best_iteration = 80
-        model.e_correction_model.predict.return_value = np.zeros(len(ev_corrected_df))
+        _setup_mock_boosters(model, len(ev_corrected_df))
 
         result = model.correct_ev(ev_corrected_df)
 
@@ -306,12 +279,7 @@ class TestOddsBandScaling:
             ev_isotonic_calibrator=mock_isotonic,
             ev_odds_band_scales=band_scales,
         )
-        model.p_correction_model = MagicMock()
-        model.p_correction_model.best_iteration = 100
-        model.p_correction_model.predict.return_value = np.zeros(len(df_no_odds))
-        model.e_correction_model = MagicMock()
-        model.e_correction_model.best_iteration = 80
-        model.e_correction_model.predict.return_value = np.zeros(len(df_no_odds))
+        _setup_mock_boosters(model, len(df_no_odds))
 
         result = model.correct_ev(df_no_odds)
         # odds列なし → Isotonic結果がそのまま入る (band scaling スキップ)
@@ -442,12 +410,19 @@ class TestOOFEVGeneration:
             )
             MockEV.return_value = mock_ev
 
+            # train_hit_modelに渡されたDataFrameをキャプチャ
+            captured_dfs: list[pd.DataFrame] = []
+            mock_win.train_hit_model.side_effect = lambda d, **_: captured_dfs.append(d)
+
             TrainingPipelineV5.generate_ev_oof_predictions(
                 df, n_splits=3, num_threads=1,
             )
             # KFold.split に渡された DataFrame が race_date ソート済みであることを確認
-            # 関数内部で sort_values("race_date") が呼ばれる
-            mock_win.train_hit_model.assert_called()
+            assert len(captured_dfs) > 0, "train_hit_model should have been called"
+            for train_df in captured_dfs:
+                assert train_df["race_date"].is_monotonic_increasing, (
+                    "Training data must be sorted by race_date"
+                )
 
     def test_generate_ev_oof_all_indices_covered(self) -> None:
         """全データポイントがOOF予測でカバーされる (NaNなし)"""
@@ -495,12 +470,7 @@ class TestEVCorrectionIntegration:
             ev_isotonic_calibrator=mock_isotonic,
             ev_odds_band_scales=band_scales,
         )
-        model.p_correction_model = MagicMock()
-        model.p_correction_model.best_iteration = 100
-        model.p_correction_model.predict.return_value = np.zeros(len(ev_corrected_df))
-        model.e_correction_model = MagicMock()
-        model.e_correction_model.best_iteration = 80
-        model.e_correction_model.predict.return_value = np.zeros(len(ev_corrected_df))
+        _setup_mock_boosters(model, len(ev_corrected_df))
 
         result = model.correct_ev(ev_corrected_df)
 
@@ -537,6 +507,7 @@ class TestEVCorrectionIntegration:
         model_full.e_correction_model = MagicMock()
         model_full.e_correction_model.best_iteration = 80
         model_full.e_correction_model.predict.return_value = e_return
+        model_full._trained = True
 
         # Isotonic + band scaling なし
         model_plain = EVCorrectionModel()
@@ -546,6 +517,7 @@ class TestEVCorrectionIntegration:
         model_plain.e_correction_model = MagicMock()
         model_plain.e_correction_model.best_iteration = 80
         model_plain.e_correction_model.predict.return_value = e_return
+        model_plain._trained = True
 
         result_full = model_full.correct_ev(ev_corrected_df.copy())
         result_plain = model_plain.correct_ev(ev_corrected_df.copy())

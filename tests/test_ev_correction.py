@@ -88,6 +88,7 @@ def trained_ev_model(pre_ev_df: pd.DataFrame) -> EVCorrectionModel:
     )
     model.p_correction_model = mock_p
     model.e_correction_model = mock_e
+    model._trained = True
     return model
 
 
@@ -177,6 +178,7 @@ class TestEVCorrectionModel:
         mock_e.predict.return_value = np.zeros(len(pre_ev_df))
         model.p_correction_model = mock_p
         model.e_correction_model = mock_e
+        model._trained = True
 
         model.correct_ev(pre_ev_df)
         assert mock_p.predict.call_args.kwargs.get("num_iteration") is None
@@ -218,6 +220,7 @@ class TestEVCorrectionModel:
         model = EVCorrectionModel(ev_isotonic_calibrator=iso)
         model.p_correction_model = trained_ev_model.p_correction_model
         model.e_correction_model = trained_ev_model.e_correction_model
+        model._trained = True
         result = model.correct_ev(pre_ev_df)
         assert "ev_win_calibrated" in result.columns
         assert not np.allclose(
@@ -239,6 +242,7 @@ class TestEVCorrectionModel:
         model = EVCorrectionModel(ev_isotonic_calibrator=iso)
         model.p_correction_model = trained_ev_model.p_correction_model
         model.e_correction_model = trained_ev_model.e_correction_model
+        model._trained = True
         result = model.correct_ev(pre_ev_df)
         assert (result["ev_win_calibrated"] >= 0).all()
 
@@ -320,6 +324,7 @@ def trained_ev_model_large(large_ev_df: pd.DataFrame) -> EVCorrectionModel:
     mock_e.predict.return_value = np.random.normal(0, 0.02, n)
     model.p_correction_model = mock_p
     model.e_correction_model = mock_e
+    model._trained = True
     return model
 
 
