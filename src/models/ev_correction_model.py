@@ -7,6 +7,7 @@ import os
 import lightgbm as lgb
 import numpy as np
 import pandas as pd
+from sklearn.isotonic import IsotonicRegression
 
 
 def _best_iteration(booster: lgb.Booster | None) -> int | None:
@@ -131,6 +132,18 @@ class EVCorrectionModel:
     """
 
     E_CLIP_FLOOR: float = 1.0
+
+    def __init__(
+        self,
+        *,
+        ev_isotonic_calibrator: IsotonicRegression | None = None,
+        ev_odds_band_scales: dict[str, float] | None = None,
+    ) -> None:
+        self.ev_isotonic_calibrator = ev_isotonic_calibrator
+        self.ev_odds_band_scales = ev_odds_band_scales
+        # 遅延import (循環依存回避)
+        from betting.odds_band_filter import OddsBandFilter
+        self._odds_band_filter_cls = OddsBandFilter
 
     FEATURE_COLS: list[str] = [
         # 2段階モデルの出力 (v5.5: p_win_pred を除外 → init_scoreで代替)
@@ -324,8 +337,35 @@ class EVCorrectionModel:
         log_e_corr = self.e_correction_model.predict(features, num_iteration=e_best)  # type: ignore[union-attr]
         df["e_return_win_corrected"] = df["e_return_win_pred"] * np.exp(log_e_corr)
 
-        # 最終補正EV
+        # 最終補正EV (PxE補正)
         df["ev_win_corrected"] = df["p_win_corrected"] * df["e_return_win_corrected"]
+
+        # --- Phase 19: Isotonic EV Calibration (D-08) ---
+        if self.ev_isotonic_calibrator is not None:
+            ev_input = df["ev_win_corrected"].values.astype(float)
+            valid = np.isfinite(ev_input)
+            calibrated = np.copy(ev_input)
+            if valid.any():
+                calibrated[valid] = self.ev_isotonic_calibrator.transform(ev_input[valid])
+            df["ev_win_calibrated"] = calibrated
+        else:
+            df["ev_win_calibrated"] = df["ev_win_corrected"].copy()
+
+        # --- Phase 19: Odds Band Residual Scaling (D-10) ---
+        if self.ev_odds_band_scales is not None:
+            odds_col = "confirmed_odds" if "confirmed_odds" in df.columns else "odds"
+            if odds_col in df.columns:
+                odds = pd.to_numeric(df[odds_col], errors="coerce").values.astype(float)
+                calibrated = df["ev_win_calibrated"].values.astype(float)
+                OddsBandFilter = self._odds_band_filter_cls
+                for (lo, hi), band_name in zip(OddsBandFilter.BANDS, OddsBandFilter.BAND_NAMES):
+                    scale = self.ev_odds_band_scales.get(band_name, 1.0)
+                    if abs(scale - 1.0) < 1e-9:
+                        continue
+                    mask = (odds >= lo) & (odds < hi) & np.isfinite(odds)
+                    calibrated[mask] *= scale
+                df["ev_win_calibrated"] = calibrated
+
         df = df.drop(columns=["_p_win_corrected_raw"], errors="ignore")
         return df
 
