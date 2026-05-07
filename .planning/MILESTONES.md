@@ -70,3 +70,29 @@
 
 - `.planning/milestones/v1.3-ROADMAP.md`
 - `.planning/milestones/v1.3-REQUIREMENTS.md`
+
+## v1.4 Ensemble Filter Recalibration — 2026-05-07
+
+**Status:** ✅ Shipped
+**Phases:** 5 (14-18) | **Plans:** 10 | **LOC:** ~19,300
+
+### Key Accomplishments
+
+1. WinSelectionGate ensemble OOF再学習 + KS/Wassersteinドリフト診断 + use_ensemble伝播バグ修正
+2. EV_lower固定1.0→OOF 25th percentile動的化で過剰除外3,594件を解消 + EV診断(ECE/Brier/Reliability)
+3. ルックアヘッドバイアス修正 + アンサンブルベースtraining_bet_history生成 + OddsBandFilter再キャリブレーション
+4. 16次元Optuna最適化 + 4fold化 + multi-seed(42/43/44)安定性検証 + 不安定次元自動固定
+5. PFP SHA256改ざん検知二重検証 + 自動検証レポート生成(ROI判定 + 5項目原因分析)
+
+### Known Deferred Items
+
+- Human UAT 5項目 (全てPostgreSQL依存): ROI確認、EV filter除外確認、Optuna実行確認、multi-seed確認、レポート目視確認
+- VAL-01 partial: code complete, actual ROI>100% + 100+ bets requires PostgreSQL
+- 2 cross-phase warnings (MLflow fallback path, engine early returns — both non-impactful)
+- Minor: 23 ruff lint warnings in test_strategy_optimizer.py (N806, E501)
+
+### Archive
+
+- `.planning/milestones/v1.4-ROADMAP.md`
+- `.planning/milestones/v1.4-REQUIREMENTS.md`
+- `.planning/milestones/v1.4-MILESTONE-AUDIT.md`

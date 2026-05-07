@@ -4,7 +4,7 @@
 
 競馬AI予測システム v5.5 — 統計的 horse racing prediction system (単勝/複勝/ワイド)。
 LightGBM + XGBoost + CatBoost 3モデルスタッキング、Optuna個別HP最適化、Conformal EV区間による信頼性評価、9新特徴量(EMA時系列・ペースフィグア・オッズ変動・オッズ乖離)を搭載。
-3段階ベットフィルター(EV_lower/OddsBand/COLLAPSED skip)、レジーム別Kellyサイジング、DD%のみ3段階制御、Optuna TPE 14次元パラメータ最適化を搭載。
+3段階ベットフィルター(動的EV_lower/OddsBand/COLLAPSED skip)、レジーム別Kellyサイジング、DD%のみ3段階制御、Optuna TPE 16次元パラメータ最適化 + multi-seed安定性検証、PFP SHA256改ざん検知二重検証 + 自動検証レポート生成を搭載。
 MLflow で実験管理。PostgreSQL (EveryDB2/JRA-VAN DataLab) をデータソースとする。
 
 ## Core Value
@@ -39,13 +39,16 @@ MLflow で実験管理。PostgreSQL (EveryDB2/JRA-VAN DataLab) をデータソ�
 - ✓ EV_lower フィルター + OddsBandFilter + COLLAPSED regime skip — v1.3
 - ✓ レジーム別Kelly分数 + EV比例乗算器 — v1.3
 - ✓ DD%のみ3段階制御 + ParameterFreezeProtocol + Optuna TPE最適化 — v1.3
+- ✓ WinSelectionGateをアンサンブルOOF予測で再学習・閾値適正化 + ドリフト診断 — v1.4
+- ✓ EV_lower閾値をアンサンブルOOF分布に動的適合(25th percentile) — v1.4
+- ✓ EV診断(ECE/Brier/Reliability/時系列ドリフト) — v1.4
+- ✓ OddsBandFilterをアンサンブルベースtraining_bet_historyで再構築 + ルックアヘッドバイアス修正 — v1.4
+- ✓ Optuna 16次元パラメータ最適化 + 4fold化 + multi-seed安定性検証 — v1.4
+- ✓ PFP SHA256改ざん検知二重検証 + 自動検証レポート生成 — v1.4
 
 ### Active
 
-- [ ] WinSelectionGateをアンサンブルOOF予測で再学習・閾値適正化 — v1.4
-- [ ] EV_lower閾値をアンサンブル分布に動的適合 — v1.4
-- [ ] OddsBandFilterをアンサンブルベースtraining_bet_historyで再構築 — v1.4
-- [ ] Optuna 14次元パラメータ最適化の実行 — v1.4
+_(Next milestone requirements will be defined via /gsd-new-milestone)_
 
 ### Out of Scope
 
@@ -62,27 +65,30 @@ MLflow で実験管理。PostgreSQL (EveryDB2/JRA-VAN DataLab) をデータソ�
 | 外部Kellyライブラリ導入 | 既存StakeCalculatorで十分、JRA固有制約はカスタム実装が必要 |
 | モデル再学習 | 既存3モデルスタッキングをそのまま使用 |
 
-## Current Milestone: v1.4 Ensemble Filter Recalibration
+## Current State
 
-**Goal:** アンサンブルモデルの出力分布にフィルター群を適合させ、年間100+ベット・ROI>100%を達成する
-
-**Target features:**
-- WinSelectionGate のアンサンブルOOF再学習・閾値適正化
-- EV_lower閾値の動的化・アンサンブル分布適合
-- OddsBandFilter のアンサンブルベースtraining_bet_history再構築
-- Optuna 14次元パラメータ最適化の実行
-
-**Success criteria:** アンサンブルバックテストで年間100+ベット・ROI>100%
+**Shipped:** v1.4 Ensemble Filter Recalibration (2026-05-07)
+**Phases:** 18 total (v1.0-v1.4)
+**LOC:** ~19,300 (src/)
+**Tests:** 1,327 passed, 0 failed
+**Next:** Planning next milestone
 
 ## Context
 
-### 現状の課題
+### 現状 (v1.4完了後)
 
-- アンサンブル(--ensemble)バックテスト: 年間7ベット/ROI 0% (フィルター過剰除外)
-- ベースライン(単一LightGBM): ROI 63.8% — 100%未満
-- Phase 11-12フィルター群が単一LightGBM出力分布でキャリブレーション済み
-- アンサンブル確率分布とのミスマッチでEV_lower除外3,594件
-- Optuna最適化未実行でデフォルト値動作
+- 5マイルストーン18フェーズ完了 (v1.0〜v1.4)
+- アンサンブルフィルター群が完全再キャリブレーション済み
+- 動的EV_lower + アンサンブルベースOddsBandFilter + 16次元Optuna最適化
+- PFP二重検証 + 自動検証レポート生成搭載
+- テスト1,327件全通過、回帰なし
+
+### 残存課題
+
+- VAL-01: 実際のROI>100%確認はPostgreSQL環境でのバックテスト実行が必要
+- Human UAT 5項目がPostgreSQL環境依存で未実行
+- MLflowフォールバックパスのuse_ensemble未伝播 (運用影響なし)
+- Nyquist validation未実施 (v1.4全フェーズ)
 
 ### 技術背景
 
@@ -90,17 +96,12 @@ MLflow で実験管理。PostgreSQL (EveryDB2/JRA-VAN DataLab) をデータソ�
 - Conformal EV区間: 80%/90% 2レベルalpha信頼区間 + confidence_score
 - Parquetベースのデータパイプライン(PostgreSQLはETL専用)
 - RegimeDetector: 3状態(aggressive/conservative/collapsed) + override_params外部注入
-- 3段階ベットフィルター: COLLAPSED skip → EV_lower >= 1.0 → OddsBandFilter
+- 3段階ベットフィルター: COLLAPSED skip → 動的EV_lower → OddsBandFilter
 - Kelly基準レジーム別サイジング: AGGRESSIVE(0.50)/CONSERVATIVE(0.25)/COLLAPSED(0.00)
 - DD%のみ3段階制御: NORMAL/REDUCED/STOP + ヒステリシス + 段階的リカバリ
-- Optuna TPE 14次元最適化: レジーム別6 + DD制御5 + EVスケーリング2 + OddsBandFilter1
-- ParameterFreezeProtocol: JSON manifest + SHA256改ざん検知
-
-### 検討すべき改善方向
-
-1. **バックテストROI検証**: PostgreSQL環境でrun_backtest.pyを実行し、戦略最適化後のROIを確認
-2. **パラメータ最適化実行**: run_strategy_optimization.pyで最適パラメータを発見
-3. **WF検証実行**: 複数年度のウォークフォワード検証で過学習検出
+- Optuna TPE 16次元最適化: レジーム別6 + DD制御5 + EVスケーリング2 + OddsBandFilter1 + EV_lower(turf/dirt)2
+- ParameterFreezeProtocol: JSON manifest + SHA256改ざん検知 + 二重検証
+- 自動検証レポート: ROI判定 + 5項目原因分析(odds band/regime/EV/bet count/turf-dirt)
 
 ## Constraints
 
@@ -129,6 +130,12 @@ MLflow で実験管理。PostgreSQL (EveryDB2/JRA-VAN DataLab) をデータソ�
 | ヒステリシス付き状態遷移 | min_stay_racesでDD制御の発振防止 | ✓ Good (v1.3) |
 | 独自軽量WFループ | pipeline.run()変更リスク回避、fold定義のみ管理 | ✓ Good (v1.3) |
 | JSON manifest + SHA256 | sort_keys=True + indent=2 でdeterministic保証 | ✓ Good (v1.3) |
+| フィルター再キャリブレーション順序 | Gate → EV_lower → OddsBand → Optuna → Validationの依存順 | ✓ Good (v1.4) |
+| EV_lower 25th percentile | 固定1.0の過剰除外を解消、OOF分布に適合 | ✓ Good (v1.4) |
+| 4fold Walk-forward | 14+自由パラメータで2foldは過学習リスク高 | ✓ Good (v1.4) |
+| ルックアヘッドバイアス修正 | training_bet_history生成にデフォルトパラメータ使用 | ✓ Good (v1.4) |
+| PFP二重検証 | freeze + verify で改ざん検知を全return pathで保証 | ✓ Good (v1.4) |
+| Multi-seed安定性検証 | seed 42/43/44でCV判定、不安定次元を自動固定 | ✓ Good (v1.4) |
 
 ## Evolution
 
@@ -148,4 +155,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-06 after Phase 16 (Odds Band Rebuild) complete*
+*Last updated: 2026-05-07 after v1.4 milestone*

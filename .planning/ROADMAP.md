@@ -6,7 +6,7 @@
 - ✅ **v1.1 ROI Advanced Model** - Phases 5-7 (shipped 2026-05-03)
 - ✅ **v1.2 Win Backtest Validation** - Phases 8-10 (shipped 2026-05-04)
 - ✅ **v1.3 Betting Strategy Optimization** - Phases 11-13 (shipped 2026-05-05)
-- ✅ **v1.4 Ensemble Filter Recalibration** - Phases 14-18 (completed 2026-05-07)
+- ✅ **v1.4 Ensemble Filter Recalibration** - Phases 14-18 (shipped 2026-05-07)
 
 ## Phases
 
@@ -159,84 +159,22 @@ Plans:
 
 </details>
 
-### 🚧 v1.4 Ensemble Filter Recalibration (In Progress)
+<details>
+<summary>✅ v1.4 Ensemble Filter Recalibration (Phases 14-18) — SHIPPED 2026-05-07</summary>
 
-**Milestone Goal:** アンサンブルモデルの出力分布にフィルター群を適合させ、年間100+ベット・ROI>100%を達成する
+- [x] Phase 14: Gate Recalibration (2/2 plans) — completed 2026-05-06
+- [x] Phase 15: EV Filter Enhancement (2/2 plans) — completed 2026-05-06
+- [x] Phase 16: Odds Band Rebuild (2/2 plans) — completed 2026-05-06
+- [x] Phase 17: Optuna Optimization (2/2 plans) — completed 2026-05-06
+- [x] Phase 18: Validation & Freeze (2/2 plans) — completed 2026-05-07
 
-- [x] **Phase 14: Gate Recalibration** - WinSelectionGateをアンサンブルOOF予測で再学習し、分布ドリフト診断とフラグ伝播検証を完了する
-- [x] **Phase 15: EV Filter Enhancement** - EV_lower閾値をアンサンブルOOF分布に動的適合させ、EV推定精度を診断する (completed 2026-05-06)
-- [x] **Phase 16: Odds Band Rebuild** - ルックアヘッドバイアス修正後、アンサンブルベースtraining_bet_historyでOddsBandFilterを再キャリブレーションする (completed 2026-05-06)
-- [x] **Phase 17: Optuna Optimization** - アンサンブルモデルで14次元Optuna最適化を実行し、fold増強とパラメータ安定性検証を完了する (completed 2026-05-06)
-- [x] **Phase 18: Validation & Freeze** - アンサンブルバックテストでROI>100%を確認し、パラメータを固定・改ざん検知を適用する (completed 2026-05-07)
+</details>
 
 ## Phase Details
 
-### Phase 14: Gate Recalibration
-**Goal**: WinSelectionGateがアンサンブルOOF予測で再学習され、quantile binとscore tableが新しい分布に適合し、use_ensembleフラグがパイプライン全体で正しく伝播されている状態になる
-**Depends on**: Phase 13 (v1.3 complete)
-**Requirements**: GATE-01, GATE-02, GATE-03
-**Success Criteria** (what must be TRUE):
-  1. run_backtest.py --ensemble 実行時にWinSelectionGateがアンサンブルOOF予測で再学習され、再計算されたprob_edges/edge_edges/odds_edgesが単一モデルと異なる値になる
-  2. ks_2samp/wasserstein_distanceで単一モデルとアンサンブルのOOF確率分布を比較した診断レポートが出力され、ドリフト量が定量化されている
-  3. use_ensemble=TrueがModelLoader→RacePredictor→BacktestEngine→WinSelectionGate全経路で一貫して伝播され、アンサンブルモデル推論結果が各コンポーネントに到達していることをテストで確認できる
-**Plans**: 2 plans
+_(v1.0-v1.3 phase details archived in respective milestone archives)_
 
-Plans:
-- [x] 14-01: ドリフト診断モジュール作成 + パイプライン統合 + ゲート再学習検証テスト (GATE-01, GATE-02)
-- [x] 14-02: use_ensembleフラグ伝播統合テスト (GATE-03)
-
-### Phase 15: EV Filter Enhancement
-**Goal**: EV_lower閾値がアンサンブルOOF分布に基づく動的閾値に置き換わり、過剰除外が解消されるとともにEV推定精度が可視化されている状態になる
-**Depends on**: Phase 14
-**Requirements**: EVF-01, EVF-02
-**Success Criteria** (what must be TRUE):
-  1. バックテスト実行時にEV_lower閾値が固定1.0ではなくアンサンブルOOF分布の分位点から計算された動的値を使用し、除外件数が3,594件から大幅に減少する
-  2. OOF EV推定値と実際の払戻額を比較した診断レポートが出力され、EV推定の過大/過小評価が定量化されている
-**Plans**: 2 plans
-
-Plans:
-- [x] 15-01: 動的EV_lower閾値計算 + SubmodelSet格納 + フィルター適用 (EVF-01)
-- [x] 15-02: EV診断モジュール(ECE/Brier/Reliability/時系列ドリフト) + パイプライン統合 (EVF-02)
-
-### Phase 16: Odds Band Rebuild
-**Goal**: strategy_optimizer.pyのルックアヘッドバイアスが修正され、アンサンブルモデルで生成されたtraining_bet_historyに基づいてOddsBandFilterが正しく再キャリブレーションされている状態になる
-**Depends on**: Phase 15
-**Requirements**: ODDS-01, ODDS-02
-**Success Criteria** (what must be TRUE):
-  1. strategy_optimizer.pyがtraining_bet_history生成にデフォルトパラメータを使用し、Optuna最適化済みパラメータが学習データに漏洩していないことをテストで確認できる
-  2. OddsBandFilter.calibrate()がアンサンブルモデル由来のtraining_bet_historyで実行され、各オッズバンドのROIがアンサンブルの実際の精度を反映している
-**Plans**: 2 plans
-
-Plans:
-- [x] 16-01: _build_default_config()追加 + _run_single_backtest()ステップ3修正 + テスト (ODDS-02)
-- [x] 16-02: run_backtest.py デフォルトパラメータ使用 + テスト (ODDS-01)
-
-### Phase 17: Optuna Optimization
-**Goal**: アンサンブルモデルで再キャリブレーション済みのフィルター群に対してOptuna 16次元最適化が実行され、4fold増強とmulti-seed安定性検証を経て過学習耐性のある最適パラメータが導出されている状態になる
-**Depends on**: Phase 16
-**Requirements**: OPT-01, OPT-02, OPT-03
-**Success Criteria** (what must be TRUE):
-  1. Optuna TPE最適化がアンサンブルモデル + 再キャリブレーション済みフィルターで16次元探索を完了し、デフォルト値を上回るROIを達成する
-  2. walk-forward fold数が2から4に増加し、過学習リスクが軽減されている（fold間ROI分散が閾値以下）
-  3. 複数seed(42/43/44)で最適化を実行した結果、上位パラメータの安定性がCV(変動係数)で検証され、不安定な次元が特定・報告されている
-**Plans**: 2 plans
-
-Plans:
-- [x] 17-01: StrategyOptimizer 4fold化 + EV_lower 2次元追加 + モデルロード最適化 (OPT-01, OPT-02)
-- [x] 17-02: Multi-seed安定性検証 + 安定性レポートJSON + CLI --seeds拡張 (OPT-03)
-
-### Phase 18: Validation & Freeze
-**Goal**: アンサンブルバックテストで年間100+ベットかつROI>100%が確認され、最適化済みパラメータが改ざん検知付きで固定されている状態になる
-**Depends on**: Phase 17
-**Requirements**: VAL-01, VAL-02
-**Success Criteria** (what must be TRUE):
-  1. アンサンブルバックテスト(--ensemble)の結果が年間100+ベットを生成し、ROIが100%を超えている
-  2. ParameterFreezeProtocolが最適化済みパラメータをJSON manifestに固定し、SHA256ハッシュで改ざん検知が有効になっている
-**Plans**: 2 plans
-
-Plans:
-- [x] 18-01: BacktestEngine PFP二重検証 + run_backtest.py manifest_path配線 (VAL-02)
-- [x] 18-02: 検証レポート生成モジュール + 原因分析 + テスト (VAL-01, VAL-02)
+_(v1.4 phase details archived in .planning/milestones/v1.4-ROADMAP.md)_
 
 ## Progress
 

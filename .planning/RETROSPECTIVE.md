@@ -121,6 +121,48 @@
 
 ---
 
+## Milestone: v1.4 — Ensemble Filter Recalibration
+
+**Shipped:** 2026-05-07
+**Phases:** 5 | **Plans:** 10 | **Sessions:** ~3
+
+### What Was Built
+- WinSelectionGate ensemble OOF再学習 + KS/Wassersteinドリフト診断 + use_ensemble伝播バグ修正
+- EV_lower固定1.0→OOF 25th percentile動的化 + EV診断(ECE/Brier/Reliability/時系列ドリフト)
+- ルックアヘッドバイアス修正 + アンサンブルベースtraining_bet_history生成 + OddsBandFilter再キャリブレーション
+- 16次元Optuna最適化 + 4fold化 + multi-seed(42/43/44)安定性検証 + 不安定次元自動固定
+- PFP SHA256改ざん検知二重検証 + 自動検証レポート生成(ROI判定 + 5項目原因分析)
+
+### What Worked
+- Phase 14→15→16→17→18の直列依存がデータフロー(gate→filter→band→optimize→validate)を明確にした
+- ドリフト診断の数値化(KS/Wasserstein)がフィルター再キャリブレーションの必要性を定量的に裏付けた
+- multi-seed安定性検証が不安定な次元を自動検出し、過学習耐性を客観的に評価できた
+- 検証レポートの原因分析5項目が「なぜROI<100%か」のデバッグを構造化した
+
+### What Was Inefficient
+- 全5フェーズのHuman UATがPostgreSQL環境依存で実行できず、コード完成と実際の検証が分離された
+- Optunaテストのモックパス不一致が再発(ローカルimportパターン)
+- Phase 17の16次元拡張でテストのモック更新が多岐にわたり、修正コストが高かった
+
+### Patterns Established
+- OOF分布ベースの動的閾値: 固定値ではなく学習データ分布から閾値を導出するパターン
+- ルックアヘッドバイアス防止: training_bet_history生成は常にデフォルトパラメータを使用
+- PFP二重検証: freeze(freeze時) + verify(使用時) で全return pathで整合性を保証
+- 検証レポート構造化: ROI判定 + 原因分析(odds band/regime/EV/bet count/surface)の5項目テンプレート
+
+### Key Lessons
+1. フィルター閾値はモデル出力分布に適合させる必要がある(単一モデルとアンサンブルで分布が異なる)
+2. Optuna次元追加時は既存テストのモックを全て更新する必要がある(サジェスト関数の引数が増える)
+3. ルックアヘッドバイアスは最適化ループ内でのパラメータ使用に潜みやすい — 明示的分離が必要
+4. 改ざん検知はfreezeとverifyを分離することで、全コードパスで整合性を検証できる
+
+### Cost Observations
+- Model mix: ~35% opus, ~40% sonnet, ~25% haiku
+- Sessions: ~3
+- Notable: Phase 17が最長(4fold + 16次元最適化)、Phase 14が最短(診断モジュール)
+
+---
+
 ## Cross-Milestone Trends
 
 ### Process Evolution
@@ -131,6 +173,7 @@
 | v1.1 | ~2 | 3 | Optuna導入、post-model features確立 |
 | v1.2 | ~1 | 3 | バックテストパイプライン高速化 |
 | v1.3 | ~2 | 3 | ベット戦略最適化、コンストラクタ注入パターン確立 |
+| v1.4 | ~3 | 5 | フィルター再キャリブレーション、動的閾値、PFP二重検証 |
 
 ### Cumulative Quality
 
@@ -139,10 +182,12 @@
 | v1.0 | ~800 | mock-based | ~19,000 |
 | v1.1 | 1,113 | mock-based | ~20,773 |
 | v1.3 | 1,200+ | mock-based | ~18,820 |
+| v1.4 | 1,327 | mock-based | ~19,300 |
 
 ### Top Lessons (Verified Across Milestones)
 
-1. TDD RED/GREEN gateは品質の最強の味方 — 全24プランで一貫して適用
+1. TDD RED/GREEN gateは品質の最強の味方 — 全38プランで一貫して適用
 2. テストモックパスの不一致が複数マイルストーンで発生 — ローカルimportに直接パッチするパターンを確立
-3. 自動deviation修正ルール(Rule 1-3)が4マイルストーン合計14件のバグを検出・修正
+3. 自動deviation修正ルール(Rule 1-3)が5マイルストーン合計14+件のバグを検出・修正
 4. コンストラクタ注入パターンがテスタビリティを劇的に向上 — Optuna最適化の前提となる
+5. フィルター閾値はモデル出力分布に適合させる必要がある — v1.4で実証
