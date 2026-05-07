@@ -752,6 +752,10 @@ class ModelLoader:
                 ev_isotonic_calibrator=ev_isotonic_calibrator,
                 ev_odds_band_scales=ev_odds_band_scales,
             )
+
+        # RaceQualityScreener
+        quality = RaceQualityScreener()
+        quality.model = self._load_lgbm(str(models_dir / "race_quality.lgb"))
         with open(models_dir / "meta.json", encoding="utf-8") as f:
             quality.threshold = float(json.load(f).get("quality_threshold", 0.0))
 
