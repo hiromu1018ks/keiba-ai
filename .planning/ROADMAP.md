@@ -203,11 +203,11 @@ Plans:
 **Plans**: 5 plans
 
 Plans:
-- [ ] 19.1-01: P0 キャリブレーションBT条件付きスキップ + P1 MLflow pip高速化 + P1 _coerce_types早期return
-- [ ] 19.1-02: P1 oddsデータ受け渡し最適化 (preloaded_odds_ts)
-- [ ] 19.1-03: P2 Categorical包括的適用 (データ層+特徴量ファイル) + odds接続
-- [ ] 19.1-04: P2 observed=True追加 (モデル+バックテストファイル)
-- [ ] 19.1-05: P3 HorseHistoryFeaturesキャッシュ強化 + per-race重複排除 + 段階的検証テスト
+- [x] 19.1-01: P0 キャリブレーションBT条件付きスキップ + P1 MLflow pip高速化 + P1 _coerce_types早期return
+- [x] 19.1-02: P1 oddsデータ受け渡し最適化 (preloaded_odds_ts)
+- [x] 19.1-03: P2 Categorical包括的適用 (データ層+特徴量ファイル) + odds接続
+- [x] 19.1-04: P2 observed=True追加 (モデル+バックテストファイル)
+- [x] 19.1-05: P3 HorseHistoryFeaturesキャッシュ強化 + per-race重複排除 + 段階的検証テスト
 
 ### Phase 20: 高オッズ的中パターン特徴量
 
@@ -285,7 +285,7 @@ Phases execute in numeric order: 14 → 15 → 16 → 17 → 18
 | 17. Optuna Optimization | v1.4 | 2/2 | Complete    | 2026-05-06 |
 | 18. Validation & Freeze | v1.4 | 2/2 | Complete | 2026-05-07 |
 | 19. EV推定キャリブレーション | v1.5 | 2/2 | Complete    | 2026-05-07 |
-| 19.1. バックテスト高速化 | v1.5 | 0/5 | Planned | — |
+| 19.1. バックテスト高速化 | v1.5 | 5/5 | Complete | 2026-05-08 |
 | 20. 高オッズ的中パターン特徴量 | v1.5 | 0/3 | Active | — |
 | 21. Conformal EV予測区間 | v1.5 | 0/2 | Active | — |
 | 22. 統合検証とバックテスト | v1.5 | 0/1 | Active | — |
