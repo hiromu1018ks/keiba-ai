@@ -50,6 +50,9 @@ from models.wide_two_stage_model import WideTwoStageModel
 
 logger = logging.getLogger(__name__)
 
+# MLflow pip高速化: pip freeze子プロセス起動を回避 (57.6x高速化, Spike 005 VALIDATED)
+_MLFLOW_PIP_REQS: list[str] = ["lightgbm", "scikit-learn", "pandas", "numpy", "joblib"]
+
 
 def _get_num_threads(parallel_workers: int = 1) -> int:
     """並列ワーカー数に応じて最適なスレッド数を返す。"""
@@ -1224,10 +1227,14 @@ class TrainingPipelineV5:
                 # Stage1 (AbilityModel per surface)
                 stage1_model = sub.stage1.models.get(surface)
                 if stage1_model is not None:
-                    mlflow.lightgbm.log_model(stage1_model, name=f"stage1_{surface}")
+                    mlflow.lightgbm.log_model(
+                        stage1_model, name=f"stage1_{surface}", pip_requirements=_MLFLOW_PIP_REQS,
+                    )
 
                 # MarketModel
-                mlflow.lightgbm.log_model(sub.market.model, name=f"market_{surface}")
+                mlflow.lightgbm.log_model(
+                    sub.market.model, name=f"market_{surface}", pip_requirements=_MLFLOW_PIP_REQS,
+                )
 
                 # WinTwoStageModel
                 if sub.use_ensemble:
@@ -1242,27 +1249,39 @@ class TrainingPipelineV5:
                         if _se_tmp and os.path.exists(_se_tmp):
                             os.unlink(_se_tmp)
                 else:
-                    mlflow.lightgbm.log_model(sub.win.hit_model, name=f"win_hit_{surface}")
-                mlflow.lightgbm.log_model(sub.win.return_model, name=f"win_ret_{surface}")
+                    mlflow.lightgbm.log_model(
+                        sub.win.hit_model,
+                        name=f"win_hit_{surface}",
+                        pip_requirements=_MLFLOW_PIP_REQS,
+                    )
+                mlflow.lightgbm.log_model(
+                    sub.win.return_model,
+                    name=f"win_ret_{surface}",
+                    pip_requirements=_MLFLOW_PIP_REQS,
+                )
 
                 # EVCorrectionModel
                 mlflow.lightgbm.log_model(
                     sub.ev_corrector.p_correction_model,
                     name=f"ev_corrector_p_{surface}",
+                    pip_requirements=_MLFLOW_PIP_REQS,
                 )
                 mlflow.lightgbm.log_model(
                     sub.ev_corrector.e_correction_model,
                     name=f"ev_corrector_e_{surface}",
+                    pip_requirements=_MLFLOW_PIP_REQS,
                 )
 
                 # PlaceEVCorrectionModel
                 mlflow.lightgbm.log_model(
                     sub.place_ev_corrector.p_correction_model,
                     name=f"place_ev_corrector_p_{surface}",
+                    pip_requirements=_MLFLOW_PIP_REQS,
                 )
                 mlflow.lightgbm.log_model(
                     sub.place_ev_corrector.e_correction_model,
                     name=f"place_ev_corrector_e_{surface}",
+                    pip_requirements=_MLFLOW_PIP_REQS,
                 )
                 if (
                     sub.place_selection_gate is not None
@@ -1308,8 +1327,14 @@ class TrainingPipelineV5:
                         if _se_tmp2 and os.path.exists(_se_tmp2):
                             os.unlink(_se_tmp2)
                 else:
-                    mlflow.lightgbm.log_model(sub.place.hit_model, name=f"place_hit_{surface}")
-                mlflow.lightgbm.log_model(sub.place.return_model, name=f"place_ret_{surface}")
+                    mlflow.lightgbm.log_model(
+                        sub.place.hit_model, name=f"place_hit_{surface}",
+                        pip_requirements=_MLFLOW_PIP_REQS,
+                    )
+                mlflow.lightgbm.log_model(
+                    sub.place.return_model, name=f"place_ret_{surface}",
+                    pip_requirements=_MLFLOW_PIP_REQS,
+                )
 
                 # PlaceAbilityModel (sklearn CalibratedClassifierCV → joblib)
                 calibrated = sub.place_ability._calibrated or sub.place_ability._model
@@ -1325,15 +1350,27 @@ class TrainingPipelineV5:
                             os.unlink(_tmp_path)
 
                 # WideTwoStageModel
-                mlflow.lightgbm.log_model(sub.wide.hit_model, name=f"wide_hit_{surface}")
-                mlflow.lightgbm.log_model(sub.wide.return_model, name=f"wide_ret_{surface}")
+                mlflow.lightgbm.log_model(
+                    sub.wide.hit_model, name=f"wide_hit_{surface}",
+                    pip_requirements=_MLFLOW_PIP_REQS,
+                )
+                mlflow.lightgbm.log_model(
+                    sub.wide.return_model, name=f"wide_ret_{surface}",
+                    pip_requirements=_MLFLOW_PIP_REQS,
+                )
 
             # RaceQualityScreener
-            mlflow.lightgbm.log_model(quality_screen.model, name="race_quality")
+            mlflow.lightgbm.log_model(
+                quality_screen.model, name="race_quality",
+                pip_requirements=_MLFLOW_PIP_REQS,
+            )
             mlflow.log_param("quality_threshold", quality_screen.threshold)
 
             # RegimeDetector
-            mlflow.lightgbm.log_model(regime_det.model, name="regime_detector")
+            mlflow.lightgbm.log_model(
+                regime_det.model, name="regime_detector",
+                pip_requirements=_MLFLOW_PIP_REQS,
+            )
 
             # RobustConfidenceEstimator キャリブレーション値 (JSON)
             first_sub = next(iter(models.values()))
