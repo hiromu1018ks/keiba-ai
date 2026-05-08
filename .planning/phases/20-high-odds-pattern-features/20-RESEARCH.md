@@ -370,7 +370,7 @@ results.append({
 
 **Note:** A5は実際にコード検証済み。`cols_horse`リスト(L477-496)に`track_condition_code`が含まれているため、`horse_arrs["track_condition_code"]`としてアクセス可能 [VERIFIED]。
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **高オッズ的中サンプルの実際の件数**
    - What we know: 全出走の~0.3%がオッズ20+の的中 [CITED: CONTEXT.md specifics]

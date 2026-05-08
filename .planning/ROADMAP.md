@@ -211,7 +211,7 @@ Plans:
 
 ### Phase 20: 高オッズ的中パターン特徴量
 
-**Goal**: 高オッズ帯(20+)の的中率を2.1%から3%+に引き上げる新特徴量を追加し、AbilityModelとWinTwoStageModelに統合する
+**Goal**: 高オッズ帯(20+)の的中率を2.1%から3%+に引き上げる新特徴量を追加し、AbilityModelに統合する
 **Depends on**: Phase 18 (v1.4 complete) — Phase 19と並行可能
 **Requirements**: HODDS-01, HODDS-02, HODDS-03, HODDS-04, HODDS-05
 **Plans**: 3 plans
