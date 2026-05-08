@@ -480,7 +480,7 @@ def _run_single_year(args: argparse.Namespace) -> None:
     from db.readers import load_odds_time_series_range
 
     # P1: Test BT用にodds_tsを事前ロードして重複ロードを回避
-    preloaded_odds = load_odds_time_series_range(store, test_start, test_end)
+    preloaded_odds = load_odds_time_series_range(store, test_start.replace("-", ""), test_end.replace("-", ""))
     logger.info("odds時系列データ事前ロード完了: %d行", len(preloaded_odds))
 
     test_year = int(test_start[:4])
