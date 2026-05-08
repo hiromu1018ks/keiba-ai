@@ -12,7 +12,7 @@ import pyarrow.parquet as pq
 # P2: D-04 — 高カーディナリティ文字列列をpd.Categoricalに変換する対象
 CATEGORICAL_COLUMNS: frozenset[str] = frozenset({
     "race_id", "kettonum", "kisyucode", "chokyosicode",
-    "sire_id", "bms_id", "umaban",
+    "sire_id", "bms_id",
 })
 
 
