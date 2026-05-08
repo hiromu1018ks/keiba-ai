@@ -370,6 +370,7 @@ class BacktestEngine:
         betting_target: str = "win",
         strategy_params: dict[str, Any] | None = None,
         manifest_path: Path | None = None,
+        preloaded_odds_ts: pd.DataFrame | None = None,
     ) -> None:
         if betting_mode not in ("flat", "kelly"):
             raise ValueError(f"betting_mode must be 'flat' or 'kelly', got '{betting_mode}'")
@@ -384,6 +385,7 @@ class BacktestEngine:
         self.strategy_params = strategy_params
         self._manifest_path = manifest_path
         self._pfp: ParameterFreezeProtocol | None = None
+        self._preloaded_odds_ts = preloaded_odds_ts  # P1: odds時系列データ受け渡し
 
         # Phase 11: Bet selection filters
         self._odds_band_filter: OddsBandFilter | None = None
@@ -550,7 +552,20 @@ class BacktestEngine:
 
         feat_engine = FeatureEngine()
         submodel_mgr = SubModelManager()
-        odds_ts_df = load_odds_time_series_range(self.store, start, end)
+
+        # P1: odds時系列データ — preloaded_odds_tsがあれば再利用、なければロード
+        if self._preloaded_odds_ts is not None:
+            odds_ts_df = self._preloaded_odds_ts
+            s_dt = pd.Timestamp(start)
+            e_dt = pd.Timestamp(end)
+            if "race_date" in odds_ts_df.columns:
+                mask = (odds_ts_df["race_date"] >= s_dt) & (odds_ts_df["race_date"] <= e_dt)
+                odds_ts_df = odds_ts_df[mask]
+            logger.debug(
+                "Using preloaded odds_ts (%d rows for %s ~ %s)", len(odds_ts_df), start, end,
+            )
+        else:
+            odds_ts_df = load_odds_time_series_range(self.store, start, end)
         if not odds_ts_df.empty:
             odds_ts_df = odds_ts_df[odds_ts_df["race_id"].isin(race_df["race_id"])].copy()
 
