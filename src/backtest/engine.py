@@ -1308,8 +1308,14 @@ class BacktestEngine:
                     return float(bet.stake * settle_odds)
             return 0.0
 
-        # 単勝: win_payout_map（確定配当）から精算
+        # 単勝: 着順確認 → 1着のみ payout lookup → 確定配当で精算
         if bet.bet_type == BetType.WIN:
+            horse = race_df[race_df["umaban"] == bet.umaban]
+            if horse.empty:
+                return 0.0
+            finish_pos = int(horse.iloc[0]["kakuteijyuni"])
+            if finish_pos != 1:
+                return 0.0
             win_key = (bet.race_id, bet.umaban)
             if hasattr(self, "win_payout_map") and win_key in self.win_payout_map:
                 return float(bet.stake * self.win_payout_map[win_key])
@@ -1317,14 +1323,8 @@ class BacktestEngine:
                 "Win payout missing for %s umaban=%d, using odds fallback",
                 bet.race_id, bet.umaban,
             )
-            horse = race_df[race_df["umaban"] == bet.umaban]
-            if horse.empty:
-                return 0.0
-            finish_pos = int(horse.iloc[0]["kakuteijyuni"])
-            if finish_pos == 1:
-                settle_odds = bet.final_odds if bet.final_odds > 0 else bet.odds
-                return float(bet.stake * settle_odds)
-            return 0.0
+            settle_odds = bet.final_odds if bet.final_odds > 0 else bet.odds
+            return float(bet.stake * settle_odds)
 
         # 複勝: payout_map（確定配当）から精算
         payout_key = (bet.race_id, bet.umaban)
