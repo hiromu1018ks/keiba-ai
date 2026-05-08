@@ -69,7 +69,7 @@ class TrainerContextFeatures:
 
         latest = (
             merged.sort_values("setyear")
-            .groupby(["race_id", "umaban", "chokyosicode"])
+            .groupby(["race_id", "umaban", "chokyosicode"], observed=True)
             .last()
             .reset_index()
         )

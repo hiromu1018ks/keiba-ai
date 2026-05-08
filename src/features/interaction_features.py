@@ -59,23 +59,29 @@ def _add_race_context_features(df: pd.DataFrame) -> None:
 
     # 1. レース平均オッズ (荒れやすさの代理指標)
     if odds_col in df.columns:
-        race_mean_odds = df.groupby("race_id")[odds_col].transform("mean")
+        race_mean_odds = df.groupby("race_id", observed=True)[odds_col].transform("mean")
         df["race_mean_fuku_odds"] = race_mean_odds
 
         # 2. レースオッズ標準偏差 (オッズ分散 → 荒れやすさ)
-        race_std_odds = df.groupby("race_id")[odds_col].transform("std")
+        race_std_odds = df.groupby("race_id", observed=True)[odds_col].transform("std")
         df["race_std_fuku_odds"] = race_std_odds.fillna(0)
 
         # 3. 人気1位と2位のオッズギャップ (レースの予測難易度)
         if "popularity_rank" in df.columns:
-            pop1_odds = df[df["popularity_rank"] == 1].groupby("race_id")[odds_col].first()
-            pop2_odds = df[df["popularity_rank"] == 2].groupby("race_id")[odds_col].first()
+            pop1_odds = (
+                df[df["popularity_rank"] == 1]
+                .groupby("race_id", observed=True)[odds_col].first()
+            )
+            pop2_odds = (
+                df[df["popularity_rank"] == 2]
+                .groupby("race_id", observed=True)[odds_col].first()
+            )
             odds_gap = (pop1_odds - pop2_odds).reindex(df["race_id"]).values
             df["odds_gap_fav12"] = pd.Series(odds_gap, index=df.index)
 
         # 4. オッズ順位と人気順位の乖離 (市場の非効率性指標)
         if "popularity_rank" in df.columns:
-            odds_rank = df.groupby("race_id")[odds_col].rank(method="min")
+            odds_rank = df.groupby("race_id", observed=True)[odds_col].rank(method="min")
             df["odds_popularity_gap"] = (odds_rank - df["popularity_rank"]).abs()
 
     # 5. サーフェス×馬場状態交互作用 (数値)
@@ -95,11 +101,17 @@ def _add_pace_projection_features(df: pd.DataFrame) -> None:
     else:
         field_size = pd.Series(np.nan, index=df.index, dtype=float)
     if field_size.isna().all():
-        field_size = df.groupby("race_id")["race_id"].transform("size").astype(float)
+        field_size = df.groupby("race_id", observed=True)["race_id"].transform("size").astype(float)
 
     field_size = field_size.clip(lower=1)
-    front_share = style.isin([1, 2]).groupby(df["race_id"]).transform("sum") / field_size
-    closer_share = style.isin([3, 4]).groupby(df["race_id"]).transform("sum") / field_size
+    front_share = (
+        style.isin([1, 2]).groupby(df["race_id"], observed=True).transform("sum")
+        / field_size
+    )
+    closer_share = (
+        style.isin([3, 4]).groupby(df["race_id"], observed=True).transform("sum")
+        / field_size
+    )
     style_fit = style.map({1: -1.0, 2: -0.5, 3: 0.5, 4: 1.0}).fillna(0.0)
 
     df["pace_pressure"] = front_share.astype(float)

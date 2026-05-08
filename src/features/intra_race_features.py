@@ -20,12 +20,14 @@ def compute_intra_race_features(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
 
     if "bataijyu" in df.columns:
-        weight_mean = df.groupby("race_id")["bataijyu"].transform("mean")
+        weight_mean = df.groupby("race_id", observed=True)["bataijyu"].transform("mean")
         df["weight_diff_from_mean"] = df["bataijyu"] - weight_mean
 
     if "odds" in df.columns:
         df["odds_rank"] = (
-            df.groupby("race_id")["odds"].rank(method="min", ascending=True).astype("Int64")
+            df.groupby("race_id", observed=True)["odds"]
+            .rank(method="min", ascending=True)
+            .astype("Int64")
         )
 
     return df

@@ -39,7 +39,9 @@ def _compute_cumulative_before(
 
     shift(1) で現在行を除外してから cumsum を取る。
     """
-    return df.groupby(group_col)[value_col].transform(lambda x: x.shift(1).fillna(0).cumsum())
+    return df.groupby(group_col, observed=True)[value_col].transform(
+        lambda x: x.shift(1).fillna(0).cumsum(),
+    )
 
 
 def precompute_career_stats(

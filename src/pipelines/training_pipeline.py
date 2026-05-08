@@ -1028,7 +1028,7 @@ class TrainingPipelineV5:
         v5.5 leak-fix: favorite_win_rate を expanding window で計算 (C3)。
         """
         race_feat = (
-            feat_df.groupby("race_id")
+            feat_df.groupby("race_id", observed=True)
             .agg(
                 surface=("surface", "first"),
                 distance_bin=("distance_bin", "first"),
@@ -1056,7 +1056,7 @@ class TrainingPipelineV5:
 
         # C3 fix: favorite_win_rate を expanding window で計算
         if "race_date" in feat_df.columns:
-            date_map = feat_df.groupby("race_id")["race_date"].first()
+            date_map = feat_df.groupby("race_id", observed=True)["race_date"].first()
             race_feat["race_date"] = race_feat["race_id"].map(date_map)
             race_feat = race_feat.sort_values("race_date").reset_index(drop=True)
 
@@ -1147,7 +1147,7 @@ class TrainingPipelineV5:
             # race_id 単位で EMA 値を race_feat にマージ
             for ema_col in ["overround_ema", "entropy_ema"]:
                 if ema_col in ema_df.columns:
-                    ema_map = ema_df.groupby("race_id")[ema_col].first()
+                    ema_map = ema_df.groupby("race_id", observed=True)[ema_col].first()
                     race_feat[ema_col] = race_feat["race_id"].map(ema_map).fillna(0.0)
         else:
             race_feat["overround_ema"] = 0.0
@@ -1190,7 +1190,7 @@ class TrainingPipelineV5:
         if all(c in feat_df.columns for c in ["race_id", "tanodds", "popularity_rank"]):
             fav_df = feat_df[feat_df["popularity_rank"] == 1][["race_id", "tanodds"]].copy()
             fav_df["fav_implied"] = 1.0 / fav_df["tanodds"].replace(0, np.nan)
-            race_fav_implied = fav_df.groupby("race_id")["fav_implied"].first()
+            race_fav_implied = fav_df.groupby("race_id", observed=True)["fav_implied"].first()
             stats["favorite_implied_prob_rolling"] = (
                 stats["race_id"].map(race_fav_implied).fillna(0.3)
             )
@@ -1199,14 +1199,14 @@ class TrainingPipelineV5:
 
         # odds_skewness_rolling: レース毎のオッズ歪度 (生値)
         if all(c in feat_df.columns for c in ["race_id", "tanodds"]):
-            race_skew = feat_df.groupby("race_id")["tanodds"].skew()
+            race_skew = feat_df.groupby("race_id", observed=True)["tanodds"].skew()
             stats["odds_skewness_rolling"] = stats["race_id"].map(race_skew).fillna(0.0)
         else:
             stats["odds_skewness_rolling"] = 0.0
 
         # odds_volatility_mean: レース毎の odds_volatility 平均 (生値)
         if "odds_volatility" in feat_df.columns:
-            race_vol = feat_df.groupby("race_id")["odds_volatility"].mean()
+            race_vol = feat_df.groupby("race_id", observed=True)["odds_volatility"].mean()
             stats["odds_volatility_mean"] = stats["race_id"].map(race_vol).fillna(0.1)
         else:
             stats["odds_volatility_mean"] = 0.1

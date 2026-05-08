@@ -69,7 +69,7 @@ class JockeyContextFeatures:
 
         latest = (
             merged.sort_values("setyear")
-            .groupby(["race_id", "umaban", "kisyucode"])
+            .groupby(["race_id", "umaban", "kisyucode"], observed=True)
             .last()
             .reset_index()
         )

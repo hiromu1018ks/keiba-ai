@@ -9,6 +9,20 @@ import pyarrow as pa
 import pyarrow.dataset as ds
 import pyarrow.parquet as pq
 
+# P2: D-04 — 高カーディナリティ文字列列をpd.Categoricalに変換する対象
+CATEGORICAL_COLUMNS: frozenset[str] = frozenset({
+    "race_id", "kettonum", "kisyucode", "chokyosicode",
+    "sire_id", "bms_id", "umaban",
+})
+
+
+def _optimize_dtypes(df: pd.DataFrame) -> pd.DataFrame:
+    """高カーディナリティ文字列列をpd.Categoricalに変換 (P2: D-04)"""
+    for col in CATEGORICAL_COLUMNS & set(df.columns):
+        if df[col].dtype == object:
+            df[col] = df[col].astype("category")
+    return df
+
 
 class ParquetStore:
     """Parquetファイルの読み書きのみを担当。データの意味は知らない。"""
@@ -44,17 +58,17 @@ class ParquetStore:
                     table = dataset.to_table(filter=mask)
                 else:
                     table = dataset.to_table()
-                return table.to_pandas()
+                return _optimize_dtypes(table.to_pandas())
             except (pa.ArrowInvalid, pa.ArrowNotImplementedError):
                 # 型不一致（例: 文字列race_date vs datetime filter）のフォールバック
                 table = dataset.to_table()
                 df = table.to_pandas()
-                return self._apply_filters(df, filters)
+                return _optimize_dtypes(self._apply_filters(df, filters))
         try:
-            return pd.read_parquet(path.with_suffix(".parquet"), filters=filters)
+            return _optimize_dtypes(pd.read_parquet(path.with_suffix(".parquet"), filters=filters))
         except (pa.ArrowInvalid, pa.ArrowNotImplementedError):
             df = pd.read_parquet(path.with_suffix(".parquet"))
-            return self._apply_filters(df, filters)
+            return _optimize_dtypes(self._apply_filters(df, filters))
 
     @staticmethod
     def _apply_filters(df: pd.DataFrame, filters: list[tuple] | None) -> pd.DataFrame:

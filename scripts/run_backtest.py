@@ -477,6 +477,11 @@ def _run_single_year(args: argparse.Namespace) -> None:
     t1 = time.time()
 
     from backtest.engine import BacktestEngine
+    from db.readers import load_odds_time_series_range
+
+    # P1: Test BT用にodds_tsを事前ロードして重複ロードを回避
+    preloaded_odds = load_odds_time_series_range(store, test_start, test_end)
+    logger.info("odds時系列データ事前ロード完了: %d行", len(preloaded_odds))
 
     test_year = int(test_start[:4])
     engine = BacktestEngine(
@@ -487,6 +492,7 @@ def _run_single_year(args: argparse.Namespace) -> None:
         betting_target=args.betting_target,
         strategy_params=strategy_params,
         manifest_path=Path(args.strategy_manifest) if args.strategy_manifest else None,
+        preloaded_odds_ts=preloaded_odds,
     )
     result = engine.run(test_start, test_end, training_bet_history=training_bet_history)
     elapsed_test = time.time() - t1

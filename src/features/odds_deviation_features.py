@@ -34,14 +34,14 @@ def compute_odds_deviation_features(df: pd.DataFrame) -> pd.DataFrame:
 
     # レース内ランク (descending: ratio大=過小評価=高いrank)
     df["deviation_rank"] = (
-        ratio.groupby(df["race_id"])
+        ratio.groupby(df["race_id"], observed=True)
         .rank(method="first", ascending=False)
         .astype("Float64")
     )
 
     # レース内z-score標準化
-    race_mean = ratio.groupby(df["race_id"]).transform("mean")
-    race_std = ratio.groupby(df["race_id"]).transform("std").replace(0, np.nan)
+    race_mean = ratio.groupby(df["race_id"], observed=True).transform("mean")
+    race_std = ratio.groupby(df["race_id"], observed=True).transform("std").replace(0, np.nan)
     df["deviation_zscore"] = ((ratio - race_mean) / race_std).clip(-5.0, 5.0)
 
     return df

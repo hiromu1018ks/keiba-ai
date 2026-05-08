@@ -413,7 +413,7 @@ class FeatureEngine:
         if "syussotosu" in df.columns and "field_size" not in df.columns:
             df["field_size"] = df["syussotosu"]
             if (df["field_size"] == 0).any():
-                actual = df.groupby("race_id").size()
+                actual = df.groupby("race_id", observed=True).size()
                 df["field_size"] = (
                     df["race_id"].map(actual).fillna(df["field_size"]).astype("Int64")
                 )

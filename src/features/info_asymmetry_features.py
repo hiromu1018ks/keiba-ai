@@ -54,12 +54,16 @@ def compute_hist_features(df: pd.DataFrame) -> pd.DataFrame:
     # グループ境界をまたぐため、transform + lambda でグループ内で完結させる
     df["_condition"] = df["surface"] + "_" + df["distance_band"]
 
-    df["hist_win_rate_same_condition"] = df.groupby("_condition")["is_winner"].transform(
-        lambda s: s.expanding().mean().shift(1)
+    df["hist_win_rate_same_condition"] = (
+        df.groupby("_condition", observed=True)["is_winner"].transform(
+            lambda s: s.expanding().mean().shift(1)
+        )
     )
 
-    df["hist_market_entropy_avg"] = df.groupby("_condition")["market_entropy"].transform(
-        lambda s: s.expanding().mean().shift(1)
+    df["hist_market_entropy_avg"] = (
+        df.groupby("_condition", observed=True)["market_entropy"].transform(
+            lambda s: s.expanding().mean().shift(1)
+        )
     )
 
     # 作業列を削除

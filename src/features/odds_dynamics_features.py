@@ -38,7 +38,7 @@ def _build_snapshot_datetimes(ts: pd.DataFrame) -> pd.Series:
     if parsed.notna().any():
         return parsed
 
-    order = ts.groupby(["race_id", "umaban"]).cumcount()
+    order = ts.groupby(["race_id", "umaban"], observed=True).cumcount()
     base = pd.Timestamp("2000-01-01")
     return pd.Series(base + pd.to_timedelta(order, unit="m"), index=ts.index)
 
@@ -154,10 +154,10 @@ def compute_odds_dynamics(
 
     # 各(race_id, umaban)につき直近MAX_POINTSのみ保持 (PT/BT 一致のため無条件)
     max_points = 60
-    ts = ts.groupby(["race_id", "umaban"], as_index=False).tail(max_points)
+    ts = ts.groupby(["race_id", "umaban"], as_index=False, observed=True).tail(max_points)
     ts["_ts_datetime"] = _build_snapshot_datetimes(ts)
 
-    grouped = ts.groupby(["race_id", "umaban"])
+    grouped = ts.groupby(["race_id", "umaban"], observed=True)
 
     post_time_map = _build_post_time_map(df)
     if not post_time_map.empty:
@@ -196,13 +196,15 @@ def compute_odds_dynamics(
     # --- 速度: 線形回帰の傾き (ベクトル化) ---
     # slope = (n*sum_xy - sum_x*sum_y) / (n*sum_x2 - sum_x^2)
     vel_ts = ts[ts["tanodds"].notna()].copy()
-    first_time = vel_ts.groupby(["race_id", "umaban"])["_ts_datetime"].transform("min")
+    first_time = (
+        vel_ts.groupby(["race_id", "umaban"], observed=True)["_ts_datetime"].transform("min")
+    )
     vel_ts["_elapsed_minutes"] = (
         (vel_ts["_ts_datetime"] - first_time) / pd.Timedelta(minutes=1)
     ).astype(float)
     vel_ts["_xy"] = vel_ts["_elapsed_minutes"] * vel_ts["tanodds"]
     vel_ts["_x2"] = vel_ts["_elapsed_minutes"] ** 2
-    vel_stats = vel_ts.groupby(["race_id", "umaban"]).agg(
+    vel_stats = vel_ts.groupby(["race_id", "umaban"], observed=True).agg(
         n=("tanodds", "count"),
         sum_x=("_elapsed_minutes", "sum"),
         sum_y=("tanodds", "sum"),
@@ -223,8 +225,8 @@ def compute_odds_dynamics(
     )
 
     # --- ボラティリティ: 連続変化量の標準偏差 (ベクトル化) ---
-    ts["_odds_diff"] = ts.groupby(["race_id", "umaban"])["tanodds"].diff()
-    volatility = ts.groupby(["race_id", "umaban"])["_odds_diff"].std()
+    ts["_odds_diff"] = ts.groupby(["race_id", "umaban"], observed=True)["tanodds"].diff()
+    volatility = ts.groupby(["race_id", "umaban"], observed=True)["_odds_diff"].std()
     # グループサイズ < 2 の場合は NaN (diff が 0 個 → std は NaN)
     sizes = grouped.size()
     volatility[sizes < 2] = np.nan
@@ -249,7 +251,7 @@ def compute_odds_dynamics(
 
     direction_consistency = (
         ts[ts["_odds_dir"].notna()]
-        .groupby(["race_id", "umaban"])
+        .groupby(["race_id", "umaban"], observed=True)
         .apply(_compute_direction_consistency, include_groups=False)
     )
     direction_consistency.name = "odds_direction_consistency"
@@ -304,11 +306,11 @@ def compute_rolling_volatility(
         return pd.Series(np.nan, index=race_feat_df.index, name="odds_volatility_rolling_mean")
 
     # レースごとの odds_volatility 平均
-    race_vol = race_feat_df.groupby("race_id")["odds_volatility"].mean()
+    race_vol = race_feat_df.groupby("race_id", observed=True)["odds_volatility"].mean()
 
     # rolling 平均 (時系列順)
     if "race_date" in race_feat_df.columns:
-        date_map = race_feat_df.groupby("race_id")["race_date"].first()
+        date_map = race_feat_df.groupby("race_id", observed=True)["race_date"].first()
         race_vol = race_vol.to_frame("odds_volatility")
         race_vol["race_date"] = date_map
         race_vol = race_vol.sort_values("race_date")
@@ -340,24 +342,26 @@ def compute_roi_ema(
 
     # Overround: sum(1/tanodds) - 1 (レース単位)
     p_raw = 1.0 / df["tanodds"].replace(0, np.nan)
-    race_overround = p_raw.groupby(df["race_id"]).sum() - 1.0
+    race_overround = p_raw.groupby(df["race_id"], observed=True).sum() - 1.0
     race_overround.name = "overround"
 
     # Entropy: H = -sum(p_i * ln(p_i)) (レース単位)
-    p_norm = p_raw.groupby(df["race_id"]).transform(lambda x: x / x.sum())
+    p_norm = p_raw.groupby(df["race_id"], observed=True).transform(lambda x: x / x.sum())
 
     def _entropy(group: pd.Series) -> float:
         p = group.dropna().values.astype(float)
         p = p[p > 0]
         return float(-np.sum(p * np.log(p))) if len(p) > 0 else 0.0
 
-    race_entropy = p_norm.groupby(df["race_id"]).apply(_entropy, include_groups=False)
+    race_entropy = (
+        p_norm.groupby(df["race_id"], observed=True).apply(_entropy, include_groups=False)
+    )
     race_entropy.name = "entropy"
 
     # 1番人気の implied probability
     fav_df = df.loc[df["popularity_rank"] == 1, ["race_id", "tanodds"]].copy()
     fav_df["implied_prob"] = 1.0 / fav_df["tanodds"].replace(0, np.nan)
-    race_fav_prob = fav_df.groupby("race_id")["implied_prob"].first()
+    race_fav_prob = fav_df.groupby("race_id", observed=True)["implied_prob"].first()
     race_fav_prob.name = "favorite_implied_prob"
 
     # レース単位 DataFrame (列名を明示的に指定)
@@ -370,7 +374,7 @@ def compute_roi_ema(
     )
 
     if "race_date" in df.columns:
-        date_map = df.groupby("race_id")["race_date"].first()
+        date_map = df.groupby("race_id", observed=True)["race_date"].first()
         race_stats["_sort"] = date_map
         race_stats = race_stats.sort_values("_sort").drop(columns=["_sort"])
 

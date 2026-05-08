@@ -421,7 +421,8 @@ class HorseHistoryFeatures:
         # Pre-index past data by kettonum (sorted by race_date)
         past_df_sorted = past_df.sort_values(["kettonum", "race_date"]).reset_index(drop=True)
         past_by_ketto: dict[str, pd.DataFrame] = {
-            k: g.reset_index(drop=True) for k, g in past_df_sorted.groupby("kettonum")
+            k: g.reset_index(drop=True)
+            for k, g in past_df_sorted.groupby("kettonum", observed=True)
         }
 
         # Pre-index past data by kisyucode for jockey_surprise (kakuteijyuni > 0 AND odds > 0)
@@ -429,14 +430,16 @@ class HorseHistoryFeatures:
             k: g.reset_index(drop=True)
             for k, g in past_df_sorted[
                 (past_df_sorted["kakuteijyuni"] > 0) & (past_df_sorted["odds"] > 0)
-            ].groupby("kisyucode")
+            ].groupby("kisyucode", observed=True)
         }
 
         # Pre-index past data by kisyucode for jockey_cond_wr
         # (kakuteijyuni > 0 only, no odds filter)
         past_by_kisyu_all: dict[str, pd.DataFrame] = {
             k: g.reset_index(drop=True)
-            for k, g in past_df_sorted[(past_df_sorted["kakuteijyuni"] > 0)].groupby("kisyucode")
+            for k, g in past_df_sorted[
+                (past_df_sorted["kakuteijyuni"] > 0)
+            ].groupby("kisyucode", observed=True)
         }
 
         # -------------------------------------------------------------------
@@ -550,7 +553,7 @@ class HorseHistoryFeatures:
                     if cols:
                         col_map = {"distance_bin": "_db", "surface": "_surf", "baba_cd": "_baba"}
                         group_cols = [col_map[c] for c in cols]
-                        grouped = valid_past_all.groupby(group_cols)
+                        grouped = valid_past_all.groupby(group_cols, observed=True)
                         for key, grp_df in grouped:
                             if not isinstance(key, tuple):
                                 key = (key,)
@@ -1205,5 +1208,8 @@ class HorseHistoryFeatures:
         for col in race_rank_cols:
             if col not in df.columns:
                 continue
-            df[f"{col}_race_rank"] = df.groupby("race_id")[col].rank(pct=True, method="average")
+            df[f"{col}_race_rank"] = (
+                df.groupby("race_id", observed=True)[col]
+                .rank(pct=True, method="average")
+            )
         return df

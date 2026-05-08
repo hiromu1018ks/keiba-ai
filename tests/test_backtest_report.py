@@ -444,15 +444,19 @@ class TestCliReportFlag:
     @patch("backtest.report.BacktestReportGenerator")
     @patch("pipelines.training_pipeline.TrainingPipelineV5")
     @patch("backtest.engine.BacktestEngine")
+    @patch("db.readers.load_odds_time_series_range")
     @patch("db.parquet_store.ParquetStore")
     def test_report_flag_triggers_generation(
         self,
         mock_store_cls: MagicMock,
+        mock_load_odds_ts: MagicMock,
         mock_engine_cls: MagicMock,
         mock_pipeline_cls: MagicMock,
         mock_report_gen_cls: MagicMock,
     ) -> None:
         """--report フラグでレポート生成が呼ばれる"""
+        # Setup mocks
+        mock_load_odds_ts.return_value = MagicMock()
         # Setup mocks
         mock_store = MagicMock()
         mock_store_cls.return_value = mock_store

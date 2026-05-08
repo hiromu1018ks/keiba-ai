@@ -33,11 +33,11 @@ def compute_market_bias(df: pd.DataFrame) -> pd.DataFrame:
     p_raw = 1.0 / df["tanodds"].replace(0, np.nan)
 
     # Overround: 胴元控除率 (正=控除あり, 負=非現実的)
-    overround = p_raw.groupby(df["race_id"]).transform("sum") - 1.0
+    overround = p_raw.groupby(df["race_id"], observed=True).transform("sum") - 1.0
     df["overround"] = overround
 
     # 正規化確率 (Σ=1)
-    p_sum = p_raw.groupby(df["race_id"]).transform("sum")
+    p_sum = p_raw.groupby(df["race_id"], observed=True).transform("sum")
     df["p_market_win_adj"] = p_raw / p_sum.replace(0, np.nan)
 
     # シャノンエントロピー: H = -Σ(p_i * ln(p_i))
@@ -48,7 +48,7 @@ def compute_market_bias(df: pd.DataFrame) -> pd.DataFrame:
             return 0.0
         return float(-np.sum(p * np.log(p)))
 
-    entropy = df.groupby("race_id")["p_market_win_adj"].transform(_calc_entropy)
+    entropy = df.groupby("race_id", observed=True)["p_market_win_adj"].transform(_calc_entropy)
     df["market_entropy"] = entropy
 
     return df
@@ -81,7 +81,7 @@ def compute_flb_slope(race_feat_df: pd.DataFrame) -> pd.DataFrame:
         hhi = float(np.sum(p ** 2))
         return skewness, hhi
 
-    shapes = race_feat_df.groupby("race_id").apply(_race_shape, include_groups=False)
+    shapes = race_feat_df.groupby("race_id", observed=True).apply(_race_shape, include_groups=False)
     result["odds_skewness"] = race_feat_df["race_id"].map(shapes.map(lambda x: x[0])).fillna(0.0)
     result["implied_prob_hhi"] = race_feat_df["race_id"].map(shapes.map(lambda x: x[1])).fillna(0.0)
     return result
