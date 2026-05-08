@@ -200,10 +200,12 @@ Plans:
 
 **Goal**: Spike 002で特定したバックテスト実行時間ボトルネック（特徴量計算・学習・推論）を改善し、run_backtest.pyの実行時間を半減させる
 **Depends on**: Phase 19 (v1.5 EV calibration complete)
-**Plans**: Not planned yet
+**Plans**: 3 plans
 
 Plans:
-- [ ] TBD
+- [ ] 19.1-01: P0 キャリブレーションBT条件付きスキップ + P1 MLflow pip高速化 + P1 _coerce_types早期return
+- [ ] 19.1-02: P1 oddsデータ受け渡し最適化 (preloaded_odds_ts)
+- [ ] 19.1-03: P2 Categorical包括的適用 + P3 vector化 + 段階的検証テスト
 
 ### Phase 20: 高オッズ的中パターン特徴量
 
@@ -281,7 +283,7 @@ Phases execute in numeric order: 14 → 15 → 16 → 17 → 18
 | 17. Optuna Optimization | v1.4 | 2/2 | Complete    | 2026-05-06 |
 | 18. Validation & Freeze | v1.4 | 2/2 | Complete | 2026-05-07 |
 | 19. EV推定キャリブレーション | v1.5 | 2/2 | Complete    | 2026-05-07 |
-| 19.1. バックテスト高速化 | v1.5 | 0/? | Inserted | — |
+| 19.1. バックテスト高速化 | v1.5 | 0/3 | Active | — |
 | 20. 高オッズ的中パターン特徴量 | v1.5 | 0/3 | Active | — |
 | 21. Conformal EV予測区間 | v1.5 | 0/2 | Active | — |
 | 22. 統合検証とバックテスト | v1.5 | 0/1 | Active | — |
