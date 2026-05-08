@@ -220,9 +220,10 @@ def _collect_training_bet_history(
     """トレーニング期間のバックテストを実行し、OddsBandFilter キャリブレーション用の
     bet_history を収集する。
 
-    常にデフォルトパラメータ (build_default_strategy_config) を使用する。
-    strategy_params引数は呼び出し側インターフェース互換のために保持するが、
-    関数内部では使用しない (ルックアヘッド防止)。
+    D-01: デフォルト戦略(strategy_params is None)ではキャリブレーションBTを完全スキップ。
+          退化現象(roi_threshold=1.0 + JRA控除率25% → 全バンドROI<1.0 → 空bet_history)を確認済み。
+    D-02: --strategy-manifest使用時(strategy_params is not None)のみ軽量キャリブレーション
+          (直近12ヶ月)を実行。
 
     Args:
         models: 学習済みモデル
@@ -231,30 +232,45 @@ def _collect_training_bet_history(
         train_end: 学習終了日 (YYYY-MM-DD)
         betting_mode: ベッティングモード
         betting_target: ベッティング対象
-        strategy_params: 戦略パラメータ (使用しない — デフォルトパラメータ優先)
+        strategy_params: 戦略パラメータ (None=デフォルト戦略, dict=manifest由来)
 
     Returns:
         bet_history list
     """
+    # D-01: デフォルト戦略では完全スキップ (退化現象: Spike 003 VALIDATED)
+    if strategy_params is None:
+        logger.info("デフォルト戦略: キャリブレーションBTスキップ (退化現象 confirmed)")
+        return []
+
+    # D-02: strategy_manifest使用時のみ軽量キャリブレーション
+    from datetime import datetime, timedelta
+
     from backtest.engine import BacktestEngine
     from betting.default_strategy import build_default_strategy_config
 
-    # D-07: デフォルトパラメータでtraining_bet_historyを生成 (ルックアヘッド防止)
+    # 直近12ヶ月に短縮 (Spike 003: 12ヶ月で十分安定、10-30バンド除く)
+    train_end_dt = datetime.strptime(train_end, "%Y-%m-%d")
+    cal_start_dt = train_end_dt - timedelta(days=365)
+    cal_start = cal_start_dt.strftime("%Y-%m-%d")
+
     default_train_config = build_default_strategy_config()
 
-    logger.info("トレーニング期間バックテスト (OddsBandFilter キャリブレーション用): %s ~ %s",
-                train_start, train_end)
+    logger.info(
+        "軽量キャリブレーションBT (直近12ヶ月): %s ~ %s",
+        cal_start,
+        train_end,
+    )
     train_engine = BacktestEngine(
         models=models,
         store=store,
         betting_mode=betting_mode,
-        diag_prefix="bt_train",
+        diag_prefix="bt_calib",
         betting_target=betting_target,
         strategy_params=default_train_config,
     )
-    train_result = train_engine.run(train_start, train_end)
+    train_result = train_engine.run(cal_start, train_end)
     logger.info(
-        "トレーニング期間バックテスト完了: %d bets, ROI=%.1f%%",
+        "キャリブレーションBT完了: %d bets, ROI=%.1f%%",
         train_result.total_bets,
         train_result.total_roi * 100,
     )

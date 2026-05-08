@@ -144,7 +144,22 @@ def _coerce_types(df: pd.DataFrame) -> pd.DataFrame:
     数値に変換できるもののみ変換（文字列固有の列はそのまま）。
     また、ETLで計算される派生列（surface, track_condition_code）が
     存在しない場合はフォールバックで計算する。
+
+    新ETL形式では既に正しい型のため、早期returnで高速化する。
     """
+    if df.empty:
+        return df
+
+    # 新ETL形式では既に正しい型 → 早期return
+    # race_dateがdatetimeで、object型の数値列が存在しない場合はスキップ
+    if "race_date" in df.columns and pd.api.types.is_datetime64_any_dtype(df["race_date"]):
+        object_needing_coercion = [
+            c for c in df.columns
+            if df[c].dtype == object and c not in _STRING_COLUMNS
+        ]
+        if not object_needing_coercion:
+            return df
+
     if "race_date" in df.columns and not pd.api.types.is_datetime64_any_dtype(df["race_date"]):
         df["race_date"] = pd.to_datetime(df["race_date"])
 
