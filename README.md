@@ -137,7 +137,9 @@ python scripts/run_backtest.py \
 | `--skip-train` | flag | False | 学習スキップ (キャッシュモデル使用、`--ensemble`必須) |
 | `--profile` | flag | False | pyinstrumentプロファイリング (`data/profiles/`) |
 | `--strategy-manifest` | str | — | Optuna最適化済みmanifest JSON (`--ensemble`必須) |
+| `--calibration-bt` | flag | False | OddsBandFilter キャリブレーション用軽量BT (直近12ヶ月) |
 
+**キャリブレーションBT:** `--calibration-bt` 指定時のみ直近12ヶ月の軽量BTを実行（~57分、ROI改善）。未指定時はスキップ（~41分）。`--strategy-manifest` とは独立して動作。
 **モード切替:** `--years`指定→マルチ年度、4つのtrain/test指定→単一年度。いずれか必須。
 **出力:** `backtest_result.json`、`data/validation/validation_report.json`、`data/backtest/bt_{year}_*.{csv,parquet}`
 

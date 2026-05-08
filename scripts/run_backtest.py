@@ -107,6 +107,12 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Optuna最適化済み戦略パラメータ manifest JSON (parameter_freeze_protocol形式)",
     )
+    parser.add_argument(
+        "--calibration-bt",
+        action="store_true",
+        default=False,
+        help="OddsBandFilter キャリブレーション用の軽量BTを実行 (直近12ヶ月)",
+    )
     return parser
 
 
@@ -216,14 +222,13 @@ def _collect_training_bet_history(
     betting_mode: str,
     betting_target: str,
     strategy_params: dict[str, Any] | None,
+    run_calibration: bool = False,
 ) -> list[dict[str, Any]]:
     """トレーニング期間のバックテストを実行し、OddsBandFilter キャリブレーション用の
     bet_history を収集する。
 
-    D-01: デフォルト戦略(strategy_params is None)ではキャリブレーションBTを完全スキップ。
-          退化現象(roi_threshold=1.0 + JRA控除率25% → 全バンドROI<1.0 → 空bet_history)を確認済み。
-    D-02: --strategy-manifest使用時(strategy_params is not None)のみ軽量キャリブレーション
-          (直近12ヶ月)を実行。
+    --calibration-bt が指定された場合のみ軽量キャリブレーション (直近12ヶ月) を実行。
+    --strategy-manifest とは独立して動作する。
 
     Args:
         models: 学習済みモデル
@@ -233,16 +238,16 @@ def _collect_training_bet_history(
         betting_mode: ベッティングモード
         betting_target: ベッティング対象
         strategy_params: 戦略パラメータ (None=デフォルト戦略, dict=manifest由来)
+        run_calibration: --calibration-bt フラグ
 
     Returns:
         bet_history list
     """
-    # D-01: デフォルト戦略では完全スキップ (退化現象: Spike 003 VALIDATED)
-    if strategy_params is None:
-        logger.info("デフォルト戦略: キャリブレーションBTスキップ (退化現象 confirmed)")
+    if not run_calibration:
+        logger.info("キャリブレーションBT: スキップ (--calibration-bt 未指定)")
         return []
 
-    # D-02: strategy_manifest使用時のみ軽量キャリブレーション
+    # --calibration-bt 指定時: 直近12ヶ月の軽量キャリブレーションを実行
     from datetime import datetime, timedelta
 
     from backtest.engine import BacktestEngine
@@ -472,6 +477,7 @@ def _run_single_year(args: argparse.Namespace) -> None:
         betting_mode=args.betting_mode,
         betting_target=args.betting_target,
         strategy_params=strategy_params,
+        run_calibration=args.calibration_bt,
     )
 
     # バックテスト
@@ -625,6 +631,7 @@ def _run_multi_year(args: argparse.Namespace) -> None:
             betting_mode=args.betting_mode,
             betting_target=args.betting_target,
             strategy_params=strategy_params,
+            run_calibration=args.calibration_bt,
         )
 
         # バックテスト

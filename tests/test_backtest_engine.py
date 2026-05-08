@@ -2061,7 +2061,7 @@ class TestBacktestOptimizationStages:
     """
 
     def test_calibration_skip_returns_empty_for_default_strategy(self) -> None:
-        """D-01: デフォルト戦略(strategy_params=None)で空リストが返される"""
+        """--calibration-bt 未指定で空リストが返される"""
         from unittest.mock import MagicMock
 
         # _collect_training_bet_historyはscripts/run_backtest.pyにあるため、
@@ -2076,11 +2076,12 @@ class TestBacktestOptimizationStages:
             betting_mode="flat",
             betting_target="win",
             strategy_params=None,
+            run_calibration=False,
         )
         assert result == []
 
     def test_calibration_runs_with_strategy_manifest(self) -> None:
-        """D-02: strategy_manifest使用時に軽量キャリブレーションが実行される"""
+        """--calibration-bt 指定時に軽量キャリブレーションが実行される"""
         from datetime import datetime
         from unittest.mock import MagicMock, patch
 
@@ -2104,6 +2105,7 @@ class TestBacktestOptimizationStages:
                 betting_mode="flat",
                 betting_target="win",
                 strategy_params={"ev_aggressive": 1.1},
+                run_calibration=True,
             )
             assert len(result) > 0
             # 12ヶ月に短縮されていることを確認
