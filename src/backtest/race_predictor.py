@@ -62,7 +62,6 @@ class RacePredictor:
             推論結果列 (EV, ev_lower_corrected等) を追加した DataFrame。
             サーフェスが不明な場合は空 DataFrame を返す。
         """
-        from features.horse_history_features import HorseHistoryFeatures
         from features.interaction_features import compute_interaction_features
 
         if race_df.empty:
@@ -80,7 +79,21 @@ class RacePredictor:
         # 2. HorseHistoryFeatures マージ + race_transforms
         if hist_features is not None:
             df = df.merge(hist_features, on=["race_id", "umaban"], how="left")
-        df = HorseHistoryFeatures.add_race_transforms(df)
+
+        # P3 per-race最適化: 単一race DataFrameの場合、groupby("race_id")不要で直接rank
+        _race_rank_cols = [
+            "norm_finish_logit_avg",
+            "harontimel5_avg",
+            "harontimel5_zscore",
+            "timediff_avg",
+            "jyuni1c_avg",
+            "jyuni4c_avg",
+            "closing_index_avg",
+        ]
+        df = df.copy()
+        for _col in _race_rank_cols:
+            if _col in df.columns:
+                df[f"{_col}_race_rank"] = df[_col].rank(pct=True, method="average")
 
         # 3. interaction_features (kyakusitu_cd が必要なため HorseHistoryFeatures 後)
         df = compute_interaction_features(df)

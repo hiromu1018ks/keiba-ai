@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import logging
 import math
 from typing import TYPE_CHECKING, Optional
 
@@ -23,6 +24,8 @@ import numpy as np
 import pandas as pd
 
 from features.form_cycle_features import compute_form_features
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from db.parquet_store import ParquetStore
@@ -262,6 +265,15 @@ def _compute_haron_stats(
 class HorseHistoryFeatures:
     """馬の過去成績特徴量を計算・管理するクラス。"""
 
+    # P3: クラスレベルキャッシュ — 3回呼び出し間(芝submodel, ダートsubmodel, test BT)で
+    # 前計算結果を共有 (~100s削減)
+    _class_cache: dict[str, tuple[np.ndarray, dict[str, np.ndarray]]] = {}
+
+    @classmethod
+    def clear_class_cache(cls) -> None:
+        """テスト用/終了時: キャッシュをクリア"""
+        cls._class_cache.clear()
+
     BASE_COLS: list[str] = [
         "norm_finish_logit_avg",
         "harontimel5_avg",  # EMA重み付けハロンタイム平均 (halflife=3)
@@ -318,6 +330,23 @@ class HorseHistoryFeatures:
 
             self._races_cache = load_history_races(self.store)
         return self._entries_cache, self._races_cache
+
+    def _get_cached_horse_arrays(
+        self, ketto: str, past_by_ketto_arr: dict[str, dict[str, np.ndarray]],
+    ) -> dict[str, np.ndarray] | None:
+        """インスタンス間でキャッシュを共有 (P3: ~100s削減)
+
+        3回呼び出し(芝submodel, ダートsubmodel, test BT)間で
+        前計算結果を共有する。
+        """
+        cache_key = f"{id(past_by_ketto_arr)}_{ketto}"
+        if cache_key in self._class_cache:
+            _, cached = self._class_cache[cache_key]
+            return cached
+        result = past_by_ketto_arr.get(ketto)
+        if result is not None:
+            self._class_cache[cache_key] = (np.array([]), result)
+        return result
 
     def compute(
         self,
@@ -594,16 +623,16 @@ class HorseHistoryFeatures:
 
         for i, row in enumerate(horses.itertuples(index=False)):
             if i % 200 == 0:
-                print(
-                    f"  HorseHistoryFeatures: {i}/{total} ({i / max(total, 1) * 100:.0f}%)",
-                    flush=True,
+                logger.debug(
+                    "HorseHistoryFeatures: %d/%d (%.0f%%)", i, total,
+                    i / max(total, 1) * 100,
                 )
             race_date = row.race_date
             ketto = row.kettonum
             kisyu = row.kisyucode
 
             # --- Horse features: O(1) lookup + O(log m) searchsorted ---
-            horse_arrs = past_by_ketto_arr.get(ketto)
+            horse_arrs = self._get_cached_horse_arrays(ketto, past_by_ketto_arr)
             target_date_np = np.datetime64(race_date, "ns")
             if horse_arrs is not None and len(horse_arrs.get("race_date", [])) > 0:
                 dates_all = horse_arrs["race_date"].astype("datetime64[ns]")
@@ -1183,7 +1212,7 @@ class HorseHistoryFeatures:
                 }
             )
 
-        print(f"  HorseHistoryFeatures: done ({len(results)} rows)", flush=True)
+        logger.debug("HorseHistoryFeatures: done (%d rows)", len(results))
         return pd.DataFrame(results)
 
     @staticmethod

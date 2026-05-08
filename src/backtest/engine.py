@@ -1299,6 +1299,10 @@ class BacktestEngine:
         except Exception as e:
             logger.warning("Validation report generation failed: %s", e)
 
+        # P3: HorseHistoryFeaturesクラスキャッシュをクリア (メモリリーク防止)
+        from features.horse_history_features import HorseHistoryFeatures
+        HorseHistoryFeatures.clear_class_cache()
+
         return backtest_result
 
     def _settle_bet(self, bet: Bet, race_df: pd.DataFrame) -> float:
