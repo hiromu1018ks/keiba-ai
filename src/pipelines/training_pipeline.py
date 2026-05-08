@@ -217,27 +217,16 @@ class TrainingPipelineV5:
             models[surface] = sub
             logger.info(f"Trained {surface} submodel")
         elif len(surfaces_to_train) >= 2:
-            with ThreadPoolExecutor(max_workers=2) as executor:
-                futures = {
-                    executor.submit(
-                        self._train_submodel,
-                        subset_df,
-                        num_threads=_get_num_threads(2),
-                        use_ensemble=self.use_ensemble,
-                        betting_target=self._betting_target,
-                    ): surface
-                    for surface, subset_df in surfaces_to_train
-                }
-                for future in as_completed(futures):
-                    surface = futures[future]
-                    try:
-                        models[surface] = future.result()
-                        logger.info(f"Trained {surface} submodel (parallel)")
-                    except Exception as e:
-                        import traceback as tb
-
-                        logger.error(f"Failed to train {surface} submodel: {e}\n{tb.format_exc()}")
-                        raise
+            # Sequential training to avoid segfault from LightGBM/XGBoost
+            # native library conflicts under ThreadPoolExecutor
+            for surface, subset_df in surfaces_to_train:
+                sub = self._train_submodel(
+                    subset_df, num_threads=_get_num_threads(1),
+                    use_ensemble=self.use_ensemble,
+                    betting_target=self._betting_target,
+                )
+                models[surface] = sub
+                logger.info(f"Trained {surface} submodel (sequential)")
 
         # 4. feat_df の object 数値列を float64 に統一
         for col in feat_df.columns:
