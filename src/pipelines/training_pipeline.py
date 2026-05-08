@@ -219,9 +219,11 @@ class TrainingPipelineV5:
         elif len(surfaces_to_train) >= 2:
             # Sequential training to avoid segfault from LightGBM/XGBoost
             # native library conflicts under ThreadPoolExecutor
+            # Use same num_threads as parallel mode to maintain model parity
+            num_threads = _get_num_threads(2)
             for surface, subset_df in surfaces_to_train:
                 sub = self._train_submodel(
-                    subset_df, num_threads=_get_num_threads(1),
+                    subset_df, num_threads=num_threads,
                     use_ensemble=self.use_ensemble,
                     betting_target=self._betting_target,
                 )
