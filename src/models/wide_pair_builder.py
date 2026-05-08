@@ -31,7 +31,7 @@ class WideJointPairBuilder:
 
         all_pairs: list[dict[str, Any]] = []
 
-        for _, group in entry_df.groupby("race_id"):
+        for _, group in entry_df.groupby("race_id", observed=True):
             horses = group.sort_values("umaban").reset_index(drop=True)
             n = len(horses)
             if n < 2:

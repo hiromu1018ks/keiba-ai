@@ -122,7 +122,7 @@ def _temporal_drift(
     df_copy["year"] = pd.to_datetime(df_copy[DATE_COLUMN]).dt.year
 
     results: list[dict] = []
-    for year, group in df_copy.groupby("year"):
+    for year, group in df_copy.groupby("year", observed=True):
         pred = pd.to_numeric(group[pred_col], errors="coerce").dropna()
         actual = pd.to_numeric(group[actual_col], errors="coerce").dropna()
         # 共通index

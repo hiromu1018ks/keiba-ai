@@ -75,7 +75,7 @@ class WinBenterGate:
         df["p_win_combined"] = p_combined
 
         # Step 4: Race normalization (D-09, D-10)
-        race_sums = df.groupby("race_id")["p_win_combined"].transform("sum")
+        race_sums = df.groupby("race_id", observed=True)["p_win_combined"].transform("sum")
         df["p_win_final"] = df["p_win_combined"] / race_sums
 
         # Edge calculation

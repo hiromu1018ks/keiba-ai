@@ -163,7 +163,7 @@ class PlaceSelectionGateModel:
         popularity_rank = _numeric_or_nan(df, "popularity_rank")
         odds = _numeric_or_nan(df, "odds")
         favorite_odds = odds.where(popularity_rank.eq(1))
-        favorite_odds = favorite_odds.groupby(df["race_id"]).transform("min")
+        favorite_odds = favorite_odds.groupby(df["race_id"], observed=True).transform("min")
         favorite_prob = pd.Series(np.nan, index=df.index, dtype=float)
         valid = favorite_odds.notna() & favorite_odds.gt(0.0)
         favorite_prob.loc[valid] = 1.0 / favorite_odds.loc[valid]
@@ -517,7 +517,9 @@ class PlaceSelectionGateModel:
             ["race_id", self.SCORE_COL, "place_selection_edge", "place_selection_prob"],
             ascending=[True, False, False, False],
         )
-        candidates = candidates.groupby("race_id", as_index=False, sort=False).head(1)
+        candidates = candidates.groupby(
+            "race_id", as_index=False, sort=False, observed=True
+        ).head(1)
         if candidates.empty:
             return {"roi": 0.0, "profit": 0.0, "max_drawdown": float("inf"), "bets": 0.0}
 
@@ -582,8 +584,10 @@ class PlaceSelectionGateModel:
             prepared[self.SCORE_COL] = self._score_frame(prepared)
 
         scores = _numeric_or_nan(prepared, self.SCORE_COL)
-        ranks = scores.groupby(prepared["race_id"]).rank(method="first", ascending=False)
-        gaps = scores.groupby(prepared["race_id"]).transform("max") - scores
+        ranks = scores.groupby(prepared["race_id"], observed=True).rank(
+            method="first", ascending=False
+        )
+        gaps = scores.groupby(prepared["race_id"], observed=True).transform("max") - scores
         prob = _numeric_or_nan(prepared, "place_selection_prob")
         edge = _numeric_or_nan(prepared, "place_selection_edge")
         odds = _numeric_or_nan(prepared, "fukuoddslow")
@@ -591,19 +595,19 @@ class PlaceSelectionGateModel:
         prepared[self.RANK_COL] = ranks
         prepared[self.GAP_COL] = gaps
         prepared[self.RUNNER_UP_SCORE_COL] = scores.where(ranks.eq(2)).groupby(
-            prepared["race_id"]
+            prepared["race_id"], observed=True
         ).transform("max")
         prepared[self.RUNNER_UP_GAP_COL] = gaps.where(ranks.eq(2)).groupby(
-            prepared["race_id"]
+            prepared["race_id"], observed=True
         ).transform("min")
         prepared[self.RUNNER_UP_PROB_COL] = prob.where(ranks.eq(2)).groupby(
-            prepared["race_id"]
+            prepared["race_id"], observed=True
         ).transform("max")
         prepared[self.RUNNER_UP_EDGE_COL] = edge.where(ranks.eq(2)).groupby(
-            prepared["race_id"]
+            prepared["race_id"], observed=True
         ).transform("max")
         prepared[self.RUNNER_UP_ODDS_COL] = odds.where(ranks.eq(2)).groupby(
-            prepared["race_id"]
+            prepared["race_id"], observed=True
         ).transform("max")
         prepared[self.MARKET_CONDITION_COL] = self._compute_market_condition_score(prepared)
         return prepared
@@ -634,7 +638,7 @@ class PlaceSelectionGateModel:
             ["race_id", self.SCORE_COL, "place_selection_edge", "place_selection_prob"],
             ascending=[True, False, False, False],
         )
-        selected = eligible.groupby("race_id", as_index=False, sort=False).head(1)
+        selected = eligible.groupby("race_id", as_index=False, sort=False, observed=True).head(1)
         return prepared.index.isin(selected.index)
 
     def _fit_add_second_reranker(self, oof_scored: pd.DataFrame) -> None:
@@ -859,7 +863,7 @@ class PlaceSelectionGateModel:
         prepared[self.AGGRESSIVE_STRENGTH_COL] = self._runner_up_strength(prepared)
 
         strong_runner_up = self._runner_up_hard_mask(prepared, max_odds=self.add_second_max_odds)
-        strong_race = strong_runner_up.groupby(prepared["race_id"]).transform("max")
+        strong_race = strong_runner_up.groupby(prepared["race_id"], observed=True).transform("max")
         prepared[self.AGGRESSIVE_TIER_COL] = np.where(strong_race, "strong", "weak")
         return prepared
 
@@ -973,7 +977,9 @@ class PlaceSelectionGateModel:
             ["race_id", self.SCORE_COL, "place_selection_edge", "place_selection_prob"],
             ascending=[True, False, False, False],
         )
-        selected = eligible.groupby("race_id", as_index=False, sort=False).head(max_per_race)
+        selected = eligible.groupby(
+            "race_id", as_index=False, sort=False, observed=True
+        ).head(max_per_race)
         return prepared.index.isin(selected.index)
 
     def save(self, path: Path) -> None:

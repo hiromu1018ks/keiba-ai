@@ -125,7 +125,7 @@ class MarketModel:
         # レース内相対ランク (NaN対応: nullable int)
         df["market_error_rank_in_race"] = (
             df["market_log_error_win"]
-            .groupby(df["race_id"])
+            .groupby(df["race_id"], observed=True)
             .rank(method="first", ascending=True)
             .astype("Int64")
         )
@@ -204,7 +204,7 @@ class MarketModel:
         # レース内相対ランク
         df["market_error_rank_in_race"] = (
             df["market_log_error_win"]
-            .groupby(df["race_id"])
+            .groupby(df["race_id"], observed=True)
             .rank(method="first", ascending=True)
             .astype("Int64")
         )

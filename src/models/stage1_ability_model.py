@@ -161,7 +161,7 @@ class AbilityModel:
 
             # ラベル: 1着=3, 2着=2, 3着=1, 4着以降=0
             y = key_df["kakuteijyuni"].apply(lambda x: max(0, 4 - x) if x > 0 else 0)
-            groups = key_df.groupby("race_id").size().values
+            groups = key_df.groupby("race_id", observed=True).size().values
             n_groups = len(groups)
 
             if early_stopping and n_groups >= 2:
@@ -235,7 +235,7 @@ class AbilityModel:
             df.loc[mask, "_raw_score"] = raw_scores
             log_sum_exp = (
                 df.loc[mask, "_raw_score"]
-                .groupby(df.loc[mask, "race_id"])
+                .groupby(df.loc[mask, "race_id"], observed=True)
                 .transform(lambda s: np.log(np.exp(s - s.max()).sum()) + s.max())
             )
             df.loc[mask, "p_ability_win"] = np.exp(df.loc[mask, "_raw_score"] - log_sum_exp)

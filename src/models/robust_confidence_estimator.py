@@ -69,7 +69,7 @@ class RobustConfidenceEstimator:
 
             # Race-condition-dependent CP quantile (SELC-02)
             if "surface" in win_df.columns and "distance_bin" in win_df.columns:
-                for (surf, dist), group in win_df[win_mask].groupby(["surface", "distance_bin"]):
+                for (surf, dist), group in win_df[win_mask].groupby(["surface", "distance_bin"], observed=True):
                     if len(group) >= 30:
                         group_residuals = (win_actual.loc[group.index] - win_pred.loc[group.index]).abs()
                         self._win_cp_quantile_by_condition[f"{surf}_{dist}"] = float(
@@ -206,7 +206,7 @@ class RobustConfidenceEstimator:
         # Score = EV_lower_80 * (1 - normalized_width)
         interval_width = (upper - lower).clip(lower=1e-6)
         if "race_id" in win_df.columns:
-            max_width = interval_width.groupby(win_df["race_id"]).transform("max").clip(lower=1e-6)
+            max_width = interval_width.groupby(win_df["race_id"], observed=True).transform("max").clip(lower=1e-6)
             normalized_width = (interval_width / max_width).clip(0.0, 1.0)
         else:
             max_width = interval_width.max()

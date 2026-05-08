@@ -161,7 +161,7 @@ def build_payout_map(
     combined["pay_100"] = combined["pay"] / 100.0
 
     # 同一 (race_id, umaban) の最大値を保持
-    idx = combined.groupby(["race_id", "umaban"])["pay_100"].idxmax()
+    idx = combined.groupby(["race_id", "umaban"], observed=True)["pay_100"].idxmax()
     deduped = combined.loc[idx]
 
     payout_map: dict[tuple[str, int], float] = {}
@@ -312,7 +312,7 @@ def build_wide_payout_map(
     combined = combined.drop(columns=["_lo", "_hi", "kumi"])
 
     # Keep max payout per key
-    idx = combined.groupby(["race_id", "lo", "hi"])["pay_100"].idxmax()
+    idx = combined.groupby(["race_id", "lo", "hi"], observed=True)["pay_100"].idxmax()
     deduped = combined.loc[idx]
 
     wide_payout_map: dict[tuple[str, int, int], float] = {}
@@ -339,7 +339,7 @@ def build_race_groups(
         logger.warning("[%s] empty DataFrame, returning empty dict", name)
         return {}
     groups: dict[str, pd.DataFrame] = {}
-    for key, group in df.groupby(group_col):
+    for key, group in df.groupby(group_col, observed=True):
         groups[str(key)] = group
     empty_count = sum(1 for g in groups.values() if g.empty)
     if empty_count > 0:

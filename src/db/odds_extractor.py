@@ -120,7 +120,7 @@ def extract_pre_post_odds(
         return pd.DataFrame(columns=_OUTPUT_COLS)
 
     # 4. (race_id, umaban) ごとに最新エントリを取得
-    idx = filtered.groupby(["race_id", "umaban"])["_ht_datetime"].idxmax()
+    idx = filtered.groupby(["race_id", "umaban"], observed=True)["_ht_datetime"].idxmax()
     snapshot = filtered.loc[idx]
 
     # 5. 列名正規化して返す (ninki → tanninki)

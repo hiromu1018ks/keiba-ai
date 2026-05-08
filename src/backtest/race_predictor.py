@@ -230,11 +230,13 @@ class RacePredictor:
         race_df: pd.DataFrame,
     ) -> tuple[pd.Series, pd.Series]:
         gate_scores = pd.to_numeric(race_df["place_gate_score"], errors="coerce")
-        score_rank = gate_scores.groupby(race_df["race_id"]).rank(
+        score_rank = gate_scores.groupby(race_df["race_id"], observed=True).rank(
             method="first",
             ascending=False,
         )
-        score_gap = gate_scores.groupby(race_df["race_id"]).transform("max") - gate_scores
+        score_gap = (
+            gate_scores.groupby(race_df["race_id"], observed=True).transform("max") - gate_scores
+        )
         return score_rank, score_gap
 
     @staticmethod
@@ -242,7 +244,7 @@ class RacePredictor:
         if column not in race_df.columns:
             return pd.Series(np.nan, index=race_df.index, dtype=float)
         values = pd.to_numeric(race_df[column], errors="coerce")
-        return values.groupby(race_df["race_id"]).transform("first")
+        return values.groupby(race_df["race_id"], observed=True).transform("first")
 
     @staticmethod
     def _favorite_implied_prob(race_df: pd.DataFrame) -> pd.Series:
@@ -253,7 +255,7 @@ class RacePredictor:
         popularity_rank = pd.to_numeric(race_df["popularity_rank"], errors="coerce")
         odds = pd.to_numeric(race_df["odds"], errors="coerce")
         favorite_odds = odds.where(popularity_rank.eq(1))
-        favorite_odds = favorite_odds.groupby(race_df["race_id"]).transform("min")
+        favorite_odds = favorite_odds.groupby(race_df["race_id"], observed=True).transform("min")
         favorite_prob = pd.Series(np.nan, index=race_df.index, dtype=float)
         valid_favorite = favorite_odds.notna() & favorite_odds.gt(0.0)
         favorite_prob.loc[valid_favorite] = 1.0 / favorite_odds.loc[valid_favorite]
