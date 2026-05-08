@@ -1,0 +1,38 @@
+{
+  "mlflow_pip": {
+    "default_avg_seconds": 4.377,
+    "explicit_avg_seconds": 0.076,
+    "per_call_saving_seconds": 4.301,
+    "total_saving_26_calls_seconds": 111.8,
+    "default_runs": [
+      7.578,
+      2.786,
+      2.769
+    ],
+    "explicit_runs": [
+      0.079,
+      0.077,
+      0.073
+    ]
+  },
+  "odds_caching": {
+    "odds/jodds_tanpuku": {
+      "rows": 83590960,
+      "size_mb": 62209.3,
+      "cold_load_seconds": 23.17,
+      "saving_if_cached_2x": 46.34
+    },
+    "odds/time_series": {
+      "rows": 286787244,
+      "size_mb": 50871.3,
+      "cold_load_seconds": 81.26,
+      "saving_if_cached_2x": 162.51
+    },
+    "odds/snapshots": {
+      "rows": 468171,
+      "size_mb": 46.9,
+      "cold_load_seconds": 2.01,
+      "saving_if_cached_2x": 4.01
+    }
+  }
+}

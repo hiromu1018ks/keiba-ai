@@ -1,0 +1,39 @@
+{
+  "mlflow_pip": {
+    "error": "file://C:\\Users\\hirom\\AppData\\Local\\Temp\\tmpo9m6m1cc/mlruns is not a valid remote uri. For remote access on windows, please consider using a different scheme such as SMB (e.g. smb://<hostname>/<path>)."
+  },
+  "coerce_types": {
+    "old_etl_seconds": 0.0361,
+    "new_etl_seconds": 0.0077,
+    "can_skip_coerce": true,
+    "potential_saving_per_call": 0.0284,
+    "calls_per_backtest": 6,
+    "total_saving": 0.1705
+  },
+  "data_caching": {
+    "raw/races": {
+      "rows": 69094,
+      "cold_seconds": 0.256,
+      "warm_seconds": 0.214,
+      "cached_seconds": 0.021059,
+      "cold_to_warm_speedup": 1.2,
+      "cold_to_cached_speedup": 12.0
+    },
+    "raw/entries": {
+      "rows": 852216,
+      "cold_seconds": 1.324,
+      "warm_seconds": 1.299,
+      "cached_seconds": 0.129781,
+      "cold_to_warm_speedup": 1.0,
+      "cold_to_cached_speedup": 10.0
+    },
+    "raw/payouts": {
+      "rows": 38835,
+      "cold_seconds": 0.236,
+      "warm_seconds": 0.23,
+      "cached_seconds": 0.023504,
+      "cold_to_warm_speedup": 1.0,
+      "cold_to_cached_speedup": 10.0
+    }
+  }
+}

@@ -488,16 +488,21 @@ def _run_single_year(args: argparse.Namespace) -> None:
         betting_target=args.betting_target,
     )
 
-    # 出力
+    # 常に data/backtest/backtest_result.json に保存
+    output_dir = Path(ROOT) / "data" / "backtest"
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    result_path = output_dir / "backtest_result.json"
+    result_path.write_text(json.dumps(out, indent=2, ensure_ascii=False), encoding="utf-8")
+    print(f"\n結果保存: {result_path}")
+
+    # --report 時の追加出力 (HTMLレポート, parquet, bet_history 等)
     if args.report:
         from backtest.report import BacktestReportGenerator
 
-        output_dir = Path(ROOT) / "data" / "backtest"
-        output_dir.mkdir(parents=True, exist_ok=True)
-
         gen = BacktestReportGenerator(output_dir=output_dir)
         bet_history_path = gen.save_bet_history(result.bet_history)
-        print(f"\nbet_history保存: {bet_history_path}")
+        print(f"bet_history保存: {bet_history_path}")
 
         if args.betting_target == "win":
             diag_path = gen.save_ai_diagnostics(
@@ -507,10 +512,6 @@ def _run_single_year(args: argparse.Namespace) -> None:
             )
             if diag_path:
                 print(f"AI診断JSON: {diag_path}")
-
-        result_path = output_dir / "backtest_result.json"
-        result_path.write_text(json.dumps(out, indent=2, ensure_ascii=False), encoding="utf-8")
-        print(f"結果保存: {result_path}")
 
         report_path = gen.generate(
             result,
@@ -522,11 +523,6 @@ def _run_single_year(args: argparse.Namespace) -> None:
         print(f"レポート生成: {report_path}")
 
         save_year_parquet(test_year, result)
-    else:
-        outpath = os.path.join(ROOT, "backtest_result.json")
-        with open(outpath, "w", encoding="utf-8") as f:
-            json.dump(out, f, indent=2, ensure_ascii=False)
-        print(f"\n結果保存: {outpath}")
 
 
 def _run_multi_year(args: argparse.Namespace) -> None:
@@ -673,42 +669,43 @@ def _run_multi_year(args: argparse.Namespace) -> None:
     print(f"  最良年度:  {best_year} ({all_results[best_year].total_roi:.1%})")
     print(f"  最悪年度:  {worst_year} ({all_results[worst_year].total_roi:.1%})")
 
-    # --report 時の出力
-    if args.report:
-        output_dir = Path(ROOT) / "data" / "backtest"
-        output_dir.mkdir(parents=True, exist_ok=True)
+    # 常に multi_year_result.json を出力 (--report の有無に関わらない)
+    output_dir = Path(ROOT) / "data" / "backtest"
+    output_dir.mkdir(parents=True, exist_ok=True)
 
+    json_data: dict[str, Any] = {
+        "overall": {
+            "total_bets": total_bets,
+            "total_stake": total_stake,
+            "total_return": total_return,
+            "profit": total_profit,
+            "roi": total_roi,
+            "best_year": best_year,
+            "worst_year": worst_year,
+        },
+        "years": {},
+    }
+    for year, r in all_results.items():
+        json_data["years"][str(year)] = {
+            "total_bets": r.total_bets,
+            "total_stake": r.total_stake,
+            "total_return": r.total_return,
+            "roi": r.total_roi,
+            "profit": r.profit,
+            "max_drawdown": r.max_drawdown,
+            "metadata": all_metadata[year],
+        }
+    json_path = output_dir / "multi_year_result.json"
+    json_path.write_text(json.dumps(json_data, indent=2, ensure_ascii=False), encoding="utf-8")
+    print(f"\n  JSON保存: {json_path}")
+
+    # --report 時の追加出力 (HTMLレポート, bet_history 等)
+    if args.report:
         from backtest.report import MultiYearReportGenerator
 
         gen = MultiYearReportGenerator(output_dir=output_dir)
         report_path = gen.generate(all_results, all_metadata, betting_target=args.betting_target)
-        print(f"\n  レポート生成: {report_path}")
-
-        json_data: dict[str, Any] = {
-            "overall": {
-                "total_bets": total_bets,
-                "total_stake": total_stake,
-                "total_return": total_return,
-                "profit": total_profit,
-                "roi": total_roi,
-                "best_year": best_year,
-                "worst_year": worst_year,
-            },
-            "years": {},
-        }
-        for year, r in all_results.items():
-            json_data["years"][str(year)] = {
-                "total_bets": r.total_bets,
-                "total_stake": r.total_stake,
-                "total_return": r.total_return,
-                "roi": r.total_roi,
-                "profit": r.profit,
-                "max_drawdown": r.max_drawdown,
-                "metadata": all_metadata[year],
-            }
-        json_path = output_dir / "multi_year_result.json"
-        json_path.write_text(json.dumps(json_data, indent=2, ensure_ascii=False), encoding="utf-8")
-        print(f"  JSON保存: {json_path}")
+        print(f"  レポート生成: {report_path}")
 
         all_bets: list[dict[str, Any]] = []
         for year, r in all_results.items():

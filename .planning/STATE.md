@@ -3,9 +3,9 @@ gsd_state_version: 1.0
 milestone: v1.5
 milestone_name: Model Accuracy Improvement
 status: ready_to_plan
-stopped_at: Phase 19 planned
-last_updated: "2026-05-07T11:58:23.977Z"
-last_activity: 2026-05-07 -- Phase 19 execution started
+stopped_at: Phase 19.1 inserted
+last_updated: "2026-05-08T00:00:00.000Z"
+last_activity: 2026-05-08 -- Phase 19.1 inserted (URGENT)
 progress:
   total_phases: 4
   completed_phases: 1
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-05-07)
 
 **Core value:** 単勝モデルのバックテストROIを100%超えにすること
-**Current focus:** Phase 19 — ev-calibration
+**Current focus:** Phase 19.1 — backtest-speedup-optimization (INSERTED)
 
 ## Current Position
 
-Phase: 20
+Phase: 19.1
 Plan: Not started
 Status: Ready to plan
-Last activity: 2026-05-07
+Last activity: 2026-05-08
 
 Progress: [==============    ] 82%
 
@@ -71,7 +71,11 @@ Historical decisions archived in:
 
 ### Blockers/Concerns
 
-None — ready to start Phase 19
+None — ready to start Phase 19.1
+
+### Roadmap Evolution
+
+- Phase 19.1 inserted after Phase 19 (URGENT) — spikeで特定したバックテスト実行時間ボトルネック改善
 
 ## Deferred Items
 
@@ -85,5 +89,5 @@ Items acknowledged and deferred at milestone close:
 
 ## Session Continuity
 
-Last session: 2026-05-07T12:00:00.000Z
-Stopped at: Phase 19 planned
+Last session: 2026-05-08T00:00:00.000Z
+Stopped at: Phase 19.1 inserted

@@ -196,6 +196,15 @@ Plans:
   2. 高オッズ帯(20+)のEV過大評価倍率が2.08から1.2以下に改善
   3. 全セグメントのEV過大評価倍率が1.0±0.2に収束
 
+### Phase 19.1: バックテスト高速化（Spike 002ボトルネック改善） (INSERTED)
+
+**Goal**: Spike 002で特定したバックテスト実行時間ボトルネック（特徴量計算・学習・推論）を改善し、run_backtest.pyの実行時間を半減させる
+**Depends on**: Phase 19 (v1.5 EV calibration complete)
+**Plans**: Not planned yet
+
+Plans:
+- [ ] TBD
+
 ### Phase 20: 高オッズ的中パターン特徴量
 
 **Goal**: 高オッズ帯(20+)の的中率を2.1%から3%+に引き上げる新特徴量を追加し、AbilityModelとWinTwoStageModelに統合する
@@ -272,6 +281,7 @@ Phases execute in numeric order: 14 → 15 → 16 → 17 → 18
 | 17. Optuna Optimization | v1.4 | 2/2 | Complete    | 2026-05-06 |
 | 18. Validation & Freeze | v1.4 | 2/2 | Complete | 2026-05-07 |
 | 19. EV推定キャリブレーション | v1.5 | 2/2 | Complete    | 2026-05-07 |
+| 19.1. バックテスト高速化 | v1.5 | 0/? | Inserted | — |
 | 20. 高オッズ的中パターン特徴量 | v1.5 | 0/3 | Active | — |
 | 21. Conformal EV予測区間 | v1.5 | 0/2 | Active | — |
 | 22. 統合検証とバックテスト | v1.5 | 0/1 | Active | — |
