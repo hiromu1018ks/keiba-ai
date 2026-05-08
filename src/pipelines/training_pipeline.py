@@ -891,7 +891,10 @@ class TrainingPipelineV5:
         # --- WinSelectionGate training (SELC-01, D-01) ---
         with TimingContext(f"{surface}/win_selection_gate"):
             wsg_train_df = df_oof.copy()
-            wsg_win_df, _ = conf.predict_lower_bound(df_oof.copy(), df_oof.copy())
+            wsg_place_df = df_oof.copy()
+            if "ev_place_corrected" not in wsg_place_df.columns:
+                wsg_place_df["ev_place_corrected"] = 0.0
+            wsg_win_df, _ = conf.predict_lower_bound(df_oof.copy(), wsg_place_df)
             if "EV_lower_win_corrected" in wsg_win_df.columns:
                 wsg_train_df["EV_lower_win_corrected"] = wsg_win_df["EV_lower_win_corrected"].values
             wsg_train_df = ensure_win_selection_columns(wsg_train_df)
