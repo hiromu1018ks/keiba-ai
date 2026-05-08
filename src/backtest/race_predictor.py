@@ -107,7 +107,8 @@ class RacePredictor:
             logger.error("Market prediction failed: %s\n%s", e, traceback.format_exc())
             return pd.DataFrame()
         df = submodel.stage1.add_ability_probs(df)
-        df = submodel.place_ability.predict(df)
+        if submodel.place_ability is not None:
+            df = submodel.place_ability.predict(df)
         # ODDS-01: deviation features (after AbilityModel, before WinTwoStageModel)
         from features.odds_deviation_features import compute_odds_deviation_features
         df = compute_odds_deviation_features(df)
@@ -155,82 +156,82 @@ class RacePredictor:
             if callable(win_annotate):
                 df = win_annotate(df)
 
-        df = submodel.place.predict_ev(df)
+        if submodel.place is not None:
+            df = submodel.place.predict_ev(df)
         # place_ev_corrector: 補正EVと下限EVの両方をベット選択に使う
-        df = submodel.place_ev_corrector.correct_ev(df)
+        if submodel.place_ev_corrector is not None:
+            df = submodel.place_ev_corrector.correct_ev(df)
 
         # 7. 信頼区間 (ODDS-03: predict_interval for EV上下区間 + conformal_confidence_score)
+        # place model が無い場合は ev_place_corrected 列を dummy で補完
+        if "ev_place_corrected" not in df.columns:
+            df["ev_place_corrected"] = 0.0
         win_df, place_df = submodel.confidence.predict_interval(df, df)
         df = win_df
         if "EV_lower_place" in place_df.columns:
             df["EV_lower_place"] = place_df["EV_lower_place"].reindex(df.index).values
 
-        # --- Benter Combination + Isotonic Calibration ---
-        # p_place_pred は fundamental model 出力 (オッズ特徴量なし)
-        # Benter: logit(p_c) = alpha*logit(p_fund) + beta*logit(p_market) + gamma
-        p_market = np.where(
-            df["fukuoddslow"] > 0,
-            1.0 / df["fukuoddslow"],
-            np.nan,
-        )
-        df["p_market"] = p_market
-
-        benter = submodel.benter_combo
-        if benter is not None:
-            p_market_clipped = np.clip(
-                np.where(df["fukuoddslow"] > 0, 1.0 / df["fukuoddslow"], 0.5),
-                0.01,
-                0.99,
+        # --- Place推論ブロック (place model がある場合のみ) ---
+        if submodel.place is not None:
+            # --- Benter Combination + Isotonic Calibration ---
+            # p_place_pred は fundamental model 出力 (オッズ特徴量なし)
+            # Benter: logit(p_c) = alpha*logit(p_fund) + beta*logit(p_market) + gamma
+            p_market = np.where(
+                df["fukuoddslow"] > 0,
+                1.0 / df["fukuoddslow"],
+                np.nan,
             )
-            df["p_place_combined"] = benter.combine(df["p_place_pred"].values, p_market_clipped)
+            df["p_market"] = p_market
 
-            # Isotonic calibration (optional post-processing)
-            # v5.6: Isotonic post-Benter is too aggressive (pushes mean 0.224 vs true ~0.375).
-            # Benter combination already calibrates; skip additional isotonic correction.
-            # cal = submodel.isotonic_calibrator
-            # if cal is not None:
-            #     df["p_place_combined"] = cal.transform(df["p_place_combined"])
+            benter = submodel.benter_combo
+            if benter is not None:
+                p_market_clipped = np.clip(
+                    np.where(df["fukuoddslow"] > 0, 1.0 / df["fukuoddslow"], 0.5),
+                    0.01,
+                    0.99,
+                )
+                df["p_place_combined"] = benter.combine(df["p_place_pred"].values, p_market_clipped)
 
-            # v5: Temperature Scaling (optional post-isotonic)
-            temp = submodel.temperature_scaler
-            if temp is not None:
-                df["p_place_combined"] = temp.transform(df["p_place_combined"])
-        else:
-            # フォールバック: Benter なし → raw p_place_pred を使用
-            df["p_place_combined"] = df["p_place_pred"]
+                # v5: Temperature Scaling (optional post-isotonic)
+                temp = submodel.temperature_scaler
+                if temp is not None:
+                    df["p_place_combined"] = temp.transform(df["p_place_combined"])
+            else:
+                # フォールバック: Benter なし → raw p_place_pred を使用
+                df["p_place_combined"] = df["p_place_pred"]
 
-        # Edge = p_combined * odds - 1.0
-        p_combined = pd.to_numeric(df["p_place_combined"], errors="coerce")
-        df["p_place_combined"] = p_combined
-        df["edge_place"] = p_combined * df["fukuoddslow"] - 1.0
-        df["ev_place_direct"] = p_combined * df["fukuoddslow"]
+            # Edge = p_combined * odds - 1.0
+            p_combined = pd.to_numeric(df["p_place_combined"], errors="coerce")
+            df["p_place_combined"] = p_combined
+            df["edge_place"] = p_combined * df["fukuoddslow"] - 1.0
+            df["ev_place_direct"] = p_combined * df["fukuoddslow"]
 
-        # Corrected edge from PlaceEVCorrectionModel (if available)
-        if "ev_place_corrected" in df.columns:
-            df["edge_place_corrected"] = df["ev_place_corrected"] - 1.0
-        if "EV_lower_place" in df.columns:
-            df["edge_place_lower"] = pd.to_numeric(df["EV_lower_place"], errors="coerce") - 1.0
+            # Corrected edge from PlaceEVCorrectionModel (if available)
+            if "ev_place_corrected" in df.columns:
+                df["edge_place_corrected"] = df["ev_place_corrected"] - 1.0
+            if "EV_lower_place" in df.columns:
+                df["edge_place_lower"] = pd.to_numeric(df["EV_lower_place"], errors="coerce") - 1.0
 
-        selection_ev = self._build_place_selection_ev(df)
-        df["place_selection_ev"] = selection_ev
-        df["place_selection_edge"] = selection_ev - 1.0
-        if "p_place_corrected" in df.columns:
-            selection_prob = pd.to_numeric(df["p_place_corrected"], errors="coerce")
-        elif "p_place_combined" in df.columns:
-            selection_prob = pd.to_numeric(df["p_place_combined"], errors="coerce")
-        else:
-            selection_prob = pd.to_numeric(df.get("p_place_pred"), errors="coerce")
-        df["place_selection_prob"] = selection_prob
-        gate_model = getattr(submodel, "place_selection_gate", None)
-        gate_enabled = bool(
-            gate_model is not None and getattr(gate_model, "is_trained", False) is True
-        )
-        if gate_enabled:
-            assert gate_model is not None
-            df = gate_model.score(df)
-            annotate_race_context = getattr(gate_model, "annotate_race_context", None)
-            if callable(annotate_race_context):
-                df = annotate_race_context(df)
+            selection_ev = self._build_place_selection_ev(df)
+            df["place_selection_ev"] = selection_ev
+            df["place_selection_edge"] = selection_ev - 1.0
+            if "p_place_corrected" in df.columns:
+                selection_prob = pd.to_numeric(df["p_place_corrected"], errors="coerce")
+            elif "p_place_combined" in df.columns:
+                selection_prob = pd.to_numeric(df["p_place_combined"], errors="coerce")
+            else:
+                selection_prob = pd.to_numeric(df.get("p_place_pred"), errors="coerce")
+            df["place_selection_prob"] = selection_prob
+            gate_model = getattr(submodel, "place_selection_gate", None)
+            gate_enabled = bool(
+                gate_model is not None and getattr(gate_model, "is_trained", False) is True
+            )
+            if gate_enabled:
+                assert gate_model is not None
+                df = gate_model.score(df)
+                annotate_race_context = getattr(gate_model, "annotate_race_context", None)
+                if callable(annotate_race_context):
+                    df = annotate_race_context(df)
 
         return df
 

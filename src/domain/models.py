@@ -230,17 +230,19 @@ class SubmodelSet:
     """サブモデル（芝/ダート）のセット
 
     TrainingPipelineV5 が各 surface ごとに生成する。
+    place_ability, place, place_ev_corrector, wide は betting_target に応じて
+    None の場合がある (win-only モード等)。
     """
 
     market: MarketModel
     stage1: AbilityModel
-    place_ability: PlaceAbilityModel
     win: WinTwoStageModel
     ev_corrector: EVCorrectionModel
-    place: PlaceTwoStageModel
-    place_ev_corrector: PlaceEVCorrectionModel
-    wide: WideTwoStageModel
     confidence: RobustConfidenceEstimator
+    place_ability: PlaceAbilityModel | None = None
+    place: PlaceTwoStageModel | None = None
+    place_ev_corrector: PlaceEVCorrectionModel | None = None
+    wide: WideTwoStageModel | None = None
     place_selection_gate: PlaceSelectionGateModel | None = None
     use_ensemble: bool = False
     benter_combo: BenterCombination | None = None

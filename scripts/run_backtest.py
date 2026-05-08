@@ -448,7 +448,11 @@ def _run_single_year(args: argparse.Namespace) -> None:
 
         pipeline = TrainingPipelineV5(store=store, model_dir=model_dir)
         try:
-            models = pipeline.run(train_start, train_end, use_ensemble=args.ensemble)
+            models = pipeline.run(
+                train_start, train_end,
+                use_ensemble=args.ensemble,
+                betting_target=args.betting_target,
+            )
         except KeyboardInterrupt:
             logger.warning("学習が中断されました")
             sys.exit(1)
@@ -599,7 +603,11 @@ def _run_multi_year(args: argparse.Namespace) -> None:
                 from pipelines.training_pipeline import TrainingPipelineV5
 
                 pipeline = TrainingPipelineV5(store=store, model_dir=year_model_dir)
-                models = pipeline.run(train_start, train_end, use_ensemble=args.ensemble)
+                models = pipeline.run(
+                    train_start, train_end,
+                    use_ensemble=args.ensemble,
+                    betting_target=args.betting_target,
+                )
             except KeyboardInterrupt:
                 logger.warning("中断されました")
                 sys.exit(1)

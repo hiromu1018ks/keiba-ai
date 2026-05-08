@@ -85,7 +85,12 @@ class TrainingPipelineV5:
         return date_str.replace("-", "")
 
     def run(
-        self, train_start: str, train_end: str, *, use_ensemble: bool = False
+        self,
+        train_start: str,
+        train_end: str,
+        *,
+        use_ensemble: bool = False,
+        betting_target: str = "place",
     ) -> TrainedModelsV5:
         """全モデルを学習し TrainedModelsV5 を返す
 
@@ -93,11 +98,13 @@ class TrainingPipelineV5:
             train_start: 学習開始日 (YYYY-MM-DD)
             train_end: 学習終了日 (YYYY-MM-DD)
             use_ensemble: アンサンブル (B1) を有効化
+            betting_target: "win"/"place"/"wide" — 不要なモデルの学習をスキップ
 
         Returns:
             学習済みモデルのコンテナ
         """
         self.use_ensemble = use_ensemble
+        self._betting_target = betting_target
         start = self._to_yyyymmdd(train_start)
         end = self._to_yyyymmdd(train_end)
 
@@ -203,7 +210,9 @@ class TrainingPipelineV5:
             # Single surface — no parallelism needed
             surface, subset_df = surfaces_to_train[0]
             sub = self._train_submodel(
-                subset_df, num_threads=_get_num_threads(1), use_ensemble=self.use_ensemble
+                subset_df, num_threads=_get_num_threads(1),
+                use_ensemble=self.use_ensemble,
+                betting_target=self._betting_target,
             )
             models[surface] = sub
             logger.info(f"Trained {surface} submodel")
@@ -215,6 +224,7 @@ class TrainingPipelineV5:
                         subset_df,
                         num_threads=_get_num_threads(2),
                         use_ensemble=self.use_ensemble,
+                        betting_target=self._betting_target,
                     ): surface
                     for surface, subset_df in surfaces_to_train
                 }
@@ -325,7 +335,12 @@ class TrainingPipelineV5:
         return threshold
 
     def _train_submodel(
-        self, df: pd.DataFrame, *, num_threads: int = 0, use_ensemble: bool = False
+        self,
+        df: pd.DataFrame,
+        *,
+        num_threads: int = 0,
+        use_ensemble: bool = False,
+        betting_target: str = "place",
     ) -> SubmodelSet:
         """単一 surface のサブモデル群を学習"""
         if num_threads <= 0:
@@ -579,44 +594,52 @@ class TrainingPipelineV5:
             )
 
         # 5. 複勝 2段階モデル
-        place_2s = PlaceTwoStageModel()
-        if use_ensemble:
-            from models.stacked_ensemble import StackedEnsemble
+        place_2s: PlaceTwoStageModel | None = None
+        if betting_target != "win":
+            place_2s = PlaceTwoStageModel()
+            if use_ensemble:
+                from models.stacked_ensemble import StackedEnsemble
 
-            with TimingContext(f"{surface}/place_hit_ensemble"):
-                features = place_2s._prepare_features(df_oof, use_cols=place_2s.HIT_FEATURE_COLS)
-                y = (df_oof["kakuteijyuni"] <= 3).astype(int)
-                split = int(len(features) * 0.8)
-                ensemble_place = StackedEnsemble(cat_cols=["surface", "distance_bin", "grade_code"])
-                ensemble_place.train(
-                    features.iloc[:split],
-                    y.iloc[:split],
-                    features.iloc[split:],
-                    y.iloc[split:],
-                    num_threads=num_threads,
-                )
-                place_2s.hit_model = ensemble_place
-                # バリデーション予測を保存 (Benter combination + isotonic fitting 用)
-                ensemble_val_pred = ensemble_place.predict(features.iloc[split:])
-                place_2s._val_p_raw = ensemble_val_pred
-                place_2s._val_y = y.iloc[split:].values
-                place_2s._val_fukuoddslow = df_oof["fukuoddslow"].iloc[split:].values
+                with TimingContext(f"{surface}/place_hit_ensemble"):
+                    features = place_2s._prepare_features(df_oof, use_cols=place_2s.HIT_FEATURE_COLS)
+                    y = (df_oof["kakuteijyuni"] <= 3).astype(int)
+                    split = int(len(features) * 0.8)
+                    ensemble_place = StackedEnsemble(cat_cols=["surface", "distance_bin", "grade_code"])
+                    ensemble_place.train(
+                        features.iloc[:split],
+                        y.iloc[:split],
+                        features.iloc[split:],
+                        y.iloc[split:],
+                        num_threads=num_threads,
+                    )
+                    place_2s.hit_model = ensemble_place
+                    # バリデーション予測を保存 (Benter combination + isotonic fitting 用)
+                    ensemble_val_pred = ensemble_place.predict(features.iloc[split:])
+                    place_2s._val_p_raw = ensemble_val_pred
+                    place_2s._val_y = y.iloc[split:].values
+                    place_2s._val_fukuoddslow = df_oof["fukuoddslow"].iloc[split:].values
+            else:
+                # PITリーク防止: PlaceTwoStageModel 学習前にソート
+                if "race_date" in df_oof.columns:
+                    df_oof = df_oof.sort_values("race_date").reset_index(drop=True)
+                with TimingContext(f"{surface}/place_hit"):
+                    place_2s.train_hit_model(df_oof, num_threads=num_threads)
+            with TimingContext(f"{surface}/place_return"):
+                place_2s.train_return_model(df_oof, num_threads=num_threads)
+            with TimingContext(f"{surface}/place_predict"):
+                df_oof = place_2s.predict_ev(df_oof)
         else:
-            # PITリーク防止: PlaceTwoStageModel 学習前にソート
-            if "race_date" in df_oof.columns:
-                df_oof = df_oof.sort_values("race_date").reset_index(drop=True)
-            with TimingContext(f"{surface}/place_hit"):
-                place_2s.train_hit_model(df_oof, num_threads=num_threads)
-        with TimingContext(f"{surface}/place_return"):
-            place_2s.train_return_model(df_oof, num_threads=num_threads)
-        with TimingContext(f"{surface}/place_predict"):
-            df_oof = place_2s.predict_ev(df_oof)
+            logger.info("Skipping place model training for %s (betting_target=win)", surface)
 
         # 5b. Benter Combination + Isotonic Calibration + Temperature Scaling
         benter_combo = None
         isotonic_cal = None
         temp_scaler = None
-        if hasattr(place_2s, "_val_p_raw") and len(place_2s._val_p_raw) >= 500:
+        if (
+            place_2s is not None
+            and hasattr(place_2s, "_val_p_raw")
+            and len(place_2s._val_p_raw) >= 500
+        ):
             from sklearn.isotonic import IsotonicRegression
 
             from models.benter_combination import BenterCombination, TemperatureScaling
@@ -815,20 +838,24 @@ class TrainingPipelineV5:
                     win_temp_scaler = None
 
         # 5a. Place EV補正 (P/E decomposition)
-        with TimingContext(f"{surface}/place_ev_correction"):
-            place_ev_corrector = PlaceEVCorrectionModel()
-            place_ev_corrector.train(df_oof, num_threads=num_threads)
-            df_oof = place_ev_corrector.correct_ev(df_oof)
+        place_ev_corrector: PlaceEVCorrectionModel | None = None
+        if betting_target != "win":
+            with TimingContext(f"{surface}/place_ev_correction"):
+                place_ev_corrector = PlaceEVCorrectionModel()
+                place_ev_corrector.train(df_oof, num_threads=num_threads)
+                df_oof = place_ev_corrector.correct_ev(df_oof)
 
         # 6. ワイド 2段階モデル
-        with TimingContext(f"{surface}/wide_pair_build"):
-            pair_df = WideJointPairBuilder().build(df_oof)
-        wide_2s = WideTwoStageModel()
-        if len(pair_df) > 0:
-            with TimingContext(f"{surface}/wide_hit"):
-                wide_2s.train_hit_model(pair_df, num_threads=num_threads)
-            with TimingContext(f"{surface}/wide_return"):
-                wide_2s.train_return_model(pair_df, num_threads=num_threads)
+        wide_2s: WideTwoStageModel | None = None
+        if betting_target == "wide":
+            with TimingContext(f"{surface}/wide_pair_build"):
+                pair_df = WideJointPairBuilder().build(df_oof)
+            wide_2s = WideTwoStageModel()
+            if len(pair_df) > 0:
+                with TimingContext(f"{surface}/wide_hit"):
+                    wide_2s.train_hit_model(pair_df, num_threads=num_threads)
+                with TimingContext(f"{surface}/wide_return"):
+                    wide_2s.train_return_model(pair_df, num_threads=num_threads)
 
         # 7. 信頼区間キャリブレーション
         with TimingContext(f"{surface}/confidence"):
@@ -837,21 +864,29 @@ class TrainingPipelineV5:
             win_calib_df["actual_ev_win"] = df_oof["confirmed_odds"] * (
                 df_oof["kakuteijyuni"] == 1
             ).astype(int)
-            place_calib_df = df_oof.copy()
-            place_calib_df["actual_ev_place"] = df_oof["fukuoddslow"] * (
-                df_oof["kakuteijyuni"] <= 3
-            ).astype(int)
-            place_calib_df["ev_place_corrected"] = df_oof["ev_place_corrected"]
+            if betting_target != "win" and "ev_place_corrected" in df_oof.columns:
+                place_calib_df = df_oof.copy()
+                place_calib_df["actual_ev_place"] = df_oof["fukuoddslow"] * (
+                    df_oof["kakuteijyuni"] <= 3
+                ).astype(int)
+                place_calib_df["ev_place_corrected"] = df_oof["ev_place_corrected"]
+            else:
+                # win-only: dummy place calib (all NaN → residuals empty → quantile=0)
+                place_calib_df = df_oof.copy()
+                place_calib_df["actual_ev_place"] = np.nan
+                place_calib_df["ev_place_corrected"] = np.nan
             conf.calibrate(win_calib_df, place_calib_df)
 
-        with TimingContext(f"{surface}/place_selection_gate"):
-            gate_train_df = df_oof.copy()
-            _, gate_place_df = conf.predict_lower_bound(df_oof.copy(), df_oof.copy())
-            if "EV_lower_place" in gate_place_df.columns:
-                gate_train_df["EV_lower_place"] = gate_place_df["EV_lower_place"].values
-            gate_train_df = ensure_place_selection_columns(gate_train_df)
-            place_selection_gate = PlaceSelectionGateModel()
-            place_selection_gate.train(gate_train_df)
+        place_selection_gate: PlaceSelectionGateModel | None = None
+        if betting_target != "win":
+            with TimingContext(f"{surface}/place_selection_gate"):
+                gate_train_df = df_oof.copy()
+                _, gate_place_df = conf.predict_lower_bound(df_oof.copy(), df_oof.copy())
+                if "EV_lower_place" in gate_place_df.columns:
+                    gate_train_df["EV_lower_place"] = gate_place_df["EV_lower_place"].values
+                gate_train_df = ensure_place_selection_columns(gate_train_df)
+                place_selection_gate = PlaceSelectionGateModel()
+                place_selection_gate.train(gate_train_df)
 
         # --- WinSelectionGate training (SELC-01, D-01) ---
         with TimingContext(f"{surface}/win_selection_gate"):
@@ -1273,16 +1308,17 @@ class TrainingPipelineV5:
                 )
 
                 # PlaceEVCorrectionModel
-                mlflow.lightgbm.log_model(
-                    sub.place_ev_corrector.p_correction_model,
-                    name=f"place_ev_corrector_p_{surface}",
-                    pip_requirements=_MLFLOW_PIP_REQS,
-                )
-                mlflow.lightgbm.log_model(
-                    sub.place_ev_corrector.e_correction_model,
-                    name=f"place_ev_corrector_e_{surface}",
-                    pip_requirements=_MLFLOW_PIP_REQS,
-                )
+                if sub.place_ev_corrector is not None:
+                    mlflow.lightgbm.log_model(
+                        sub.place_ev_corrector.p_correction_model,
+                        name=f"place_ev_corrector_p_{surface}",
+                        pip_requirements=_MLFLOW_PIP_REQS,
+                    )
+                    mlflow.lightgbm.log_model(
+                        sub.place_ev_corrector.e_correction_model,
+                        name=f"place_ev_corrector_e_{surface}",
+                        pip_requirements=_MLFLOW_PIP_REQS,
+                    )
                 if (
                     sub.place_selection_gate is not None
                     and sub.place_selection_gate.is_trained
@@ -1316,28 +1352,30 @@ class TrainingPipelineV5:
                             os.unlink(wsg_tmp)
 
                 # PlaceTwoStageModel
-                if sub.use_ensemble:
-                    _se_tmp2: str | None = None
-                    try:
-                        with tempfile.NamedTemporaryFile(suffix=".joblib", delete=False) as _f2:
-                            _se_tmp2 = _f2.name
-                            joblib.dump(sub.place.hit_model, _f2.name)
-                        mlflow.log_artifact(_se_tmp2, f"place_hit_{surface}")
-                    finally:
-                        if _se_tmp2 and os.path.exists(_se_tmp2):
-                            os.unlink(_se_tmp2)
-                else:
+                if sub.place is not None:
+                    if sub.use_ensemble:
+                        _se_tmp2: str | None = None
+                        try:
+                            with tempfile.NamedTemporaryFile(suffix=".joblib", delete=False) as _f2:
+                                _se_tmp2 = _f2.name
+                                joblib.dump(sub.place.hit_model, _f2.name)
+                            mlflow.log_artifact(_se_tmp2, f"place_hit_{surface}")
+                        finally:
+                            if _se_tmp2 and os.path.exists(_se_tmp2):
+                                os.unlink(_se_tmp2)
+                    else:
+                        mlflow.lightgbm.log_model(
+                            sub.place.hit_model, name=f"place_hit_{surface}",
+                            pip_requirements=_MLFLOW_PIP_REQS,
+                        )
                     mlflow.lightgbm.log_model(
-                        sub.place.hit_model, name=f"place_hit_{surface}",
+                        sub.place.return_model, name=f"place_ret_{surface}",
                         pip_requirements=_MLFLOW_PIP_REQS,
                     )
-                mlflow.lightgbm.log_model(
-                    sub.place.return_model, name=f"place_ret_{surface}",
-                    pip_requirements=_MLFLOW_PIP_REQS,
-                )
 
                 # PlaceAbilityModel (sklearn CalibratedClassifierCV → joblib)
-                calibrated = sub.place_ability._calibrated or sub.place_ability._model
+                if sub.place_ability is not None:
+                    calibrated = sub.place_ability._calibrated or sub.place_ability._model
                 if calibrated is not None:
                     _tmp_path: str | None = None
                     try:
@@ -1350,14 +1388,15 @@ class TrainingPipelineV5:
                             os.unlink(_tmp_path)
 
                 # WideTwoStageModel
-                mlflow.lightgbm.log_model(
-                    sub.wide.hit_model, name=f"wide_hit_{surface}",
-                    pip_requirements=_MLFLOW_PIP_REQS,
-                )
-                mlflow.lightgbm.log_model(
-                    sub.wide.return_model, name=f"wide_ret_{surface}",
-                    pip_requirements=_MLFLOW_PIP_REQS,
-                )
+                if sub.wide is not None:
+                    mlflow.lightgbm.log_model(
+                        sub.wide.hit_model, name=f"wide_hit_{surface}",
+                        pip_requirements=_MLFLOW_PIP_REQS,
+                    )
+                    mlflow.lightgbm.log_model(
+                        sub.wide.return_model, name=f"wide_ret_{surface}",
+                        pip_requirements=_MLFLOW_PIP_REQS,
+                    )
 
             # RaceQualityScreener
             mlflow.lightgbm.log_model(
@@ -1422,26 +1461,31 @@ class TrainingPipelineV5:
             saved[f"market_{surface}"] = sub.market.model
             if sub.use_ensemble:
                 ensemble_keys.add(f"win_hit_{surface}")
-                ensemble_keys.add(f"place_hit_{surface}")
+                if sub.place is not None:
+                    ensemble_keys.add(f"place_hit_{surface}")
             saved[f"win_hit_{surface}"] = sub.win.hit_model
             saved[f"win_ret_{surface}"] = sub.win.return_model
             saved[f"ev_corrector_p_{surface}"] = sub.ev_corrector.p_correction_model
             saved[f"ev_corrector_e_{surface}"] = sub.ev_corrector.e_correction_model
-            saved[f"place_ev_corrector_p_{surface}"] = sub.place_ev_corrector.p_correction_model
-            saved[f"place_ev_corrector_e_{surface}"] = sub.place_ev_corrector.e_correction_model
-            saved[f"place_hit_{surface}"] = sub.place.hit_model
-            saved[f"place_ret_{surface}"] = sub.place.return_model
-            saved[f"wide_hit_{surface}"] = sub.wide.hit_model
-            saved[f"wide_ret_{surface}"] = sub.wide.return_model
+            if sub.place_ev_corrector is not None:
+                saved[f"place_ev_corrector_p_{surface}"] = sub.place_ev_corrector.p_correction_model
+                saved[f"place_ev_corrector_e_{surface}"] = sub.place_ev_corrector.e_correction_model
+            if sub.place is not None:
+                saved[f"place_hit_{surface}"] = sub.place.hit_model
+                saved[f"place_ret_{surface}"] = sub.place.return_model
+            if sub.wide is not None:
+                saved[f"wide_hit_{surface}"] = sub.wide.hit_model
+                saved[f"wide_ret_{surface}"] = sub.wide.return_model
             # PlaceAbilityModel (sklearn) は joblib で保存
-            calibrated = sub.place_ability._calibrated or sub.place_ability._model
-            if calibrated is not None:
-                import joblib
+            if sub.place_ability is not None:
+                calibrated = sub.place_ability._calibrated or sub.place_ability._model
+                if calibrated is not None:
+                    import joblib
 
-                joblib.dump(
-                    calibrated,
-                    models_dir / f"place_ability_{surface}.joblib",
-                )
+                    joblib.dump(
+                        calibrated,
+                        models_dir / f"place_ability_{surface}.joblib",
+                    )
             if sub.place_selection_gate is not None and sub.place_selection_gate.is_trained:
                 sub.place_selection_gate.save(
                     models_dir / f"place_selection_gate_{surface}.joblib"
