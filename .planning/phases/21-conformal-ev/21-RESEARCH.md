@@ -429,17 +429,20 @@ def _compute_cqr_coverage(
 | A4 | CQRの特徴量はev_win_calibrated計算時に利用可能な列に制限される | Architecture Patterns | 推論時に特徴量が不足する可能性。FEATURE_COLSを明示的に定義する必要あり |
 | A5 | 2-alpha構成の80%区間は90%区間と同じモデルを使用し、異なる補正量子を計算 | Code Examples | 80%用の別モデルを学習する必要が生じる場合は実行時間増 |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **CQR特徴量の選択**
    - What we know: correct_ev()完了後のdf_oofに含まれる全特徴量列が利用可能。LightGBMは不要特徴量を自動的に無視する傾向がある
    - What's unclear: 最適な特徴量サブセット。全特徴量（300+列）を使うか、EV関連列に絞るか
    - Recommendation: 既存のWinTwoStageモデルと同じ特徴量列をベースにする。LightGBMのfeature importanceで重要でない特徴量は自然に無視されるため、過剰な特徴量選択は不要
+   - RESOLVED: Plan 21-01 Task 1で_non_feature_cols除外リストを定義し、残りを自動特徴量として採用。Plan 21-02 Task 1で_train_submodel()内にfeature_cols抽出を実装
 
 2. **80%区間の補正量子計算方法**
    - What we know: D-04で2-alpha構成が決定。90%と80%の異なる区間が必要
    - What's unclear: 80%区間の補正量子を同じq_low/q_highモデルから計算するか、別モデルを学習するか
    - Recommendation: 同じq_low(0.05)/q_high(0.95)モデルを使用し、alpha=0.2で補正量子を再計算するアプローチを推奨。別モデルは4→8モデルに増加し、管理コストが高い。ただし、より厳密にはalpha=0.1と0.2で別々の分位点(0.1/0.9)モデルを学習すべき。トレードオフを議論する価値あり
+   - RESOLVED: 同じq_low/q_highモデルでalpha=0.2の補正量子を再計算する方針を採用。Plan 21-01 Task 1で_calibration_quantile_90/80の両方をtrain()で計算する設計を実装。モデル数は4のまま管理コストを抑える
+
 
 ## Environment Availability
 
