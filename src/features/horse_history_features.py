@@ -1143,15 +1143,16 @@ class HorseHistoryFeatures:
             # FEAT-02: 単勝特化新特徴量 (5 features)
             # -----------------------------------------------------------------
 
+            # current_distance_bin: 現在レースの距離ビン (distance_change/env_adaptabilityで共用)
+            if hasattr(row, "distance_bin") and not pd.isna(getattr(row, "distance_bin", None)):
+                current_db = str(getattr(row, "distance_bin"))
+            else:
+                current_db = _compute_distance_bin(
+                    getattr(row, "kyori", None), getattr(row, "surface", "")
+                )
+
             # distance_change: 距離変更要検知 (current distance_bin != last race distance_bin)
             if hist_idx > 0 and horse_arrs is not None and "distance_bin" in horse_arrs:
-                # row.distance_bin があれば使用、なければ kyori+surface から計算
-                if hasattr(row, "distance_bin") and not pd.isna(getattr(row, "distance_bin", None)):
-                    current_db = str(getattr(row, "distance_bin"))
-                else:
-                    current_db = _compute_distance_bin(
-                        getattr(row, "kyori", None), getattr(row, "surface", "")
-                    )
                 last_db = str(horse_arrs["distance_bin"][history_mask][hist_start:hist_idx][-1])
                 distance_change: float = 1.0 if current_db != last_db else 0.0
             else:
