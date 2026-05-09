@@ -217,7 +217,7 @@ Plans:
 **Plans**: 3 plans
 
 Plans:
-- [ ] 20-01: 高オッズ的中パターン分析 + クラストラジェクトリ/フォーム改善率特徴量 (HODDS-01, HODDS-02, HODDS-03)
+- [x] 20-01: 高オッズ的中パターン分析 + クラストラジェクトリ/フォーム改善率特徴量 (HODDS-01, HODDS-02, HODDS-03)
 - [ ] 20-02: 環境変化適性特徴量 + FeatureEngine統合 (HODDS-04, HODDS-05)
 - [ ] 20-03: Feature importance分析 + モデルFEATURE_COLS更新 (HODDS-05)
 
@@ -286,6 +286,6 @@ Phases execute in numeric order: 14 → 15 → 16 → 17 → 18
 | 18. Validation & Freeze | v1.4 | 2/2 | Complete | 2026-05-07 |
 | 19. EV推定キャリブレーション | v1.5 | 2/2 | Complete    | 2026-05-07 |
 | 19.1. バックテスト高速化 | v1.5 | 5/5 | Complete | 2026-05-08 |
-| 20. 高オッズ的中パターン特徴量 | v1.5 | 0/3 | Active | — |
+| 20. 高オッズ的中パターン特徴量 | v1.5 | 1/3 | In Progress|  |
 | 21. Conformal EV予測区間 | v1.5 | 0/2 | Active | — |
 | 22. 統合検証とバックテスト | v1.5 | 0/1 | Active | — |
