@@ -2131,3 +2131,29 @@ class TestHaronZscoreTrend:
         """haron_zscore_trend が BASE_COLS に含まれる"""
         from features.horse_history_features import HorseHistoryFeatures
         assert "haron_zscore_trend" in HorseHistoryFeatures.BASE_COLS
+
+
+class TestHighOddsFeatureIntegration:
+    """HODDS-05: 新特徴量のFEATURE_COLS/BASE_COLS整合性テスト"""
+
+    def test_base_cols_contains_high_odds_features(self):
+        """BASE_COLSに高オッズ特徴量18個が全て含まれている"""
+        from features.high_odds_features import FEATURE_COLS as HIGH_ODDS_COLS
+        from features.horse_history_features import HorseHistoryFeatures
+        base = set(HorseHistoryFeatures.BASE_COLS)
+        for col in HIGH_ODDS_COLS:
+            assert col in base, f"BASE_COLS missing: {col}"
+
+    def test_ability_model_feature_cols_contains_high_odds_features(self):
+        """AbilityModel.FEATURE_COLSに高オッズ特徴量18個が全て含まれている"""
+        from features.high_odds_features import FEATURE_COLS as HIGH_ODDS_COLS
+        from models.stage1_ability_model import AbilityModel
+        model_cols = set(AbilityModel.FEATURE_COLS)
+        for col in HIGH_ODDS_COLS:
+            assert col in model_cols, f"AbilityModel.FEATURE_COLS missing: {col}"
+
+    def test_no_duplicate_in_feature_cols(self):
+        """AbilityModel.FEATURE_COLSに重複がない"""
+        from models.stage1_ability_model import AbilityModel
+        cols = AbilityModel.FEATURE_COLS
+        assert len(cols) == len(set(cols)), "FEATURE_COLS has duplicates"

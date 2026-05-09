@@ -104,6 +104,27 @@ class AbilityModel:
         "pace_position_consistency",
         # PACE-02: 実績ベースのペース適性
         "actual_pace_fit",
+        # HODDS-02: クラストラジェクトリ
+        "class_promotions",
+        "class_demotions",
+        "class_net_change",
+        "class_max_level",
+        "class_level_std",
+        "v_recovery_flag",
+        "v_recovery_duration",
+        # HODDS-03: フォーム改善率
+        "time_improvement_rate",
+        "position_improvement_rate",
+        # HODDS-04: 環境変化適性
+        "dist_change_avg_pos",
+        "dist_change_win_rate",
+        "dist_change_exp_count",
+        "surf_change_avg_pos",
+        "surf_change_win_rate",
+        "surf_change_exp_count",
+        "cond_change_avg_pos",
+        "cond_change_win_rate",
+        "cond_change_exp_count",
     ]
 
     def __init__(self) -> None:
