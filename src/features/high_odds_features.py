@@ -68,7 +68,9 @@ def _class_level_from_values(grade_code: object, jyoken_code: object) -> float:
 
 
 def _is_nan(value: object) -> bool:
-    """値がNaNかどうかを判定。"""
+    """値がNaNかNoneかどうかを判定。pd.notna()と同等のカバレッジ。"""
+    if value is None:
+        return True
     try:
         if isinstance(value, float) and np.isnan(value):
             return True
