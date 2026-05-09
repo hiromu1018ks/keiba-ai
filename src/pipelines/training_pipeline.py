@@ -28,6 +28,7 @@ from db.readers import (
     load_wide_odds,
 )
 from domain.models import SubmodelSet, TrainedModelsV5
+from domain.types import POST_RACE_COLS
 from utils.timing import TimingContext
 
 if TYPE_CHECKING:
@@ -861,16 +862,18 @@ class TrainingPipelineV5:
                 # 特徴量列を既存モデルから抽出
                 # 数値列のみを対象 (object型のdistance_bin等を除外)
                 _non_feature_cols = {
-                    "race_id", "umaban", "surface", "race_date",
-                    "ev_win_corrected", "ev_win_calibrated", "actual_ev_win",
-                    "confirmed_odds", "kakuteijyuni", "kettonum",
+                    # IDs / metadata
+                    "race_id", "umaban", "surface", "race_date", "kettonum",
+                    # Target (CQR predicts this)
+                    "actual_ev_win",
+                    # CQR's own outputs (circular)
                     "EV_lower_win_corrected", "EV_upper_win_corrected",
                     "conformal_confidence_score",
+                    # Place-related (CQR is win-only)
                     "ev_place_corrected", "actual_ev_place",
-                    "win_selection_edge", "p_hit", "e_return",
-                    "p_corrected", "e_corrected",
+                    # Object dtype (LightGBM cannot handle)
                     "distance_bin", "grade_code", "track_condition_code",
-                }
+                } | set(POST_RACE_COLS)
                 feature_cols = [
                     c for c in df_oof.columns
                     if c not in _non_feature_cols

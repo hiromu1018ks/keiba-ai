@@ -15,27 +15,32 @@ import lightgbm as lgb
 import numpy as np
 import pandas as pd
 
+from domain.types import POST_RACE_COLS
+
 logger = logging.getLogger(__name__)
 
 # 学習時に除外する非特徴量列
 _NON_FEATURE_COLS: set[str] = {
+    # IDs / metadata
     "race_id",
     "umaban",
     "race_date",
     "surface",
-    "confirmed_odds",
-    "kakuteijyuni",
-    "ev_win_calibrated",
-    "ev_win_corrected",
+    "kettonum",
+    # Target (CQR predicts this)
     "actual_ev_win",
-    "ev_place_corrected",
-    "actual_ev_place",
+    # CQR's own outputs (circular)
     "EV_lower_win_corrected",
     "EV_upper_win_corrected",
     "conformal_confidence_score",
+    # Place-related (CQR is win-only)
+    "ev_place_corrected",
+    "actual_ev_place",
     "EV_lower_place",
     "EV_upper_place",
-}
+    # Object dtype (LightGBM cannot handle)
+    "distance_bin", "grade_code", "track_condition_code",
+} | set(POST_RACE_COLS)
 
 
 class ConformalEVModel:
