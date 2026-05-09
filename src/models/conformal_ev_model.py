@@ -306,7 +306,12 @@ class ConformalEVModel:
             for c in missing:
                 win_df[c] = 0.0
 
-        X_win = win_df[feature_cols].fillna(0.0)
+        X_win = win_df[feature_cols].copy()
+        # object型列を数値に変換（学習時と推論時でdtypeが異なる場合）
+        for c in X_win.columns:
+            if X_win[c].dtype == object:
+                X_win[c] = pd.to_numeric(X_win[c], errors="coerce").fillna(0.0)
+        X_win = X_win.fillna(0.0)
         q_low = self.q_low_model.predict(X_win)
         q_high = self.q_high_model.predict(X_win)
 
