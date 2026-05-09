@@ -157,6 +157,65 @@ def _temporal_drift(
     return results
 
 
+def _compute_cqr_coverage(
+    df: pd.DataFrame,
+    pred_col: str = "ev_win_calibrated",
+    lower_col: str = "EV_lower_win_corrected",
+    upper_col: str = "EV_upper_win_corrected",
+    actual_col: str = "actual_ev_win",
+) -> dict:
+    """CQR区間のカバレッジ率と区間幅を計算 (Phase 21, per D-11).
+
+    90%信頼区間のカバレッジ率: actual が [lower, upper] に含まれる割合。
+    区間幅の統計量: mean, median, min, max。
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        CQR予測結果を含むDataFrame。
+    pred_col : str
+        EV予測列名 (フォールバック用)。
+    lower_col : str
+        CQR下限列名。
+    upper_col : str
+        CQR上限列名。
+    actual_col : str
+        実際のEV列名。
+
+    Returns
+    -------
+    dict
+        カバレッジ率・区間幅統計量。
+    """
+    if lower_col not in df.columns or upper_col not in df.columns:
+        return {"warning": "no_cqr_columns", "n_samples": 0}
+
+    lower = pd.to_numeric(df[lower_col], errors="coerce")
+    upper = pd.to_numeric(df[upper_col], errors="coerce")
+    if actual_col in df.columns:
+        actual = pd.to_numeric(df[actual_col], errors="coerce")
+    else:
+        return {"warning": "no_actual_column", "n_samples": 0}
+
+    valid = lower.notna() & upper.notna() & actual.notna()
+
+    if valid.sum() < 30:
+        return {"warning": "insufficient_samples", "n_samples": int(valid.sum())}
+
+    coverage = float(((actual[valid] >= lower[valid]) & (actual[valid] <= upper[valid])).mean())
+    width = upper[valid] - lower[valid]
+    return {
+        "coverage_rate": coverage,
+        "target_coverage": 0.90,
+        "coverage_met": coverage >= 0.90,
+        "mean_interval_width": float(width.mean()),
+        "median_interval_width": float(width.median()),
+        "min_interval_width": float(width.min()),
+        "max_interval_width": float(width.max()),
+        "n_samples": int(valid.sum()),
+    }
+
+
 def compute_ev_diagnostics(
     df_oof: pd.DataFrame,
     output_path: Path | None = None,
@@ -290,6 +349,18 @@ def compute_ev_diagnostics(
         EV_ACTUAL_COLUMN,
     )
 
+    # Phase 21: CQR coverage metrics (per D-11)
+    cqr_result = _compute_cqr_coverage(df_oof.loc[valid_mask].copy())
+    result["cqr_coverage"] = cqr_result
+
+    # サーフェス別CQRカバレッジ
+    if "surface" in df_oof.columns:
+        cqr_by_surface: dict[str, dict] = {}
+        for surf, group in df_oof.loc[valid_mask].groupby("surface", observed=True):
+            cqr_surf = _compute_cqr_coverage(group)
+            cqr_by_surface[surf] = cqr_surf
+        result["cqr_coverage_by_surface"] = cqr_by_surface
+
     # JSON出力
     if output_path is not None:
         output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -364,3 +435,15 @@ def console_summary(result: dict) -> None:
                     entry.get("ev_bias", float("nan")),
                     entry.get("correlation", float("nan")),
                 )
+
+    # Phase 21: CQR coverage summary
+    cqr = result.get("cqr_coverage", {})
+    if cqr and "warning" not in cqr:
+        logger.info(
+            "  CQR Coverage: %.1f%% (target %.0f%%, met=%s, n=%d, width_mean=%.4f)",
+            cqr.get("coverage_rate", 0) * 100,
+            cqr.get("target_coverage", 0.9) * 100,
+            cqr.get("coverage_met", False),
+            cqr.get("n_samples", 0),
+            cqr.get("mean_interval_width", 0),
+        )

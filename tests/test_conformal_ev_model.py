@@ -321,3 +321,88 @@ class TestConformalEVModelBackwardCompat:
         assert "conformal_confidence_score" not in win_result.columns
         assert "EV_lower_place" in place_result.columns
         assert "EV_upper_place" not in place_result.columns
+
+
+class TestCQRCoverageDiagnostics:
+    """CQR coverage diagnostics (Phase 21, D-11)"""
+
+    def test_cqr_coverage_calculation(self) -> None:
+        """_compute_cqr_coverage()が正常データでcoverage_rateを計算する"""
+        from models.ev_diagnostics import _compute_cqr_coverage
+
+        np.random.seed(42)
+        n = 100
+        df = pd.DataFrame(
+            {
+                "ev_win_calibrated": np.random.uniform(0.5, 3.0, n),
+                "EV_lower_win_corrected": np.random.uniform(0.3, 2.5, n),
+                "EV_upper_win_corrected": np.random.uniform(1.5, 4.0, n),
+                "actual_ev_win": np.random.uniform(0.0, 5.0, n),
+            }
+        )
+        result = _compute_cqr_coverage(df)
+
+        assert "coverage_rate" in result
+        assert "target_coverage" in result
+        assert "coverage_met" in result
+        assert "mean_interval_width" in result
+        assert "median_interval_width" in result
+        assert "min_interval_width" in result
+        assert "max_interval_width" in result
+        assert "n_samples" in result
+        assert result["n_samples"] == n
+        assert 0.0 <= result["coverage_rate"] <= 1.0
+        assert result["target_coverage"] == 0.90
+        assert result["mean_interval_width"] > 0
+
+    def test_cqr_coverage_insufficient_samples(self) -> None:
+        """サンプル30未満でwarning返却"""
+        from models.ev_diagnostics import _compute_cqr_coverage
+
+        df = pd.DataFrame(
+            {
+                "EV_lower_win_corrected": [0.5, 0.6],
+                "EV_upper_win_corrected": [2.0, 2.5],
+                "actual_ev_win": [1.0, 1.5],
+            }
+        )
+        result = _compute_cqr_coverage(df)
+
+        assert result["warning"] == "insufficient_samples"
+        assert result["n_samples"] == 2
+
+    def test_cqr_coverage_no_columns(self) -> None:
+        """CQR列がない場合にwarning返却"""
+        from models.ev_diagnostics import _compute_cqr_coverage
+
+        df = pd.DataFrame({"ev_win_calibrated": [1.0, 2.0], "actual_ev_win": [0.5, 1.5]})
+        result = _compute_cqr_coverage(df)
+
+        assert result["warning"] == "no_cqr_columns"
+
+    def test_cqr_coverage_in_compute_ev_diagnostics(self) -> None:
+        """compute_ev_diagnostics()の結果にcqr_coverageキーが含まれる"""
+        from models.ev_diagnostics import compute_ev_diagnostics
+
+        np.random.seed(42)
+        n = 200
+        df = pd.DataFrame(
+            {
+                "race_id": [f"R{i % 20}" for i in range(n)],
+                "race_date": pd.date_range("2020-01-01", periods=n, freq="D"),
+                "surface": ["turf"] * n,
+                "ev_win_calibrated": np.random.uniform(0.5, 3.0, n),
+                "EV_lower_win_corrected": np.random.uniform(0.3, 2.5, n),
+                "EV_upper_win_corrected": np.random.uniform(1.5, 4.0, n),
+                "confirmed_odds": np.random.uniform(1.0, 10.0, n),
+                "kakuteijyuni": np.random.randint(1, 18, n),
+            }
+        )
+        df["actual_ev_win"] = df["confirmed_odds"] * (df["kakuteijyuni"] == 1).astype(float)
+
+        result = compute_ev_diagnostics(df)
+
+        assert "cqr_coverage" in result
+        assert "coverage_rate" in result["cqr_coverage"]
+        assert "cqr_coverage_by_surface" in result
+        assert "turf" in result["cqr_coverage_by_surface"]
