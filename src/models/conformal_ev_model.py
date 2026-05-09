@@ -119,6 +119,11 @@ class ConformalEVModel:
 
         # train_ratio=1.0の場合は全データを学習に使用し、同じデータでキャリブレーション
         if train_ratio >= 1.0:
+            logger.warning(
+                "train_ratio=%.1f: using same data for training and calibration. "
+                "CQR intervals will be overfitted and may not achieve target coverage.",
+                train_ratio,
+            )
             df_train = df_calib
             df_val = df_calib
         else:
@@ -233,6 +238,11 @@ class ConformalEVModel:
 
         RobustConfidenceEstimator.predict_interval()と同じシグネチャ・出力互換。
 
+        Note: CQR is applied to win EV only. Place intervals are identity
+        pass-through (EV_lower_place = EV_upper_place = place_ev), providing
+        zero-width intervals with no uncertainty quantification.
+        TODO: implement CQR for place EV if needed.
+
         Args:
             win_df: ev_win_calibrated と特徴量列を含むDataFrame
             place_df: ev_place_corrected を含むDataFrame
@@ -288,7 +298,7 @@ class ConformalEVModel:
         q_low = self.q_low_model.predict(X_win)
         q_high = self.q_high_model.predict(X_win)
 
-        # モノトonicity保証: q_low <= q_high
+        # Monotonicity guarantee: q_low <= q_high
         q_low = np.minimum(q_low, q_high)
 
         # 90%区間 (第一alpha, 通常alpha=0.1)
