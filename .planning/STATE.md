@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v1.5
 milestone_name: Model Accuracy Improvement
 status: ready_to_execute
-stopped_at: Phase 21 planned (2 plans, verified)
-last_updated: "2026-05-09T06:30:00.000Z"
+stopped_at: Phase 21 Plan 02 complete
+last_updated: "2026-05-09T06:45:00.000Z"
 last_activity: 2026-05-09
 progress:
   total_phases: 5
@@ -21,13 +21,13 @@ progress:
 See: .planning/PROJECT.md (updated 2026-05-07)
 
 **Core value:** 単勝モデルのバックテストROIを100%超えにすること
-**Current focus:** Phase 20 — 高オッズ的中パターン特徴量
+**Current focus:** Phase 21 -- CQR-based Conformal EV Prediction Intervals
 
 ## Current Position
 
 Phase: 21
-Plan: 21-01, 21-02 (2 plans, verified)
-Status: Ready to execute
+Plan: 21-02 complete
+Status: Phase 21 complete
 Last activity: 2026-05-09
 
 Progress: [================  ] 90%
@@ -47,7 +47,7 @@ Progress: [================  ] 90%
 **Cumulative:**
 
 - LOC (src/): ~19,300
-- Tests: 1,327+
+- Tests: 1,392+
 - Total features implemented: 28+ new features across 5 milestones
 
 ## Accumulated Context
@@ -90,5 +90,5 @@ Items acknowledged and deferred at milestone close:
 
 ## Session Continuity
 
-Last session: 2026-05-09T06:30:00.000Z
-Stopped at: Phase 21 planned (2 plans, verified)
+Last session: 2026-05-09T06:45:00.000Z
+Stopped at: Phase 21 Plan 02 complete
