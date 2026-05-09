@@ -18,7 +18,7 @@ if TYPE_CHECKING:
     from models.race_quality_screener import RaceQualityScreener
     from models.win_selection_gate import WinSelectionGateModel
     from models.regime_detector import RegimeDetector
-    from models.robust_confidence_estimator import RobustConfidenceEstimator
+    from models.conformal_ev_model import ConformalEVModel
     from models.stage1_ability_model import AbilityModel
     from models.two_stage_return_model import PlaceTwoStageModel, WinTwoStageModel
     from models.wide_two_stage_model import WideTwoStageModel
@@ -238,7 +238,7 @@ class SubmodelSet:
     stage1: AbilityModel
     win: WinTwoStageModel
     ev_corrector: EVCorrectionModel
-    confidence: RobustConfidenceEstimator
+    conformal_ev_model: ConformalEVModel | None = None  # Phase 21: RobustConfidenceEstimator -> ConformalEVModel (Plan 02で統合)
     place_ability: PlaceAbilityModel | None = None
     place: PlaceTwoStageModel | None = None
     place_ev_corrector: PlaceEVCorrectionModel | None = None
