@@ -239,8 +239,10 @@ def main() -> None:
                 "モデルファイルが見つかりません: %s。SHAP分析をスキップします。",
                 args.model_dir,
             )
+    except (FileNotFoundError, ValueError, KeyError, RuntimeError) as e:
+        logger.warning("SHAP分析でモデル/データエラー、スキップ: %s", e)
     except Exception as e:
-        logger.warning("SHAP分析でエラー発生、スキップ: %s", e)
+        logger.error("SHAP分析で予期しないエラー: %s", e, exc_info=True)
 
     # --- 7. 結果統合・出力 ---
     if len(shap_df) > 0 and len(cohens_df) > 0:
