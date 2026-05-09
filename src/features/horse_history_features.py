@@ -24,6 +24,11 @@ import numpy as np
 import pandas as pd
 
 from features.form_cycle_features import compute_form_features
+from features.high_odds_features import (
+    compute_class_trajectory,
+    compute_form_improvement_rate,
+    compute_env_adaptability,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -310,6 +315,27 @@ class HorseHistoryFeatures:
         "class_adj_formetric",
         # TSER-03: z-score改善トラジェクトリ
         "haron_zscore_trend",
+        # HODDS-02: クラストラジェクトリ (D-05, D-06, D-07)
+        "class_promotions",
+        "class_demotions",
+        "class_net_change",
+        "class_max_level",
+        "class_level_std",
+        "v_recovery_flag",
+        "v_recovery_duration",
+        # HODDS-03: フォーム改善率 (D-08, D-09)
+        "time_improvement_rate",
+        "position_improvement_rate",
+        # HODDS-04: 環境変化適性 (D-10, D-11)
+        "dist_change_avg_pos",
+        "dist_change_win_rate",
+        "dist_change_exp_count",
+        "surf_change_avg_pos",
+        "surf_change_win_rate",
+        "surf_change_exp_count",
+        "cond_change_avg_pos",
+        "cond_change_win_rate",
+        "cond_change_exp_count",
     ]
 
     def __init__(self, store: ParquetStore, *, n_past: int = 5) -> None:
@@ -992,6 +1018,36 @@ class HorseHistoryFeatures:
                 form_consistency = float("nan")
                 form_peak_flag = float("nan")
 
+            # HODDS-02: クラストラジェクトリ (D-05, D-06, D-07)
+            if n_past >= 2 and "gradecd" in horse_arrs and "jyokencd1" in horse_arrs:
+                _ct_grade = horse_arrs["gradecd"][valid_mask][start:idx]
+                _ct_jyoken = horse_arrs["jyokencd1"][valid_mask][start:idx]
+                (
+                    class_promotions, class_demotions, class_net_change,
+                    class_max_level, class_level_std,
+                    v_recovery_flag, v_recovery_duration,
+                ) = compute_class_trajectory(_ct_grade, _ct_jyoken)
+            else:
+                class_promotions = float("nan")
+                class_demotions = float("nan")
+                class_net_change = float("nan")
+                class_max_level = float("nan")
+                class_level_std = float("nan")
+                v_recovery_flag = float("nan")
+                v_recovery_duration = float("nan")
+
+            # HODDS-03: フォーム改善率 (D-08, D-09)
+            if n_past >= 2 and "harontimel3" in horse_arrs:
+                _fi_ht = horse_arrs["harontimel3"][valid_mask][start:idx].astype(float)
+                _fi_kj = horse_arrs["kakuteijyuni"][valid_mask][start:idx].astype(float)
+                _fi_ss = horse_arrs["syussotosu"][valid_mask][start:idx].astype(float)
+                time_improvement_rate, position_improvement_rate = (
+                    compute_form_improvement_rate(_fi_ht, _fi_kj, _fi_ss)
+                )
+            else:
+                time_improvement_rate = float("nan")
+                position_improvement_rate = float("nan")
+
             # class_move: 現在クラス - 前走クラス (正=昇級, 負=降級)
             current_class_level = _class_level_from_values(
                 getattr(row, "gradecd", float("nan")),
@@ -1109,6 +1165,35 @@ class HorseHistoryFeatures:
             else:
                 surface_change = float("nan")
 
+            # HODDS-04: 環境変化適性 (D-10, D-11)
+            _env_nan_keys = [
+                "dist_change_avg_pos", "dist_change_win_rate", "dist_change_exp_count",
+                "surf_change_avg_pos", "surf_change_win_rate", "surf_change_exp_count",
+                "cond_change_avg_pos", "cond_change_win_rate", "cond_change_exp_count",
+            ]
+            if (
+                hist_idx > 0
+                and horse_arrs is not None
+                and "distance_bin" in horse_arrs
+                and "surface" in horse_arrs
+                and "track_condition_code" in horse_arrs
+            ):
+                _ea_kj = horse_arrs["kakuteijyuni"][history_mask][hist_start:hist_idx].astype(float)
+                _ea_ss = horse_arrs["syussotosu"][history_mask][hist_start:hist_idx].astype(float)
+                _ea_db = horse_arrs["distance_bin"][history_mask][hist_start:hist_idx]
+                _ea_surf = horse_arrs["surface"][history_mask][hist_start:hist_idx]
+                _ea_cond = horse_arrs["track_condition_code"][history_mask][hist_start:hist_idx].astype(float)
+                env_stats = compute_env_adaptability(
+                    _ea_kj, _ea_ss, _ea_db, _ea_surf, _ea_cond,
+                    current_distance_bin=current_db,
+                    current_surface=str(getattr(row, "surface", "")),
+                    current_track_condition=_coerce_float(
+                        getattr(row, "track_condition_code", float("nan"))
+                    ),
+                )
+            else:
+                env_stats = {k: float("nan") for k in _env_nan_keys}
+
             # class_drop_bounce: クラス落リバウンド (降級かつ直近成績悪化時に高い値)
             # norm_recent_b = (kj - 1) / (ss - 1): 0=1着, 1=最下位 の正規化着順
             # avg_recent_b > 0.5 は直近レースで後半着順 (悪いフォーム) を意味する
@@ -1209,6 +1294,27 @@ class HorseHistoryFeatures:
                     "class_adj_formetric": class_adj_formetric,
                     # TSER-03: z-score改善トラジェクトリ
                     "haron_zscore_trend": haron_zscore_trend,
+                    # HODDS-02: クラストラジェクトリ
+                    "class_promotions": class_promotions,
+                    "class_demotions": class_demotions,
+                    "class_net_change": class_net_change,
+                    "class_max_level": class_max_level,
+                    "class_level_std": class_level_std,
+                    "v_recovery_flag": v_recovery_flag,
+                    "v_recovery_duration": v_recovery_duration,
+                    # HODDS-03: フォーム改善率
+                    "time_improvement_rate": time_improvement_rate,
+                    "position_improvement_rate": position_improvement_rate,
+                    # HODDS-04: 環境変化適性
+                    "dist_change_avg_pos": env_stats["dist_change_avg_pos"],
+                    "dist_change_win_rate": env_stats["dist_change_win_rate"],
+                    "dist_change_exp_count": env_stats["dist_change_exp_count"],
+                    "surf_change_avg_pos": env_stats["surf_change_avg_pos"],
+                    "surf_change_win_rate": env_stats["surf_change_win_rate"],
+                    "surf_change_exp_count": env_stats["surf_change_exp_count"],
+                    "cond_change_avg_pos": env_stats["cond_change_avg_pos"],
+                    "cond_change_win_rate": env_stats["cond_change_win_rate"],
+                    "cond_change_exp_count": env_stats["cond_change_exp_count"],
                 }
             )
 
