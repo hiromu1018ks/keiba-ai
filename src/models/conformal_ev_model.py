@@ -60,6 +60,47 @@ class ConformalEVModel:
         self._calibration_quantile_90: float = 0.0  # alpha=0.1用
         self._calibration_quantile_80: float = 0.0  # alpha=0.2用
 
+        # Backward compat attributes for old RobustConfidenceEstimator users (remove in Plan 02)
+        self.rolling_window: int = 200
+        self._win_cp_quantile: float = 0.0
+        self._place_cp_quantile: float = 0.0
+        self._win_rolling_quantile: float = 0.0
+        self._place_rolling_quantile: float = 0.0
+        self._win_cp_quantile_by_condition: dict[str, float] = {}
+
+    def calibrate(
+        self,
+        win_df: pd.DataFrame,
+        place_df: pd.DataFrame,
+    ) -> None:
+        """Backward compat: RobustConfidenceEstimator.calibrate() の互換shim.
+
+        Phase 21 Plan 02で完全なCQR学習に置き換えられるまで、
+        古いパイプラインコードが動作するよう残存させる。
+        """
+        logger.warning(
+            "ConformalEVModel.calibrate() is a backward-compat shim. "
+            "Full CQR training via train() will be integrated in Plan 02."
+        )
+        self._calibrated = True
+
+    def predict_lower_bound(
+        self,
+        win_df: pd.DataFrame,
+        place_df: pd.DataFrame,
+    ) -> tuple[pd.DataFrame, pd.DataFrame]:
+        """Backward compat: predict_interval()のラッパー (RobustConfidenceEstimator互換)."""
+        win_result, place_result = self.predict_interval(win_df, place_df)
+        win_result = win_result.drop(
+            columns=["EV_upper_win_corrected", "conformal_confidence_score"],
+            errors="ignore",
+        )
+        place_result = place_result.drop(
+            columns=["EV_upper_place"],
+            errors="ignore",
+        )
+        return win_result, place_result
+
     def train(
         self,
         df_calib: pd.DataFrame,
@@ -273,7 +314,7 @@ class ConformalEVModel:
             lower_80 = lower_90
 
         # conformal_confidence_score: lower_80 * (1 - normalized_width)
-        interval_width = (upper_90 - lower_90).clip(lower=1e-6)
+        interval_width = pd.Series(upper_90 - lower_90, index=win_df.index).clip(lower=1e-6)
         if "race_id" in win_df.columns:
             max_width = (
                 interval_width.groupby(win_df["race_id"], observed=True)

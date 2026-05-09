@@ -304,7 +304,7 @@ class TestSubmodelSet:
             place=MagicMock(),
             place_ev_corrector=MagicMock(),
             wide=MagicMock(),
-            confidence=MagicMock(),
+            conformal_ev_model=MagicMock(),
             use_ensemble=False,
             benter_combo=combo,
             isotonic_calibrator=calibrator,
@@ -327,7 +327,7 @@ class TestSubmodelSet:
             place=MagicMock(),
             place_ev_corrector=MagicMock(),
             wide=MagicMock(),
-            confidence=MagicMock(),
+            conformal_ev_model=MagicMock(),
         )
         assert sub.benter_combo is None
         assert sub.isotonic_calibrator is None

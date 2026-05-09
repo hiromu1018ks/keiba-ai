@@ -191,7 +191,7 @@ class TestEnsembleFlagPropagation:
             place=MagicMock(),
             place_ev_corrector=MagicMock(),
             wide=MagicMock(),
-            confidence=MagicMock(),
+            conformal_ev_model=MagicMock(),
             use_ensemble=True,
             win_selection_gate=gate,
         )

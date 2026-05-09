@@ -78,7 +78,7 @@ class ModelLoader:
         from models.place_selection_gate import PlaceSelectionGateModel
         from models.race_quality_screener import RaceQualityScreener
         from models.regime_detector import RegimeDetector
-        from models.robust_confidence_estimator import RobustConfidenceEstimator
+        from models.conformal_ev_model import ConformalEVModel  # Phase 21: Plan 02で統合
         from models.stage1_ability_model import AbilityModel
         from models.two_stage_return_model import PlaceTwoStageModel, WinTwoStageModel
         from models.wide_two_stage_model import WideTwoStageModel
@@ -182,8 +182,8 @@ class ModelLoader:
             wide.hit_model = self._load_lgbm(f"{artifact_uri}/wide_hit_{surface}")
             wide.return_model = self._load_lgbm(f"{artifact_uri}/wide_ret_{surface}")
 
-            # RobustConfidenceEstimator (JSON params)
-            confidence = RobustConfidenceEstimator()
+            # Phase 21: RobustConfidenceEstimator -> ConformalEVModel (Plan 02で完全統合)
+            confidence = ConformalEVModel()
             try:
                 conf_path = mlflow.artifacts.download_artifacts(
                     f"runs:/{run_id}/confidence_params.json"
@@ -320,7 +320,7 @@ class ModelLoader:
                 place=place,
                 place_ev_corrector=place_ev_corr,
                 wide=wide,
-                confidence=confidence,
+                conformal_ev_model=confidence,  # Phase 21: Plan 02で完全統合
                 place_selection_gate=place_selection_gate,
                 benter_combo=benter_combo,
                 isotonic_calibrator=isotonic_calibrator,
@@ -512,7 +512,7 @@ class ModelLoader:
         from models.place_selection_gate import PlaceSelectionGateModel
         from models.race_quality_screener import RaceQualityScreener
         from models.regime_detector import RegimeDetector
-        from models.robust_confidence_estimator import RobustConfidenceEstimator
+        from models.conformal_ev_model import ConformalEVModel  # Phase 21: Plan 02で統合
         from models.stage1_ability_model import AbilityModel
         from models.two_stage_return_model import PlaceTwoStageModel, WinTwoStageModel
         from models.wide_two_stage_model import WideTwoStageModel
@@ -634,8 +634,8 @@ class ModelLoader:
             wide.hit_model = self._load_lgbm(str(models_dir / f"wide_hit_{surface}.lgb"))
             wide.return_model = self._load_lgbm(str(models_dir / f"wide_ret_{surface}.lgb"))
 
-            # RobustConfidenceEstimator
-            confidence = RobustConfidenceEstimator()
+            # Phase 21: RobustConfidenceEstimator -> ConformalEVModel (Plan 02で完全統合)
+            confidence = ConformalEVModel()
             conf_file = models_dir / "confidence_params.json"
             if conf_file.is_file():
                 with open(conf_file) as f:
@@ -739,7 +739,7 @@ class ModelLoader:
                 place=place,
                 place_ev_corrector=place_ev_corr,
                 wide=wide,
-                confidence=confidence,
+                conformal_ev_model=confidence,  # Phase 21: Plan 02で完全統合
                 place_selection_gate=place_selection_gate,
                 use_ensemble=use_ensemble,
                 benter_combo=benter_combo,

@@ -20,7 +20,7 @@ def _make_submodel_mock() -> MagicMock:
     sm.ev_corrector = MagicMock()
     sm.place = MagicMock()
     sm.wide = MagicMock()
-    sm.confidence = MagicMock()
+    sm.conformal_ev_model = MagicMock()
     sm.place_selection_gate = None
     sm.benter_combo = None
     sm.isotonic_calibrator = None
@@ -86,15 +86,15 @@ class TestRacePredictor:
         submodel.win.predict_ev.return_value = race_df.copy()
         submodel.ev_corrector.correct_ev.return_value = race_df.copy()
         submodel.place.predict_ev.return_value = result_df
-        submodel.confidence.predict_lower_bound.return_value = (
+        submodel.conformal_ev_model.predict_lower_bound.return_value = (
             result_df.copy(),
             pd.DataFrame({"EV_lower_place": [1.5]}),
         )
-        submodel.confidence.predict_interval.return_value = (
+        submodel.conformal_ev_model.predict_interval.return_value = (
             result_df.copy(),
             pd.DataFrame({"EV_lower_place": [1.5]}),
         )
-        submodel.confidence.predict_interval.return_value = (
+        submodel.conformal_ev_model.predict_interval.return_value = (
             result_df.copy(),
             pd.DataFrame({"EV_lower_place": [1.5]}),
         )
@@ -273,11 +273,11 @@ class TestRacePredictor:
         submodel.ev_corrector.correct_ev.return_value = race_df.copy()
         submodel.place.predict_ev.return_value = result_df
         submodel.place_ev_corrector.correct_ev.return_value = result_df.copy()
-        submodel.confidence.predict_lower_bound.return_value = (
+        submodel.conformal_ev_model.predict_lower_bound.return_value = (
             result_df.copy(),
             pd.DataFrame({"EV_lower_place": [1.5]}),
         )
-        submodel.confidence.predict_interval.return_value = (
+        submodel.conformal_ev_model.predict_interval.return_value = (
             result_df.copy(),
             pd.DataFrame({"EV_lower_place": [1.5]}),
         )
@@ -1023,11 +1023,11 @@ class TestRacePredictor:
         submodel.ev_corrector.correct_ev.return_value = race_df.copy()
         submodel.place.predict_ev.return_value = result_df
         submodel.place_ev_corrector.correct_ev.return_value = result_df.copy()
-        submodel.confidence.predict_lower_bound.return_value = (
+        submodel.conformal_ev_model.predict_lower_bound.return_value = (
             result_df.copy(),
             pd.DataFrame({"EV_lower_place": [1.5]}),
         )
-        submodel.confidence.predict_interval.return_value = (
+        submodel.conformal_ev_model.predict_interval.return_value = (
             result_df.copy(),
             pd.DataFrame({"EV_lower_place": [1.5]}),
         )
@@ -1077,11 +1077,11 @@ class TestRacePredictor:
         submodel.ev_corrector.correct_ev.return_value = race_df.copy()
         submodel.place.predict_ev.return_value = result_df
         submodel.place_ev_corrector.correct_ev.return_value = result_df.copy()
-        submodel.confidence.predict_lower_bound.return_value = (
+        submodel.conformal_ev_model.predict_lower_bound.return_value = (
             result_df.copy(),
             pd.DataFrame({"EV_lower_place": [1.5]}),
         )
-        submodel.confidence.predict_interval.return_value = (
+        submodel.conformal_ev_model.predict_interval.return_value = (
             result_df.copy(),
             pd.DataFrame({"EV_lower_place": [1.5]}),
         )
@@ -1131,11 +1131,11 @@ class TestRacePredictor:
         submodel.ev_corrector.correct_ev.return_value = race_df.copy()
         submodel.place.predict_ev.return_value = result_df
         submodel.place_ev_corrector.correct_ev.return_value = result_df.copy()
-        submodel.confidence.predict_lower_bound.return_value = (
+        submodel.conformal_ev_model.predict_lower_bound.return_value = (
             result_df.copy(),
             pd.DataFrame({"EV_lower_place": [1.5]}),
         )
-        submodel.confidence.predict_interval.return_value = (
+        submodel.conformal_ev_model.predict_interval.return_value = (
             result_df.copy(),
             pd.DataFrame({"EV_lower_place": [1.5]}),
         )
@@ -1198,11 +1198,11 @@ class TestRacePredictorEVEdge:
         submodel.ev_corrector.correct_ev.return_value = race_df.copy()
         submodel.place.predict_ev.return_value = result_df
         submodel.place_ev_corrector.correct_ev.return_value = result_df.copy()
-        submodel.confidence.predict_lower_bound.return_value = (
+        submodel.conformal_ev_model.predict_lower_bound.return_value = (
             result_df.copy(),
             pd.DataFrame({"EV_lower_place": [1.5, 1.2, 1.0, 0.8]}),
         )
-        submodel.confidence.predict_interval.return_value = (
+        submodel.conformal_ev_model.predict_interval.return_value = (
             result_df.copy(),
             pd.DataFrame({"EV_lower_place": [1.5, 1.2, 1.0, 0.8]}),
         )
@@ -1279,7 +1279,7 @@ class TestRacePredictorConfidenceIntegration:
         win_interval["EV_upper_win_corrected"] = [1.8]
         win_interval["conformal_confidence_score"] = [0.5]
         place_interval = pd.DataFrame({"EV_lower_place": [1.1], "EV_upper_place": [1.5]})
-        submodel.confidence.predict_interval.return_value = (win_interval, place_interval)
+        submodel.conformal_ev_model.predict_interval.return_value = (win_interval, place_interval)
 
         result = predictor.predict(race_df)
 
@@ -1331,12 +1331,12 @@ class TestRacePredictorConfidenceIntegration:
         win_interval["EV_upper_win_corrected"] = [1.8]
         win_interval["conformal_confidence_score"] = [0.5]
         place_interval = pd.DataFrame({"EV_lower_place": [1.1], "EV_upper_place": [1.5]})
-        submodel.confidence.predict_interval.return_value = (win_interval, place_interval)
+        submodel.conformal_ev_model.predict_interval.return_value = (win_interval, place_interval)
 
         predictor.predict(race_df)
 
-        submodel.confidence.predict_interval.assert_called_once()
-        submodel.confidence.predict_lower_bound.assert_not_called()
+        submodel.conformal_ev_model.predict_interval.assert_called_once()
+        submodel.conformal_ev_model.predict_lower_bound.assert_not_called()
 
 
 class TestGetWinCandidates:

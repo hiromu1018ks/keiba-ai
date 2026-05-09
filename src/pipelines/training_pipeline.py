@@ -41,7 +41,10 @@ from models.place_selection_gate import PlaceSelectionGateModel, ensure_place_se
 from models.race_quality_screener import RaceQualityScreener
 from models.win_selection_gate import WinSelectionGateModel, ensure_win_selection_columns
 from models.regime_detector import RegimeDetector
-from models.robust_confidence_estimator import RobustConfidenceEstimator
+from models.conformal_ev_model import ConformalEVModel  # Phase 21: RobustConfidenceEstimator -> ConformalEVModel (Plan 02で統合)
+
+# Backward compat alias — remove in Plan 02 after full integration
+RobustConfidenceEstimator = ConformalEVModel
 from models.stage1_ability_model import AbilityModel
 from models.submodel_manager import SubModelManager
 from models.two_stage_return_model import PlaceTwoStageModel, WinTwoStageModel
@@ -948,7 +951,7 @@ class TrainingPipelineV5:
             place=place_2s,
             place_ev_corrector=place_ev_corrector,
             wide=wide_2s,
-            confidence=conf,
+            conformal_ev_model=conf,  # Phase 21: Plan 02で完全統合
             place_selection_gate=place_selection_gate,
             use_ensemble=use_ensemble,
             benter_combo=benter_combo,
@@ -1407,7 +1410,7 @@ class TrainingPipelineV5:
 
             # RobustConfidenceEstimator キャリブレーション値 (JSON)
             first_sub = next(iter(models.values()))
-            conf = first_sub.confidence
+            conf = first_sub.conformal_ev_model  # Phase 21: Plan 02で完全統合
             if hasattr(conf, "_calibrated") and conf._calibrated:
                 conf_params = {
                     "alpha": conf.alpha,
@@ -1552,7 +1555,7 @@ class TrainingPipelineV5:
 
         # RobustConfidenceEstimator パラメータ保存
         for surface, sub in models.items():
-            conf = sub.confidence
+            conf = sub.conformal_ev_model  # Phase 21: Plan 02で完全統合
             if conf._calibrated:
                 conf_data = {
                     "alpha": conf.alpha,

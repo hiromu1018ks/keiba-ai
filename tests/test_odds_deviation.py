@@ -132,7 +132,7 @@ class TestOddsDeviationNumericalConsistency:
 
     def test_ev_interval_ordering(self) -> None:
         """EV区間: lower < ev < upper (predict_interval mockデータ)"""
-        from models.robust_confidence_estimator import RobustConfidenceEstimator
+        from models.conformal_ev_model import ConformalEVModel
 
         np.random.seed(42)
         n = 20
@@ -151,7 +151,7 @@ class TestOddsDeviationNumericalConsistency:
             }
         )
 
-        estimator = RobustConfidenceEstimator()
+        estimator = ConformalEVModel()
         estimator.calibrate(cal_win, cal_place)
 
         test_win = pd.DataFrame(
@@ -177,7 +177,7 @@ class TestOddsDeviationNumericalConsistency:
 
     def test_conformal_confidence_score_range(self) -> None:
         """conformal_confidence_score は [0, inf) の範囲"""
-        from models.robust_confidence_estimator import RobustConfidenceEstimator
+        from models.conformal_ev_model import ConformalEVModel
 
         np.random.seed(42)
         n = 20
@@ -196,7 +196,7 @@ class TestOddsDeviationNumericalConsistency:
             }
         )
 
-        estimator = RobustConfidenceEstimator()
+        estimator = ConformalEVModel()
         estimator.calibrate(cal_win, cal_place)
 
         test_win = pd.DataFrame(

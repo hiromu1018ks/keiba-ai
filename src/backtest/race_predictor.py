@@ -166,7 +166,7 @@ class RacePredictor:
         # place model が無い場合は ev_place_corrected 列を dummy で補完
         if "ev_place_corrected" not in df.columns:
             df["ev_place_corrected"] = 0.0
-        win_df, place_df = submodel.confidence.predict_interval(df, df)
+        win_df, place_df = submodel.conformal_ev_model.predict_interval(df, df)  # Phase 21: confidence -> conformal_ev_model
         df = win_df
         if "EV_lower_place" in place_df.columns:
             df["EV_lower_place"] = place_df["EV_lower_place"].reindex(df.index).values

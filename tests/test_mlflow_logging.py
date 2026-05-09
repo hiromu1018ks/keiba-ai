@@ -54,7 +54,7 @@ class TestExtendedMLflowLogging:
             mock_confidence._place_cp_quantile = 0.08
             mock_confidence._win_rolling_quantile = 0.06
             mock_confidence._place_rolling_quantile = 0.09
-            mock_sub.confidence = mock_confidence
+            mock_sub.conformal_ev_model = mock_confidence
 
             pipeline = TrainingPipelineV5.__new__(TrainingPipelineV5)
             pipeline.model_dir = Path("data/models")
@@ -119,7 +119,7 @@ class TestExtendedMLflowLogging:
 
             mock_confidence = MagicMock()
             mock_confidence._calibrated = False
-            mock_sub.confidence = mock_confidence
+            mock_sub.conformal_ev_model = mock_confidence
 
             pipeline = TrainingPipelineV5.__new__(TrainingPipelineV5)
             pipeline.model_dir = Path("data/models")

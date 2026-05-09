@@ -223,7 +223,7 @@ class TestSubmodelSetWinFields:
             place=mock,
             place_ev_corrector=mock,
             wide=mock,
-            confidence=mock,
+            conformal_ev_model=mock,
         )
         assert sub.win_benter is None
         assert sub.win_isotonic_calibrator is None

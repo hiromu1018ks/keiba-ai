@@ -66,10 +66,10 @@ class TestTrainedModelsV5:
             place=None,
             place_ev_corrector=None,
             wide=None,
-            confidence=None,
+            conformal_ev_model=None,
         )
         assert sub.market is None
-        assert sub.confidence is None
+        assert sub.conformal_ev_model is None
 
     def test_trained_models_v5_structure(self) -> None:
         """TrainedModelsV5 が submodels + screener + detector を保持"""
@@ -84,7 +84,7 @@ class TestTrainedModelsV5:
                     place=None,
                     place_ev_corrector=None,
                     wide=None,
-                    confidence=None,
+                    conformal_ev_model=None,
                 )
             },
             quality_screener=None,
@@ -107,7 +107,7 @@ class TestTrainedModelsV5:
                     place="p_turf",
                     place_ev_corrector=None,
                     wide="wd_turf",
-                    confidence="c_turf",
+                    conformal_ev_model="c_turf",
                 ),
                 "dirt": SubmodelSet(
                     market="m_dirt",
@@ -118,7 +118,7 @@ class TestTrainedModelsV5:
                     place="p_dirt",
                     place_ev_corrector=None,
                     wide="wd_dirt",
-                    confidence="c_dirt",
+                    conformal_ev_model="c_dirt",
                 ),
             },
             quality_screener="qs",
@@ -637,7 +637,7 @@ class TestJRAFilterTraining:
             place=MagicMock(),
             place_ev_corrector=MagicMock(),
             wide=MagicMock(),
-            confidence=MagicMock(),
+            conformal_ev_model=MagicMock(),
         )
         patches = [
             patch.object(FeatureEngine, "build_all", return_value=feat_df),

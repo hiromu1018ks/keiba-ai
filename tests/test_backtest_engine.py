@@ -438,11 +438,11 @@ class TestPostRaceColumnExclusion:
         submodel.place.predict_ev.return_value = feat_df
         _corrected = feat_df.assign(ev_place_corrected=feat_df.get("ev_place", 1.5))
         submodel.place_ev_corrector.correct_ev.return_value = _corrected
-        submodel.confidence.predict_lower_bound.return_value = (
+        submodel.conformal_ev_model.predict_lower_bound.return_value = (
             _corrected,
             pd.DataFrame({"EV_lower_place": [1.5]}),
         )
-        submodel.confidence.predict_interval.return_value = (
+        submodel.conformal_ev_model.predict_interval.return_value = (
             _corrected,
             pd.DataFrame({"EV_lower_place": [1.5]}),
         )
@@ -606,11 +606,11 @@ class TestBetHistoryEnrichment:
         submodel.place.predict_ev.return_value = feat_df
         _corrected = feat_df.assign(ev_place_corrected=feat_df.get("ev_place", 1.5))
         submodel.place_ev_corrector.correct_ev.return_value = _corrected
-        submodel.confidence.predict_lower_bound.return_value = (
+        submodel.conformal_ev_model.predict_lower_bound.return_value = (
             _corrected,
             pd.DataFrame({"EV_lower_place": [1.5]}),
         )
-        submodel.confidence.predict_interval.return_value = (
+        submodel.conformal_ev_model.predict_interval.return_value = (
             _corrected,
             pd.DataFrame({"EV_lower_place": [1.5]}),
         )
@@ -932,11 +932,11 @@ class TestJRAFilterBacktest:
         submodel.place.predict_ev.return_value = feat_df
         _corrected = feat_df.assign(ev_place_corrected=feat_df.get("ev_place", 1.5))
         submodel.place_ev_corrector.correct_ev.return_value = _corrected
-        submodel.confidence.predict_lower_bound.return_value = (
+        submodel.conformal_ev_model.predict_lower_bound.return_value = (
             _corrected,
             pd.DataFrame({"EV_lower_place": [1.5]}),
         )
-        submodel.confidence.predict_interval.return_value = (
+        submodel.conformal_ev_model.predict_interval.return_value = (
             _corrected,
             pd.DataFrame({"EV_lower_place": [1.5]}),
         )
@@ -1070,11 +1070,11 @@ class TestJRAFilterBacktest:
         submodel.place.predict_ev.return_value = feat_df
         _corrected = feat_df.assign(ev_place_corrected=feat_df.get("ev_place", 1.5))
         submodel.place_ev_corrector.correct_ev.return_value = _corrected
-        submodel.confidence.predict_lower_bound.return_value = (
+        submodel.conformal_ev_model.predict_lower_bound.return_value = (
             _corrected,
             pd.DataFrame({"EV_lower_place": [1.5]}),
         )
-        submodel.confidence.predict_interval.return_value = (
+        submodel.conformal_ev_model.predict_interval.return_value = (
             _corrected,
             pd.DataFrame({"EV_lower_place": [1.5]}),
         )
@@ -1287,11 +1287,11 @@ class TestBetSelectionFilters:
         submodel.place.predict_ev.return_value = feat_df
         _corrected = feat_df.assign(ev_place_corrected=feat_df.get("ev_place", 1.5))
         submodel.place_ev_corrector.correct_ev.return_value = _corrected
-        submodel.confidence.predict_lower_bound.return_value = (
+        submodel.conformal_ev_model.predict_lower_bound.return_value = (
             _corrected,
             pd.DataFrame({"EV_lower_place": [1.5]}),
         )
-        submodel.confidence.predict_interval.return_value = (
+        submodel.conformal_ev_model.predict_interval.return_value = (
             _corrected,
             pd.DataFrame({"EV_lower_place": [1.5]}),
         )

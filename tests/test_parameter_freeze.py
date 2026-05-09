@@ -34,7 +34,7 @@ def mock_models() -> TrainedModelsV5:
                 place=MagicMock(),
                 place_ev_corrector=MagicMock(),
                 wide=MagicMock(),
-                confidence=MagicMock(),
+                conformal_ev_model=MagicMock(),
             ),
         },
         quality_screener=MagicMock(),
@@ -82,7 +82,7 @@ class TestParameterFreezeProtocol:
             place=MagicMock(),
             place_ev_corrector=MagicMock(),
             wide=MagicMock(),
-            confidence=MagicMock(),
+            conformal_ev_model=MagicMock(),
         )
 
         result = protocol.verify()
@@ -116,7 +116,7 @@ class TestParameterFreezeProtocol:
                     place=MagicMock(),
                     place_ev_corrector=MagicMock(),
                     wide=MagicMock(),
-                    confidence=MagicMock(),
+                    conformal_ev_model=MagicMock(),
                 )
         except RuntimeError:
             violation_detected = True
