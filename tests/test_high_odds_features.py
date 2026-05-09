@@ -383,41 +383,6 @@ class TestComputeEnvAdaptability:
         ]:
             assert np.isnan(result[key]), f"{key} should be NaN with no history"
 
-    def test_exp_count_accuracy(self):
-        """Test 7: 経験回数の正確性 — 過去走3走が該当条件 → exp_count == 3.0"""
-        result = self._make_env_result(
-            kj=[3.0, 5.0, 2.0],
-            ss=[16.0, 16.0, 16.0],
-            dist_bins=["sprint", "sprint", "sprint"],
-            surfaces=["turf", "turf", "turf"],
-            conds=[1.0, 1.0, 1.0],
-            cur_db="mile",       # 距離変更あり
-            cur_surf="turf",     # サーフェス変更なし
-            cur_cond=1.0,        # 馬場変更なし
-        )
-        # 距離変更あり、3走全てmileではないがcur_db=mile
-        # 過去走dist_bin=["sprint","sprint","sprint"], cur="mile" → 経験0
-        # Actually no sprint match mile, so 0 experience → NaN
-        # Let's fix: past bins should include mile to test exp_count
-        assert True  # Redesign test below
-
-    def test_exp_count_three_matches(self):
-        """Test 7 (修正): 距離変更あり、過去走3走が全て該当条件 → exp_count == 3.0"""
-        result = self._make_env_result(
-            kj=[3.0, 5.0, 2.0],
-            ss=[16.0, 16.0, 16.0],
-            dist_bins=["mile", "mile", "mile"],
-            surfaces=["turf", "turf", "turf"],
-            conds=[1.0, 1.0, 1.0],
-            cur_db="mile",
-            cur_surf="turf",
-            cur_cond=1.0,
-        )
-        # 全変更なし(同条件) → 全NaN
-        # Need last element to be different from current to detect change
-        # Let's use: last past bin = sprint, current = mile
-        pass
-
     def test_dist_change_exp_count(self):
         """Test 7: 距離変更あり、3走中3走が該当条件 → exp_count == 3.0"""
         # 過去走の最後がsprint、現在がmile → 距離変更検出
