@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.5
 milestone_name: Model Accuracy Improvement
-status: Phase 22 planned
+status: executing
 stopped_at: Phase 22 planned — ready to execute
-last_updated: "2026-05-09T10:30:00.000Z"
-last_activity: 2026-05-09
+last_updated: "2026-05-09T09:19:32.326Z"
+last_activity: 2026-05-09 -- Phase 22 execution started
 progress:
   total_phases: 5
   completed_phases: 4
-  total_plans: 12
+  total_plans: 13
   completed_plans: 12
-  percent: 100
+  percent: 92
 ---
 
 # Project State
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-05-07)
 
 **Core value:** 単勝モデルのバックテストROIを100%超えにすること
-**Current focus:** Phase 22 -- 統合検証とバックテスト
+**Current focus:** Phase 22 — integrated-validation
 
 ## Current Position
 
-Phase: 22 planned — ready to execute
-Plan: Phase 22 planned (1 plan, 1 wave)
-Status: Phase 22 planned
-Last activity: 2026-05-09
+Phase: 22 (integrated-validation) — EXECUTING
+Plan: 1 of 1
+Status: Executing Phase 22
+Last activity: 2026-05-09 -- Phase 22 execution started
 
 Progress: [==================] 96%
 
