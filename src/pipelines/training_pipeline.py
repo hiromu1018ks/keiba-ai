@@ -859,6 +859,7 @@ class TrainingPipelineV5:
                 )
 
                 # 特徴量列を既存モデルから抽出
+                # 数値列のみを対象 (object型のdistance_bin等を除外)
                 _non_feature_cols = {
                     "race_id", "umaban", "surface", "race_date",
                     "ev_win_corrected", "ev_win_calibrated", "actual_ev_win",
@@ -868,8 +869,13 @@ class TrainingPipelineV5:
                     "ev_place_corrected", "actual_ev_place",
                     "win_selection_edge", "p_hit", "e_return",
                     "p_corrected", "e_corrected",
+                    "distance_bin", "grade_code", "track_condition_code",
                 }
-                feature_cols = [c for c in df_oof.columns if c not in _non_feature_cols]
+                feature_cols = [
+                    c for c in df_oof.columns
+                    if c not in _non_feature_cols
+                    and df_oof[c].dtype in (np.float64, np.int64, float, int, np.float32, np.int32)
+                ]
 
                 conformal_ev = ConformalEVModel(
                     alpha=0.1,
@@ -1430,8 +1436,6 @@ class TrainingPipelineV5:
             # Phase 21: ConformalEVModel MLflow保存
             for surface, sub in models.items():
                 if sub.conformal_ev_model is not None:
-                    # Save CQR models to local dir first (MLflow logging references local files)
-                    sub.conformal_ev_model.save(models_dir, surface)
                     # CQR LightGBMモデルをMLflowに記録
                     if sub.conformal_ev_model.q_low_model is not None:
                         mlflow.lightgbm.log_model(
