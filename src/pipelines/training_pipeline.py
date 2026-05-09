@@ -41,10 +41,7 @@ from models.place_selection_gate import PlaceSelectionGateModel, ensure_place_se
 from models.race_quality_screener import RaceQualityScreener
 from models.win_selection_gate import WinSelectionGateModel, ensure_win_selection_columns
 from models.regime_detector import RegimeDetector
-from models.conformal_ev_model import ConformalEVModel  # Phase 21: RobustConfidenceEstimator -> ConformalEVModel (Plan 02で統合)
-
-# Backward compat alias — remove in Plan 02 after full integration
-RobustConfidenceEstimator = ConformalEVModel
+from models.conformal_ev_model import ConformalEVModel  # Phase 21: CQR-based EV prediction intervals
 from models.stage1_ability_model import AbilityModel
 from models.submodel_manager import SubModelManager
 from models.two_stage_return_model import PlaceTwoStageModel, WinTwoStageModel
@@ -851,33 +848,54 @@ class TrainingPipelineV5:
                 with TimingContext(f"{surface}/wide_return"):
                     wide_2s.train_return_model(pair_df, num_threads=num_threads)
 
-        # 7. 信頼区間キャリブレーション
-        with TimingContext(f"{surface}/confidence"):
-            conf = RobustConfidenceEstimator()
-            win_calib_df = df_oof.copy()
-            win_calib_df["actual_ev_win"] = df_oof["confirmed_odds"] * (
-                df_oof["kakuteijyuni"] == 1
-            ).astype(int)
-            if betting_target != "win" and "ev_place_corrected" in df_oof.columns:
-                place_calib_df = df_oof.copy()
-                place_calib_df["actual_ev_place"] = df_oof["fukuoddslow"] * (
-                    df_oof["kakuteijyuni"] <= 3
-                ).astype(int)
-                place_calib_df["ev_place_corrected"] = df_oof["ev_place_corrected"]
-            else:
-                # win-only: dummy place calib (all NaN → residuals empty → quantile=0)
-                place_calib_df = df_oof.copy()
-                place_calib_df["actual_ev_place"] = np.nan
-                place_calib_df["ev_place_corrected"] = np.nan
-            conf.calibrate(win_calib_df, place_calib_df)
+        # 7. Conformal EV Prediction Interval (CQR) per D-07/D-08/D-09
+        conformal_ev: ConformalEVModel | None = None
+        if len(df_oof) >= 500 and "ev_win_calibrated" in df_oof.columns:
+            with TimingContext(f"{surface}/conformal_ev"):
+                # actual_ev_win を計算 (Phase 19パターン)
+                df_oof["actual_ev_win"] = (
+                    df_oof["confirmed_odds"]
+                    * (df_oof["kakuteijyuni"] == 1).astype(float)
+                )
+
+                # 特徴量列を既存モデルから抽出
+                _non_feature_cols = {
+                    "race_id", "umaban", "surface", "race_date",
+                    "ev_win_corrected", "ev_win_calibrated", "actual_ev_win",
+                    "confirmed_odds", "kakuteijyuni", "kettonum",
+                    "EV_lower_win_corrected", "EV_upper_win_corrected",
+                    "conformal_confidence_score",
+                    "ev_place_corrected", "actual_ev_place",
+                    "win_selection_edge", "p_hit", "e_return",
+                    "p_corrected", "e_corrected",
+                }
+                feature_cols = [c for c in df_oof.columns if c not in _non_feature_cols]
+
+                conformal_ev = ConformalEVModel(
+                    alpha=0.1,
+                    feature_cols=feature_cols,
+                )
+                conformal_ev.train(df_oof, num_threads=num_threads)
+                logger.info(
+                    "Conformal EV fitted for %s: Q_90=%.4f, Q_80=%.4f",
+                    surface,
+                    conformal_ev._calibration_quantile_90,
+                    conformal_ev._calibration_quantile_80,
+                )
+        else:
+            logger.info(
+                "Skipping Conformal EV for %s: len=%d, has_ev_calibrated=%s",
+                surface, len(df_oof), "ev_win_calibrated" in df_oof.columns,
+            )
 
         place_selection_gate: PlaceSelectionGateModel | None = None
         if betting_target != "win":
             with TimingContext(f"{surface}/place_selection_gate"):
                 gate_train_df = df_oof.copy()
-                _, gate_place_df = conf.predict_lower_bound(df_oof.copy(), df_oof.copy())
-                if "EV_lower_place" in gate_place_df.columns:
-                    gate_train_df["EV_lower_place"] = gate_place_df["EV_lower_place"].values
+                if conformal_ev is not None:
+                    _, gate_place_df = conformal_ev.predict_interval(df_oof.copy(), df_oof.copy())
+                    if "EV_lower_place" in gate_place_df.columns:
+                        gate_train_df["EV_lower_place"] = gate_place_df["EV_lower_place"].values
                 gate_train_df = ensure_place_selection_columns(gate_train_df)
                 place_selection_gate = PlaceSelectionGateModel()
                 place_selection_gate.train(gate_train_df)
@@ -888,9 +906,10 @@ class TrainingPipelineV5:
             wsg_place_df = df_oof.copy()
             if "ev_place_corrected" not in wsg_place_df.columns:
                 wsg_place_df["ev_place_corrected"] = 0.0
-            wsg_win_df, _ = conf.predict_lower_bound(df_oof.copy(), wsg_place_df)
-            if "EV_lower_win_corrected" in wsg_win_df.columns:
-                wsg_train_df["EV_lower_win_corrected"] = wsg_win_df["EV_lower_win_corrected"].values
+            if conformal_ev is not None:
+                wsg_win_df, _ = conformal_ev.predict_interval(df_oof.copy(), wsg_place_df)
+                if "EV_lower_win_corrected" in wsg_win_df.columns:
+                    wsg_train_df["EV_lower_win_corrected"] = wsg_win_df["EV_lower_win_corrected"].values
             wsg_train_df = ensure_win_selection_columns(wsg_train_df)
 
         # --- Drift diagnostics (GATE-02, D-01/D-02/D-03) ---
@@ -951,7 +970,7 @@ class TrainingPipelineV5:
             place=place_2s,
             place_ev_corrector=place_ev_corrector,
             wide=wide_2s,
-            conformal_ev_model=conf,  # Phase 21: Plan 02で完全統合
+            conformal_ev_model=conformal_ev,  # Phase 21: CQR model
             place_selection_gate=place_selection_gate,
             use_ensemble=use_ensemble,
             benter_combo=benter_combo,
@@ -1408,20 +1427,34 @@ class TrainingPipelineV5:
                 pip_requirements=_MLFLOW_PIP_REQS,
             )
 
-            # RobustConfidenceEstimator キャリブレーション値 (JSON)
-            first_sub = next(iter(models.values()))
-            conf = first_sub.conformal_ev_model  # Phase 21: Plan 02で完全統合
-            if hasattr(conf, "_calibrated") and conf._calibrated:
-                conf_params = {
-                    "alpha": conf.alpha,
-                    "rolling_window": conf.rolling_window,
-                    "win_cp_quantile": conf._win_cp_quantile,
-                    "place_cp_quantile": conf._place_cp_quantile,
-                    "win_rolling_quantile": conf._win_rolling_quantile,
-                    "place_rolling_quantile": conf._place_rolling_quantile,
-                    "win_cp_quantile_by_condition": conf._win_cp_quantile_by_condition,
-                }
-                mlflow.log_dict(conf_params, "confidence_params.json")
+            # Phase 21: ConformalEVModel MLflow保存
+            for surface, sub in models.items():
+                if sub.conformal_ev_model is not None:
+                    # Save CQR models to local dir first (MLflow logging references local files)
+                    sub.conformal_ev_model.save(models_dir, surface)
+                    # CQR LightGBMモデルをMLflowに記録
+                    if sub.conformal_ev_model.q_low_model is not None:
+                        mlflow.lightgbm.log_model(
+                            sub.conformal_ev_model.q_low_model,
+                            name=f"cqr_quantile_low_{surface}",
+                            pip_requirements=_MLFLOW_PIP_REQS,
+                        )
+                    if sub.conformal_ev_model.q_high_model is not None:
+                        mlflow.lightgbm.log_model(
+                            sub.conformal_ev_model.q_high_model,
+                            name=f"cqr_quantile_high_{surface}",
+                            pip_requirements=_MLFLOW_PIP_REQS,
+                        )
+                    # CQR paramsをアーティファクトとして記録
+                    cqr_params = {
+                        "alpha": sub.conformal_ev_model.alpha,
+                        "calibration_quantile_90": sub.conformal_ev_model._calibration_quantile_90,
+                        "calibration_quantile_80": sub.conformal_ev_model._calibration_quantile_80,
+                        "_calibrated": sub.conformal_ev_model._calibrated,
+                    }
+                    if sub.conformal_ev_model.feature_cols is not None:
+                        cqr_params["feature_cols"] = sub.conformal_ev_model.feature_cols
+                    mlflow.log_dict(cqr_params, f"cqr_params_{surface}.json")
 
             mlflow.log_param("train_start", train_start)
             mlflow.log_param("train_end", train_end)
@@ -1553,22 +1586,37 @@ class TrainingPipelineV5:
             elif hasattr(model, "save_model"):
                 model.save_model(str(models_dir / f"{name}.lgb"))
 
-        # RobustConfidenceEstimator パラメータ保存
+        # Phase 21: ConformalEVModel保存 + PFP SHA256 (per D-10)
         for surface, sub in models.items():
-            conf = sub.conformal_ev_model  # Phase 21: Plan 02で完全統合
-            if conf._calibrated:
-                conf_data = {
-                    "alpha": conf.alpha,
-                    "rolling_window": conf.rolling_window,
-                    "win_cp_quantile": conf._win_cp_quantile,
-                    "place_cp_quantile": conf._place_cp_quantile,
-                    "win_rolling_quantile": conf._win_rolling_quantile,
-                    "place_rolling_quantile": conf._place_rolling_quantile,
-                    "win_cp_quantile_by_condition": conf._win_cp_quantile_by_condition,
-                }
-                # 各surfaceごとに保存 (最後のsurfaceの値が使われる)
-                with open(models_dir / "confidence_params.json", "w", encoding="utf-8") as f:
-                    json.dump(conf_data, f, indent=2)
+            if sub.conformal_ev_model is not None:
+                sub.conformal_ev_model.save(models_dir, surface)
+
+        # Phase 21: CQR model parameter SHA256 for PFP tamper detection (per D-10)
+        cqr_checksums: dict[str, str] = {}
+        for surface, sub in models.items():
+            if sub.conformal_ev_model is not None:
+                cqr_params_path = models_dir / f"cqr_params_{surface}.json"
+                if cqr_params_path.is_file():
+                    import hashlib
+                    sha256 = hashlib.sha256(cqr_params_path.read_bytes()).hexdigest()
+                    cqr_checksums[surface] = sha256
+                    logger.info("CQR params SHA256 for %s: %s", surface, sha256[:16])
+
+        # cqr_checksumsをstrategy manifestに追加 (存在する場合)
+        if cqr_checksums:
+            manifest_path = Path("data/strategy_manifest.json")
+            if manifest_path.is_file():
+                try:
+                    with open(manifest_path, encoding="utf-8") as f:
+                        manifest = json.load(f)
+                    manifest["cqr_checksums"] = cqr_checksums
+                    with open(manifest_path, "w", encoding="utf-8") as f:
+                        json.dump(manifest, f, indent=2, ensure_ascii=False)
+                    logger.info("CQR checksums written to strategy_manifest.json")
+                except Exception as e:
+                    logger.warning("Failed to update strategy manifest with CQR checksums: %s", e)
+            else:
+                logger.debug("strategy_manifest.json not found, CQR checksums logged only")
 
         # メタ情報
         meta = {

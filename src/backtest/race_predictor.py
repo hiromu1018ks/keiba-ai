@@ -166,7 +166,20 @@ class RacePredictor:
         # place model が無い場合は ev_place_corrected 列を dummy で補完
         if "ev_place_corrected" not in df.columns:
             df["ev_place_corrected"] = 0.0
-        win_df, place_df = submodel.conformal_ev_model.predict_interval(df, df)  # Phase 21: confidence -> conformal_ev_model
+        if submodel.conformal_ev_model is not None:
+            win_df, place_df = submodel.conformal_ev_model.predict_interval(df, df)
+        else:
+            # フォールバック: ConformalEVModelがない場合はEVをそのまま使用
+            win_df = df.copy()
+            ev_col = "ev_win_calibrated" if "ev_win_calibrated" in df.columns else "ev_win_corrected"
+            win_df["EV_lower_win_corrected"] = pd.to_numeric(df[ev_col], errors="coerce").fillna(0.0)
+            win_df["EV_upper_win_corrected"] = win_df["EV_lower_win_corrected"]
+            win_df["conformal_confidence_score"] = 0.0
+            place_df = df.copy()
+            place_df["EV_lower_place"] = pd.to_numeric(
+                df.get("ev_place_corrected", pd.Series(0.0, index=df.index)), errors="coerce"
+            ).fillna(0.0)
+            place_df["EV_upper_place"] = place_df["EV_lower_place"]
         df = win_df
         if "EV_lower_place" in place_df.columns:
             df["EV_lower_place"] = place_df["EV_lower_place"].reindex(df.index).values

@@ -78,7 +78,7 @@ class ModelLoader:
         from models.place_selection_gate import PlaceSelectionGateModel
         from models.race_quality_screener import RaceQualityScreener
         from models.regime_detector import RegimeDetector
-        from models.conformal_ev_model import ConformalEVModel  # Phase 21: Plan 02で統合
+        from models.conformal_ev_model import ConformalEVModel  # Phase 21: CQR-based EV prediction intervals
         from models.stage1_ability_model import AbilityModel
         from models.two_stage_return_model import PlaceTwoStageModel, WinTwoStageModel
         from models.wide_two_stage_model import WideTwoStageModel
@@ -182,45 +182,43 @@ class ModelLoader:
             wide.hit_model = self._load_lgbm(f"{artifact_uri}/wide_hit_{surface}")
             wide.return_model = self._load_lgbm(f"{artifact_uri}/wide_ret_{surface}")
 
-            # Phase 21: RobustConfidenceEstimator -> ConformalEVModel (Plan 02で完全統合)
-            confidence = ConformalEVModel()
+            # Phase 21: ConformalEVModel (CQR)
+            conformal_ev = None
             try:
-                conf_path = mlflow.artifacts.download_artifacts(
-                    f"runs:/{run_id}/confidence_params.json"
-                )
-                with open(conf_path) as f:
-                    conf_data = json.load(f)
-                confidence.alpha = conf_data["alpha"]
-                confidence.rolling_window = conf_data["rolling_window"]
-                confidence._win_cp_quantile = conf_data["win_cp_quantile"]
-                confidence._place_cp_quantile = conf_data["place_cp_quantile"]
-                confidence._win_rolling_quantile = conf_data["win_rolling_quantile"]
-                confidence._place_rolling_quantile = conf_data["place_rolling_quantile"]
-                confidence._win_cp_quantile_by_condition = conf_data.get("win_cp_quantile_by_condition", {})
-                confidence._calibrated = True
+                # Try loading CQR models (new format: per-surface files)
+                q_low_path = f"{artifact_uri}/cqr_quantile_low_{surface}"
+                q_high_path = f"{artifact_uri}/cqr_quantile_high_{surface}"
+                cqr_params_uri = f"runs:/{run_id}/cqr_params_{surface}.json"
+
+                import lightgbm as lgb
+
+                obj = ConformalEVModel()
+                obj.q_low_model = lgb.Booster(model_file=q_low_path) if Path(q_low_path).is_file() else mlflow.lightgbm.load_model(q_low_path)
+                obj.q_high_model = lgb.Booster(model_file=q_high_path) if Path(q_high_path).is_file() else mlflow.lightgbm.load_model(q_high_path)
+                params_path = mlflow.artifacts.download_artifacts(cqr_params_uri)
+                with open(params_path, encoding="utf-8") as f:
+                    cqr_data = json.load(f)
+                obj.alpha = cqr_data["alpha"]
+                obj._calibration_quantile_90 = cqr_data["calibration_quantile_90"]
+                obj._calibration_quantile_80 = cqr_data["calibration_quantile_80"]
+                obj.feature_cols = cqr_data.get("feature_cols")
+                obj._calibrated = cqr_data.get("_calibrated", True)
+                conformal_ev = obj
             except Exception:
-                # Fallback: ファイルシステムから直接読み込み
+                # Fallback: try legacy confidence_params.json
                 try:
-                    conf_dir = self._find_artifact_dir(
-                        run_id, "confidence_params.json"
+                    conf_path = mlflow.artifacts.download_artifacts(
+                        f"runs:/{run_id}/confidence_params.json"
                     )
-                    conf_path = str(conf_dir / "confidence_params.json")
                     with open(conf_path) as f:
                         conf_data = json.load(f)
-                    confidence.alpha = conf_data["alpha"]
-                    confidence.rolling_window = conf_data["rolling_window"]
-                    confidence._win_cp_quantile = conf_data["win_cp_quantile"]
-                    confidence._place_cp_quantile = conf_data["place_cp_quantile"]
-                    confidence._win_rolling_quantile = conf_data["win_rolling_quantile"]
-                    confidence._place_rolling_quantile = conf_data[
-                        "place_rolling_quantile"
-                    ]
-                    confidence._win_cp_quantile_by_condition = conf_data.get("win_cp_quantile_by_condition", {})
-                    confidence._calibrated = True
+                    legacy = ConformalEVModel()
+                    legacy.alpha = conf_data["alpha"]
+                    legacy._calibrated = True
+                    conformal_ev = legacy
+                    logger.info("Loaded legacy confidence params as ConformalEVModel for %s", surface)
                 except Exception:
-                    logger.warning(
-                        "RobustConfidenceEstimator params not found, using defaults"
-                    )
+                    logger.info("ConformalEVModel not found for surface=%s, skipping", surface)
 
             # Benter Combination (Place)
             benter_combo = None
@@ -320,7 +318,7 @@ class ModelLoader:
                 place=place,
                 place_ev_corrector=place_ev_corr,
                 wide=wide,
-                conformal_ev_model=confidence,  # Phase 21: Plan 02で完全統合
+                conformal_ev_model=conformal_ev,  # Phase 21: CQR model
                 place_selection_gate=place_selection_gate,
                 benter_combo=benter_combo,
                 isotonic_calibrator=isotonic_calibrator,
@@ -332,8 +330,6 @@ class ModelLoader:
                 ev_isotonic_calibrator=ev_isotonic_calibrator,
                 ev_odds_band_scales=ev_odds_band_scales,
             )
-
-        # RaceQualityScreener
         quality = RaceQualityScreener()
         quality.model = self._load_lgbm(f"{artifact_uri}/race_quality")
         quality.threshold = quality_threshold
@@ -512,7 +508,7 @@ class ModelLoader:
         from models.place_selection_gate import PlaceSelectionGateModel
         from models.race_quality_screener import RaceQualityScreener
         from models.regime_detector import RegimeDetector
-        from models.conformal_ev_model import ConformalEVModel  # Phase 21: Plan 02で統合
+        from models.conformal_ev_model import ConformalEVModel  # Phase 21: CQR-based EV prediction intervals
         from models.stage1_ability_model import AbilityModel
         from models.two_stage_return_model import PlaceTwoStageModel, WinTwoStageModel
         from models.wide_two_stage_model import WideTwoStageModel
@@ -634,20 +630,21 @@ class ModelLoader:
             wide.hit_model = self._load_lgbm(str(models_dir / f"wide_hit_{surface}.lgb"))
             wide.return_model = self._load_lgbm(str(models_dir / f"wide_ret_{surface}.lgb"))
 
-            # Phase 21: RobustConfidenceEstimator -> ConformalEVModel (Plan 02で完全統合)
-            confidence = ConformalEVModel()
-            conf_file = models_dir / "confidence_params.json"
-            if conf_file.is_file():
-                with open(conf_file) as f:
-                    conf_data = json.load(f)
-                confidence.alpha = conf_data["alpha"]
-                confidence.rolling_window = conf_data["rolling_window"]
-                confidence._win_cp_quantile = conf_data["win_cp_quantile"]
-                confidence._place_cp_quantile = conf_data["place_cp_quantile"]
-                confidence._win_rolling_quantile = conf_data["win_rolling_quantile"]
-                confidence._place_rolling_quantile = conf_data["place_rolling_quantile"]
-                confidence._win_cp_quantile_by_condition = conf_data.get("win_cp_quantile_by_condition", {})
-                confidence._calibrated = True
+            # Phase 21: ConformalEVModel (CQR per-surface files)
+            conformal_ev = ConformalEVModel.load(models_dir, surface)
+            # Fallback: legacy confidence_params.json
+            if conformal_ev is None:
+                conf_file = models_dir / "confidence_params.json"
+                if conf_file.is_file():
+                    try:
+                        with open(conf_file) as f:
+                            conf_data = json.load(f)
+                        conformal_ev = ConformalEVModel()
+                        conformal_ev.alpha = conf_data["alpha"]
+                        conformal_ev._calibrated = True
+                        logger.info("Loaded legacy confidence_params.json for %s", surface)
+                    except Exception:
+                        logger.warning("Failed to load legacy confidence_params.json for %s", surface)
 
             # Benter Combination (JSON)
             benter_combo = None
@@ -739,7 +736,7 @@ class ModelLoader:
                 place=place,
                 place_ev_corrector=place_ev_corr,
                 wide=wide,
-                conformal_ev_model=confidence,  # Phase 21: Plan 02で完全統合
+                conformal_ev_model=conformal_ev,  # Phase 21: CQR model
                 place_selection_gate=place_selection_gate,
                 use_ensemble=use_ensemble,
                 benter_combo=benter_combo,

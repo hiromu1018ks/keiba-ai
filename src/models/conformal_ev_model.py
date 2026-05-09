@@ -60,14 +60,6 @@ class ConformalEVModel:
         self._calibration_quantile_90: float = 0.0  # alpha=0.1用
         self._calibration_quantile_80: float = 0.0  # alpha=0.2用
 
-        # Backward compat attributes for old RobustConfidenceEstimator users (remove in Plan 02)
-        self.rolling_window: int = 200
-        self._win_cp_quantile: float = 0.0
-        self._place_cp_quantile: float = 0.0
-        self._win_rolling_quantile: float = 0.0
-        self._place_rolling_quantile: float = 0.0
-        self._win_cp_quantile_by_condition: dict[str, float] = {}
-
     def calibrate(
         self,
         win_df: pd.DataFrame,
