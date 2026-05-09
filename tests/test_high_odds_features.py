@@ -279,10 +279,12 @@ class TestComputeEnvAdaptability:
 
     def test_dist_change_with_experience(self):
         """Test 1: 距離変更あり(sprint→mile) — 過去走にmile経験あり"""
+        # 最後の過去走=sprint, 現在=mile → 距離変更検出
+        # 最初2走=sprint, 3番目=mile → mile経験1走
         result = self._make_env_result(
             kj=[3.0, 5.0, 2.0],
             ss=[16.0, 16.0, 16.0],
-            dist_bins=["sprint", "sprint", "mile"],
+            dist_bins=["mile", "sprint", "sprint"],
             surfaces=["turf", "turf", "turf"],
             conds=[1.0, 1.0, 1.0],
             cur_db="mile",

@@ -1,4 +1,4 @@
-"""高オッズ的中パターン特徴量 — クラストラジェクトリ + フォーム改善率
+"""高オッズ的中パターン特徴量 — クラストラジェクトリ + フォーム改善率 + 環境変化適性
 
 HorseHistoryFeatures の per-horse ループ内で呼び出される純粋関数群。
 form_cycle_features.py のパターンに従う。
@@ -10,6 +10,10 @@ HODDS-02: クラストラジェクトリ (D-05, D-06, D-07)
 HODDS-03: フォーム改善率 (D-08, D-09)
   - EMAベース指数改善率 (タイムz-score + 正規化着順)
   - halflife=3 の確立パターン (horse_history_features.py と同一)
+
+HODDS-04: 環境変化適性 (D-10, D-11)
+  - 3変化(距離/サーフェス/馬場状態) x 3サブ特徴量(平均着順/勝率/経験回数)
+  - 変更検出時のみ該当統計を計算、経験回数0はNaN
 """
 from __future__ import annotations
 
@@ -27,6 +31,16 @@ FEATURE_COLS: list[str] = [
     # HODDS-03: フォーム改善率 (D-08, D-09)
     "time_improvement_rate",   # EMAベースタイム(z-score)改善率
     "position_improvement_rate", # EMAベース着順改善率
+    # HODDS-04: 環境変化適性 (D-10, D-11)
+    "dist_change_avg_pos",     # 距離変更時の該当距離平均着順
+    "dist_change_win_rate",    # 距離変更時の該当距離勝率
+    "dist_change_exp_count",   # 距離変更時の該当距離経験回数
+    "surf_change_avg_pos",     # サーフェス変更時の該当サーフェス平均着順
+    "surf_change_win_rate",    # サーフェス変更時の該当サーフェス勝率
+    "surf_change_exp_count",   # サーフェス変更時の該当サーフェス経験回数
+    "cond_change_avg_pos",     # 馬場状態変更時の該当馬場平均着順
+    "cond_change_win_rate",    # 馬場状態変更時の該当馬場勝率
+    "cond_change_exp_count",   # 馬場状態変更時の該当馬場経験回数
 ]
 
 # クラスレベルマップ (horse_history_features.py からコピー、循環参照回避)
@@ -237,3 +251,152 @@ def _ema_improvement(
     else:
         # 正 = EMAが全体より高い = 直近改善
         return (ema_mean - overall_mean) / overall_std
+
+
+# ---------------------------------------------------------------------------
+# 環境変化適性キー
+# ---------------------------------------------------------------------------
+_ENV_KEYS: list[str] = [
+    "dist_change_avg_pos", "dist_change_win_rate", "dist_change_exp_count",
+    "surf_change_avg_pos", "surf_change_win_rate", "surf_change_exp_count",
+    "cond_change_avg_pos", "cond_change_win_rate", "cond_change_exp_count",
+]
+
+
+def _nan_env() -> dict[str, float]:
+    """全キーNaNの結果dictを返す。"""
+    return {k: float("nan") for k in _ENV_KEYS}
+
+
+def _compute_change_stats(
+    change_detected: bool,
+    match_mask: np.ndarray,
+    kakuteijyuni: np.ndarray,
+    syussotosu: np.ndarray,
+    prefix: str,
+) -> dict[str, float]:
+    """変更検出時に対象過去走の統計を計算。
+
+    Args:
+        change_detected: 変更が検出されたか
+        match_mask: 対象条件に一致する過去走のブールマスク
+        kakuteijyuni: 確定着順配列
+        syussotosu: 出走頭数配列
+        prefix: キー前置詞 ("dist_change", "surf_change", "cond_change")
+
+    Returns:
+        {prefix}_avg_pos, {prefix}_win_rate, {prefix}_exp_count
+    """
+    nan_result = {
+        f"{prefix}_avg_pos": float("nan"),
+        f"{prefix}_win_rate": float("nan"),
+        f"{prefix}_exp_count": float("nan"),
+    }
+    if not change_detected:
+        return nan_result
+
+    matched_kj = kakuteijyuni[match_mask]
+    matched_ss = syussotosu[match_mask]
+
+    if len(matched_kj) == 0:
+        return nan_result
+
+    # avg_pos: 正規化着順 (pos-1)/(size-1) の平均。低いほど良い
+    norm_pos = (matched_kj - 1) / np.maximum(matched_ss - 1, 1)
+    avg_pos = float(np.nanmean(norm_pos))
+
+    # win_rate: 1着の割合
+    win_rate = float((matched_kj == 1).sum()) / float(len(matched_kj))
+
+    # exp_count: 該当走数
+    exp_count = float(len(matched_kj))
+
+    return {
+        f"{prefix}_avg_pos": avg_pos,
+        f"{prefix}_win_rate": win_rate,
+        f"{prefix}_exp_count": exp_count,
+    }
+
+
+def compute_env_adaptability(
+    kakuteijyuni_arr: np.ndarray,
+    syussotosu_arr: np.ndarray,
+    distance_bin_arr: np.ndarray,
+    surface_arr: np.ndarray,
+    track_condition_arr: np.ndarray,
+    current_distance_bin: str,
+    current_surface: str,
+    current_track_condition: float,
+) -> dict[str, float]:
+    """環境変化適性9特徴量を計算。
+
+    3変化(距離/サーフェス/馬場状態) x 3サブ特徴量(平均着順/勝率/経験回数)。
+    変更が検出された場合のみ該当変化の統計を計算。変更なしはNaN。
+
+    Args:
+        kakuteijyuni_arr: 過去走の確定着順配列
+        syussotosu_arr: 過去走の出走頭数配列
+        distance_bin_arr: 過去走の距離ビン配列 (str)
+        surface_arr: 過去走のサーフェス配列 (str)
+        track_condition_arr: 過去走の馬場状態コード配列 (float)
+        current_distance_bin: 現在レースの距離ビン
+        current_surface: 現在レースのサーフェス
+        current_track_condition: 現在レースの馬場状態コード
+
+    Returns:
+        dict with 9 keys:
+        dist_change_avg_pos, dist_change_win_rate, dist_change_exp_count,
+        surf_change_avg_pos, surf_change_win_rate, surf_change_exp_count,
+        cond_change_avg_pos, cond_change_win_rate, cond_change_exp_count
+    """
+    result = _nan_env()
+
+    if len(kakuteijyuni_arr) == 0:
+        return result
+
+    kj = kakuteijyuni_arr.astype(float)
+    ss = syussotosu_arr.astype(float)
+
+    # 最後の過去走の値
+    last_db = str(distance_bin_arr[-1])
+    last_surf = str(surface_arr[-1])
+    last_cond = _to_float(track_condition_arr[-1])
+
+    # 距離変更検出: 最後の過去走と現在が異なる
+    dist_changed = current_distance_bin != last_db
+    dist_stats = _compute_change_stats(
+        dist_changed,
+        distance_bin_arr == current_distance_bin,
+        kj, ss,
+        "dist_change",
+    )
+    result.update(dist_stats)
+
+    # サーフェス変更検出
+    surf_changed = current_surface != last_surf
+    surf_stats = _compute_change_stats(
+        surf_changed,
+        np.array([str(s) for s in surface_arr]) == current_surface,
+        kj, ss,
+        "surf_change",
+    )
+    result.update(surf_stats)
+
+    # 馬場状態変更検出
+    if np.isnan(last_cond) or np.isnan(current_track_condition):
+        cond_changed = False
+    else:
+        cond_changed = current_track_condition != last_cond
+    cond_match = np.array([
+        (not np.isnan(_to_float(tc))) and _to_float(tc) == current_track_condition
+        for tc in track_condition_arr
+    ])
+    cond_stats = _compute_change_stats(
+        cond_changed,
+        cond_match,
+        kj, ss,
+        "cond_change",
+    )
+    result.update(cond_stats)
+
+    return result
