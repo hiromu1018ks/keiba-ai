@@ -204,7 +204,8 @@ class ModelLoader:
                 obj.feature_cols = cqr_data.get("feature_cols")
                 obj._calibrated = cqr_data.get("_calibrated", True)
                 conformal_ev = obj
-            except Exception:
+            except Exception as e:
+                logger.warning("CQR model files not found for %s (%s), trying legacy format", surface, e)
                 # Fallback: try legacy confidence_params.json
                 try:
                     conf_path = mlflow.artifacts.download_artifacts(
@@ -214,7 +215,7 @@ class ModelLoader:
                         conf_data = json.load(f)
                     legacy = ConformalEVModel()
                     legacy.alpha = conf_data["alpha"]
-                    legacy._calibrated = True
+                    legacy._calibrated = False  # No actual CQR models; will use fallback
                     conformal_ev = legacy
                     logger.info("Loaded legacy confidence params as ConformalEVModel for %s", surface)
                 except Exception:
@@ -641,7 +642,7 @@ class ModelLoader:
                             conf_data = json.load(f)
                         conformal_ev = ConformalEVModel()
                         conformal_ev.alpha = conf_data["alpha"]
-                        conformal_ev._calibrated = True
+                        conformal_ev._calibrated = False  # No actual CQR models; will use fallback
                         logger.info("Loaded legacy confidence_params.json for %s", surface)
                     except Exception:
                         logger.warning("Failed to load legacy confidence_params.json for %s", surface)
