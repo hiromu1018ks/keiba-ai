@@ -874,7 +874,7 @@ class TrainingPipelineV5:
                 feature_cols = [
                     c for c in df_oof.columns
                     if c not in _non_feature_cols
-                    and df_oof[c].dtype in (np.float64, np.int64, float, int, np.float32, np.int32)
+                    and pd.api.types.is_numeric_dtype(df_oof[c])
                 ]
 
                 conformal_ev = ConformalEVModel(
@@ -882,6 +882,9 @@ class TrainingPipelineV5:
                     feature_cols=feature_cols,
                 )
                 conformal_ev.train(df_oof, num_threads=num_threads)
+                if not conformal_ev._calibrated:
+                    logger.warning("Conformal EV training incomplete for %s", surface)
+                    conformal_ev = None
                 logger.info(
                     "Conformal EV fitted for %s: Q_90=%.4f, Q_80=%.4f",
                     surface,
@@ -967,7 +970,7 @@ class TrainingPipelineV5:
             wsg_train_df, surface="dirt", fallback=0.7,
         )
 
-        return SubmodelSet(
+        sub = SubmodelSet(
             market=market,
             stage1=stage1,
             place_ability=place_ability,
@@ -991,7 +994,6 @@ class TrainingPipelineV5:
             ev_isotonic_calibrator=ev_isotonic_calibrator,
             ev_odds_band_scales=ev_odds_band_scales,
         )
-
         # Wire Isotonic + band scales into ev_corrector for correct_ev() to apply
         sub.ev_corrector.ev_isotonic_calibrator = ev_isotonic_calibrator
         sub.ev_corrector.ev_odds_band_scales = ev_odds_band_scales
