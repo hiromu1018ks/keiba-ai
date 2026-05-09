@@ -234,8 +234,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 21-01: Conformal Prediction EV区間実装 + 動的フィルタリング (CONF-01, CONF-02)
-- [ ] 21-02: パイプライン統合 + 診断レポート更新 (CONF-03)
+- [x] 21-01: Conformal Prediction EV区間実装 + 動的フィルタリング (CONF-01, CONF-02)
+- [x] 21-02: パイプライン統合 + 診断レポート更新 (CONF-03)
 
 **Success Criteria:**
   1. 90%信頼区間のカバレッジ率が90%以上
@@ -287,5 +287,5 @@ Phases execute in numeric order: 14 → 15 → 16 → 17 → 18
 | 19. EV推定キャリブレーション | v1.5 | 2/2 | Complete    | 2026-05-07 |
 | 19.1. バックテスト高速化 | v1.5 | 5/5 | Complete | 2026-05-08 |
 | 20. 高オッズ的中パターン特徴量 | v1.5 | 3/3 | Complete    | 2026-05-09 |
-| 21. Conformal EV予測区間 | v1.5 | 0/2 | Active | — |
+| 21. Conformal EV予測区間 | v1.5 | 2/2 | Complete | 2026-05-09 |
 | 22. 統合検証とバックテスト | v1.5 | 0/1 | Active | — |
