@@ -294,6 +294,18 @@ class ConformalEVModel:
         else:
             feature_cols = self.feature_cols
 
+        # 推論コンテキストで一部特徴量が欠落する場合（キャリブレーションBT等）、
+        # 利用可能な列のみを使用し欠落列は0で埋める
+        available = set(win_df.columns)
+        missing = [c for c in feature_cols if c not in available]
+        if missing:
+            logger.warning(
+                "ConformalEV: %d/%d feature_cols missing, filling with 0: %s",
+                len(missing), len(feature_cols), missing[:5],
+            )
+            for c in missing:
+                win_df[c] = 0.0
+
         X_win = win_df[feature_cols].fillna(0.0)
         q_low = self.q_low_model.predict(X_win)
         q_high = self.q_high_model.predict(X_win)
