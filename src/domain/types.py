@@ -32,3 +32,24 @@ class RegimeState(str, Enum):
     AGGRESSIVE = "aggressive"
     CONSERVATIVE = "conservative"
     COLLAPSED = "collapsed"
+
+
+# レース後のみ入手可能な列 — ML特徴量として使用禁止
+POST_RACE_COLS: list[str] = [
+    "kakuteijyuni",
+    "confirmed_odds",
+    "ninki",
+    "kyakusitukubun",
+    "time",
+    "timediff",
+    "harontimel3",
+    "harontimel4",
+    "jyuni1c",
+    "jyuni2c",
+    "jyuni3c",
+    "jyuni4c",
+    "honsyokin",
+    "chakusacd",
+    "dmjyuni",
+    "dmtime",
+]

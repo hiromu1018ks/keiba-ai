@@ -30,31 +30,13 @@ from db.readers import (
     load_wide_odds,
 )
 from domain.models import Bet, BetType
+from domain.types import POST_RACE_COLS
 from models.regime_detector import calc_favorite_implied_prob, calc_odds_skewness
 
 if TYPE_CHECKING:
     from domain.models import TrainedModelsV5
 
 logger = logging.getLogger(__name__)
-
-POST_RACE_COLS: list[str] = [
-    "kakuteijyuni",
-    "confirmed_odds",
-    "ninki",
-    "kyakusitukubun",
-    "time",
-    "timediff",
-    "harontimel3",
-    "harontimel4",
-    "jyuni1c",
-    "jyuni2c",
-    "jyuni3c",
-    "jyuni4c",
-    "honsyokin",
-    "chakusacd",
-    "dmjyuni",
-    "dmtime",
-]
 
 
 @dataclass
