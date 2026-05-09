@@ -286,6 +286,6 @@ Phases execute in numeric order: 14 → 15 → 16 → 17 → 18
 | 18. Validation & Freeze | v1.4 | 2/2 | Complete | 2026-05-07 |
 | 19. EV推定キャリブレーション | v1.5 | 2/2 | Complete    | 2026-05-07 |
 | 19.1. バックテスト高速化 | v1.5 | 5/5 | Complete | 2026-05-08 |
-| 20. 高オッズ的中パターン特徴量 | v1.5 | 3/3 | Complete   | 2026-05-09 |
+| 20. 高オッズ的中パターン特徴量 | v1.5 | 3/3 | Complete    | 2026-05-09 |
 | 21. Conformal EV予測区間 | v1.5 | 0/2 | Active | — |
 | 22. 統合検証とバックテスト | v1.5 | 0/1 | Active | — |
