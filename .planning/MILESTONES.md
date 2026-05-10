@@ -96,3 +96,28 @@
 - `.planning/milestones/v1.4-ROADMAP.md`
 - `.planning/milestones/v1.4-REQUIREMENTS.md`
 - `.planning/milestones/v1.4-MILESTONE-AUDIT.md`
+
+## v1.5 Model Accuracy Improvement — 2026-05-10
+
+**Status:** ✅ Shipped
+**Phases:** 5 (19, 19.1, 20, 21, 22) | **Plans:** 13 | **LOC:** ~24,970
+
+### Key Accomplishments
+
+1. Isotonic EVキャリブレーション + オッズバンド別補正層 — EV過大評価2.42倍を是正
+2. バックテスト高速化5段階 — キャリブレーションBT条件付きスキップ、Categorical包括適用、特徴量キャッシュ強化
+3. 高オッズ的中18新特徴量 — クラストラジェクトリ、フォーム改善率、環境変化適性
+4. CQR Conformal EV予測区間 — 80%/90%信頼区間 + 動的EV_lowerフィルタリング
+5. 統合バックテスト — ROI v1.4:83.1% → v1.5:84.4% (+1.3pp改善、目標95%は未達)
+
+### Known Deferred Items
+
+- ROI 95%目標未達 (84.4%、次マイルストーンで改善要)
+- CQR過学習修正済み(f3a4c10)だが、CQR設計自体の見直しが必要
+- WF検証未実行 (過学習の有無未確認)
+- 高オッズ帯(20+)でのベット機会なし
+- debug/data-leak-phase-20-22.md (status: diagnosed、修正済み)
+
+### Archive
+
+- `.planning/milestones/v1.5-ROADMAP.md`

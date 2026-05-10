@@ -3,7 +3,7 @@
 ## What This Is
 
 競馬AI予測システム v5.5 — 統計的 horse racing prediction system (単勝/複勝/ワイド)。
-LightGBM + XGBoost + CatBoost 3モデルスタッキング、Optuna個別HP最適化、Conformal EV区間による信頼性評価、9新特徴量(EMA時系列・ペースフィグア・オッズ変動・オッズ乖離)を搭載。
+LightGBM + XGBoost + CatBoost 3モデルスタッキング、Optuna個別HP最適化、Isotonic EVキャリブレーション + オッズバンド別補正、CQR Conformal EV区間、18高オッズ特徴量(クラストラジェクトリ/フォーム改善率/環境変化適性)を搭載。
 3段階ベットフィルター(動的EV_lower/OddsBand/COLLAPSED skip)、レジーム別Kellyサイジング、DD%のみ3段階制御、Optuna TPE 16次元パラメータ最適化 + multi-seed安定性検証、PFP SHA256改ざん検知二重検証 + 自動検証レポート生成を搭載。
 MLflow で実験管理。PostgreSQL (EveryDB2/JRA-VAN DataLab) をデータソースとする。
 
@@ -45,22 +45,16 @@ MLflow で実験管理。PostgreSQL (EveryDB2/JRA-VAN DataLab) をデータソ�
 - ✓ OddsBandFilterをアンサンブルベースtraining_bet_historyで再構築 + ルックアヘッドバイアス修正 — v1.4
 - ✓ Optuna 16次元パラメータ最適化 + 4fold化 + multi-seed安定性検証 — v1.4
 - ✓ PFP SHA256改ざん検知二重検証 + 自動検証レポート生成 — v1.4
+- ✓ Isotonic EVキャリブレーション + オッズバンド別補正層 — v1.5
+- ✓ EVCorrectionModel統合 + パイプライン適用 — v1.5
+- ✓ バックテスト高速化5段階(キャリブレーションBT条件付きスキップ、Categorical包括適用等) — v1.5
+- ✓ 高オッズ的中18新特徴量(クラストラジェクトリ/フォーム改善率/環境変化適性) — v1.5
+- ✓ CQR Conformal EV予測区間(80%/90%信頼区間 + 動的フィルタリング) — v1.5
+- ✓ 統合バックテスト検証 — v1.5
 
 ### Active
 
-- ⬚ EVC-01: OOF予測ベースのIsotonic EVキャリブレーション — v1.5
-- ⬚ EVC-02: オッズバンド別EV補正層 — v1.5
-- ⬚ EVC-03: EVCorrectionModel統合 — v1.5
-- ⬚ HODDS-01: 高オッズ的中パターン分析モジュール — v1.5
-- ⬚ HODDS-02: クラストラジェクトリ特徴量 — v1.5
-- ⬚ HODDS-03: フォーム改善率特徴量 — v1.5
-- ⬚ HODDS-04: 環境変化適性特徴量 — v1.5
-- ⬚ HODDS-05: 新特徴量のモデル統合 — v1.5
-- ⬚ CONF-01: Conformal Prediction EV区間実装 — v1.5
-- ⬚ CONF-02: EV信頼区間ベースの動的フィルタリング — v1.5
-- ⬚ CONF-03: ConformalEVのパイプライン統合 — v1.5
-- ⬚ VAL-01: 全改善適用後のバックテスト実行 — v1.5
-- ⬚ VAL-02: EVキャリブレーション品質検証 — v1.5
+(None — pending next milestone planning)
 
 ### Out of Scope
 
@@ -79,33 +73,36 @@ MLflow で実験管理。PostgreSQL (EveryDB2/JRA-VAN DataLab) をデータソ�
 
 ## Current State
 
-**Shipped:** v1.4 Ensemble Filter Recalibration (2026-05-07)
-**Phases:** 18 total (v1.0-v1.4)
-**LOC:** ~19,300 (src/)
-**Tests:** 1,327 passed, 0 failed
-**Next:** v1.5 Model Accuracy Improvement — Phases 19-22
+**Shipped:** v1.5 Model Accuracy Improvement (2026-05-10)
+**Phases:** 23 total (v1.0-v1.5)
+**LOC:** ~24,970 (src/)
+**Tests:** 1,392+ passed, 0 failed
+**Next:** Planning v1.6
 
 ## Context
 
-### 現状 (v1.5開始)
+### 現状 (v1.5完了)
 
-- 5マイルストーン18フェーズ完了 (v1.0〜v1.4)
-- バックテスト結果: ROI 83.1%、EV過大評価2.42倍
-- 高オッズ帯(20+)のP過大評価1.98倍が最大の課題
-- EV_excluded=0、COLLAPSED_skipped=0 → フィルター不活性
-- Phase 19/20は並行開発可能
+- 6マイルストーン23フェーズ完了 (v1.0〜v1.5)
+- バックテスト結果: ROI 84.4% (v1.4: 83.1%、+1.3pp改善)
+- EV過大評価2.42倍をIsotonicキャリブレーションで改善
+- CQR過学習・選択バイアスを修正(f3a4c10)
+- ROI 95%目標は未達 — 次マイルストーンの最重要課題
 
 ### 残存課題
 
-- VAL-01: 実際のROI>100%確認はPostgreSQL環境でのバックテスト実行が必要
+- ROI 95%目標未達 (84.4%) — モデル精度の更なる改善が必要
+- CQR設計見直し — 残差学習アプローチの問題点を解消
+- WF検証未実行 — 過学習の有無未確認
+- 高オッズ帯(20+)のベット機会なし — モデルが高オッズ候補を除外
 - Human UAT 5項目がPostgreSQL環境依存で未実行
-- MLflowフォールバックパスのuse_ensemble未伝播 (運用影響なし)
-- Nyquist validation未実施 (v1.4全フェーズ)
 
 ### 技術背景
 
 - 3モデルGBMスタッキング: LightGBM + XGBoost + CatBoost (Optuna個別HP最適化)
-- Conformal EV区間: 80%/90% 2レベルalpha信頼区間 + confidence_score
+- Isotonic EVキャリブレーション + オッズバンド別補正層
+- CQR Conformal EV区間: 80%/90% 2レベルalpha信頼区間 (要設計見直し)
+- 18高オッズ特徴量: クラストラジェクトリ、フォーム改善率、環境変化適性
 - Parquetベースのデータパイプライン(PostgreSQLはETL専用)
 - RegimeDetector: 3状態(aggressive/conservative/collapsed) + override_params外部注入
 - 3段階ベットフィルター: COLLAPSED skip → 動的EV_lower → OddsBandFilter
@@ -119,7 +116,7 @@ MLflow で実験管理。PostgreSQL (EveryDB2/JRA-VAN DataLab) をデータソ�
 
 - **Tech stack**: Python 3.11, LightGBM, XGBoost, CatBoost, Optuna, pandas, pyarrow
 - **Data**: EveryDB2 (2015-2025) — 新データ源は追加しない
-- **Testing**: 全テスト mock使用(DB不要) — 1,200+テスト
+- **Testing**: 全テスト mock使用(DB不要) — 1,392+テスト
 - **Code style**: Ruff (py311, line-length=100), mypy (strict)
 - **No external services**: ローカル実行のみ、クラウドサービス不使用
 
@@ -148,6 +145,10 @@ MLflow で実験管理。PostgreSQL (EveryDB2/JRA-VAN DataLab) をデータソ�
 | ルックアヘッドバイアス修正 | training_bet_history生成にデフォルトパラメータ使用 | ✓ Good (v1.4) |
 | PFP二重検証 | freeze + verify で改ざん検知を全return pathで保証 | ✓ Good (v1.4) |
 | Multi-seed安定性検証 | seed 42/43/44でCV判定、不安定次元を自動固定 | ✓ Good (v1.4) |
+| Isotonic EVキャリブレーション | P×E独立性仮定を緩和しOOF予測で直接キャリブレーション | ✓ Good (v1.5) |
+| CQR残差学習への変更 | 主モデル出力をCQR入力特徴量に含める設計変更 | ⚠️ Revisit (v1.5) — CQR過学習を引き起こし修正が必要だった |
+| POST_RACE_COLS共通化 | domain/types.pyで一元管理し漏れ防止 | ✓ Good (v1.5) |
+| 高オッズ18特徴量追加 | クラストラジェクトリ/フォーム改善率/環境変化適性 | — Pending (効果検証不十分) |
 
 ## Evolution
 
@@ -167,4 +168,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-07 after v1.5 milestone start*
+*Last updated: 2026-05-10 after v1.5 milestone*
