@@ -353,6 +353,7 @@ class BacktestEngine:
         strategy_params: dict[str, Any] | None = None,
         manifest_path: Path | None = None,
         preloaded_odds_ts: pd.DataFrame | None = None,
+        min_bets_per_year: int = 1000,
     ) -> None:
         if betting_mode not in ("flat", "kelly"):
             raise ValueError(f"betting_mode must be 'flat' or 'kelly', got '{betting_mode}'")
@@ -368,6 +369,7 @@ class BacktestEngine:
         self._manifest_path = manifest_path
         self._pfp: ParameterFreezeProtocol | None = None
         self._preloaded_odds_ts = preloaded_odds_ts  # P1: odds時系列データ受け渡し
+        self._min_bets_per_year = min_bets_per_year
 
         # Phase 11: Bet selection filters
         self._odds_band_filter: OddsBandFilter | None = None
@@ -1204,11 +1206,12 @@ class BacktestEngine:
             except (ValueError, TypeError):
                 n_years = 1.0
             bets_per_year = total_bets / n_years
-            if bets_per_year < 1000:
-                logger.warning(
-                    "Bet count guard: %.0f bets/year (below 1000 threshold). "
-                    "Consider parameter adjustment in Phase 13.",
-                    bets_per_year,
+            if bets_per_year < self._min_bets_per_year:
+                raise RuntimeError(
+                    f"Bet count guard FAIL: {bets_per_year:.0f} bets/year "
+                    f"(below {self._min_bets_per_year} threshold). "
+                    f"Ultra-selective betting produces unreliable ROI estimates. "
+                    f"Total bets: {total_bets}, Period: {n_years:.1f} years."
                 )
 
         # --- D-03(2): PFP verify -- OOS期間終了時のモデル不変性確認 ---

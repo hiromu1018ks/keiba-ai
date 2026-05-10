@@ -16,18 +16,16 @@ def _train_valid_split(
     features: pd.DataFrame,
     label: pd.Series | np.ndarray,
     valid_ratio: float = 0.2,
-    seed: int = 42,
+    seed: int = 42,  # noqa: ARG001 — kept for API compat
 ) -> tuple[lgb.Dataset, lgb.Dataset]:
-    """学習データを train/valid にランダム分割して (train_data, valid_data) を返す。"""
+    """時系列順に train/valid に分割。未来データのリークを防ぐためランダム分割しない。"""
     n = len(features)
-    perm = np.random.RandomState(seed).permutation(n)
     split = int(n * (1 - valid_ratio))
-    train_idx, valid_idx = perm[:split], perm[split:]
 
     label_series = label if isinstance(label, pd.Series) else pd.Series(label)
-    train_data = lgb.Dataset(features.iloc[train_idx], label=label_series.iloc[train_idx])
+    train_data = lgb.Dataset(features.iloc[:split], label=label_series.iloc[:split])
     valid_data = lgb.Dataset(
-        features.iloc[valid_idx], label=label_series.iloc[valid_idx], reference=train_data
+        features.iloc[split:], label=label_series.iloc[split:], reference=train_data
     )
     return train_data, valid_data
 

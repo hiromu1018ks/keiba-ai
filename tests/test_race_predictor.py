@@ -1435,76 +1435,71 @@ class TestGetWinCandidates:
         result = predictor.get_win_candidates(race_df)
         assert len(result) == 0
 
-    def test_ev_lower_filter_excludes_below_threshold(self, mock_models: MagicMock) -> None:
-        """Test 8: EV_lower_win_corrected < 1.0 の候補は除外される (D-01)"""
+    def test_ev_lower_not_used_for_filtering(self, mock_models: MagicMock) -> None:
+        """EV_lower_win_corrected はベット除外に使われない (CQR過学習防止)"""
         from backtest.race_predictor import RacePredictor
 
         predictor = RacePredictor(models=mock_models)
         race_df = self._make_win_race_df(
             n=3,
-            EV_lower_win_corrected=[0.8, 1.2, 0.5],  # horses 2 passes, 1 & 3 fail
+            EV_lower_win_corrected=[0.8, 1.2, 0.5],  # 値に関わらず edge>0 なら候補
         )
         result = predictor.get_win_candidates(race_df)
-        assert len(result) == 1
-        assert result.iloc[0]["umaban"] == 2
+        # EV_lower に関わらず、edge > 0 の候補は全て保持される
+        assert len(result) == 2  # max 2 candidates per race
 
-    def test_ev_lower_nan_fallback_to_edge_only(self, mock_models: MagicMock) -> None:
-        """Test 9: EV_lower_win_corrected が NaN なら edge>0 のみで判定 (D-03)"""
+    def test_ev_lower_nan_no_effect(self, mock_models: MagicMock) -> None:
+        """EV_lower_win_corrected が NaN でも edge>0 で判定"""
         from backtest.race_predictor import RacePredictor
 
         predictor = RacePredictor(models=mock_models)
         race_df = self._make_win_race_df(
             n=2,
-            EV_lower_win_corrected=[float("nan"), float("nan")],  # NaN -> fallback
+            EV_lower_win_corrected=[float("nan"), float("nan")],
         )
         result = predictor.get_win_candidates(race_df)
-        # Both have edge > 0, both should pass via fallback
         assert len(result) == 2
 
     def test_ev_lower_column_missing_keeps_existing_behavior(
         self, mock_models: MagicMock
     ) -> None:
-        """Test 10: EV_lower_win_corrected 列なし → 既存動作と同じ"""
+        """EV_lower_win_corrected 列なし → edge>0 だけで判定"""
         from backtest.race_predictor import RacePredictor
 
         predictor = RacePredictor(models=mock_models)
         race_df = self._make_win_race_df(n=3)
-        # Remove EV_lower column if it exists
         race_df = race_df.drop(columns=["EV_lower_win_corrected"], errors="ignore")
         result = predictor.get_win_candidates(race_df)
-        assert len(result) == 2  # max 2 candidates, same as existing
+        assert len(result) == 2  # max 2 candidates
 
-    def test_ev_lower_above_threshold_kept(self, mock_models: MagicMock) -> None:
-        """Test 7: EV_lower_win_corrected >= 1.0 の候補は保持される"""
+    def test_ev_lower_high_values_no_effect(self, mock_models: MagicMock) -> None:
+        """EV_lower_win_corrected が高くても edge>0 だけで判定"""
         from backtest.race_predictor import RacePredictor
 
         predictor = RacePredictor(models=mock_models)
         race_df = self._make_win_race_df(
             n=3,
-            EV_lower_win_corrected=[1.5, 1.2, 2.0],  # all >= 1.0
+            EV_lower_win_corrected=[1.5, 1.2, 2.0],
         )
         result = predictor.get_win_candidates(race_df)
         assert len(result) == 2  # max 2
 
-    def test_ev_lower_dynamic_threshold_turf(self, mock_models: MagicMock) -> None:
-        """D-01/D-02: turf SubmodelSet閾値0.85の時、EV_lower 0.90は合格"""
+    def test_ev_lower_dynamic_threshold_turf_no_filter(self, mock_models: MagicMock) -> None:
+        """EV_lower閾値が設定されていても、ベット判定には使われない"""
         from backtest.race_predictor import RacePredictor
 
-        # Set dynamic threshold for turf
         mock_models.submodels["turf"].ev_lower_threshold_turf = 0.85
         predictor = RacePredictor(models=mock_models)
         race_df = self._make_win_race_df(
             n=3,
             surface=["turf"] * 3,
-            EV_lower_win_corrected=[0.90, 0.80, 1.5],  # 0.90 >= 0.85 pass, 0.80 < 0.85 fail
+            EV_lower_win_corrected=[0.90, 0.80, 1.5],
         )
         result = predictor.get_win_candidates(race_df)
-        # 0.90 passes (>= 0.85), 0.80 fails (< 0.85), 1.5 passes
-        assert len(result) == 2
-        assert set(result["umaban"].tolist()) == {1, 3}
+        assert len(result) == 2  # EV_lower閾値に関わらず max 2 candidates
 
-    def test_ev_lower_dynamic_threshold_dirt(self, mock_models: MagicMock) -> None:
-        """D-02: dirt SubmodelSet閾値0.70の時、EV_lower 0.65は除外"""
+    def test_ev_lower_dynamic_threshold_dirt_no_filter(self, mock_models: MagicMock) -> None:
+        """dirt EV_lower閾値が設定されていても、ベット判定には使われない"""
         from backtest.race_predictor import RacePredictor
 
         sm = _make_submodel_mock()
@@ -1514,14 +1509,13 @@ class TestGetWinCandidates:
         race_df = self._make_win_race_df(
             n=3,
             surface=["dirt"] * 3,
-            EV_lower_win_corrected=[0.75, 0.65, 1.2],  # 0.75 >= 0.70 pass
+            EV_lower_win_corrected=[0.75, 0.65, 1.2],
         )
         result = predictor.get_win_candidates(race_df)
-        assert len(result) == 2
-        assert set(result["umaban"].tolist()) == {1, 3}
+        assert len(result) == 2  # EV_lower閾値に関わらず max 2 candidates
 
-    def test_ev_lower_nan_uses_surface_fallback(self, mock_models: MagicMock) -> None:
-        """D-03: EV_lower NaNの場合、サーフェス別デフォルト閾値でフォールバック"""
+    def test_ev_lower_nan_ignored(self, mock_models: MagicMock) -> None:
+        """EV_lower NaN でも edge>0 で判定"""
         from backtest.race_predictor import RacePredictor
 
         mock_models.submodels["turf"].ev_lower_threshold_turf = 0.80
@@ -1532,7 +1526,6 @@ class TestGetWinCandidates:
             EV_lower_win_corrected=[float("nan"), float("nan")],
         )
         result = predictor.get_win_candidates(race_df)
-        # NaN -> fillna(0.80) -> 0.80 >= 0.80 -> both pass
         assert len(result) == 2
 
 
