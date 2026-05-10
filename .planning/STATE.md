@@ -1,17 +1,17 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.5
-milestone_name: Model Accuracy Improvement
-status: completed
-stopped_at: Milestone v1.5 complete — ready for next milestone
-last_updated: "2026-05-10T12:00:00.000Z"
-last_activity: 2026-05-10 -- v1.5 milestone archived
+milestone: v1.6
+milestone_name: Feature Engineering Overhaul
+status: planning
+stopped_at: Milestone v1.6 started — defining requirements
+last_updated: "2026-05-10T13:00:00.000Z"
+last_activity: 2026-05-10 -- Milestone v1.6 started
 progress:
-  total_phases: 5
-  completed_phases: 5
-  total_plans: 13
-  completed_plans: 13
-  percent: 100
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
@@ -21,16 +21,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-05-10)
 
 **Core value:** 単勝モデルのバックテストROIを100%超えにすること
-**Current focus:** Planning next milestone (v1.6)
+**Current focus:** v1.6 Feature Engineering Overhaul
 
 ## Current Position
 
-Phase: 22 (integrated-validation) — COMPLETED
-Milestone: v1.5 — COMPLETED
-Status: Ready for next milestone planning
-Last activity: 2026-05-10 -- v1.5 milestone archived
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-05-10 — Milestone v1.6 started
 
-Progress: [████████████████████] 100%
+Progress: [░░░░░░░░░░░░░░░░░░░░] 0%
 
 ## Performance Metrics
 
@@ -69,16 +69,16 @@ Historical decisions archived in:
 - バックテストROI検証(実行に~57分/年、PostgreSQL環境必要) — deferred to manual execution
 - WF検証スクリプトの実際の実行(PostgreSQL環境必要、~4時間) — deferred
 - Human UAT 5項目 (v1.4, PostgreSQL依存) — deferred
-- ROI 95%目標未達 — next milestone priority
+- ROI 95%目標未達 — v1.6 priority (target raised to 100%)
 
 ### Blockers/Concerns
 
-None — ready for next milestone
+None — ready for v1.6 planning
 
 ### Roadmap Evolution
 
-- Phase 22 complete — 統合バックテスト ROI 84.4% (v1.4: 83.1%, +1.3pp改善)
-- CQR過学習修正済み (f3a4c10)
+- v1.5 complete — ROI 84.4% (CQR過学習修正済み)
+- v1.6 started — Feature Engineering Overhaul for ROI 100%+
 
 ## Deferred Items
 
@@ -89,12 +89,9 @@ Items acknowledged and deferred at milestone close:
 | Validation | WF検証スクリプトの実際の実行(PostgreSQL環境必要、~4時間) | Pending | v1.0 close |
 | Validation | バックテストROI検証(run_backtest.py --ensemble --strategy-manifest実行) | Pending | v1.4 close |
 | UAT | Human UAT 5項目(ROI検証 + EV除外確認 + Optuna確認 + seed確認 + レポート確認) | Pending | v1.4 close |
-| Validation | ROI 95%目標未達 (84.4%) — モデル精度の更なる改善必要 | Pending | v1.5 close |
-| Validation | CQR設計見直し — 残差学習アプローチの問題点解消 | Pending | v1.5 close |
-| Validation | 高オッズ帯(20+)のベット機会なし | Pending | v1.5 close |
 | Debug | data-leak-phase-20-22.md (status: diagnosed、修正済み) | Resolved | v1.5 close |
 
 ## Session Continuity
 
-Last session: 2026-05-10T12:00:00.000Z
-Stopped at: Milestone v1.5 complete — ready for next milestone
+Last session: 2026-05-10T13:00:00.000Z
+Stopped at: Milestone v1.6 started — defining requirements

@@ -54,7 +54,11 @@ MLflow で実験管理。PostgreSQL (EveryDB2/JRA-VAN DataLab) をデータソ�
 
 ### Active
 
-(None — pending next milestone planning)
+- 既存100+特徴量の有効性監査（feature importance、permutation importance、SHAP値で分析）
+- ノイズ・無効特徴量の特定と除去によるモデル精度改善
+- EveryDB2未活用テーブル・カラムからの新特徴量設計・実装
+- 特徴量の交互作用・変換（馬同士の比較特徴量、条件付き交互作用等）
+- 新特徴量導入後のバックテストでROI 100%超えを検証
 
 ### Out of Scope
 
@@ -71,13 +75,22 @@ MLflow で実験管理。PostgreSQL (EveryDB2/JRA-VAN DataLab) をデータソ�
 | 外部Kellyライブラリ導入 | 既存StakeCalculatorで十分、JRA固有制約はカスタム実装が必要 |
 | モデル再学習 | 既存3モデルスタッキングをそのまま使用 |
 
+## Current Milestone: v1.6 Feature Engineering Overhaul
+
+**Goal:** CQRに頼らず、特徴量の質と量を根本から見直し、バックテストROI 100%超えを目指す
+
+**Target features:**
+- 既存100+特徴量の監査と削減（ノイズ・無効特徴量の特定・除去）
+- EveryDB2未活用データからの新特徴量抽出（血統、調教師成績、開催データ等）
+- 特徴量の交互作用・変換（馬同士の比較、条件付き交互作用等）
+
 ## Current State
 
 **Shipped:** v1.5 Model Accuracy Improvement (2026-05-10)
 **Phases:** 23 total (v1.0-v1.5)
 **LOC:** ~24,970 (src/)
 **Tests:** 1,392+ passed, 0 failed
-**Next:** Planning v1.6
+**Next:** v1.6 Feature Engineering Overhaul
 
 ## Context
 
@@ -168,4 +181,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-10 after v1.5 milestone*
+*Last updated: 2026-05-10 after v1.6 milestone started*
