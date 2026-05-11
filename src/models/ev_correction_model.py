@@ -13,7 +13,9 @@ from sklearn.isotonic import IsotonicRegression
 def _best_iteration(booster: lgb.Booster | None) -> int | None:
     if booster is None:
         return None
-    return booster.best_iteration if booster.best_iteration > 0 else None
+    if hasattr(booster, "best_iteration") and booster.best_iteration >= 0:
+        return booster.best_iteration
+    return None
 
 
 def _sigmoid(logits: np.ndarray) -> np.ndarray:
