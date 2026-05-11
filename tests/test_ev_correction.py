@@ -167,8 +167,8 @@ class TestEVCorrectionModel:
         call_kwargs_e = trained_ev_model.e_correction_model.predict.call_args
         assert call_kwargs_e.kwargs.get("num_iteration") == 80
 
-    def test_correct_ev_best_iteration_zero_uses_none(self, pre_ev_df: pd.DataFrame) -> None:
-        """best_iteration が 0 の場合は num_iteration=None になる"""
+    def test_correct_ev_best_iteration_zero_is_valid(self, pre_ev_df: pd.DataFrame) -> None:
+        """best_iteration が 0 の場合でも有効な反復番号として扱う"""
         model = EVCorrectionModel()
         mock_p = MagicMock()
         mock_p.best_iteration = 0
@@ -181,8 +181,8 @@ class TestEVCorrectionModel:
         model._trained = True
 
         model.correct_ev(pre_ev_df)
-        assert mock_p.predict.call_args.kwargs.get("num_iteration") is None
-        assert mock_e.predict.call_args.kwargs.get("num_iteration") is None
+        assert mock_p.predict.call_args.kwargs.get("num_iteration") == 0
+        assert mock_e.predict.call_args.kwargs.get("num_iteration") == 0
 
     def test_correct_ev_produces_ev_win_calibrated(
         self,
