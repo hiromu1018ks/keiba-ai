@@ -28,7 +28,6 @@ from db.readers import (
     load_wide_odds,
 )
 from domain.models import SubmodelSet, TrainedModelsV5
-from domain.types import POST_RACE_COLS
 from utils.timing import TimingContext
 
 if TYPE_CHECKING:
