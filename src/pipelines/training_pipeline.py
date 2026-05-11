@@ -858,6 +858,10 @@ class TrainingPipelineV5:
                     * (df_oof["kakuteijyuni"] == 1).astype(float)
                 )
 
+                # actual_ev_win 計算後、POST_RACE列を明示的に削除
+                # (下流モデルが誤ってconfirmed_oddsを使用するのを防止)
+                df_oof = df_oof.drop(columns=["confirmed_odds"], errors="ignore")
+
                 # ★ SAFE-01: ConformalEVModel uses whitelist FEATURE_COLS internally
                 # No explicit feature_cols needed — train() auto-selects from FEATURE_COLS
                 conformal_ev = ConformalEVModel(alpha=0.1)
