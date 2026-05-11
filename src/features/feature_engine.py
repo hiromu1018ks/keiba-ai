@@ -101,6 +101,7 @@ def _compute_popularity_rank_from_tanodds(df: pd.DataFrame) -> pd.Series:
     valid_mask = tanodds.notna() & (tanodds > 0)
     popularity_rank = pd.Series(np.nan, index=df.index, dtype=float)
     if not valid_mask.any():
+        logger.debug("tanodds column exists but contains no valid (>0) values")
         return popularity_rank
 
     if "race_id" in df.columns:
