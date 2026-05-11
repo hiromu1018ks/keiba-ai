@@ -54,6 +54,8 @@ _MODEL_OUTPUT_COLS: set[str] = {
     # CQR target
     "actual_ev_win", "actual_ev_place",
 }
+# DEPRECATED: _NON_FEATURE_COLS is kept for reference only.
+# SAFE-01: Use ConformalEVModel.FEATURE_COLS whitelist instead of blacklist exclusion.
 _NON_FEATURE_COLS: set[str] = {
     # IDs / metadata
     "race_id",
@@ -72,6 +74,79 @@ class ConformalEVModel:
     Romano et al., 2019 "Conformalized Quantile Regression" に基づく。
     LightGBM quantile regression で分位点を学習し、CQR非適合スコアでCP補正する。
     """
+
+    # ★ SAFE-01: Whitelist of feature columns for CQR training/prediction.
+    # Derived from the union of raw feature columns used by upstream models.
+    # POST_RACE_COLS and model output columns are explicitly excluded.
+    FEATURE_COLS: list[str] = [
+        # --- AbilityModel raw features ---
+        "surface", "distance_bin", "track_condition_code", "grade_code",
+        "field_size", "weight_diff_from_mean", "difficulty_score",
+        "norm_finish_logit_avg", "harontimel5_avg", "harontimel5_zscore",
+        "harontime_late_trend", "timediff_avg", "jyuni1c_avg", "jyuni4c_avg",
+        "closing_index_avg", "kyakusitukubun_cd",
+        "blood_surface_wr", "blood_distance_wr", "blood_condition_wr",
+        "blood_total_wr", "blood_prize_log", "blood_keito_cd",
+        "kyakusitu_x_distance", "kyakusitu_x_surface", "weight_x_distance",
+        "norm_finish_logit_avg_race_rank", "harontimel5_avg_race_rank",
+        "timediff_avg_race_rank", "jyuni1c_avg_race_rank",
+        "closing_index_avg_race_rank",
+        "weight_absolute", "weight_zscore", "weight_change_zone",
+        "days_since_last_race", "rest_category",
+        "form_trend", "form_consistency", "form_peak_flag",
+        "sire_wr", "sire_surface_wr", "sire_distance_wr",
+        "sire_prize_avg", "bms_wr",
+        "pace_aptitude", "front_pace_wr", "closing_pace_wr",
+        "course_wr", "course_distance_wr",
+        "draw_ratio", "class_move", "blinker_change",
+        "is_nar_transfer", "nar_recent_ratio",
+        "track_condition_delta", "pace_pressure", "pace_scenario_fit",
+        "class_adj_formetric", "haron_zscore_trend",
+        "pace_corner_stability", "pace_closing_power", "pace_position_consistency",
+        "actual_pace_fit",
+        "class_promotions", "class_demotions", "class_net_change",
+        "class_max_level", "class_level_std",
+        "v_recovery_flag", "v_recovery_duration",
+        "time_improvement_rate", "position_improvement_rate",
+        "dist_change_avg_pos", "dist_change_win_rate", "dist_change_exp_count",
+        "surf_change_avg_pos", "surf_change_win_rate", "surf_change_exp_count",
+        "cond_change_avg_pos", "cond_change_win_rate", "cond_change_exp_count",
+        "frame_number", "blinker_on", "weight_change_ratio",
+        "popularity_rank", "popularity_rank_fallback_used",
+        # --- Odds dynamics features ---
+        "odds_drop_rate_60_10", "odds_drop_rate_30_10",
+        "odds_velocity", "odds_volatility",
+        "popularity_change_30_10",
+        "odds_acceleration", "odds_direction_consistency",
+        # --- Market bias / intra-race features ---
+        "market_entropy", "overround",
+        "odds_skewness", "implied_prob_hhi",
+        "tanodds", "fukuoddslow", "tanninki",
+        "odds", "race_mean_fuku_odds", "race_std_fuku_odds",
+        "odds_gap_fav12", "odds_popularity_gap",
+        "surface_track_interaction",
+        # --- EMA / ROI EMA features ---
+        "overround_ema", "entropy_ema",
+        # --- Distance change / surface change / win dominance ---
+        "distance_change", "surface_change",
+        "class_drop_bounce", "win_dominance", "freshness_score",
+        # --- Jockey context ---
+        "jockey_wr_overall", "jockey_wr_distance",
+        "jockey_wr_venue", "jockey_prize_log",
+        # --- Trainer context ---
+        "trainer_wr_overall", "trainer_wr_distance",
+        "trainer_wr_venue", "trainer_prize_log",
+        # --- JT combo ---
+        "jt_combo_wr", "jt_combo_place_rate",
+        "jt_combo_starts", "jt_combo_prize_log",
+        # --- Wide odds features ---
+        "odds_to_ability_ratio",
+        "deviation_rank", "deviation_zscore",
+        # --- Bataijyu ---
+        "bataijyu", "zogen_sa",
+        # --- Interaction features ---
+        "kyori", "trackcd",
+    ]
 
     def __init__(self, alpha: float = 0.1, feature_cols: list[str] | None = None) -> None:
         """Args:
@@ -137,13 +212,12 @@ class ConformalEVModel:
             lgb_params: LightGBM追加パラメータ
             train_ratio: 学習/キャリブレーション分割比。1.0の場合は全データを学習+キャリブレーションに使用
         """
-        # 特徴量列の決定
+        # ★ SAFE-01: Whitelist-based feature selection (blacklist _NON_FEATURE_COLS deprecated)
         if self.feature_cols is None:
-            exclude = _NON_FEATURE_COLS | {
-                col for col in df_calib.columns
-                if col.startswith("_") or col in ("distance_bin",)
-            }
-            self.feature_cols = [c for c in df_calib.columns if c not in exclude]
+            self.feature_cols = [
+                c for c in self.FEATURE_COLS
+                if c in df_calib.columns and pd.api.types.is_numeric_dtype(df_calib[c])
+            ]
 
         # train_ratio=1.0の場合は全データを学習に使用し、同じデータでキャリブレーション
         if train_ratio >= 1.0:
@@ -315,10 +389,11 @@ class ConformalEVModel:
 
         # CQR予測
         if self.feature_cols is None:
-            exclude = _NON_FEATURE_COLS | {
-                col for col in win_df.columns if col.startswith("_")
-            }
-            feature_cols = [c for c in win_df.columns if c not in exclude]
+            # ★ SAFE-01: Whitelist-based fallback (matches train() logic)
+            feature_cols = [
+                c for c in self.FEATURE_COLS
+                if c in win_df.columns and pd.api.types.is_numeric_dtype(win_df[c])
+            ]
         else:
             feature_cols = self.feature_cols
 

@@ -20,6 +20,7 @@ import numpy as np
 import pandas as pd
 
 from domain.models import Entry, Race
+from domain.types import POST_RACE_COLS
 from utils.timing import TimingContext
 
 logger = logging.getLogger(__name__)
@@ -292,6 +293,16 @@ class FeatureEngine:
         # kyakusitu_cd が必要なため、build_all では実行しない。
         # _train_submodel / BacktestEngine で hist_df merge 後に呼び出す。
 
+        # ★ SAFE-01: POST_RACE列を確実に除外 (leakage prevention)
+        post_race_present = [c for c in result_df.columns if c in POST_RACE_COLS]
+        if post_race_present:
+            logger.info(
+                "SAFE-01: dropping %d POST_RACE cols from build_all() output: %s",
+                len(post_race_present),
+                post_race_present,
+            )
+            result_df = result_df.drop(columns=post_race_present)
+
         # --- Feature Cache Write (PERF-03) — single write point, guaranteed ---
         if self._use_cache and _cache_name is not None and not result_df.empty:
             try:
@@ -437,27 +448,10 @@ class FeatureEngine:
                         usable_tanninki
                     ]
                     fallback_mask = fallback_mask & ~usable_tanninki
-                if "ninki" in df.columns:
-                    fallback_values = pd.to_numeric(df["ninki"], errors="coerce")
-                    usable_fallback = (
-                        fallback_mask
-                        & fallback_values.notna()
-                        & (fallback_values > 0)
-                    )
-                    if usable_fallback.any():
-                        logging.getLogger(__name__).warning(
-                            "popularity_rank fell back to ninki for %d horses",
-                            int(usable_fallback.sum()),
-                        )
-                    df.loc[usable_fallback, "popularity_rank"] = fallback_values.loc[
-                        usable_fallback
-                    ]
-                    df.loc[usable_fallback, "popularity_rank_fallback_used"] = 1.0
-                    fallback_mask = fallback_mask & ~usable_fallback
                 if fallback_mask.any():
                     logging.getLogger(__name__).warning(
                         "popularity_rank missing for %d horses after "
-                        "tanodds/tanninki/ninki fallback",
+                        "tanodds/tanninki fallback",
                         int(fallback_mask.sum()),
                     )
                     df.loc[fallback_mask, "popularity_rank"] = float("nan")

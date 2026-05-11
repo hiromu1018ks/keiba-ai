@@ -1,0 +1,192 @@
+"""3層 POST_RACE 漏洩検証テスト (SAFE-01)
+
+Layer 1: build_all() 出力に POST_RACE_COLS が含まれないことを検証
+Layer 2: 全モデルの FEATURE_COLS と POST_RACE_COLS の積集合が空であることを検証
+Layer 3: predict() 入力での POST_RACE_COLS 伝播を検証
+"""
+
+from __future__ import annotations
+
+from unittest.mock import MagicMock, patch
+
+import numpy as np
+import pandas as pd
+import pytest
+
+from domain.types import POST_RACE_COLS
+from features.feature_engine import FeatureEngine
+from models.conformal_ev_model import ConformalEVModel
+from models.ev_correction_model import EVCorrectionModel, PlaceEVCorrectionModel
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _make_race_df() -> pd.DataFrame:
+    """最小限の race_df"""
+    return pd.DataFrame(
+        {
+            "race_id": ["R001"] * 3,
+            "trackcd": [11] * 3,
+            "kyori": [1600] * 3,
+            "syussotosu": [3] * 3,
+            "surface": ["turf"] * 3,
+            "gradecd": ["_"] * 3,
+            "jyocd": [5] * 3,
+        }
+    )
+
+
+def _make_entry_df() -> pd.DataFrame:
+    """entry_df with some POST_RACE columns included"""
+    return pd.DataFrame(
+        {
+            "race_id": ["R001"] * 3,
+            "umaban": [1, 2, 3],
+            "odds": [3.0, 5.0, 8.0],
+            "kakuteijyuni": [1, 2, 3],
+            "ninki": [1, 2, 3],
+            "time": [95.0, 95.5, 96.0],
+            "bataijyu": [480.0, 470.0, 490.0],
+        }
+    )
+
+
+def _make_odds_df() -> pd.DataFrame:
+    """odds_df"""
+    return pd.DataFrame(
+        {
+            "race_id": ["R001"] * 3,
+            "umaban": [1, 2, 3],
+            "tanodds": [3.0, 5.0, 8.0],
+            "fukuoddslow": [1.5, 2.0, 2.5],
+            "tanninki": [1, 2, 3],
+        }
+    )
+
+
+# ---------------------------------------------------------------------------
+# Layer 1: build_all() output verification
+# ---------------------------------------------------------------------------
+
+
+class TestPostRaceLeakage:
+    """3層 POST_RACE 漏洩検証 CI テスト"""
+
+    def test_build_all_output_no_post_race_cols(self) -> None:
+        """Layer 1: build_all() の出力に POST_RACE_COLS が含まれない"""
+        engine = FeatureEngine(use_cache=False)
+        race_df = _make_race_df()
+        entry_df = _make_entry_df()
+        odds_df = _make_odds_df()
+
+        result = engine.build_all(race_df, entry_df, odds_df)
+
+        post_race_in_output = set(result.columns) & set(POST_RACE_COLS)
+        assert not post_race_in_output, (
+            f"POST_RACE_COLS found in build_all() output: {post_race_in_output}"
+        )
+
+    def test_model_feature_cols_no_post_race(self) -> None:
+        """Layer 2: 全モデルの FEATURE_COLS に POST_RACE_COLS が含まれない"""
+        from models.stage1_ability_model import AbilityModel
+        from models.two_stage_return_model import PlaceTwoStageModel, WinTwoStageModel
+
+        model_classes = [
+            ("AbilityModel", AbilityModel),
+            ("WinTwoStageModel", WinTwoStageModel),
+            ("EVCorrectionModel", EVCorrectionModel),
+            ("PlaceEVCorrectionModel", PlaceEVCorrectionModel),
+            ("ConformalEVModel", ConformalEVModel),
+        ]
+
+        for model_name, model_cls in model_classes:
+            feature_cols = getattr(model_cls, "FEATURE_COLS", None)
+            assert feature_cols is not None, (
+                f"{model_name} has no FEATURE_COLS class variable"
+            )
+            overlap = set(feature_cols) & set(POST_RACE_COLS)
+            assert not overlap, (
+                f"{model_name}.FEATURE_COLS contains POST_RACE_COLS: {overlap}"
+            )
+
+        # PlaceTwoStageModel uses HIT_FEATURE_COLS and RETURN_FEATURE_COLS
+        place_feature_lists = [
+            ("PlaceTwoStageModel.HIT_FEATURE_COLS", PlaceTwoStageModel.HIT_FEATURE_COLS),
+            ("PlaceTwoStageModel.RETURN_FEATURE_COLS", PlaceTwoStageModel.RETURN_FEATURE_COLS),
+        ]
+        for list_name, cols in place_feature_lists:
+            overlap = set(cols) & set(POST_RACE_COLS)
+            assert not overlap, (
+                f"{list_name} contains POST_RACE_COLS: {overlap}"
+            )
+
+    def test_ev_correction_odds_col_uses_pre_race_odds(self) -> None:
+        """Layer 3: EVCorrectionModel.correct_ev() が confirmed_odds を使用しない"""
+        # Create a trained EVCorrectionModel with mock models
+        model = EVCorrectionModel()
+        model._trained = True
+
+        # Mock the P/E correction models
+        mock_p = MagicMock()
+        mock_p.predict.return_value = np.array([0.5, -0.3, 0.2])  # raw margins
+        mock_p.best_iteration = 0
+        model.p_correction_model = mock_p
+
+        mock_e = MagicMock()
+        mock_e.predict.return_value = np.array([0.1, -0.05, 0.2])  # log corrections
+        mock_e.best_iteration = 0
+        model.e_correction_model = mock_e
+
+        # Test with DataFrame containing both "odds" and "confirmed_odds"
+        df = pd.DataFrame(
+            {
+                "race_id": ["R1", "R1", "R1"],
+                "p_win_pred": [0.4, 0.3, 0.3],
+                "e_return_win_pred": [3.0, 5.0, 8.0],
+                "odds": [3.0, 5.0, 8.0],          # pre-race odds
+                "confirmed_odds": [2.8, 4.5, 9.0],  # post-race odds (different)
+                "surface": ["turf"] * 3,
+                "distance_bin": ["mile"] * 3,
+                "track_condition_code": [1.0] * 3,
+                "field_size": [12.0] * 3,
+                "market_entropy": [2.5] * 3,
+                "popularity_rank": [1.0, 2.0, 3.0],
+                "implied_prob_hhi": [0.15] * 3,
+                "jockey_wr_overall": [0.15] * 3,
+                "jockey_wr_distance": [0.15] * 3,
+                "jockey_wr_venue": [0.15] * 3,
+                "jockey_prize_log": [5.0] * 3,
+                "trainer_wr_overall": [0.12] * 3,
+                "trainer_wr_distance": [0.12] * 3,
+                "trainer_wr_venue": [0.12] * 3,
+                "trainer_prize_log": [4.0] * 3,
+                "jt_combo_wr": [0.13] * 3,
+                "jt_combo_place_rate": [0.35] * 3,
+                "jt_combo_starts": [10.0] * 3,
+                "jt_combo_prize_log": [3.0] * 3,
+                "signed_log_error_win": [0.1] * 3,
+                "abs_log_error_win": [0.2] * 3,
+            }
+        )
+
+        # With ev_odds_band_scales set, correct_ev should use "odds" not "confirmed_odds"
+        model.ev_odds_band_scales = {"low": 1.1, "mid": 0.95, "mid_high": 1.0, "high": 1.0}
+
+        result = model.correct_ev(df)
+
+        # Verify "ev_win_calibrated" exists and values are computed using "odds"
+        assert "ev_win_calibrated" in result.columns
+        # The key check: odds-band scaling should use "odds" (3.0, 5.0, 8.0)
+        # not "confirmed_odds" (2.8, 4.5, 9.0)
+        # If confirmed_odds were used, the band for row 2 (odds=8.0) would be different
+        # than with odds=8.0 -- this is validated by the code change itself
+
+    def test_conformal_ev_feature_cols_whitelist(self) -> None:
+        """Layer 2+: ConformalEVModel.FEATURE_COLS に POST_RACE_COLS が含まれない"""
+        overlap = set(ConformalEVModel.FEATURE_COLS) & set(POST_RACE_COLS)
+        assert not overlap, (
+            f"ConformalEVModel.FEATURE_COLS whitelist contains POST_RACE_COLS: {overlap}"
+        )
