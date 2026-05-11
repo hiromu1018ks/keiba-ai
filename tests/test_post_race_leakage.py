@@ -173,7 +173,8 @@ class TestPostRaceLeakage:
         )
 
         # With ev_odds_band_scales set, correct_ev should use "odds" not "confirmed_odds"
-        model.ev_odds_band_scales = {"low": 1.1, "mid": 0.95, "mid_high": 1.0, "high": 1.0}
+        # Use actual band names from OddsBandFilter.BAND_NAMES
+        model.ev_odds_band_scales = {"1.0-3.0": 1.1, "3.0-10.0": 0.95, "10.0-30.0": 1.0, "30.0+": 1.0}
 
         result = model.correct_ev(df)
 
@@ -181,8 +182,17 @@ class TestPostRaceLeakage:
         assert "ev_win_calibrated" in result.columns
         # The key check: odds-band scaling should use "odds" (3.0, 5.0, 8.0)
         # not "confirmed_odds" (2.8, 4.5, 9.0)
-        # If confirmed_odds were used, the band for row 2 (odds=8.0) would be different
-        # than with odds=8.0 -- this is validated by the code change itself
+        # All three odds values (3.0, 5.0, 8.0) fall into band "3.0-10.0" (scale=0.95),
+        # so calibrated values should differ from uncalibrated by that factor.
+        assert "ev_win_corrected" in result.columns
+        for i in range(3):
+            corrected = result["ev_win_corrected"].iloc[i]
+            calibrated = result["ev_win_calibrated"].iloc[i]
+            if corrected != 0.0:
+                ratio = calibrated / corrected
+                assert abs(ratio - 0.95) < 1e-6, (
+                    f"Row {i}: calibrated/corrected = {ratio:.6f}, expected 0.95"
+                )
 
     def test_conformal_ev_feature_cols_whitelist(self) -> None:
         """Layer 2+: ConformalEVModel.FEATURE_COLS に POST_RACE_COLS が含まれない"""
