@@ -122,7 +122,6 @@ class ConformalEVModel:
         "market_entropy", "overround",
         "odds_skewness", "implied_prob_hhi",
         "tanodds", "fukuoddslow", "tanninki",
-        "norm_finish_logit_avg_race_rank",
         "odds", "race_mean_fuku_odds", "race_std_fuku_odds",
         "odds_gap_fav12", "odds_popularity_gap",
         "surface_track_interaction",
