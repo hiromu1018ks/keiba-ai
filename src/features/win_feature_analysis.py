@@ -332,14 +332,23 @@ def validate_noise_removal(
 
     train_data = lgb.Dataset(train_features, label=train_y)
 
+    # 元モデルのハイパーパラメータを継承 (比較の公平性確保)
+    base_params = {
+        "objective": "binary",
+        "metric": "binary_logloss",
+        "num_threads": num_threads,
+        "verbose": -1,
+    }
+    if hasattr(original_model, "params") and isinstance(original_model.params, dict):
+        # 元モデルから主要ハイパーパラメータを抽出
+        for key in ("num_leaves", "learning_rate", "min_child_samples",
+                     "feature_fraction", "bagging_fraction", "lambda_l1", "lambda_l2",
+                     "max_depth", "min_data_in_leaf"):
+            if key in original_model.params:
+                base_params[key] = original_model.params[key]
+
     new_model = lgb.train(
-        {
-            "objective": "binary",
-            "metric": "binary_logloss",
-            "num_threads": num_threads,
-            "verbose": -1,
-            "num_leaves": 31,
-        },
+        base_params,
         train_data,
         num_boost_round=100,
     )
