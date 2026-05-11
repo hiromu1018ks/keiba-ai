@@ -1,19 +1,25 @@
-"""win_feature_analysis.py — 単勝モデル特徴量重要度分析 (SHAP + gain)
+"""win_feature_analysis.py — 単勝モデル特徴量重要度分析 (SHAP + gain + permutation)
 
 WinTwoStageModel.hit_model の特徴量重要度を SHAP/gain で分析し、
 ノイズ特徴量を特定するためのモジュール。
 
 LightGBM 4.6 の pred_contrib=True でネイティブ TreeSHAP 値を取得。
 外部 shap パッケージは不要。
+
+permutation_importance (sklearn) による特徴量評価も追加対応。
+全モデル(Stage1/Win2Stage/Place2Stage/EVCorrection)の包括的監査を可能にする。
 """
 
 from __future__ import annotations
 
 import logging
+from datetime import datetime
+from typing import Any
 
+import lightgbm as lgb
 import numpy as np
 import pandas as pd
-import lightgbm as lgb
+from sklearn.inspection import permutation_importance
 from sklearn.metrics import log_loss, roc_auc_score
 
 logger = logging.getLogger(__name__)
@@ -92,6 +98,176 @@ def identify_noise_features(
         importance_df["gain"] <= gain_threshold
     )
     return importance_df.loc[noise_mask, "feature"].tolist()
+
+
+def compute_permutation_importance(
+    model: lgb.Booster,
+    features_df: pd.DataFrame,
+    y: np.ndarray,
+    *,
+    n_repeats: int = 5,
+    random_state: int = 42,
+    max_samples: int = 5000,
+    scoring: str = "auto",
+) -> pd.DataFrame:
+    """sklearn permutation_importanceベースの特徴量重要度計算。
+
+    Args:
+        model: 学習済み lgb.Booster
+        features_df: 特徴量DataFrame (モデル入力と同じ列)
+        y: ターゲット配列
+        n_repeats: permutation試行回数
+        random_state: 乱数シード
+        max_samples: サブサンプリング上限 (超過時はランダム抽出)
+        scoring: 評価指標 ("auto"でbinary/regression自動判定,
+                  "neg_log_loss", "neg_mean_absolute_error"等)
+
+    Returns:
+        DataFrame with columns ['feature', 'perm_importance_mean', 'perm_importance_std']
+    """
+    feature_names = model.feature_name()
+
+    # scoring自動判定: yが{0,1}のみ→binary, それ以外→regression
+    if scoring == "auto":
+        unique_vals = np.unique(y[~np.isnan(y)])
+        if set(unique_vals.tolist()).issubset({0.0, 1.0}):
+            scoring_str = "neg_log_loss"
+        else:
+            scoring_str = "neg_mean_absolute_error"
+    else:
+        scoring_str = scoring
+
+    # sklearn互換のpredict function wrapper
+    def predict_fn(x_data: np.ndarray | pd.DataFrame) -> np.ndarray:
+        result: Any = model.predict(x_data)
+        return np.asarray(result)
+
+    # サブサンプリング
+    rng = np.random.default_rng(random_state)
+    if len(features_df) > max_samples:
+        sample_idx = rng.choice(len(features_df), size=max_samples, replace=False)
+        x_sample = features_df.iloc[sample_idx].reset_index(drop=True)
+        y_sample = y[sample_idx]
+    else:
+        x_sample = features_df.reset_index(drop=True)
+        y_sample = y
+
+    result = permutation_importance(
+        predict_fn,
+        x_sample,
+        y_sample,
+        n_repeats=n_repeats,
+        random_state=random_state,
+        scoring=scoring_str,
+    )
+
+    return pd.DataFrame({
+        "feature": feature_names,
+        "perm_importance_mean": result.importances_mean,
+        "perm_importance_std": result.importances_std,
+    })
+
+
+def compute_all_model_importance(
+    models: dict[str, lgb.Booster],
+    features_df: pd.DataFrame,
+    targets: dict[str, np.ndarray],
+    *,
+    n_repeats: int = 5,
+    random_state: int = 42,
+    max_samples: int = 5000,
+) -> tuple[pd.DataFrame, dict[str, Any]]:
+    """全モデルのgain + permutation重要度を一括計算。
+
+    Args:
+        models: モデル名→Boosterのdict (例: {"stage1": booster, "win_hit": booster, ...})
+        features_df: 特徴量DataFrame (全特徴量を含む)
+        targets: モデル名→ターゲット配列のdict
+        n_repeats: permutation試行回数
+        random_state: 乱数シード
+        max_samples: サブサンプリング上限
+
+    Returns:
+        (pivot_df, metadata_dict)
+        pivot_df: CSV出力用。columns = ["feature", "<model>_gain", "<model>_perm", ...]
+        metadata_dict: JSON出力用。モデル別gain/permutation重要度とメタデータ
+    """
+    all_importances: dict[str, pd.DataFrame] = {}
+
+    for model_name, model in models.items():
+        feature_names = model.feature_name()
+
+        # gain importance
+        gain = model.feature_importance(importance_type="gain")
+
+        # permutation importance
+        model_features = features_df[feature_names] if all(
+            c in features_df.columns for c in feature_names
+        ) else features_df[[c for c in feature_names if c in features_df.columns]]
+
+        y = targets.get(model_name)
+        if y is not None and len(y) == len(model_features):
+            perm_df = compute_permutation_importance(
+                model,
+                model_features,
+                y,
+                n_repeats=n_repeats,
+                random_state=random_state,
+                max_samples=max_samples,
+            )
+            perm_mean_dict = dict(zip(perm_df["feature"], perm_df["perm_importance_mean"]))
+            perm_std_dict = dict(zip(perm_df["feature"], perm_df["perm_importance_std"]))
+        else:
+            # ターゲットが利用できない場合はpermutationをスキップ
+            perm_mean_dict = {f: float("nan") for f in feature_names}
+            perm_std_dict = {f: float("nan") for f in feature_names}
+            logger.warning(
+                "モデル '%s' のターゲットが利用できないためpermutation importanceをスキップ",
+                model_name,
+            )
+
+        all_importances[model_name] = pd.DataFrame({
+            "feature": feature_names,
+            "gain": gain,
+            "perm_mean": [perm_mean_dict.get(f, float("nan")) for f in feature_names],
+            "perm_std": [perm_std_dict.get(f, float("nan")) for f in feature_names],
+        })
+
+    # pivot_dfの構築: 全特徴量の和集合
+    all_features: set[str] = set()
+    for imp_df in all_importances.values():
+        all_features.update(imp_df["feature"].tolist())
+    sorted_features = sorted(all_features)
+
+    pivot_data: dict[str, list[Any]] = {"feature": sorted_features}
+    for model_name, imp_df in all_importances.items():
+        gain_map = dict(zip(imp_df["feature"], imp_df["gain"]))
+        perm_map = dict(zip(imp_df["feature"], imp_df["perm_mean"]))
+        pivot_data[f"{model_name}_gain"] = [gain_map.get(f, float("nan")) for f in sorted_features]
+        pivot_data[f"{model_name}_perm"] = [perm_map.get(f, float("nan")) for f in sorted_features]
+
+    pivot_df = pd.DataFrame(pivot_data)
+
+    # metadata_dictの構築
+    metadata: dict[str, Any] = {
+        "models": {},
+        "metadata": {
+            "n_samples": len(features_df),
+            "n_repeats": n_repeats,
+            "timestamp": datetime.utcnow().isoformat() + "Z",
+        },
+    }
+    for model_name, imp_df in all_importances.items():
+        gain_series = imp_df.set_index("feature")["gain"]
+        perm_mean_series = imp_df.set_index("feature")["perm_mean"]
+        perm_std_series = imp_df.set_index("feature")["perm_std"]
+        metadata["models"][model_name] = {
+            "gain": {k: float(v) for k, v in gain_series.items()},
+            "perm_mean": {k: float(v) for k, v in perm_mean_series.items()},
+            "perm_std": {k: float(v) for k, v in perm_std_series.items()},
+        }
+
+    return pivot_df, metadata
 
 
 def validate_noise_removal(
