@@ -424,12 +424,12 @@ def _load_features_for_analysis(
     except Exception as e:
         logger.warning("ParquetStoreからの特徴量読み込み失敗: %s", e)
 
-    # 実データが読み込めない場合、ゼロ埋めデータでのSHAP分析は無意味なため終了
+    # 実データが読み込めない場合、呼び出し元にNoneを返して処理を委ねる
     logger.error(
         "実データの読み込みに失敗しました。ダミーデータでの分析は無意味です。"
         "ParquetStoreに特徴量データが存在することを確認してください。"
     )
-    sys.exit(1)
+    return None
 
 
 def _auto_exclude_and_validate(
