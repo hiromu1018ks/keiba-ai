@@ -32,8 +32,9 @@ def sample_train_df() -> pd.DataFrame:
             "race_date": pd.date_range("2020-01-01", periods=n, freq="D"),
             "ev_win_calibrated": np.random.uniform(0.5, 3.0, n),
             "actual_ev_win": np.random.uniform(0.0, 5.0, n),
-            "feature_a": np.random.randn(n),
-            "feature_b": np.random.randn(n),
+            # Use real feature column names from ConformalEVModel.FEATURE_COLS whitelist
+            "popularity_rank": np.random.uniform(1.0, 18.0, n),
+            "field_size": np.random.uniform(8.0, 18.0, n),
         }
     )
 
@@ -46,8 +47,9 @@ def sample_inference_df() -> pd.DataFrame:
             "race_id": ["R100", "R100", "R100", "R101", "R101"],
             "umaban": [1, 2, 3, 4, 5],
             "ev_win_calibrated": [1.5, 0.8, 2.1, 1.2, 0.6],
-            "feature_a": [0.1, -0.5, 0.3, -0.2, 0.8],
-            "feature_b": [0.2, 0.1, -0.3, 0.4, -0.1],
+            # Use real feature column names from ConformalEVModel.FEATURE_COLS whitelist
+            "popularity_rank": [1.0, 2.0, 3.0, 1.0, 2.0],
+            "field_size": [10.0, 10.0, 10.0, 12.0, 12.0],
         }
     )
 
@@ -117,8 +119,8 @@ class TestConformalEVModelTrain:
                 "race_id": [f"R{i}" for i in range(n)],
                 "ev_win_calibrated": np.random.uniform(0.5, 3.0, n),
                 "actual_ev_win": np.random.uniform(0.0, 5.0, n),
-                "feature_a": np.random.randn(n),
-                "feature_b": np.random.randn(n),
+                "popularity_rank": np.random.uniform(1.0, 18.0, n),
+                "field_size": np.random.uniform(8.0, 18.0, n),
             }
         )
         model = ConformalEVModel(alpha=0.1)
@@ -227,7 +229,7 @@ class TestConformalEVModelPredictInterval:
         """q_low > q_highになるケースでクリップされる (mockでq_low_modelが大きい値を返す)"""
         model = ConformalEVModel(alpha=0.1)
         model._calibrated = True
-        model.feature_cols = ["feature_a", "feature_b"]
+        model.feature_cols = ["popularity_rank", "field_size"]
         model._calibration_quantile_90 = 0.5
         model._calibration_quantile_80 = 0.3
 
@@ -243,8 +245,8 @@ class TestConformalEVModelPredictInterval:
             {
                 "race_id": ["R1", "R1", "R2"],
                 "ev_win_calibrated": [1.5, 2.5, 1.2],
-                "feature_a": [0.1, -0.5, 0.3],
-                "feature_b": [0.2, 0.1, -0.3],
+                "popularity_rank": [1.0, 2.0, 3.0],
+                "field_size": [10.0, 10.0, 12.0],
             }
         )
         place_df = pd.DataFrame({"ev_place_corrected": [1.1, 0.9, 1.3]})

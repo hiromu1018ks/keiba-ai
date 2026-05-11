@@ -859,57 +859,9 @@ class TrainingPipelineV5:
                     * (df_oof["kakuteijyuni"] == 1).astype(float)
                 )
 
-                # CQR特徴量: raw features only。モデル出力を含めると過学習する。
-                _model_output_cols = {
-                    # MarketModel
-                    "signed_log_error_win", "abs_log_error_win",
-                    "market_log_error_win", "market_pred_error_win",
-                    "market_error_rank_in_race",
-                    # AbilityModel (Stage1) + derived
-                    "p_ability_win", "odds_to_ability_ratio",
-                    "deviation_rank", "deviation_zscore",
-                    # PlaceAbilityModel
-                    "p_ability_place_raw", "p_ability_place",
-                    # WinTwoStageModel
-                    "p_win_pred", "e_return_win_pred", "ev_win",
-                    # EVCorrectionModel (win)
-                    "p_x_e_interaction", "p_minus_e_gap",
-                    "p_win_corrected", "e_return_win_corrected",
-                    "ev_win_corrected", "ev_win_calibrated",
-                    # PlaceTwoStageModel
-                    "p_place_pred", "e_return_place_pred", "ev_place",
-                    # PlaceEVCorrectionModel
-                    "p_x_e_interaction_place", "p_minus_e_gap_place",
-                    "p_place_corrected", "place_bucket_multiplier",
-                    "e_return_place_corrected", "ev_place_corrected",
-                    # ConformalEVModel (CQR itself)
-                    "EV_lower_win_corrected", "EV_upper_win_corrected",
-                    "conformal_confidence_score",
-                    "EV_lower_place", "EV_upper_place",
-                    # SelectionGates
-                    "win_selection_ev", "win_selection_edge", "win_selection_prob",
-                    "place_selection_ev", "place_selection_edge", "place_selection_prob",
-                    # BenterGate
-                    "p_win_combined", "p_win_final", "edge_win", "p_win_oof",
-                    # CQR target
-                    "actual_ev_win", "actual_ev_place",
-                }
-                _non_feature_cols = {
-                    # IDs / metadata
-                    "race_id", "umaban", "surface", "race_date", "kettonum",
-                    # Object dtype (LightGBM cannot handle)
-                    "distance_bin", "grade_code", "track_condition_code",
-                } | set(POST_RACE_COLS) | _model_output_cols
-                feature_cols = [
-                    c for c in df_oof.columns
-                    if c not in _non_feature_cols
-                    and pd.api.types.is_numeric_dtype(df_oof[c])
-                ]
-
-                conformal_ev = ConformalEVModel(
-                    alpha=0.1,
-                    feature_cols=feature_cols,
-                )
+                # ★ SAFE-01: ConformalEVModel uses whitelist FEATURE_COLS internally
+                # No explicit feature_cols needed — train() auto-selects from FEATURE_COLS
+                conformal_ev = ConformalEVModel(alpha=0.1)
                 conformal_ev.train(df_oof, num_threads=num_threads)
                 if not conformal_ev._calibrated:
                     logger.warning("Conformal EV training incomplete for %s", surface)

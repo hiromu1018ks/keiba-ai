@@ -367,7 +367,8 @@ class EVCorrectionModel:
 
         # --- Phase 19: Odds Band Residual Scaling (D-10) ---
         if self.ev_odds_band_scales is not None:
-            odds_col = "confirmed_odds" if "confirmed_odds" in df.columns else "odds"
+            # ★ M3 fix: 常に発走前oddsを使用 (学習/推論一貫性)
+            odds_col = "odds"
             if odds_col in df.columns:
                 odds = pd.to_numeric(df[odds_col], errors="coerce").values.astype(float)
                 calibrated = df["ev_win_calibrated"].values.astype(float)
