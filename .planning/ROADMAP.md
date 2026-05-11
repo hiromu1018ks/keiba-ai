@@ -94,7 +94,11 @@
   1. build_all()の出力DataFrameにPOST_RACE_COLSに含まれる列が一つも含まれない
   2. POST_RACE漏洩を検出するCIテストが追加され、パスする
   3. permutation重要度 + gain重要度を計算する監査スクリプトが実行可能で、OOFデータの結果をCSV/JSONで出力する
-**Plans**: TBD
+**Plans**: 2 plans
+
+Plans:
+- [ ] 23-01-PLAN.md — M1-M6漏洩修正 + 3層CIテスト (SAFE-01)
+- [ ] 23-02-PLAN.md — permutation+gain重要度監査スクリプト拡張 (SAFE-02)
 
 ### Phase 24: Feature Audit & Pruning
 **Goal**: 100+特徴量の有効性を定量化してノイズ特徴量を除外し、クリーンな特徴量ベースラインを確立する
@@ -177,7 +181,7 @@ Phases execute in numeric order: 23 → 24 → 25 → 26 → 27 → 28
 | 20. 高オッズ的中パターン特徴量 | v1.5 | 3/3 | Complete | 2026-05-09 |
 | 21. Conformal EV予測区間 | v1.5 | 2/2 | Complete | 2026-05-09 |
 | 22. 統合検証とバックテスト | v1.5 | 1/1 | Complete | 2026-05-10 |
-| 23. Safety Gate | v1.6 | 0/? | Not started | - |
+| 23. Safety Gate | v1.6 | 0/2 | Not started | - |
 | 24. Feature Audit & Pruning | v1.6 | 0/? | Not started | - |
 | 25. Quick Win Wire Existing | v1.6 | 0/? | Not started | - |
 | 26. EveryDB2 New Features | v1.6 | 0/? | Not started | - |
