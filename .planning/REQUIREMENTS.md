@@ -53,21 +53,21 @@
 
 | REQ-ID | Phase | Plan | Status |
 |--------|-------|------|--------|
-| SAFE-01 | - | - | - |
-| SAFE-02 | - | - | - |
-| AUDIT-01 | - | - | - |
-| AUDIT-02 | - | - | - |
-| AUDIT-03 | - | - | - |
-| WIRE-01 | - | - | - |
-| WIRE-02 | - | - | - |
-| WIRE-03 | - | - | - |
-| DATA-01 | - | - | - |
-| DATA-02 | - | - | - |
-| DATA-03 | - | - | - |
-| DATA-04 | - | - | - |
-| INTER-01 | - | - | - |
-| INTER-02 | - | - | - |
-| INTER-03 | - | - | - |
+| SAFE-01 | Phase 23 | TBD | Pending |
+| SAFE-02 | Phase 23 | TBD | Pending |
+| AUDIT-01 | Phase 24 | TBD | Pending |
+| AUDIT-02 | Phase 24 | TBD | Pending |
+| AUDIT-03 | Phase 24 | TBD | Pending |
+| WIRE-01 | Phase 25 | TBD | Pending |
+| WIRE-02 | Phase 25 | TBD | Pending |
+| WIRE-03 | Phase 25 | TBD | Pending |
+| DATA-01 | Phase 26 | TBD | Pending |
+| DATA-02 | Phase 26 | TBD | Pending |
+| DATA-03 | Phase 26 | TBD | Pending |
+| DATA-04 | Phase 26 | TBD | Pending |
+| INTER-01 | Phase 27 | TBD | Pending |
+| INTER-02 | Phase 27 | TBD | Pending |
+| INTER-03 | Phase 27 | TBD | Pending |
 
 ---
-*Last updated: 2026-05-10 — v1.6 requirements defined*
+*Last updated: 2026-05-11 — v1.6 roadmap created, traceability updated*

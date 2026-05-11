@@ -8,6 +8,7 @@
 - ✅ **v1.3 Betting Strategy Optimization** - Phases 11-13 (shipped 2026-05-05)
 - ✅ **v1.4 Ensemble Filter Recalibration** - Phases 14-18 (shipped 2026-05-07)
 - ✅ **v1.5 Model Accuracy Improvement** - Phases 19-22 (shipped 2026-05-10)
+- 🚧 **v1.6 Feature Engineering Overhaul** - Phases 23-28 (in progress)
 
 ## Phases
 
@@ -68,11 +69,88 @@
 - [x] Phase 21: Conformal EV予測区間 (2/2 plans) — completed 2026-05-09
 - [x] Phase 22: 統合検証とバックテスト (1/1 plan) — completed 2026-05-10
 
-**結果:** ROI v1.4:83.1% → v1.5:84.4% (+1.3pp改善)。95%目標は未達。
+**Result:** ROI v1.4:83.1% → v1.5:84.4% (+1.3pp improvement). 95% target not reached.
 
 </details>
 
+### 🚧 v1.6 Feature Engineering Overhaul (In Progress)
+
+**Milestone Goal:** CQRに頼らず、特徴量の質と量を根本から見直し、バックテストROI 100%超えを目指す
+
+- [ ] **Phase 23: Safety Gate** - POST_RACE漏洩修正 + feature importance監査スクリプト構築
+- [ ] **Phase 24: Feature Audit & Pruning** - 100+特徴量の有効性監査 + ノイズ除去 + キャッシュ無効化
+- [ ] **Phase 25: Quick Win Wire Existing** - 既存実装済み12特徴量(Jockey/Trainer/Combo)の配線
+- [ ] **Phase 26: EveryDB2 New Features** - 未活用テーブルからの血統/タイム/相対比較/mining特徴量抽出
+- [ ] **Phase 27: Feature Interactions** - 条件付き交互作用項 + ターゲットエンコーディング
+- [ ] **Phase 28: Validation & Freeze** - 統合バックテスト + ROI 100%検証 + 特徴量凍結
+
+## Phase Details
+
+### Phase 23: Safety Gate
+**Goal**: 全特徴量パイプラインからレース後情報漏洩を排除し、特徴量品質監査の基盤を構築する
+**Depends on**: Phase 22 (v1.5 complete)
+**Requirements**: SAFE-01, SAFE-02
+**Success Criteria** (what must be TRUE):
+  1. build_all()の出力DataFrameにPOST_RACE_COLSに含まれる列が一つも含まれない
+  2. POST_RACE漏洩を検出するCIテストが追加され、パスする
+  3. permutation重要度 + gain重要度を計算する監査スクリプトが実行可能で、OOFデータの結果をCSV/JSONで出力する
+**Plans**: TBD
+
+### Phase 24: Feature Audit & Pruning
+**Goal**: 100+特徴量の有効性を定量化してノイズ特徴量を除外し、クリーンな特徴量ベースラインを確立する
+**Depends on**: Phase 23
+**Requirements**: AUDIT-01, AUDIT-02, AUDIT-03
+**Success Criteria** (what must be TRUE):
+  1. 全特徴量のpermutation重要度がOOFデータで計算され、各特徴量のスコアが確認できる
+  2. 重要度ゼロ/負のノイズ特徴量がFEATURE_COLSから除外され、除外前後のROIが比較できる
+  3. 特徴量モジュール変更時にhorse_features.parquetキャッシュが自動クリアされる
+**Plans**: TBD
+
+### Phase 25: Quick Win Wire Existing
+**Goal**: 既に実装・テスト済みのJockey/Trainer/Combo合計12特徴量をパイプラインに接続し、ROI改善を確認する
+**Depends on**: Phase 24
+**Requirements**: WIRE-01, WIRE-02, WIRE-03
+**Success Criteria** (what must be TRUE):
+  1. JockeyContextFeatures(4特徴量: jockey_wr_overall等)がtraining_pipelineで生成され、FEATURE_COLSに含まれる
+  2. TrainerContextFeatures(4特徴量: trainer_wr_overall等)がtraining_pipelineで生成され、FEATURE_COLSに含まれる
+  3. JockeyTrainerComboFeatures(4特徴量: jt_combo_place_rate等)がtraining_pipelineで生成され、FEATURE_COLSに含まれる
+**Plans**: TBD
+
+### Phase 26: EveryDB2 New Features
+**Goal**: EveryDB2の未活用テーブル(n_hansyoku, n_record, n_mining)から高価値特徴量を抽出し、モデル入力を拡張する
+**Depends on**: Phase 25
+**Requirements**: DATA-01, DATA-02, DATA-03, DATA-04
+**Success Criteria** (what must be TRUE):
+  1. n_hansyokuテーブルから血統特徴量(種牡馬系統、母系BMS等)が生成され、PRE/POST分類が文書化されている
+  2. n_recordテーブルからコース別タイム指数等の特徴量が生成される
+  3. レース内全馬の相対比較特徴量(相対ランク、偏差値等)が生成される
+  4. n_miningテーブル(82列)のPRE/POST分類が完了し、PRE列から特徴量が抽出される
+**Plans**: TBD
+
+### Phase 27: Feature Interactions
+**Goal**: 最終ベース特徴量セット上にドメイン知識に基づく交互作用項を生成し、高カーディナリティカテゴリ変数をターゲットエンコーディングで処理する
+**Depends on**: Phase 26
+**Requirements**: INTER-01, INTER-02, INTER-03
+**Success Criteria** (what must be TRUE):
+  1. オッズ・能力値等のレース内相対ランク特徴量が生成され、FEATURE_COLSに含まれる
+  2. 10-15個のドメイン知識に基づく条件付き交互作用項が生成される(例: 芝×距離、クラス×オッズ帯)
+  3. 高カーディナリティカテゴリ変数(血統コード、騎手コード等)がターゲットエンコーディングされ、OOFリークなしでFEATURE_COLSに含まれる
+**Plans**: TBD
+
+### Phase 28: Validation & Freeze
+**Goal**: 全特徴量変更を統合したバックテストでROI 100%超えを確認し、特徴量セットを凍結する
+**Depends on**: Phase 27
+**Requirements**: (validation of all prior phase outputs)
+**Success Criteria** (what must be TRUE):
+  1. 統合バックテストROIが100%以上である
+  2. 既存テスト全通過(回帰なし)
+  3. FEATURE_COLSが凍結され、ハッシュが記録されている
+**Plans**: TBD
+
 ## Progress
+
+**Execution Order:**
+Phases execute in numeric order: 23 → 24 → 25 → 26 → 27 → 28
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
@@ -99,4 +177,9 @@
 | 20. 高オッズ的中パターン特徴量 | v1.5 | 3/3 | Complete | 2026-05-09 |
 | 21. Conformal EV予測区間 | v1.5 | 2/2 | Complete | 2026-05-09 |
 | 22. 統合検証とバックテスト | v1.5 | 1/1 | Complete | 2026-05-10 |
-
+| 23. Safety Gate | v1.6 | 0/? | Not started | - |
+| 24. Feature Audit & Pruning | v1.6 | 0/? | Not started | - |
+| 25. Quick Win Wire Existing | v1.6 | 0/? | Not started | - |
+| 26. EveryDB2 New Features | v1.6 | 0/? | Not started | - |
+| 27. Feature Interactions | v1.6 | 0/? | Not started | - |
+| 28. Validation & Freeze | v1.6 | 0/? | Not started | - |

@@ -2,12 +2,12 @@
 gsd_state_version: 1.0
 milestone: v1.6
 milestone_name: Feature Engineering Overhaul
-status: planning
-stopped_at: Milestone v1.6 started — defining requirements
-last_updated: "2026-05-10T13:00:00.000Z"
-last_activity: 2026-05-10 -- Milestone v1.6 started
+status: roadmap_created
+stopped_at: Roadmap created — 6 phases (23-28), 15 requirements mapped
+last_updated: "2026-05-11T00:00:00.000Z"
+last_activity: 2026-05-11 -- Roadmap created for v1.6
 progress:
-  total_phases: 0
+  total_phases: 6
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-05-10)
 
 **Core value:** 単勝モデルのバックテストROIを100%超えにすること
-**Current focus:** v1.6 Feature Engineering Overhaul
+**Current focus:** v1.6 Phase 23: Safety Gate
 
 ## Current Position
 
-Phase: Not started (defining requirements)
+Phase: 23 of 28 (Safety Gate)
 Plan: —
-Status: Defining requirements
-Last activity: 2026-05-10 — Milestone v1.6 started
+Status: Ready to plan
+Last activity: 2026-05-11 — Roadmap created for v1.6
 
 Progress: [░░░░░░░░░░░░░░░░░░░░] 0%
 
@@ -42,7 +42,7 @@ Progress: [░░░░░░░░░░░░░░░░░░░░] 0%
 - v1.3: 3 phases, 7 plans, ~2 sessions
 - v1.4: 5 phases, 10 plans, ~3 sessions
 - v1.5: 5 phases, 13 plans, ~3 sessions
-- Total plans completed: 56 (v1.0 + v1.1 + v1.2 + v1.3 + v1.4 + v1.5)
+- Total plans completed: 56 (v1.0-v1.5)
 - Average duration: ~12min/plan
 
 **Cumulative:**
@@ -56,29 +56,22 @@ Progress: [░░░░░░░░░░░░░░░░░░░░] 0%
 ### Decisions
 
 Decisions are logged in PROJECT.md Key Decisions table.
-Historical decisions archived in:
+Recent decisions affecting current work:
 
-- .planning/milestones/v1.0-ROADMAP.md
-- .planning/milestones/v1.1-ROADMAP.md
-- .planning/milestones/v1.3-ROADMAP.md
-- .planning/milestones/v1.4-ROADMAP.md
-- .planning/milestones/v1.5-ROADMAP.md
+- [v1.6 roadmap]: Safety gate first (SAFE-01 leak fix before any feature work)
+- [v1.6 roadmap]: Audit before adding (establish clean baseline ROI)
+- [v1.6 roadmap]: Quick wins before new features (12 free features at ~45 lines)
+- [v1.6 roadmap]: Interactions last (depend on final base feature set)
 
 ### Pending Todos
 
 - バックテストROI検証(実行に~57分/年、PostgreSQL環境必要) — deferred to manual execution
 - WF検証スクリプトの実際の実行(PostgreSQL環境必要、~4時間) — deferred
 - Human UAT 5項目 (v1.4, PostgreSQL依存) — deferred
-- ROI 95%目標未達 — v1.6 priority (target raised to 100%)
 
 ### Blockers/Concerns
 
-None — ready for v1.6 planning
-
-### Roadmap Evolution
-
-- v1.5 complete — ROI 84.4% (CQR過学習修正済み)
-- v1.6 started — Feature Engineering Overhaul for ROI 100%+
+None — ready for Phase 23 planning
 
 ## Deferred Items
 
@@ -93,5 +86,6 @@ Items acknowledged and deferred at milestone close:
 
 ## Session Continuity
 
-Last session: 2026-05-10T13:00:00.000Z
-Stopped at: Milestone v1.6 started — defining requirements
+Last session: 2026-05-11
+Stopped at: Roadmap created for v1.6 — 6 phases, 15 requirements mapped
+Resume file: None
