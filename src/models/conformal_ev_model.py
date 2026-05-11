@@ -254,6 +254,14 @@ class ConformalEVModel:
             )
             return
 
+        if y_train.std() < 1e-6:
+            logger.warning(
+                "Target variance too low for CQR training (std=%.8f). "
+                "Skipping — would produce degenerate zero-width intervals.",
+                y_train.std(),
+            )
+            return
+
         # LightGBM データセット
         train_set = lgb.Dataset(X_train, label=y_train.values)
 
