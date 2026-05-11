@@ -1,245 +1,280 @@
-# Feature Landscape: v1.4 Ensemble Filter Recalibration
+# Feature Landscape: v1.6 Feature Engineering Overhaul
 
-**Domain:** Betting filter recalibration when switching from single LightGBM to 3-model GBM stacking ensemble
-**Researched:** 2026-05-05
-**Confidence:** HIGH (codebase audit + distribution shift analysis + domain literature)
+**Domain:** Horse racing ML feature engineering -- audit, new feature extraction from unused data, and interaction/transform engineering
+**Researched:** 2026-05-10
+**Confidence:** HIGH (full codebase audit of 22 feature modules, 9 model files, 103 ETL tables, and 2 model FEATURE_COLS lists totaling 65+37 features)
 
 ## Context
 
-This document covers ONLY features for the v1.4 milestone. The system has three filter components calibrated for single-model LightGBM output distributions:
-1. **WinSelectionGate** (win_selection_gate.py) -- OOF-learned scoring + threshold grid search using win_selection_prob, win_selection_edge, tanoddslow quantile binning
-2. **EV_lower filter** (race_predictor.py:get_win_candidates) -- hard cutoff on EV_lower_win_corrected >= 1.0, computed by RobustConfidenceEstimator via conformal prediction + rolling quantile
-3. **OddsBandFilter** (odds_band_filter.py) -- ROI-based exclusion of unprofitable odds bands using training_bet_history
+This document covers features for the v1.6 milestone ONLY. The system currently generates 100+ features across 22 feature modules, consumed by two model stages:
+- **AbilityModel** (Stage1): 65 features -- horse history, bloodline, sire, pace, course, form, class trajectory, environment adaptability
+- **WinTwoStageModel** (Stage2): 37 features (RETURN_FEATURE_COLS) + 40 HIT_FEATURE_COLS -- market dynamics, odds, race context, plus select horse features for the hit model
 
-The core problem: switching to ensemble (StackedEnsemble with Ridge meta-learner) shifts the probability distribution, causing EV_lower to exclude 3,594 candidates (producing only 7 bets/year at 0% ROI instead of the needed 100+ bets/year at >100% ROI).
+Current ROI: 84.4%. Target: 100%+. The v1.6 approach: CQR/calibration tuning has reached diminishing returns; the next lever is feature quality.
 
-**Distribution shift mechanics:**
-- Single LightGBM outputs: raw log-odds, wider spread, more extreme probabilities
-- StackedEnsemble (Ridge over 3 GBMs): averaged predictions, compressed distribution, narrower spread
-- Compressed probabilities produce lower EV estimates, which the EV_lower >= 1.0 hard threshold then over-excludes
-- The conformal prediction nonconformity scores were calibrated on single-model residuals; ensemble residuals have different magnitude
+**Three workstreams:**
+1. Audit existing 100+ features and prune noise
+2. Extract new features from unused EveryDB2 tables
+3. Engineer interactions and transformations (relative comparisons, conditional interactions, target encoding)
 
 ---
 
 ## Table Stakes
 
-Features required to make ensemble backtesting functional. Without these, the ensemble mode produces near-zero bets.
+Features/actions that any serious horse racing ML system needs. Missing these means the model is operating below potential.
 
-| # | Feature | Why Expected | Complexity | Dependencies | Notes |
-|---|---------|--------------|------------|--------------|-------|
-| TS-01 | WinSelectionGate retrained on ensemble OOF predictions | Gate score tables (combo_scores, pair_scores, single_scores) are built from single-model quantile edges. Ensemble output distribution changes where these quantile edges fall, making the old score tables misaligned. | Medium | StackedEnsemble OOF predictions available during training pipeline | Gate already has walk-forward OOF scoring architecture -- just needs to receive ensemble OOF preds instead of single-model |
-| TS-02 | EV_lower threshold recalibrated to ensemble distribution | RobustConfidenceEstimator computes EV_lower_win_corrected using nonconformity scores from single-model residuals. Ensemble produces different residuals (typically smaller variance), causing the conformal band width to misestimate. Fixed threshold 1.0 becomes too aggressive. | Medium | RobustConfidenceEstimator.calibrate() must receive ensemble-residual data | The estimator already has calibrate() for computing CP quantiles -- needs ensemble-era calibration data |
-| TS-03 | OddsBandFilter recalibrated with ensemble training_bet_history | ROI per odds band depends on model accuracy in each band. Ensemble accuracy profile differs from single model (typically better in mid-odds, may be worse in extreme odds). Training bet history from single model misidentifies which bands are profitable. | Low | training_bet_history parameter in BacktestEngine.run() | Filter already supports calibrate() with arbitrary bet history -- just needs ensemble-generated history |
-| TS-04 | Optuna 14-dim parameter optimization executed | All regime/DD/EV-scaling/OddsBand parameters are at hardcoded defaults. These defaults were never tuned. Even with correct filter calibration, suboptimal parameters prevent reaching 100% ROI. | High | Strategy optimizer infrastructure from Phase 13 | run_strategy_optimization.py exists but has not been executed |
+| # | Feature | Why Expected | Complexity | Data Source | Notes |
+|---|---------|--------------|------------|-------------|-------|
+| TS-01 | Feature audit: gain/split/permutation importance + noise identification | Without knowing which features are noise, adding more features risks diluting signal. 100+ features with no pruning means LightGBM wastes splits on noise columns, especially with ~4.5K training races per surface. | Medium | Trained models (gain importance), OOF predictions (permutation importance) | Script-only task. No module changes. Output: prune_candidates.json with features to remove from FEATURE_COLS. |
+| TS-02 | Jockey context features (wire existing module) | `jockey_context_features.py` already computes 4 features (jockey_wr_overall, jockey_wr_distance, jockey_wr_venue, jockey_prize_log) from kisyu_seiseki.parquet. HIT_FEATURE_COLS already references `jockey_wr_overall`. The module exists but is NOT wired into `_train_submodel()`. | Low | kisyu_seiseki.parquet (SetYear < race_year PIT-safe) | Just wiring: ~15 lines in training_pipeline.py. Module is complete and tested. |
+| TS-03 | Trainer context features (wire existing module) | `trainer_context_features.py` already computes 4 features (trainer_wr_overall, trainer_wr_distance, trainer_wr_venue, trainer_prize_log). HIT_FEATURE_COLS already references `trainer_wr_overall`. Module exists but NOT wired. | Low | chokyo_seiseki.parquet (SetYear < race_year PIT-safe) | Same pattern as TS-02. ~15 lines wiring. |
+| TS-04 | Jockey-trainer combo features (wire existing module) | `jockey_trainer_combo.py` computes 4 features (jt_combo_wr, jt_combo_place_rate, jt_combo_starts, jt_combo_prize_log) from history_entries. HIT_FEATURE_COLS already references `jt_combo_place_rate`. Module exists but NOT wired. | Low | history_entries via ParquetStore, PIT-safe via searchsorted | ~15 lines wiring. The combo captures synergy effects that individual jockey/trainer stats miss. |
+| TS-05 | Horse-vs-horse relative features (within-race comparison) | Current features are absolute per-horse values. A horse with norm_finish_logit_avg=0.5 looks good, but if the race average is 0.7, that horse is actually below-average. Relative features capture competitive positioning within the field. This is standard in Benter-style models. | Medium | Existing features from HorseHistoryFeatures, computed via groupby("race_id") transforms | New module: `features/relative_features.py`. ~80 lines. 5-10 new features: norm_finish_logit_vs_mean, harontimel5_vs_mean, harontimel5_vs_max, etc. |
+| TS-06 | Prune noise features from FEATURE_COLS | After TS-01 identifies zero/negative importance features, remove them from AbilityModel.FEATURE_COLS (65 features) and WinTwoStageModel FEATURE_COLS/HIT/RETURN sublists. | Low | prune_candidates.json from TS-01 | Pure list editing. LightGBM silently ignores missing columns, so feature modules can keep computing them for backward compatibility. |
 
 ### Feature Dependencies
 
 ```
-TS-01 (Gate retrain) ← requires ensemble OOF predictions (already generated in training_pipeline.py)
-TS-02 (EV_lower recalibration) ← requires ensemble-residual calibration data
-TS-03 (OddsBandFilter retrain) ← requires ensemble training_bet_history
-TS-04 (Optuna optimization) ← requires TS-01/02/03 complete (filters must work before tuning params)
-```
+TS-01 (audit) → TS-06 (prune) [TS-06 needs audit results]
+TS-02 (jockey wiring) — independent, can run anytime
+TS-03 (trainer wiring) — independent
+TS-04 (combo wiring) — independent
+TS-05 (relative features) — independent but benefits from pruned feature set
 
-All of TS-01/02/03 can proceed in parallel once ensemble training produces the needed data. TS-04 depends on all three completing first.
+Recommended order: TS-01 → TS-06 → TS-02/03/04 (parallel) → TS-05
+```
 
 ---
 
 ## Differentiators
 
-Features that improve ensemble filter quality beyond the baseline. Not strictly required, but significantly improve ROI potential.
+Features that would set this system apart from typical horse racing ML approaches. Not expected by default, but provide measurable edge.
 
-| # | Feature | Value Proposition | Complexity | Dependencies | Notes |
-|---|---------|-------------------|------------|--------------|-------|
-| D-01 | Dynamic EV_lower threshold (regime-adaptive) | Instead of fixed EV_lower >= 1.0, allow threshold to vary by regime: lower in AGGRESSIVE (e.g., 0.95), higher in CONSERVATIVE (e.g., 1.05). This extracts more bets in favorable conditions while maintaining safety. | Medium | RegimeDetector, TS-02 | Regime already controls ev_threshold -- extending to EV_lower threshold is architecturally natural |
-| D-02 | Ensemble-aware conformal confidence scoring | Weight conformal_confidence_score by ensemble agreement (how much the 3 base models agree). When models disagree, widen the confidence interval, making EV_lower more conservative. When models agree, narrow it. | Medium | StackedEnsemble OOF predictions, RobustConfidenceEstimator | Already have pairwise OOF correlations logged in _check_diversity() -- can extract agreement signal |
-| D-03 | Quantile-adaptive EV threshold | Instead of a single EV_lower threshold for all probabilities, use different thresholds per probability bin. High-probability favorites can tolerate lower EV thresholds; longshots need higher thresholds to overcome estimation noise. | Medium | TS-01 (gate score tables provide probability bins) | WinSelectionGate already bins by probability quantile -- threshold per bin is a natural extension |
-| D-04 | Walk-forward filter recalibration | Recalibrate filters within the backtest itself using an expanding window, not just once at the start. This makes filters adaptive to distribution drift over the test period. | High | WalkForwardCV infrastructure from Phase 4 | Complex; would require architectural changes to BacktestEngine race loop |
+| # | Feature | Value Proposition | Complexity | Data Source | Notes |
+|---|---------|-------------------|------------|-------------|-------|
+| D-01 | Dam/broodmare pedigree features | Current bloodline features (blood_surface_wr etc.) use career_stats from horse_career_stats.parquet, which aggregates offspring performance. But dam-side pedigree (n_hansyoku has 19 columns including dam info, n_sanku has 26 columns for offspring) is completely unused. Dam influence on distance aptitude and surface preference is a known edge in Japanese racing. | Medium | n_hansyoku (breeding master), n_sanku (offspring master), n_bameiorigin (extended pedigree) | New module needed. Static data (PIT-safe). Must cross-reference kettonum to find dam, then aggregate dam's offspring performance for same surface/distance. |
+| D-02 | Extended sire line features (BMS = Broodmare Sire) | `sire_features.py` already computes bms_wr, but only win rate. The dam's sire (BMS) has strong influence on stamina and distance aptitude. Adding BMS distance_wr, BMS surface_wr would capture this. | Low | sire_career_stats.parquet (already loaded by SireFeatures) | Extend existing sire_features.py with 2-3 more columns using the BMS ketto number already resolved. |
+| D-03 | Age-at-race and sex features from horse master | n_uma (horses.parquet, 227 columns) has birth year (seinen) and sex (sexcd) that are currently not used as features. Age is critical: 3-year-olds have different profiles than 5+ year-olds. Sex captures gelding vs mare vs colt differences. Age progression (improvement/decline curve) is a known predictive signal. | Low | n_uma (horses.parquet), static data | Compute age = race_year - seinen. Encode sex as numeric. Add to AbilityModel.FEATURE_COLS. ~30 lines in a new function or extension of _map_basic_features. |
+| D-04 | Vote concentration features from n_hyosu_tanpuku | The hyosu (vote count) data captures market attention distribution. n_hyosu_tanpuku has per-horse vote counts, allowing computation of: vote_share, vote_concentration (HHI of vote shares), vote_gap_fav12 (vote share gap between 1st and 2nd favorite). This is independent information from odds -- vote counts reflect bettor behavior at a finer granularity. | Low | n_hyosu_tanpuku (per-horse vote count), n_hyosu (race total) | New module: `features/vote_features.py`. Pre-race data, PIT-safe. ~80 lines. |
+| D-05 | Conditional interaction features | Current interactions (kyakusitu_x_distance, kyakusitu_x_surface) are simple cross-products. More powerful: surface x form_trend (is the horse improving on this specific surface?), class_level x distance_change (is the horse changing class at a distance where class matters?), weight_change_zone x rest_category (weight pattern after rest). LightGBM can learn these, but explicit features give it a head start. | Medium | Existing features from multiple modules | Extend interaction_features.py. ~50 lines. Add 4-6 conditional interactions. |
+| D-06 | Target encoding for high-cardinality categoricals | blood_keito_cd is already a feature but as raw category. Target-encoded blood_keito_cd (expanding mean win rate per keito system) would capture the actual performance of each bloodline. Similarly, jockey code and trainer code target-encoded would be powerful. Must use expanding().shift(1) for PIT safety, following info_asymmetry_features.py pattern. | Medium | Existing entries + race results | Extend interaction_features.py or new module. PIT safety is critical: expanding().shift(1) with leave-one-out. ~100 lines. |
+| D-07 | Career trajectory features from horse_career_stats | horse_career_stats.py already precomputes PIT-safe cumulative stats (cum_starts, cum_wins, cum_prize, surface-specific cumulative stats). But these are currently only consumed by bloodline_features.py for blood_* features. Direct career features (career_win_rate_trend, career_starts_at_distance, career_surface_transition) from these pre-computed stats are unused. | Low | horse_career_stats.parquet (already pre-computed, PIT-safe) | Extend horse_history_features.py to consume career_stats columns directly. Add 3-5 features. ~40 lines. |
+| D-08 | Mining index features from n_mining | EveryDB2's n_mining table has 82 columns of pre-computed analytics per horse per race (JRA's own ML-derived indices). These include composite ability scores, form indices, and class assessments computed by JRA-VAN. If available pre-race (needs verification), they provide a strong prior. | High | n_mining (82 cols), n_taisengata_mining (46 cols, pairwise) | REQUIRES PIT AUDIT: must verify n_mining data is available pre-race, not post-race. If pre-race: extremely valuable. If post-race: must exclude entirely. New reader + module. ~200 lines. |
 
 ### Differentiator Dependencies
 
 ```
-D-01 ← TS-02, RegimeDetector
-D-02 ← StackedEnsemble (OOF agreement), RobustConfidenceEstimator
-D-03 ← TS-01 (probability bin structure)
-D-04 ← WalkForwardCV + all TS features
+D-01 (dam pedigree) ← n_hansyoku, n_sanku readers (new readers in readers.py)
+D-02 (BMS extension) ← sire_features.py extension
+D-03 (age/sex) ← n_uma reader (already exists: load_horses)
+D-04 (vote concentration) ← n_hyosu_tanpuku reader (may need new reader)
+D-05 (conditional interactions) ← existing features (form_trend, class_level, etc.)
+D-06 (target encoding) ← race results + existing categoricals
+D-07 (career trajectory) ← horse_career_stats.parquet (already pre-computed)
+D-08 (mining indices) ← n_mining PIT audit (blocking dependency)
 ```
 
 ---
 
 ## Anti-Features
 
-Features to explicitly NOT build. These are tempting but counterproductive.
+Features to explicitly NOT build. These are tempting but counterproductive for this specific system.
 
 | # | Anti-Feature | Why Avoid | What to Do Instead |
 |---|-------------|-----------|-------------------|
-| AF-01 | Auto-relax EV_lower threshold when bet count drops | If EV_lower >= 1.0 excludes too many candidates, lowering the threshold to produce more bets sacrifices quality for quantity. This masks the real problem (miscalibrated filters). | Fix the calibration (TS-02) so EV_lower is correctly computed for ensemble outputs. If ensemble genuinely produces fewer profitable bets, that is signal, not a problem to fix by lowering standards. |
-| AF-02 | Separate filter pipelines for ensemble vs single-model | Maintaining two parallel filter configurations doubles maintenance burden and makes A/B comparison unreliable. Filters should be model-agnostic. | Make all filters calibrate themselves from whatever model produces the data. WinSelectionGate.train(), RobustConfidenceEstimator.calibrate(), and OddsBandFilter.calibrate() already accept arbitrary DataFrames -- just feed them ensemble data. |
-| AF-03 | Recalibrating single-model to match ensemble distribution | Training a post-hoc calibration layer (Platt scaling / isotonic regression) to force ensemble output to match single-model distribution wastes information and can introduce new biases. | Let the ensemble distribution be what it is. Recalibrate the DOWNSTREAM filters (EV_lower, gate scores, band ROIs) to the new distribution instead. |
-| AF-04 | Ensemble stacking of filters (meta-filter) | Running multiple filter configurations and voting/averaging adds complexity without clear benefit. Filter decisions are binary (bet/no-bet) -- stacking does not improve binary decisions the way it improves continuous predictions. | Use single, well-calibrated filter pipeline with proper thresholds. Optimize thresholds via Optuna (TS-04). |
-| AF-05 | Neural network meta-learner replacing Ridge | Adding a neural network as the ensemble meta-learner increases complexity, introduces GPU dependencies, and provides minimal improvement over Ridge for 3-feature input. The existing Ridge meta-learner with 3 GBM inputs is already well-calibrated. | Keep Ridge meta-learner. Focus effort on downstream filter calibration, not model architecture changes. |
+| AF-01 | LSTM/Transformer time-series models for horse history | The horse has typically 5-15 past races. Deep sequence models overfit severely on this sample size. Additionally, PROJECT.md explicitly scopes this out. | Use EMA-weighted features (halflife=3) and expanding-window stats, which are the correct approach for short sequences with limited data. |
+| AF-02 | Post-race data as features (kakuteijyuni, confirmed odds, time, honsyokin) | The ultimate look-ahead bias. Using results to predict results produces 90%+ backtest ROI that collapses to zero in production. The codebase has POST_RACE_COLS in domain/types.py to guard against this. | Always use pre-race features only. The leakage_validators.py framework must be run after every new feature addition. |
+| AF-03 | External data sources (weather APIs, social media sentiment, international race results) | PROJECT.md explicitly scopes out new data sources. The EveryDB2 data (2015-2025) is comprehensive and sufficient. External sources add latency, maintenance burden, and reproducibility problems. | Focus on extracting maximum value from existing EveryDB2 tables that are already loaded to Parquet but unused for features. |
+| AF-04 | Adding 50+ features without pruning existing noise | More features is not better when training data is limited (~4.5K races per surface). Each noisy feature competes for tree splits, diluting the signal from genuinely predictive features. This is the primary risk of feature engineering without audit. | Audit first (TS-01), prune noise (TS-06), then add new features incrementally with backtest validation at each step. |
+| AF-05 | Complex feature interactions beyond 2nd order | Polynomial features of degree 3+ and interaction terms involving 4+ base features are almost always noise in horse racing ML with limited training data. The combinatorial explosion makes interpretation impossible and overfitting certain. | Use 2nd-order interactions only (surface x form, class x distance). Let LightGBM discover higher-order patterns through tree structure. |
+| AF-06 | Horse-v-horse pairwise features for all combinations | Computing features for every (horse_i, horse_j) pair in a race produces O(n^2) features per race. With 18-horse fields, this is 153 pairs. Memory and computation explode. The model already implicitly captures relative positioning through race-level features. | Use within-race aggregate comparisons (horse vs mean, horse vs max) as in D-05. These are O(n) and capture the same competitive positioning information. |
+| AF-07 | Re-architecting the two-stage model structure | The P(hit) x E(odds|hit) decomposition is theoretically sound. Changing the model structure is out of scope and risks breaking the entire downstream pipeline (EV correction, betting filters, CQR). | Focus on feature quality, not model architecture. The existing 3-model stacking with Ridge meta-learner is sufficient. |
 
 ---
 
-## Distribution Shift Analysis
+## Feature Inventory: Current State
 
-The core technical challenge: understanding exactly how ensemble outputs differ from single-model outputs.
+### By Module (22 feature modules)
 
-### Expected Distribution Changes
+| Module | Category | Features | Used By | Status |
+|--------|----------|----------|---------|--------|
+| `_map_basic_features` (feature_engine.py) | A: Basic | 12 (distance_bin, grade_code, class_level, field_size, popularity_rank, draw_ratio, frame_number, blinker_on, weight_change_zone, weight_change_ratio, etc.) | Stage1, Stage2 | Active |
+| `compute_intra_race_features` | B: Intra-race | 2 (weight_diff_from_mean, odds_rank) | Stage1 | Active |
+| `compute_odds_dynamics` | C: Odds | 7 (odds_drop_rate_60/30_10, velocity, volatility, acceleration, direction_consistency, popularity_change) | Stage2 | Active |
+| `compute_market_bias` + `compute_flb_slope` | D: Market | 5 (p_market_win_adj, market_entropy, overround, odds_skewness, implied_prob_hhi) | Stage1, Stage2 | Active |
+| `compute_difficulty_score` | E: Difficulty | 1 (difficulty_score) | Stage1 | Active |
+| `BloodlineFeatures` | B: Bloodline | 6 (blood_surface/distance/condition/total_wr, blood_prize_log, blood_keito_cd) | Stage1 | Active |
+| `HorseHistoryFeatures` | A: History | ~45 (norm_finish_logit_avg, harontimel5_*, form_*, class_*, jockey_*, weight_*, etc.) | Stage1 | Active, largest module (~1350 lines) |
+| `PaceAptitudeFeatures` | C: Pace | 6 (pace_aptitude, front/closing_pace_wr, pace_corner_stability, pace_closing_power, pace_position_consistency) | Stage1, interaction_features | Active |
+| `CourseFeatures` | D: Course | 2 (course_wr, course_distance_wr) | Stage1 | Active |
+| `SireFeatures` | B: Sire | 5 (sire_wr, sire_surface_wr, sire_distance_wr, sire_prize_avg, bms_wr) | Stage1 | Active |
+| `compute_interaction_features` | E: Interaction | 12 (kyakusitu_x_*, weight_x_distance, race_mean/std_fuku_odds, odds_gap_fav12, odds_popularity_gap, surface_track_interaction, pace_pressure/closer_share/scenario_fit, actual_pace_fit) | Stage1, Stage2 | Active |
+| `compute_odds_deviation` | F: Deviation | 2 (deviation_rank, deviation_zscore) | Stage2 | Active |
+| `compute_form_features` (form_cycle) | B: Form | 3 (form_trend, form_consistency, form_peak_flag) | Stage1 (via HorseHistoryFeatures) | Active |
+| `compute_class_trajectory` + form improvement + env adaptability (high_odds_features) | A: High-odds | 18 (class_promotions/demotions/net_change/max_level/std, v_recovery_flag/duration, time/position_improvement_rate, 9 env adaptability) | Stage1 | Active |
+| `JockeyContextFeatures` | D: Jockey | 4 (jockey_wr_overall/distance/venue, jockey_prize_log) | Referenced in HIT_FEATURE_COLS | EXISTS but NOT WIRED |
+| `TrainerContextFeatures` | D: Trainer | 4 (trainer_wr_overall/distance/venue, trainer_prize_log) | Referenced in HIT_FEATURE_COLS | EXISTS but NOT WIRED |
+| `JockeyTrainerComboFeatures` | D: Combo | 4 (jt_combo_wr/place_rate/starts/prize_log) | Referenced in HIT_FEATURE_COLS | EXISTS but NOT WIRED |
+| `compute_hist_features` (info_asymmetry) | E: Info asym | 5 (hist_hit_rate_topk, hist_roi_topk, hist_positive_return_ratio, hist_win_rate_same_condition, hist_market_entropy_avg) | Race-level features | Active |
+| `compute_roi_ema` (odds_dynamics) | C: Market EMA | 3 (favorite_implied_prob_ema, overround_ema, entropy_ema) | Used internally | Active |
 
-| Property | Single LightGBM | StackedEnsemble (Ridge) | Impact on Filters |
-|----------|----------------|------------------------|-------------------|
-| Probability spread | Wider, more extreme values | Narrower, compressed toward mean | WinSelectionGate quantile edges shift; fewer candidates in extreme bins |
-| Calibration | Typically overconfident in extreme probabilities | Better calibrated (Ridge smooths) | EV estimates more accurate but lower absolute values for longshots |
-| Residual distribution | Higher variance, heavier tails | Lower variance, more Gaussian | Conformal prediction bands narrower; EV_lower closer to point estimate |
-| EV_lower_win_corrected | Wider interval, more values > 1.0 | Narrower interval, fewer values > 1.0 | This is the PRIMARY cause of 3,594 exclusions |
-| OOD detection | Single-model has blind spots | Ensemble covers more of feature space | Gate scores more uniform; less differentiation |
-| ROI by odds band | Variable -- model may be better in certain ranges | More uniform ROI across bands | OddsBandFilter band exclusions will change |
+### By Model Stage
 
-### Quantitative Diagnosis Needed
+**AbilityModel (Stage1): 65 features**
+- Race conditions (7): surface, distance_bin, track_condition_code, grade_code, field_size, weight_diff_from_mean, difficulty_score
+- Past performance (8): norm_finish_logit_avg, harontimel5_avg/zscore, harontime_late_trend, timediff_avg, jyuni1c/4c_avg, closing_index_avg
+- Categorical (1): kyakusitukubun_cd
+- Bloodline (6): blood_surface/distance/condition/total_wr, blood_prize_log, blood_keito_cd
+- Interactions (3): kyakusitu_x_distance, kyakusitu_x_surface, weight_x_distance
+- Race-relative ranks (5): norm_finish/harontimel5/timediff/jyuni1c/closing_index_race_rank
+- Body (3): weight_absolute, weight_zscore, weight_change_zone
+- Rest (2): days_since_last_race, rest_category
+- Form cycle (3): form_trend, form_consistency, form_peak_flag
+- Sire (5): sire_wr, sire_surface_wr, sire_distance_wr, sire_prize_avg, bms_wr
+- Pace (3): pace_aptitude, front/closing_pace_wr
+- Course (2): course_wr, course_distance_wr
+- Additional (5): draw_ratio, class_move, blinker_change, pace_pressure, pace_scenario_fit
+- Time-series (2): class_adj_formetric, haron_zscore_trend
+- Pace sub (4): pace_corner_stability, pace_closing_power, pace_position_consistency, actual_pace_fit
+- High-odds (18): class trajectory (7), form improvement (2), env adaptability (9)
 
-Before implementing any changes, the following diagnostic measurements should be collected:
-
-1. **EV_lower distribution comparison**: Run single-model and ensemble on same test data, compare histograms of EV_lower_win_corrected. Quantify how many more candidates fall below 1.0 with ensemble.
-2. **Conformal residual comparison**: Compare single-model vs ensemble residual distributions (|actual_ev - predicted_ev|). Confirm ensemble has smaller residuals.
-3. **Probability calibration comparison**: Plot calibration curves (predicted probability vs observed frequency) for both models. Confirm ensemble is better calibrated.
-4. **Gate score distribution comparison**: Compare WinSelectionGate score distributions under both models. Identify where quantile edges shift.
-
-These diagnostics should be run as part of TS-01/TS-02 implementation to confirm the distribution shift hypothesis before coding solutions.
+**WinTwoStageModel (Stage2):**
+- RETURN_FEATURE_COLS: 37 features (market/odds/race context + select horse features)
+- HIT_FEATURE_COLS: 40 features (includes horse-level features like norm_finish_logit_avg, harontimel5_zscore + jockey/trainer/combo features)
 
 ---
 
-## Model-Agnostic Filter Design Principles
+## Unused EveryDB2 Data Sources
 
-Based on codebase analysis and domain research, the following principles should guide filter recalibration:
+Tables already loaded to Parquet but NOT used for feature generation:
 
-### Principle 1: Filters Consume Data, Not Models
-All three filter components (WinSelectionGate, RobustConfidenceEstimator, OddsBandFilter) already accept generic DataFrames. They do not reference model internals. This is the correct architecture -- filters should never need to know whether upstream predictions come from LightGBM, XGBoost, or a stacked ensemble.
+| Table | Parquet Key | Columns | Potential Features | PIT Safety |
+|-------|-------------|---------|-------------------|------------|
+| `n_mining` | mining | 82 | JRA pre-computed ability indices, form scores | NEEDS AUDIT -- verify pre-race availability |
+| `n_taisengata_mining` | taisengata_mining | 46 | Pairwise horse comparison indices | NEEDS AUDIT |
+| `n_hansyoku` | hansyoku | 19 | Dam info, breeding farm, birth year | SAFE -- static |
+| `n_sanku` | sanku | 26 | Offspring performance per dam | SAFE -- static |
+| `n_uma` (additional columns) | horses | 227 total | sex (sexcd), birth year (seinen), 14 ketto3info columns (5-14 for dam-side pedigree) | SAFE -- static |
+| `n_bameiorigin` | bameiorigin | ~30 | Extended 5-generation pedigree | SAFE -- static |
+| `n_hyosu` / `n_hyosu_tanpuku` | hyosu / hyosu_tanpuku | ~10 / ~8 | Vote counts per horse, vote concentration (HHI) | SAFE -- pre-race snapshot |
+| `n_record` | record | 48 | Course records, track-specific best times | SAFE -- historical |
+| `n_course` | course | 8 | Course characteristics (circumference, straight length) | SAFE -- static |
+| `n_wood_chip` | wood_chip | 29 | Training data (wood chip track performance) | SAFE -- static (but may be post-update) |
+| `n_hanro` | hanro | 14 | Slope training data | SAFE -- static |
+| `n_banusi` | banusi | 27 | Owner data (owner win rate, owner horse count) | SAFE -- static |
+| `n_sale` | sale | 14 | Horse auction prices (market value proxy) | SAFE -- static |
+| `n_toku_race` / `n_toku` | toku_race / toku | ~10 / ~10 | Special race metadata, entry conditions | SAFE -- pre-race |
+| `n_schedule` | schedule | ~8 | Race schedule, weather info | SAFE -- pre-race |
 
-### Principle 2: Calibration Data Must Match Deployment Data
-The fundamental rule: calibration data (used to set filter parameters) must come from the same model that will be used in deployment. WinSelectionGate.train() must receive ensemble OOF predictions, not single-model OOF. RobustConfidenceEstimator.calibrate() must receive ensemble residuals. OddsBandFilter.calibrate() must receive ensemble-era bet history.
+---
 
-### Principle 3: Thresholds Follow Distribution, Not Intuition
-Fixed thresholds (EV_lower >= 1.0) encode assumptions about the probability distribution. When the distribution changes, the threshold must be re-validated. The correct approach is to set thresholds via optimization (grid search / Optuna) against the target metric (ROI with minimum bet count), not by intuition.
+## Feature Dependencies
 
-### Principle 4: Score Tables Are Distribution-Specific
-WinSelectionGate's combo_scores, pair_scores, and single_scores are lookup tables built from quantile-binned realized ROI. The quantile edges (prob_edges, edge_edges, odds_edges) are specific to the training distribution. When the model changes, these edges must be recomputed from the new distribution.
+```
+# Phase 1: Audit (no new features)
+TS-01 (audit script) → TS-06 (prune FEATURE_COLS)
 
-### Principle 5: Separate Model Quality from Filter Calibration
-A model change can affect ROI through two channels: (a) the model itself produces better/worse predictions, and (b) the filter parameters are miscalibrated for the new distribution. These must be evaluated independently. First, confirm the ensemble actually produces better predictions (check calibration curve, Brier score). Then, recalibrate filters. Then, run Optuna to optimize all parameters jointly.
+# Phase 2: Wire existing modules (no new development)
+TS-02 (jockey) — standalone
+TS-03 (trainer) — standalone
+TS-04 (jockey-trainer combo) — standalone
+# All three can be wired in parallel
+
+# Phase 3: New features from unused data
+D-03 (age/sex) ← load_horses (existing reader)
+D-04 (vote concentration) ← hyosu_tanpuku reader
+D-07 (career trajectory) ← horse_career_stats.parquet (existing)
+D-02 (BMS extension) ← sire_features.py extension
+
+# Phase 4: Pedigree and advanced features
+D-01 (dam pedigree) ← n_hansyoku, n_sanku readers (new)
+D-08 (mining indices) ← n_mining PIT audit (blocking)
+
+# Phase 5: Interactions and transformations
+D-05 (conditional interactions) ← all base features complete
+D-06 (target encoding) ← existing categoricals
+D-05/TS-05 (relative features) ← base features + groupby transforms
+```
 
 ---
 
 ## MVP Recommendation
 
-**Priority 1 (Blocking -- must complete first):**
-1. **TS-02**: EV_lower recalibration -- this is the direct cause of the 3,594-exclusion / 7-bet problem. Recalibrate RobustConfidenceEstimator on ensemble residuals.
-2. **TS-01**: WinSelectionGate retrain on ensemble OOF -- necessary for correct gate scores and candidate ranking.
+**Priority 1 (Quick wins -- wire existing code):**
+1. **TS-01 + TS-06**: Feature audit and pruning -- establishes a clean baseline. Without this, adding features is guesswork.
+2. **TS-02 + TS-03 + TS-04**: Wire jockey, trainer, and combo features. 12 new features from existing modules with ~45 lines of pipeline code. These are already referenced in HIT_FEATURE_COLS.
 
-**Priority 2 (Required for target):**
-3. **TS-03**: OddsBandFilter recalibration -- needed to avoid excluding profitable ensemble-era bands.
-4. **TS-04**: Optuna optimization -- without this, all parameters are at defaults and ROI will likely remain suboptimal.
+**Priority 2 (Low-hanging fruit -- simple new features):**
+3. **D-03**: Age-at-race and sex encoding. Static data, trivial computation, strong predictive signal.
+4. **TS-05**: Horse-vs-horse relative features. Standard Benter approach, captures competitive positioning.
+5. **D-02**: BMS distance/surface features. Extend existing sire_features.py with 2-3 more columns.
 
-**Priority 3 (Defer to post-v1.4):**
-5. **D-01**: Dynamic EV_lower threshold -- useful enhancement but not needed for initial 100% ROI target.
-6. **D-02**: Ensemble-aware confidence scoring -- sophisticated but optional.
-7. **D-03**: Quantile-adaptive EV threshold -- would require gate architecture changes.
+**Priority 3 (Medium effort -- new data sources):**
+6. **D-04**: Vote concentration from hyosu_tanpuku. Independent information from odds.
+7. **D-07**: Career trajectory from horse_career_stats. Data already pre-computed.
+8. **D-05**: Conditional interactions (surface x form, class x distance).
 
-**Defer indefinitely:**
-- D-04 (walk-forward filter recalibration) -- too complex for this milestone.
-- All anti-features (AF-01 through AF-05).
+**Priority 4 (Higher effort -- new modules):**
+9. **D-01**: Dam/broodmare pedigree features. Requires new readers and cross-referencing.
+10. **D-06**: Target encoding for high-cardinality categoricals. Requires careful PIT implementation.
 
----
-
-## Implementation Complexity Assessment
-
-| Feature | Lines of Code Changed | New Code | Test Complexity | Risk |
-|---------|----------------------|----------|-----------------|------|
-| TS-01 | ~20 (pipeline data routing) | ~0 | Low (gate already tested) | LOW -- just feeding different data to existing train() |
-| TS-02 | ~30 (calibration data routing) | ~0 | Low (estimator already tested) | LOW -- just feeding different residuals to calibrate() |
-| TS-03 | ~10 (training_bet_history generation) | ~0 | Low (filter already tested) | LOW -- just passing ensemble-era bet history |
-| TS-04 | ~0 (script execution) | ~0 | Medium (verify optimization results) | MEDIUM -- depends on all above working correctly |
-| D-01 | ~40 (regime-adaptive EV_lower) | ~20 | Medium | MEDIUM |
-| D-02 | ~50 (agreement signal extraction) | ~30 | High | HIGH |
-
-**Total estimated effort for Priority 1+2:** Minimal code changes -- the infrastructure is already built. The work is primarily in data routing and script execution, not new algorithm development.
+**Defer (needs PIT audit or high complexity):**
+- **D-08**: Mining indices -- requires PIT audit to verify pre-race availability. If confirmed pre-race, elevate to Priority 2.
+- **n_wood_chip / n_hanro**: Training data features -- potentially valuable but complex to integrate and may not have sufficient coverage.
+- **n_banusi / n_sale**: Owner and auction price features -- niche signal, low priority.
 
 ---
 
-## Filter Interaction Map
+## Expected Impact Assessment
 
-How the three filters interact after ensemble switch:
+| Feature Group | Expected Features Added | Signal Strength | Overfitting Risk | Priority |
+|---------------|------------------------|-----------------|------------------|----------|
+| Feature audit/pruning | -10 to -20 (removed) | Removes noise | Reduces overfitting | TS-01/06 |
+| Jockey/trainer/combo wiring | +12 | HIGH (human factors) | LOW (annual stats) | TS-02/03/04 |
+| Age/sex | +2-3 | HIGH (fundamental) | VERY LOW | D-03 |
+| Relative features | +5-10 | HIGH (competitive context) | LOW (race-level transforms) | TS-05 |
+| BMS extension | +2-3 | MEDIUM (dam sire influence) | LOW | D-02 |
+| Vote concentration | +3-4 | MEDIUM (market behavior) | LOW (pre-race data) | D-04 |
+| Career trajectory | +3-5 | MEDIUM (career progression) | LOW (PIT-safe cumulative) | D-07 |
+| Conditional interactions | +4-6 | MEDIUM (nonlinear combos) | MEDIUM (interaction explosion) | D-05 |
+| Target encoding | +2-3 | MEDIUM (categorical signal) | MEDIUM (needs regularization) | D-06 |
+| Dam pedigree | +5-8 | MEDIUM (breeding edge) | LOW (static data) | D-01 |
+| Mining indices | +10-20 (TBD) | HIGH if pre-race | LOW if pre-race | D-08 |
 
-```
-Ensemble predictions (StackedEnsemble.predict())
-    |
-    v
-RacePredictor.predict()
-    |  Computes: p_win, e_return, ev_win, ev_win_corrected
-    |  RobustConfidenceEstimator.predict_interval() computes EV_lower_win_corrected
-    |
-    v
-get_win_candidates()
-    |  Filter 1: win_selection_edge > 0 AND tanodds >= 1.0
-    |  Filter 2: EV_lower_win_corrected >= 1.0 (TS-02: recalibrated)
-    |  Rank: win_gate_score DESC (TS-01: retrained)
-    |  Top 2 candidates
-    |
-    v
-OddsBandFilter.filter()
-    |  Filter 3: exclude unprofitable bands (TS-03: recalibrated)
-    |
-    v
-select_bets()
-    |  Kelly stake * regime fraction * EV scaling * DD control
-    |  (TS-04: Optuna-optimized parameters)
-    |
-    v
-Final bet list
-```
+**ROI improvement estimate:**
+- Phase 1 (audit/prune): +0 to +3pp (noise removal)
+- Phase 2 (jockey/trainer/combo + age/sex + relative): +3 to +8pp (strong new signal)
+- Phase 3 (vote, career, interactions): +2 to +5pp (incremental)
+- Phase 4 (dam, mining if pre-race): +2 to +5pp (breeding edge)
 
-The key insight: all three filter recalibrations (TS-01/02/03) are about feeding the RIGHT DATA to existing calibration methods. No new algorithms needed.
+**Total estimated improvement: 7 to 21pp, from 84.4% to 91-105% ROI.**
 
----
-
-## Expected Outcomes After Recalibration
-
-Based on the distribution shift analysis and the existing filter architecture:
-
-| Metric | Current (ensemble, miscalibrated) | Expected (ensemble, calibrated) | Rationale |
-|--------|----------------------------------|-------------------------------|-----------|
-| Bets/year | 7 | 100-300 | EV_lower will exclude far fewer candidates once calibrated to ensemble residuals |
-| ROI | 0% | 95-110% | Ensemble should produce better predictions + Optuna optimization |
-| Gate pass rate | ~0.1% | 3-8% | Gate thresholds aligned to ensemble distribution |
-| EV_lower pass rate | ~0.5% | 5-15% | Conformal bands properly sized for ensemble residuals |
-| OddsBand exclusions | Unknown (likely over-excluding) | Data-driven | Ensemble ROI profile per band differs from single model |
-
-The 100% ROI target is achievable because:
-1. Ensemble predictions are better calibrated (Ridge meta-learner smooths GBM outputs)
-2. Optuna will optimize 14 dimensions against ROI with bet-count constraints
-3. Filter calibration removes false negatives (profitable bets excluded by miscalibrated thresholds)
+The 100% target is achievable if: (a) feature pruning removes significant noise, (b) jockey/trainer/combo wiring captures human-factor signal, and (c) at least one of the high-signal features (relative, mining, or dam pedigree) delivers expected impact.
 
 ---
 
 ## Sources
 
-### Primary (HIGH confidence)
-- Codebase audit: src/models/win_selection_gate.py (1113 lines) -- train(), score(), OOF scoring architecture
-- Codebase audit: src/models/robust_confidence_estimator.py -- calibrate(), predict_interval(), conformal + rolling quantile
-- Codebase audit: src/betting/odds_band_filter.py (112 lines) -- calibrate(), filter() with training bet history
-- Codebase audit: src/models/stacked_ensemble.py (607 lines) -- Ridge meta-learner, OOF prediction generation
-- Codebase audit: src/backtest/race_predictor.py -- get_win_candidates() with EV_lower filter, select_bets() pipeline
-- Codebase audit: src/pipelines/training_pipeline.py -- ensemble OOF prediction flow, use_ensemble flag routing
-- Codebase audit: .planning/phases/11-bet-selection-filters/11-RESEARCH.md -- Phase 11 filter architecture
-- Codebase audit: .planning/phases/12-stake-sizing-enhancement/12-RESEARCH.md -- Phase 12 stake sizing
-- Codebase audit: .planning/phases/13-risk-calibration-parameter-optimization/13-RESEARCH.md -- Phase 13 Optuna optimization
-- Codebase audit: .planning/PROJECT.md -- v1.4 active requirements and current state
+### Primary (HIGH confidence -- direct codebase analysis)
+- `src/models/stage1_ability_model.py` -- 65-feature FEATURE_COLS list (lines 28-128)
+- `src/models/two_stage_return_model.py` -- 37-feature RETURN_FEATURE_COLS + 40-feature HIT_FEATURE_COLS (lines 48-404)
+- `src/features/horse_history_features.py` -- ~1350 lines, ~45 features, per-horse loop with PIT safety via searchsorted
+- `src/features/bloodline_features.py` -- 6 bloodline features from career_stats
+- `src/features/sire_features.py` -- 5 sire features including bms_wr
+- `src/features/jockey_context_features.py` -- 4 jockey features, EXISTS but NOT WIRED
+- `src/features/trainer_context_features.py` -- 4 trainer features, EXISTS but NOT WIRED
+- `src/features/jockey_trainer_combo.py` -- 4 combo features, EXISTS but NOT WIRED
+- `src/features/high_odds_features.py` -- 18 features (class trajectory, form improvement, env adaptability)
+- `src/features/interaction_features.py` -- 12 interaction features
+- `src/features/horse_career_stats.py` -- PIT-safe pre-computed cumulative career stats
+- `src/features/info_asymmetry_features.py` -- expanding().shift(1) PIT-safe pattern
+- `src/features/pace_aptitude_features.py` -- 6 pace features, vectorized
+- `src/features/course_features.py` -- 2 course features with Beta smoothing
+- `src/features/odds_dynamics_features.py` -- 7 odds dynamics features + 3 market EMA features
+- `config/etl_tables.yaml` -- 103 EveryDB2 tables with parquet keys
+- `.planning/PROJECT.md` -- v1.6 milestone context, constraints, out-of-scope
 
-### Secondary (MEDIUM confidence)
-- [ScienceDirect: ML for sports betting -- calibration over accuracy](https://www.sciencedirect.com/science/article/pii/S266682702400015X) -- confirms calibration-focused model selection yields higher betting profits
-- [arXiv: Systematic review of ML in sports betting](https://arxiv.org/html/2410.21484v1) -- surveys ML techniques in sports betting contexts
-- [ResearchGate: ML for betting -- accuracy vs calibration](https://www.researchgate.net/publication/369184023_Machine_learning_for_sports_betting_should_forecasting_models_be_optimised_for_accuracy_or_calibration) -- optimizing for calibration leads to greater returns than accuracy
-
-### Tertiary (LOW confidence)
-- [arXiv: Probabilistic recalibration of forecasts](https://www.sciencedirect.com/science/article/am/pii/S016920701930158X) -- general theory of probabilistic recalibration after model changes
-- [MDPI: NBA forecasting with calibrated probabilities + Kelly staking](https://www.mdpi.com/2078-2489/17/1/56) -- betting simulation with calibrated probabilities and EV threshold filtering
+### Secondary (MEDIUM confidence -- domain knowledge)
+- Benter (1994) -- Hong Kong horse racing model architecture: relative features within race are fundamental
+- Lessmann et al. (2020) -- Feature engineering for prediction markets: human-factor features (jockey, trainer) consistently rank high
+- EveryDB2/JRA-VAN DataLab documentation -- table structure and data availability

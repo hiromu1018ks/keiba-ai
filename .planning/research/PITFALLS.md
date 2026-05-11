@@ -1,265 +1,252 @@
-# Domain Pitfalls: Ensemble Filter Recalibration (v1.4)
+# Domain Pitfalls: Feature Engineering Overhaul (v1.6)
 
-**Domain:** Recalibrating betting filters for ensemble model output distribution
-**Context:** keiba-ai v1.4 milestone -- the 3-model stacked ensemble (LightGBM + XGBoost + CatBoost -> Ridge) produces a different probability distribution than the single LightGBM used to calibrate WinSelectionGate, EV_lower threshold, OddsBandFilter, and Optuna parameters. The symptom is 7 bets/year at ROI 0% (vs. target 100+ bets/year at ROI >100%). The ML model pipeline is frozen; only filter parameters and calibration change.
-**Researched:** 2026-05-05
-**Confidence:** HIGH (based on direct codebase analysis of all filter components, ensemble model, training pipeline, and strategy optimizer)
+**Domain:** Horse racing ML prediction system (LightGBM/XGBoost/CatBoost stacking)
+**Context:** v1.6 milestone -- comprehensive feature engineering overhaul for existing v5.5 system with 100+ features across 20 modules
+**Researched:** 2026-05-10
+**Confidence:** HIGH (based on direct codebase analysis of all 22 feature modules, v1.5 CQR failure investigation, and domain research)
 
 ---
 
 ## Critical Pitfalls
 
-Mistakes that cause complete filter rejection (0 bets), silent look-ahead bias, or fictitious ROI improvement.
+Mistakes that cause rewrites or major issues. Ranked by severity based on v1.5 failure evidence and codebase analysis.
 
-### Pitfall 1: WinSelectionGate Quantile Bin Mismatch
+### Pitfall 1: Using Model Outputs as Features for Downstream Models (Cascade Overfitting)
 
-**What goes wrong:**
-`WinSelectionGateModel` stores `prob_edges`, `edge_edges`, and `odds_edges` computed from single-LightGBM OOF predictions (quantile-based binning via `_quantile_edges()` at win_selection_gate.py:57-71). When the ensemble produces a different `win_selection_prob` distribution, candidates land in wrong bins. The `combo_scores` and `pair_scores` lookup tables return stale bucket statistics, making `win_gate_score` invalid.
+**What goes wrong:** A downstream model (e.g., CQR, EV correction, second-stage model) receives the main model's predictions as input features. The downstream model overfits to the training data because the main model's predictions are already highly correlated with the target.
 
-The ensemble's Ridge meta-learner produces probabilities that are (a) smoother (less extreme highs/lows), (b) calibrated differently (the Ridge alpha=1.0 regularization pulls toward the mean), and (c) have a different variance structure across the 3 base model predictions. A candidate with `win_selection_prob = 0.12` under the old edges might map to bin 3, but under ensemble-calibrated edges it would be bin 2. The `_score_row_from_tables()` lookup returns a score from a bucket trained on a different distribution.
+**Why it happens:** The "residual learning" pattern seems theoretically sound -- learn what the main model got wrong. But in practice, the downstream model sees the main model's output (trained on the same data) and essentially memorizes the residuals rather than learning generalizable patterns.
 
-**Why it happens:**
-The quantile binning is data-dependent by design. `_quantile_edges()` computes `np.linspace(0, 1, n_bins+1)` quantiles from the training data. If the ensemble's probability distribution has a different shape (e.g., narrower interquartile range, different tail behavior), the bin boundaries shift. The `combo_scores` dict keys are `(prob_bin, edge_bin, odds_bin)` tuples -- any shift in any dimension makes the majority of lookup keys miss.
-
-**Consequences:**
-The `win_gate_score` for most candidates falls back to `global_score` (the overall mean, typically ~1.0). The `win_gate_pass` flag uses hard thresholds on `win_selection_prob`, `win_selection_edge`, and `tanoddslow` (lines 996-1001) which were also tuned on single-model distribution. Combined, this causes the gate to reject nearly all candidates.
+**Consequences:** In v1.5, CQR used 437 features including 44 model output columns (ev_win_calibrated, p_hit, e_return, etc.). Q_90 dropped to 0.0000 (infinitely tight conformal interval). Combined with cascade filters, this produced 272 bets/year with 99.6% win rate. After fix, ROI returned to 84.4% -- the entire v1.5 improvement was fake.
 
 **Prevention:**
-1. Re-run `WinSelectionGateModel.train()` with ensemble OOF predictions. The training pipeline must be run with `use_ensemble=True`, and the resulting OOF `df` (which contains `p_win_corrected`, `ev_win_corrected` from the ensemble) must be passed to the gate's `train()` method.
-2. Never load a single-model gate `.joblib` file for ensemble predictions. Verify by checking that the gate's `prob_edges` quantiles match the current model's output distribution.
-3. After retraining, log the gate's new thresholds (`min_prob`, `min_edge`, `max_odds`) and compare with the old ones. If they change by more than 20%, the old gate was severely mismatched.
+- Any new feature module MUST NOT consume model outputs (p_hit, ev_*, edge_*, selection_*, calibrated values) as inputs
+- Maintain `_MODEL_OUTPUT_COLS` blacklist alongside `POST_RACE_COLS` in `domain/types.py` as hard boundaries
+- If a "second stage" model is needed, it MUST use only raw features, never predictions from earlier stages
+- Audit: grep for any import or reference to model output column names inside feature modules
 
 **Detection:**
-- Compare `win_selection_prob` statistics (mean, std, p5/p95) between single and ensemble predictions on the same held-out data. If they differ by more than 10%, gate bins are stale.
-- Log `self.prob_edges` after loading and compare against quantiles of current model output.
-- If `n_ev_excluded` jumps dramatically (from ~500 to 3594 as documented in PROJECT.md), this confirms the mismatch.
+- Backtest bet count drops below 1000/year (was 272 in v1.5 failure)
+- Calibration quantiles (Q_90, Q_80) are near 0.0000
+- Win rate exceeds 90% in any segment (place base rate is 18-35%)
+- ROI spikes above 200% in any single validation fold
 
-**Phase to address:** First v1.4 task (WinSelectionGate retraining). Must complete before threshold tuning or Optuna.
+**Phase to address:** First phase of feature audit -- safety gate before any new features are added.
 
 ---
 
-### Pitfall 2: EV_lower Threshold Distribution Shift
+### Pitfall 2: Post-Race Data Leakage Through Implicit Column Access
 
-**What goes wrong:**
-`EV_lower_win_corrected >= 1.0` is a hard filter in `get_win_candidates()` (race_predictor.py:437-441). The `EV_lower` is computed by `RobustConfidenceEstimator.predict_interval()` which stores conformal residual quantiles (`_q_hat_*`) from the calibration set. When the ensemble produces different prediction errors, the conformal interval width is miscalibrated.
+**What goes wrong:** `POST_RACE_COLS` (kakuteijyuni, confirmed_odds, ninki, time, timediff, harontimel3/4, jyuni1c-4c, honsyokin, chakusacd, dmjyuni, dmtime) are defined in `domain/types.py` but survive through multiple merge paths in the pipeline.
 
-More critically, the ensemble's `ev_win_corrected` (P_corrected * E_corrected) has a different distribution because both P and E correction models were trained on single-model predictions. The EVCorrectionModel uses `init_score = logit(p_win_pred)` (ev_correction_model.py:208) -- if `p_win_pred` is systematically different from the ensemble's output, the correction margin is applied to the wrong baseline. This pushes `ev_win_corrected` lower, which pushes `EV_lower_win_corrected` further below 1.0.
+**Why it happens:** The architecture merges race_df, entry_df, odds_df, hist_df in multiple stages. Post-race columns leak through specific paths identified in the v1.5 spike investigation:
 
-**Why it happens:**
-The chain is: ensemble hit model produces different `p_win_pred` -> `EVCorrectionModel.correct_ev()` applies a correction margin that was trained on single-model `p_win_pred` -> `p_win_corrected` is biased -> `ev_win_corrected = p_win_corrected * e_return_win_corrected` is biased -> `EV_lower_win_corrected` is biased -> the `>= 1.0` filter rejects most candidates.
+1. **`feature_engine.py:build_all()`** returns result_df that still contains post-race columns (spike M1 -- not yet fixed)
+2. **`popularity_rank` fallback chain**: tanodds -> tanninki -> ninki, where ninki is confirmed popularity (spike M6). When tanodds is unavailable, ninki (post-race) silently becomes a feature
+3. **JODDS DataKubun=3/4** (confirmed odds snapshots) are not explicitly filtered in `odds_dynamics_features.py` (spike M5)
+4. **`build_features()` inference path** injects kakuteijyuni and ninki into DataFrame (spike L2) -- values should be 0 but have no protective assertion
 
-The E-correction model compounds this: it uses `1/sqrt(p_win_pred)` as sample weights (ev_correction_model.py:254), so its training is also sensitive to the probability distribution.
-
-**Consequences:**
-The documented symptom of 3594 EV exclusions out of total candidates is consistent with the ensemble's corrected EV being systematically lower than the single model's. The `EV_lower_win_corrected >= 1.0` filter becomes the dominant exclusion mechanism.
+**Consequences:** Any model that accidentally uses confirmed_odds or kakuteijyuni from the CURRENT race (not history) achieves near-perfect training accuracy but fails completely in production.
 
 **Prevention:**
-1. The `EVCorrectionModel` and `RobustConfidenceEstimator` must be retrained alongside the ensemble. The training pipeline handles this automatically when `use_ensemble=True`.
-2. Make the `EV_lower` threshold adaptive. Instead of fixed 1.0, use a percentile of the ensemble's OOF `EV_lower` distribution among winners. For example, set threshold = 60th percentile of `EV_lower_win_corrected` for horses with `kakuteijyuni == 1` in OOF data.
-3. Log the distribution of `EV_lower_win_corrected` on a sample of ensemble predictions before setting any threshold.
+- At `build_all()` exit, explicitly drop all POST_RACE_COLS from returned DataFrame (spike M1 fix)
+- Add CI test: after `build_all()`, assert no POST_RACE_COLS in output (except when explicitly needed for target labels)
+- Extend `leakage_validators.py` to validate the final feature matrix, not just expanding() features
+- For new features: any module reading from entry_df or race_df MUST document which columns it accesses and confirm they are pre-race
 
 **Detection:**
-- Compute `EV_lower_win_corrected.describe()` on ensemble predictions. If median is below 0.90, the threshold 1.0 is too aggressive.
-- Count exclusions: if `n_ev_excluded` exceeds 80% of total candidates, the threshold needs recalibration.
-- Compare `ev_win_corrected` distribution between single-model and ensemble. If ensemble mean is 0.05+ lower, the correction models need retraining.
+- Feature importance shows kakuteijyuni, confirmed_odds, ninki, or time among top features
+- Training AUC exceeds 0.99 (implausible for horse racing)
+- Large gap between training and validation metrics
 
-**Phase to address:** Second v1.4 task (EV_lower dynamic threshold). Depends on WinSelectionGate retraining completing first.
+**Phase to address:** First phase, before feature audit begins. This is a prerequisite safety gate.
 
 ---
 
-### Pitfall 3: OddsBandFilter Look-Ahead Bias via training_bet_history
+### Pitfall 3: Feature Audit Using In-Sample Importance (Selection Bias)
 
-**What goes wrong:**
-The `StrategyOptimizer._run_single_backtest()` (strategy_optimizer.py:150-184) generates `training_bet_history` by running a backtest on the training period with the current trial's strategy parameters (including Optuna-optimized `roi_threshold`, `ev_threshold`, etc.). This training bet history is then passed to the test-period `engine.run()` for `OddsBandFilter.calibrate()`.
+**What goes wrong:** When auditing existing features, using impurity-based importance (LightGBM's default `feature_importance()`) on the training set to decide which features to keep. This biases toward high-cardinality features and features that overfit the training data.
 
-The look-ahead bias is subtle: the training bet history is generated using strategy parameters that Optuna is simultaneously optimizing to maximize test-period ROI. When Optuna discovers that a certain `roi_threshold` value works well on the test period, the training bet history is retroactively filtered through that threshold. The OddsBandFilter then "learns" band exclusions that are indirectly informed by test-period performance.
-
-**Why it happens:**
-In `_run_single_backtest()`, the same `strategy_config` dict (built from Optuna trial parameters) is used for both the training backtest (line 161) and the test backtest (line 181). The `regime_overrides` are injected into the RegimeDetector (line 148), affecting which races are skipped (COLLAPSED) in the training period based on test-optimized parameters. This means the training bet history's composition (which races were bet on, at what odds) depends on parameters chosen for test-period performance.
+**Why it happens:** Tree-based impurity importance measures how much a feature reduces loss during training -- not how much it helps on unseen data. Features that are noisy but high-cardinality can score high. Features that are genuinely predictive but low-cardinality can score low.
 
 **Consequences:**
-The OddsBandFilter will show inflated ROI during Optuna optimization because the band exclusions encode test-period information. In live trading or on truly unseen data, the filter will underperform. The Optuna "best" parameters may include an OddsBandFilter configuration that only works because the training bet history was generated with test-informed parameters.
+- Removing genuinely useful low-cardinality features (e.g., categorical features like kyakusitukubun_cd)
+- Keeping noisy high-cardinality features that overfit (e.g., engineered ratios that memorize training patterns)
+- Net result: model performance degrades after "pruning"
 
 **Prevention:**
-1. Generate `training_bet_history` with default (non-optimized) strategy parameters. Use `strategy_params=None` for the training backtest, not the Optuna-tuned values.
-2. Alternatively, use the previous walk-forward fold's finalized parameters for generating the current fold's training bet history.
-3. Add a verification step: log the parameters used for training bet history generation and confirm they are NOT the Optuna-optimized values.
+- Use permutation importance on a held-out validation set (sklearn `permutation_importance`), not training-set impurity importance
+- Use SHAP values for interpretability but NOT as the sole pruning criterion (they also reflect training set behavior)
+- Perform feature ablation: remove one feature at a time, retrain, measure validation loss change
+- Any feature with permutation importance near zero or negative on the validation set is a candidate for removal
+- Validate pruning decisions with walk-forward validation (`run_wf_validation.py`)
 
 **Detection:**
-- If Optuna's best `roi_threshold` consistently differs from default (1.0) by more than 0.1, look-ahead bias is likely present.
-- Compare ROI on a held-out validation year vs. Optuna-reported ROI. If gap exceeds 5 percentage points, the filter is likely overfitted.
-- Check if training bet history count varies significantly across Optuna trials. If it does, the strategy params are affecting the training data composition.
+- Model improves on training set but degrades on validation set after feature changes
+- Feature importance rankings differ significantly between training and validation sets
+- Walk-forward validation shows high ROI gap (>30pp between folds)
 
-**Phase to address:** OddsBandFilter rebuild task. Must generate training bets with non-optimized parameters.
+**Phase to address:** Feature audit phase. Must establish evaluation methodology before touching features.
 
 ---
 
-### Pitfall 4: Optuna Overfitting to Backtest Period
+### Pitfall 4: Adding New Features Without Expanding Validation Rigor
 
-**What goes wrong:**
-The `StrategyOptimizer` searches 14 dimensions (6 regime + 5 DD control + 2 EV scaling + 1 OddsBandFilter) to maximize walk-forward ROI. With only 2 folds (2024 and 2025 test), 100 trials, and a highly stochastic target (horse racing ROI has massive variance from a small number of high-payout winners), the optimizer finds parameters that fit the specific outcome sequence but fail to generalize.
+**What goes wrong:** Each new feature increases model capacity. With 100+ features and ~50K training samples (2015-2025), the effective samples-per-feature ratio is already low. Adding 20+ more features without increasing validation rigor leads to overfitting.
 
-Horse racing ROI is dominated by a few longshot winners. In a year with ~5000 JRA races, a single 50-1 winner passing through the filter can swing total ROI by 20+ percentage points. Optuna's TPE sampler will discover parameter combinations that happen to include those specific longshots (e.g., setting `ev_aggressive` just low enough, `fk_aggressive` just high enough) while excluding the losing bets. With 14 free parameters and only ~5000 data points per fold, the optimization has far more degrees of freedom than the data can constrain.
+**Why it happens:** GBM models handle hundreds of features well computationally, but each feature adds a dimension for memorizing training-specific patterns. The current 2-fold walk-forward validation is too coarse to detect this.
 
-**Why it happens:**
-The objective function `_objective()` at strategy_optimizer.py:194-224 computes `mean_roi` across folds with a minimum bet count constraint. The constraint (`min_bets_per_fold=1000`) helps but is insufficient for 14 dimensions. The search space includes highly correlated parameters (e.g., `fk_aggressive` and `ev_aggressive` both affect which bets pass and how much is staked on them), creating ridges in the optimization landscape where many parameter combinations give similar results on the specific test data.
-
-**Consequences:**
-The "optimal" parameters produce 100%+ ROI in 2024-2025 backtests but collapse to below 80% ROI on any other period. The system appears profitable during development but is actually overfitted to two specific years of race outcomes.
+**Consequences:** New features appear to improve backtest ROI (same temporal period) but walk-forward validation reveals the improvement is not real.
 
 **Prevention:**
-1. Increase fold count from 2 to at least 4 (2022, 2023, 2024, 2025) with expanding training windows.
-2. Add parameter stability checks: if Optuna's top-5 trials have substantially different parameter values, the optimization surface is flat and the "best" is not reliable.
-3. Apply parameter rounding: round the best parameters to the nearest grid point and verify the rounded values achieve >95% of the best ROI.
-4. Run optimization with 5 different random seeds. If best parameters differ substantially across seeds, the optimization is unstable.
-5. Consider reducing the search space. The most impactful parameters are `fk_aggressive`, `ev_aggressive`, `ev_conservative`, and `roi_threshold`. Freeze the less impactful DD parameters to reasonable defaults.
+- For each batch of new features, run walk-forward validation (not just single backtest)
+- Use the existing 4-fold walk-forward in `run_strategy_optimization.py` as gold standard
+- Require minimum 2pp ROI improvement on ALL folds (not average) before accepting new features
+- Track feature count as a metric -- growth from 100 to 150 demands proportionally stricter validation
+- Apply "one standard error rule": only accept feature additions if improvement exceeds variance across folds
 
 **Detection:**
-- Compare per-fold ROI for the best trial. If one fold has 150% and the other has 50%, the parameters are fitting fold-specific noise.
-- Run the best parameters on a year not included in the optimization (e.g., 2022). If ROI drops below 85%, the parameters are overfitted.
-- Check parameter stability across top-10 trials. High variance = unstable optimization.
+- Walk-forward ROI gap > 30pp between folds
+- Backtest ROI improves but walk-forward ROI does not
+- Feature importance of new features is inconsistent across folds
 
-**Phase to address:** Final v1.4 task (Optuna optimization). Must complete after all other recalibrations.
+**Phase to address:** Every phase that adds features. Validation protocol must be established first.
+
+---
+
+### Pitfall 5: EveryDB2 Column Semantics Misunderstanding
+
+**What goes wrong:** EveryDB2 (JRA-VAN DataLab) columns have specific semantics that are not obvious from column names. Some columns that appear pre-race are actually post-race. Some have different meanings depending on DataKubun values.
+
+**Why it happens:** EveryDB2 is a Japanese horse racing database with opaque column names. Key pitfalls already identified:
+
+| Column | Appears to be | Actually is | Status |
+|--------|--------------|-------------|--------|
+| `odds` (entries) | Pre-race odds | Confirmed odds (post-race) | Handled (tanodds preferred) |
+| `ninki` | Pre-race popularity | Confirmed popularity (post-race) | Partially handled (fallback only) |
+| `kyakusitukubun` | Running style code | Current race running style (post-race) | Correctly uses kyakusitukubun_cd |
+| `kakuteijyuni` | Finishing position | Confirmed finishing position (post-race) | In POST_RACE_COLS |
+| JODDS DataKubun 3/4 | Odds snapshot | Confirmed odds (post-race) | Not explicitly filtered |
+| `hassotime` | Post time | Pre-race (race schedule) | Correctly used |
+
+**Consequences:** A new feature built on what the developer thinks is pre-race data could silently contain post-race information.
+
+**Prevention:**
+- Before extracting any new column from EveryDB2, check `docs/everydb2/*.md` documentation
+- Classify each new column as PRE_RACE or POST_RACE explicitly
+- If a column's timing is uncertain, assume POST_RACE until proven otherwise
+- Add new POST_RACE columns to `POST_RACE_COLS` in `domain/types.py` immediately
+- Test: after adding new features, verify they produce NaN for future (unrun) races
+
+**Detection:**
+- New feature produces non-NaN values for horses that have not yet raced
+- New feature correlates > 0.8 with any POST_RACE column
+- Feature values change between "pre-race" and "post-race" snapshots of same race
+
+**Phase to address:** Phase where EveryDB2 unused tables/columns are explored for new features.
 
 ---
 
 ## Moderate Pitfalls
 
-### Pitfall 5: Model Output Distribution Mismatch Between OOF Training and Inference
+### Pitfall 6: Feature Interaction Explosion
 
-**What goes wrong:**
-The `StackedEnsemble` trains the Ridge meta-learner on K-fold OOF predictions from fold-specific base models (stacked_ensemble.py:69-98). At inference, the base models are retrained on ALL training data (lines 100-105), producing slightly different (typically more confident) predictions. The Ridge coefficients, optimized for the less-confident OOF predictions, now weight overly confident inputs.
+**What goes wrong:** Adding pairwise feature interactions (e.g., `feature_a * feature_b`) to a system with 100+ features creates thousands of new columns. Even selective interactions (only "meaningful" pairs) cause feature count to grow faster than the model's ability to distinguish signal from noise.
 
-This is the classic stacking distribution shift: the meta-learner learns `weights` such that `Ridge(OOF_preds) ~ y`, but `OOF_preds` come from fold models that saw 67-80% of the data, while inference preds come from models that saw 100% of the data. The systematic difference means the meta-learner's output is calibrated for OOF predictions but not for inference predictions.
-
-**Why it happens:**
-- Base models trained on more data tend to be more confident (lower log loss, sharper predictions).
-- The Ridge alpha=1.0 regularization at line 97 provides some protection but does not address systematic shifts.
-- The current K-fold uses expanding windows (lines 76-77: `val_start = int(n * (i+1) / (n_folds+1))`), which means early folds have less training data and later folds have more. The OOF predictions are heterogeneous in quality.
-
-**Consequences:**
-The ensemble's inference predictions are systematically biased compared to training predictions. This affects all downstream components: `ev_win_corrected`, `EV_lower_win_corrected`, `win_selection_prob`, and ultimately all filter decisions.
+**Why it happens:** The existing `interaction_features.py` creates interactions like `kyakusitu_x_distance` (categorical product) and `weight_x_distance` (numeric product). Extending this pattern to more pairs creates an explosion. With N features, there are N*(N-1)/2 possible pairs.
 
 **Prevention:**
-1. Monitor the ensemble's inference output distribution. Compare `p_win_pred` statistics from OOF predictions vs. inference predictions on the same data. If mean shifts by more than 0.02, consider adding calibration.
-2. Add isotonic regression or temperature scaling on top of the Ridge meta-learner, trained on the OOF predictions as a held-out calibration set. The training pipeline already has infrastructure for this (`win_isotonic_calibrator`, `win_temperature_scaler` in SubmodelSet).
-3. The `np.clip(output, 0, 1)` at line 127 prevents out-of-range predictions but does not address systematic bias.
+- LightGBM, XGBoost, and CatBoost already capture feature interactions through tree structure. Do NOT create explicit interactions for pairs the model can learn naturally.
+- Only create explicit interactions where the relationship is strongly non-linear AND domain knowledge confirms meaning (e.g., distance x surface is meaningful because turf/dirt have fundamentally different distance dynamics)
+- Limit explicit interactions to at most 10-15 new features per phase
+- Validate each interaction individually: add one, run ablation, confirm it helps
 
 **Detection:**
-- Compare `p_win_pred.describe()` between OOF and inference on the same year's races. Mean shift > 0.02 is a warning sign.
-- If ensemble's `win_selection_edge` distribution is systematically shifted left compared to single-model on the same data, this confirms distribution mismatch.
+- Feature count grows by more than 20% in a single phase
+- New interaction features have near-zero permutation importance
+- Model training time increases by more than 50% after adding interactions
 
-**Phase to address:** Check during WinSelectionGate retraining. If mismatch is large (>0.02 mean shift), add calibration step.
+### Pitfall 7: Feature Cache Invalidation After Schema Changes
 
----
+**What goes wrong:** The feature engine uses content-hash-based cache (`compute_cache_key` in `feature_engine.py`). The cache key is computed from input file paths and date ranges, NOT from feature computation code. If feature logic changes without input changes, stale cached features are returned.
 
-### Pitfall 6: SubmodelSet.use_ensemble Flag Inconsistency
-
-**What goes wrong:**
-`SubmodelSet.use_ensemble` (domain/models.py:245) controls serialization/deserialization paths. If the ensemble model is loaded from disk but this flag remains `False`, MLflow logging and model saving use the wrong code paths. While the `hit_model` IS a `StackedEnsemble` instance and will produce correct predictions, the loading logic in `StrategyOptimizer` (strategy_optimizer.py:137: `use_ensemble_override=True`) must correctly set this flag for all surfaces.
-
-**Why it happens:**
-The flag is set in the training pipeline when `use_ensemble=True` is passed to `run()`. But when models are loaded via `ModelLoader.load_from_dir()`, the flag must be reconstructed from the saved state. If the model directory contains a mix of ensemble and non-ensemble artifacts, or if the loader logic has a code path that misses the flag, it stays `False`.
-
-**Consequences:**
-Predictions are correct (the StackedEnsemble is called), but diagnostic logging, model saving, and gate model loading may behave differently. This can cause confusion during debugging: the model appears to be an ensemble but logs suggest otherwise.
+**Why it happens:** Modifying `horse_history_features.py` to compute a new feature does not change the input parquet file paths or date range, so `is_cache_valid()` returns True and old features (without the new one) are used.
 
 **Prevention:**
-1. After loading models, explicitly check `sub.use_ensemble` for each surface submodel. Log a warning if `False` but `isinstance(sub.win.hit_model, StackedEnsemble)`.
-2. Add a type check assertion at the start of backtest: `assert all(isinstance(sub.win.hit_model, StackedEnsemble) == sub.use_ensemble for sub in models.submodels.values())`.
+- After ANY change to feature computation code, delete `data/features/cache/` before training
+- Add the feature module source file hashes to cache key (engineering effort)
+- Add a test: after adding a new feature, verify it appears in training DataFrame with non-NaN values
 
 **Detection:**
-- If backtest results with `--ensemble` are identical to non-ensemble results, the flag is not being propagated.
+- New feature column is all NaN after training
+- Feature count in training data does not match expected count
+- Backtest results are identical before and after feature changes
 
-**Phase to address:** Verify at start of first v1.4 task. Quick sanity check.
+### Pitfall 8: Removing Features That Enable Downstream Interactions
 
----
+**What goes wrong:** Feature audit identifies a feature with near-zero standalone importance and removes it. But the feature was an input to interaction features (e.g., kyakusitukubun_cd is used in kyakusitu_x_distance). Removing the base feature breaks the interaction.
 
-### Pitfall 7: EVCorrectionModel Init_Score Dependency on Hit Model
+**Why it happens:** Permutation importance measures standalone contribution, not contribution through interactions. A feature with zero direct importance may be critical when combined with another feature.
 
-**What goes wrong:**
-`EVCorrectionModel.train()` uses `init_score = logit(p_win_pred)` as the starting point for the P-correction LightGBM model (ev_correction_model.py:208-209). This means the P-correction model learns an additive adjustment on top of the raw prediction. When the hit model changes from single LightGBM to StackedEnsemble, `p_win_pred` changes distribution, and the init_score shifts. The P-correction model's learned margin is calibrated for the single-model's logit space, not the ensemble's.
+**Prevention:** Before removing any feature, check if it appears in `interaction_features.py`, `compute_intra_race_features()`, or is referenced by other computed features. Build a feature dependency graph. The `HorseHistoryFeatures.BASE_COLS` list partially documents this but is incomplete.
 
-**Why it happens:**
-The `init_score` mechanism in LightGBM allows incremental training -- the model only needs to learn the correction residual. But the correction residual's distribution depends on the base prediction. A margin of +0.1 in logit space means different probability adjustments depending on whether the base logit is -2.0 (low confidence) or +1.0 (high confidence).
+### Pitfall 9: Train/Test Feature Distribution Shift After Pruning
 
-**Consequences:**
-`p_win_corrected` is systematically biased. If the ensemble's `p_win_pred` tends to be more moderate (pulled toward 0.5 by Ridge regularization), the init_score logit values are smaller in magnitude, and the P-correction model's learned margin overcorrects or undercorrects.
+**What goes wrong:** Feature pruning changes model behavior on certain data subsets. Removing a feature primarily used for long-distance races may silently degrade long-distance predictions while improving overall metrics.
 
-**Prevention:**
-1. The training pipeline handles this automatically: when `use_ensemble=True`, the ensemble `p_win_pred` feeds into `EVCorrectionModel.train()`, producing a correctly calibrated P-correction model.
-2. If loading pre-trained models via `ModelLoader`, verify the EVCorrectionModel was trained with the ensemble hit model, not the single model.
+**Why it happens:** Aggregate metrics (overall ROI, overall AUC) hide segment-specific degradations. Horse racing has distinct segments: turf vs dirt, sprint vs long, high-grade vs low-grade.
 
-**Detection:**
-- Compare `p_win_corrected` distribution between single-model and ensemble on the same data. Mean shift > 0.03 suggests the P-correction needs retraining.
-- Compare `ev_win_corrected` distributions. If the ensemble's mean is more than 0.05 different from single-model's, the correction pipeline needs retraining.
+**Prevention:** After feature pruning, evaluate performance by segment (surface, distance_bin, grade). Do not accept pruning if any major segment degrades by more than 5pp ROI.
 
-**Phase to address:** Verify during WinSelectionGate retraining. Automatic with pipeline retraining using `use_ensemble=True`.
+### Pitfall 10: New Features With Sparse Coverage (High NaN Rate)
 
----
+**What goes wrong:** New features from EveryDB2 unused tables may have high NaN rates (20-40%). Bloodline/pedigree features are missing for foreign-bred horses and NAR transfers. LightGBM may learn "has NaN" as a proxy for "low-quality horse" -- a real but non-generalizable signal.
 
-### Pitfall 8: RegimeDetector Sensitivity After Ensemble Switch
+**Prevention:** Compute NaN rate for any new feature before training. If NaN rate exceeds 30%, consider a binary "has_data" flag or hierarchical fallback (pattern already used for haron-time z-score in `horse_history_features.py`).
 
-**What goes wrong:**
-The `RegimeDetector` uses `market_error_std` and `market_error_mean` as features (regime_detector.py:49-62). These are computed from `signed_log_error_win = log(p_market) - log(p_pred)`. When the ensemble produces different `p_pred` values, the log errors change, shifting these features. The RegimeDetector's LightGBM model was trained on single-model errors and may misclassify regime states when given ensemble errors.
+### Pitfall 11: Temporal Leakage in Expanding Window Features
 
-**Why it happens:**
-The ensemble's predictions are typically more accurate (lower log error variance) but may be more biased in certain probability ranges. The RegimeDetector was trained to classify market states based on the single model's error patterns. If the ensemble's errors have a different mean/variance relationship, the regime boundaries shift.
+**What goes wrong:** `info_asymmetry_features.py` correctly uses `expanding().mean().shift(1)`. New features computing historical statistics may forget the shift(1) or use wrong time boundaries.
 
-**Consequences:**
-More races classified as COLLAPSED (causing excessive skip via the `skip=True` parameter) or fewer (causing bets in poor conditions). The regime distribution change cascades through the entire filter chain.
+**Why it happens:** The expanding window pattern requires careful handling. `expanding().mean()` at row i includes row i. To use only past data, shift(1) is required.
 
-**Prevention:**
-1. The RegimeDetector is retrained automatically when the training pipeline runs with `use_ensemble=True`.
-2. After retraining, compare regime distributions: count races in each state for a historical period and compare single vs. ensemble. If COLLAPSED rate changes by more than 5%, investigate.
-3. The `regime_overrides` mechanism (injecting Optuna-optimized parameters into `_override_params`) should be re-evaluated for the ensemble regime distribution.
+**Prevention:** Any new feature computing historical statistics MUST use `expanding().shift(1)` or `searchsorted(target_date, side="left")` (as in `horse_history_features.py`). Use `leakage_validators.py` to verify. Add test cases for every new historical feature.
 
-**Detection:**
-- Log regime state distribution during backtest. If COLLAPSED rate jumps from ~10% to ~30%, the RegimeDetector needs retraining.
-- Monitor `n_collapsed_skipped` in `BacktestResult`. Dramatic changes after ensemble switch indicate this issue.
+### Pitfall 12: Grade/Class Encoding Duplication Across Modules
 
-**Phase to address:** Verify during WinSelectionGate retraining. Automatic with pipeline retraining.
+**What goes wrong:** `_GRADE_LEVEL_MAP` (A=8, B=7, C=6, D=5, E=4) is duplicated in three files: `feature_engine.py`, `horse_history_features.py`, and `high_odds_features.py`. Changes to one file without updating others create inconsistency.
+
+**Prevention:** Centralize the mapping in `domain/types.py` alongside `POST_RACE_COLS`. Import from there in all feature modules.
 
 ---
 
 ## Minor Pitfalls
 
-### Pitfall 9: WinSelectionGate Soft Pass Buffer Constants
+### Pitfall 13: Feature Naming Collisions
 
-**What goes wrong:**
-`WinSelectionGateModel` has hardcoded soft pass margins: `SOFT_PROB_BUFFER = 0.01`, `SOFT_EDGE_BUFFER = 0.02`, `SOFT_ODDS_BUFFER = 1.0` (lines 112-114). These were reasonable for the single model's distribution range. With the ensemble's typically narrower probability range, these buffers may be proportionally too large, letting in too many near-miss candidates.
+**What goes wrong:** A new feature module creates a column with the same name as an existing feature in a different module. The later module's `compute_*()` silently overwrites the earlier value.
 
-**Prevention:**
-Retune these constants after ensemble OOF training. Consider making them proportional to the distribution's standard deviation (e.g., `SOFT_PROB_BUFFER = 0.1 * std(prob_distribution)`).
+**Prevention:** Maintain a central feature registry (dict of feature_name -> source_module). Check for collisions before adding new features.
 
-**Detection:**
-If `soft_gate` selection reason dominates in diagnostic logs after ensemble recalibration, the soft buffers are too generous.
+### Pitfall 14: OOF Prediction Leakage Through Feature Cache
 
----
+**What goes wrong:** The feature cache stores features computed on the full training set. During walk-forward validation, different folds use different train/test splits but may load the same cached features computed using future data.
 
-### Pitfall 10: OddsBandFilter Band Boundary Sensitivity
+**Prevention:** The cache key includes date range, partially handling this. Verify that fold-specific date ranges produce different cache keys during WF validation.
 
-**What goes wrong:**
-The four fixed bands (1.0-3.0, 3.0-10.0, 10.0-30.0, 30.0+) may split a profitable region after the ensemble shifts which odds ranges produce edge. A band that was unprofitable under the single model might be profitable under the ensemble, or vice versa.
+### Pitfall 15: Odds Snapshot Timing Assumptions
 
-**Prevention:**
-Log exact ROI and sample count per band. If a band has fewer than 100 samples, merge it with an adjacent band before deciding exclusion. Consider adding a minimum sample threshold (e.g., 200 bets) to the `calibrate()` method before marking a band as excluded.
+**What goes wrong:** `odds_dynamics_features.py` picks snapshots at t-10, t-30, t-60 minutes before post time with 15-20 minute tolerance. For races where final snapshot is at post time, the "t-10" snapshot may be confirmed odds.
 
-**Detection:**
-If `band_counts` in OddsBandFilter calibration shows a band with fewer than 50 samples, the band statistics are unreliable and should not be used for exclusion decisions.
+**Prevention:** Verify JODDS DataKubun=3/4 (confirmed) snapshots have negative minutes_before_anchor and are not picked by `_pick_target_snapshot()`.
 
----
+### Pitfall 16: Blacklist-Based Column Exclusion vs Whitelist
 
-### Pitfall 11: Kelly Fraction Interaction with Ensemble Probability Scale
+**What goes wrong:** The CQR model (spike M2) and training pipeline use blacklist-based feature selection: take all numeric columns except those in POST_RACE_COLS and _MODEL_OUTPUT_COLS. Any new column automatically becomes a feature, even if it should not be.
 
-**What goes wrong:**
-`StakeCalculator.calc_stake()` computes `kelly_fraction = edge / (odds - 1.0)` (stake_calculator.py:59). The `edge` comes from `win_selection_edge = ev - 1.0`. If the ensemble's EV estimates are systematically different from the single model's, the Kelly fractions change proportionally. This affects stake sizing even if the fractional Kelly parameter is correctly tuned.
+**Why it happens:** `_non_feature_cols` in training_pipeline.py (line 897-902) lists columns to exclude. Any column not listed becomes a feature by default.
 
-**Prevention:**
-The Optuna optimization handles this by tuning `fractional_kelly` for each regime. Ensure the optimization runs after ensemble recalibration so it accounts for the new edge distribution.
-
-**Detection:**
-If average stake size changes by more than 30% after ensemble recalibration (without Kelly parameter changes), the edge distribution has shifted significantly and the Kelly calculation is affected.
+**Prevention:** Consider moving toward explicit whitelist for at least the secondary models (CQR, EV correction). New columns added to the DataFrame should require explicit opt-in for model training, not automatic inclusion.
 
 ---
 
@@ -267,73 +254,71 @@ If average stake size changes by more than 30% after ensemble recalibration (wit
 
 | Phase Topic | Likely Pitfall | Mitigation |
 |-------------|---------------|------------|
-| WinSelectionGate retraining | Pitfall 1: Quantile bin mismatch | Retrain gate with ensemble OOF predictions; never load single-model gate |
-| EV_lower dynamic threshold | Pitfall 2: Distribution shift + Pitfall 7: EVCorrectionModel dependency | Retrain confidence estimator with ensemble; compare EV_lower distributions |
-| OddsBandFilter rebuild | Pitfall 3: Look-ahead bias in training_bet_history | Generate training bets with default (non-optimized) strategy params |
-| Optuna 14-dim optimization | Pitfall 4: Overfitting to backtest period | Increase folds to 4+; add stability checks; round parameters |
-| Regime re-evaluation | Pitfall 8: RegimeDetector threshold sensitivity | Retrain RegimeDetector with ensemble predictions; compare regime distributions |
-| Pipeline integration | Pitfall 5: OOF/inference distribution mismatch | Compare OOF vs. inference prediction statistics |
-| Model loading | Pitfall 6: use_ensemble flag inconsistency | Explicitly verify flag after loading models |
+| POST_RACE safety gate | Pitfall 2: Implicit column leakage | Add explicit POST_RACE drop at build_all() exit; extend leakage_validators |
+| Feature audit methodology | Pitfall 3: In-sample importance bias | Use permutation importance on held-out set; ablation testing |
+| Feature pruning | Pitfall 8: Removing interaction enablers | Build feature dependency graph; check interaction_features.py |
+| EveryDB2 new columns | Pitfall 5: Column semantics misunderstanding | Classify each column PRE/POST before use; check docs/everydb2/*.md |
+| Feature interactions | Pitfall 6: Interaction explosion | Max 10-15 new interactions per phase; validate each individually |
+| Historical statistics | Pitfall 11: Temporal leakage | Use expanding().shift(1) pattern; verify with leakage_validators |
+| Bloodline/pedigree features | Pitfall 10: Sparse coverage | Check NaN rate; use hierarchical fallback for >30% NaN |
+| Model retraining | Pitfall 7: Stale feature cache | Delete cache directory after any feature code change |
+| Walk-forward validation | Pitfall 4: Insufficient validation rigor | Run 4-fold WF for every feature batch; require improvement on ALL folds |
+| Segment evaluation | Pitfall 9: Distribution shift after pruning | Evaluate by surface, distance_bin, grade after each change |
+| Cross-module consistency | Pitfall 12: Grade encoding duplication | Centralize constants in domain/types.py |
+| Secondary model features | Pitfall 16: Blacklist vs whitelist | Move toward explicit feature whitelists for CQR/EV models |
 
-## Prevention Checklist
+---
 
-Before starting v1.4 tasks, verify:
+## Warning Signs Checklist
 
-- [ ] Training pipeline runs with `use_ensemble=True` and produces new models
-- [ ] WinSelectionGate `.joblib` file is from the ensemble run (check timestamp, compare prob_edges)
-- [ ] `RobustConfidenceEstimator` residuals are from ensemble predictions
-- [ ] `RegimeDetector` was trained with ensemble `signed_log_error_win` values
-- [ ] `EVCorrectionModel` was trained with ensemble `p_win_pred` init_scores
-- [ ] `training_bet_history` for OddsBandFilter uses default params, not Optuna params
-- [ ] Optuna optimization uses at least 4 folds with expanding windows
-- [ ] Ensemble prediction distribution is logged and compared to single-model distribution
-- [ ] `SubmodelSet.use_ensemble` flag is `True` after model loading
+After each feature engineering change, verify ALL of the following:
 
-## Warning Signs During Implementation
+- [ ] Bet count >= 1000/year in backtest (if < 500, STOP and investigate overfitting)
+- [ ] Win rate < 50% for win bets (if > 50%, likely leakage)
+- [ ] Walk-forward ROI gap < 30pp between folds
+- [ ] No POST_RACE_COLS in feature importance top 20
+- [ ] New features have non-NaN values for at least 60% of samples
+- [ ] Feature count changed as expected (check `len(feature_cols)`)
+- [ ] Feature cache was cleared before training
+- [ ] Permutation importance of new features > 0 on validation set
+- [ ] No correlation > 0.8 between new features and existing features
+- [ ] Performance by segment (turf/dirt, sprint/mile/long) did not degrade by > 5pp ROI
+- [ ] No model output columns (ev_*, p_hit, edge_*) used as feature inputs
+- [ ] `build_all()` output DataFrame does not contain POST_RACE_COLS (except target labels)
 
-| Symptom | Likely Root Cause | Immediate Check |
-|---------|-------------------|-----------------|
-| Ensemble backtest produces <20 bets/year | WinSelectionGate using single-model bins | Retrain gate with ensemble OOF data |
-| EV_lower excludes >80% of candidates | Confidence estimator trained on single model | Retrain confidence estimator with ensemble |
-| Optuna best ROI > 150% but validation ROI < 90% | Overfitting to backtest period | Increase folds, reduce search dimensions |
-| OddsBandFilter excludes all bands | Training bet history too small or biased | Check training bet count and params used for generation |
-| Regime stuck in COLLAPSED for >50% of races | RegimeDetector using single-model error stats | Retrain RegimeDetector with ensemble |
-| Identical results with and without --ensemble | use_ensemble flag not propagated | Check SubmodelSet.use_ensemble for all surfaces |
-| Win gate score == global_score for most candidates | Quantile bins not matching distribution | Verify prob_edges against current model output quantiles |
-
-## Recovery Strategies
-
-| Pitfall | Recovery Cost | Recovery Steps |
-|---------|---------------|----------------|
-| Stale WinSelectionGate bins | LOW | Re-run training pipeline with use_ensemble=True; retrain gate from OOF output |
-| EV_lower threshold too aggressive | LOW | Compute adaptive threshold from ensemble OOF winner distribution; retrain confidence estimator |
-| OddsBandFilter look-ahead bias | MEDIUM | Regenerate training bet history with default params; re-run Optuna with corrected pipeline |
-| Optuna overfitting | MEDIUM | Increase fold count; reduce search space; add stability checks across seeds |
-| Distribution mismatch (OOF vs inference) | LOW | Add isotonic/temperature calibration on meta-learner output |
-| Regime detector sensitivity | LOW | Pipeline retraining handles this automatically; verify regime distribution |
+---
 
 ## Sources
 
 ### HIGH confidence (direct codebase analysis)
-- `src/models/stacked_ensemble.py:1-607` -- ensemble training, OOF generation, Ridge meta-learner
-- `src/models/win_selection_gate.py:1-1113` -- quantile binning, score tables, WF OOF training
-- `src/betting/odds_band_filter.py:1-112` -- band calibration and filtering
-- `src/tuning/strategy_optimizer.py:1-273` -- Optuna optimization, training bet history generation
-- `src/backtest/engine.py:1-1207` -- filter chain execution, OddsBandFilter integration
-- `src/backtest/race_predictor.py:1-925` -- EV filter, candidate selection, win bet generation
-- `src/models/ev_correction_model.py:1-575` -- P/E correction with init_score, sample weights
-- `src/models/regime_detector.py:1-264` -- regime classification features, strategy params
-- `src/pipelines/training_pipeline.py:1-1300+` -- ensemble wiring, use_ensemble flag propagation
-- `src/domain/models.py:1-283` -- SubmodelSet, TrainedModelsV5 dataclass definitions
-- `src/betting/drawdown_controller.py:1-165` -- DD control, hysteresis, stake adjustment
-- `src/backtest/parameter_freeze_protocol.py:1-187` -- parameter freezing, manifest verification
+- `.planning/spikes/data-leak-phase-20-22.md` -- v1.5 data leak investigation (22-file audit, 3 parallel agents)
+- CQR fix commit `f3a4c10` -- structural overfitting + selection bias root cause
+- `src/domain/types.py` -- POST_RACE_COLS definition
+- `src/features/feature_engine.py` -- main orchestrator, build_all(), cache mechanism
+- `src/features/horse_history_features.py` -- 1324 lines, per-horse feature computation with PIT
+- `src/features/leakage_validators.py` -- expanding window leak detection
+- `src/features/interaction_features.py` -- explicit feature interactions
+- `src/features/odds_dynamics_features.py` -- odds time series features
+- `src/features/high_odds_features.py` -- 18 high-odds pattern features
+- `src/features/info_asymmetry_features.py` -- expanding().shift(1) historical stats
+- `src/features/market_bias_features.py` -- market distortion features
+- `src/pipelines/training_pipeline.py` -- feature consumption, CQR feature selection (lines 897-907)
+- `src/backtest/engine.py` -- POST_RACE drop before predict (lines 818-820)
+- `src/models/conformal_ev_model.py` -- CQR blacklist approach (spike M2)
 
-### MEDIUM confidence (domain knowledge, needs empirical validation)
-- Ensemble stacking distribution shift: well-known in ML literature (Wolpert 1992, Ting & Witten 1999)
-- Conformal prediction exchangeability assumption: the ensemble's error distribution is different but may still satisfy approximate exchangeability
-- Optuna TPE overfitting risk with stochastic objectives: general Bayesian optimization theory
+### MEDIUM confidence (general ML domain knowledge, verified with multiple sources)
+- [Common Pitfalls in Feature Engineering -- Statsig](https://www.statsig.com/perspectives/feature-engineering-pitfalls)
+- [Seven Common Causes of Data Leakage -- Towards Data Science](https://towardsdatascience.com/seven-common-causes-of-data-leakage-in-machine-learning-75f8a6243ea5/)
+- [Data Leakage in Time-Dependent Feature Engineering -- BitPeak](https://bitpeak.com/data-leakage-in-time-dependent-feature-engineering/)
+- [5 Critical Feature Engineering Mistakes -- KDnuggets](https://www.kdnuggets.com/5-critical-feature-engineering-mistakes-that-kill-machine-learning-projects)
+- [Designing ML Systems -- Feature Engineering Summary](https://github.com/serodriguez68/designing-ml-systems-summary/blob/main/05-feature-engineering.md)
+
+### HIGH confidence (official documentation, peer-reviewed)
+- [Permutation Feature Importance -- scikit-learn](https://scikit-learn.org/stable/modules/permutation_importance.html)
+- [Feature Importance in Gradient Boosting Trees -- PMC/NIH](https://pmc.ncbi.nlm.nih.gov/articles/PMC9140774/)
 
 ---
-*Pitfalls research for: Ensemble Filter Recalibration (v1.4)*
-*Researched: 2026-05-05*
+
+*Pitfalls research for: Feature Engineering Overhaul (v1.6)*
+*Previous version: v1.4 Ensemble Filter Recalibration pitfalls (2026-05-05)*
 *Ready for roadmap: yes*

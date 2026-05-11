@@ -1,435 +1,542 @@
-# Architecture: Ensemble Filter Recalibration (v1.4)
+# Architecture: Feature Engineering Overhaul (v1.6)
 
-**Project:** keiba-ai v1.4 -- Ensemble Filter Recalibration
-**Researched:** 2026-05-05
-**Scope:** How ensemble-aware betting filters integrate with existing architecture. Data flow changes needed for filter recalibration across model changes. Filter parameter management across single-model to ensemble transition.
+**Project:** keiba-ai v1.6 -- Feature Engineering Overhaul
+**Researched:** 2026-05-10
+**Scope:** How feature audit, new feature addition, and interaction engineering integrate with the existing ML pipeline without disrupting the data flow or model structure.
 **Confidence:** HIGH (verified against full source code)
 
 ## Executive Summary
 
-The v1.4 milestone requires recalibrating three existing filters (WinSelectionGate, EV_lower threshold, OddsBandFilter) to work with the 3-model stacked ensemble instead of the single LightGBM model they were calibrated against in Phase 11-12. The core problem is a probability distribution mismatch: the ensemble outputs probabilities with different statistical properties than single LightGBM, causing the fixed thresholds to over-exclude ensemble candidates (only 7 bets/year vs the needed 100+).
+The v1.6 milestone overhauls feature engineering within the existing pipeline architecture. The system already has a well-structured, modular feature pipeline: `FeatureEngine.build_all()` orchestrates 14 feature modules that generate 100+ columns, consumed downstream by `AbilityModel` (Stage1, ~50 features) and `WinTwoStageModel` (Stage2, ~37 features). The overhaul has three workstreams: (1) audit and prune noisy features from the existing 100+ set, (2) extract new features from unused EveryDB2 tables, and (3) engineer feature interactions and transformations.
 
-The architecture change is modest in scope but precise in placement. No new components are needed. The changes fall into three categories: (1) re-training `WinSelectionGateModel` with ensemble OOF predictions instead of single-model OOF, (2) making the EV_lower threshold dynamic by computing it from ensemble prediction statistics rather than hardcoding 1.0, and (3) re-calibrating `OddsBandFilter` with ensemble-derived `training_bet_history`. The Optuna 14-dimensional parameter search wires all of these together through the existing `StrategyOptimizer` -> `BacktestEngine` -> `RacePredictor` pipeline.
+The architecture requires no structural changes. Feature modules are pure functions (input DataFrame -> output DataFrame with new columns) that chain through `build_all()` and `_train_submodel()`. Adding or removing features means changing module logic and updating `FEATURE_COLS` lists in model files. The critical constraint is the Point-in-Time (PIT) safety protocol: every new feature must use only data available before race start. The existing `leakage_validators.py` framework enforces this.
+
+The recommended build order follows the dependency chain: audit first (to establish a clean baseline), then new features from unused data (to expand signal), then interactions (which depend on clean base features). Each phase validates against backtest ROI to ensure no regression.
 
 ## Recommended Architecture
 
-### Current Data Flow (Single Model, Phase 11-12)
+### Current Feature Pipeline Data Flow
 
 ```
-TrainingPipelineV5
+TrainingPipelineV5.run()
   |
-  +-> stage1.add_ability_probs(df)     # LightGBM only: p_win_pred
-  +-> win.predict_ev(df)               # LightGBM only: ev_win, EV_lower_win_corrected
-  +-> ev_corrector.correct_ev(df)      # LightGBM only: ev_win_corrected
-  +-> confidence.predict_interval(df)  # LightGBM only: EV_lower_win_corrected
+  +-> FeatureEngine.build_all(race_df, entry_df, odds_df, odds_ts_df, store)
+  |     |
+  |     +-> [MERGE] race_df + entry_df + odds_df -> result_df
+  |     +-> [EXCLUDE] steeple races (trackcd >= 51)
+  |     +-> _map_basic_features(result_df)           # 12 basic feature mappings
+  |     |
+  |     +-> compute_intra_race_features(result_df)    # B: weight_diff, odds_rank
+  |     +-> compute_odds_dynamics(result_df, ts_df)   # C: 7 odds dynamics features
+  |     +-> compute_market_bias(result_df)             # D: p_market, entropy, overround
+  |     +-> compute_flb_slope(result_df)               # D: skewness, HHI
+  |     +-> compute_difficulty_score(result_df)        # E: difficulty_score
+  |     +-> BloodlineFeatures(store).compute(result_df) # B: 6 bloodline features
+  |     |
+  |     +-> [CACHE WRITE] -> features/cache/feat_*.parquet
+  |
+  +-> SubModelManager.add_distance_band_features(feat_df)  # F: surface/distance one-hot
   |
   v
-RacePredictor.get_win_candidates(result_df)
-  |  Filter 1: win_selection_edge > 0.0    (fixed)
-  |  Filter 2: EV_lower_win_corrected >= 1.0  (hardcoded for single model)
-  |  Sort: win_gate_score DESC              (calibrated on single-model OOF)
-  |  Max: 2 candidates
+TrainingPipelineV5._train_submodel(df, surface)
+  |
+  +-> HorseHistoryFeatures.compute(race_df, entry_df, target_race_ids)  # ~45 horse features
+  +-> HorseHistoryFeatures.add_race_transforms(df)                       # 5 race_rank features
+  +-> PaceAptitudeFeatures(store).compute_batch(df)                      # 6 pace features
+  +-> CourseFeatures(store).compute_batch(df)                            # 2 course features
+  +-> SireFeatures(sire_stats).compute_batch(df)                         # 5 sire features
+  +-> compute_interaction_features(df)                                    # 9 interaction features
+  |
+  +-> MarketModel.train/predict_oof(df)          # market signed/abs log_error
+  +-> AbilityModel.train_oof(df)                 # Stage1: p_ability_win
+  +-> odds_to_ability_ratio computation          # FEAT-02 derived feature
+  +-> compute_odds_deviation_features(df)        # ODDS-01: deviation_rank, deviation_zscore
+  +-> PlaceAbilityModel.train/predict(df)
+  +-> WinTwoStageModel: hit + return stages      # Stage2: p_win_pred, ev_win
+  +-> EVCorrectionModel + ConformalEVModel
+  +-> WinSelectionGateModel / PlaceSelectionGateModel
+  |
   v
-BacktestEngine.run()
-  |  Filter 3: COLLAPSED regime skip
-  |  Filter 4: OddsBandFilter.filter()     (calibrated from single-model bet history)
-  v
-select_bets() -> Bet objects
+BacktestEngine / RacePredictor (inference path mirrors training path)
 ```
 
-### Target Data Flow (Ensemble, v1.4)
+### Feature Module Inventory
+
+| Module | File | Category | Features Generated | Used By |
+|--------|------|----------|-------------------|---------|
+| `_map_basic_features` | `feature_engine.py` | A: Basic | distance_bin, grade_code, class_level, field_size, popularity_rank, draw_ratio, frame_number, blinker_on, weight_change_zone, weight_change_ratio | AbilityModel, WinTwoStageModel |
+| `compute_intra_race_features` | `intra_race_features.py` | B: Intra-race | weight_diff_from_mean, odds_rank | AbilityModel |
+| `compute_odds_dynamics` | `odds_dynamics_features.py` | C: Odds dynamics | odds_drop_rate_60_10, odds_drop_rate_30_10, odds_velocity, odds_volatility, odds_acceleration, odds_direction_consistency, popularity_change_30_10 | WinTwoStageModel |
+| `compute_market_bias` | `market_bias_features.py` | D: Market bias | p_market_win_adj, market_entropy, overround | AbilityModel, WinTwoStageModel, RegimeDetector |
+| `compute_flb_slope` | `market_bias_features.py` | D: Market shape | odds_skewness, implied_prob_hhi | WinTwoStageModel |
+| `compute_difficulty_score` | `race_difficulty_model.py` | E: Difficulty | difficulty_score | AbilityModel |
+| `BloodlineFeatures` | `bloodline_features.py` | B: Bloodline | blood_surface_wr, blood_distance_wr, blood_condition_wr, blood_total_wr, blood_prize_log, blood_keito_cd | AbilityModel |
+| `HorseHistoryFeatures` | `horse_history_features.py` | A: Horse history | ~45 features (norm_finish_logit_avg, harontimel5_*, form_*, class_*, jockey_*, weight_*, etc.) | AbilityModel |
+| `PaceAptitudeFeatures` | `pace_aptitude_features.py` | C: Pace | pace_aptitude, front_pace_wr, closing_pace_wr, pace_corner_stability, pace_closing_power, pace_position_consistency | AbilityModel, interaction_features |
+| `CourseFeatures` | `course_features.py` | D: Course | course_wr, course_distance_wr | AbilityModel |
+| `SireFeatures` | `sire_features.py` | B: Sire | sire_wr, sire_surface_wr, sire_distance_wr, sire_prize_avg, bms_wr | AbilityModel |
+| `compute_interaction_features` | `interaction_features.py` | E: Interaction | kyakusitu_x_distance, kyakusitu_x_surface, weight_x_distance, race_mean_fuku_odds, race_std_fuku_odds, odds_gap_fav12, odds_popularity_gap, surface_track_interaction, pace_pressure, closer_share, pace_scenario_fit, actual_pace_fit | AbilityModel, WinTwoStageModel |
+| `compute_odds_deviation` | `odds_deviation_features.py` | F: Deviation | deviation_rank, deviation_zscore | WinTwoStageModel |
+| `compute_form_features` | `form_cycle_features.py` | B: Form cycle | form_trend, form_consistency, form_peak_flag | (via HorseHistoryFeatures) |
+| `compute_class_trajectory` etc. | `high_odds_features.py` | A: High-odds | class_promotions/demotions, v_recovery, time/position_improvement_rate, env_adaptability (9) | (via HorseHistoryFeatures) |
+
+### Target Architecture for v1.6
 
 ```
-TrainingPipelineV5 (--ensemble flag)
+Phase 1: FEATURE AUDIT (no architecture changes)
   |
-  +-> stage1.add_ability_probs(df)        # StackedEnsemble: p_win_pred (Ridge blend of 3 GBM)
-  +-> win.predict_ev(df)                  # Ensemble probabilities feed EV computation
-  +-> ev_corrector.correct_ev(df)         # EV corrections use ensemble probabilities
-  +-> confidence.predict_interval(df)     # Conformal intervals adapted for ensemble
+  +-> FeatureAuditTool (NEW SCRIPT, not a module)
+  |     - Extract feature importance from trained models (gain, split, SHAP)
+  |     - Compute permutation importance on OOF predictions
+  |     - Identify zero-importance and noise features
+  |     - Generate prune_candidates.json
   |
-  +-> [RETRAIN] WinSelectionGateModel.train(df)  # Retrained on ensemble OOF distribution
-  |     Uses: p_win_final (ensemble), ev_win_corrected (ensemble), tanoddslow
-  |     Produces: adaptive min_prob/min_edge/max_odds thresholds
+  +-> Prune features from FEATURE_COLS in model files
+        - AbilityModel.FEATURE_COLS (Stage1, ~50 features)
+        - WinTwoStageModel.FEATURE_COLS (Stage2, ~37 features)
+        - WinTwoStageModel.HIT_FEATURE_COLS (Stage2 hit sub-model)
+        - WinTwoStageModel.RETURN_FEATURE_COLS (Stage2 return sub-model)
   |
   v
-RacePredictor.get_win_candidates(result_df)
-  |  Filter 1: win_selection_edge > 0.0    (unchanged)
-  |  Filter 2: EV_lower_win_corrected >= dynamic_threshold  (was hardcoded 1.0)
-  |    dynamic_threshold from gate model or Optuna parameter
-  |  Sort: win_gate_score DESC              (retrained for ensemble distribution)
-  |  Max: 2 candidates
-  v
-BacktestEngine.run()
-  |  Filter 3: COLLAPSED regime skip       (unchanged)
-  |  Filter 4: OddsBandFilter.filter()     (re-calibrated from ensemble bet history)
-  v
-select_bets() -> Bet objects
-
-Optuna 14-dim search (or 15-dim with EV_lower threshold)
+Phase 2: NEW FEATURES from unused EveryDB2 data
   |
-  +-> StrategyOptimizer._run_single_backtest()
-       |_ training backtest -> training_bet_history (ensemble-derived)
-       |_ OddsBandFilter.calibrate(training_bet_history)  # auto-recalibrated
-       |_ test backtest with all filters active
-       |_ objective = mean ROI across WF folds
+  +-> JockeyTrainerContextFeatures (EXISTING, partially used)
+  |     Currently available but NOT wired into _train_submodel()
+  |     Wire: jockey_context_features.py + trainer_context_features.py
+  |
+  +-> RaceContextFeatures (NEW MODULE)
+  |     Source: n_toku_race, n_schedule, n_hyosu (vote counts)
+  |     Features: tokubetsu_race_flag, vote_total, vote_concentration
+  |
+  +-> HorsePhysicalFeatures (NEW MODULE, expand existing)
+  |     Source: n_uma (horses master), n_uma_race existing columns
+  |     Features: age_at_race, sex_encoding, distant_past_form_features
+  |
+  +-> JockeyTrainerComboFeatures (EXISTING, unused)
+  |     Currently available but NOT wired into _train_submodel()
+  |     Wire: jockey_trainer_combo.py
+  |
+  v
+Phase 3: INTERACTION & TRANSFORMATION FEATURES
+  |
+  +-> expand compute_interaction_features()
+  |     - Horse-vs-horse relative features (normalized gap within race)
+  |     - Conditional interactions (surface x form, class x distance)
+  |     - Polynomial features for key continuous variables
+  |
+  +-> Target encoding for high-cardinality categoricals
+        - blood_keito_cd, kisyucode, chokyosicode
+        - PIT-safe: expanding mean with shift(1)
 ```
 
 ## Component Boundaries
 
-| Component | File | Responsibility | Current State | v1.4 Change |
-|-----------|------|----------------|---------------|-------------|
-| `StackedEnsemble` | `models/stacked_ensemble.py` | 3-model GBM stacking (LGBM+XGB+CatBoost -> Ridge) | Fully implemented | No change -- produces probabilities via `predict()` |
-| `WinTwoStageModel` | `models/two_stage_return_model.py` | P(hit) * E(odds\|hit) decomposition | Uses `hit_model` (single or ensemble) | No change -- delegates to `hit_model.predict()` |
-| `WinSelectionGateModel` | `models/win_selection_gate.py` | Learned OOF gate + reranker for win bet selection | Trained on single-model OOF | **RETRAIN** with ensemble OOF predictions |
-| `RacePredictor.get_win_candidates()` | `backtest/race_predictor.py` | Win candidate filtering (edge, EV, gate score) | Hardcoded EV_lower >= 1.0 | **MODIFY** threshold to be dynamic |
-| `EVCorrectionModel` | `models/ev_correction_model.py` | P-correction and E-correction for win EV | Calibrated for single model | Auto-adapts (uses ensemble p_win) |
-| `RobustConfidenceEstimator` | `models/robust_confidence_estimator.py` | Conformal prediction intervals | Produces EV_lower_win_corrected | Auto-adapts (wider intervals from ensemble) |
-| `OddsBandFilter` | `betting/odds_band_filter.py` | Dynamic odds band ROI exclusion | Calibrated from single-model bet history | **RECALIBRATE** from ensemble bet history |
-| `StrategyOptimizer` | `tuning/strategy_optimizer.py` | Optuna 14-dim parameter search | Fully implemented | **EXECUTE** (not yet run) |
-| `BacktestEngine` | `backtest/engine.py` | Historical simulation with filter pipeline | Integrated in Phase 11 | No structural change |
-| `RegimeDetector` | `models/regime_detector.py` | 3-state market regime classification | Independent of model type | No change |
-| `DrawdownController` | `betting/drawdown_controller.py` | DD%-based stake sizing | Independent of model type | No change |
-| `ModelLoader` | `db/model_loader.py` | Load models from disk/MLflow | Supports ensemble via `use_ensemble_override` | No change |
+### Components to MODIFY
+
+| Component | File | Change | Scope | Risk |
+|-----------|------|--------|-------|------|
+| `AbilityModel` | `models/stage1_ability_model.py` | Update `FEATURE_COLS` list (prune/add features) | List edit only | LOW -- LightGBM handles missing columns gracefully |
+| `WinTwoStageModel` | `models/two_stage_return_model.py` | Update `FEATURE_COLS`, `HIT_FEATURE_COLS`, `RETURN_FEATURE_COLS` | List edit only | LOW -- same |
+| `HorseHistoryFeatures` | `features/horse_history_features.py` | Add/remove features in `BASE_COLS` and `compute()` loop | Medium -- 1300-line file, per-horse loop | MEDIUM -- changes affect all downstream models |
+| `compute_interaction_features` | `features/interaction_features.py` | Expand with new interaction features | Medium -- new functions | LOW -- additive only |
+| `_train_submodel` | `pipelines/training_pipeline.py` | Wire new feature modules into the pipeline | ~20 lines per module | MEDIUM -- insertion point order matters |
+| `build_all` | `features/feature_engine.py` | Potentially add new module calls for batch-level features | ~10 lines per module | LOW -- additive |
+
+### Components to CREATE
+
+| Component | File | Purpose | Dependencies |
+|-----------|------|---------|-------------|
+| `FeatureAuditScript` | `scripts/run_feature_audit.py` | Extract importance, identify noise features | Trained models, OOF predictions |
+| `RaceContextFeatures` | `features/race_context_features.py` | Extract from n_toku_race, n_schedule, n_hyosu | ParquetStore, existing readers |
+| `HorsePhysicalFeatures` | `features/horse_physical_features.py` | Age, sex, extended career stats | n_uma master table |
+| `RelativeFeatureBuilder` | `features/relative_features.py` | Horse-vs-horse comparison features within race | Existing features from other modules |
+
+### Components UNCHANGED
+
+| Component | Why Unchanged |
+|-----------|--------------|
+| `ParquetStore` | I/O layer, feature-agnostic |
+| `DataRepository` | Data access layer, feature-agnostic |
+| `StackedEnsemble` | Model layer, consumes whatever features are provided |
+| `EVCorrectionModel` | Model layer, features are independent |
+| `RegimeDetector` | Uses race-level features, not horse-level |
+| `RaceQualityScreener` | Uses race-level features |
+| `DrawdownController` | Betting layer, feature-independent |
+| `StrategyOptimizer` | Betting strategy, feature-independent |
+| `BacktestEngine` | Orchestrates pipeline, feature-agnostic |
+| `ConformalEVModel` | Model layer, features are independent |
+| `ETL pipeline` | Data source unchanged |
+| `all odds modules` | No changes to odds processing |
+| `leakage_validators.py` | Framework exists, new features must pass it |
 
 ## Data Flow Changes
 
-### CHANGE 1: WinSelectionGateModel Ensemble Retraining
+### CHANGE 1: Feature Audit and Pruning
 
-The `WinSelectionGateModel.train()` is already model-agnostic -- it takes a DataFrame with `win_selection_prob`, `win_selection_edge`, `tanoddslow`, `kakuteijyuni` columns and never touches the underlying model directly. When the upstream model changes from single to ensemble, the same `train()` method is called with ensemble-derived values in those columns. The gate model automatically adapts its thresholds to the new distribution.
+No data flow changes. Pruning removes columns from model `FEATURE_COLS` lists. The feature modules still compute all features, but models simply ignore the pruned columns. This is safe because LightGBM silently ignores missing columns.
 
-```
-TrainingPipelineV5.run() --ensemble
-  |
-  v
-ensemble OOF predictions (from StackedEnsemble.train() K-fold loop)
-  |
-  +-> df with p_win_final, ev_win_corrected, tanoddslow, kakuteijyuni
-  |
-  v
-WinSelectionGateModel.train(df)  <-- RECALLED with ensemble-derived df
-  |
-  +-> Walk-forward threshold grid search over (min_prob, min_edge, max_odds)
-  +-> Quantile binning of ensemble probability/edge/odds distributions
-  +-> Score tables: combo_scores, pair_scores, single_scores
-  +-> New thresholds: self.min_prob, self.min_edge, self.max_odds
-  +-> Save to win_selection_gate_{surface}.joblib
-  |
-  v
-ModelLoader.load_from_dir() loads retrained gate model
-  |
-  v
-RacePredictor.predict() -> win_gate_model.score(df) -> uses new thresholds
-```
+**Why not remove from modules too:** Keeping feature computation intact preserves the option to re-add features later. The cost of computing unused features is minimal compared to the risk of breaking the pipeline.
 
-**Critical insight:** The gate model stores quantile bin edges (`prob_edges`, `edge_edges`, `odds_edges`) computed from the training distribution. If trained on single-model data but used with ensemble predictions, these bins would misclassify candidates because ensemble probabilities have a different distribution. This is the root cause of the 7-bets/year problem.
+### CHANGE 2: New Features from Unused EveryDB2 Data
 
-### CHANGE 2: Dynamic EV_lower Threshold
+New feature modules follow the existing pattern: pure functions or classes with `compute()` methods that take a DataFrame and return a DataFrame with new columns.
 
-Two viable approaches for making the EV_lower threshold adaptive:
-
-**Option A (Recommended): Gate Model-Managed Threshold**
-- During `WinSelectionGateModel.train()`, compute the ensemble EV_lower distribution from OOF predictions
-- Store the threshold as a gate model parameter (e.g., 25th percentile of positive-edge EV_lower values)
-- `get_win_candidates()` reads the threshold from the gate model instead of hardcoding 1.0
-
-**Option B: Optuna-Managed Threshold**
-- Add `ev_lower_threshold` as a 15th dimension in the Optuna search space (range 0.8 to 1.2)
-- StrategyOptimizer finds the optimal threshold across WF folds
-- Stored in `strategy_manifest.json` alongside the other 14 parameters
-
-Both approaches are viable. Option A is simpler and self-contained within the gate model. Option B provides more search flexibility but adds another dimension to an already large search space.
+**Insertion points in the pipeline:**
 
 ```
-# Option A: In WinSelectionGateModel.train()
-ev_lower_positive = ev_lower[ev_lower.notna() & (ev_lower > 0)]
-self.ev_lower_threshold = float(ev_lower_positive.quantile(0.25)) if len(ev_lower_positive) > 50 else 1.0
+build_all() insertion (batch-level, before surface split):
+  - RaceContextFeatures: race-level features available to all surfaces
+  - HorsePhysicalFeatures: horse-level features from master tables
 
-# In get_win_candidates():
-ev_lower_threshold = win_gate_model.ev_lower_threshold if win_gate_model else 1.0
-ev_mask = ev_lower.fillna(ev_lower_threshold) >= ev_lower_threshold
+_train_submodel() insertion (after HorseHistoryFeatures):
+  - JockeyContextFeatures: jockey annual stats (Stage2 feature)
+  - TrainerContextFeatures: trainer annual stats (Stage2 feature)
+  - JockeyTrainerComboFeatures: combo statistics (Stage2 feature)
 ```
 
-### CHANGE 3: OddsBandFilter Ensemble Recalibration
+**EveryDB2 data sources not yet used for features:**
 
-The `StrategyOptimizer._run_single_backtest()` (strategy_optimizer.py:118-192) already runs a training-phase backtest with ensemble models and passes the resulting `training_bet_history` to `OddsBandFilter.calibrate()`. This means the filter is automatically recalibrated for the ensemble when the optimizer runs.
+| Table | Parquet Key | Potential Features | PIT Safety |
+|-------|-------------|-------------------|------------|
+| `n_toku_race` | `toku_race` | Special race metadata (prize, conditions) | SAFE -- pre-race |
+| `n_toku` | `toku` | Special race details per entry | SAFE -- pre-race |
+| `n_hyosu` | `hyosu` | Total vote count per race | SAFE -- pre-race snapshot |
+| `n_hyosu_tanpuku` | `hyosu_tanpuku` | Vote count per horse (popularity proxy) | SAFE -- pre-race snapshot |
+| `n_kisyu_seiseki` | `kisyu_seiseki` | Jockey annual stats (already has module, unused) | SAFE -- SetYear < race_year |
+| `n_chokyo_seiseki` | `chokyo_seiseki` | Trainer annual stats (already has module, unused) | SAFE -- SetYear < race_year |
+| `n_jogaiba` | `jogaiba` | Late scratch/changes info | PARTIAL -- depends on timing |
+| `n_mining` | `mining` | Pre-computed analytics (index values) | NEEDS AUDIT -- verify pre-race |
+| `n_uma` | `horses` | Horse master (sex, birth year for age) | SAFE -- static |
+| `n_hansyoku` | `hansyoku` | Breeding details | SAFE -- static |
+| `n_bameiorigin` | `bameiorigin` | Extended pedigree | SAFE -- static |
+| `n_record` | `record` | Course records | SAFE -- historical |
+| `n_schedule` | `schedule` | Race schedule metadata | SAFE -- pre-race |
 
-No code changes needed -- the existing wiring is correct. The key is ensuring the optimizer actually executes (it has not been run yet).
+### CHANGE 3: Interaction and Transformation Features
 
-```
-StrategyOptimizer._run_single_backtest()
-  |
-  +-> ModelLoader.load_from_dir(use_ensemble_override=True)  # loads ensemble models
-  +-> Training-phase backtest with ensemble
-  |     produces: training_bet_history (ensemble-derived odds/edges/outcomes)
-  |
-  v
-OddsBandFilter.calibrate(training_bet_history)
-  |
-  +-> Per-band ROI computed from ensemble bet outcomes
-  +-> Bands with ROI < roi_threshold excluded
-  |
-  v
-Test-phase backtest uses re-calibrated OddsBandFilter
-```
+Interactions are added in `compute_interaction_features()`, which already runs after all base features are computed. This is the correct insertion point because it has access to all feature columns.
 
-### CHANGE 4: Optuna 14-dim Parameter Execution
+**New interaction categories:**
 
-The `StrategyOptimizer` is fully implemented but has never been executed. Running it is the final step of v1.4.
+1. **Relative features (horse-vs-horse within race):**
+   - Gap between horse's norm_finish_logit and race average
+   - Gap between horse's harontimel5_avg and race best
+   - Gap between horse's p_ability_win and race max (requires Stage1 output)
 
-```
-StrategyOptimizer.optimize()
-  |
-  +-> TPE sampler explores 14 dimensions:
-  |     - fk_aggressive, fk_conservative (Kelly fractions)
-  |     - ev_aggressive, ev_conservative (EV thresholds)
-  |     - edge_aggressive, edge_conservative (edge thresholds)
-  |     - dd_threshold_1, dd_threshold_2 (DD control)
-  |     - multiplier_reduced, rolling_window, min_stay_races
-  |     - target_ev, max_scale (EV scaling)
-  |     - roi_threshold (OddsBandFilter)
-  |
-  +-> Each trial: build strategy_config -> WF backtest -> ROI
-  +-> Best params -> save_strategy_manifest() -> JSON + SHA256
-  |
-  v
-Verified manifest loaded for OOS validation
-```
+2. **Conditional interactions:**
+   - surface x form_trend (form on specific surface)
+   - class_level x distance_change (class change at specific distance)
+   - weight_change_zone x rest_category (weight pattern after rest)
+
+3. **Target encoding (PIT-safe):**
+   - blood_keito_cd target-encoded win rate (expanding mean with shift(1))
+   - kisyucode target-encoded win rate (expanding, not used in Stage1 to avoid leak)
 
 ## Patterns to Follow
 
-### Pattern 1: Model-Agnostic Filter Interface
+### Pattern 1: Pure Function Feature Modules
 
-**What:** Filters operate on DataFrame columns (probabilities, edges, odds) without knowing whether values came from a single model or ensemble.
+**What:** Feature modules are pure functions or classes with `compute()` methods that take a DataFrame and return a DataFrame with new columns. No side effects on the input.
 
-**When:** All filter components consume columns, not models.
+**When:** All feature modules follow this pattern.
 
-**Why:** The existing architecture already achieves this. `WinSelectionGateModel.train()` takes a DataFrame with `win_selection_prob`, `win_selection_edge`, `tanoddslow` -- it never touches the model directly. Similarly, `OddsBandFilter.calibrate()` takes bet history dicts. This means retraining is simply calling the same methods with ensemble-derived data.
+**Why:** Makes modules composable, testable, and reorderable. The pipeline chains them without coupling.
 
-**Example:**
+**Example (existing pattern):**
 ```python
-# WinSelectionGateModel.train() is already model-agnostic:
-def train(self, df: pd.DataFrame) -> None:
-    prepared = self._prepare_training_frame(df)
-    # Uses: win_selection_prob, win_selection_edge, tanoddslow, kakuteijyuni
-    # All columns come from whatever model produced them
-
-# For ensemble: the DataFrame just has different values in those columns
-# (wider probability distribution, different edge distribution)
-# The gate model adapts its thresholds to the new distribution automatically
+def compute_intra_race_features(df: pd.DataFrame) -> pd.DataFrame:
+    df = df.copy()  # Never mutate input
+    df["weight_diff_from_mean"] = ...
+    return df
 ```
 
-### Pattern 2: Training-Data-Driven Filter Calibration
+### Pattern 2: PIT-Safe Time-Series Features
 
-**What:** Filters derive their parameters from training data, not hardcoded values. When the upstream model changes, filters re-calibrate from the new data distribution.
+**What:** Any feature using historical data must use `expanding().shift(1)` or `searchsorted(side="left")` to exclude the current race.
 
-**When:** `OddsBandFilter.calibrate()` and `WinSelectionGateModel.train()`.
+**When:** All features computed from past race results (horse history, jockey stats, sire stats, etc.).
 
-**Implementation:**
+**Why:** Including current-race results in features is look-ahead bias that inflates backtest ROI but fails in live betting.
+
+**Example (existing pattern in HorseHistoryFeatures):**
+```python
+# searchsorted with side="left" excludes current-race date
+target_date_np = np.datetime64(race_date, "ns")
+idx = valid_dates.searchsorted(target_date_np, side="left")
+start = max(0, idx - self._n_past)
+# Only use data BEFORE idx (never includes current race)
 ```
-Model change (single -> ensemble)
-  -> New probability distribution in OOF predictions
-  -> WinSelectionGateModel.train() adapts thresholds
-  -> BacktestEngine generates new training_bet_history
-  -> OddsBandFilter.calibrate() adapts excluded bands
-```
 
-### Pattern 3: Optuna Parameter Freeze Protocol
+### Pattern 3: Feature Module Caching
 
-**What:** After Optuna finds optimal parameters, freeze them with SHA256 manifest to prevent drift during OOS evaluation.
+**What:** `build_all()` uses SHA-256 cache key based on input file paths and date range. If inputs unchanged, cache hit returns pre-computed features.
 
-**When:** After `StrategyOptimizer.optimize()` completes successfully.
+**When:** Batch feature generation in `build_all()`.
 
-**Implementation:** Existing `save_strategy_manifest()` and `verify_strategy_manifest()` -- no changes needed.
+**Implication for new features:** Adding new features to `build_all()` changes the output columns, automatically invalidating the cache (the cache key does not include feature columns, so manual cache invalidation may be needed if only adding columns).
 
-### Pattern 4: Walk-Forward Validation for Filter Parameters
+**Caution:** The cache key is based on input file paths and date range, NOT on the feature computation code. Adding new feature modules requires manually clearing the feature cache (`data/features/cache/`).
 
-**What:** Filter thresholds are validated using walk-forward folds, not in-sample.
+### Pattern 4: Two-Stage Feature Consumption
 
-**When:** `WinSelectionGateModel.train()` already implements this internally (`_build_walk_forward_folds`). `StrategyOptimizer` implements this externally (2-fold WF across years).
+**What:** Features flow through two model stages with different feature subsets.
 
-**Why this matters for ensemble:** The ensemble has different overfitting characteristics than single LightGBM. Walk-forward validation ensures filter thresholds generalize.
+**When:** All features flow through Stage1 (AbilityModel, ~50 features) then Stage2 (WinTwoStageModel, ~37 features).
+
+**Implication:** New features must be added to the correct `FEATURE_COLS` list:
+- Horse-level features (history, bloodline, physical) -> `AbilityModel.FEATURE_COLS` (Stage1)
+- Race-level/market features (odds dynamics, market bias, interactions) -> `WinTwoStageModel.FEATURE_COLS` (Stage2)
+- Some features appear in both stages (e.g., `distance_bin`, `surface`)
+
+### Pattern 5: Beta-Smoothed Win Rates
+
+**What:** Win rates computed from small samples use Beta prior smoothing: `(alpha + wins) / (alpha + beta + starts)`.
+
+**When:** All win-rate features (bloodline, sire, pace, course, jockey, trainer).
+
+**Why:** Raw win rates from 3-5 starts are unreliable. Beta smoothing shrinks toward the prior mean.
+
+**Constants:** alpha=1, beta=10 (used consistently across all modules).
 
 ## Anti-Patterns to Avoid
 
-### Anti-Pattern 1: Mixing Single-Model and Ensemble Gate Models
+### Anti-Pattern 1: Using Post-Race Data in Features
 
-**What:** Loading a WinSelectionGateModel trained on single-model OOF while using ensemble predictions at inference time.
+**What:** Including `kakuteijyuni`, `odds` (confirmed odds), `time`, `honsyokin` in features for the current race.
 
-**Why bad:** The quantile bins (`prob_edges`, `edge_edges`, `odds_edges`) and score tables (`combo_scores`, `pair_scores`) are calibrated to the single-model probability distribution. Ensemble probabilities have different quantiles -- the bins would misclassify candidates, producing garbage scores. This is the root cause of the current 7-bets/year problem.
+**Why bad:** These values are only available after the race. Using them creates look-ahead bias that inflates backtest ROI but fails in production.
 
-**Instead:** Always retrain `WinSelectionGateModel` when switching from single model to ensemble.
+**Instead:** The codebase already uses `confirmed_odds` vs `tanodds` separation. New features must follow the same discipline. The `POST_RACE_COLS` constant in `domain/types.py` lists all post-race columns that must never appear in features.
 
-**Detection:** If `meta.json` has `use_ensemble=true` but `win_selection_gate_{surface}.joblib` was trained before ensemble was enabled, the gate model is stale.
+**Detection:** Run `leakage_validators.validate_no_future_leakage()` after adding any new expanding-window feature.
 
-### Anti-Pattern 2: Hardcoded EV_lower Threshold Across Model Changes
+### Anti-Pattern 2: Adding Features Without Checking Model Capacity
 
-**What:** Keeping `EV_lower_win_corrected >= 1.0` fixed regardless of whether the underlying model is single or ensemble.
+**What:** Adding 50+ new features without pruning existing noise features.
 
-**Why bad:** The ensemble produces different `EV_lower` values because conformal intervals are computed from ensemble residuals (different variance) and EV corrections use ensemble probabilities. The ensemble's `EV_lower` distribution is shifted relative to single model, so the same threshold over-excludes (current problem: 3,594 excluded, only 7 bets/year).
+**Why bad:** LightGBM handles high dimensionality well, but adding noise features (zero importance) can dilute signal in small-sample splits. With ~9K training races and surface submodels, each surface gets ~4.5K races. Adding many noisy features increases overfitting risk in tree splits.
 
-**Instead:** Make the threshold dynamic -- either derived from ensemble distribution statistics or searched by Optuna.
+**Instead:** Audit first, prune noise, then add new features incrementally with backtest validation.
 
-### Anti-Pattern 3: Calibrating OddsBandFilter with Wrong Model's Bet History
+### Anti-Pattern 3: Computing Expensive Features in the Per-Horse Loop
 
-**What:** Running a training-phase backtest with single-model, then passing that `training_bet_history` to an ensemble test-phase backtest.
+**What:** Adding database queries or complex computations inside `HorseHistoryFeatures.compute()` per-horse loop.
 
-**Why bad:** Band ROI statistics would reflect single-model performance, not ensemble performance. Different models have different edge distributions across odds bands.
+**Why bad:** The per-horse loop iterates ~500-2000 times per surface. Each microsecond of overhead per horse adds seconds to total pipeline time.
 
-**Instead:** `StrategyOptimizer._run_single_backtest()` already runs the training-phase backtest with the SAME models (ensemble) as the test-phase. The `training_bet_history` is always model-consistent.
+**Instead:** Pre-load all data before the loop (as done with `past_by_ketto_arr`, `expanding_stats`). Use vectorized numpy operations within the loop.
 
-### Anti-Pattern 4: Bypassing Filters During Optuna Search
+### Anti-Pattern 4: Target Encoding Without PIT Safety
 
-**What:** Disabling filters during Optuna search to maximize bet count, then enabling them during OOS evaluation.
+**What:** Computing target-encoded features using the full training data (including the current row).
 
-**Why bad:** Optuna would optimize parameters for a configuration that never runs in production.
+**Why bad:** Target encoding with current-row inclusion is equivalent to look-ahead bias. The model sees information about the outcome in the feature.
 
-**Instead:** Keep all filters active during Optuna search. The optimizer adjusts filter parameters themselves (roi_threshold, ev/edge thresholds) as part of the search space.
+**Instead:** Use `expanding().shift(1)` or leave-one-out encoding that excludes the current row. The `info_asymmetry_features.py` module demonstrates the correct pattern.
+
+### Anti-Pattern 5: Modifying Feature Computation Without Cache Invalidation
+
+**What:** Adding new features to a module, then running training with feature cache enabled.
+
+**Why bad:** The cache key is based on input files, not on computation code. If the cache is stale, training uses old features without the new additions. This silently produces incorrect results.
+
+**Instead:** Delete `data/features/cache/` when adding or modifying feature modules. Or set `use_cache=False` in `FeatureEngine.__init__()` during development.
 
 ## Detailed Integration Points
 
-### Integration Point 1: Training Pipeline -> WinSelectionGateModel
+### Integration Point 1: Feature Audit Script
 
-**File to modify:** `src/training/pipeline.py` or equivalent training script
+**New file:** `scripts/run_feature_audit.py`
 
-The training pipeline must pass ensemble-derived DataFrame to `WinSelectionGateModel.train()`. The column flow is:
+The audit script loads trained models and their OOF predictions, then:
+1. Extracts `feature_importance("gain")` from each LightGBM model
+2. Computes permutation importance on OOF predictions (Stage1 and Stage2)
+3. Optionally computes SHAP values for top features
+4. Identifies features with zero importance across all models
+5. Identifies features with negative permutation importance (noise)
+6. Outputs `data/feature_audit/prune_candidates.json`
 
-```
-StackedEnsemble.predict(X) -> p_win_pred
-WinTwoStageModel.predict_ev(df) -> ev_win, p_win_combined
-EVCorrectionModel.correct_ev(df) -> ev_win_corrected
-RobustConfidenceEstimator.predict_interval(df) -> EV_lower_win_corrected
-ensure_win_selection_columns(df) -> win_selection_ev, win_selection_edge, win_selection_prob
-```
+**Data requirements:**
+- Trained models from `data/models/` or `data/models-backtest/`
+- OOF predictions (must re-run training pipeline to generate)
+- Feature DataFrame (from `FeatureEngine.build_all()`)
 
-The `win_selection_prob` column is what the gate model uses for quantile binning. It must reflect ensemble probabilities. This column comes from `p_win_final` (or `p_win_combined` or `p_win_corrected` -- whichever is available, see `ensure_win_selection_columns()` in win_selection_gate.py:33-54).
+**Does NOT require:** Changes to any existing modules. Script-only.
 
-### Integration Point 2: StrategyOptimizer -> BacktestEngine
+### Integration Point 2: Jockey/Trainer Context Features (Wiring Existing Modules)
 
-**File:** `src/tuning/strategy_optimizer.py` (already correct)
+**Files to modify:** `src/pipelines/training_pipeline.py`
 
-Key insight: Line 137 already loads ensemble models:
+The `JockeyContextFeatures` and `TrainerContextFeatures` modules already exist in `src/features/` but are NOT wired into the training pipeline. They use `kisyu_seiseki` and `chokyo_seiseki` tables (already ETL'd to Parquet).
+
+**Insertion point:** `_train_submodel()`, after `SireFeatures` and before `compute_interaction_features`:
+
 ```python
-models, info = loader.load_from_dir(self.models_dir, use_ensemble_override=True)
+# Group D: Jockey context features (Stage2 only -- uses annual jockey stats)
+from features.jockey_context_features import JockeyContextFeatures
+with TimingContext(f"{surface}/jockey_context"):
+    jockey_feat = JockeyContextFeatures(store=self.store)
+    jockey_df = jockey_feat.compute_batch(df)
+    df = df.merge(jockey_df, on=["race_id", "umaban"], how="left")
+
+# Group D: Trainer context features (Stage2 only -- uses annual trainer stats)
+from features.trainer_context_features import TrainerContextFeatures
+with TimingContext(f"{surface}/trainer_context"):
+    trainer_feat = TrainerContextFeatures(store=self.store)
+    trainer_df = trainer_feat.compute_batch(df)
+    df = df.merge(trainer_df, on=["race_id", "umaban"], how="left")
 ```
 
-This means:
-- Training bet history is ensemble-derived (correct for OddsBandFilter)
-- EV_lower values are ensemble-derived (correct for dynamic threshold)
-- Win gate scores come from retrained gate model (correct for candidate ranking)
+**PIT safety:** Both modules already enforce `SetYear < race_year` (year-before comparison).
 
-The StrategyOptimizer is already wired correctly. The missing piece is retraining `WinSelectionGateModel` with ensemble data BEFORE running the optimizer.
+### Integration Point 3: Horse-vs-Horse Relative Features
 
-### Integration Point 3: Optuna Search Space -> Filter Parameters
+**New file:** `src/features/relative_features.py`
 
-**Current 14-dimensional search space (strategy_optimizer.py:51-81):**
+Relative features compute within-race comparisons. These run AFTER all per-horse features are computed.
 
-| Dimension | Parameter | Affected Component | Ensemble Impact |
-|-----------|-----------|-------------------|-----------------|
-| 1-2 | fk_aggressive, fk_conservative | StakeCalculator | Indirect (edge distribution changes) |
-| 3-4 | ev_aggressive, ev_conservative | RegimeDetector params | Direct (EV threshold shifts) |
-| 5-6 | edge_aggressive, edge_conservative | RegimeDetector params | Direct (edge distribution changes) |
-| 7-8 | dd_threshold_1, dd_threshold_2 | DrawdownController | Indirect |
-| 9 | multiplier_reduced | DrawdownController | Indirect |
-| 10-11 | rolling_window, min_stay_races | DrawdownController | Indirect |
-| 12-13 | target_ev, max_scale | StakeCalculator.apply_ev_scaling() | Direct (EV scaling) |
-| 14 | roi_threshold | OddsBandFilter | Direct (band exclusion threshold) |
-
-**Optional 15th dimension:** An explicit `ev_lower_threshold` parameter would allow Optuna to find the optimal EV_lower cutoff for the ensemble distribution. Currently hardcoded at 1.0 in `get_win_candidates()` (race_predictor.py:441).
-
-### Integration Point 4: ModelLoader -> WinSelectionGate Loading
-
-**File:** `src/db/model_loader.py` (no change needed)
-
-Lines 588-595 already load whatever gate model file exists:
 ```python
-wsg_file = models_dir / f"win_selection_gate_{surface}.joblib"
-if wsg_file.is_file():
-    win_selection_gate = WinSelectionGateModel.load(wsg_file)
+def compute_relative_features(df: pd.DataFrame) -> pd.DataFrame:
+    """Horse-vs-horse relative features within each race."""
+    df = df.copy()
+
+    # Gap between horse's ability and race mean
+    for col in ["norm_finish_logit_avg", "harontimel5_avg", "harontimel5_zscore"]:
+        if col in df.columns:
+            race_mean = df.groupby("race_id", observed=True)[col].transform("mean")
+            df[f"{col}_vs_mean"] = df[col] - race_mean
+
+            race_max = df.groupby("race_id", observed=True)[col].transform("max")
+            df[f"{col}_vs_max"] = df[col] - race_max
+
+    return df
 ```
 
-If retraining produces a new `.joblib` file with ensemble-calibrated parameters, it will be loaded automatically. The gate model serialization is model-agnostic (stores thresholds, bin edges, score tables -- not the underlying model).
+**Insertion point:** `_train_submodel()`, after `compute_interaction_features` (needs all base features).
+
+**Model update:** Add to `AbilityModel.FEATURE_COLS` (Stage1 features that capture relative ability).
+
+### Integration Point 4: Race Context Features from Unused Tables
+
+**New file:** `src/features/race_context_features.py`
+
+```python
+class RaceContextFeatures:
+    """Features from n_hyosu (vote totals), n_toku_race (special race metadata)."""
+
+    def __init__(self, store: ParquetStore) -> None:
+        self.store = store
+
+    def compute_batch(self, df: pd.DataFrame) -> pd.DataFrame:
+        # vote concentration from hyosu_tanpuku
+        # special race flags from toku_race
+        ...
+```
+
+**Data sources:** `hyosu_tanpuku` (per-horse vote count), `toku_race` (special race metadata), `schedule` (race schedule data).
+
+**PIT safety:** Vote counts (`n_hyosu_tanpuku`) are pre-race snapshots. `toku_race` is pre-race metadata. Both are safe.
+
+**Insertion point:** `FeatureEngine.build_all()` -- these are race-level features available before surface split.
 
 ## Build Order (Dependency-Driven)
 
-### Phase 1: WinSelectionGate Ensemble Retraining
-**Dependencies:** Existing ensemble training pipeline
-**Changes:** Modify training pipeline to pass ensemble-derived DataFrame to `WinSelectionGateModel.train()`
-**Files:** Training script or pipeline module
-**Verification:** Gate model thresholds change from single-model values to ensemble-adapted values
+### Phase 1: Feature Audit and Pruning
+**Dependencies:** Existing trained models
+**Changes:**
+- New script: `scripts/run_feature_audit.py`
+- Modify `FEATURE_COLS` in `AbilityModel`, `WinTwoStageModel` (and sub-lists)
+**Verification:** Backtest ROI does not decrease after pruning (noise removal should improve or maintain ROI)
+**Estimated effort:** Small
 
-### Phase 2: Dynamic EV_lower Threshold
-**Dependencies:** Phase 1 (gate model retraining)
-**Changes:** Either (a) add `ev_lower_threshold` as a WinSelectionGateModel parameter computed during `train()`, or (b) add it as Optuna search dimension
-**Files:** `src/backtest/race_predictor.py` (~10 lines in filter mask), optionally `src/tuning/strategy_optimizer.py`
-**Verification:** Ensemble backtest produces 100+ bets/year (not 7)
+### Phase 2A: Wire Existing Unused Feature Modules
+**Dependencies:** Phase 1 (clean baseline)
+**Changes:**
+- Modify `_train_submodel()` to call `JockeyContextFeatures.compute_batch()` and `TrainerContextFeatures.compute_batch()`
+- Add feature columns to appropriate `FEATURE_COLS` lists
+**Verification:** Backtest ROI improves
+**Estimated effort:** Small (modules exist, just need wiring)
 
-### Phase 3: OddsBandFilter Ensemble Recalibration
-**Dependencies:** Phase 1 (gate model retrained for correct candidate selection)
-**Changes:** None to OddsBandFilter itself -- it already receives ensemble-derived `training_bet_history` from StrategyOptimizer
-**Files:** None
-**Verification:** Band exclusion reflects ensemble ROI, not single-model ROI
+### Phase 2B: New Features from Unused EveryDB2 Tables
+**Dependencies:** Phase 1
+**Changes:**
+- New module: `features/race_context_features.py` (vote concentration, special race metadata)
+- New module: `features/horse_physical_features.py` (age, sex, extended career)
+- Wire into `build_all()` and `_train_submodel()` as appropriate
+- Add to `FEATURE_COLS` lists
+**Verification:** Incremental backtest ROI improvement per feature group
+**Estimated effort:** Medium
 
-### Phase 4: Optuna 14-dim (or 15-dim) Execution
-**Dependencies:** Phases 1-3 (all filters ensemble-aware)
-**Changes:** Execute existing `StrategyOptimizer.optimize()`. Optionally add `ev_lower_threshold` as 15th dimension.
-**Files:** `scripts/run_strategy_optimization.py` (execution only)
-**Verification:** Best ROI across WF folds > 1.0 (target: ROI > 100%)
+### Phase 3: Interaction and Transformation Features
+**Dependencies:** Phase 2 (needs complete base feature set)
+**Changes:**
+- Expand `compute_interaction_features()` with relative features, conditional interactions
+- Optionally add target encoding for high-cardinality categoricals
+- Add to `FEATURE_COLS` lists
+**Verification:** Backtest ROI improvement, interaction features appear in importance ranking
+**Estimated effort:** Medium
 
-### Phase 5: Manifest Freeze and OOS Validation
-**Dependencies:** Phase 4 (optimal parameters found)
-**Changes:** Freeze parameters via `save_strategy_manifest()`, run final OOS backtest with frozen params
-**Files:** None (existing protocol)
-**Verification:** `verify_strategy_manifest()` passes, OOS ROI > 100%
+### Phase 4: Validation and Cleanup
+**Dependencies:** Phases 1-3
+**Changes:**
+- Run walk-forward validation to detect overfitting from new features
+- Run Optuna strategy re-optimization with new feature set
+- Final backtest validation targeting ROI > 100%
+**Verification:** WF validation passes, final backtest ROI > 100%
+**Estimated effort:** Medium (mainly compute time)
 
-## Modified vs New Components
+## Modified vs New Components Summary
 
-### Modified Components
+### Modified Components (7 files)
 
-| File | Change | Scope |
-|------|--------|-------|
-| Training pipeline (pipeline.py or run_train.py) | Pass ensemble OOF df to `WinSelectionGateModel.train()` | ~20 lines wiring |
-| `src/backtest/race_predictor.py` | Dynamic EV_lower threshold in `get_win_candidates()` | ~10 lines in filter mask |
-| `src/tuning/strategy_optimizer.py` | Optionally add ev_lower_threshold as 15th dimension | ~5 lines |
+| File | Change | LOC Impact |
+|------|--------|-----------|
+| `models/stage1_ability_model.py` | Update `FEATURE_COLS` | ~5 lines |
+| `models/two_stage_return_model.py` | Update `FEATURE_COLS`, `HIT_FEATURE_COLS`, `RETURN_FEATURE_COLS` | ~15 lines |
+| `features/horse_history_features.py` | Possibly add/remove features from `BASE_COLS` and `compute()` | ~20-50 lines |
+| `features/interaction_features.py` | Expand with relative/conditional interactions | ~50-80 lines |
+| `pipelines/training_pipeline.py` | Wire new modules into `_train_submodel()` | ~30 lines |
+| `features/feature_engine.py` | Optionally add new batch-level module calls in `build_all()` | ~10 lines |
+| `features/horse_history_features.py` | Update `BASE_COLS` list | ~5 lines |
 
-### New Components
+### New Components (3-4 files)
 
-None. All required infrastructure exists from Phase 11-12 and v1.1 ensemble work.
-
-### Unchanged Components
-
-| File | Why Unchanged |
-|------|--------------|
-| `src/models/stacked_ensemble.py` | Already produces correct probabilities |
-| `src/models/win_selection_gate.py` | `train()` is already model-agnostic |
-| `src/betting/odds_band_filter.py` | Already takes bet_history as input |
-| `src/backtest/engine.py` | Filter pipeline already integrated |
-| `src/backtest/parameter_freeze_protocol.py` | Already handles parameter freezing |
-| `src/models/regime_detector.py` | Model-type independent |
-| `src/betting/drawdown_controller.py` | Model-type independent |
-| `src/domain/models.py` | No new data structures needed |
-| `src/db/model_loader.py` | Already loads ensemble models and gate models |
-| `config/settings.yaml` | No new configuration needed |
+| File | Purpose | LOC Estimate |
+|------|---------|-------------|
+| `scripts/run_feature_audit.py` | Feature importance analysis and noise identification | ~150 lines |
+| `features/race_context_features.py` | Vote concentration, special race flags | ~100 lines |
+| `features/horse_physical_features.py` | Age, sex, extended career features | ~120 lines |
+| `features/relative_features.py` | Horse-vs-horse within-race comparisons | ~80 lines |
 
 ## Scalability Considerations
 
-| Concern | At current scale (~9K single-model bets/year) | At target (100+ ensemble bets/year) | At high volume (10K+ ensemble bets/year) |
-|---------|-----------------------------------------------|--------------------------------------|------------------------------------------|
-| WinSelectionGate retraining | ~30 seconds (100+ features, 200+ races) | Same -- retraining is one-time | May need subsampling for larger datasets |
-| OddsBandFilter calibration | O(n) single pass over bet_history | Same -- negligible | Same |
-| Optuna 100 trials x 2 folds | ~200 backtests (~57 min each = ~190 hours total) | Same -- this is the bottleneck | Consider parallel Optuna with n_jobs>1 |
-| Strategy manifest verification | O(1) SHA256 hash | Same | Same |
+| Concern | Current (100+ features) | After v1.6 (potentially 150+ features) | Mitigation |
+|---------|------------------------|---------------------------------------|------------|
+| Feature computation time | ~17 min training | ~18-20 min (new features are cheap) | Feature cache handles batch features; per-horse loop is the bottleneck |
+| Memory per surface | ~4.5K races x 100 cols | ~4.5K races x 150 cols | +50% memory but still fits in RAM easily |
+| LightGBM training time | ~5 min per surface | ~6-7 min per surface | LightGBM handles 150 features efficiently; early stopping prevents overfitting |
+| Per-horse loop (HorseHistoryFeatures) | ~100s for ~2000 horses | ~120s if adding 5 features to loop | New features should be vectorized where possible; avoid DB queries in loop |
+| Feature cache size | ~200 MB | ~300 MB | Manageable; cache invalidation is manual |
+| Backtest time per year | ~41 min | ~45 min | Acceptable increase |
 
 ## Sources
 
-- Code analysis: `src/models/stacked_ensemble.py` -- ensemble predict/produce interface, K-fold OOF generation
-- Code analysis: `src/models/win_selection_gate.py` -- OOF gate training, walk-forward threshold search, quantile binning
-- Code analysis: `src/backtest/race_predictor.py` -- get_win_candidates() filter chain, EV_lower hardcoded threshold
-- Code analysis: `src/backtest/engine.py` -- BacktestEngine.run() race loop with filter pipeline
-- Code analysis: `src/betting/odds_band_filter.py` -- calibrate/filter interface
-- Code analysis: `src/tuning/strategy_optimizer.py` -- Optuna parameter search, ensemble model loading
-- Code analysis: `src/db/model_loader.py` -- ensemble model loading, gate model loading, _load_hit_model
-- Code analysis: `src/backtest/parameter_freeze_protocol.py` -- manifest freeze/verify
-- Code analysis: `src/models/regime_detector.py` -- regime params independent of model type
-- Code analysis: `src/betting/drawdown_controller.py` -- DD control independent of model type
-- Code analysis: `.planning/phases/11-bet-selection-filters/11-RESEARCH.md` -- Phase 11 architecture decisions
-- Code analysis: `.planning/PROJECT.md` -- v1.4 milestone context (7 bets/year problem, 3,594 EV_lower exclusions)
+- Code analysis: `src/features/feature_engine.py` -- orchestrator, build_all() flow, cache mechanism
+- Code analysis: `src/features/horse_history_features.py` -- per-horse loop, PIT safety via searchsorted
+- Code analysis: `src/features/intra_race_features.py` -- pure function pattern
+- Code analysis: `src/features/odds_dynamics_features.py` -- vectorized computation pattern
+- Code analysis: `src/features/market_bias_features.py` -- market feature computation
+- Code analysis: `src/features/bloodline_features.py` -- PIT-safe bloodline features from career stats
+- Code analysis: `src/features/pace_aptitude_features.py` -- vectorized batch computation with cumulative sums
+- Code analysis: `src/features/course_features.py` -- course-specific features with searchsorted
+- Code analysis: `src/features/sire_features.py` -- sire features with Beta smoothing
+- Code analysis: `src/features/interaction_features.py` -- interaction/pace features
+- Code analysis: `src/features/high_odds_features.py` -- class trajectory, form improvement, env adaptability
+- Code analysis: `src/features/leakage_validators.py` -- PIT safety verification framework
+- Code analysis: `src/features/jockey_context_features.py` -- existing but unwired jockey features
+- Code analysis: `src/features/trainer_context_features.py` -- existing but unwired trainer features
+- Code analysis: `src/models/stage1_ability_model.py` -- Stage1 FEATURE_COLS (50 features)
+- Code analysis: `src/models/two_stage_return_model.py` -- Stage2 FEATURE_COLS (37 features), hit/return split
+- Code analysis: `src/pipelines/training_pipeline.py` -- pipeline orchestration, feature module wiring
+- Code analysis: `config/etl_tables.yaml` -- 103 EveryDB2 tables available for feature extraction
+- Code analysis: `.planning/PROJECT.md` -- v1.6 milestone context
