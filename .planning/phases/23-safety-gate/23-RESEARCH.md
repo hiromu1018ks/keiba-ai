@@ -415,17 +415,15 @@ def compute_permutation_importance(
 | A3 | ninkiフォールバック除去後、tanodds/tanninkiが利用できない馬はNaNになるが、これはLightGBMが処理可能 | M6修正 | 学習データ減少 |
 | A4 | permutation importanceのscoringはneg_mean_absolute_errorで妥当 (回帰モデルと分類モデルで使い分けが必要) | SAFE-02 | 誤った重要度ランキング |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **CQR whitelistの具体的な列リスト**
+1. **CQR whitelistの具体的な列リスト** — RESOLVED
    - What we know: training_pipeline.py:903-907で除外セットベースのfeature_colsを計算している。これは約100-200列程度
-   - What's unclear: どの列がCQRに本当に必要か。主モデル出力 (_MODEL_OUTPUT_COLS) は既に除外されているが、残りの列の意味的分類が未検証
-   - Recommendation: training_pipeline.pyで実際に計算されるfeature_colsリストをログ出力し、それをFEATURE_COLSのベースにする
+   - Resolution: Plan 01 Task 2でtraining_pipeline.py:903-907のcomputed feature_colsをConformalEVModel.FEATURE_COLSのwhitelistソースとして使用。training_pipeline.py:909-912のコンストラクタ呼び出しをFEATURE_COLSに置き換えることで、training_pipelineとmodel定義の整合性を保証。
 
-2. **permutation importanceのscoring metric**
+2. **permutation importanceのscoring metric** — RESOLVED
    - What we know: Stage1 (ranking) はndcg、Win/Place (binary) はroc_auc、Return (regression) はneg_mae、EVCorrection (binary/regression mixed) は複合
-   - What's unclear: 統一的なscoring metricが存在するか
-   - Recommendation: モデルタイプごとにscoringを自動選択する仕様にする
+   - Resolution: Plan 02 Task 1のcompute_permutation_importance関数でauto-selectionロジックを実装。yの値分布を確認: {0,1}のみ→"roc_auc" (binary classification)、連続値→"r2" (regression)。呼び出し元でscoring引数を明示的に上書き可能。
 
 ## Environment Availability
 
