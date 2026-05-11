@@ -181,7 +181,7 @@ Phases execute in numeric order: 23 → 24 → 25 → 26 → 27 → 28
 | 20. 高オッズ的中パターン特徴量 | v1.5 | 3/3 | Complete | 2026-05-09 |
 | 21. Conformal EV予測区間 | v1.5 | 2/2 | Complete | 2026-05-09 |
 | 22. 統合検証とバックテスト | v1.5 | 1/1 | Complete | 2026-05-10 |
-| 23. Safety Gate | v1.6 | 0/2 | Not started | - |
+| 23. Safety Gate | v1.6 | 0/2 | Planned | - |
 | 24. Feature Audit & Pruning | v1.6 | 0/? | Not started | - |
 | 25. Quick Win Wire Existing | v1.6 | 0/? | Not started | - |
 | 26. EveryDB2 New Features | v1.6 | 0/? | Not started | - |
