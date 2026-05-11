@@ -462,18 +462,18 @@ class TestLeakPrevention:
         assert result["popularity_rank"].tolist() == [3.0, 1.0, 2.0]
 
     def test_popularity_rank_fallback_when_tanninki_zero(self) -> None:
-        """tanodds/tanninki が使えない場合、ninki にフォールバックする"""
+        """tanodds/tanninki が使えない場合、popularity_rank は NaN になる (ninkiフォールバック廃止)"""
         engine = FeatureEngine()
         race_df = self._make_race_df()
         entry_df = self._make_entry_df(odds=[3.0, 5.0, 8.0], ninki=[1, 2, 3])
         odds_df = self._make_odds_df(tanodds=[0.0, float("nan"), 0.0], tanninki=[0, 0, 0])
 
         result = engine.build_all(race_df, entry_df, odds_df)
-        assert result["popularity_rank"].tolist() == [1, 2, 3]
-        assert (result["popularity_rank_fallback_used"] == 1.0).all()
+        # SAFE-01: ninki fallback is removed; all horses get NaN popularity_rank
+        assert all(pd.isna(v) for v in result["popularity_rank"].tolist())
 
-    def test_popularity_rank_warns_on_ninki_fallback(self, caplog: object) -> None:
-        """tanodds/tanninki が使えない場合に ninki fallback 警告ログを出力する"""
+    def test_popularity_rank_warns_on_missing_after_tanodds_tanninki(self, caplog: object) -> None:
+        """tanodds/tanninki が使えない場合に missing 警告ログを出力する (ninkiフォールバック廃止)"""
         import logging
 
         engine = FeatureEngine()
@@ -483,7 +483,7 @@ class TestLeakPrevention:
         with caplog.at_level(logging.WARNING, logger="features.feature_engine"):  # type: ignore[attr-defined]
             result = engine.build_all(race_df, entry_df, odds_df)  # noqa: F841
         assert any(
-            "popularity_rank" in rec.message and "fell back" in rec.message
+            "popularity_rank" in rec.message and "tanodds/tanninki" in rec.message
             for rec in caplog.records  # type: ignore[attr-defined]
         )
 
@@ -500,16 +500,16 @@ class TestLeakPrevention:
         # odds 列は tanodds の値に上書きされているはず
         assert result["odds"].tolist() == [3.5, 5.0, 9.0]
 
-    def test_confirmed_odds_preserved(self) -> None:
-        """confirmed_odds 列に元の確定オッズが保存される"""
+    def test_confirmed_odds_dropped_by_safe01(self) -> None:
+        """SAFE-01: confirmed_odds (POST_RACE列) は build_all() 出力から除外される"""
         engine = FeatureEngine()
         race_df = self._make_race_df()
         entry_df = self._make_entry_df(odds=[2.0, 4.0, 7.0], ninki=[1, 2, 3])
         odds_df = self._make_odds_df(tanodds=[3.5, 5.0, 9.0], tanninki=[1, 2, 3])
 
         result = engine.build_all(race_df, entry_df, odds_df)
-        assert "confirmed_odds" in result.columns
-        assert result["confirmed_odds"].tolist() == [2.0, 4.0, 7.0]
+        # SAFE-01: confirmed_odds is a POST_RACE column and must not appear in output
+        assert "confirmed_odds" not in result.columns
 
     def test_running_style_not_created_from_kyakusitukubun(self) -> None:
         """kyakusitukubun が入力にあっても running_style 列は生成されない"""
