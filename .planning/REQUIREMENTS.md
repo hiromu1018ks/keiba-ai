@@ -4,8 +4,8 @@
 
 ### Category 1: Safety & Quality Gate
 
-- [ ] **SAFE-01**: build_all()出口でPOST_RACE_COLSを確実にドロップするリーク修正を適用できる
-- [ ] **SAFE-02**: permutation重要度 + gain重要度を計算するfeature importance監査スクリプトを使用できる
+- [x] **SAFE-01**: build_all()出口でPOST_RACE_COLSを確実にドロップするリーク修正を適用できる
+- [x] **SAFE-02**: permutation重要度 + gain重要度を計算するfeature importance監査スクリプトを使用できる
 
 ### Category 2: Feature Audit & Pruning
 
