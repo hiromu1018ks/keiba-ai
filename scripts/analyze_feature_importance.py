@@ -462,7 +462,13 @@ def _auto_exclude_and_validate(
     else:
         print("  kakuteijyuni列がないため再学習検証をスキップ")
 
-    # FEATURE_COLSから除外
+    # FEATURE_COLSから除外 (注意: クラス変数を破壊的変更 — プロセス全体に影響)
+    logger.warning(
+        "クラスレベルの FEATURE_COLS を破壊的に変更します "
+        "(プロセス内の他以降の処理に影響): %d件除外 -> %d特徴量",
+        len(noise_features),
+        len(WinTwoStageModel.FEATURE_COLS) - len(noise_features),
+    )
     WinTwoStageModel.remove_noise_features(noise_features)
     print(f"  FEATURE_COLS更新: {len(WinTwoStageModel.FEATURE_COLS)}特徴量")
 
