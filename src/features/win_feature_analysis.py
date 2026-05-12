@@ -332,6 +332,113 @@ def classify_feature_tiers(
     return tiers
 
 
+def generate_tier_report(
+    tier_result: dict[str, dict[str, Any]],
+    pivot_df: pd.DataFrame,
+) -> dict[str, Any]:
+    """Tier 1/2の包括的レポートを生成する。
+
+    各特徴量のgain値/perm値を含むモデル別Tierリストと、全モデル横断の
+    Tier 1出現頻度、サマリー、推奨アクションを出力する。
+
+    Args:
+        tier_result: classify_feature_tiers() の戻り値
+            {model_name: {"tier1": [...], "tier2": [...], "tier1_count": int, "tier2_count": int}}
+        pivot_df: compute_all_model_importance() の戻り値 (gain/perm値の参照用)
+
+    Returns:
+        包括的Tier レポートdict
+    """
+    # 各モデルのTier 1/2特徴量にgain値とperm値を付与
+    models_detail: dict[str, dict[str, Any]] = {}
+    for model_name, tier_data in tier_result.items():
+        gain_col = f"{model_name}_gain"
+        perm_col = f"{model_name}_perm"
+
+        # pivot_dfからgain/perm値を取得するヘルパー
+        def _get_feature_values(
+            feature_name: str,
+        ) -> dict[str, float | None]:
+            row_mask = pivot_df["feature"] == feature_name
+            if row_mask.any():
+                row = pivot_df.loc[row_mask].iloc[0]
+                gain_val = row.get(gain_col)
+                perm_val = row.get(perm_col)
+                return {
+                    "gain": float(gain_val) if pd.notna(gain_val) else None,
+                    "perm": float(perm_val) if pd.notna(perm_val) else None,
+                }
+            return {"gain": None, "perm": None}
+
+        tier1_detail: list[dict[str, Any]] = []
+        for feat in tier_data.get("tier1", []):
+            vals = _get_feature_values(feat)
+            tier1_detail.append({
+                "name": feat,
+                "gain": vals["gain"],
+                "perm": vals["perm"],
+                "action": "auto-remove",
+            })
+
+        tier2_detail: list[dict[str, Any]] = []
+        for feat in tier_data.get("tier2", []):
+            vals = _get_feature_values(feat)
+            tier2_detail.append({
+                "name": feat,
+                "gain": vals["gain"],
+                "perm": vals["perm"],
+                "action": "review manually",
+            })
+
+        models_detail[model_name] = {
+            "tier1": tier1_detail,
+            "tier2": tier2_detail,
+            "tier1_count": tier_data.get("tier1_count", 0),
+            "tier2_count": tier_data.get("tier2_count", 0),
+        }
+
+    # 全モデル横断のTier 1出現頻度
+    tier1_frequency: dict[str, dict[str, Any]] = {}
+    for model_name, tier_data in tier_result.items():
+        for feat in tier_data.get("tier1", []):
+            if feat not in tier1_frequency:
+                tier1_frequency[feat] = {
+                    "count": 0,
+                    "models": [],
+                }
+            tier1_frequency[feat]["count"] += 1
+            tier1_frequency[feat]["models"].append(model_name)
+
+    # 出現頻度で降順ソート
+    tier1_frequency_sorted = dict(
+        sorted(tier1_frequency.items(), key=lambda x: x[1]["count"], reverse=True)
+    )
+
+    # サマリー
+    total_tier1 = sum(
+        tier_data.get("tier1_count", 0) for tier_data in tier_result.values()
+    )
+    total_tier2 = sum(
+        tier_data.get("tier2_count", 0) for tier_data in tier_result.values()
+    )
+    unique_tier1_features = len(tier1_frequency)
+
+    return {
+        "models": models_detail,
+        "cross_model_tier1_frequency": tier1_frequency_sorted,
+        "summary": {
+            "total_tier1_count": total_tier1,
+            "total_tier2_count": total_tier2,
+            "unique_tier1_features": unique_tier1_features,
+            "total_models_analyzed": len(tier_result),
+        },
+        "recommendations": {
+            "tier1_action": "auto-remove",
+            "tier2_action": "review manually",
+        },
+    }
+
+
 def validate_noise_removal(
     original_model: lgb.Booster,
     df: pd.DataFrame,
