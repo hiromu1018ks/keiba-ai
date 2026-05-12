@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v1.6
 milestone_name: Feature Engineering Overhaul
-status: planning
-stopped_at: Phase 25 context gathered
-last_updated: "2026-05-12T13:24:14.505Z"
+status: ready-to-execute
+stopped_at: Phase 25 planned (2 plans)
+last_updated: "2026-05-12"
 last_activity: 2026-05-12
 progress:
   total_phases: 6
   completed_phases: 2
-  total_plans: 4
+  total_plans: 6
   completed_plans: 4
   percent: 100
 ---
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-05-10)
 ## Current Position
 
 Phase: 25 of 28 (quick win wire existing)
-Status: Ready to plan
+Status: Ready to execute
 Last activity: 2026-05-12
 
 Progress: [████░░░░░░░░░░░░░░░░░░] 50%
