@@ -124,9 +124,24 @@ def main() -> None:
         default="feature_importance_report.json",
         help="JSON出力パス (default: feature_importance_report.json)",
     )
+    parser.add_argument(
+        "--tier-report",
+        action="store_true",
+        default=False,
+        help="Tier 1/2分類レポートをJSON出力 (--all-models相当の動作を自動有効化)",
+    )
+    parser.add_argument(
+        "--tier-output",
+        default="data/audit/tier_report.json",
+        help="Tier レポート出力パス (default: data/audit/tier_report.json)",
+    )
     args = parser.parse_args()
 
     model_dir = args.model_dir.rstrip("/")
+
+    # --tier-report は --all-models を自動有効化
+    if args.tier_report:
+        args.all_models = True
 
     if args.all_models:
         _run_all_models(args, model_dir)
@@ -289,6 +304,54 @@ def _run_all_models(args: argparse.Namespace, model_dir: str) -> None:
         # numpy型をPython型に変換
         _save_json(metadata, args.output_json)
         logger.info("JSON保存: %s", args.output_json)
+
+    # Tier レポート (--tier-report 指定時)
+    if args.tier_report:
+        _run_tier_report(pivot_df, metadata, args.tier_output, models)
+
+
+def _run_tier_report(
+    pivot_df: "pd.DataFrame",  # noqa: F821
+    metadata: dict,
+    output_path: str,
+    models: dict,
+) -> None:
+    """classify_feature_tiers() を呼び出してTier レポートをJSON出力する。"""
+    from datetime import datetime, timezone
+
+    from features.win_feature_analysis import classify_feature_tiers
+
+    tiers = classify_feature_tiers(pivot_df, metadata)
+
+    # レポート構築
+    report: dict = {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "models": {},
+        "tier1_definition": "Gain=0 AND Perm<=0 (or Gain=0 for NaN perm models)",
+        "tier2_definition": "Bottom 10% gain percentile, excluding Tier 1",
+    }
+    for model_name, tier_data in tiers.items():
+        total = len(models[model_name].feature_name()) if model_name in models else 0
+        report["models"][model_name] = {
+            "tier1": tier_data["tier1"],
+            "tier2": tier_data["tier2"],
+            "tier1_count": tier_data["tier1_count"],
+            "tier2_count": tier_data["tier2_count"],
+            "total_features": total,
+        }
+        print(
+            f"  {model_name}: Tier 1 = {tier_data['tier1_count']}件, "
+            f"Tier 2 = {tier_data['tier2_count']}件"
+        )
+
+    # 出力ディレクトリを自動作成
+    output_dir = os.path.dirname(output_path)
+    if output_dir:
+        os.makedirs(output_dir, exist_ok=True)
+
+    _save_json(report, output_path)
+    logger.info("Tier レポート保存: %s", output_path)
+    print(f"\n=== Tier レポート出力: {output_path} ===")
 
 
 def _save_json(data: dict, path: str) -> None:
