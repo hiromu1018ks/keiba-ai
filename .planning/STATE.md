@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.6
 milestone_name: Feature Engineering Overhaul
 status: ready_to_plan
-stopped_at: Phase 23 planned
-last_updated: "2026-05-11T14:30:00.000Z"
-last_activity: 2026-05-11 — Phase 23 planned (2 plans, 1 wave)
+stopped_at: Phase 24 context gathered
+last_updated: "2026-05-12T00:00:00.000Z"
+last_activity: 2026-05-12 — Phase 24 context gathered (Tier 1/2 pruning, code-hash cache, staged ROI verify)
 progress:
   total_phases: 6
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 2
   completed_plans: 0
-  percent: 17
+  percent: 33
 ---
 
 # Project State
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-05-10)
 
 **Core value:** 単勝モデルのバックテストROIを100%超えにすること
-**Current focus:** v1.6 Phase 23: Safety Gate
+**Current focus:** v1.6 Phase 24: Feature Audit & Pruning
 
 ## Current Position
 
 Phase: 24 of 28 (feature audit & pruning)
-Plan: Not started
+Plan: Context gathered
 Status: Ready to plan
-Last activity: 2026-05-11
+Last activity: 2026-05-12
 
 Progress: [░░░░░░░░░░░░░░░░░░░░] 0%
 
@@ -71,7 +71,7 @@ Recent decisions affecting current work:
 
 ### Blockers/Concerns
 
-None — ready for Phase 23 planning
+None — ready for Phase 24 planning
 
 ## Deferred Items
 
@@ -86,6 +86,6 @@ Items acknowledged and deferred at milestone close:
 
 ## Session Continuity
 
-Last session: 2026-05-11T13:17:58.829Z
-Stopped at: Phase 23 context gathered
-Resume file: .planning/phases/23-safety-gate/23-CONTEXT.md
+Last session: 2026-05-12T00:00:00.000Z
+Stopped at: Phase 24 context gathered
+Resume file: .planning/phases/24-feature-audit-pruning/24-CONTEXT.md
