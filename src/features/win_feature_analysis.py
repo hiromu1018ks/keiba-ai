@@ -358,12 +358,14 @@ def generate_tier_report(
         # pivot_dfからgain/perm値を取得するヘルパー
         def _get_feature_values(
             feature_name: str,
+            _gain_col: str = gain_col,
+            _perm_col: str = perm_col,
         ) -> dict[str, float | None]:
             row_mask = pivot_df["feature"] == feature_name
             if row_mask.any():
                 row = pivot_df.loc[row_mask].iloc[0]
-                gain_val = row.get(gain_col)
-                perm_val = row.get(perm_col)
+                gain_val = row.get(_gain_col)
+                perm_val = row.get(_perm_col)
                 return {
                     "gain": float(gain_val) if pd.notna(gain_val) else None,
                     "perm": float(perm_val) if pd.notna(perm_val) else None,
