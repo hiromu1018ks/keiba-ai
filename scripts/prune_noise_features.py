@@ -515,6 +515,21 @@ def run_full_bt_roi_check(
         cwd=ROOT,
     )
 
+    # バックテスト失敗時は即座にエラー結果を返す (古い結果JSONの誤読防止)
+    if result.returncode != 0:
+        logger.error(
+            "バックテスト実行失敗 (returncode=%d): %s",
+            result.returncode, result.stderr,
+        )
+        return {
+            "error": "backtest execution failed",
+            "bt_returncode": result.returncode,
+            "roi_improved": False,
+            "baseline_roi": baseline_roi,
+            "pruned_roi": 0.0,
+            "roi_delta": -baseline_roi,
+        }
+
     # バックテスト結果JSONからROIを読み取り
     bt_result_path = os.path.join(ROOT, "backtest_result.json")
     pruned_roi = 0.0
