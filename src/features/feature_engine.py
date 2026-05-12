@@ -34,18 +34,55 @@ _GRADE_LEVEL_MAP: dict[str, float] = {
 }
 
 
+def compute_code_hash(features_dir: str | Path = "src/features") -> str:
+    """src/features/ 配下の全 .py ファイルの内容ハッシュを計算する。
+
+    特徴量モジュールの変更を自動検出してキャッシュを無効化するために使用。
+
+    Args:
+        features_dir: 特徴量モジュールのディレクトリパス
+
+    Returns:
+        SHA-256 hexdigest の先頭16文字。ファイルが0個の場合は空文字。
+    """
+    py_files = sorted(Path(features_dir).glob("*.py"))
+    if not py_files:
+        return ""
+    h = hashlib.sha256()
+    for py_file in py_files:
+        try:
+            h.update(py_file.read_bytes())
+        except OSError:
+            logger.warning("コードハッシュ計算中にファイル読み込み失敗: %s", py_file)
+            return ""
+    return h.hexdigest()[:16]
+
+
 def compute_cache_key(
     input_paths: list[Path],
     date_range: tuple[str, str] | None,
     feature_type: str,
+    *,
+    code_hash: str | None = None,
 ) -> str:
-    """キャッシュキーを計算: 入力パス + 日付範囲 + 特徴量種別 -> SHA-256先頭16文字"""
+    """キャッシュキーを計算: 入力パス + 日付範囲 + 特徴量種別 + コードハッシュ -> SHA-256先頭16文字
+
+    Args:
+        input_paths: ソースParquetファイルのパスリスト
+        date_range: (開始日, 終了日) のタプル or None
+        feature_type: 特徴量種別 ("build_all" 等)
+        code_hash: compute_code_hash() の戻り値 (None時は空文字、後方互換)
+
+    Returns:
+        SHA-256 hexdigest の先頭16文字
+    """
     payload = json.dumps(
         {
             "paths": [str(p) for p in sorted(input_paths)],
             "start": date_range[0] if date_range else "",
             "end": date_range[1] if date_range else "",
             "type": feature_type,
+            "code_hash": code_hash or "",
         },
         sort_keys=True,
     )
@@ -134,6 +171,30 @@ class FeatureEngine:
         self._use_cache = use_cache
         self._cache_dir = cache_dir
 
+    def _cleanup_stale_cache(self, cache_dir: Path, current_cache_name: str) -> None:
+        """古いキャッシュファイル (feat_*.parquet) を削除する。
+
+        現在のキャッシュ名と一致しないファイルを全て削除する。
+        ディスク容量の無駄な消費を防止する。
+
+        Args:
+            cache_dir: キャッシュディレクトリのパス
+            current_cache_name: 現在のキャッシュファイル名 (拡張子なし)
+        """
+        if not cache_dir.exists():
+            return
+        stale_files = [
+            f for f in cache_dir.glob("feat_*.parquet")
+            if f.stem != current_cache_name
+        ]
+        for stale_file in stale_files:
+            try:
+                stale_file.unlink()
+            except OSError:
+                logger.warning("古いキャッシュファイルの削除に失敗: %s", stale_file)
+        if stale_files:
+            logger.info("古いキャッシュファイル %d件を削除", len(stale_files))
+
     def build_all(
         self,
         race_df: pd.DataFrame,
@@ -183,7 +244,10 @@ class FeatureEngine:
                             str(rd_valid.max().date()),
                         )
 
-                cache_key = compute_cache_key(source_paths, date_range, "build_all")
+                cache_key = compute_cache_key(
+                    source_paths, date_range, "build_all",
+                    code_hash=compute_code_hash(),
+                )
                 _cache_name = f"feat_{cache_key}"
                 cache_path = data_dir / self._cache_dir / f"{_cache_name}.parquet"
 
@@ -308,6 +372,7 @@ class FeatureEngine:
         if self._use_cache and _cache_name is not None and not result_df.empty:
             try:
                 if store is not None:
+                    self._cleanup_stale_cache(data_dir / self._cache_dir, _cache_name)
                     store.write(self._cache_dir, _cache_name, result_df)
                     logger.info("Feature cache SAVED: %s (%d rows)", _cache_name, len(result_df))
             except Exception:

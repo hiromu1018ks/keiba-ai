@@ -764,3 +764,124 @@ class TestFeatureCache:
         assert len(result) == 18
         # store.write() should not be called for cache save when cache is disabled
         mock_store.write.assert_not_called()
+
+
+class TestCodeHash:
+    """compute_code_hash() と compute_cache_key() 拡張のテスト"""
+
+    def test_compute_code_hash_returns_hex_string(self, tmp_path: object) -> None:
+        """正常系で16文字hex文字列が返る"""
+        import pathlib
+
+        from features.feature_engine import compute_code_hash
+
+        features_dir = pathlib.Path(str(tmp_path)) / "features"
+        features_dir.mkdir()
+        (features_dir / "engine.py").write_text("x = 1", encoding="utf-8")
+        (features_dir / "helper.py").write_text("y = 2", encoding="utf-8")
+
+        result = compute_code_hash(str(features_dir))
+        assert isinstance(result, str)
+        assert len(result) == 16
+        # hex文字列であることを確認
+        assert all(c in "0123456789abcdef" for c in result)
+
+    def test_compute_code_hash_changes_on_file_change(self, tmp_path: object) -> None:
+        """tmp_path配下の.pyファイル変更でハッシュが変わる"""
+        import pathlib
+
+        from features.feature_engine import compute_code_hash
+
+        features_dir = pathlib.Path(str(tmp_path)) / "features"
+        features_dir.mkdir()
+        (features_dir / "engine.py").write_text("x = 1", encoding="utf-8")
+
+        hash1 = compute_code_hash(str(features_dir))
+        (features_dir / "engine.py").write_text("x = 2", encoding="utf-8")
+        hash2 = compute_code_hash(str(features_dir))
+
+        assert hash1 != hash2
+
+    def test_compute_code_hash_empty_dir(self, tmp_path: object) -> None:
+        """.pyファイルがない場合は空文字"""
+        import pathlib
+
+        from features.feature_engine import compute_code_hash
+
+        features_dir = pathlib.Path(str(tmp_path)) / "features"
+        features_dir.mkdir()
+
+        result = compute_code_hash(str(features_dir))
+        assert result == ""
+
+    def test_compute_cache_key_with_code_hash(self) -> None:
+        """code_hash引数付きでハッシュが変わる"""
+        from pathlib import Path
+
+        from features.feature_engine import compute_cache_key
+
+        paths = [Path("data/raw/races.parquet")]
+        key_no_hash = compute_cache_key(paths, ("2020-01-01", "2023-12-31"), "build_all")
+        key_with_hash = compute_cache_key(
+            paths, ("2020-01-01", "2023-12-31"), "build_all",
+            code_hash="abc123",
+        )
+        key_other_hash = compute_cache_key(
+            paths, ("2020-01-01", "2023-12-31"), "build_all",
+            code_hash="def456",
+        )
+        assert key_no_hash != key_with_hash
+        assert key_with_hash != key_other_hash
+
+    def test_compute_cache_key_backward_compatible(self) -> None:
+        """code_hash=Noneで従来と同じキーが返る (後方互換)"""
+        from pathlib import Path
+
+        from features.feature_engine import compute_cache_key
+
+        paths = [Path("data/raw/races.parquet")]
+        # 従来の3引数呼び出し (code_hashなし)
+        key_old_style = compute_cache_key(paths, ("2020-01-01", "2023-12-31"), "build_all")
+        # 新しい呼び出し (code_hash=None)
+        key_new_style = compute_cache_key(
+            paths, ("2020-01-01", "2023-12-31"), "build_all",
+            code_hash=None,
+        )
+        # code_hash="" と明示的に指定した場合も同じ
+        key_explicit_empty = compute_cache_key(
+            paths, ("2020-01-01", "2023-12-31"), "build_all",
+            code_hash="",
+        )
+        assert key_old_style == key_new_style
+        assert key_old_style == key_explicit_empty
+
+
+class TestCleanupStaleCache:
+    """_cleanup_stale_cache() のテスト"""
+
+    def test_cleanup_stale_cache_removes_old_files(self, tmp_path: object) -> None:
+        """古いfeat_*.parquetが削除され新しいものは残る"""
+        import pathlib
+
+        cache_dir = pathlib.Path(str(tmp_path)) / "cache"
+        cache_dir.mkdir()
+        current_name = "feat_abc123"
+
+        # 現在のキャッシュファイル
+        (cache_dir / f"{current_name}.parquet").write_bytes(b"current")
+        # 古いキャッシュファイル
+        (cache_dir / "feat_old001.parquet").write_bytes(b"old1")
+        (cache_dir / "feat_old002.parquet").write_bytes(b"old2")
+        # 関係ないファイル
+        (cache_dir / "other.txt").write_text("keep", encoding="utf-8")
+
+        engine = FeatureEngine()
+        engine._cleanup_stale_cache(cache_dir, current_name)
+
+        # 現在のキャッシュは残る
+        assert (cache_dir / f"{current_name}.parquet").exists()
+        # 古いキャッシュは削除される
+        assert not (cache_dir / "feat_old001.parquet").exists()
+        assert not (cache_dir / "feat_old002.parquet").exists()
+        # 関係ないファイルは残る
+        assert (cache_dir / "other.txt").exists()
