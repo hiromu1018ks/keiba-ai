@@ -270,6 +270,68 @@ def compute_all_model_importance(
     return pivot_df, metadata
 
 
+def classify_feature_tiers(
+    pivot_df: pd.DataFrame,
+    metadata: dict[str, Any],
+    *,
+    tier2_percentile: float = 10.0,
+) -> dict[str, dict[str, Any]]:
+    """特徴量をTier 1 (確実なノイズ) とTier 2 (低重要度フラグ) に分類する。
+
+    Tier 1 (自動除外候補): gain == 0 AND perm_mean <= 0。
+        perm_mean が NaN のモデル (return/E-correction系) では gain == 0 のみで判定。
+    Tier 2 (ユーザー判断): Tier 1 に含まれず、gain > 0 かつ
+        gain が当該モデル内の非ゼロgain値の下位 tier2_percentile% に位置する特徴量。
+
+    Args:
+        pivot_df: compute_all_model_importance() の戻り値
+        metadata: compute_all_model_importance() の戻り値
+        tier2_percentile: Tier 2の下位パーセンタイル閾値 (デフォルト 10.0)
+
+    Returns:
+        {model_name: {"tier1": [...], "tier2": [...], "tier1_count": int, "tier2_count": int}}
+    """
+    tiers: dict[str, dict[str, Any]] = {}
+
+    for model_name, model_data in metadata["models"].items():
+        gain_dict: dict[str, float] = model_data["gain"]
+        perm_dict: dict[str, float] = model_data["perm_mean"]
+
+        tier1_features: list[str] = []
+        tier2_features: list[str] = []
+
+        # Tier 1判定: gain == 0 AND (perm_mean <= 0 OR perm_mean is NaN)
+        for feat_name, gain_val in gain_dict.items():
+            perm_val = perm_dict.get(feat_name, float("nan"))
+            if gain_val == 0 and (np.isnan(perm_val) or perm_val <= 0):
+                tier1_features.append(feat_name)
+
+        # Tier 2判定: Tier 1に含まれず、gain > 0 かつ下位パーセンタイル
+        tier1_set = set(tier1_features)
+        nonzero_gains = {f: g for f, g in gain_dict.items() if g > 0 and f not in tier1_set}
+        if nonzero_gains:
+            threshold = np.percentile(list(nonzero_gains.values()), tier2_percentile)
+            tier2_features = sorted(
+                f for f, g in nonzero_gains.items() if g <= threshold
+            )
+
+        tiers[model_name] = {
+            "tier1": sorted(tier1_features),
+            "tier2": tier2_features,
+            "tier1_count": len(tier1_features),
+            "tier2_count": len(tier2_features),
+        }
+
+        logger.info(
+            "モデル '%s': Tier 1 = %d件, Tier 2 = %d件",
+            model_name,
+            len(tier1_features),
+            len(tier2_features),
+        )
+
+    return tiers
+
+
 def validate_noise_removal(
     original_model: lgb.Booster,
     df: pd.DataFrame,

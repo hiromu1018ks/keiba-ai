@@ -12,6 +12,7 @@ from unittest.mock import MagicMock
 
 from features.win_feature_analysis import (
     analyze_feature_importance,
+    classify_feature_tiers,
     identify_noise_features,
     validate_noise_removal,
 )
@@ -313,3 +314,154 @@ class TestCSVReportIsNoise:
         assert importance_df["is_noise"].dtype == bool
         assert importance_df.loc[importance_df["feature"] == "feat_c", "is_noise"].iloc[0] == True  # noqa: E712
         assert importance_df.loc[importance_df["feature"] == "feat_a", "is_noise"].iloc[0] == False  # noqa: E712
+
+
+# ---------------------------------------------------------------------------
+# classify_feature_tiers() のテスト
+# ---------------------------------------------------------------------------
+
+
+def _make_tier_metadata(
+    models: dict[str, dict[str, dict[str, float]]],
+) -> dict[str, object]:
+    """classify_feature_tiers() 用のmetadata辞書を簡易生成する。
+
+    Args:
+        models: {model_name: {"gain": {feat: val, ...}, "perm_mean": {feat: val, ...}}}
+    """
+    result: dict[str, object] = {"models": {}}
+    for model_name, data in models.items():
+        result["models"][model_name] = {
+            "gain": data["gain"],
+            "perm_mean": data["perm_mean"],
+            "perm_std": {f: 0.0 for f in data["gain"]},
+        }
+    return result
+
+
+def _make_tier_pivot_df(
+    features: list[str],
+    model_name: str,
+    gain_dict: dict[str, float],
+) -> pd.DataFrame:
+    """classify_feature_tiers() 用のpivot_dfを簡易生成する。"""
+    data: dict[str, list[object]] = {"feature": features}
+    data[f"{model_name}_gain"] = [gain_dict.get(f, float("nan")) for f in features]
+    data[f"{model_name}_perm"] = [0.0] * len(features)
+    return pd.DataFrame(data)
+
+
+class TestClassifyFeatureTiers:
+    """classify_feature_tiers() のテスト"""
+
+    def test_tier1_identifies_gain_zero_perm_negative(self) -> None:
+        """Gain=0 AND Perm<=0 の特徴量をTier 1とする"""
+        gain = {"f_a": 100.0, "f_b": 50.0, "f_c": 0.0, "f_d": 0.0}
+        perm = {"f_a": 0.05, "f_b": 0.02, "f_c": -0.01, "f_d": 0.0}
+        features = list(gain.keys())
+        metadata = _make_tier_metadata({
+            "win_hit": {"gain": gain, "perm_mean": perm},
+        })
+        pivot_df = _make_tier_pivot_df(features, "win_hit", gain)
+
+        result = classify_feature_tiers(pivot_df, metadata)
+
+        assert "win_hit" in result
+        assert "f_c" in result["win_hit"]["tier1"]  # gain=0, perm=-0.01
+        assert "f_d" in result["win_hit"]["tier1"]  # gain=0, perm=0.0
+        assert "f_a" not in result["win_hit"]["tier1"]
+        assert "f_b" not in result["win_hit"]["tier1"]
+
+    def test_tier1_nan_perm_uses_gain_only(self) -> None:
+        """Perm NaNの場合、Gain=0 のみでTier 1判定する"""
+        gain = {"f_a": 100.0, "f_b": 0.0, "f_c": 50.0}
+        perm = {"f_a": 0.05, "f_b": float("nan"), "f_c": float("nan")}
+        features = list(gain.keys())
+        metadata = _make_tier_metadata({
+            "win_return": {"gain": gain, "perm_mean": perm},
+        })
+        pivot_df = _make_tier_pivot_df(features, "win_return", gain)
+
+        result = classify_feature_tiers(pivot_df, metadata)
+
+        assert "f_b" in result["win_return"]["tier1"]  # gain=0, perm=NaN -> Tier 1
+        assert "f_c" not in result["win_return"]["tier1"]  # gain=50, perm=NaN -> NOT Tier 1
+
+    def test_tier2_identifies_low_gain_percentile(self) -> None:
+        """Tier 2が下位10%を正しく特定する"""
+        # 20特徴量: gain = 100, 90, 80, ..., 10, 5, 1
+        gain_vals = [float(100 - i * 5) for i in range(19)] + [1.0]
+        features = [f"f_{i:02d}" for i in range(20)]
+        gain = dict(zip(features, gain_vals))
+        # 全てperm > 0 なのでTier 1はなし
+        perm = {f: 0.01 for f in features}
+        metadata = _make_tier_metadata({
+            "win_hit": {"gain": gain, "perm_mean": perm},
+        })
+        pivot_df = _make_tier_pivot_df(features, "win_hit", gain)
+
+        result = classify_feature_tiers(pivot_df, metadata, tier2_percentile=10.0)
+
+        tier2 = result["win_hit"]["tier2"]
+        # Tier 1は空 (全て gain > 0, perm > 0)
+        assert result["win_hit"]["tier1"] == []
+        # Tier 2は下位10%の特徴量を含む (gain最低の特徴量群)
+        assert len(tier2) > 0
+        # f_19 (gain=1.0) は最も低いgainなのでTier 2に含まれるべき
+        assert "f_19" in tier2
+
+    def test_no_overlap_between_tiers(self) -> None:
+        """Tier 1とTier 2に重複がないことを確認"""
+        gain = {"f_a": 100.0, "f_b": 0.0, "f_c": 50.0, "f_d": 0.0, "f_e": 1.0}
+        perm = {"f_a": 0.05, "f_b": -0.01, "f_c": 0.02, "f_d": 0.0, "f_e": 0.001}
+        features = list(gain.keys())
+        metadata = _make_tier_metadata({
+            "win_hit": {"gain": gain, "perm_mean": perm},
+        })
+        pivot_df = _make_tier_pivot_df(features, "win_hit", gain)
+
+        result = classify_feature_tiers(pivot_df, metadata)
+
+        tier1_set = set(result["win_hit"]["tier1"])
+        tier2_set = set(result["win_hit"]["tier2"])
+        assert tier1_set.isdisjoint(tier2_set), (
+            f"Tier 1とTier 2に重複あり: {tier1_set & tier2_set}"
+        )
+
+    def test_returns_per_model_structure(self) -> None:
+        """戻り値がモデル別dict構造であることを確認"""
+        gain_m1 = {"f_a": 100.0, "f_b": 0.0}
+        perm_m1 = {"f_a": 0.05, "f_b": -0.01}
+        gain_m2 = {"f_a": 0.0, "f_b": 50.0, "f_c": 30.0}
+        perm_m2 = {"f_a": float("nan"), "f_b": 0.02, "f_c": 0.01}
+        metadata = _make_tier_metadata({
+            "model_a": {"gain": gain_m1, "perm_mean": perm_m1},
+            "model_b": {"gain": gain_m2, "perm_mean": perm_m2},
+        })
+        # pivot_dfには両モデルの列が必要
+        all_features = sorted(set(gain_m1.keys()) | set(gain_m2.keys()))
+        pivot_df = pd.DataFrame({
+            "feature": all_features,
+            "model_a_gain": [gain_m1.get(f, float("nan")) for f in all_features],
+            "model_a_perm": [perm_m1.get(f, float("nan")) for f in all_features],
+            "model_b_gain": [gain_m2.get(f, float("nan")) for f in all_features],
+            "model_b_perm": [perm_m2.get(f, float("nan")) for f in all_features],
+        })
+
+        result = classify_feature_tiers(pivot_df, metadata)
+
+        assert "model_a" in result
+        assert "model_b" in result
+        for model_key in ("model_a", "model_b"):
+            assert "tier1" in result[model_key]
+            assert "tier2" in result[model_key]
+            assert "tier1_count" in result[model_key]
+            assert "tier2_count" in result[model_key]
+            assert isinstance(result[model_key]["tier1"], list)
+            assert isinstance(result[model_key]["tier2"], list)
+            assert result[model_key]["tier1_count"] == len(result[model_key]["tier1"])
+            assert result[model_key]["tier2_count"] == len(result[model_key]["tier2"])
+        # model_a: f_b (gain=0, perm=-0.01) -> Tier 1
+        assert "f_b" in result["model_a"]["tier1"]
+        # model_b: f_a (gain=0, perm=NaN) -> Tier 1
+        assert "f_a" in result["model_b"]["tier1"]
