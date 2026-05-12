@@ -99,6 +99,21 @@ class WinTwoStageModel:
         # ODDS-01: オッズ乖離レース内相対特徴量
         "deviation_rank",
         "deviation_zscore",
+        # 騎手コンテキスト (Group C, Stage2)
+        "jockey_wr_overall",
+        "jockey_wr_distance",
+        "jockey_wr_venue",
+        "jockey_prize_log",
+        # 調教師コンテキスト (Group D, Stage2)
+        "trainer_wr_overall",
+        "trainer_wr_distance",
+        "trainer_wr_venue",
+        "trainer_prize_log",
+        # 騎手-調教師コンビ (Stage2)
+        "jt_combo_wr",
+        "jt_combo_place_rate",
+        "jt_combo_starts",
+        "jt_combo_prize_log",
     ]
 
     def __init__(self, cfg: TwoStageConfig | None = None) -> None:
@@ -307,6 +322,15 @@ class PlaceTwoStageModel:
         "jockey_wr_overall",
         "trainer_wr_overall",
         "jt_combo_place_rate",
+        "jockey_wr_distance",
+        "jockey_wr_venue",
+        "jockey_prize_log",
+        "trainer_wr_distance",
+        "trainer_wr_venue",
+        "trainer_prize_log",
+        "jt_combo_wr",
+        "jt_combo_starts",
+        "jt_combo_prize_log",
         "course_wr",
         "draw_ratio",
         "class_move",
@@ -397,6 +421,21 @@ class PlaceTwoStageModel:
         # ODDS-01: Phase 6 deviation features
         "deviation_rank",
         "deviation_zscore",
+        # 騎手コンテキスト (Group C, Stage2)
+        "jockey_wr_overall",
+        "jockey_wr_distance",
+        "jockey_wr_venue",
+        "jockey_prize_log",
+        # 調教師コンテキスト (Group D, Stage2)
+        "trainer_wr_overall",
+        "trainer_wr_distance",
+        "trainer_wr_venue",
+        "trainer_prize_log",
+        # 騎手-調教師コンビ (Stage2)
+        "jt_combo_wr",
+        "jt_combo_place_rate",
+        "jt_combo_starts",
+        "jt_combo_prize_log",
     ]
 
     # 後方互換: FEATURE_COLS は return model のリストを返す (最も情報量が多いため)
