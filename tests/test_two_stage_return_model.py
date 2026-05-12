@@ -55,8 +55,17 @@ def feature_df() -> pd.DataFrame:
             "blood_surface_wr": [0.18, 0.16, 0.14, 0.12, 0.10, 0.08, 0.06, 0.04],
             "blood_distance_wr": [0.15, 0.13, 0.12, 0.10, 0.09, 0.07, 0.05, 0.03],
             "jockey_wr_overall": [0.14, 0.13, 0.12, 0.11, 0.10, 0.09, 0.07, 0.05],
+            "jockey_wr_distance": [0.12, 0.11, 0.10, 0.09, 0.08, 0.07, 0.05, 0.03],
+            "jockey_wr_venue": [0.13, 0.12, 0.11, 0.10, 0.09, 0.08, 0.06, 0.04],
+            "jockey_prize_log": [14.0, 13.5, 13.0, 12.5, 12.0, 11.5, 10.5, 9.5],
             "trainer_wr_overall": [0.12, 0.11, 0.10, 0.09, 0.08, 0.06, 0.05, 0.03],
+            "trainer_wr_distance": [0.11, 0.10, 0.09, 0.08, 0.07, 0.06, 0.04, 0.02],
+            "trainer_wr_venue": [0.10, 0.09, 0.08, 0.07, 0.06, 0.05, 0.04, 0.02],
+            "trainer_prize_log": [13.5, 13.0, 12.5, 12.0, 11.5, 11.0, 10.0, 9.0],
+            "jt_combo_wr": [0.15, 0.13, 0.11, 0.09, 0.07, 0.05, 0.03, 0.01],
             "jt_combo_place_rate": [0.32, 0.29, 0.26, 0.23, 0.19, 0.16, 0.12, 0.08],
+            "jt_combo_starts": [50, 45, 40, 35, 30, 25, 20, 15],
+            "jt_combo_prize_log": [14.0, 13.5, 13.0, 12.5, 12.0, 11.5, 11.0, 10.0],
             "course_wr": [0.17, 0.15, 0.13, 0.11, 0.09, 0.07, 0.05, 0.03],
             # その他
             "finish_pos": [1, 2, 3, 4, 5, 6, 7, 8],
@@ -575,3 +584,60 @@ class TestHistoryFeaturesInFeatureCols:
         assert len(cols) >= 31, (
             f"Expected >= 31 FEATURE_COLS, got {len(cols)}: {cols}"
         )
+
+
+class TestJockeyTrainerComboInFeatureCols:
+    """騎手・調教師・コンビ12特徴量のFEATURE_COLS統合テスト"""
+
+    JT_FEATURES: list[str] = [
+        "jockey_wr_overall",
+        "jockey_wr_distance",
+        "jockey_wr_venue",
+        "jockey_prize_log",
+        "trainer_wr_overall",
+        "trainer_wr_distance",
+        "trainer_wr_venue",
+        "trainer_prize_log",
+        "jt_combo_wr",
+        "jt_combo_place_rate",
+        "jt_combo_starts",
+        "jt_combo_prize_log",
+    ]
+
+    def test_jockey_trainer_combo_in_win_feature_cols(self) -> None:
+        """12特徴量がWinTwoStageModel.FEATURE_COLSに含まれる"""
+        for name in self.JT_FEATURES:
+            assert name in WinTwoStageModel.FEATURE_COLS, (
+                f"{name} should be in WinTwoStageModel.FEATURE_COLS"
+            )
+
+    def test_jockey_trainer_combo_in_place_hit_feature_cols(self) -> None:
+        """12特徴量がPlaceTwoStageModel.HIT_FEATURE_COLSに含まれる"""
+        for name in self.JT_FEATURES:
+            assert name in PlaceTwoStageModel.HIT_FEATURE_COLS, (
+                f"{name} should be in PlaceTwoStageModel.HIT_FEATURE_COLS"
+            )
+
+    def test_jockey_trainer_combo_in_place_return_feature_cols(self) -> None:
+        """12特徴量がPlaceTwoStageModel.RETURN_FEATURE_COLSに含まれる"""
+        for name in self.JT_FEATURES:
+            assert name in PlaceTwoStageModel.RETURN_FEATURE_COLS, (
+                f"{name} should be in PlaceTwoStageModel.RETURN_FEATURE_COLS"
+            )
+
+    def test_no_duplicates(self) -> None:
+        """FEATURE_COLSに重複がない"""
+        for name, cols in [
+            ("WinTwoStageModel", WinTwoStageModel.FEATURE_COLS),
+            ("PlaceTwoStageModel.HIT", PlaceTwoStageModel.HIT_FEATURE_COLS),
+            ("PlaceTwoStageModel.RETURN", PlaceTwoStageModel.RETURN_FEATURE_COLS),
+        ]:
+            assert len(cols) == len(set(cols)), (
+                f"{name} FEATURE_COLS has duplicates"
+            )
+
+    def test_minimum_count(self) -> None:
+        """FEATURE_COLSが最低50件である"""
+        assert len(WinTwoStageModel.FEATURE_COLS) >= 50
+        assert len(PlaceTwoStageModel.HIT_FEATURE_COLS) >= 54
+        assert len(PlaceTwoStageModel.RETURN_FEATURE_COLS) >= 55

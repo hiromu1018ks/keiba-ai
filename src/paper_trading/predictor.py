@@ -53,6 +53,7 @@ class PaperPredictor:
         from features.feature_engine import FeatureEngine
         from features.horse_history_features import HorseHistoryFeatures
         from features.jockey_context_features import JockeyContextFeatures
+        from features.jockey_trainer_combo import JockeyTrainerComboFeatures
         from features.trainer_context_features import TrainerContextFeatures
         from models.submodel_manager import SubModelManager
 
@@ -103,8 +104,11 @@ class PaperPredictor:
         trainer_ctx = TrainerContextFeatures(self.store)
         trainer_df = trainer_ctx.compute(entry_df)
 
+        jt_combo = JockeyTrainerComboFeatures(self.store)
+        jt_combo_df = jt_combo.compute(entry_df)
+
         # マージして保存
-        for col_df in [hist_df, jockey_df, trainer_df]:
+        for col_df in [hist_df, jockey_df, trainer_df, jt_combo_df]:
             if not col_df.empty:
                 common_cols = [c for c in col_df.columns if c in ["race_id", "umaban"]]
                 merge_cols = [
