@@ -309,7 +309,7 @@ def classify_feature_tiers(
         # Tier 2判定: Tier 1に含まれず、gain > 0 かつ下位パーセンタイル
         tier1_set = set(tier1_features)
         nonzero_gains = {f: g for f, g in gain_dict.items() if g > 0 and f not in tier1_set}
-        if nonzero_gains:
+        if len(nonzero_gains) >= 5:
             threshold = np.percentile(list(nonzero_gains.values()), tier2_percentile)
             tier2_features = sorted(
                 f for f, g in nonzero_gains.items() if g <= threshold
