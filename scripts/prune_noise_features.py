@@ -764,10 +764,10 @@ def main() -> None:
     safety_result: dict[str, dict[str, Any]] = {}
     for model_key, booster in models.items():
         # model_key は "name_surface" 形式
+        # rsplit("_", 1) でモデル名とサーフェスを分離し、
+        # モデル名をそのまま _model_type() に渡す
         parts = model_key.rsplit("_", 1)
-        name = _parse_model_filename(parts[0])[0] if len(parts) > 1 else model_key
-        if name is None:
-            name = model_key
+        name = parts[0] if len(parts) > 1 else model_key
 
         tier_data = tier_result.get(model_key, {})
         tier1_features = tier_data.get("tier1", [])
