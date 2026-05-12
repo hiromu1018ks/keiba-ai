@@ -79,7 +79,7 @@
 
 - [x] **Phase 23: Safety Gate** - POST_RACE漏洩修正 + feature importance監査スクリプト構築 (completed 2026-05-11)
 - [x] **Phase 24: Feature Audit & Pruning** - 100+特徴量の有効性監査 + ノイズ除去 + キャッシュ無効化 (2/2 plans, completed 2026-05-12)
-- [ ] **Phase 25: Quick Win Wire Existing** - 既存実装済み12特徴量(Jockey/Trainer/Combo)の配線 (2/2 plans)
+- [x] **Phase 25: Quick Win Wire Existing** - 既存実装済み12特徴量(Jockey/Trainer/Combo)の配線 (2/2 plans, completed 2026-05-13)
 - [ ] **Phase 26: EveryDB2 New Features** - 未活用テーブルからの血統/タイム/相対比較/mining特徴量抽出
 - [ ] **Phase 27: Feature Interactions** - 条件付き交互作用項 + ターゲットエンコーディング
 - [ ] **Phase 28: Validation & Freeze** - 統合バックテスト + ROI 100%検証 + 特徴量凍結
@@ -125,8 +125,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 25-01-PLAN.md — FEATURE_COLS配線 + paper_trading predictor更新 + テスト更新 (WIRE-01, WIRE-02, WIRE-03)
-- [ ] 25-02-PLAN.md — フルバックテスト実行 + ROI検証 (WIRE-01, WIRE-02, WIRE-03)
+- [x] 25-01-PLAN.md — FEATURE_COLS配線 + paper_trading predictor更新 + テスト更新 (WIRE-01, WIRE-02, WIRE-03)
+- [x] 25-02-PLAN.md — フルバックテスト実行 + ROI検証 (WIRE-01, WIRE-02, WIRE-03)
 
 ### Phase 26: EveryDB2 New Features
 **Goal**: EveryDB2の未活用テーブル(n_hansyoku, n_record, n_mining)から高価値特徴量を抽出し、モデル入力を拡張する
@@ -191,7 +191,7 @@ Phases execute in numeric order: 23 → 24 → 25 → 26 → 27 → 28
 | 22. 統合検証とバックテスト | v1.5 | 1/1 | Complete | 2026-05-10 |
 | 23. Safety Gate | v1.6 | 2/2 | Complete    | 2026-05-11 |
 | 24. Feature Audit & Pruning | v1.6 | 2/2 | Complete | 2026-05-12 |
-| 25. Quick Win Wire Existing | v1.6 | 2/2 | Planned | 2026-05-12 |
+| 25. Quick Win Wire Existing | v1.6 | 2/2 | Complete | 2026-05-13 |
 | 26. EveryDB2 New Features | v1.6 | 0/? | Not started | - |
 | 27. Feature Interactions | v1.6 | 0/? | Not started | - |
 | 28. Validation & Freeze | v1.6 | 0/? | Not started | - |
