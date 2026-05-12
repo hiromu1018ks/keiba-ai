@@ -472,7 +472,7 @@ def _load_features_for_analysis(
 
         store = ParquetStore()
         if store.exists("features", "horse_features"):
-            feat_df = store.load("features", "horse_features")
+            feat_df = store.read("features", "horse_features")
             feature_names = model.feature_name()
             available = [c for c in feature_names if c in feat_df.columns]
             if len(available) == len(feature_names):
