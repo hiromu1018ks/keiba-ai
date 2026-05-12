@@ -122,7 +122,11 @@ Plans:
   1. JockeyContextFeatures(4特徴量: jockey_wr_overall等)がtraining_pipelineで生成され、FEATURE_COLSに含まれる
   2. TrainerContextFeatures(4特徴量: trainer_wr_overall等)がtraining_pipelineで生成され、FEATURE_COLSに含まれる
   3. JockeyTrainerComboFeatures(4特徴量: jt_combo_place_rate等)がtraining_pipelineで生成され、FEATURE_COLSに含まれる
-**Plans**: TBD
+**Plans**: 2 plans
+
+Plans:
+- [ ] 25-01-PLAN.md — FEATURE_COLS配線 + paper_trading predictor更新 + テスト更新 (WIRE-01, WIRE-02, WIRE-03)
+- [ ] 25-02-PLAN.md — フルバックテスト実行 + ROI検証 (WIRE-01, WIRE-02, WIRE-03)
 
 ### Phase 26: EveryDB2 New Features
 **Goal**: EveryDB2の未活用テーブル(n_hansyoku, n_record, n_mining)から高価値特徴量を抽出し、モデル入力を拡張する
@@ -187,7 +191,7 @@ Phases execute in numeric order: 23 → 24 → 25 → 26 → 27 → 28
 | 22. 統合検証とバックテスト | v1.5 | 1/1 | Complete | 2026-05-10 |
 | 23. Safety Gate | v1.6 | 2/2 | Complete    | 2026-05-11 |
 | 24. Feature Audit & Pruning | v1.6 | 2/2 | Complete | 2026-05-12 |
-| 25. Quick Win Wire Existing | v1.6 | 0/? | Not started | - |
+| 25. Quick Win Wire Existing | v1.6 | 0/2 | Planning | - |
 | 26. EveryDB2 New Features | v1.6 | 0/? | Not started | - |
 | 27. Feature Interactions | v1.6 | 0/? | Not started | - |
 | 28. Validation & Freeze | v1.6 | 0/? | Not started | - |
