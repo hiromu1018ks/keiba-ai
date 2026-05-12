@@ -210,6 +210,19 @@ class TestRemoveNoiseFeatures:
             # ODDS-01: Phase 6 deviation features
             "deviation_rank",
             "deviation_zscore",
+            # Phase 25: 騎手・調教師・コンビ特徴量
+            "jockey_wr_overall",
+            "jockey_wr_distance",
+            "jockey_wr_venue",
+            "jockey_prize_log",
+            "trainer_wr_overall",
+            "trainer_wr_distance",
+            "trainer_wr_venue",
+            "trainer_prize_log",
+            "jt_combo_wr",
+            "jt_combo_place_rate",
+            "jt_combo_starts",
+            "jt_combo_prize_log",
         ]
         original = list(WinTwoStageModel.FEATURE_COLS)
         # FEATURE_COLSは元の特徴量の部分集合であること
