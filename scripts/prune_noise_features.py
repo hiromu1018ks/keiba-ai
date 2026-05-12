@@ -369,16 +369,24 @@ def rollback_files() -> list[str]:
         復元されたファイルパスのリスト。
     """
     restored: list[str] = []
+    backup_pairs: list[tuple[str, str]] = []
     # src/models/ 内の .backup ファイルを検索
     for rel_path_entries in _MODEL_COL_MAP.values():
         for rel_path, _ in rel_path_entries:
             file_path = os.path.join(ROOT, rel_path)
             backup_path = file_path + ".backup"
             if os.path.exists(backup_path):
-                shutil.copy2(backup_path, file_path)
-                os.remove(backup_path)
-                restored.append(file_path)
-                logger.info("ロールバック: %s を復元", file_path)
+                backup_pairs.append((backup_path, file_path))
+
+    # まず全ファイルのコピーを完了させてからバックアップを削除
+    for backup_path, file_path in backup_pairs:
+        shutil.copy2(backup_path, file_path)
+        restored.append(file_path)
+        logger.info("ロールバック: %s を復元", file_path)
+
+    for backup_path, _ in backup_pairs:
+        os.remove(backup_path)
+
     return restored
 
 
