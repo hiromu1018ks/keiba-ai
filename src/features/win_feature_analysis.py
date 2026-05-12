@@ -19,10 +19,95 @@ from typing import Any
 import lightgbm as lgb
 import numpy as np
 import pandas as pd
+from sklearn.base import BaseEstimator, ClassifierMixin, RegressorMixin
 from sklearn.inspection import permutation_importance
 from sklearn.metrics import log_loss, roc_auc_score
 
 logger = logging.getLogger(__name__)
+
+
+def _to_numeric_array(X: Any) -> np.ndarray:  # noqa: ANN401
+    """Convert DataFrame/array to float32 numpy array, resolving categoricals.
+
+    sklearn's ``permutation_importance`` shuffles columns which breaks pandas
+    category dtypes.  Converting via ``df.values`` turns categoricals into
+    their string representations, which LightGBM cannot handle.  This helper
+    converts categorical and object-dtype string columns to integer codes first,
+    then casts the entire array to float32.
+    """
+    if hasattr(X, "select_dtypes"):
+        X_conv = X.copy()
+        # Convert pandas categorical columns to integer codes
+        for col in X_conv.select_dtypes(include=["category"]).columns:
+            X_conv[col] = X_conv[col].cat.codes
+        # Convert object-dtype string columns (e.g. 'surface', 'distance_bin')
+        # to integer codes via factorize so LightGBM receives numeric values.
+        for col in X_conv.select_dtypes(include=["object", "string"]).columns:
+            X_conv[col] = pd.factorize(X_conv[col])[0]
+        return X_conv.values.astype(np.float32)
+    return np.asarray(X, dtype=np.float32)
+
+
+class _LGBMClassifierWrapper(ClassifierMixin, BaseEstimator):  # type: ignore[misc]
+    """sklearn互換 classifier wrapper for pre-trained lgb.Booster.
+
+    Inherits from ``BaseEstimator`` and ``ClassifierMixin`` so that
+    sklearn utilities (``permutation_importance``, ``cross_val_score``,
+    etc.) can introspect the estimator type and call the right methods.
+
+    ``fit`` is a no-op because models are already trained.
+    ``predict_proba`` returns a 2-column array ``[1-p, p]``.
+    ``predict`` returns the class label (0 or 1).
+    """
+
+    def __init__(self, booster: lgb.Booster) -> None:
+        self.booster = booster
+        self.classes_ = np.array([0, 1])
+
+    def fit(self, X: Any, y: Any = None) -> _LGBMClassifierWrapper:  # noqa: ANN401
+        """No-op -- models are pre-trained.  Returns *self* for chaining."""
+        return self
+
+    def predict_proba(self, X: Any) -> np.ndarray:  # noqa: ANN401
+        """Return 2-column probability array ``[1-p, p]``."""
+        X_array = _to_numeric_array(X)
+        raw: Any = self.booster.predict(X_array)
+        raw = np.asarray(raw, dtype=np.float64)
+        # Raw scores from non-binary objectives (e.g. lambdarank) may lie
+        # outside [0, 1].  Apply sigmoid so log_loss always receives valid
+        # probabilities.
+        if raw.min() < 0.0 or raw.max() > 1.0:
+            raw = 1.0 / (1.0 + np.exp(-raw))
+        return np.column_stack([1.0 - raw, raw])
+
+    def predict(self, X: Any) -> np.ndarray:  # noqa: ANN401
+        """Return class labels (0 or 1)."""
+        proba = self.predict_proba(X)
+        return self.classes_[np.argmax(proba, axis=1)]
+
+
+class _LGBMRegressorWrapper(RegressorMixin, BaseEstimator):  # type: ignore[misc]
+    """sklearn互換 regressor wrapper for pre-trained lgb.Booster.
+
+    Inherits from ``BaseEstimator`` and ``RegressorMixin`` so that
+    sklearn treats this as a regression estimator.
+
+    ``fit`` is a no-op because models are already trained.
+    ``predict`` returns raw Booster predictions.
+    """
+
+    def __init__(self, booster: lgb.Booster) -> None:
+        self.booster = booster
+
+    def fit(self, X: Any, y: Any = None) -> _LGBMRegressorWrapper:  # noqa: ANN401
+        """No-op -- models are pre-trained.  Returns *self* for chaining."""
+        return self
+
+    def predict(self, X: Any) -> np.ndarray:  # noqa: ANN401
+        """Return raw predictions from the Booster."""
+        X_array = _to_numeric_array(X)
+        result: Any = self.booster.predict(X_array)
+        return np.asarray(result)
 
 
 def analyze_feature_importance(
@@ -128,19 +213,25 @@ def compute_permutation_importance(
     feature_names = model.feature_name()
 
     # scoring自動判定: yが{0,1}のみ→binary, それ以外→regression
+    is_binary: bool
     if scoring == "auto":
         unique_vals = np.unique(y[~np.isnan(y)])
         if set(unique_vals.tolist()).issubset({0.0, 1.0}):
             scoring_str = "neg_log_loss"
+            is_binary = True
         else:
             scoring_str = "neg_mean_absolute_error"
+            is_binary = False
     else:
         scoring_str = scoring
+        # Infer binary from scoring string
+        is_binary = scoring_str in ("neg_log_loss", "roc_auc", "accuracy", "f1")
 
-    # sklearn互換のpredict function wrapper
-    def predict_fn(x_data: np.ndarray | pd.DataFrame) -> np.ndarray:
-        result: Any = model.predict(x_data)
-        return np.asarray(result)
+    # sklearn互換 estimator wrapper (sklearn requires an object with .fit())
+    if is_binary:
+        estimator = _LGBMClassifierWrapper(model)
+    else:
+        estimator = _LGBMRegressorWrapper(model)
 
     # サブサンプリング
     rng = np.random.default_rng(random_state)
@@ -153,7 +244,7 @@ def compute_permutation_importance(
         y_sample = y
 
     result = permutation_importance(
-        predict_fn,
+        estimator,
         x_sample,
         y_sample,
         n_repeats=n_repeats,
@@ -476,7 +567,13 @@ def validate_noise_removal(
 
     # 元モデルの予測 (validデータのみで評価)
     orig_features = df[feature_names]
-    orig_pred = original_model.predict(orig_features)
+    orig_features_arr = _to_numeric_array(orig_features)
+    orig_pred = original_model.predict(orig_features_arr)
+    orig_pred = np.asarray(orig_pred, dtype=np.float64)
+    # Raw logits from binary models can lie outside [0, 1].
+    # Apply sigmoid so log_loss / roc_auc_score receive valid probabilities.
+    if orig_pred.min() < 0.0 or orig_pred.max() > 1.0:
+        orig_pred = 1.0 / (1.0 + np.exp(-orig_pred))
     orig_pred_valid = orig_pred[split:]
     y_valid = y[split:]
 
@@ -496,6 +593,12 @@ def validate_noise_removal(
 
     # 新モデルをノイズ除外特徴量で学習 (trainデータのみ)
     new_features_df = df[remaining_features]
+
+    # Convert object/string columns to integer codes so LightGBM Dataset
+    # does not reject them ("pandas dtypes must be int, float or bool").
+    for col in new_features_df.select_dtypes(include=["object", "string"]).columns:
+        new_features_df[col] = new_features_df[col].astype("category").cat.codes
+
     train_features = new_features_df.iloc[:split]
     train_y = y[:split]
     valid_features = new_features_df.iloc[split:]
@@ -524,7 +627,13 @@ def validate_noise_removal(
         num_boost_round=100,
     )
 
-    new_pred_valid = new_model.predict(valid_features)
+    valid_features_arr = _to_numeric_array(valid_features)
+    new_pred_valid = new_model.predict(valid_features_arr)
+    new_pred_valid = np.asarray(new_pred_valid, dtype=np.float64)
+    # Raw logits from binary models can lie outside [0, 1].
+    # Apply sigmoid so log_loss / roc_auc_score receive valid probabilities.
+    if new_pred_valid.min() < 0.0 or new_pred_valid.max() > 1.0:
+        new_pred_valid = 1.0 / (1.0 + np.exp(-new_pred_valid))
     valid_mask_new = ~(np.isnan(new_pred_valid) | np.isnan(valid_y.astype(float)))
 
     new_logloss = float(log_loss(valid_y[valid_mask_new], new_pred_valid[valid_mask_new]))

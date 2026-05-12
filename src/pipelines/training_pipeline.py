@@ -26,6 +26,7 @@ from db.readers import (
     load_odds_time_series_range,
     load_races,
     load_wide_odds,
+    save_features,
 )
 from domain.models import SubmodelSet, TrainedModelsV5
 from utils.timing import TimingContext
@@ -162,9 +163,12 @@ class TrainingPipelineV5:
             logger.warning("No time-series data or hassotime, using snapshots")
 
         # 2. 特徴量生成
+        # 学習パイプラインでは kakuteijyuni (ターゲット変数) と confirmed_odds (EV計算)
+        # を保持する。build_all() の SAFE-01 はこれらを除外してドロップする。
         logger.info("Building features")
         feat_df = self.feature_engine.build_all(
-            race_df, entry_df, odds_df, odds_ts_df=odds_ts_df, store=self.store
+            race_df, entry_df, odds_df, odds_ts_df=odds_ts_df, store=self.store,
+            preserve_columns=["kakuteijyuni", "confirmed_odds"],
         )
         feat_df = self.submodel_mgr.add_distance_band_features(feat_df)
 
@@ -198,6 +202,7 @@ class TrainingPipelineV5:
 
         # 3. 各 surface ごとに学習 (parallel)
         models: dict[str, SubmodelSet] = {}
+        oof_dfs: list[pd.DataFrame] = []
         surfaces_to_train: list[tuple[str, pd.DataFrame]] = []
         for surface in ["turf", "dirt"]:
             subset_df = feat_df[feat_df["surface"] == surface].copy()
@@ -209,12 +214,13 @@ class TrainingPipelineV5:
         if len(surfaces_to_train) == 1:
             # Single surface — no parallelism needed
             surface, subset_df = surfaces_to_train[0]
-            sub = self._train_submodel(
+            sub, sub_oof = self._train_submodel(
                 subset_df, num_threads=_get_num_threads(1),
                 use_ensemble=self.use_ensemble,
                 betting_target=self._betting_target,
             )
             models[surface] = sub
+            oof_dfs.append(sub_oof)
             logger.info(f"Trained {surface} submodel")
         elif len(surfaces_to_train) >= 2:
             # Sequential training to avoid segfault from LightGBM/XGBoost
@@ -222,13 +228,25 @@ class TrainingPipelineV5:
             # Use same num_threads as parallel mode to maintain model parity
             num_threads = _get_num_threads(2)
             for surface, subset_df in surfaces_to_train:
-                sub = self._train_submodel(
+                sub, sub_oof = self._train_submodel(
                     subset_df, num_threads=num_threads,
                     use_ensemble=self.use_ensemble,
                     betting_target=self._betting_target,
                 )
                 models[surface] = sub
+                oof_dfs.append(sub_oof)
                 logger.info(f"Trained {surface} submodel (sequential)")
+
+        # 3b. 全サーフェスの完全特徴量を保存 (feature audit 用)
+        # _train_submodel で追加された horse_history / pace / course / sire /
+        # interaction / jockey_context / trainer_context 等を含む
+        if oof_dfs:
+            full_features_df = pd.concat(oof_dfs, ignore_index=True)
+            save_features(self.store, full_features_df)
+            logger.info(
+                "Saved full feature set: %d rows, %d cols -> data/features/horse_features.parquet",
+                len(full_features_df), len(full_features_df.columns),
+            )
 
         # 4. feat_df の object 数値列を float64 に統一
         for col in feat_df.columns:
@@ -332,8 +350,12 @@ class TrainingPipelineV5:
         num_threads: int = 0,
         use_ensemble: bool = False,
         betting_target: str = "place",
-    ) -> SubmodelSet:
-        """単一 surface のサブモデル群を学習"""
+    ) -> tuple[SubmodelSet, pd.DataFrame]:
+        """単一 surface のサブモデル群を学習
+
+        Returns:
+            (SubmodelSet, df_oof) のタプル。df_oof は全特徴量を含むDataFrame。
+        """
         if num_threads <= 0:
             num_threads = max(1, (os.cpu_count() or 4) // 2)
         surface = df["surface"].iloc[0] if "surface" in df.columns else "unknown"
@@ -850,6 +872,8 @@ class TrainingPipelineV5:
 
         # 7. Conformal EV Prediction Interval (CQR) per D-07/D-08/D-09
         conformal_ev: ConformalEVModel | None = None
+        # ★ SAVE-01: confirmed_odds 削除前に df_oof を保存 (feature audit 用)
+        df_oof_for_save = df_oof.copy()
         if len(df_oof) >= 500 and "ev_win_calibrated" in df_oof.columns:
             with TimingContext(f"{surface}/conformal_ev"):
                 # actual_ev_win を計算 (Phase 19パターン)
@@ -981,7 +1005,7 @@ class TrainingPipelineV5:
         # Wire Isotonic + band scales into ev_corrector for correct_ev() to apply
         sub.ev_corrector.ev_isotonic_calibrator = ev_isotonic_calibrator
         sub.ev_corrector.ev_odds_band_scales = ev_odds_band_scales
-        return sub
+        return sub, df_oof_for_save
 
     @staticmethod
     def generate_ev_oof_predictions(

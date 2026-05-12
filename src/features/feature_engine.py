@@ -202,6 +202,7 @@ class FeatureEngine:
         odds_df: pd.DataFrame,
         odds_ts_df: pd.DataFrame | None = None,
         store: object | None = None,
+        preserve_columns: list[str] | None = None,
     ) -> pd.DataFrame:
         """バッチ特徴量生成（TrainingPipelineV5 から呼ばれる）
 
@@ -359,7 +360,8 @@ class FeatureEngine:
         # _train_submodel / BacktestEngine で hist_df merge 後に呼び出す。
 
         # ★ SAFE-01: POST_RACE列を確実に除外 (leakage prevention)
-        post_race_present = [c for c in result_df.columns if c in POST_RACE_COLS]
+        _preserve = set(preserve_columns) if preserve_columns else set()
+        post_race_present = [c for c in result_df.columns if c in POST_RACE_COLS and c not in _preserve]
         if post_race_present:
             logger.info(
                 "SAFE-01: dropping %d POST_RACE cols from build_all() output: %s",

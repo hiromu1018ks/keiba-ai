@@ -646,7 +646,7 @@ class TestJRAFilterTraining:
                 "add_distance_band_features",
                 side_effect=lambda df: df.copy(),
             ),
-            patch.object(TrainingPipelineV5, "_train_submodel", return_value=mock_sub),
+            patch.object(TrainingPipelineV5, "_train_submodel", return_value=(mock_sub, pd.DataFrame())),
             patch.object(
                 TrainingPipelineV5, "_build_race_level_features", return_value=pd.DataFrame()
             ),
@@ -655,6 +655,7 @@ class TestJRAFilterTraining:
             patch("pipelines.training_pipeline.RaceQualityScreener"),
             patch("pipelines.training_pipeline.RegimeDetector"),
             patch("pipelines.training_pipeline.TrainingPipelineV5._save_models_local"),
+            patch("pipelines.training_pipeline.save_features"),
         ]
         with ExitStack() as stack:
             mocks = [stack.enter_context(p) for p in patches]

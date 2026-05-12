@@ -105,8 +105,18 @@ _MODEL_FILE_PREFIX: dict[str, str] = {
 
 
 def _model_type(model_name: str) -> str:
-    """モデル名からbinary/regressionを判定する。"""
-    if model_name in BINARY_MODELS:
+    """モデル名からbinary/regressionを判定する。
+
+    サーフェス付きモデル名 (例: stage1_dirt, win_hit_turf) にも対応。
+    接尾辞 _dirt/_turf を除去したベース名で BINARY_MODELS を判定する。
+    """
+    # _dirt / _turf 接尾辞を除去してベース名を取得
+    base = model_name
+    for suffix in ("_dirt", "_turf"):
+        if base.endswith(suffix):
+            base = base[: -len(suffix)]
+            break
+    if base in BINARY_MODELS:
         return "binary"
     return "regression"
 
@@ -520,6 +530,8 @@ def run_full_bt_roi_check(
         shlex.split(bt_command),
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         cwd=ROOT,
     )
 
@@ -744,11 +756,7 @@ def main() -> None:
     # ターゲット構築
     targets: dict[str, np.ndarray] = {}
     for model_key, booster in models.items():
-        key_base = (
-            model_key.rsplit("_", 1)[0] if "_" in model_key else model_key
-        )
-        name, _ = _parse_model_filename(key_base)
-        if name in BINARY_MODELS:
+        if _model_type(model_key) == "binary":
             if "kakuteijyuni" in df.columns:
                 targets[model_key] = (df["kakuteijyuni"] == 1).astype(int).values
 

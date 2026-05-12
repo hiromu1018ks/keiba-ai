@@ -615,7 +615,8 @@ class BacktestEngine:
             self.wide_payout_map = {}
 
         feat_df = feat_engine.build_all(
-            race_df, entry_df, pre_post_odds, odds_ts_df=odds_ts_df, store=self.store
+            race_df, entry_df, pre_post_odds, odds_ts_df=odds_ts_df, store=self.store,
+            preserve_columns=["kakuteijyuni", "confirmed_odds"],
         )
         feat_df = submodel_mgr.add_distance_band_features(feat_df)
 
