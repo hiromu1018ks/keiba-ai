@@ -139,12 +139,16 @@ class TestPruneNoiseFeatures:
             },
         }
 
-        # dry-run (apply=False) では apply_pruning を呼ばない
-        # テスト: apply_pruning が呼ばれないことを確認
-        with patch.object(prune_mod, "apply_pruning") as mock_apply:
-            # apply_pruningが呼ばれないことを確認するため、
-            # dry-runパスでは呼ばれないのでmockは未呼び出しのまま
+        # dry-runパスの検証: _edit_feature_cols_in_file が
+        # 呼ばれないことをモックで確認。apply_pruning() を
+        # 呼ばない (= --apply なし) ことで main() の Step 8
+        # (if args.apply:) を通らないパスを再現。
+        with patch.object(
+            prune_mod, "_edit_feature_cols_in_file",
+        ) as mock_edit:
+            # apply_pruning() を呼ばない = dry-runパス
             pass
+        mock_edit.assert_not_called()
 
         # ファイルが変更されていないことを確認
         after_content = open(model_file, "r", encoding="utf-8").read()
