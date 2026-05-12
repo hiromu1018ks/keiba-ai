@@ -269,9 +269,19 @@ def _edit_feature_cols_in_file(
                 eq_pos = stripped.find("=")
                 after_eq = stripped[eq_pos + 1:] if eq_pos >= 0 else ""
                 if "]" in after_eq:
+                    # 1行リスト: インラインで特徴量をフィルタ
                     in_target_list = False
-                new_lines.append(line)
-                continue
+                    list_start = after_eq.index("[")
+                    list_end = after_eq.rindex("]")
+                    list_content = after_eq[list_start + 1:list_end]
+                    items = re.findall(r'"([^"]+)"', list_content)
+                    filtered = [f'"{item}"' for item in items if item not in remove_set]
+                    removed_count += len(items) - len(filtered)
+                    # 元の行のプレフィックスを保持して1行リストを再構築
+                    line_prefix = line[:line.index("=") + 1]
+                    new_line = line_prefix + " [" + ", ".join(filtered) + "]\n"
+                    new_lines.append(new_line)
+                    continue
 
         if in_target_list:
             # リスト終了の検出
