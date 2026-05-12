@@ -108,7 +108,11 @@ Plans:
   1. 全特徴量のpermutation重要度がOOFデータで計算され、各特徴量のスコアが確認できる
   2. 重要度ゼロ/負のノイズ特徴量がFEATURE_COLSから除外され、除外前後のROIが比較できる
   3. 特徴量モジュール変更時にhorse_features.parquetキャッシュが自動クリアされる
-**Plans**: TBD
+**Plans**: 2 plans
+
+Plans:
+- [ ] 24-01-PLAN.md — Tier分類ロジック + コードハッシュキャッシュ無効化 (AUDIT-01, AUDIT-03)
+- [ ] 24-02-PLAN.md — Tier 1プルーニング適用 + OOF安全性確認 + ロールバック (AUDIT-02)
 
 ### Phase 25: Quick Win Wire Existing
 **Goal**: 既に実装・テスト済みのJockey/Trainer/Combo合計12特徴量をパイプラインに接続し、ROI改善を確認する
@@ -182,7 +186,7 @@ Phases execute in numeric order: 23 → 24 → 25 → 26 → 27 → 28
 | 21. Conformal EV予測区間 | v1.5 | 2/2 | Complete | 2026-05-09 |
 | 22. 統合検証とバックテスト | v1.5 | 1/1 | Complete | 2026-05-10 |
 | 23. Safety Gate | v1.6 | 2/2 | Complete    | 2026-05-11 |
-| 24. Feature Audit & Pruning | v1.6 | 0/? | Not started | - |
+| 24. Feature Audit & Pruning | v1.6 | 0/2 | Not started | - |
 | 25. Quick Win Wire Existing | v1.6 | 0/? | Not started | - |
 | 26. EveryDB2 New Features | v1.6 | 0/? | Not started | - |
 | 27. Feature Interactions | v1.6 | 0/? | Not started | - |
