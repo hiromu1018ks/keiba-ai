@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v1.6
 milestone_name: Feature Engineering Overhaul
-status: ready_to_plan
-stopped_at: Phase 24 context gathered
+status: ready_to_execute
+stopped_at: Phase 24 planned
 last_updated: "2026-05-12T00:00:00.000Z"
-last_activity: 2026-05-12 — Phase 24 context gathered (Tier 1/2 pruning, code-hash cache, staged ROI verify)
+last_activity: 2026-05-12 — Phase 24 planned (2 plans in 2 waves, AUDIT-01/02/03)
 progress:
   total_phases: 6
   completed_phases: 2
-  total_plans: 2
+  total_plans: 4
   completed_plans: 0
   percent: 33
 ---
@@ -26,8 +26,8 @@ See: .planning/PROJECT.md (updated 2026-05-10)
 ## Current Position
 
 Phase: 24 of 28 (feature audit & pruning)
-Plan: Context gathered
-Status: Ready to plan
+Plan: 2 plans in 2 waves (24-01, 24-02)
+Status: Ready to execute
 Last activity: 2026-05-12
 
 Progress: [░░░░░░░░░░░░░░░░░░░░] 0%
@@ -87,5 +87,5 @@ Items acknowledged and deferred at milestone close:
 ## Session Continuity
 
 Last session: 2026-05-12T00:00:00.000Z
-Stopped at: Phase 24 context gathered
-Resume file: .planning/phases/24-feature-audit-pruning/24-CONTEXT.md
+Stopped at: Phase 24 planned
+Resume file: .planning/phases/24-feature-audit-pruning/24-01-PLAN.md

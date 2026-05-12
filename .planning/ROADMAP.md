@@ -78,7 +78,7 @@
 **Milestone Goal:** CQRに頼らず、特徴量の質と量を根本から見直し、バックテストROI 100%超えを目指す
 
 - [x] **Phase 23: Safety Gate** - POST_RACE漏洩修正 + feature importance監査スクリプト構築 (completed 2026-05-11)
-- [ ] **Phase 24: Feature Audit & Pruning** - 100+特徴量の有効性監査 + ノイズ除去 + キャッシュ無効化
+- [ ] **Phase 24: Feature Audit & Pruning** - 100+特徴量の有効性監査 + ノイズ除去 + キャッシュ無効化 (2 plans)
 - [ ] **Phase 25: Quick Win Wire Existing** - 既存実装済み12特徴量(Jockey/Trainer/Combo)の配線
 - [ ] **Phase 26: EveryDB2 New Features** - 未活用テーブルからの血統/タイム/相対比較/mining特徴量抽出
 - [ ] **Phase 27: Feature Interactions** - 条件付き交互作用項 + ターゲットエンコーディング
@@ -186,7 +186,7 @@ Phases execute in numeric order: 23 → 24 → 25 → 26 → 27 → 28
 | 21. Conformal EV予測区間 | v1.5 | 2/2 | Complete | 2026-05-09 |
 | 22. 統合検証とバックテスト | v1.5 | 1/1 | Complete | 2026-05-10 |
 | 23. Safety Gate | v1.6 | 2/2 | Complete    | 2026-05-11 |
-| 24. Feature Audit & Pruning | v1.6 | 0/2 | Not started | - |
+| 24. Feature Audit & Pruning | v1.6 | 0/2 | Planned | - |
 | 25. Quick Win Wire Existing | v1.6 | 0/? | Not started | - |
 | 26. EveryDB2 New Features | v1.6 | 0/? | Not started | - |
 | 27. Feature Interactions | v1.6 | 0/? | Not started | - |
