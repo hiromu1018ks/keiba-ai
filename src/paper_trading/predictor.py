@@ -173,6 +173,9 @@ class PaperPredictor:
 
         # dict リストに変換 (bet_history スキーマ)
         bet_dicts: list[dict[str, Any]] = []
+        if len(race_id) < 8:
+            logger.warning("Invalid race_id format (too short): %s", race_id)
+            return []
         surface = result_df["surface"].iloc[0]
         race_date = pd.Timestamp(f"{race_id[:4]}-{race_id[4:6]}-{race_id[6:8]}")
         for bet in bets:

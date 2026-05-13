@@ -170,12 +170,13 @@ class TestRemoveNoiseFeatures:
     def test_removes_specified_features(self) -> None:
         """指定された特徴量がFEATURE_COLSから除外されること"""
         original = list(WinTwoStageModel.FEATURE_COLS)
-        noise = ["blinker_change", "is_nar_transfer"]
-        WinTwoStageModel.remove_noise_features(noise)
-        assert "blinker_change" not in WinTwoStageModel.FEATURE_COLS
-        assert "is_nar_transfer" not in WinTwoStageModel.FEATURE_COLS
-        # 復元
-        WinTwoStageModel.FEATURE_COLS = original
+        try:
+            noise = ["blinker_change", "is_nar_transfer"]
+            WinTwoStageModel.remove_noise_features(noise)
+            assert "blinker_change" not in WinTwoStageModel.FEATURE_COLS
+            assert "is_nar_transfer" not in WinTwoStageModel.FEATURE_COLS
+        finally:
+            WinTwoStageModel.FEATURE_COLS = original
 
     def test_remaining_features_are_subset_of_original(self) -> None:
         """除外後のFEATURE_COLSは元の特徴量の部分集合であること"""

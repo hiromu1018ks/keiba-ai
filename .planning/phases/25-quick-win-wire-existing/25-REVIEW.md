@@ -13,7 +13,11 @@ findings:
   warning: 3
   info: 3
   total: 7
-status: issues_found
+fixed:
+  critical: 1
+  warning: 3
+  total_fixed: 4
+status: fixed
 ---
 
 # Phase 25: Code Review Report
@@ -21,7 +25,7 @@ status: issues_found
 **Reviewed:** 2026-05-13T00:00:00Z
 **Depth:** standard
 **Files Reviewed:** 4
-**Status:** issues_found
+**Status:** fixed (4/4 Critical+Warning findings auto-fixed)
 
 ## Summary
 
@@ -29,78 +33,43 @@ status: issues_found
 
 最も重要な発見は、`PlaceTwoStageModel._prepare_features()` にODDS-01特徴量（`deviation_rank`, `deviation_zscore`）の遅延計算が欠落していること。`RETURN_FEATURE_COLS` にこれらの列が定義されているのに、推論時にDataFrameに欠けていた場合のフォールバック計算が実装されていない。`WinTwoStageModel._prepare_features()` には同等の処理が存在するため、実装漏れと判断される。
 
+**全 Critical + Warning (4件) を自動修正し、57テスト全て通過を確認済み。**
+
 ## Critical Issues
 
-### CR-01: PlaceTwoStageModel に ODDS-01 deviation 特徴量の遅延計算が欠落
+### CR-01: PlaceTwoStageModel に ODDS-01 deviation 特徴量の遅延計算が欠落 [FIXED]
 
 **File:** `src/models/two_stage_return_model.py:448-473`
 **Issue:** `PlaceTwoStageModel._prepare_features()` には、`deviation_rank`/`deviation_zscore` がDataFrameに存在しない場合の遅延計算（`compute_odds_deviation_features()` の呼び出し）が実装されていない。一方、`WinTwoStageModel._prepare_features()` (行186-191) には同等の処理が存在する。
 
 `PlaceTwoStageModel.RETURN_FEATURE_COLS` の行422-423に `deviation_rank` と `deviation_zscore` が定義されているため、推論パスでこれらの列が入力DataFrameに含まれない場合、`available_cols` フィルタ (行464) で単に除外される。結果として、Return model の推論時にこれらの特徴量が黙って欠落し、LightGBM は当該特徴量をNaNとして扱い、予測精度が静かに劣化する。エラーや警告は一切出力されない。
 
-**Fix:**
-```python
-# PlaceTwoStageModel._prepare_features() の
-# odds_to_ability_ratio 計算ブロックの直後に追加:
-
-        # ODDS-01: 推論時にdeviation特徴量が未計算なら計算する
-        if (
-            "deviation_rank" in cols
-            and "deviation_rank" not in df.columns
-        ):
-            from features.odds_deviation_features import compute_odds_deviation_features
-            df = compute_odds_deviation_features(df)
-```
+**Fix applied:** `odds_to_ability_ratio` 計算ブロックの直後に `compute_odds_deviation_features()` の遅延呼び出しを追加（WinTwoStageModel と同じパターン）。
 
 ## Warnings
 
-### WR-01: PlaceTwoStageModel.train_hit_model が fukuoddslow 列を暗黙的に要求
+### WR-01: PlaceTwoStageModel.train_hit_model が fukuoddslow 列を暗黙的に要求 [FIXED]
 
 **File:** `src/models/two_stage_return_model.py:508`
 **Issue:** `self._val_fukuoddslow = df["fukuoddslow"].iloc[split:].values` が `fukuoddslow` 列に無条件でアクセスしている。もし渡されたDataFrameに `fukuoddslow` 列が含まれない場合、`KeyError` が発生する。docstring にこの前提条件が明記されていない。
 
 同様に、`WinTwoStageModel.train_return_model` (行244) も `hit_df["confirmed_odds"]` に無条件アクセスしている。
 
-**Fix:** docstring に前提条件を明記するか、列の存在チェックを追加する:
-```python
-def train_hit_model(self, df: pd.DataFrame, *, num_threads: int = 0) -> None:
-    """P(place) の学習 (3着以内=1 / それ以外=0)
+**Fix applied:** `PlaceTwoStageModel.train_hit_model` と `WinTwoStageModel.train_return_model` の docstring に前提条件 (`fukuoddslow` / `confirmed_odds` 列が必須) を追記。
 
-    Args:
-        df: "fukuoddslow" 列が必須 (Benter combination 用バリデーション保存)
-    """
-```
-
-### WR-02: predictor.predict_race の race_id パースに長さ検証なし
+### WR-02: predictor.predict_race の race_id パースに長さ検証なし [FIXED]
 
 **File:** `src/paper_trading/predictor.py:177`
 **Issue:** `pd.Timestamp(f"{race_id[:4]}-{race_id[4:6]}-{race_id[6:8]}")` が `race_id` が8文字以上であることを前提としている。8文字未満の `race_id` が渡された場合、`IndexError` または不正なTimestampが生成される。防御的チェックが存在しない。
 
-**Fix:**
-```python
-if len(race_id) < 8:
-    logger.warning("Invalid race_id format (too short): %s", race_id)
-    return []
-race_date = pd.Timestamp(f"{race_id[:4]}-{race_id[4:6]}-{race_id[6:8]}")
-```
+**Fix applied:** `len(race_id) < 8` の場合に警告ログを出力して空リストを返すガードを追加。
 
-### WR-03: テストがクラス変数を変更し失敗時に復元されない
+### WR-03: テストがクラス変数を変更し失敗時に復元されない [FIXED]
 
 **File:** `tests/test_win_feature_analysis.py:170-178`
 **Issue:** `TestRemoveNoiseFeatures.test_removes_specified_features` が `WinTwoStageModel.FEATURE_COLS` を変更した後、手動で復元している。もし `remove_noise_features()` 呼び出し (行174) または assert (行175-176) が失敗した場合、行178の復元は実行されず、後続テストにクラス変数の汚染が波及する。`pytest` がテストメソッド単位で実行順序を保証しないため、他のテストクラスにも影響する可能性がある。
 
-**Fix:** `try/finally` または `pytest.fixture` の `yield` パターンを使用する:
-```python
-def test_removes_specified_features(self) -> None:
-    original = list(WinTwoStageModel.FEATURE_COLS)
-    try:
-        noise = ["blinker_change", "is_nar_transfer"]
-        WinTwoStageModel.remove_noise_features(noise)
-        assert "blinker_change" not in WinTwoStageModel.FEATURE_COLS
-        assert "is_nar_transfer" not in WinTwoStageModel.FEATURE_COLS
-    finally:
-        WinTwoStageModel.FEATURE_COLS = original
-```
+**Fix applied:** `try/finally` パターンに変更し、テスト失敗時も確実に復元されるようにした。
 
 ## Info
 
@@ -120,7 +89,7 @@ def test_removes_specified_features(self) -> None:
 **Issue:** `FEATURE_COLS: list[str] = list(RETURN_FEATURE_COLS)` は後方互換のため Return model の列定義をコピーしている。新規コードでは `HIT_FEATURE_COLS` と `RETURN_FEATURE_COLS` のどちらを使うべきか判断が難しくなる可能性がある。docstringでの説明はあるが、`FEATURE_COLS` を直接参照する外部コードの挙動に注意が必要。
 
 ---
-
 _Reviewed: 2026-05-13T00:00:00Z_
 _Reviewer: Claude (gsd-code-reviewer)_
+_Fixed by: gsd-code-fixer_
 _Depth: standard_

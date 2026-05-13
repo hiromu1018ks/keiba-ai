@@ -230,6 +230,9 @@ class WinTwoStageModel:
         """
         E(win_odds | win) の学習 (1着馬のみ)。
         ゼロ偏重を完全に排除 -- 学習データにゼロが含まれない。
+
+        Args:
+            df: "confirmed_odds" 列が必須 (的中時払戻額のターゲット)
         """
         if num_threads <= 0:
             num_threads = max(1, (os.cpu_count() or 4) // 2)
@@ -460,6 +463,15 @@ class PlaceTwoStageModel:
                 p_market = df["p_market_win_adj"].clip(lower=1e-6)
                 p_ability = df["p_ability_win"].clip(lower=1e-6)
                 df["odds_to_ability_ratio"] = (p_market / p_ability).clip(0.1, 10.0)
+
+        # ODDS-01: 推論時にdeviation特徴量が未計算なら計算する
+        if (
+            "deviation_rank" in cols
+            and "deviation_rank" not in df.columns
+        ):
+            from features.odds_deviation_features import compute_odds_deviation_features
+            df = compute_odds_deviation_features(df)
+
         # v5: 新規特徴量はテストデータに存在しない場合があるため、存在する列のみ使用
         available_cols = [c for c in cols if c in df.columns]
         features = df[available_cols].copy()
@@ -473,7 +485,11 @@ class PlaceTwoStageModel:
         return features
 
     def train_hit_model(self, df: pd.DataFrame, *, num_threads: int = 0) -> None:
-        """P(place) の学習 (3着以内=1 / それ以外=0)"""
+        """P(place) の学習 (3着以内=1 / それ以外=0)
+
+        Args:
+            df: "fukuoddslow" 列が必須 (Benter combination 用バリデーション保存)
+        """
         if num_threads <= 0:
             num_threads = max(1, (os.cpu_count() or 4) // 2)
         features = self._prepare_features(df, use_cols=self.HIT_FEATURE_COLS)
