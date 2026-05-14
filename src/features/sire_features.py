@@ -155,7 +155,7 @@ class SireFeatures:
                         "sire_turf_wins", "sire_turf_starts",
                         "sire_dirt_wins", "sire_dirt_starts",
                         "sire_short_wins", "sire_short_starts",
-                        "sire_long_wins", "sire_long_wins",
+                        "sire_long_wins", "sire_long_starts",
                         "sire_prize_total"]:
                 result.loc[mask, col] = row[col]
 
