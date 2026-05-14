@@ -189,3 +189,208 @@ class TestDamPedigreeFeatures:
         d001_val = result.loc[result.index[0], "breeder_strength"]
         d002_val = result.loc[result.index[2], "breeder_strength"]
         assert d001_val > d002_val
+
+
+class TestPITSafeBehavior:
+    """Tests for PIT-safe career lookup using merge_asof."""
+
+    def test_pit_safe_different_dates_get_different_features(self) -> None:
+        """Entries from different dates get different dam features."""
+        sanku = pd.DataFrame({
+            "kettonum": ["A1", "A2"],
+            "mnum": ["D1", "D1"],
+            "breedercode": ["BR1", "BR1"],
+        })
+
+        # Career stats with race_date for PIT-safe lookup
+        # Horse A1: early career (2020) had 1 win in 10 starts,
+        #           later career (2023) had 5 wins in 30 starts
+        career = pd.DataFrame({
+            "kettonum": ["A1", "A1", "A2", "A2"],
+            "race_id": ["R001", "R003", "R002", "R004"],
+            "race_date": pd.to_datetime(["2020-06-01", "2023-06-01", "2020-06-01", "2023-06-01"]),
+            "cum_wins": [1, 5, 2, 4],
+            "cum_starts": [10, 30, 10, 20],
+            "cum_turf_wins": [0, 3, 1, 2],
+            "cum_turf_starts": [5, 20, 5, 10],
+            "cum_prize": [1000000, 50000000, 2000000, 40000000],
+        })
+
+        store = _make_store(sanku=sanku)
+        feat = DamPedigreeFeatures(store)
+        feat._career_cache = career
+
+        # Entry at early date (R001 = 2020-06-01)
+        entry_early = pd.DataFrame({
+            "race_id": ["R001"],
+            "umaban": [1],
+            "kettonum": ["A1"],
+        })
+        # Entry at late date (R003 = 2023-06-01)
+        entry_late = pd.DataFrame({
+            "race_id": ["R003"],
+            "umaban": [1],
+            "kettonum": ["A1"],
+        })
+
+        result_early = feat.compute(entry_early)
+        result_late = feat.compute(entry_late)
+
+        # Early entry: target_date=2020-06-01
+        # merge_asof backward: A1 at 2020-06-01 -> cum_wins=1, cum_starts=10
+        #                      A2 at 2020-06-01 -> cum_wins=2, cum_starts=10
+        # total_wins=3, total_starts=20, dam_wr = (3+1)/(20+11) = 4/31
+        expected_early = (3 + 1) / (20 + 11)
+        np.testing.assert_allclose(
+            result_early.loc[result_early.index[0], "dam_wr"],
+            expected_early,
+            rtol=1e-4,
+        )
+
+        # Late entry: target_date=2023-06-01
+        # merge_asof backward: A1 at 2023-06-01 -> cum_wins=5, cum_starts=30
+        #                      A2 at 2023-06-01 -> cum_wins=4, cum_starts=20
+        # total_wins=9, total_starts=50, dam_wr = (9+1)/(50+11) = 10/61
+        expected_late = (9 + 1) / (50 + 11)
+        np.testing.assert_allclose(
+            result_late.loc[result_late.index[0], "dam_wr"],
+            expected_late,
+            rtol=1e-4,
+        )
+
+        # Verify they are different (PIT-safe ensures this)
+        assert (
+            result_early.loc[result_early.index[0], "dam_wr"]
+            != result_late.loc[result_late.index[0], "dam_wr"]
+        )
+
+    def test_pit_safe_no_future_leak(self) -> None:
+        """Verify that future career data does not leak into earlier entries."""
+        sanku = pd.DataFrame({
+            "kettonum": ["H1"],
+            "mnum": ["D1"],
+            "breedercode": ["BR1"],
+        })
+
+        career = pd.DataFrame({
+            "kettonum": ["H1", "H1"],
+            "race_id": ["R_early", "R_late"],
+            "race_date": pd.to_datetime(["2020-01-01", "2025-01-01"]),
+            "cum_wins": [2, 10],
+            "cum_starts": [10, 50],
+            "cum_turf_wins": [1, 5],
+            "cum_turf_starts": [5, 25],
+            "cum_prize": [5000000, 50000000],
+        })
+
+        # Entry at the early date - should NOT see the late career stats
+        entry_early = pd.DataFrame({
+            "race_id": ["R_early"],
+            "umaban": [1],
+            "kettonum": ["H1"],
+        })
+
+        store = _make_store(sanku=sanku)
+        feat = DamPedigreeFeatures(store)
+        feat._career_cache = career
+
+        result = feat.compute(entry_early)
+
+        # target_date=2020-01-01, backward merge_asof finds the 2020-01-01 row
+        # H1: cum_wins=2, cum_starts=10
+        # dam_wr=(2+1)/(10+11)=3/21
+        expected = (2 + 1) / (10 + 11)
+        np.testing.assert_allclose(
+            result.loc[result.index[0], "dam_wr"],
+            expected,
+            rtol=1e-4,
+        )
+
+        # Verify it is NOT the late value: (10+1)/(50+11)=11/61
+        late_expected = (10 + 1) / (50 + 11)
+        assert abs(result.loc[result.index[0], "dam_wr"] - late_expected) > 0.01
+
+    def test_pit_safe_offspring_not_in_target_race(self) -> None:
+        """Offspring not running in target race still get their latest prior stats."""
+        sanku = pd.DataFrame({
+            "kettonum": ["H1", "H2"],
+            "mnum": ["D1", "D1"],
+            "breedercode": ["BR1", "BR1"],
+        })
+
+        # H1 has races at 2020 and 2022
+        # H2 only has a race at 2019 (does NOT run in 2022)
+        career = pd.DataFrame({
+            "kettonum": ["H1", "H1", "H2"],
+            "race_id": ["R1", "R2", "R3"],
+            "race_date": pd.to_datetime(["2020-01-01", "2022-01-01", "2019-01-01"]),
+            "cum_wins": [3, 7, 1],
+            "cum_starts": [20, 40, 5],
+            "cum_turf_wins": [2, 4, 0],
+            "cum_turf_starts": [10, 20, 0],
+            "cum_prize": [10000000, 30000000, 1000000],
+        })
+
+        # Entry for H1 at R2 (2022-01-01)
+        # H2 did not run in R2, but merge_asof backward finds H2 2019 row
+        entry = pd.DataFrame({
+            "race_id": ["R2"],
+            "umaban": [1],
+            "kettonum": ["H1"],
+        })
+
+        store = _make_store(sanku=sanku)
+        feat = DamPedigreeFeatures(store)
+        feat._career_cache = career
+
+        result = feat.compute(entry)
+
+        # target_date=2022-01-01
+        # H1: backward merge -> 2022 row: cum_wins=7, cum_starts=40
+        # H2: backward merge -> 2019 row: cum_wins=1, cum_starts=5
+        # total_wins=8, total_starts=45, dam_wr=(8+1)/(45+11)=9/56
+        expected = (8 + 1) / (45 + 11)
+        np.testing.assert_allclose(
+            result.loc[result.index[0], "dam_wr"],
+            expected,
+            rtol=1e-4,
+        )
+
+    def test_fallback_used_when_no_race_date(self) -> None:
+        """When career has no race_date/race_id, fallback path is used."""
+        sanku = pd.DataFrame({
+            "kettonum": ["H1"],
+            "mnum": ["D1"],
+            "breedercode": ["BR1"],
+        })
+
+        # Career without race_date or race_id columns
+        career = pd.DataFrame({
+            "kettonum": ["H1"],
+            "cum_wins": [5],
+            "cum_starts": [30],
+            "cum_turf_wins": [3],
+            "cum_turf_starts": [20],
+            "cum_prize": [50000000],
+        })
+
+        entry = pd.DataFrame({
+            "race_id": ["R001"],
+            "umaban": [1],
+            "kettonum": ["H1"],
+        })
+
+        store = _make_store(sanku=sanku)
+        feat = DamPedigreeFeatures(store)
+        feat._career_cache = career
+
+        result = feat.compute(entry)
+
+        # Fallback: last() -> cum_wins=5, cum_starts=30
+        # dam_wr = (5+1)/(30+11) = 6/41
+        expected = (5 + 1) / (30 + 11)
+        np.testing.assert_allclose(
+            result.loc[result.index[0], "dam_wr"],
+            expected,
+            rtol=1e-4,
+        )
