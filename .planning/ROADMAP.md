@@ -140,8 +140,8 @@ Plans:
 **Plans**: 3 plans
 
 Plans:
-- [ ] 26-01-PLAN.md -- n_mining PIT監査 + mining_features.py + FEATURE_COLS更新 (DATA-04)
-- [ ] 26-02-PLAN.md -- dam_pedigree_features.py + sire BMS拡張 + record_features.py + FEATURE_COLS更新 (DATA-01, DATA-02)
+- [x] 26-01-PLAN.md -- n_mining PIT監査 + mining_features.py + FEATURE_COLS更新 (DATA-04)
+- [x] 26-02-PLAN.md -- dam_pedigree_features.py + sire BMS拡張 + record_features.py + FEATURE_COLS更新 (DATA-01, DATA-02)
 - [ ] 26-03-PLAN.md -- relative_features.py + FEATURE_COLS更新 + 全テスト通過確認 (DATA-03)
 
 ### Phase 27: Feature Interactions
@@ -197,6 +197,6 @@ Phases execute in numeric order: 23 -> 24 -> 25 -> 26 -> 27 -> 28
 | 23. Safety Gate | v1.6 | 2/2 | Complete    | 2026-05-11 |
 | 24. Feature Audit & Pruning | v1.6 | 2/2 | Complete | 2026-05-12 |
 | 25. Quick Win Wire Existing | v1.6 | 2/2 | Complete | 2026-05-13 |
-| 26. EveryDB2 New Features | v1.6 | 0/3 | Not started | - |
+| 26. EveryDB2 New Features | v1.6 | 2/3 | In Progress|  |
 | 27. Feature Interactions | v1.6 | 0/? | Not started | - |
 | 28. Validation & Freeze | v1.6 | 0/? | Not started | - |
