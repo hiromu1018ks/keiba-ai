@@ -128,12 +128,12 @@ class RecordFeatures:
         if "makedate" in record_df.columns:
             record_df = (
                 record_df.sort_values("makedate")
-                .groupby(keys, sort=False)
+                .groupby(keys, sort=False, observed=True)
                 .last()
                 .reset_index()
             )
         else:
-            record_df = record_df.groupby(keys, sort=False).first().reset_index()
+            record_df = record_df.groupby(keys, sort=False, observed=True).first().reset_index()
 
         # ルックアップテーブル作成
         lookup = record_df[keys + ["course_record_time"]].drop_duplicates(

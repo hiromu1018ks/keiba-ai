@@ -127,9 +127,9 @@ class DamPedigreeFeatures:
 
         # career stats の最新行を各馬ごとに取得
         if "race_date" in career.columns:
-            career_latest = career.sort_values("race_date").groupby("kettonum").last()
+            career_latest = career.sort_values("race_date").groupby("kettonum", observed=True).last()
         else:
-            career_latest = career.groupby("kettonum").last()
+            career_latest = career.groupby("kettonum", observed=True).last()
 
         for mnum in unique_mnums:
             # この dam の産駎一覧
