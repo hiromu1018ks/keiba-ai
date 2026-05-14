@@ -5,10 +5,11 @@
 
 from __future__ import annotations
 
+from unittest.mock import MagicMock
+
 import numpy as np
 import pandas as pd
 import pytest
-from unittest.mock import MagicMock
 
 from features.win_feature_analysis import (
     analyze_feature_importance,
@@ -17,7 +18,6 @@ from features.win_feature_analysis import (
     validate_noise_removal,
 )
 from models.two_stage_return_model import WinTwoStageModel
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -229,8 +229,14 @@ class TestRemoveNoiseFeatures:
             "dm_time_zscore",
             "dm_confidence_range",
             "dm_time_margin_to_fav",
+            # 繁殖牝馬産駒特徴量 (DATA-01)
+            "dam_wr",
+            "breeder_strength",
+            # BMS拡張特徴量 (DATA-01)
+            "bms_distance_wr",
+            # コースレコード特徴量 (DATA-02)
+            "course_record_time",
         ]
-        original = list(WinTwoStageModel.FEATURE_COLS)
         # FEATURE_COLSは元の特徴量の部分集合であること
         for feat in WinTwoStageModel.FEATURE_COLS:
             assert feat in original_all, f"FEATURE_COLS contains unexpected feature: {feat}"

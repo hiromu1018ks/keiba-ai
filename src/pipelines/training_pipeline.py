@@ -441,17 +441,51 @@ class TrainingPipelineV5:
                 df["bms_id"] = df["kettonum"].map(bms_map)
                 # ベクトル化一括計算
                 sire_result = sire_feat.compute_batch(df)
-                # モデルで使用する5列のみを反映 (sire_place_rate は未使用のため除外)
+                # モデルで使用する7列のみを反映 (sire_place_rate は未使用のため除外)
                 _sire_cols_needed = {
                     "sire_wr",
                     "sire_surface_wr",
                     "sire_distance_wr",
                     "sire_prize_avg",
                     "bms_wr",
+                    "bms_distance_wr",
+                    "bms_surface_wr",
                 }
                 for col in _sire_cols_needed:
                     if col in sire_result.columns:
                         df[col] = sire_result[col].values
+
+        # Group B-2: 繁殖牝馬産駒特徴量 (sire features の後)
+        from features.dam_pedigree_features import FEATURE_COLS as DAM_PED_FEATURE_COLS
+        from features.dam_pedigree_features import DamPedigreeFeatures
+
+        with TimingContext(f"{surface}/dam_pedigree"):
+            dam_ped = DamPedigreeFeatures(self.store)
+            dam_ped_df = dam_ped.compute(df)
+            _dam_drop_cols = [c for c in DAM_PED_FEATURE_COLS if c in df.columns]
+            if _dam_drop_cols:
+                df.drop(columns=_dam_drop_cols, inplace=True)
+            if not dam_ped_df.empty:
+                df = df.merge(dam_ped_df, on=["race_id", "umaban"], how="left")
+            else:
+                for col in DAM_PED_FEATURE_COLS:
+                    df[col] = np.nan
+
+        # Group B-3: コースレコード特徴量
+        from features.record_features import FEATURE_COLS as RECORD_FEATURE_COLS
+        from features.record_features import RecordFeatures
+
+        with TimingContext(f"{surface}/record_features"):
+            record_feat = RecordFeatures(self.store)
+            record_df = record_feat.compute(df)
+            _record_drop_cols = [c for c in RECORD_FEATURE_COLS if c in df.columns]
+            if _record_drop_cols:
+                df.drop(columns=_record_drop_cols, inplace=True)
+            if not record_df.empty:
+                df = df.merge(record_df, on=["race_id"], how="left")
+            else:
+                for col in RECORD_FEATURE_COLS:
+                    df[col] = np.nan
 
         # Group E: 交互作用特徴量 (HorseHistoryFeatures 後に実行 — kyakusitu_cd が必要)
         from features.interaction_features import compute_interaction_features

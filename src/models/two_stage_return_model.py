@@ -119,6 +119,13 @@ class WinTwoStageModel:
         "dm_time_zscore",
         "dm_confidence_range",
         "dm_time_margin_to_fav",
+        # 繁殖牝馬産駒特徴量 (DATA-01)
+        "dam_wr",
+        "breeder_strength",
+        # BMS拡張特徴量 (DATA-01)
+        "bms_distance_wr",
+        # コースレコード特徴量 (DATA-02)
+        "course_record_time",
     ]
 
     def __init__(self, cfg: TwoStageConfig | None = None) -> None:
@@ -373,6 +380,13 @@ class PlaceTwoStageModel:
         "dm_time_rank",
         "dm_time_zscore",
         "dm_confidence_range",
+        # 繁殖牝馬産駒特徴量 (DATA-01)
+        "dam_wr",
+        "dam_surface_wr",
+        # BMS拡張特徴量 (DATA-01)
+        "bms_surface_wr",
+        # コースレコード特徴量 (DATA-02)
+        "course_record_time",
     ]
 
     # --- Return model (Stage B): 配当回帰用 ---
@@ -453,6 +467,13 @@ class PlaceTwoStageModel:
         "dm_time_zscore",
         "dm_confidence_range",
         "dm_time_margin_to_fav",
+        # 繁殖牝馬産駒特徴量 (DATA-01)
+        "dam_wr",
+        "breeder_strength",
+        # BMS拡張特徴量 (DATA-01)
+        "bms_distance_wr",
+        # コースレコード特徴量 (DATA-02)
+        "course_record_time",
     ]
 
     # 後方互換: FEATURE_COLS は return model のリストを返す (最も情報量が多いため)

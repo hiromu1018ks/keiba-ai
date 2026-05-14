@@ -129,6 +129,16 @@ class AbilityModel:
         "dm_time_rank",
         "dm_time_zscore",
         "dm_confidence_range",
+        # 繁殖牝馬産駒特徴量 (DATA-01)
+        "dam_wr",
+        "dam_surface_wr",
+        "dam_prize_log",
+        "breeder_strength",
+        # BMS拡張特徴量 (DATA-01)
+        "bms_distance_wr",
+        "bms_surface_wr",
+        # コースレコード特徴量 (DATA-02)
+        "course_record_time",
     ]
 
     def __init__(self) -> None:
