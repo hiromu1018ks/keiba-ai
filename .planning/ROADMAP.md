@@ -80,7 +80,7 @@
 - [x] **Phase 23: Safety Gate** - POST_RACE漏洩修正 + feature importance監査スクリプト構築 (completed 2026-05-11)
 - [x] **Phase 24: Feature Audit & Pruning** - 100+特徴量の有効性監査 + ノイズ除去 + キャッシュ無効化 (2/2 plans, completed 2026-05-12)
 - [x] **Phase 25: Quick Win Wire Existing** - 既存実装済み12特徴量(Jockey/Trainer/Combo)の配線 (2/2 plans, completed 2026-05-13)
-- [ ] **Phase 26: EveryDB2 New Features** - 未活用テーブルからの血統/タイム/相対比較/mining特徴量抽出
+- [x] **Phase 26: EveryDB2 New Features** - 未活用テーブルからの血統/タイム/相対比較/mining特徴量抽出 (completed 2026-05-14)
 - [ ] **Phase 27: Feature Interactions** - 条件付き交互作用項 + ターゲットエンコーディング
 - [ ] **Phase 28: Validation & Freeze** - 統合バックテスト + ROI 100%検証 + 特徴量凍結
 
@@ -142,7 +142,7 @@ Plans:
 Plans:
 - [x] 26-01-PLAN.md -- n_mining PIT監査 + mining_features.py + FEATURE_COLS更新 (DATA-04)
 - [x] 26-02-PLAN.md -- dam_pedigree_features.py + sire BMS拡張 + record_features.py + FEATURE_COLS更新 (DATA-01, DATA-02)
-- [ ] 26-03-PLAN.md -- relative_features.py + FEATURE_COLS更新 + 全テスト通過確認 (DATA-03)
+- [x] 26-03-PLAN.md -- relative_features.py + FEATURE_COLS更新 + 全テスト通過確認 (DATA-03)
 
 ### Phase 27: Feature Interactions
 **Goal**: 最終ベース特徴量セット上にドメイン知識に基づく交互作用項を生成し、高カーディナリティカテゴリ変数をターゲットエンコーディングで処理する
@@ -197,6 +197,6 @@ Phases execute in numeric order: 23 -> 24 -> 25 -> 26 -> 27 -> 28
 | 23. Safety Gate | v1.6 | 2/2 | Complete    | 2026-05-11 |
 | 24. Feature Audit & Pruning | v1.6 | 2/2 | Complete | 2026-05-12 |
 | 25. Quick Win Wire Existing | v1.6 | 2/2 | Complete | 2026-05-13 |
-| 26. EveryDB2 New Features | v1.6 | 2/3 | In Progress|  |
+| 26. EveryDB2 New Features | v1.6 | 3/3 | Complete    | 2026-05-14 |
 | 27. Feature Interactions | v1.6 | 0/? | Not started | - |
 | 28. Validation & Freeze | v1.6 | 0/? | Not started | - |
