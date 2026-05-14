@@ -10,7 +10,9 @@ def _beta_smooth(wins: int, starts: int, alpha: int = 1, beta: int = 10) -> floa
     return (alpha + wins) / (alpha + beta + starts)
 
 
-def _beta_smooth_vec(wins: pd.Series, starts: pd.Series, alpha: int = 1, beta: int = 10) -> pd.Series:
+def _beta_smooth_vec(
+    wins: pd.Series, starts: pd.Series, alpha: int = 1, beta: int = 10,
+) -> pd.Series:
     """Beta 平滑化勝率のベクトル版 (Series 入出力)"""
     w = wins.fillna(0).astype(float)
     s = starts.fillna(0).astype(float)
@@ -110,7 +112,8 @@ class SireFeatures:
         """
         if self._stats.empty or df.empty:
             result = pd.DataFrame(index=df.index)
-            for col in ["sire_wr", "sire_surface_wr", "sire_distance_wr", "sire_prize_avg", "bms_wr"]:
+            for col in ["sire_wr", "sire_surface_wr", "sire_distance_wr", "sire_prize_avg",
+                        "bms_wr", "bms_surface_wr", "bms_distance_wr"]:
                 result[col] = np.nan
             return result
 
@@ -181,10 +184,18 @@ class SireFeatures:
         starts_safe = result["sire_starts"].fillna(0).clip(lower=1).astype(float)
         result["sire_prize_avg"] = np.log1p(result["sire_prize_total"].fillna(0) / starts_safe)
 
-        # bms_wr: 母父の産駒勝率 — 同じロジックで bms_id を lookup
+        # bms_wr + BMS拡張: 母父の産駒勝率 + surface/distance 別 — 同じロジックで bms_id を lookup
         bms_ids = df["bms_id"].astype(str).values
         bms_wins = np.full(n, np.nan)
         bms_starts = np.full(n, np.nan)
+        bms_turf_wins = np.full(n, np.nan)
+        bms_turf_starts = np.full(n, np.nan)
+        bms_dirt_wins = np.full(n, np.nan)
+        bms_dirt_starts = np.full(n, np.nan)
+        bms_short_wins = np.full(n, np.nan)
+        bms_short_starts = np.full(n, np.nan)
+        bms_long_wins = np.full(n, np.nan)
+        bms_long_starts = np.full(n, np.nan)
 
         bms_unique = np.unique(bms_ids[~pd.isna(bms_ids)])
         for bid in bms_unique:
@@ -200,7 +211,27 @@ class SireFeatures:
                 row = subset.iloc[idx_arr[valid]].iloc[0]
                 bms_wins[mask] = row["sire_wins"]
                 bms_starts[mask] = row["sire_starts"]
+                bms_turf_wins[mask] = row.get("sire_turf_wins", np.nan)
+                bms_turf_starts[mask] = row.get("sire_turf_starts", np.nan)
+                bms_dirt_wins[mask] = row.get("sire_dirt_wins", np.nan)
+                bms_dirt_starts[mask] = row.get("sire_dirt_starts", np.nan)
+                bms_short_wins[mask] = row.get("sire_short_wins", np.nan)
+                bms_short_starts[mask] = row.get("sire_short_starts", np.nan)
+                bms_long_wins[mask] = row.get("sire_long_wins", np.nan)
+                bms_long_starts[mask] = row.get("sire_long_starts", np.nan)
 
         result["bms_wr"] = _beta_smooth_vec(pd.Series(bms_wins), pd.Series(bms_starts))
+
+        # BMS拡張: surface/distance 別勝率
+        result["bms_surface_wr"] = np.where(
+            is_turf,
+            _beta_smooth_vec(pd.Series(bms_turf_wins), pd.Series(bms_turf_starts)),
+            _beta_smooth_vec(pd.Series(bms_dirt_wins), pd.Series(bms_dirt_starts)),
+        )
+        result["bms_distance_wr"] = np.where(
+            is_short,
+            _beta_smooth_vec(pd.Series(bms_short_wins), pd.Series(bms_short_starts)),
+            _beta_smooth_vec(pd.Series(bms_long_wins), pd.Series(bms_long_starts)),
+        )
 
         return result
