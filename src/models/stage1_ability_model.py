@@ -125,6 +125,10 @@ class AbilityModel:
         "cond_change_avg_pos",
         "cond_change_win_rate",
         "cond_change_exp_count",
+        # n_mining予想特徴量 (DATA-04)
+        "dm_time_rank",
+        "dm_time_zscore",
+        "dm_confidence_range",
     ]
 
     def __init__(self) -> None:

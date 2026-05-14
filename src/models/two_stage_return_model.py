@@ -114,6 +114,11 @@ class WinTwoStageModel:
         "jt_combo_place_rate",
         "jt_combo_starts",
         "jt_combo_prize_log",
+        # n_mining予想特徴量 (DATA-04)
+        "dm_time_rank",
+        "dm_time_zscore",
+        "dm_confidence_range",
+        "dm_time_margin_to_fav",
     ]
 
     def __init__(self, cfg: TwoStageConfig | None = None) -> None:
@@ -364,6 +369,10 @@ class PlaceTwoStageModel:
         "odds_gap_fav12",
         "odds_popularity_gap",
         "surface_track_interaction",
+        # n_mining予想特徴量 (DATA-04)
+        "dm_time_rank",
+        "dm_time_zscore",
+        "dm_confidence_range",
     ]
 
     # --- Return model (Stage B): 配当回帰用 ---
@@ -439,6 +448,11 @@ class PlaceTwoStageModel:
         "jt_combo_place_rate",
         "jt_combo_starts",
         "jt_combo_prize_log",
+        # n_mining予想特徴量 (DATA-04)
+        "dm_time_rank",
+        "dm_time_zscore",
+        "dm_confidence_range",
+        "dm_time_margin_to_fav",
     ]
 
     # 後方互換: FEATURE_COLS は return model のリストを返す (最も情報量が多いため)

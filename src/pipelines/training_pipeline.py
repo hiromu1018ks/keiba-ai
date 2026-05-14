@@ -459,6 +459,22 @@ class TrainingPipelineV5:
         with TimingContext(f"{surface}/interaction"):
             df = compute_interaction_features(df)
 
+        # Group F: n_mining予想特徴量 (interaction features の後)
+        from features.mining_features import FEATURE_COLS as MINING_FEATURE_COLS
+        from features.mining_features import MiningFeatures
+
+        with TimingContext(f"{surface}/mining_features"):
+            mining_feat = MiningFeatures(self.store)
+            mining_df = mining_feat.compute(df)
+            _mining_drop_cols = [c for c in MINING_FEATURE_COLS if c in df.columns]
+            if _mining_drop_cols:
+                df.drop(columns=_mining_drop_cols, inplace=True)
+            if not mining_df.empty:
+                df = df.merge(mining_df, on=["race_id", "umaban"], how="left")
+            else:
+                for col in MINING_FEATURE_COLS:
+                    df[col] = np.nan
+
         # 1. Market Model (正規化差分 log_error のみ出力)
         # object型の数値列 (pd.NA含む) → float64 (2回目のsurface処理でpd.NAが混入するため)
         for col in df.columns:

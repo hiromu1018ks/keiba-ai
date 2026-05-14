@@ -224,6 +224,11 @@ class TestRemoveNoiseFeatures:
             "jt_combo_place_rate",
             "jt_combo_starts",
             "jt_combo_prize_log",
+            # n_mining予想特徴量 (DATA-04)
+            "dm_time_rank",
+            "dm_time_zscore",
+            "dm_confidence_range",
+            "dm_time_margin_to_fav",
         ]
         original = list(WinTwoStageModel.FEATURE_COLS)
         # FEATURE_COLSは元の特徴量の部分集合であること
