@@ -478,6 +478,9 @@ class TrainingPipelineV5:
         with TimingContext(f"{surface}/record_features"):
             record_feat = RecordFeatures(self.store)
             record_df = record_feat.compute(df)
+            assert record_df.empty or record_df["race_id"].is_unique, (
+                f"record_df has duplicate race_ids: {record_df['race_id'].duplicated().sum()}"
+            )
             _record_drop_cols = [c for c in RECORD_FEATURE_COLS if c in df.columns]
             if _record_drop_cols:
                 df.drop(columns=_record_drop_cols, inplace=True)

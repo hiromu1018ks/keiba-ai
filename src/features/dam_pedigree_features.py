@@ -81,8 +81,9 @@ class DamPedigreeFeatures:
         Returns:
             race_id, umaban + FEATURE_COLS を持つ DataFrame
         """
-        # 同一(race_id, umaban)の重複を排除
-        entry_df = entry_df.drop_duplicates(subset=["race_id", "umaban"], keep="first")
+        # NOTE: 呼び出し元 (training_pipeline) は (race_id, umaban) の一意性を保証するため
+        # drop_duplicates は不要。万が一重複があればマージ結果が膨張するため、
+        # 呼び出し元でのガード assertion に頼る設計。
 
         sanku = self._load_sanku()
         career = self._load_career_stats()
