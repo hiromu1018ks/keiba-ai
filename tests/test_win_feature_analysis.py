@@ -236,6 +236,10 @@ class TestRemoveNoiseFeatures:
             "bms_distance_wr",
             # コースレコード特徴量 (DATA-02)
             "course_record_time",
+            # レース内相対比較特徴量 (DATA-03)
+            "rel_norm_finish_zscore",
+            "rel_timediff_rank",
+            "rel_closing_index_rank",
         ]
         # FEATURE_COLSは元の特徴量の部分集合であること
         for feat in WinTwoStageModel.FEATURE_COLS:

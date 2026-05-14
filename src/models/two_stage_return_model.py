@@ -126,6 +126,10 @@ class WinTwoStageModel:
         "bms_distance_wr",
         # コースレコード特徴量 (DATA-02)
         "course_record_time",
+        # レース内相対比較特徴量 (DATA-03)
+        "rel_norm_finish_zscore",
+        "rel_timediff_rank",
+        "rel_closing_index_rank",
     ]
 
     def __init__(self, cfg: TwoStageConfig | None = None) -> None:
@@ -387,6 +391,10 @@ class PlaceTwoStageModel:
         "bms_surface_wr",
         # コースレコード特徴量 (DATA-02)
         "course_record_time",
+        # レース内相対比較特徴量 (DATA-03)
+        "rel_norm_finish_zscore",
+        "rel_sire_quality_rank",
+        "rel_haron_vs_mean",
     ]
 
     # --- Return model (Stage B): 配当回帰用 ---
@@ -474,6 +482,10 @@ class PlaceTwoStageModel:
         "bms_distance_wr",
         # コースレコード特徴量 (DATA-02)
         "course_record_time",
+        # レース内相対比較特徴量 (DATA-03)
+        "rel_norm_finish_zscore",
+        "rel_timediff_rank",
+        "rel_closing_index_rank",
     ]
 
     # 後方互換: FEATURE_COLS は return model のリストを返す (最も情報量が多いため)

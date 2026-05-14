@@ -509,6 +509,12 @@ class TrainingPipelineV5:
                 for col in MINING_FEATURE_COLS:
                     df[col] = np.nan
 
+        # Group G: レース内相対比較特徴量 (all per-horse features の後)
+        from features.relative_features import compute_relative_features
+
+        with TimingContext(f"{surface}/relative_features"):
+            df = compute_relative_features(df)
+
         # 1. Market Model (正規化差分 log_error のみ出力)
         # object型の数値列 (pd.NA含む) → float64 (2回目のsurface処理でpd.NAが混入するため)
         for col in df.columns:

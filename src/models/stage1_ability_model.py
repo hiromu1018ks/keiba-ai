@@ -139,6 +139,11 @@ class AbilityModel:
         "bms_surface_wr",
         # コースレコード特徴量 (DATA-02)
         "course_record_time",
+        # レース内相対比較特徴量 (DATA-03)
+        "rel_norm_finish_zscore",
+        "rel_haron_vs_mean",
+        "rel_blood_quality_rank",
+        "rel_sire_quality_rank",
     ]
 
     def __init__(self) -> None:

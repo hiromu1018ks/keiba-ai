@@ -82,6 +82,14 @@ def feature_df() -> pd.DataFrame:
             "bms_surface_wr": [0.11, 0.10, 0.09, 0.08, 0.07, 0.06, 0.04, 0.02],
             # コースレコード特徴量 (DATA-02)
             "course_record_time": [95.3, 95.3, 95.3, 95.3, 95.3, 95.3, 95.3, 95.3],
+            # レース内相対比較特徴量 (DATA-03)
+            "rel_norm_finish_zscore": [1.2, 0.3, -0.5, -1.0, 0.8, 0.1, -0.4, -0.5],
+            "rel_haron_vs_mean": [0.5, 0.2, -0.1, -0.3, 0.4, 0.1, -0.2, -0.3],
+            "rel_timediff_rank": [1, 2, 3, 4, 1, 2, 3, 4],
+            "rel_blood_quality_rank": [1, 2, 3, 4, 1, 2, 3, 4],
+            "rel_sire_quality_rank": [1, 2, 3, 4, 1, 2, 3, 4],
+            "rel_weight_zscore": [0.8, -0.3, 0.1, -0.6, 0.7, -0.2, 0.2, -0.5],
+            "rel_closing_index_rank": [4, 3, 2, 1, 4, 3, 2, 1],
             # その他
             "finish_pos": [1, 2, 3, 4, 5, 6, 7, 8],
             "win_odds_actual": [3.5, 5.0, 8.0, 15.0, 25.0, 40.0, 80.0, 150.0],
