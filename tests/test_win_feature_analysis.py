@@ -240,6 +240,13 @@ class TestRemoveNoiseFeatures:
             "rel_norm_finish_zscore",
             "rel_timediff_rank",
             "rel_closing_index_rank",
+            # INTER-01: オッズ相対特徴量
+            "rel_popularity_rank_zscore",
+            "rel_fuku_odds_zscore",
+            # INTER-01: Stage2能力値相対特徴量
+            "rel_p_ability_win_zscore",
+            "rel_p_ability_win_rank",
+            "rel_odds_ability_deviation",
         ]
         # FEATURE_COLSは元の特徴量の部分集合であること
         for feat in WinTwoStageModel.FEATURE_COLS:
