@@ -167,7 +167,11 @@ Plans:
   1. 統合バックテストROIが100%以上である
   2. 既存テスト全通過(回帰なし)
   3. FEATURE_COLSが凍結され、ハッシュが記録されている
-**Plans**: TBD
+**Plans**: 2 plans
+
+Plans:
+- [ ] 28-01-PLAN.md -- pytest回帰確認 + 特徴量凍結manifest生成 (autonomous)
+- [ ] 28-02-PLAN.md -- マルチ年度BT実行 + Feature importance再計算 + ROADMAP更新 (human-verify checkpoint)
 
 ## Progress
 
@@ -204,4 +208,4 @@ Phases execute in numeric order: 23 -> 24 -> 25 -> 26 -> 27 -> 28
 | 25. Quick Win Wire Existing | v1.6 | 2/2 | Complete | 2026-05-13 |
 | 26. EveryDB2 New Features | v1.6 | 3/3 | Complete    | 2026-05-14 |
 | 27. Feature Interactions | v1.6 | 3/3 | Complete    | 2026-05-15 |
-| 28. Validation & Freeze | v1.6 | 0/? | Not started | - |
+| 28. Validation & Freeze | v1.6 | 0/2 | Planned | - |
