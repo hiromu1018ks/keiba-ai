@@ -90,6 +90,13 @@ def feature_df() -> pd.DataFrame:
             "rel_sire_quality_rank": [1, 2, 3, 4, 1, 2, 3, 4],
             "rel_weight_zscore": [0.8, -0.3, 0.1, -0.6, 0.7, -0.2, 0.2, -0.5],
             "rel_closing_index_rank": [4, 3, 2, 1, 4, 3, 2, 1],
+            # INTER-01: オッズ相対特徴量
+            "rel_popularity_rank_zscore": [1.5, 0.5, -0.3, -1.2, 0.0, 0.0, 0.0, 0.0],
+            "rel_fuku_odds_zscore": [-1.1, -0.5, 0.3, 1.3, 0.0, 0.0, 0.0, 0.0],
+            # INTER-01: Stage2能力値相対特徴量
+            "rel_p_ability_win_zscore": [1.6, 0.4, -0.2, -1.0, 0.0, 0.0, 0.0, 0.0],
+            "rel_p_ability_win_rank": [1, 2, 3, 4, 1, 1, 1, 1],
+            "rel_odds_ability_deviation": [-1.2, 0.1, 0.5, 1.3, 0.0, 0.0, 0.0, 0.0],
             # その他
             "finish_pos": [1, 2, 3, 4, 5, 6, 7, 8],
             "win_odds_actual": [3.5, 5.0, 8.0, 15.0, 25.0, 40.0, 80.0, 150.0],
@@ -664,3 +671,86 @@ class TestJockeyTrainerComboInFeatureCols:
         assert len(WinTwoStageModel.FEATURE_COLS) >= 50
         assert len(PlaceTwoStageModel.HIT_FEATURE_COLS) >= 54
         assert len(PlaceTwoStageModel.RETURN_FEATURE_COLS) >= 55
+
+
+# ---------------------------------------------------------------------------
+# INTER-01: 相対特徴量のFEATURE_COLS統合テスト
+# ---------------------------------------------------------------------------
+
+
+class TestRelativeFeaturesInFeatureCols:
+    """INTER-01: オッズ相対+能力値相対特徴量のFEATURE_COLS統合テスト"""
+
+    def test_stage1_has_rel_weight_zscore(self) -> None:
+        """Stage1AbilityModel.FEATURE_COLSにrel_weight_zscoreが含まれる (per D-01)"""
+        from models.stage1_ability_model import AbilityModel
+
+        assert "rel_weight_zscore" in AbilityModel.FEATURE_COLS
+
+    def test_win_has_odds_relative_features(self) -> None:
+        """WinTwoStageModel.FEATURE_COLSにオッズ相対特徴量が含まれる"""
+        expected = [
+            "rel_popularity_rank_zscore",
+            "rel_fuku_odds_zscore",
+        ]
+        for name in expected:
+            assert name in WinTwoStageModel.FEATURE_COLS, (
+                f"{name} should be in WinTwoStageModel.FEATURE_COLS"
+            )
+
+    def test_win_has_stage2_relative_features(self) -> None:
+        """WinTwoStageModel.FEATURE_COLSに能力値相対特徴量が含まれる"""
+        expected = [
+            "rel_p_ability_win_zscore",
+            "rel_p_ability_win_rank",
+            "rel_odds_ability_deviation",
+        ]
+        for name in expected:
+            assert name in WinTwoStageModel.FEATURE_COLS, (
+                f"{name} should be in WinTwoStageModel.FEATURE_COLS"
+            )
+
+    def test_place_hit_has_relative_features(self) -> None:
+        """PlaceTwoStageModel.HIT_FEATURE_COLSに相対特徴量が含まれる"""
+        expected = [
+            "rel_popularity_rank_zscore",
+            "rel_fuku_odds_zscore",
+            "rel_p_ability_win_zscore",
+            "rel_p_ability_win_rank",
+            "rel_odds_ability_deviation",
+        ]
+        for name in expected:
+            assert name in PlaceTwoStageModel.HIT_FEATURE_COLS, (
+                f"{name} should be in PlaceTwoStageModel.HIT_FEATURE_COLS"
+            )
+
+    def test_place_return_has_relative_features(self) -> None:
+        """PlaceTwoStageModel.RETURN_FEATURE_COLSに相対特徴量が含まれる"""
+        expected = [
+            "rel_popularity_rank_zscore",
+            "rel_fuku_odds_zscore",
+            "rel_p_ability_win_zscore",
+            "rel_p_ability_win_rank",
+            "rel_odds_ability_deviation",
+        ]
+        for name in expected:
+            assert name in PlaceTwoStageModel.RETURN_FEATURE_COLS, (
+                f"{name} should be in PlaceTwoStageModel.RETURN_FEATURE_COLS"
+            )
+
+    def test_place_return_includes_all_win_features(self) -> None:
+        """Place RETURN_FEATURE_COLSにWin FEATURE_COLSが全て含まれる"""
+        for col in WinTwoStageModel.FEATURE_COLS:
+            assert col in PlaceTwoStageModel.RETURN_FEATURE_COLS, (
+                f"Win feature {col} missing from Place RETURN_FEATURE_COLS"
+            )
+
+    def test_compute_stage2_relative_features_in_pipeline(self) -> None:
+        """_train_submodel内でcompute_stage2_relative_featuresが呼ばれている (grep検証)"""
+        import inspect
+        from pipelines.training_pipeline import TrainingPipelineV5
+
+        source = inspect.getsource(TrainingPipelineV5._train_submodel)
+        assert "compute_stage2_relative_features" in source, (
+            "compute_stage2_relative_features not found in _train_submodel"
+        )

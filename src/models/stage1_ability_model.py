@@ -144,6 +144,7 @@ class AbilityModel:
         "rel_haron_vs_mean",
         "rel_blood_quality_rank",
         "rel_sire_quality_rank",
+        "rel_weight_zscore",
     ]
 
     def __init__(self) -> None:

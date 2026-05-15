@@ -563,6 +563,10 @@ class TrainingPipelineV5:
             p_ability = df_oof["p_ability_win"].clip(lower=1e-6)
             df_oof["odds_to_ability_ratio"] = (p_market / p_ability).clip(0.1, 10.0)
 
+        # INTER-01: Stage2相対特徴量 (p_ability_win / odds_to_ability_ratio依存)
+        from features.relative_features import compute_stage2_relative_features
+        df_oof = compute_stage2_relative_features(df_oof)
+
         # ODDS-01: deviation features (after odds_to_ability_ratio computed)
         from features.odds_deviation_features import compute_odds_deviation_features
         df_oof = compute_odds_deviation_features(df_oof)

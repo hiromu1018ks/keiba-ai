@@ -130,6 +130,12 @@ class WinTwoStageModel:
         "rel_norm_finish_zscore",
         "rel_timediff_rank",
         "rel_closing_index_rank",
+        "rel_popularity_rank_zscore",
+        "rel_fuku_odds_zscore",
+        # レース内相対比較特徴量 -- Stage2 (INTER-01)
+        "rel_p_ability_win_zscore",
+        "rel_p_ability_win_rank",
+        "rel_odds_ability_deviation",
     ]
 
     def __init__(self, cfg: TwoStageConfig | None = None) -> None:
@@ -395,6 +401,13 @@ class PlaceTwoStageModel:
         "rel_norm_finish_zscore",
         "rel_sire_quality_rank",
         "rel_haron_vs_mean",
+        # オッズ相対特徴量 (INTER-01)
+        "rel_popularity_rank_zscore",
+        "rel_fuku_odds_zscore",
+        # Stage2能力値相対特徴量 (INTER-01)
+        "rel_p_ability_win_zscore",
+        "rel_p_ability_win_rank",
+        "rel_odds_ability_deviation",
     ]
 
     # --- Return model (Stage B): 配当回帰用 ---
@@ -486,6 +499,13 @@ class PlaceTwoStageModel:
         "rel_norm_finish_zscore",
         "rel_timediff_rank",
         "rel_closing_index_rank",
+        # オッズ相対特徴量 (INTER-01)
+        "rel_popularity_rank_zscore",
+        "rel_fuku_odds_zscore",
+        # Stage2能力値相対特徴量 (INTER-01)
+        "rel_p_ability_win_zscore",
+        "rel_p_ability_win_rank",
+        "rel_odds_ability_deviation",
     ]
 
     # 後方互換: FEATURE_COLS は return model のリストを返す (最も情報量が多いため)
