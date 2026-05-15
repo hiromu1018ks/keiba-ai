@@ -159,4 +159,7 @@ class RecordFeatures:
             how="left",
         )
 
-        return result[["race_id"] + FEATURE_COLS]
+        # レースレベル特徴量: 同じレースの全馬に同じ値がマッピングされるため
+        # race_id で一意にする (呼び出し側が on=["race_id"] で merge する前提)
+        result = result[["race_id"] + FEATURE_COLS].drop_duplicates(subset=["race_id"])
+        return result
