@@ -5,6 +5,25 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
+# 12個の交互作用特徴量名 (既存3 + 新規9)
+INTERACTION_COLS: list[str] = [
+    # 既存 (3)
+    "kyakusitu_x_distance",
+    "kyakusitu_x_surface",
+    "weight_x_distance",
+    # 新規: カテゴリ積 (3)
+    "surface_x_distance_bin",
+    "blood_keito_x_surface",
+    "grade_code_x_distance_bin",
+    # 新規: 数値積 (6)
+    "sire_wr_x_distance",
+    "blood_surface_wr_x_condition",
+    "pace_pressure_x_closing_index",
+    "haron_x_distance",
+    "surface_x_past_perf",
+    "weight_x_class",
+]
+
 
 def compute_interaction_features(df: pd.DataFrame) -> pd.DataFrame:
     """
@@ -12,6 +31,7 @@ def compute_interaction_features(df: pd.DataFrame) -> pd.DataFrame:
     LightGBMカテゴリとして扱うため、文字列結合 → astype("category")。
 
     v5: レースコンテキスト特徴量 (オッズギャップ、レース荒れ指標) を追加。
+    INTER-02: ドメイン知識交互作用項 (計12個) を追加。
     """
     df = df.copy()
 
@@ -36,6 +56,81 @@ def compute_interaction_features(df: pd.DataFrame) -> pd.DataFrame:
     if weight_col in df.columns and "kyori" in df.columns:
         df["weight_x_distance"] = (df[weight_col] * df["kyori"]).where(
             df[weight_col].notna() & df["kyori"].notna(),
+            other=float("nan"),
+        )
+
+    # --- INTER-02: 新規ドメイン知識交互作用項 (9個) ---
+
+    # カテゴリ積 (3個)
+    # 馬場×距離bin
+    if "surface" in df.columns and "distance_bin" in df.columns:
+        df["surface_x_distance_bin"] = (
+            df["surface"].astype(str) + "_" + df["distance_bin"].astype(str)
+        ).astype("category")
+
+    # 血統系統×馬場
+    if "blood_keito_cd" in df.columns and "surface" in df.columns:
+        keito = pd.to_numeric(df["blood_keito_cd"], errors="coerce")
+        # blood_keito_cdが数値化できない (NaN) の場合はスキップ
+        if keito.notna().any():
+            df["blood_keito_x_surface"] = (
+                df["blood_keito_cd"].astype(str) + "_" + df["surface"].astype(str)
+            ).astype("category")
+
+    # グレード×距離bin
+    if "grade_code" in df.columns and "distance_bin" in df.columns:
+        df["grade_code_x_distance_bin"] = (
+            df["grade_code"].astype(str) + "_" + df["distance_bin"].astype(str)
+        ).astype("category")
+
+    # 数値積 (6個) -- .where() でNaN安全
+
+    # 種牡馬成績×距離
+    if "sire_wr" in df.columns and "kyori" in df.columns:
+        df["sire_wr_x_distance"] = (df["sire_wr"] * df["kyori"]).where(
+            df["sire_wr"].notna() & df["kyori"].notna(),
+            other=float("nan"),
+        )
+
+    # 血統馬場勝率×馬場状態
+    if "blood_surface_wr" in df.columns and "track_condition_code" in df.columns:
+        df["blood_surface_wr_x_condition"] = (
+            df["blood_surface_wr"] * df["track_condition_code"]
+        ).where(
+            df["blood_surface_wr"].notna() & df["track_condition_code"].notna(),
+            other=float("nan"),
+        )
+
+    # ペース圧力×追込指数
+    if "pace_pressure" in df.columns and "closing_index_avg" in df.columns:
+        df["pace_pressure_x_closing_index"] = (
+            df["pace_pressure"] * df["closing_index_avg"]
+        ).where(
+            df["pace_pressure"].notna() & df["closing_index_avg"].notna(),
+            other=float("nan"),
+        )
+
+    # 末脚×距離
+    if "harontimel5_avg" in df.columns and "kyori" in df.columns:
+        df["haron_x_distance"] = (df["harontimel5_avg"] * df["kyori"]).where(
+            df["harontimel5_avg"].notna() & df["kyori"].notna(),
+            other=float("nan"),
+        )
+
+    # 馬場×過去成績 (surface_code * norm_finish_logit_avg)
+    if "norm_finish_logit_avg" in df.columns and "surface" in df.columns:
+        surface_code = df["surface"].map({"turf": 1, "dirt": 2}).fillna(0)
+        df["surface_x_past_perf"] = (df["norm_finish_logit_avg"] * surface_code).where(
+            df["norm_finish_logit_avg"].notna(),
+            other=float("nan"),
+        )
+
+    # 馬体×クラス (体重 * grade_code数値マッピング)
+    _GRADE_MAP = {"G1": 5, "G2": 4, "G3": 3, "OP": 2, "J.G1": 5, "J.G2": 4, "J.G3": 3}
+    if weight_col in df.columns and "grade_code" in df.columns:
+        grade_num = df["grade_code"].map(_GRADE_MAP).fillna(1.0)
+        df["weight_x_class"] = (df[weight_col] * grade_num).where(
+            df[weight_col].notna() & df["grade_code"].notna(),
             other=float("nan"),
         )
 

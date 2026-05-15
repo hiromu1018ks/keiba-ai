@@ -197,13 +197,13 @@ def test_blood_keito_x_surface():
     """blood_keito_cd列とsurface列がある場合、blood_keito_x_surfaceがcategory型で生成される"""
     df = pd.DataFrame(
         {
-            "blood_keito_cd": ["A", "B", "C"],
+            "blood_keito_cd": [1.0, 2.0, 3.0],
             "surface": ["turf", "dirt", "turf"],
         }
     )
     result = compute_interaction_features(df)
     assert "blood_keito_x_surface" in result.columns
-    assert result["blood_keito_x_surface"].tolist() == ["A_turf", "B_dirt", "C_turf"]
+    assert result["blood_keito_x_surface"].tolist() == ["1.0_turf", "2.0_dirt", "3.0_turf"]
     assert result["blood_keito_x_surface"].dtype.name == "category"
 
 
