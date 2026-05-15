@@ -149,6 +149,10 @@ class WinTwoStageModel:
         "haron_x_distance",
         "surface_x_past_perf",
         "weight_x_class",
+        # Target Encoding (INTER-03): OOF-safe expanding window
+        "te_blood_keito_cd",
+        "te_kisyucode",
+        "te_chokyosicode",
     ]
 
     def __init__(self, cfg: TwoStageConfig | None = None) -> None:
@@ -437,6 +441,10 @@ class PlaceTwoStageModel:
         "haron_x_distance",
         "surface_x_past_perf",
         "weight_x_class",
+        # Target Encoding (INTER-03): OOF-safe expanding window
+        "te_blood_keito_cd",
+        "te_kisyucode",
+        "te_chokyosicode",
     ]
 
     # --- Return model (Stage B): 配当回帰用 ---
@@ -548,6 +556,10 @@ class PlaceTwoStageModel:
         "haron_x_distance",
         "surface_x_past_perf",
         "weight_x_class",
+        # Target Encoding (INTER-03): OOF-safe expanding window
+        "te_blood_keito_cd",
+        "te_kisyucode",
+        "te_chokyosicode",
     ]
 
     # 後方互換: FEATURE_COLS は return model のリストを返す (最も情報量が多いため)

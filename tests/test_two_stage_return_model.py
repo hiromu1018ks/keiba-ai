@@ -110,6 +110,10 @@ def feature_df() -> pd.DataFrame:
             "haron_x_distance": [35.5 * 1200] * 8,
             "surface_x_past_perf": [0.1 * 1] * 8,
             "weight_x_class": [450.0 * 1] * 8,
+            # INTER-03: Target Encoding (OOF-safe)
+            "te_blood_keito_cd": [0.08, 0.07, 0.09, 0.06, 0.10, 0.05, 0.07, 0.04],
+            "te_kisyucode": [0.12, 0.10, 0.11, 0.09, 0.08, 0.07, 0.06, 0.05],
+            "te_chokyosicode": [0.11, 0.09, 0.10, 0.08, 0.07, 0.06, 0.05, 0.04],
             # その他
             "finish_pos": [1, 2, 3, 4, 5, 6, 7, 8],
             "win_odds_actual": [3.5, 5.0, 8.0, 15.0, 25.0, 40.0, 80.0, 150.0],

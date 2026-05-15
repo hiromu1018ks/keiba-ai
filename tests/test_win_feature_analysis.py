@@ -260,6 +260,10 @@ class TestRemoveNoiseFeatures:
             "haron_x_distance",
             "surface_x_past_perf",
             "weight_x_class",
+            # INTER-03: Target Encoding特徴量 (3)
+            "te_blood_keito_cd",
+            "te_kisyucode",
+            "te_chokyosicode",
         ]
         # FEATURE_COLSは元の特徴量の部分集合であること
         for feat in WinTwoStageModel.FEATURE_COLS:

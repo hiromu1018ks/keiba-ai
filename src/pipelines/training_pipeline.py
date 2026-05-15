@@ -550,6 +550,24 @@ class TrainingPipelineV5:
         oof_mask = df["p_ability_win"].notna()
         df_oof = df[oof_mask].copy()
 
+        # INTER-03: Target Encoding (OOF-safe, expanding window)
+        # 血統系統・騎手・調教師の高カーディナリティカテゴリをTE化。
+        # Stage1 OOF直後に実行: target (kakuteijyuni==1) が利用可能。
+        # Stage1には追加しない (TE target == Stage1 targetでリークの可能性)。
+        with TimingContext(f"{surface}/target_encoding"):
+            from features.target_encoding import TargetEncoder
+
+            te_cat_cols = [
+                c for c in ["blood_keito_cd", "kisyucode", "chokyosicode"]
+                if c in df_oof.columns
+            ]
+            if te_cat_cols:
+                te_encoder = TargetEncoder(
+                    cat_cols=te_cat_cols,
+                    target_col="kakuteijyuni",
+                )
+                df_oof = te_encoder.fit_transform_oof(df_oof)
+
         # FEAT-02: odds_to_ability_ratio -- 市場確率と能力確率の比
         # p_market_win_adj は FeatureEngine.build_all() -> compute_market_bias() で生成済み
         # p_ability_win は直上の AbilityModel.train_oof() で生成済み
