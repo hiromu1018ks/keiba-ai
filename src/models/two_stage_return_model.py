@@ -136,6 +136,19 @@ class WinTwoStageModel:
         "rel_p_ability_win_zscore",
         "rel_p_ability_win_rank",
         "rel_odds_ability_deviation",
+        # 交互作用 (12): 既存3 + 新規9 (INTER-02)
+        "kyakusitu_x_distance",       # category
+        "kyakusitu_x_surface",        # category
+        "weight_x_distance",
+        "surface_x_distance_bin",     # category
+        "blood_keito_x_surface",      # category
+        "grade_code_x_distance_bin",  # category
+        "sire_wr_x_distance",
+        "blood_surface_wr_x_condition",
+        "pace_pressure_x_closing_index",
+        "haron_x_distance",
+        "surface_x_past_perf",
+        "weight_x_class",
     ]
 
     def __init__(self, cfg: TwoStageConfig | None = None) -> None:
@@ -218,7 +231,10 @@ class WinTwoStageModel:
         for col in features.columns:
             if pd.api.types.is_integer_dtype(features[col]):
                 features[col] = features[col].astype(float)
-        for col in ["surface", "distance_bin", "grade_code"]:
+        for col in ["surface", "distance_bin", "grade_code",
+                     "kyakusitu_x_distance", "kyakusitu_x_surface",
+                     "surface_x_distance_bin", "blood_keito_x_surface",
+                     "grade_code_x_distance_bin"]:
             if col in features.columns:
                 features[col] = features[col].astype("category")
         return features
@@ -408,6 +424,19 @@ class PlaceTwoStageModel:
         "rel_p_ability_win_zscore",
         "rel_p_ability_win_rank",
         "rel_odds_ability_deviation",
+        # 交互作用 (12): 既存3 + 新規9 (INTER-02)
+        "kyakusitu_x_distance",       # category
+        "kyakusitu_x_surface",        # category
+        "weight_x_distance",
+        "surface_x_distance_bin",     # category
+        "blood_keito_x_surface",      # category
+        "grade_code_x_distance_bin",  # category
+        "sire_wr_x_distance",
+        "blood_surface_wr_x_condition",
+        "pace_pressure_x_closing_index",
+        "haron_x_distance",
+        "surface_x_past_perf",
+        "weight_x_class",
     ]
 
     # --- Return model (Stage B): 配当回帰用 ---
@@ -506,6 +535,19 @@ class PlaceTwoStageModel:
         "rel_p_ability_win_zscore",
         "rel_p_ability_win_rank",
         "rel_odds_ability_deviation",
+        # 交互作用 (12): 既存3 + 新規9 (INTER-02)
+        "kyakusitu_x_distance",       # category
+        "kyakusitu_x_surface",        # category
+        "weight_x_distance",
+        "surface_x_distance_bin",     # category
+        "blood_keito_x_surface",      # category
+        "grade_code_x_distance_bin",  # category
+        "sire_wr_x_distance",
+        "blood_surface_wr_x_condition",
+        "pace_pressure_x_closing_index",
+        "haron_x_distance",
+        "surface_x_past_perf",
+        "weight_x_class",
     ]
 
     # 後方互換: FEATURE_COLS は return model のリストを返す (最も情報量が多いため)
@@ -546,7 +588,10 @@ class PlaceTwoStageModel:
         for col in features.columns:
             if pd.api.types.is_integer_dtype(features[col]):
                 features[col] = features[col].astype(float)
-        for col in ["surface", "distance_bin", "grade_code"]:
+        for col in ["surface", "distance_bin", "grade_code",
+                     "kyakusitu_x_distance", "kyakusitu_x_surface",
+                     "surface_x_distance_bin", "blood_keito_x_surface",
+                     "grade_code_x_distance_bin"]:
             if col in features.columns:
                 features[col] = features[col].astype("category")
         return features

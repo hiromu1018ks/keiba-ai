@@ -247,6 +247,19 @@ class TestRemoveNoiseFeatures:
             "rel_p_ability_win_zscore",
             "rel_p_ability_win_rank",
             "rel_odds_ability_deviation",
+            # INTER-02: 交互作用特徴量 (12)
+            "kyakusitu_x_distance",
+            "kyakusitu_x_surface",
+            "weight_x_distance",
+            "surface_x_distance_bin",
+            "blood_keito_x_surface",
+            "grade_code_x_distance_bin",
+            "sire_wr_x_distance",
+            "blood_surface_wr_x_condition",
+            "pace_pressure_x_closing_index",
+            "haron_x_distance",
+            "surface_x_past_perf",
+            "weight_x_class",
         ]
         # FEATURE_COLSは元の特徴量の部分集合であること
         for feat in WinTwoStageModel.FEATURE_COLS:
