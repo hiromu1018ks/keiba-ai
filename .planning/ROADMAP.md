@@ -81,7 +81,7 @@
 - [x] **Phase 24: Feature Audit & Pruning** - 100+特徴量の有効性監査 + ノイズ除去 + キャッシュ無効化 (2/2 plans, completed 2026-05-12)
 - [x] **Phase 25: Quick Win Wire Existing** - 既存実装済み12特徴量(Jockey/Trainer/Combo)の配線 (2/2 plans, completed 2026-05-13)
 - [x] **Phase 26: EveryDB2 New Features** - 未活用テーブルからの血統/タイム/相対比較/mining特徴量抽出 (completed 2026-05-14)
-- [ ] **Phase 27: Feature Interactions** - 条件付き交互作用項 + ターゲットエンコーディング
+- [ ] **Phase 27: Feature Interactions** - 条件付き交互作用項 + ターゲットエンコーディング (3/3 plans, wave 1→2→3)
 - [ ] **Phase 28: Validation & Freeze** - 統合バックテスト + ROI 100%検証 + 特徴量凍結
 
 ## Phase Details
@@ -203,5 +203,5 @@ Phases execute in numeric order: 23 -> 24 -> 25 -> 26 -> 27 -> 28
 | 24. Feature Audit & Pruning | v1.6 | 2/2 | Complete | 2026-05-12 |
 | 25. Quick Win Wire Existing | v1.6 | 2/2 | Complete | 2026-05-13 |
 | 26. EveryDB2 New Features | v1.6 | 3/3 | Complete    | 2026-05-14 |
-| 27. Feature Interactions | v1.6 | 0/3 | Planned | - |
+| 27. Feature Interactions | v1.6 | 3/3 | Ready to execute | - |
 | 28. Validation & Freeze | v1.6 | 0/? | Not started | - |

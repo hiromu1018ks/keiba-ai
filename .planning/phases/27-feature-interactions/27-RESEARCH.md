@@ -349,19 +349,19 @@ def compute_target_encoding_oof(
 | A3 | chokyosicode も数百〜千のカーディナリティ (調教師コード) | TE設計 | A2と同じ |
 | A4 | 推論時のTE値は学習データのexpanding mean (最新)で固定使用可能 | TE設計 | 推論精度が学習データ末期に依存 |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **TE target 変数の選択**
+1. **TE target 変数の選択** (RESOLVED: binary kakuteijyuni==1)
    - What we know: Stage1 は `kakuteijyuni` をtargetに使用。Stage2 (Win) は `kakuteijyuni == 1` をtargetに使用
    - What's unclear: TE の target としてどの変数が最適か (kakuteijyuni をそのまま使うか、binary に変換するか)
    - Recommendation: Stage1 TE は `kakuteijyuni` の1着フラグ (`kakuteijyuni == 1`)、Stage2 TE も同じ。Kaggle コンペのベストプラクティスに従う
 
-2. **TE の追加先モデル**
+2. **TE の追加先モデル** (RESOLVED: Stage2のみ、Stage1には追加しない)
    - What we know: Phase 25 D-02 で「騎手/調教師コンテキストはStage2のみ」と決定。TE も同様の判断が必要
    - What's unclear: TE (target との直接関係) と コンテキスト特徴量 (過去成績の集約) は異なる情報だが、同じStage2制限を適用すべきか
    - Recommendation: blood_keito_cd のTE はStage1にも追加可能 (血統はオッズに依存しない能力情報)。騎手/調教師のTE は Stage2のみ (Phase 25 D-02 と整合)
 
-3. **p_ability_win 依存の相対特徴量の計算タイミング**
+3. **p_ability_win 依存の相対特徴量の計算タイミング** (RESOLVED: Stage1 OOF後にdf_oof上で計算)
    - What we know: `compute_relative_features()` は Stage1 OOF の前に呼ばれる。p_ability_win は Stage1 OOF 後に生成
    - What's unclear: 追加の相対特徴量計算をどこに配置するか
    - Recommendation: `odds_deviation_features.py` パターンに従い、Stage1 OOF後に `df_oof` 上で追加計算する

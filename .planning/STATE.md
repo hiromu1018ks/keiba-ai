@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v1.6
 milestone_name: Feature Engineering Overhaul
-status: planning
-stopped_at: Phase 27 context gathered
-last_updated: "2026-05-15T01:15:21.470Z"
-last_activity: 2026-05-14
+status: ready_to_execute
+stopped_at: Phase 27 planned
+last_updated: "2026-05-15T02:30:00.000Z"
+last_activity: 2026-05-15
 progress:
   total_phases: 6
   completed_phases: 4
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-05-10)
 
 **Core value:** 単勝モデルのバックテストROIを100%超えにすること
-**Current focus:** Phase 26 — everydb2-new-features
+**Current focus:** Phase 27 — feature-interactions
 
 ## Current Position
 
 Phase: 27
-Plan: Not started
-Status: Ready to plan
-Last activity: 2026-05-14
+Plan: 3 plans (wave 1→2→3)
+Status: Ready to execute
+Last activity: 2026-05-15
 
 Progress: [█████████░] 89%
 
