@@ -1,6 +1,6 @@
 """src/features/relative_features.py のテスト
 
-レース内相対比較特徴量 (7特徴量) のテスト。
+レース内相対比較特徴量 (7+2特徴量) のテスト。
 全テスト mock 使用 (DB不要) -- プロジェクト規約に従う。
 """
 
@@ -10,7 +10,12 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from features.relative_features import RELATIVE_FEATURE_COLS, compute_relative_features
+from features.relative_features import (
+    RELATIVE_FEATURE_COLS,
+    STAGE2_RELATIVE_FEATURE_COLS,
+    compute_relative_features,
+    compute_stage2_relative_features,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -30,6 +35,8 @@ def race_df() -> pd.DataFrame:
       sire_wr:               [0.18, 0.12, 0.08, 0.04]
       weight_zscore:         [0.5, -0.3, 1.2, -0.4]
       closing_index_avg:     [0.1, 0.3, 0.5, 0.8]
+      fukuoddslow:           [1.3, 2.5, 5.0, 12.0]
+      popularity_rank:       [1, 2, 3, 4]
 
     Race 2: all identical values (tests std=0 fallback)
       norm_finish_logit_avg: [0.7, 0.7, 0.7, 0.7]
@@ -39,6 +46,8 @@ def race_df() -> pd.DataFrame:
       sire_wr:               [0.10, 0.10, 0.10, 0.10]
       weight_zscore:         [0.0, 0.0, 0.0, 0.0]
       closing_index_avg:     [0.4, 0.4, 0.4, 0.4]
+      fukuoddslow:           [2.0, 2.0, 2.0, 2.0]
+      popularity_rank:       [1, 1, 1, 1]
     """
     return pd.DataFrame(
         {
@@ -51,6 +60,8 @@ def race_df() -> pd.DataFrame:
             "sire_wr": [0.18, 0.12, 0.08, 0.04, 0.10, 0.10, 0.10, 0.10],
             "weight_zscore": [0.5, -0.3, 1.2, -0.4, 0.0, 0.0, 0.0, 0.0],
             "closing_index_avg": [0.1, 0.3, 0.5, 0.8, 0.4, 0.4, 0.4, 0.4],
+            "fukuoddslow": [1.3, 2.5, 5.0, 12.0, 2.0, 2.0, 2.0, 2.0],
+            "popularity_rank": [1, 2, 3, 4, 1, 1, 1, 1],
         }
     )
 
@@ -63,16 +74,16 @@ def race_df() -> pd.DataFrame:
 class TestRelativeFeatureCols:
     """RELATIVE_FEATURE_COLS and column production tests."""
 
-    def test_relative_feature_cols_has_7_entries(self) -> None:
-        """RELATIVE_FEATURE_COLS has exactly 7 entries."""
-        assert len(RELATIVE_FEATURE_COLS) == 7
+    def test_relative_feature_cols_has_9_entries(self) -> None:
+        """RELATIVE_FEATURE_COLS has exactly 9 entries."""
+        assert len(RELATIVE_FEATURE_COLS) == 9
 
     def test_relative_feature_cols_no_duplicates(self) -> None:
         """RELATIVE_FEATURE_COLS has no duplicate entries."""
         assert len(RELATIVE_FEATURE_COLS) == len(set(RELATIVE_FEATURE_COLS))
 
-    def test_all_7_columns_produced(self, race_df: pd.DataFrame) -> None:
-        """compute_relative_features() produces all 7 RELATIVE_FEATURE_COLS columns."""
+    def test_all_9_columns_produced(self, race_df: pd.DataFrame) -> None:
+        """compute_relative_features() produces all 9 RELATIVE_FEATURE_COLS columns."""
         result = compute_relative_features(race_df)
         for col in RELATIVE_FEATURE_COLS:
             assert col in result.columns, f"Missing column: {col}"
@@ -312,9 +323,9 @@ class TestNaNPropagation:
 class TestRelativeFeatureColsIntegrity:
     """RELATIVE_FEATURE_COLS list integrity tests."""
 
-    def test_exactly_7_entries(self) -> None:
-        """RELATIVE_FEATURE_COLS has exactly 7 entries."""
-        assert len(RELATIVE_FEATURE_COLS) == 7
+    def test_exactly_9_entries(self) -> None:
+        """RELATIVE_FEATURE_COLS has exactly 9 entries."""
+        assert len(RELATIVE_FEATURE_COLS) == 9
 
     def test_no_duplicates(self) -> None:
         """RELATIVE_FEATURE_COLS has no duplicate entries."""
@@ -330,5 +341,217 @@ class TestRelativeFeatureColsIntegrity:
             "rel_sire_quality_rank",
             "rel_weight_zscore",
             "rel_closing_index_rank",
+            "rel_fuku_odds_zscore",
+            "rel_popularity_rank_zscore",
         ]
         assert sorted(RELATIVE_FEATURE_COLS) == sorted(expected)
+
+
+# ---------------------------------------------------------------------------
+# Test 13: rel_fuku_odds_zscore = z-score of fukuoddslow within race
+# ---------------------------------------------------------------------------
+
+
+class TestZscoreFukuOdds:
+    """z-score of fukuoddslow within race."""
+
+    def test_zscore_calculation_race1(self, race_df: pd.DataFrame) -> None:
+        """Race 1: z-score = (value - mean) / std for fukuoddslow."""
+        result = compute_relative_features(race_df)
+        r1 = result[result["race_id"] == "R1"]
+        values = r1["fukuoddslow"].values
+        mean = np.mean(values)
+        std = np.std(values, ddof=1)
+        expected = (values - mean) / std
+        np.testing.assert_allclose(r1["rel_fuku_odds_zscore"].values, expected, atol=1e-10)
+
+    def test_zscore_fallback_std0(self, race_df: pd.DataFrame) -> None:
+        """Race 2 (all identical): z-score outputs 0.0."""
+        result = compute_relative_features(race_df)
+        r2 = result[result["race_id"] == "R2"]
+        np.testing.assert_allclose(r2["rel_fuku_odds_zscore"].values, [0.0, 0.0, 0.0, 0.0])
+
+
+# ---------------------------------------------------------------------------
+# Test 14: rel_popularity_rank_zscore = z-score of popularity_rank within race
+# ---------------------------------------------------------------------------
+
+
+class TestZscorePopularityRank:
+    """z-score of popularity_rank within race."""
+
+    def test_zscore_calculation_race1(self, race_df: pd.DataFrame) -> None:
+        """Race 1: z-score = (value - mean) / std for popularity_rank."""
+        result = compute_relative_features(race_df)
+        r1 = result[result["race_id"] == "R1"]
+        values = r1["popularity_rank"].values.astype(float)
+        mean = np.mean(values)
+        std = np.std(values, ddof=1)
+        expected = (values - mean) / std
+        np.testing.assert_allclose(
+            r1["rel_popularity_rank_zscore"].values.astype(float), expected, atol=1e-10
+        )
+
+    def test_zscore_fallback_std0(self, race_df: pd.DataFrame) -> None:
+        """Race 2 (all identical): z-score outputs 0.0."""
+        result = compute_relative_features(race_df)
+        r2 = result[result["race_id"] == "R2"]
+        np.testing.assert_allclose(r2["rel_popularity_rank_zscore"].values, [0.0, 0.0, 0.0, 0.0])
+
+
+# ---------------------------------------------------------------------------
+# Test 15: Missing fukuoddslow/popularity_rank skipped silently
+# ---------------------------------------------------------------------------
+
+
+class TestMissingOddsColumnsSkipped:
+    """Missing odds columns are skipped silently in compute_relative_features."""
+
+    def test_missing_fukuoddslow_skipped(self) -> None:
+        """When fukuoddslow is missing, rel_fuku_odds_zscore is not added."""
+        df = pd.DataFrame(
+            {
+                "race_id": ["R1", "R1"],
+                "umaban": [1, 2],
+                "norm_finish_logit_avg": [0.8, 0.5],
+                "harontimel5_avg": [12.0, 13.0],
+                "timediff_avg": [0.2, 0.5],
+                "blood_total_wr": [0.20, 0.15],
+                "sire_wr": [0.18, 0.12],
+                "weight_zscore": [0.5, -0.3],
+                "closing_index_avg": [0.1, 0.3],
+            }
+        )
+        result = compute_relative_features(df)
+        assert "rel_fuku_odds_zscore" not in result.columns
+
+    def test_missing_popularity_rank_skipped(self) -> None:
+        """When popularity_rank is missing, rel_popularity_rank_zscore is not added."""
+        df = pd.DataFrame(
+            {
+                "race_id": ["R1", "R1"],
+                "umaban": [1, 2],
+                "fukuoddslow": [1.3, 2.5],
+            }
+        )
+        result = compute_relative_features(df)
+        assert "rel_popularity_rank_zscore" not in result.columns
+
+
+# ---------------------------------------------------------------------------
+# Test 16: compute_stage2_relative_features() tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def stage2_df() -> pd.DataFrame:
+    """2レース、各4頭のStage2テストデータ (p_ability_win, odds_to_ability_ratio)."""
+    return pd.DataFrame(
+        {
+            "race_id": ["R1"] * 4 + ["R2"] * 4,
+            "umaban": [1, 2, 3, 4, 1, 2, 3, 4],
+            "p_ability_win": [0.40, 0.25, 0.20, 0.15, 0.30, 0.30, 0.30, 0.30],
+            "odds_to_ability_ratio": [0.8, 1.2, 1.5, 2.0, 1.0, 1.0, 1.0, 1.0],
+        }
+    )
+
+
+class TestStage2RelativeFeatures:
+    """compute_stage2_relative_features() tests."""
+
+    def test_rel_p_ability_win_zscore(self, stage2_df: pd.DataFrame) -> None:
+        """rel_p_ability_win_zscore = z-score of p_ability_win within race."""
+        result = compute_stage2_relative_features(stage2_df)
+        r1 = result[result["race_id"] == "R1"]
+        values = r1["p_ability_win"].values
+        mean = np.mean(values)
+        std = np.std(values, ddof=1)
+        expected = (values - mean) / std
+        np.testing.assert_allclose(r1["rel_p_ability_win_zscore"].values, expected, atol=1e-10)
+
+    def test_rel_p_ability_win_rank(self, stage2_df: pd.DataFrame) -> None:
+        """rel_p_ability_win_rank = rank descending (higher ability = rank 1)."""
+        result = compute_stage2_relative_features(stage2_df)
+        r1 = result[result["race_id"] == "R1"]
+        # p_ability_win: [0.40, 0.25, 0.20, 0.15] -> desc rank [1, 2, 3, 4]
+        np.testing.assert_array_equal(r1["rel_p_ability_win_rank"].values, [1.0, 2.0, 3.0, 4.0])
+
+    def test_rel_p_ability_win_rank_ties(self, stage2_df: pd.DataFrame) -> None:
+        """Race 2 (all identical): all rank 1 (method=min, descending)."""
+        result = compute_stage2_relative_features(stage2_df)
+        r2 = result[result["race_id"] == "R2"]
+        np.testing.assert_array_equal(r2["rel_p_ability_win_rank"].values, [1.0, 1.0, 1.0, 1.0])
+
+    def test_rel_odds_ability_deviation(self, stage2_df: pd.DataFrame) -> None:
+        """rel_odds_ability_deviation = z-score of odds_to_ability_ratio within race."""
+        result = compute_stage2_relative_features(stage2_df)
+        r1 = result[result["race_id"] == "R1"]
+        values = r1["odds_to_ability_ratio"].values
+        mean = np.mean(values)
+        std = np.std(values, ddof=1)
+        expected = (values - mean) / std
+        np.testing.assert_allclose(
+            r1["rel_odds_ability_deviation"].values, expected, atol=1e-10
+        )
+
+    def test_stage2_missing_p_ability_win(self) -> None:
+        """When p_ability_win is missing, NaN columns are generated (no error)."""
+        df = pd.DataFrame(
+            {
+                "race_id": ["R1", "R1"],
+                "umaban": [1, 2],
+                "odds_to_ability_ratio": [0.8, 1.2],
+            }
+        )
+        result = compute_stage2_relative_features(df)
+        assert "rel_p_ability_win_zscore" in result.columns
+        assert "rel_p_ability_win_rank" in result.columns
+        assert result["rel_p_ability_win_zscore"].isna().all()
+        assert result["rel_p_ability_win_rank"].isna().all()
+
+    def test_stage2_missing_odds_to_ability_ratio(self) -> None:
+        """When odds_to_ability_ratio is missing, NaN column is generated (no error)."""
+        df = pd.DataFrame(
+            {
+                "race_id": ["R1", "R1"],
+                "umaban": [1, 2],
+                "p_ability_win": [0.4, 0.25],
+            }
+        )
+        result = compute_stage2_relative_features(df)
+        assert "rel_odds_ability_deviation" in result.columns
+        assert result["rel_odds_ability_deviation"].isna().all()
+
+    def test_stage2_zscore_std0_fallback(self, stage2_df: pd.DataFrame) -> None:
+        """Race 2 (all identical p_ability_win): z-score outputs 0.0."""
+        result = compute_stage2_relative_features(stage2_df)
+        r2 = result[result["race_id"] == "R2"]
+        np.testing.assert_allclose(
+            r2["rel_p_ability_win_zscore"].values, [0.0, 0.0, 0.0, 0.0]
+        )
+
+
+# ---------------------------------------------------------------------------
+# Test 17: STAGE2_RELATIVE_FEATURE_COLS constant
+# ---------------------------------------------------------------------------
+
+
+class TestStage2RelativeFeatureCols:
+    """STAGE2_RELATIVE_FEATURE_COLS constant tests."""
+
+    def test_has_3_entries(self) -> None:
+        """STAGE2_RELATIVE_FEATURE_COLS has exactly 3 entries."""
+        assert len(STAGE2_RELATIVE_FEATURE_COLS) == 3
+
+    def test_no_duplicates(self) -> None:
+        """STAGE2_RELATIVE_FEATURE_COLS has no duplicate entries."""
+        assert len(STAGE2_RELATIVE_FEATURE_COLS) == len(set(STAGE2_RELATIVE_FEATURE_COLS))
+
+    def test_expected_names(self) -> None:
+        """STAGE2_RELATIVE_FEATURE_COLS contains the expected feature names."""
+        expected = [
+            "rel_p_ability_win_zscore",
+            "rel_p_ability_win_rank",
+            "rel_odds_ability_deviation",
+        ]
+        assert sorted(STAGE2_RELATIVE_FEATURE_COLS) == sorted(expected)
