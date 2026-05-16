@@ -83,6 +83,15 @@ class RecordFeatures:
         total = total.where(total > 0, np.nan)
         return total
 
+    @staticmethod
+    def _nan_result(race_df: pd.DataFrame) -> pd.DataFrame:
+        """race_df から (race_id + FEATURE_COLS) を返す。race_id は一意化する。"""
+        return (
+            race_df[["race_id"]]
+            .assign(**{c: float("nan") for c in FEATURE_COLS})
+            .drop_duplicates(subset=["race_id"])
+        )
+
     def compute(self, race_df: pd.DataFrame) -> pd.DataFrame:
         """race_df (race_id, jyocd, trackcd, kyori) -> コースレコード特徴量 DataFrame。
 
@@ -90,14 +99,12 @@ class RecordFeatures:
             race_df: race_id, jyocd, trackcd, kyori 列を持つ DataFrame
 
         Returns:
-            race_id + FEATURE_COLS を持つ DataFrame
+            race_id + FEATURE_COLS を持つ DataFrame (race_id は一意)
         """
         record_df = self._load_records()
 
         if record_df.empty:
-            return race_df[["race_id"]].assign(
-                **{c: float("nan") for c in FEATURE_COLS}
-            )
+            return self._nan_result(race_df)
 
         # 列名正規化 (小文字)
         record_df = record_df.copy()
@@ -108,16 +115,12 @@ class RecordFeatures:
             record_df = record_df[record_df["recinfokubun"] == "1"]
 
         if record_df.empty:
-            return race_df[["race_id"]].assign(
-                **{c: float("nan") for c in FEATURE_COLS}
-            )
+            return self._nan_result(race_df)
 
         # 必要列の確認
         required = {"jyocd", "trackcd", "kyori", "rectime"}
         if not required.issubset(set(record_df.columns)):
-            return race_df[["race_id"]].assign(
-                **{c: float("nan") for c in FEATURE_COLS}
-            )
+            return self._nan_result(race_df)
 
         # RecTime を秒数に変換
         record_df = record_df.copy()
