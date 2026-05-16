@@ -744,23 +744,23 @@ class BacktestEngine:
         dam_feat = DamPedigreeFeatures(self.store)
         dam_df = dam_feat.compute(feat_df)
         if not dam_df.empty:
-            feat_df = feat_df.drop(columns=dam_df.columns.difference(["race_id", "umaban"]), errors="ignore").merge(
-                dam_df, on=["race_id", "umaban"], how="left"
-            )
+            feat_df = feat_df.drop(columns=dam_df.columns.difference(["race_id"]), errors="ignore").merge(
+                dam_df, on="race_id", how="left"
+            ).drop_duplicates(subset=["race_id", "umaban"])
 
         record_feat = RecordFeatures(self.store)
         record_df = record_feat.compute(feat_df)
         if not record_df.empty:
             feat_df = feat_df.drop(columns=record_df.columns.difference(["race_id"]), errors="ignore").merge(
                 record_df, on="race_id", how="left"
-            )
+            ).drop_duplicates(subset=["race_id", "umaban"])
 
         mining_feat = MiningFeatures(self.store)
         mining_df = mining_feat.compute(feat_df)
         if not mining_df.empty:
-            feat_df = feat_df.drop(columns=mining_df.columns.difference(["race_id", "umaban"]), errors="ignore").merge(
-                mining_df, on=["race_id", "umaban"], how="left"
-            )
+            feat_df = feat_df.drop(columns=mining_df.columns.difference(["race_id"]), errors="ignore").merge(
+                mining_df, on="race_id", how="left"
+            ).drop_duplicates(subset=["race_id", "umaban"])
 
         feat_df = compute_relative_features(feat_df)
 
