@@ -501,7 +501,7 @@ def _run_single_year(args: argparse.Namespace) -> None:
         diag_prefix=f"bt_{test_year}",
         betting_target=args.betting_target,
         strategy_params=strategy_params,
-        manifest_path=Path(args.strategy_manifest) if args.strategy_manifest else None,
+        manifest_path=Path(args.strategy_manifest) if args.strategy_manifest and Path(args.strategy_manifest).exists() else None,
         preloaded_odds_ts=preloaded_odds,
     )
     result = engine.run(test_start, test_end, training_bet_history=training_bet_history)
@@ -646,7 +646,7 @@ def _run_multi_year(args: argparse.Namespace) -> None:
                 diag_prefix=f"bt_{test_year}",
                 betting_target=args.betting_target,
                 strategy_params=strategy_params,
-                manifest_path=Path(args.strategy_manifest) if args.strategy_manifest else None,
+                manifest_path=Path(args.strategy_manifest) if args.strategy_manifest and Path(args.strategy_manifest).exists() else None,
             )
             result = engine.run(test_start, test_end, training_bet_history=training_bet_history)
         except Exception as e:
@@ -779,7 +779,7 @@ def _run_multi_year(args: argparse.Namespace) -> None:
             test_end=f"{max(args.years)}-12-31",
             train_start="",  # マルチ年度では年度別に異なる
             train_end="",
-            manifest_path=Path(args.strategy_manifest) if args.strategy_manifest else None,
+            manifest_path=Path(args.strategy_manifest) if args.strategy_manifest and Path(args.strategy_manifest).exists() else None,
         )
 
         validation_dir = Path(ROOT) / "data" / "validation"
