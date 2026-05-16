@@ -175,18 +175,22 @@ class StackedEnsemble:
         未知カテゴリを-1として扱う。そうでなければcat.codesにフォールバック。
         """
         X_out = X.copy()
-        for col in self.cat_cols:
-            if col in X_out.columns and col in self._cat_codes:
+        all_cat_cols = [
+            c for c in X_out.columns
+            if X_out[c].dtype.name == "category"
+        ]
+        for col in all_cat_cols:
+            if col in self._cat_codes:
                 codes = self._cat_codes[col]
                 X_out[col] = pd.to_numeric(X_out[col].map(codes), errors="coerce").fillna(-1)
-            elif col in X_out.columns and X_out[col].dtype.name == "category":
+            else:
                 X_out[col] = X_out[col].cat.codes.astype(float)
         return X_out
 
     def _learn_cat_codes(self, X: pd.DataFrame) -> None:
         """最初の学習データからカテゴリのコードマップを構築。"""
-        for col in self.cat_cols:
-            if col in X.columns and X[col].dtype.name == "category":
+        for col in X.columns:
+            if X[col].dtype.name == "category":
                 self._cat_codes[col] = {cat: code for code, cat in enumerate(X[col].cat.categories)}
 
     # --- Optuna suggest functions (exploration space separation) ---
