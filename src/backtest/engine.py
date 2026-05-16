@@ -694,6 +694,8 @@ class BacktestEngine:
                 "sire_distance_wr",
                 "sire_prize_avg",
                 "bms_wr",
+                "bms_distance_wr",
+                "bms_surface_wr",
             }
             for col in _sire_cols_needed:
                 if col in sire_result_bt.columns:
@@ -732,6 +734,35 @@ class BacktestEngine:
                 on=["kettonum", "race_id"],
                 how="left",
             )
+
+        # 4b. Phase 26-27 追加特徴量 (TrainingPipeline._train_submodel と同一視)
+        from features.dam_pedigree_features import DamPedigreeFeatures
+        from features.record_features import RecordFeatures
+        from features.mining_features import MiningFeatures
+        from features.relative_features import compute_relative_features
+
+        dam_feat = DamPedigreeFeatures(self.store)
+        dam_df = dam_feat.compute(feat_df)
+        if not dam_df.empty:
+            feat_df = feat_df.drop(columns=dam_df.columns.difference(["race_id"]), errors="ignore").merge(
+                dam_df, on="race_id", how="left"
+            )
+
+        record_feat = RecordFeatures(self.store)
+        record_df = record_feat.compute(feat_df)
+        if not record_df.empty:
+            feat_df = feat_df.drop(columns=record_df.columns.difference(["race_id"]), errors="ignore").merge(
+                record_df, on="race_id", how="left"
+            )
+
+        mining_feat = MiningFeatures(self.store)
+        mining_df = mining_feat.compute(feat_df)
+        if not mining_df.empty:
+            feat_df = feat_df.drop(columns=mining_df.columns.difference(["race_id"]), errors="ignore").merge(
+                mining_df, on="race_id", how="left"
+            )
+
+        feat_df = compute_relative_features(feat_df)
 
         # 5. レースごとにシミュレーション (推論は RacePredictor に委譲)
         # Groupby dict preprocessing — O(1) race lookups per D-07
