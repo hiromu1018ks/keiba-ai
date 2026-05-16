@@ -429,6 +429,7 @@ class TestPostRaceColumnExclusion:
         submodel.benter_combo = None
         submodel.isotonic_calibrator = None
         submodel.win_benter = None
+        submodel.target_encoder = None
         mock_models.submodels["turf"] = submodel
         submodel.market.predict_and_calc_error.return_value = feat_df
         submodel.stage1.add_ability_probs.return_value = feat_df
@@ -446,6 +447,7 @@ class TestPostRaceColumnExclusion:
             _corrected,
             pd.DataFrame({"EV_lower_place": [1.5]}),
         )
+        submodel.target_encoder = None
 
         # --- spy on RacePredictor.predict to capture the DataFrame ---
         captured_df: dict[str, pd.DataFrame] = {}
@@ -600,6 +602,7 @@ class TestBetHistoryEnrichment:
         submodel.benter_combo = None
         submodel.isotonic_calibrator = None
         submodel.win_benter = None
+        submodel.target_encoder = None
         mock_models.submodels["turf"] = submodel
         submodel.market.predict_and_calc_error.return_value = feat_df
         submodel.stage1.add_ability_probs.return_value = feat_df
@@ -617,6 +620,7 @@ class TestBetHistoryEnrichment:
             _corrected,
             pd.DataFrame({"EV_lower_place": [1.5]}),
         )
+        submodel.target_encoder = None
 
         # --- run engine ---
         from backtest.engine import BacktestEngine
@@ -929,6 +933,7 @@ class TestJRAFilterBacktest:
         submodel.benter_combo = None
         submodel.isotonic_calibrator = None
         submodel.win_benter = None
+        submodel.target_encoder = None
         mock_models.submodels["turf"] = submodel
         submodel.market.predict_and_calc_error.return_value = feat_df
         submodel.stage1.add_ability_probs.return_value = feat_df
@@ -946,6 +951,7 @@ class TestJRAFilterBacktest:
             _corrected,
             pd.DataFrame({"EV_lower_place": [1.5]}),
         )
+        submodel.target_encoder = None
 
         from backtest.engine import BacktestEngine
 
@@ -1067,6 +1073,7 @@ class TestJRAFilterBacktest:
         submodel.benter_combo = None
         submodel.isotonic_calibrator = None
         submodel.win_benter = None
+        submodel.target_encoder = None
         mock_models.submodels["turf"] = submodel
         submodel.market.predict_and_calc_error.return_value = feat_df
         submodel.stage1.add_ability_probs.return_value = feat_df
@@ -1084,6 +1091,7 @@ class TestJRAFilterBacktest:
             _corrected,
             pd.DataFrame({"EV_lower_place": [1.5]}),
         )
+        submodel.target_encoder = None
 
         from backtest.engine import BacktestEngine
 
@@ -1287,6 +1295,7 @@ class TestBetSelectionFilters:
         submodel.benter_combo = None
         submodel.isotonic_calibrator = None
         submodel.win_benter = None
+        submodel.target_encoder = None
         mock_models.submodels["turf"] = submodel
         submodel.market.predict_and_calc_error.return_value = feat_df
         submodel.stage1.add_ability_probs.return_value = feat_df
@@ -1304,6 +1313,7 @@ class TestBetSelectionFilters:
             _corrected,
             pd.DataFrame({"EV_lower_place": [1.5]}),
         )
+        submodel.target_encoder = None
 
         # COLLAPSED skip=True
         mock_models.regime_detector.get_strategy_params.return_value = {

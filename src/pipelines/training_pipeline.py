@@ -554,6 +554,7 @@ class TrainingPipelineV5:
         # 血統系統・騎手・調教師の高カーディナリティカテゴリをTE化。
         # Stage1 OOF直後に実行: target (kakuteijyuni==1) が利用可能。
         # Stage1には追加しない (TE target == Stage1 targetでリークの可能性)。
+        te_encoder = None
         with TimingContext(f"{surface}/target_encoding"):
             from features.target_encoding import TargetEncoder
 
@@ -1082,6 +1083,7 @@ class TrainingPipelineV5:
             ev_lower_threshold_dirt=ev_threshold_dirt,
             ev_isotonic_calibrator=ev_isotonic_calibrator,
             ev_odds_band_scales=ev_odds_band_scales,
+            target_encoder=te_encoder,
         )
         # Wire Isotonic + band scales into ev_corrector for correct_ev() to apply
         sub.ev_corrector.ev_isotonic_calibrator = ev_isotonic_calibrator

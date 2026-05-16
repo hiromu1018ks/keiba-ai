@@ -113,6 +113,25 @@ class RacePredictor:
         df = submodel.stage1.add_ability_probs(df)
         if submodel.place_ability is not None:
             df = submodel.place_ability.predict(df)
+
+        # INTER-01: odds_to_ability_ratio + Stage2 relative features
+        # (must be computed before WinTwoStageModel.predict_ev which uses them)
+        if (
+            "p_market_win_adj" in df.columns
+            and "p_ability_win" in df.columns
+            and "odds_to_ability_ratio" not in df.columns
+        ):
+            p_market = df["p_market_win_adj"].clip(lower=1e-6)
+            p_ability = df["p_ability_win"].clip(lower=1e-6)
+            df["odds_to_ability_ratio"] = (p_market / p_ability).clip(0.1, 10.0)
+
+        from features.relative_features import compute_stage2_relative_features
+        df = compute_stage2_relative_features(df)
+
+        # INTER-03: Target Encoding (inference-time application)
+        if getattr(submodel, "target_encoder", None) is not None:
+            df = submodel.target_encoder.transform(df)
+
         # ODDS-01: deviation features (after AbilityModel, before WinTwoStageModel)
         from features.odds_deviation_features import compute_odds_deviation_features
         df = compute_odds_deviation_features(df)

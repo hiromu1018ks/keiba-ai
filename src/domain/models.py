@@ -10,18 +10,19 @@ from sklearn.isotonic import IsotonicRegression
 from domain.types import BetType, RecoveryState, Surface
 
 if TYPE_CHECKING:
+    from features.target_encoding import TargetEncoder
     from models.benter_combination import BenterCombination, TemperatureScaling
+    from models.conformal_ev_model import ConformalEVModel
     from models.ev_correction_model import EVCorrectionModel, PlaceEVCorrectionModel
     from models.market_model import MarketModel
     from models.place_ability_model import PlaceAbilityModel
     from models.place_selection_gate import PlaceSelectionGateModel
     from models.race_quality_screener import RaceQualityScreener
-    from models.win_selection_gate import WinSelectionGateModel
     from models.regime_detector import RegimeDetector
-    from models.conformal_ev_model import ConformalEVModel
     from models.stage1_ability_model import AbilityModel
     from models.two_stage_return_model import PlaceTwoStageModel, WinTwoStageModel
     from models.wide_two_stage_model import WideTwoStageModel
+    from models.win_selection_gate import WinSelectionGateModel
 
 
 def _surface_from_track_cd(track_cd: int) -> Surface:
@@ -260,6 +261,8 @@ class SubmodelSet:
     # Phase 19: EV Isotonic calibration + odds band residual scaling (EVC-01/EVC-02)
     ev_isotonic_calibrator: IsotonicRegression | None = None
     ev_odds_band_scales: dict[str, float] | None = None  # {"1.0-3.0": 0.95, "3.0-10.0": 1.02, ...}
+    # INTER-03: Target encoder (inference-time TE application)
+    target_encoder: TargetEncoder | None = None
 
 
 @dataclass

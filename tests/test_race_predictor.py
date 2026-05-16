@@ -30,6 +30,7 @@ def _make_submodel_mock() -> MagicMock:
     sm.win_selection_gate = None
     sm.ev_lower_threshold_turf = 1.0
     sm.ev_lower_threshold_dirt = 1.0
+    sm.target_encoder = None
     return sm
 
 
