@@ -736,33 +736,51 @@ class BacktestEngine:
             )
 
         # 4b. Phase 26-27 追加特徴量 (TrainingPipeline._train_submodel と同一視)
+        from features.dam_pedigree_features import FEATURE_COLS as DAM_PED_FEATURE_COLS
         from features.dam_pedigree_features import DamPedigreeFeatures
-        from features.record_features import RecordFeatures
+        from features.mining_features import FEATURE_COLS as MINING_FEATURE_COLS
         from features.mining_features import MiningFeatures
-        from features.relative_features import compute_relative_features
+        from features.record_features import FEATURE_COLS as RECORD_FEATURE_COLS
+        from features.record_features import RecordFeatures
 
+        # DamPedigreeFeatures: horse-level (race_id, umaban)
         dam_feat = DamPedigreeFeatures(self.store)
         dam_df = dam_feat.compute(feat_df)
+        _dam_drop_cols = [c for c in DAM_PED_FEATURE_COLS if c in feat_df.columns]
+        if _dam_drop_cols:
+            feat_df.drop(columns=_dam_drop_cols, inplace=True)
         if not dam_df.empty:
-            feat_df = feat_df.drop(columns=dam_df.columns.difference(["race_id"]), errors="ignore").merge(
-                dam_df, on="race_id", how="left"
-            ).drop_duplicates(subset=["race_id", "umaban"])
+            feat_df = feat_df.merge(dam_df, on=["race_id", "umaban"], how="left")
+        else:
+            for col in DAM_PED_FEATURE_COLS:
+                feat_df[col] = np.nan
 
+        # RecordFeatures: race-level (race_id only)
         record_feat = RecordFeatures(self.store)
         record_df = record_feat.compute(feat_df)
+        _record_drop_cols = [c for c in RECORD_FEATURE_COLS if c in feat_df.columns]
+        if _record_drop_cols:
+            feat_df.drop(columns=_record_drop_cols, inplace=True)
         if not record_df.empty:
-            feat_df = feat_df.drop(columns=record_df.columns.difference(["race_id"]), errors="ignore").merge(
-                record_df, on="race_id", how="left"
-            ).drop_duplicates(subset=["race_id", "umaban"])
+            feat_df = feat_df.merge(record_df, on="race_id", how="left")
+        else:
+            for col in RECORD_FEATURE_COLS:
+                feat_df[col] = np.nan
 
+        # MiningFeatures: horse-level (race_id, umaban)
         mining_feat = MiningFeatures(self.store)
         mining_df = mining_feat.compute(feat_df)
+        _mining_drop_cols = [c for c in MINING_FEATURE_COLS if c in feat_df.columns]
+        if _mining_drop_cols:
+            feat_df.drop(columns=_mining_drop_cols, inplace=True)
         if not mining_df.empty:
-            feat_df = feat_df.drop(columns=mining_df.columns.difference(["race_id"]), errors="ignore").merge(
-                mining_df, on="race_id", how="left"
-            ).drop_duplicates(subset=["race_id", "umaban"])
+            feat_df = feat_df.merge(mining_df, on=["race_id", "umaban"], how="left")
+        else:
+            for col in MINING_FEATURE_COLS:
+                feat_df[col] = np.nan
 
-        feat_df = compute_relative_features(feat_df)
+        # NOTE: compute_relative_features は RacePredictor.predict() 内で呼び出す
+        # (HorseHistoryFeatures の base 列が feat_df にまだ存在しないため)
 
         # 5. レースごとにシミュレーション (推論は RacePredictor に委譲)
         # Groupby dict preprocessing — O(1) race lookups per D-07

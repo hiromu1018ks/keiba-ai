@@ -98,6 +98,10 @@ class RacePredictor:
         # 3. interaction_features (kyakusitu_cd が必要なため HorseHistoryFeatures 後)
         df = compute_interaction_features(df)
 
+        # 3b. レース内相対比較特徴量 (HorseHistoryFeatures の base 列が必要なためここで計算)
+        from features.relative_features import compute_relative_features
+        df = compute_relative_features(df)
+
         # 4. 推論チェーン
         try:
             df = submodel.market.predict_and_calc_error(df)
