@@ -104,6 +104,18 @@ _TABLE_TYPE_RULES: dict[str, dict[str, list[str]]] = {
     "odds_wide": {
         "odds100": ["oddslow", "oddshigh"],
     },
+    "odds_sanren": {
+        "int": ["ninki"],
+        "odds10": ["odds"],
+    },
+    "odds_umaren": {
+        "int": ["ninki"],
+        "odds10": ["odds"],
+    },
+    "odds_sanrentan": {
+        "int": ["ninki"],
+        "odds10": ["odds"],
+    },
     "jodds_tanpuku": {
         "int": ["umaban", "tanninki"],
         "odds10": ["tanodds", "fukuoddslow"],
