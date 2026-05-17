@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.7
 milestone_name: Market-Independent Edge Discovery
-status: roadmap-created
-last_updated: "2026-05-17T14:00:00.000Z"
-last_activity: 2026-05-17 -- Roadmap created for v1.7 (6 phases, 29-34)
+status: executing
+last_updated: "2026-05-17T12:47:05Z"
+last_activity: 2026-05-17 -- Completed 29-01 (ETL PK fix + type rules)
 progress:
   total_phases: 34
   completed_phases: 28
   total_plans: 60
   completed_plans: 60
-  v17_total_plans: 0
-  v17_completed_plans: 0
+  v17_total_plans: 1
+  v17_completed_plans: 1
   percent: 82
 ---
 
@@ -22,16 +22,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-05-17)
 
 **Core value:** 単勝モデルのバックテストROIを100%超えにすること
-**Current focus:** Phase 29/30 (ETL Expansion + Residual IC) -- both can start in parallel
+**Current focus:** Phase 29 (ETL Expansion) -- 29-01 complete, 29-02 next
 
 ## Current Position
 
-Phase: 29 of 34 (ETL Expansion) -- first executable phase
-Plan: 0 of ? in current phase
-Status: Ready to plan
-Last activity: 2026-05-17 -- Roadmap created for v1.7 milestone (6 phases, 36 requirements)
+Phase: 29 of 34 (ETL Expansion)
+Plan: 1 of 3 in current phase
+Status: Executing (29-01 complete)
+Last activity: 2026-05-17 -- Completed 29-01 (ETL PK fix + type rules)
 
-Progress: [================    ] 82% (28/34 phases, 60 plans complete)
+Progress: [================    ] 82% (28/34 phases, 61 plans complete)
 
 ## Performance Metrics
 
@@ -92,6 +92,6 @@ Key insight for v1.7: Echo Chamber脱却 -- race-level + market-cross特徴量�
 
 ## Session Continuity
 
-Last session: 2026-05-17T14:00:00.000Z
-Stopped at: Roadmap created for v1.7 (6 phases, 36 requirements mapped)
-Resume file: N/A
+Last session: 2026-05-17T12:47:05Z
+Stopped at: Completed 29-01-PLAN.md (ETL PK fix + type rules)
+Resume file: .planning/phases/29-etl-expansion/29-02-PLAN.md

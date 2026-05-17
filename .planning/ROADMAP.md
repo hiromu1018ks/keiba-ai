@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.7
 milestone_name: Market-Independent Edge Discovery
-status: planning
-last_updated: "2026-05-17T14:00:00.000Z"
+status: executing
+last_updated: "2026-05-17T12:47:05Z"
 progress:
   total_phases: 34
   completed_phases: 28
   total_plans: 60
   completed_plans: 60
-  v17_plans: 0
-  v17_plans_complete: 0
+  v17_plans: 1
+  v17_plans_complete: 1
   percent: 82
 ---
 
@@ -123,7 +123,7 @@ progress:
   3. DataRepository経由で新しいParquetファイルからDataFrameとしてデータを読み込める
 **Plans**: 3 plans
 Plans:
-- [ ] 29-01-PLAN.md — Fix PK definitions in etl_tables.yaml + add type rules in etl.py
+- [x] 29-01-PLAN.md -- Fix PK definitions in etl_tables.yaml + add type rules in etl.py (complete)
 - [ ] 29-02-PLAN.md — Create DataRepository class with 3 load methods + tests
 - [ ] 29-03-PLAN.md — Add coverage verification to run_etl.py + tests
 
@@ -217,7 +217,7 @@ Then: 31 -> 32 -> 33 -> 34 (sequential).
 | 26. EveryDB2 New Features | v1.6 | 3/3 | Complete | 2026-05-14 |
 | 27. Feature Interactions | v1.6 | 3/3 | Complete | 2026-05-15 |
 | 28. Validation & Freeze | v1.6 | 2/2 | Complete | 2026-05-17 |
-| 29. ETL Expansion | v1.7 | 0/3 | Planning | - |
+| 29. ETL Expansion | v1.7 | 1/3 | In Progress | - |
 | 30. Residual IC Evaluation Framework | v1.7 | 0/? | Not started | - |
 | 31. Race-Level Aggregation Features | v1.7 | 0/? | Not started | - |
 | 32. Market Cross-Consistency Features | v1.7 | 0/? | Not started | - |
