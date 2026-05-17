@@ -121,3 +121,29 @@
 ### Archive
 
 - `.planning/milestones/v1.5-ROADMAP.md`
+
+## v1.6 Feature Engineering Overhaul — 2026-05-17
+
+**Status:** Shipped
+**Phases:** 6 (23-28) | **Plans:** 14 | **LOC:** ~23,215
+
+### Key Accomplishments
+
+1. POST_RACE情報漏洩完全排除 + CQR whitelist化 + 3層CI漏洩検出テスト (Phase 23)
+2. 100+特徴量Tier分類基盤 + コードハッシュキャッシュ無効化 + ノイズプルーニングパイプライン (Phase 24)
+3. EveryDB2未活用データから22新特徴量抽出: mining 4 + 血統 4 + BMS 2 + record 1 + 相対比較 7 + 騎手/調教師/コンビ 12 (Phase 25-26)
+4. ドメイン知識交互作用項12個(カテゴリ積3+数値積6) + OOF安全ターゲットエンコーディング3特徴量 (Phase 27)
+5. マルチ年度BT (ROI 85.7%, +1.3pp改善) + 12モデルSHA256特徴量凍結manifest (Phase 28)
+
+### Known Deferred Items
+
+- ROI 100%目標未達 (85.7%、特徴量アプローチの限界)
+- WF検証スクリプトの実際の実行(PostgreSQL環境必要、~4時間)
+- Human UAT 5項目 (全てPostgreSQL依存)
+- test_training_pipeline.py 3件既知失敗(RecordFeatures.compute mock問題)
+- n_taisyogata_mining/n_sale/n_banusiテーブルからの特徴量抽出(未検証)
+
+### Archive
+
+- `.planning/milestones/v1.6-ROADMAP.md`
+- `.planning/milestones/v1.6-REQUIREMENTS.md`

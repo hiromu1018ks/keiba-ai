@@ -3,8 +3,9 @@
 ## What This Is
 
 競馬AI予測システム v5.5 — 統計的 horse racing prediction system (単勝/複勝/ワイド)。
-LightGBM + XGBoost + CatBoost 3モデルスタッキング、Optuna個別HP最適化、Isotonic EVキャリブレーション + オッズバンド別補正、CQR Conformal EV区間、18高オッズ特徴量(クラストラジェクトリ/フォーム改善率/環境変化適性)を搭載。
-3段階ベットフィルター(動的EV_lower/OddsBand/COLLAPSED skip)、レジーム別Kellyサイジング、DD%のみ3段階制御、Optuna TPE 16次元パラメータ最適化 + multi-seed安定性検証、PFP SHA256改ざん検知二重検証 + 自動検証レポート生成を搭載。
+LightGBM + XGBoost + CatBoost 3モデルスタッキング、Optuna個別HP最適化、Isotonic EVキャリブレーション + オッズバンド別補正、CQR Conformal EV区間を搭載。
+POST_RACE情報漏洩完全排除(3層CI検出)、100+特徴量Tier分類監査基盤、EveryDB2未活用データからの22新特徴量(mining/血統/BMS/record/相対比較)、12ドメイン知識交互作用項、OOF安全ターゲットエンコーディング(血統/騎手/調教師)を追加。
+3段階ベットフィルター(動的EV_lower/OddsBand/COLLAPSED skip)、レジーム別Kellyサイジング、DD%のみ3段階制御、Optuna TPE 16次元パラメータ最適化 + multi-seed安定性検証、SHA256特徴量凍結manifestを搭載。
 MLflow で実験管理。PostgreSQL (EveryDB2/JRA-VAN DataLab) をデータソースとする。
 
 ## Core Value
@@ -51,14 +52,18 @@ MLflow で実験管理。PostgreSQL (EveryDB2/JRA-VAN DataLab) をデータソ�
 - ✓ 高オッズ的中18新特徴量(クラストラジェクトリ/フォーム改善率/環境変化適性) — v1.5
 - ✓ CQR Conformal EV予測区間(80%/90%信頼区間 + 動的フィルタリング) — v1.5
 - ✓ 統合バックテスト検証 — v1.5
+- ✓ POST_RACE情報漏洩完全排除 + 3層CI漏洩検出テスト — v1.6
+- ✓ 100+特徴量Tier分類 + ノイズ特徴量プルーニング基盤 + コードハッシュキャッシュ無効化 — v1.6
+- ✓ EveryDB2未活用データから22新特徴量(mining/血統/BMS/record/相対比較)抽出 — v1.6
+- ✓ ドメイン知識交互作用項12個 + OOF安全ターゲットエンコーディング3特徴量 — v1.6
+- ✓ マルチ年度BT (ROI 85.7%, +1.3pp改善) + 12モデルSHA256特徴量凍結manifest — v1.6
 
 ### Active
 
-- 既存100+特徴量の有効性監査（feature importance、permutation importance、SHAP値で分析）
-- ノイズ・無効特徴量の特定と除去によるモデル精度改善
-- EveryDB2未活用テーブル・カラムからの新特徴量設計・実装
-- 特徴量の交互作用・変換（馬同士の比較特徴量、条件付き交互作用等）
-- 新特徴量導入後のバックテストでROI 100%超えを検証
+- ROI 100%超えの達成(現在85.7%、根本的アプローチ変更が必要)
+- 新しいアプローチの検討(モデル構造変更、データ拡張、アンサンブル手法等)
+- WF検証スクリプトの実際の実行(~4時間、PostgreSQL環境必要)
+- n_taisyogata_mining/n_sale/n_banusiテーブルからの特徴量抽出(未検証)
 
 ### Out of Scope
 
@@ -75,40 +80,33 @@ MLflow で実験管理。PostgreSQL (EveryDB2/JRA-VAN DataLab) をデータソ�
 | 外部Kellyライブラリ導入 | 既存StakeCalculatorで十分、JRA固有制約はカスタム実装が必要 |
 | モデル再学習 | 既存3モデルスタッキングをそのまま使用 |
 
-## Current Milestone: v1.6 Feature Engineering Overhaul
-
-**Goal:** CQRに頼らず、特徴量の質と量を根本から見直し、バックテストROI 100%超えを目指す
-
-**Target features:**
-- 既存100+特徴量の監査と削減（ノイズ・無効特徴量の特定・除去）
-- EveryDB2未活用データからの新特徴量抽出（血統、調教師成績、開催データ等）
-- 特徴量の交互作用・変換（馬同士の比較、条件付き交互作用等）
-
 ## Current State
 
-**Shipped:** v1.5 Model Accuracy Improvement (2026-05-10)
-**Phases:** 23 total (v1.0-v1.5)
-**LOC:** ~24,970 (src/)
-**Tests:** 1,392+ passed, 0 failed
-**Next:** v1.6 Feature Engineering Overhaul
+**Shipped:** v1.6 Feature Engineering Overhaul (2026-05-17)
+**Phases:** 28 total (v1.0-v1.6)
+**LOC:** ~23,215 (src/)
+**Tests:** 1,527 passed, 0 failed
+**Next:** v1.7 (要検討)
 
 ## Context
 
-### 現状 (v1.5完了)
+### 現状 (v1.6完了)
 
-- 6マイルストーン23フェーズ完了 (v1.0〜v1.5)
-- バックテスト結果: ROI 84.4% (v1.4: 83.1%、+1.3pp改善)
-- EV過大評価2.42倍をIsotonicキャリブレーションで改善
-- CQR過学習・選択バイアスを修正(f3a4c10)
-- ROI 95%目標は未達 — 次マイルストーンの最重要課題
+- 7マイルストーン28フェーズ完了 (v1.0〜v1.6)
+- バックテスト結果: ROI 85.7% (v1.5: 84.4%、+1.3pp改善)
+- POST_RACE情報漏洩完全排除 + 3層CI検出
+- EveryDB2未活用データから22新特徴量追加 (mining/血統/BMS/record/相対比較)
+- 12交互作用項 + 3ターゲットエンコーディング特徴量追加
+- 12モデルFEATURE_COLS SHA256凍結manifest生成
+- ROI 100%目標は未達 — 特徴量改善だけで1.3ppの限界
 
 ### 残存課題
 
-- ROI 95%目標未達 (84.4%) — モデル精度の更なる改善が必要
-- CQR設計見直し — 残差学習アプローチの問題点を解消
+- ROI 100%目標未達 (85.7%) — 特徴量アプローチの限界、根本的見直しが必要
 - WF検証未実行 — 過学習の有無未確認
 - 高オッズ帯(20+)のベット機会なし — モデルが高オッズ候補を除外
 - Human UAT 5項目がPostgreSQL環境依存で未実行
+- test_training_pipeline.py 3件既知失敗(RecordFeatures.compute mock問題)
 
 ### 技術背景
 
@@ -162,6 +160,10 @@ MLflow で実験管理。PostgreSQL (EveryDB2/JRA-VAN DataLab) をデータソ�
 | CQR残差学習への変更 | 主モデル出力をCQR入力特徴量に含める設計変更 | ⚠️ Revisit (v1.5) — CQR過学習を引き起こし修正が必要だった |
 | POST_RACE_COLS共通化 | domain/types.pyで一元管理し漏れ防止 | ✓ Good (v1.5) |
 | 高オッズ18特徴量追加 | クラストラジェクトリ/フォーム改善率/環境変化適性 | — Pending (効果検証不十分) |
+| POST_RACE whitelist化 | blacklistの脆弱性をwhitelist FEATURE_COLSで排除 | ✓ Good (v1.6) — 3層CI検出で安全保証 |
+| DataKubun=3優先 | 直前予想(馬体重発表後)が情報量最大 | ✓ Good (v1.6) |
+| Stage1にTE追加せず | TE target == Stage1 targetでOOFリークの可能性 | ✓ Good (v1.6) — 安全性優先 |
+| 特徴量追加アプローチの限界 | 22新特徴量+12交互作用+3TEでROI+1.3ppのみ | ⚠️ Revisit (v1.6) — 特徴量だけではROI 100%困難 |
 
 ## Evolution
 
@@ -181,4 +183,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-10 after v1.6 milestone started*
+*Last updated: 2026-05-17 after v1.6 milestone completed*

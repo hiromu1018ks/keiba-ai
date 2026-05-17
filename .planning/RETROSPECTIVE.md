@@ -163,6 +163,53 @@
 
 ---
 
+## Milestone: v1.6 — Feature Engineering Overhaul
+
+**Shipped:** 2026-05-17
+**Phases:** 6 (23-28) | **Plans:** 14 | **Sessions:** ~5
+
+### What Was Built
+- POST_RACE情報漏洩完全排除 — whitelist FEATURE_COLS + 3層CI検出テスト
+- 100+特徴量Tier分類 + ノイズ特徴量プルーニング + コードハッシュキャッシュ無効化
+- EveryDB2未活用テーブルから22新特徴量(mining/血統/BMS/record/相対比較/騎手/調教師/コンビ)
+- 12ドメイン知識交互作用項(カテゴリ積3+数値積6+既存3) + OOF安全3-fold TE 3特徴量
+- マルチ年度BT (ROI 85.7%, +1.3pp) + 12モデルSHA256特徴量凍結manifest
+
+### What Worked
+- Phase 23 Safety Gateが最優先だった — 漏洩排除なしに新特徴量追加は信頼性ゼロ
+- _train_submodel() Group A-G パターンが新特徴量モジュール統合を標準化
+- TDD RED/GREEN gateがPhase 26-27の22+15新特徴量追加で品質を維持
+- groupby("race_id")相対特徴量がレース内比較の自然な設計を提供
+- SHA256凍結manifestがFEATURE_COLS変更をトレーサブルに
+
+### What Was Inefficient
+- Phase 25 Quick Win 12特徴量がROIに全く寄与しなかった(LightGBM gain=0)
+- BacktestEngine horse-level特徴量mergeキー不整合で4連続fixコミットが必要だった
+- 推論パスに6特徴量欠落(stage2 relative + target encoding) — training/predictionの二重管理が原因
+- 22新特徴量+12交互作用+3TE追加でROI+1.3ppのみ — 投入対効果が悪い
+- test_win_feature_analysis.pyのoriginal_allハードコードリストが毎フェーズ手動更新必要
+
+### Patterns Established
+- POST_RACE whitelist: blacklistではなくFEATURE_COLS whitelistで安全保証
+- _train_submodel() Group integration: 新特徴量モジュールはGroup X blockで統合
+- wide-to-long pivot: n_mining 18頭wide format → long変換パターン
+- OOF safe TE: 3-fold expanding window + Beta smoothing + cold start global mean
+- Feature freeze manifest: 12モデルFEATURE_COLS JSON + SHA256で凍結
+
+### Key Lessons
+1. 特徴量の量より質 — 37新特徴量でROI+1.3ppは限界。次はアプローチ自体を見直す必要
+2. training/predictionパスの二重管理はバグの温床 — 推論パス欠落は気づきにくい
+3. LightGBMは不要特徴量を自動的にgain=0にするが、特徴量数増加は学習時間を延ばす
+4. PIT監査(POST_RACE分類)は新特徴量追加の前提条件 — 安全性確認なしに進めるとリーク混入
+5. テストのハードコードリスト(original_all)はFEATURE_COLS変更のボトルネック — 動的取得を検討
+
+### Cost Observations
+- Model mix: ~50% opus, ~35% sonnet, ~15% haiku
+- Sessions: ~5
+- Notable: Phase 28-02 マルチ年度BTが5時間(実行待ち含む)、Phase 27が3プラン27分で最効率的
+
+---
+
 ## Cross-Milestone Trends
 
 ### Process Evolution
@@ -174,6 +221,8 @@
 | v1.2 | ~1 | 3 | バックテストパイプライン高速化 |
 | v1.3 | ~2 | 3 | ベット戦略最適化、コンストラクタ注入パターン確立 |
 | v1.4 | ~3 | 5 | フィルター再キャリブレーション、動的閾値、PFP二重検証 |
+| v1.5 | ~3 | 5 | EVキャリブレーション、高オッズ特徴量、CQR Conformal区間 |
+| v1.6 | ~5 | 6 | 特徴量オーバーホール、漏洩排除、EveryDB2新特徴量、TE導入 |
 
 ### Cumulative Quality
 
@@ -183,11 +232,14 @@
 | v1.1 | 1,113 | mock-based | ~20,773 |
 | v1.3 | 1,200+ | mock-based | ~18,820 |
 | v1.4 | 1,327 | mock-based | ~19,300 |
+| v1.5 | 1,392+ | mock-based | ~24,970 |
+| v1.6 | 1,527 | mock-based | ~23,215 |
 
 ### Top Lessons (Verified Across Milestones)
 
-1. TDD RED/GREEN gateは品質の最強の味方 — 全38プランで一貫して適用
+1. TDD RED/GREEN gateは品質の最強の味方 — 全52プラン(v1.0-v1.6)で一貫して適用
 2. テストモックパスの不一致が複数マイルストーンで発生 — ローカルimportに直接パッチするパターンを確立
-3. 自動deviation修正ルール(Rule 1-3)が5マイルストーン合計14+件のバグを検出・修正
+3. 自動deviation修正ルール(Rule 1-3)が6マイルストーン合計18+件のバグを検出・修正
 4. コンストラクタ注入パターンがテスタビリティを劇的に向上 — Optuna最適化の前提となる
 5. フィルター閾値はモデル出力分布に適合させる必要がある — v1.4で実証
+6. 特徴量の量より質 — 37新特徴量でROI+1.3ppは限界、アプローチ自体の見直しが必要 — v1.6で実証
