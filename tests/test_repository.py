@@ -29,10 +29,10 @@ def mock_store():
 class TestInit:
     def test_default_store_created(self):
         """引数なしの場合、内部で ParquetStore() が生成される。"""
-        with patch("db.repository.ParquetStore") as MockPS:
+        with patch("db.repository.ParquetStore") as mock_ps:
             repo = DataRepository()
-            MockPS.assert_called_once()
-            assert repo._store is MockPS.return_value
+            mock_ps.assert_called_once()
+            assert repo._store is mock_ps.return_value
 
     def test_explicit_store_used(self, mock_store):
         """明示的に渡した ParquetStore が使われる。"""
