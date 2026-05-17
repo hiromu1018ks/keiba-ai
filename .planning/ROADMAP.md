@@ -124,7 +124,7 @@ progress:
 **Plans**: 3 plans
 Plans:
 - [x] 29-01-PLAN.md -- Fix PK definitions in etl_tables.yaml + add type rules in etl.py (complete)
-- [ ] 29-02-PLAN.md — Create DataRepository class with 3 load methods + tests
+- [x] 29-02-PLAN.md — Create DataRepository class with 3 load methods + tests (complete)
 - [ ] 29-03-PLAN.md — Add coverage verification to run_etl.py + tests
 
 ### Phase 30: Residual IC Evaluation Framework
@@ -217,7 +217,7 @@ Then: 31 -> 32 -> 33 -> 34 (sequential).
 | 26. EveryDB2 New Features | v1.6 | 3/3 | Complete | 2026-05-14 |
 | 27. Feature Interactions | v1.6 | 3/3 | Complete | 2026-05-15 |
 | 28. Validation & Freeze | v1.6 | 2/2 | Complete | 2026-05-17 |
-| 29. ETL Expansion | v1.7 | 1/3 | In Progress | - |
+| 29. ETL Expansion | v1.7 | 2/3 | In Progress | - |
 | 30. Residual IC Evaluation Framework | v1.7 | 0/? | Not started | - |
 | 31. Race-Level Aggregation Features | v1.7 | 0/? | Not started | - |
 | 32. Market Cross-Consistency Features | v1.7 | 0/? | Not started | - |
