@@ -7,10 +7,10 @@
 
 ### ETL Expansion
 
-- [ ] **ETL-01**: EveryDB2から三連複オッズ (n_odds_sanren) をParquetに抽出するETL拡張
-- [ ] **ETL-02**: EveryDB2から馬連オッズ (n_odds_umaren) をParquetに抽出するETL拡張
-- [ ] **ETL-03**: EveryDB2から三連単オッズ (n_odds_sanrentan) をParquetに抽出するETL拡張
-- [ ] **ETL-04**: ETL抽出データのカバレッジ検証 (2015-2025、欠損率確認)
+- [x] **ETL-01**: EveryDB2から三連複オッズ (n_odds_sanren) をParquetに抽出するETL拡張
+- [x] **ETL-02**: EveryDB2から馬連オッズ (n_odds_umaren) をParquetに抽出するETL拡張
+- [x] **ETL-03**: EveryDB2から三連単オッズ (n_odds_sanrentan) をParquetに抽出するETL拡張
+- [x] **ETL-04**: ETL抽出データのカバレッジ検証 (2015-2025、欠損率確認)
 
 ### Residual IC Evaluation
 
@@ -87,10 +87,10 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| ETL-01 | Phase 29 | Pending |
-| ETL-02 | Phase 29 | Pending |
-| ETL-03 | Phase 29 | Pending |
-| ETL-04 | Phase 29 | Pending |
+| ETL-01 | Phase 29 | Complete |
+| ETL-02 | Phase 29 | Complete |
+| ETL-03 | Phase 29 | Complete |
+| ETL-04 | Phase 29 | Complete |
 | RIC-01 | Phase 30 | Pending |
 | RIC-02 | Phase 30 | Pending |
 | RIC-03 | Phase 30 | Pending |

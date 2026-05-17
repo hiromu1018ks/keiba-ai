@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.7
 milestone_name: Market-Independent Edge Discovery
 status: executing
-last_updated: "2026-05-17T12:47:05Z"
+last_updated: "2026-05-17T13:11:04Z"
 progress:
   total_phases: 34
-  completed_phases: 28
-  total_plans: 60
-  completed_plans: 60
-  v17_plans: 1
-  v17_plans_complete: 1
-  percent: 82
+  completed_phases: 29
+  total_plans: 63
+  completed_plans: 63
+  v17_plans: 3
+  v17_plans_complete: 3
+  percent: 85
 ---
 
 # Roadmap: keiba-ai Win Model Improvement
@@ -104,7 +104,7 @@ progress:
 
 **Milestone Goal:** Echo Chamber脱却 -- 市場と独立な予測成分を獲得し、ROI 100%超えを実現する
 
-- [ ] **Phase 29: ETL Expansion** - 三連複/馬連/三連単オッズのParquet抽出
+- [x] **Phase 29: ETL Expansion** - 三連複/馬連/三連単オッズのParquet抽出 -- completed 2026-05-17
 - [ ] **Phase 30: Residual IC Evaluation Framework** - 市場独立性の測定器を構築
 - [ ] **Phase 31: Race-Level Aggregation Features** - レース全体の市場構造を捉える6特徴量 + 既存特徴量昇格
 - [ ] **Phase 32: Market Cross-Consistency Features** - Harville理論オッズによる馬券種クロス整合性
@@ -125,7 +125,7 @@ progress:
 Plans:
 - [x] 29-01-PLAN.md -- Fix PK definitions in etl_tables.yaml + add type rules in etl.py (complete)
 - [x] 29-02-PLAN.md — Create DataRepository class with 3 load methods + tests (complete)
-- [ ] 29-03-PLAN.md — Add coverage verification to run_etl.py + tests
+- [x] 29-03-PLAN.md -- Add coverage verification to run_etl.py + tests (complete)
 
 ### Phase 30: Residual IC Evaluation Framework
 **Goal**: v1.6モデルの市場独立予測力を4定式化バッテリーで定量的に測定でき、新特徴量の効果を客観的に評価できる状態になる
@@ -217,7 +217,7 @@ Then: 31 -> 32 -> 33 -> 34 (sequential).
 | 26. EveryDB2 New Features | v1.6 | 3/3 | Complete | 2026-05-14 |
 | 27. Feature Interactions | v1.6 | 3/3 | Complete | 2026-05-15 |
 | 28. Validation & Freeze | v1.6 | 2/2 | Complete | 2026-05-17 |
-| 29. ETL Expansion | v1.7 | 2/3 | In Progress | - |
+| 29. ETL Expansion | v1.7 | 3/3 | Complete | 2026-05-17 |
 | 30. Residual IC Evaluation Framework | v1.7 | 0/? | Not started | - |
 | 31. Race-Level Aggregation Features | v1.7 | 0/? | Not started | - |
 | 32. Market Cross-Consistency Features | v1.7 | 0/? | Not started | - |
