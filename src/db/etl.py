@@ -116,6 +116,10 @@ _TABLE_TYPE_RULES: dict[str, dict[str, list[str]]] = {
         "int": ["ninki"],
         "odds10": ["odds"],
     },
+    "odds_umatan": {
+        "int": ["ninki"],
+        "odds10": ["odds"],
+    },
     "jodds_tanpuku": {
         "int": ["umaban", "tanninki"],
         "odds10": ["tanodds", "fukuoddslow"],
@@ -253,8 +257,8 @@ def run_full_load(
                     sql = text(f"SELECT * FROM {cfg['db_table']} WHERE year = :year")
                     df = pd.read_sql(sql, engine, params={"year": str(year)})
                     if not df.empty:
-                        _compute_race_date(df)
-                        _compute_race_id(df)
+                        df = _compute_race_date(df)
+                        df = _compute_race_id(df)
                         df = _apply_type_conversions(df, key)
                         if table_type == "raced":
                             df = _compute_surface(df)
@@ -281,8 +285,8 @@ def run_full_load(
                 )
                 if not df.empty:
                     if table_type == "raced":
-                        _compute_race_date(df)
-                        _compute_race_id(df)
+                        df = _compute_race_date(df)
+                        df = _compute_race_id(df)
                     df = _apply_type_conversions(df, key)
                     if table_type == "raced":
                         df = _compute_surface(df)
@@ -347,14 +351,18 @@ def _merge_delta(existing: pd.DataFrame, delta: pd.DataFrame, pk: list[str]) -> 
     # Remove rows matching delete PKs
     if not deletes.empty:
         delete_keys = deletes[pk].drop_duplicates()
-        merge = result.merge(delete_keys.assign(_delete=True), on=pk, how="left", indicator=False)
-        result = result[merge["_delete"] != True].copy()  # noqa: E712
+        merge = result.merge(
+            delete_keys.assign(__merge_delete__=True), on=pk, how="left", indicator=False
+        )
+        result = result[merge["__merge_delete__"] != True].copy()  # noqa: E712
 
     # Remove rows matching upsert PKs (old versions)
     if not upserts.empty:
         upsert_keys = upserts[pk].drop_duplicates()
-        merge = result.merge(upsert_keys.assign(_upsert=True), on=pk, how="left", indicator=False)
-        result = result[merge["_upsert"] != True].copy()  # noqa: E712
+        merge = result.merge(
+            upsert_keys.assign(__merge_upsert__=True), on=pk, how="left", indicator=False
+        )
+        result = result[merge["__merge_upsert__"] != True].copy()  # noqa: E712
 
     # Append upsert rows
     if not upserts.empty:
@@ -413,8 +421,8 @@ def run_delta_update(
                 if c.get("type") != "delta"
             )
             if is_raced:
-                _compute_race_date(merged)
-                _compute_race_id(merged)
+                merged = _compute_race_date(merged)
+                merged = _compute_race_id(merged)
                 merged = _compute_surface(merged)
                 merged = _compute_track_condition_code(merged)
 

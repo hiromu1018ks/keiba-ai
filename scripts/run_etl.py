@@ -30,17 +30,25 @@ logger = logging.getLogger(__name__)
 
 def _verify_coverage(
     store: "ParquetStore",
-    tables: list[str],
+    tables: list[dict],
     start_year: int,
     end_year: int,
 ) -> None:
     """Post-ETL coverage verification: row counts, year coverage, missing rate."""
-    for table in tables:
-        if not store.exists("odds", table):
+    from db.readers import date_filters
+
+    start_str = f"{start_year}0101"
+    end_str = f"{end_year}1231"
+
+    for cfg in tables:
+        table = cfg["parquet_key"]
+        category = cfg["category"]
+
+        if not store.exists(category, table):
             logger.warning("Coverage SKIP: %s (file not found)", table)
             continue
 
-        df = store.read("odds", table)
+        df = store.read(category, table, filters=date_filters(start_str, end_str))
         n_rows = len(df)
 
         # Year coverage from race_date
@@ -125,7 +133,8 @@ def main() -> None:
         logger.info("  %s: %d行", table, n)
 
     if args.mode == "full":
-        _verify_coverage(store, list(counts.keys()), int(args.start[:4]), int(args.end[:4]))
+        active_configs = [c for c in config if c["parquet_key"] in counts]
+        _verify_coverage(store, active_configs, int(args.start[:4]), int(args.end[:4]))
 
 
 if __name__ == "__main__":

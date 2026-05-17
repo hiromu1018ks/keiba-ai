@@ -9,7 +9,7 @@ from __future__ import annotations
 import pandas as pd
 
 from db.parquet_store import ParquetStore
-from db.readers import _coerce_types, _date_filters
+from db.readers import coerce_types, date_filters
 
 
 class DataRepository:
@@ -32,8 +32,8 @@ class DataRepository:
         Returns:
             フィルタ・型変換済みのDataFrame
         """
-        df = self._store.read("odds", "odds_sanren", filters=_date_filters(start, end))
-        return _coerce_types(df)
+        df = self._store.read("odds", "odds_sanren", filters=date_filters(start, end))
+        return coerce_types(df)
 
     def load_exacta_odds(self, start: str, end: str) -> pd.DataFrame:
         """馬連オッズを読み込む。
@@ -45,8 +45,8 @@ class DataRepository:
         Returns:
             フィルタ・型変換済みのDataFrame
         """
-        df = self._store.read("odds", "odds_umaren", filters=_date_filters(start, end))
-        return _coerce_types(df)
+        df = self._store.read("odds", "odds_umaren", filters=date_filters(start, end))
+        return coerce_types(df)
 
     def load_trifecta_odds(self, start: str, end: str) -> pd.DataFrame:
         """三連単オッズを読み込む。
@@ -58,5 +58,5 @@ class DataRepository:
         Returns:
             フィルタ・型変換済みのDataFrame
         """
-        df = self._store.read("odds", "odds_sanrentan", filters=_date_filters(start, end))
-        return _coerce_types(df)
+        df = self._store.read("odds", "odds_sanrentan", filters=date_filters(start, end))
+        return coerce_types(df)

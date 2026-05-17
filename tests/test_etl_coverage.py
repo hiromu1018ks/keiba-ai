@@ -21,6 +21,11 @@ def _make_store(
     return store
 
 
+def _make_config(table: str, category: str = "odds") -> list[dict]:
+    """Build a minimal config list with one table entry."""
+    return [{"parquet_key": table, "category": category}]
+
+
 def _make_df(
     years: list[int] | None = None,
     n_rows: int = 100,
@@ -50,7 +55,7 @@ def test_full_coverage_info_only(caplog: pytest.LogCaptureFixture) -> None:
 
     df = _make_df(years=list(range(2015, 2026)), n_rows=120)
     store = _make_store(exists_side_effect=True, df=df)
-    tables = ["odds_sanren"]
+    tables = _make_config("odds_sanren")
 
     with caplog.at_level(logging.DEBUG, logger="scripts.run_etl"):
         _verify_coverage(store, tables, 2015, 2025)
@@ -70,7 +75,7 @@ def test_missing_years_warning(caplog: pytest.LogCaptureFixture) -> None:
 
     df = _make_df(years=[2015, 2016, 2017, 2020, 2021, 2022, 2023, 2024, 2025], n_rows=100)
     store = _make_store(exists_side_effect=True, df=df)
-    tables = ["odds_umaren"]
+    tables = _make_config("odds_umaren")
 
     with caplog.at_level(logging.DEBUG, logger="scripts.run_etl"):
         _verify_coverage(store, tables, 2015, 2025)
@@ -90,7 +95,7 @@ def test_high_missing_rate_warning(caplog: pytest.LogCaptureFixture) -> None:
     half = len(df) // 2
     df["value"] = [None] * half + [1.0] * (len(df) - half)
     store = _make_store(exists_side_effect=True, df=df)
-    tables = ["odds_sanrentan"]
+    tables = _make_config("odds_sanrentan")
 
     with caplog.at_level(logging.DEBUG, logger="scripts.run_etl"):
         _verify_coverage(store, tables, 2015, 2025)
@@ -107,7 +112,7 @@ def test_nonexistent_file_skip(caplog: pytest.LogCaptureFixture) -> None:
     from scripts.run_etl import _verify_coverage
 
     store = _make_store(exists_side_effect=False)
-    tables = ["odds_umaren_head"]
+    tables = _make_config("odds_umaren_head")
 
     with caplog.at_level(logging.DEBUG, logger="scripts.run_etl"):
         _verify_coverage(store, tables, 2015, 2025)
@@ -127,10 +132,29 @@ def test_empty_dataframe_no_error(caplog: pytest.LogCaptureFixture) -> None:
 
     df = pd.DataFrame({"race_date": pd.Series(dtype="datetime64[ns]")})
     store = _make_store(exists_side_effect=True, df=df)
-    tables = ["odds_sanrentan_head"]
+    tables = _make_config("odds_sanrentan_head")
 
     with caplog.at_level(logging.DEBUG, logger="scripts.run_etl"):
         _verify_coverage(store, tables, 2015, 2025)
 
     # Should log coverage with 0 rows (info level acceptable)
     assert any("Coverage" in r.message and "0 rows" in r.message for r in caplog.records)
+
+
+# ---------------------------------------------------------------------------
+# 6. Raw-category table -- correctly looked up (CR-01 regression test)
+# ---------------------------------------------------------------------------
+def test_raw_category_table_uses_correct_category(caplog: pytest.LogCaptureFixture) -> None:
+    """raw-category table should be looked up with 'raw', not 'odds'."""
+    from scripts.run_etl import _verify_coverage
+
+    df = _make_df(years=list(range(2020, 2024)), n_rows=40)
+    store = _make_store(exists_side_effect=True, df=df)
+    tables = _make_config("races", category="raw")
+
+    with caplog.at_level(logging.DEBUG, logger="scripts.run_etl"):
+        _verify_coverage(store, tables, 2020, 2023)
+
+    # Verify exists() was called with 'raw' category
+    store.exists.assert_called_with("raw", "races")
+    assert any("Coverage races" in r.message for r in caplog.records)

@@ -46,7 +46,7 @@ _FLOAT_COLS: set[str] = {
     "timediff",
 }
 
-# _coerce_typesで数値変換しない文字列固有列
+# coerce_typesで数値変換しない文字列固有列
 _STRING_COLUMNS: set[str] = {
     "race_id",
     "kettonum",
@@ -90,7 +90,7 @@ def load_races_from_db(db: EveryDB2Queries, ymd: str) -> pd.DataFrame:
     df = _apply_type_conversions(raw, "races")
     df = _compute_race_date(df)
     df = _compute_race_id(df)
-    df = _coerce_types(df)
+    df = coerce_types(df)
     return _exclude_steeple(df)
 
 
@@ -102,7 +102,7 @@ def load_entries_from_db(db: EveryDB2Queries, ymd: str) -> pd.DataFrame:
     df = _apply_type_conversions(raw, "entries")
     df = _compute_race_date(df)
     df = _compute_race_id(df)
-    df = _coerce_types(df)
+    df = coerce_types(df)
     return _exclude_steeple(df)
 
 
@@ -114,7 +114,7 @@ def load_odds_snapshots_from_db(db: EveryDB2Queries, ymd: str) -> pd.DataFrame:
     df = _apply_type_conversions(raw, "odds_tanpuku")
     df = _compute_race_date(df)
     df = _compute_race_id(df)
-    return _coerce_types(df)
+    return coerce_types(df)
 
 
 def load_odds_time_series_from_db(db: EveryDB2Queries, ymd: str) -> pd.DataFrame:
@@ -125,19 +125,19 @@ def load_odds_time_series_from_db(db: EveryDB2Queries, ymd: str) -> pd.DataFrame
     df = _apply_type_conversions(raw, "jodds_tanpuku")
     df = _compute_race_date(df)
     df = _compute_race_id(df)
-    return _coerce_types(df)
+    return coerce_types(df)
 
 
 def _to_dt(yyyymmdd: str) -> datetime:
     return datetime.strptime(yyyymmdd, "%Y%m%d")
 
 
-def _date_filters(start: str, end: str) -> list[tuple]:
+def date_filters(start: str, end: str) -> list[tuple]:
     s, e = _to_dt(start), _to_dt(end)
     return [("race_date", ">=", s), ("race_date", "<=", e)]
 
 
-def _coerce_types(df: pd.DataFrame) -> pd.DataFrame:
+def coerce_types(df: pd.DataFrame) -> pd.DataFrame:
     """旧ETL互換: 文字列型の数値列を適切な型に変換する。
 
     race_dateはdatetimeに、それ以外のobject型列はpd.to_numericで
@@ -194,20 +194,20 @@ def _exclude_steeple(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def load_races(store: ParquetStore, start: str, end: str) -> pd.DataFrame:
-    df = store.read("raw", "races", filters=_date_filters(start, end))
-    df = _coerce_types(df)
+    df = store.read("raw", "races", filters=date_filters(start, end))
+    df = coerce_types(df)
     return _exclude_steeple(df)
 
 
 def load_entries(store: ParquetStore, start: str, end: str) -> pd.DataFrame:
-    df = store.read("raw", "entries", filters=_date_filters(start, end))
-    df = _coerce_types(df)
+    df = store.read("raw", "entries", filters=date_filters(start, end))
+    df = coerce_types(df)
     return _exclude_steeple(df)
 
 
 def load_odds_snapshots(store: ParquetStore, start: str, end: str) -> pd.DataFrame:
-    df = store.read("odds", "odds_tanpuku", filters=_date_filters(start, end))
-    return _coerce_types(df)
+    df = store.read("odds", "odds_tanpuku", filters=date_filters(start, end))
+    return coerce_types(df)
 
 
 def load_odds_time_series_range(store: ParquetStore, start: str, end: str) -> pd.DataFrame:
@@ -225,7 +225,7 @@ def load_odds_time_series_range(store: ParquetStore, start: str, end: str) -> pd
     if df.empty and subpath == "jodds_tanpuku" and store.exists("odds", "time_series"):
         logger.debug("jodds_tanpuku empty for %s-%s, falling back to time_series", start, end)
         df = store.read("odds", "time_series", filters=filters)
-    df = _coerce_types(df)
+    df = coerce_types(df)
     # 旧time_seriesの列名を生カラム名に正規化
     rename_ts = {"happyo_time": "happyotime", "tan_odds": "tanodds", "fuku_odds": "fukuoddslow"}
     existing = {k: v for k, v in rename_ts.items() if k in df.columns and v not in df.columns}
@@ -240,7 +240,7 @@ def load_odds_time_series(store: ParquetStore, race_id: str) -> pd.DataFrame:
     if df.empty and subpath == "jodds_tanpuku" and store.exists("odds", "time_series"):
         logger.debug("jodds_tanpuku empty for %s, falling back to time_series", race_id)
         df = store.read("odds", "time_series", filters=[("race_id", "==", race_id)])
-    df = _coerce_types(df)
+    df = coerce_types(df)
     rename_ts = {"happyo_time": "happyotime", "tan_odds": "tanodds", "fuku_odds": "fukuoddslow"}
     existing = {k: v for k, v in rename_ts.items() if k in df.columns and v not in df.columns}
     if existing:
@@ -249,40 +249,40 @@ def load_odds_time_series(store: ParquetStore, race_id: str) -> pd.DataFrame:
 
 
 def load_wide_odds(store: ParquetStore, start: str, end: str) -> pd.DataFrame:
-    df = store.read("odds", "odds_wide", filters=_date_filters(start, end))
-    return _coerce_types(df)
+    df = store.read("odds", "odds_wide", filters=date_filters(start, end))
+    return coerce_types(df)
 
 
 def load_payouts(store: ParquetStore, start: str, end: str) -> pd.DataFrame:
-    df = store.read("raw", "payouts", filters=_date_filters(start, end))
-    return _coerce_types(df)
+    df = store.read("raw", "payouts", filters=date_filters(start, end))
+    return coerce_types(df)
 
 
 def load_history_entries(store: ParquetStore, lookback_years: int = 5) -> pd.DataFrame:
     cutoff = datetime.now() - timedelta(days=lookback_years * 365)
     df = store.read("raw", "entries", filters=[("race_date", ">=", cutoff)])
-    return _coerce_types(df)
+    return coerce_types(df)
 
 
 def load_history_races(store: ParquetStore, lookback_years: int = 5) -> pd.DataFrame:
     cutoff = datetime.now() - timedelta(days=lookback_years * 365)
     df = store.read("raw", "races", filters=[("race_date", ">=", cutoff)])
-    return _coerce_types(df)
+    return coerce_types(df)
 
 
 def load_horses(store: ParquetStore) -> pd.DataFrame:
     df = store.read("raw", "horses")
-    return _coerce_types(df)
+    return coerce_types(df)
 
 
 def load_jockey_stats(store: ParquetStore) -> pd.DataFrame:
     df = store.read("raw", "kisyu_seiseki")
-    return _coerce_types(df)
+    return coerce_types(df)
 
 
 def load_trainer_stats(store: ParquetStore) -> pd.DataFrame:
     df = store.read("raw", "chokyo_seiseki")
-    return _coerce_types(df)
+    return coerce_types(df)
 
 
 def load_career_stats(store: ParquetStore) -> pd.DataFrame:
@@ -290,7 +290,7 @@ def load_career_stats(store: ParquetStore) -> pd.DataFrame:
     if not store.exists("raw", "horse_career_stats"):
         return pd.DataFrame()
     df = store.read("raw", "horse_career_stats")
-    return _coerce_types(df)
+    return coerce_types(df)
 
 
 def load_keito(store: ParquetStore) -> pd.DataFrame:
@@ -298,7 +298,7 @@ def load_keito(store: ParquetStore) -> pd.DataFrame:
     if not store.exists("raw", "keito"):
         return pd.DataFrame()
     df = store.read("raw", "keito")
-    return _coerce_types(df)
+    return coerce_types(df)
 
 
 def load_sire_stats(store: ParquetStore) -> pd.DataFrame:
@@ -306,14 +306,14 @@ def load_sire_stats(store: ParquetStore) -> pd.DataFrame:
     if not store.exists("raw", "sire_career_stats"):
         return pd.DataFrame()
     df = store.read("raw", "sire_career_stats")
-    return _coerce_types(df)
+    return coerce_types(df)
 
 
 def load_features(store: ParquetStore, start: str, end: str) -> pd.DataFrame | None:
     if not store.exists("features", "horse_features"):
         return None
-    df = store.read("features", "horse_features", filters=_date_filters(start, end))
-    return _coerce_types(df)
+    df = store.read("features", "horse_features", filters=date_filters(start, end))
+    return coerce_types(df)
 
 
 def save_features(store: ParquetStore, df: pd.DataFrame) -> None:
