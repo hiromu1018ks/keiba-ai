@@ -121,7 +121,11 @@ progress:
   1. run_etl.py --mode full で三連複(n_odds_sanren)、馬連(n_odds_umaren)、三連単(n_odds_sanrentan)のParquetファイルが生成される
   2. 抽出データが2015-2025年の期間をカバーし、欠損率が許容範囲(30%以下)であることをカバレッジレポートで確認できる
   3. DataRepository経由で新しいParquetファイルからDataFrameとしてデータを読み込める
-**Plans**: TBD
+**Plans**: 3 plans
+Plans:
+- [ ] 29-01-PLAN.md — Fix PK definitions in etl_tables.yaml + add type rules in etl.py
+- [ ] 29-02-PLAN.md — Create DataRepository class with 3 load methods + tests
+- [ ] 29-03-PLAN.md — Add coverage verification to run_etl.py + tests
 
 ### Phase 30: Residual IC Evaluation Framework
 **Goal**: v1.6モデルの市場独立予測力を4定式化バッテリーで定量的に測定でき、新特徴量の効果を客観的に評価できる状態になる
@@ -150,7 +154,7 @@ progress:
 **Success Criteria** (what must be TRUE):
   1. Harville公式による理論ワイドオッズが計算され、実オッズとの比率特徴量が生成される
   2. 5つの市場クロス整合性特徴量(rl_favorite_in_wide_top1, rl_trio_overlap, rl_market_consistency, rl_trio_odds_ratio, rl_wide_harville_ratio)がFEATURE_COLSに追加される
-  3. ワイドオッズmergeがbuild_all()に統合され、training/backtestでの重複コードが排除される
+  3. ワイドオッズmergeをbuild_all()に統合され、training/backtestでの重複コードが排除される
   4. 全特徴量がpre-race snapshot oddsのみを使用し、post-race payout oddsの情報漏洩がないことがテストで検証される
 **Plans**: TBD
 
@@ -213,7 +217,7 @@ Then: 31 -> 32 -> 33 -> 34 (sequential).
 | 26. EveryDB2 New Features | v1.6 | 3/3 | Complete | 2026-05-14 |
 | 27. Feature Interactions | v1.6 | 3/3 | Complete | 2026-05-15 |
 | 28. Validation & Freeze | v1.6 | 2/2 | Complete | 2026-05-17 |
-| 29. ETL Expansion | v1.7 | 0/? | Not started | - |
+| 29. ETL Expansion | v1.7 | 0/3 | Planning | - |
 | 30. Residual IC Evaluation Framework | v1.7 | 0/? | Not started | - |
 | 31. Race-Level Aggregation Features | v1.7 | 0/? | Not started | - |
 | 32. Market Cross-Consistency Features | v1.7 | 0/? | Not started | - |
