@@ -1,10 +1,10 @@
 ---
 gsd_state_version: 1.0
 milestone: v1.7
-milestone_name: TBD
+milestone_name: Market-Independent Edge Discovery
 status: planning
-last_updated: "2026-05-17T12:22:00.000Z"
-last_activity: 2026-05-17 -- v1.6 milestone archived, ready for next milestone
+last_updated: "2026-05-17T12:30:00.000Z"
+last_activity: 2026-05-17 -- Milestone v1.7 started
 progress:
   total_phases: 0
   completed_phases: 0
@@ -20,14 +20,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-05-17)
 
 **Core value:** 単勝モデルのバックテストROIを100%超えにすること
-**Current focus:** v1.7 planning — 次アプローチの検討が必要
+**Current focus:** v1.7 — Market-Independent Edge Discovery
 
 ## Current Position
 
-Phase: — (next milestone TBD)
-Plan: 0 of 0
-Status: v1.6 archived, ready for /gsd:new-milestone
-Last activity: 2026-05-17 -- v1.6 milestone archived
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-05-17 — Milestone v1.7 started
 
 Progress: [          ] 0%
 
@@ -57,6 +57,7 @@ Progress: [          ] 0%
 
 Decisions are logged in PROJECT.md Key Decisions table.
 Key insight from v1.6: 特徴量追加アプローチの限界 (37新特徴量でROI+1.3ppのみ)
+Key insight from v1.7 planning: Echo Chamber脱却 — race-level + market-cross特徴量で市場独立性を獲得
 
 ### Pending Todos
 
@@ -65,7 +66,7 @@ Key insight from v1.6: 特徴量追加アプローチの限界 (37新特徴量�
 
 ### Blockers/Concerns
 
-- ROI 100%目標未達 (85.7%) — 特徴量アプローチだけでは限界、根本的見直しが必要
+- ROI 100%目標未達 (85.7%) — v1.7でEcho Chamber脱却アプローチを試行
 
 ### v1.6 Result
 
@@ -94,6 +95,6 @@ Items acknowledged and deferred at milestone close:
 
 ## Session Continuity
 
-Last session: 2026-05-17T12:22:00.000Z
-Stopped at: v1.6 milestone archived, ready for next milestone
+Last session: 2026-05-17T12:30:00.000Z
+Stopped at: v1.7 milestone initialized, defining requirements
 Resume file: N/A

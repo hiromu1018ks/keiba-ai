@@ -60,10 +60,24 @@ MLflow で実験管理。PostgreSQL (EveryDB2/JRA-VAN DataLab) をデータソ�
 
 ### Active
 
-- ROI 100%超えの達成(現在85.7%、根本的アプローチ変更が必要)
-- 新しいアプローチの検討(モデル構造変更、データ拡張、アンサンブル手法等)
-- WF検証スクリプトの実際の実行(~4時間、PostgreSQL環境必要)
-- n_taisyogata_mining/n_sale/n_banusiテーブルからの特徴量抽出(未検証)
+- Race-level集約特徴量 (entropy, dispersion, top-odds gap) の実装 — レース全体の市場構造を捉える
+- 市場整合性特徴量 (単勝×複数馬券種クロスコンシステンシー) の実装 — 「読める vs 読めないレース」の選別
+- Gain per Depth診断 — LightGBM暗黙的Two-Stage構造の検証
+- Residual IC評価指標 (B差分/C直交/E Incremental) の実装 — 市場独立性の定量評価
+- ROI 100%超えの達成 (現在85.7%)
+
+## Current Milestone: v1.7 Market-Independent Edge Discovery
+
+**Goal:** Echo Chamber脱却 — 市場と独立な予測成分を獲得し、ROI 100%超えを実現する
+
+**Target features:**
+- Race-level集約特徴量: rl_odds_dispersion, rl_log_odds_entropy, rl_top3_odds_gap 等
+- 市場整合性特徴量: 単勝×複数馬券種のクロスコンシステンシー
+- Gain per Depth診断: trees_to_dataframe()でdepth別gain寄与率を分析
+- Residual IC評価指標: B差分/C直交/E Incremental IC
+
+**Key insight:** v1.6で特徴量追加の限界を確認 (37新特徴量でROI +1.3pp)。記事の実証では
+race-level + market-cross特徴量でC直交IC +120%、ROI 0.91→1.66を達成。
 
 ### Out of Scope
 
@@ -86,7 +100,7 @@ MLflow で実験管理。PostgreSQL (EveryDB2/JRA-VAN DataLab) をデータソ�
 **Phases:** 28 total (v1.0-v1.6)
 **LOC:** ~23,215 (src/)
 **Tests:** 1,527 passed, 0 failed
-**Next:** v1.7 (要検討)
+**Next:** v1.7 Market-Independent Edge Discovery
 
 ## Context
 
@@ -164,6 +178,7 @@ MLflow で実験管理。PostgreSQL (EveryDB2/JRA-VAN DataLab) をデータソ�
 | DataKubun=3優先 | 直前予想(馬体重発表後)が情報量最大 | ✓ Good (v1.6) |
 | Stage1にTE追加せず | TE target == Stage1 targetでOOFリークの可能性 | ✓ Good (v1.6) — 安全性優先 |
 | 特徴量追加アプローチの限界 | 22新特徴量+12交互作用+3TEでROI+1.3ppのみ | ⚠️ Revisit (v1.6) — 特徴量だけではROI 100%困難 |
+| Echo Chamber脱却アプローチ | 記事知見: race-level + market-cross特徴量で市場独立性を獲得 | — Pending (v1.7) |
 
 ## Evolution
 
@@ -183,4 +198,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-17 after v1.6 milestone completed*
+*Last updated: 2026-05-17 after v1.7 milestone started*
