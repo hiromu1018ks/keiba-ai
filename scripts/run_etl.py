@@ -11,10 +11,14 @@ import logging
 import os
 import sys
 import time
+from typing import TYPE_CHECKING
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 sys.path.insert(0, os.path.join(ROOT, "src"))
+
+if TYPE_CHECKING:
+    from db.parquet_store import ParquetStore
 
 logging.basicConfig(
     level=logging.INFO,
@@ -22,6 +26,55 @@ logging.basicConfig(
     datefmt="%H:%M:%S",
 )
 logger = logging.getLogger(__name__)
+
+
+def _verify_coverage(
+    store: "ParquetStore",
+    tables: list[str],
+    start_year: int,
+    end_year: int,
+) -> None:
+    """Post-ETL coverage verification: row counts, year coverage, missing rate."""
+    for table in tables:
+        if not store.exists("odds", table):
+            logger.warning("Coverage SKIP: %s (file not found)", table)
+            continue
+
+        df = store.read("odds", table)
+        n_rows = len(df)
+
+        # Year coverage from race_date
+        if "race_date" in df.columns and n_rows > 0:
+            years_present = sorted(df["race_date"].dt.year.unique().tolist())
+        else:
+            years_present = []
+
+        # Max missing rate across all columns
+        if n_rows > 0:
+            max_missing = df.isnull().mean().max() * 100
+        else:
+            max_missing = 0.0
+
+        logger.info(
+            "Coverage %s: %d rows, years=%s, max_missing=%.1f%%",
+            table, n_rows, years_present, max_missing,
+        )
+
+        # Check missing years
+        expected_years = set(range(start_year, end_year + 1))
+        actual_years = set(years_present)
+        missing_years = sorted(expected_years - actual_years)
+        if missing_years:
+            logger.warning(
+                "Coverage WARN: %s missing years %s", table, missing_years,
+            )
+
+        # Check missing rate threshold
+        if max_missing > 30:
+            logger.warning(
+                "Coverage WARN: %s missing rate %.1f%% exceeds 30%%",
+                table, max_missing,
+            )
 
 
 def main() -> None:
@@ -70,6 +123,9 @@ def main() -> None:
 
     for table, n in counts.items():
         logger.info("  %s: %d行", table, n)
+
+    if args.mode == "full":
+        _verify_coverage(store, list(counts.keys()), int(args.start[:4]), int(args.end[:4]))
 
 
 if __name__ == "__main__":
