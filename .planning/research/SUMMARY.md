@@ -1,154 +1,154 @@
 # Project Research Summary
 
-**Project:** keiba-ai v1.6 Feature Engineering Overhaul
-**Domain:** Horse racing ML prediction — feature engineering
-**Researched:** 2026-05-10
+**Project:** keiba-ai v1.7 Market-Independent Edge Discovery
+**Domain:** Horse racing ML prediction -- race-level aggregation, market cross-consistency, diagnostic evaluation
+**Researched:** 2026-05-17
 **Confidence:** HIGH
 
 ## Executive Summary
 
-This research covers a comprehensive feature engineering overhaul for the keiba-ai horse racing prediction system. The system currently has 100+ features across 14 modules, with a backtest ROI of 84.4% (target: 100%+). The v1.5 CQR failure demonstrated that adding complex post-processing layers doesn't improve prediction — the quality of model inputs (features) is the primary lever.
+The v1.7 milestone adds four capabilities to the keiba-ai horse racing ML system: race-level aggregation features (entropy, dispersion, odds gaps), market cross-consistency features (win-wide Harville ratios), Gain per Depth diagnostics (LightGBM tree structure analysis), and Residual IC evaluation (B/C/E information coefficient decomposition). These are inspired by the yurelu (zenn.dev) article, which demonstrated +40% C-orthogonal IC from race-level features and +120% from market-cross features, taking ROI from 0.91 to 1.66 across 408 races.
 
-The recommended approach is a three-pronged strategy: (1) audit and prune existing noisy features, (2) activate 12 already-implemented but unwired features (jockey/trainer/combo stats), and (3) extract new features from 40+ unused EveryDB2 tables. No new library installations are needed. Estimated ROI improvement: +7~21pp (91~105%).
+The recommended approach is additive: keep all existing 100+ features (never remove odds features -- that destroys the implicit two-stage tree structure), add 6 race-level features computed from existing win odds via standard groupby patterns, then add 4+ market cross-consistency features using existing win and wide odds data with Harville theoretical odds computation. Zero new library installations are required -- every capability is covered by the installed stack (pandas, scipy, sklearn, LightGBM 4.6.0). The only external action is an ETL run to extract odds_umaren/sanren Parquet files for future expansion.
 
-The critical risk is data leakage from post-race columns. EveryDB2 contains both pre-race and post-race data, and one known leakage path (`build_all()` exit drop) is unfixed. A safety gate phase must come first, and all new features must be classified PRE/POST before use.
+The critical risks are: (1) binary outcome Spearman breakdown in Residual IC computation -- using a naive formulation produces mechanically negative IC values, requiring the 4-formulation battery as a cross-check; (2) look-ahead bias from using post-race payout odds instead of pre-race snapshot odds in cross-consistency features; (3) train-inference mismatch if race-level features are added to build_all() but not to the build_features() single-race inference path. Each of these has a clear prevention strategy documented in the pitfalls research.
 
 ## Key Findings
 
 ### Recommended Stack
 
-Zero new library installations needed. The existing stack (LightGBM, XGBoost, CatBoost, pandas, numpy, scikit-learn, scipy) covers all feature engineering tasks. The only change is declaring `scipy>=1.11` explicitly in pyproject.toml (currently an undeclared transitive dependency).
+Zero new dependencies. Every required tool is already installed at current versions. The v1.7 milestone is purely additive feature modules and diagnostic tools built with pandas groupby, scipy.stats, sklearn LinearRegression, and LightGBM trees_to_dataframe().
 
 **Core technologies:**
-- LightGBM `feature_importance()` (gain/split): Feature audit baseline
-- sklearn `permutation_importance`: Gold-standard feature importance on held-out data
-- pandas vectorized operations: Feature interactions and transformations (already demonstrated in `interaction_features.py`)
-
+- pandas groupby().transform(): Race-level feature broadcasting (constant within race, copied to every horse row) -- identical pattern to existing market_bias_features.py
+- scipy.stats entropy + spearmanr: Shannon entropy for race readability, Spearman IC for model evaluation -- more numerically stable than manual implementations
+- sklearn LinearRegression: OLS residualization for C-orthogonal IC (model predictions regressed on market probabilities, residual IC measured) -- mathematically identical to partial correlation
+- LightGBM 4.6.0 trees_to_dataframe(): Per-node gain and depth extraction for Gain per Depth analysis -- confirmed 15-column output including tree_index, node_depth, split_gain
+- Harville (1973) formula: Theoretical multi-horse odds from win implied probabilities -- enables win x wide cross-consistency without trio quinella data
 ### Expected Features
 
 **Must have (table stakes):**
-- Feature importance audit (permutation + gain): Identify noisy features diluting signal
-- POST_RACE leakage fix: Drop post-race columns at `build_all()` exit
-- JockeyContext/TrainerContext/Combo wiring: 12 already-implemented features, ~45 lines to connect
-- Feature cache invalidation protocol: Clear cache when feature modules change
+- Race-level aggregation features (rl_odds_dispersion, rl_top3_odds_gap, rl_favorite_rank_gap, rl_log_odds_entropy) -- yurelu 5 race-level features improved C-orthogonal IC by +40%
+- rl_favorite_in_wide_top1 -- analogue of yurelu single most powerful feature (market consistency), uses wide odds instead of trio quinella
+- Residual IC evaluation with 4-formulation battery (B-diff, C-orthogonal, E-incremental, per-race) -- without this instrument, there is no way to measure market-independent edge
+- Promotion of existing computed-but-unregistered features (implied_prob_hhi, odds_skewness) to FEATURE_COLS
 
 **Should have (competitive):**
-- EveryDB2 unused table features: n_mining (82 cols), n_taisyogata_mining (pairwise), n_hansyoku (pedigree), n_record (course records)
-- Relative comparison features: Horse-vs-horse within-race rankings
-- Target encoding for high-cardinality categoricals: blood_keito_cd, kisyucode
-- Feature interaction engineering: 10-15 domain-motivated interaction terms
+- Harville wide odds ratio features (rl_wide_harville_ratio_fav, rl_wide_top3_harville_mean, rl_wide_harville_dispersion) -- deeper market cross-consistency signal
+- Gain per Depth diagnostic -- validates that race-level features appear at shallow tree depths (implicit two-stage structure)
+- Market conviction index (composite cross-consistency signal) -- aggregates multiple Harville ratios
 
 **Defer (v2+):**
-- n_mining deep analytics: Column semantics unknown, needs DB inspection first
-- LSTM/Transformer features: Overkill for 5-15 past runs
-- External data sources: Out of scope per PROJECT.md
+- Quinella (umaren) cross-consistency features -- requires ETL expansion for jodds_umaren time-series data beyond 2026
+- Multi-dimensional orthogonal IC (win+wide+umaren simultaneously) -- correlated market signals may produce unstable residuals
+- Stern/Henery models for more accurate theoretical odds -- Harville captures 90%+ of signal, diminishing returns
 
 ### Architecture Approach
 
-The existing feature pipeline follows a pure-function pattern (DataFrame in, DataFrame out) with 22 feature modules chained through `FeatureEngine.build_all()`. Adding new features means writing a new module (~100-200 lines) and wiring it into the pipeline (~20 lines). No structural changes needed. Two modules (JockeyContextFeatures, TrainerContextFeatures) are already implemented and tested but not wired.
+Four new modules integrate into the existing pure-function feature pipeline (DataFrame in, DataFrame out). Race-level and market-cross features are new src/features/ modules wired into FeatureEngine.build_all(). Gain per Depth and Residual IC are new src/diagnostics/ classes hooked into TrainingPipeline._train_submodel(). The critical architectural decision is consolidating the wide odds merge into build_all() (via new wide_odds_df parameter) to eliminate code duplication between training and backtest pipelines.
 
 **Major components:**
-1. Feature audit script (new): Extracts feature importance from trained models, produces prune list
-2. New feature modules (additive): Follow existing 22-module pattern, pure functions
-3. Feature interaction module (additive): Vectorized pandas operations on existing features
-4. POST_RACE leakage validator (new): CI test ensuring no post-race columns in feature output
-
+1. race_level_features.py (NEW): 6 race-level aggregation features from tanodds groupby -- entropy, dispersion, top-3 gap, favorite dominance, field competitiveness, longshot ratio
+2. market_cross_features.py (NEW): 4+ market cross-consistency features using Harville theoretical wide odds -- win-wide divergence, favorite-in-wide-top1, Harville ratios
+3. gain_per_depth.py (NEW): Diagnostic extracting LightGBM tree structure via trees_to_dataframe(), aggregating gain by depth level
+4. residual_ic.py (NEW): B/C/E IC decomposition on OOF predictions, measuring market-independent predictive power
 ### Critical Pitfalls
 
-1. **Post-race data leakage** — `build_all()` exit doesn't drop POST_RACE_COLS; one path unfixed from v1.5. Fix: Add drop at `build_all()` return.
-2. **Impurity importance bias** — LightGBM default gain importance favors high-cardinality features. Fix: Use permutation importance on held-out data for audit.
-3. **Feature cache invalidation** — Cache key uses input file paths, not computation code. Adding features silently serves stale cache. Fix: Manual cache clearing protocol.
-4. **EveryDB2 column semantics** — Many columns are post-race (odds, ninki, kyakusitukubun). Fix: PRE/POST classification document before any new feature extraction.
-5. **Feature explosion** — Adding interactions without limits can overfit. Fix: Cap at 10-15 domain-motivated interactions.
+1. **Binary outcome Spearman breakdown** -- Naive Residual IC (Spearman on binary residuals) produces mechanically negative IC (~-0.68). Use the 4-formulation battery (B-diff, C-orthogonal, E-incremental, per-race) and require consistent direction across all metrics.
+2. **Look-ahead bias in multi-bet-type odds** -- Post-race payout odds from payouts.parquet must never be used as features. Only pre-race snapshot odds (tanodds, fukuoddslow, wide oddslow) are PIT-safe. Feature design must document the odds source for every cross-consistency feature.
+3. **Train-inference feature parity** -- Race-level features added to build_all() must also be added to build_features() (the single-race inference path). The inference path currently only calls _map_basic_features() and skips all sub-modules. Both paths must produce identical new columns.
+4. **Race-level feature redundancy** -- These features are constant within a race and provide no within-race discriminative power. They are infrastructure features that improve C-orthogonal IC, not Simple IC. yurelu 5 race-level features contributed +0.03 to ROI; the 5 market-cross features contributed +0.37. Set expectations accordingly.
+5. **Never remove odds features** -- The Echo Chamber instinct is to remove odds (tanodds, popularity_rank) to force fundamental-only prediction. yurelu proved this wrong: removing odds dropped C-orthogonal IC from +0.0856 to -0.0261. The correct strategy is additive: keep existing features + add new ones.
 
 ## Implications for Roadmap
 
 Based on research, suggested phase structure:
 
-### Phase 1: Safety Gate — Leakage Fix and Audit Framework
-**Rationale:** Safety first. The unfixed POST_RACE drop at `build_all()` exit is a known leak. Must fix before any feature work. Also build the audit tooling that subsequent phases depend on.
-**Delivers:** POST_RACE leak fix, feature importance audit script, CI validation test
-**Addresses:** Pitfall #1 (post-race leakage), Pitfall #2 (impurity importance bias)
-**Avoids:** Building features on top of a leaky pipeline
+### Phase 1: Residual IC Evaluation Framework
+**Rationale:** Must build the measurement instrument before adding features. Without Residual IC, there is no way to determine whether new features add market-independent information or just echo the market. The 4-formulation battery prevents the binary Spearman breakdown pitfall.
+**Delivers:** src/diagnostics/residual_ic.py, IC reports on current model (baseline), 4-formulation cross-check system
+**Addresses:** Pitfall #1 (binary Spearman breakdown)
+**Avoids:** Building features without a way to measure their value
 
-### Phase 2: Feature Audit and Pruning
-**Rationale:** Establish a clean baseline ROI before adding features. Pruning noisy features can itself improve ROI (+0~3pp).
-**Delivers:** Pruned feature set, baseline ROI measurement with audit script
-**Uses:** LightGBM feature_importance, sklearn permutation_importance
-**Implements:** Audit script component from Phase 1
+### Phase 2: Race-Level Aggregation Features
+**Rationale:** No new data dependencies -- uses only existing tanodds already in the pipeline. Follows the exact same groupby-transform pattern as market_bias_features.py. These are the foundation features that enable market-cross features to work better (yurelu showed they activate at tree depth 3-4, providing race context).
+**Delivers:** src/features/race_level_features.py, 6 new race-level features, promotion of implied_prob_hhi and odds_skewness to FEATURE_COLS, both build_all() and build_features() paths updated
+**Uses:** pandas groupby/transform, scipy.stats.entropy
+**Avoids:** Pitfall #3 (inference path missing features), Pitfall #7 (feature cache invalidation)
 
-### Phase 3: Quick Win — Wire Existing Modules
-**Rationale:** JockeyContextFeatures (4), TrainerContextFeatures (4), JockeyTrainerComboFeatures (4) are implemented, tested, and PIT-safe. ~45 lines to connect. Estimated ROI: +3~8pp.
-**Delivers:** 12 new active features, ROI measurement
-**Implements:** Wiring in training_pipeline.py
+### Phase 3: Market Cross-Consistency Features
+**Rationale:** The main weapon -- yurelu market-cross features delivered +120% C-orthogonal IC improvement. Uses existing wide odds data (17.9 MB, 38,825 races). Requires Harville theoretical odds computation as a shared prerequisite. Consolidates wide odds merge into build_all() to eliminate training/backtest duplication.
+**Delivers:** src/features/market_cross_features.py, Harville wide odds computation, 4+ cross-consistency features, wide odds merge consolidation into build_all()
+**Uses:** pandas merge + vectorized operations, Harville formula
+**Avoids:** Pitfall #2 (look-ahead bias -- uses only pre-race wide odds snapshots), Pitfall #4 (redundancy -- cross-consistency is orthogonal to race-level)
 
-### Phase 4: New Features from EveryDB2
-**Rationale:** With clean baseline and quick wins in place, now add high-value features from unused EveryDB2 tables.
-**Delivers:** New feature modules from n_mining, n_hansyoku, n_record, relative comparison features
-**Research flag:** n_mining column semantics unknown — needs DB inspection during planning
+### Phase 4: Gain per Depth Diagnostic
+**Rationale:** Read-only diagnostic that validates race-level features are functioning correctly (appearing at shallow tree depths). Pure analysis tool with no effect on model predictions. Runs after model training as a verification step.
+**Delivers:** src/diagnostics/gain_per_depth.py, depth-stratified gain distribution reports, implicit two-stage structure verification
+**Uses:** LightGBM trees_to_dataframe(), pandas groupby
+**Avoids:** Pitfall #5 (over-interpretation -- used as diagnostic only, not optimization target)
 
-### Phase 5: Feature Interactions
-**Rationale:** Interactions depend on final base feature set (from Phases 2-4). Limited to 10-15 domain-motivated interactions.
-**Delivers:** Interaction features, final ROI measurement
-**Avoids:** Pitfall #5 (feature explosion)
-
-### Phase 6: Validation and Freeze
-**Rationale:** Final walk-forward validation of complete feature set. ROI 100%+ target verification.
-**Delivers:** WF validation results, frozen feature set, performance report
+### Phase 5: Validation and Manifest Update
+**Rationale:** All features and diagnostics are in place. Now run full validation to confirm ROI improvement, update feature manifests, and verify no leakage.
+**Delivers:** Updated FEATURE_COLS manifest, SHA256 feature hash, full backtest with new features, walk-forward validation
+**Avoids:** Pitfall #8 (stale cache after feature changes), all leakage risks
 
 ### Phase Ordering Rationale
 
-- Safety gate first because building on a leaky pipeline wastes all downstream work
-- Audit before adding because noisy features dilute the signal of new ones
-- Quick wins before complex features because 12 free features at ~45 lines > any new module
-- Interactions last because they depend on the final base feature set
-- Validation last because it needs the frozen feature set
+- Residual IC first because it is the measurement instrument -- you cannot evaluate features without it
+- Race-level features second because they have zero new data dependencies and follow proven patterns
+- Market cross-consistency third because it depends on race-level patterns being established and requires the Harville computation prerequisite
+- Gain per Depth fourth because it needs a trained model with the new features to analyze
+- Validation last because it needs the frozen feature set and trained models
 
 ### Research Flags
 
 Phases likely needing deeper research during planning:
-- **Phase 4:** n_mining table (82 cols, unknown semantics, PRE/POST classification needed)
-- **Phase 4:** n_taisyogata_mining (pairwise comparison data, structure unknown)
+- **Phase 3:** Harville wide odds computation -- exact numerical implementation and edge case handling (small fields, zero odds, wide odds sparsity in early years)
+- **Phase 3:** Wide odds pivot memory -- pivoting wide odds for all races at once may consume excessive memory; may need per-race or sparse approach
 
 Phases with standard patterns (skip research-phase):
-- **Phase 1:** Well-documented leakage fix pattern
-- **Phase 2:** Standard permutation importance methodology
-- **Phase 3:** Direct wiring of existing modules
-- **Phase 5:** Standard pandas interaction patterns
+- **Phase 1:** Standard Spearman IC + OLS residualization, well-documented in quantitative finance
+- **Phase 2:** Identical groupby-transform pattern to existing market_bias_features.py
+- **Phase 4:** LightGBM API well-documented, code example verified in STACK.md
 
 ## Confidence Assessment
 
 | Area | Confidence | Notes |
 |------|------------|-------|
-| Stack | HIGH | All tools verified installed, no new dependencies needed |
-| Features | HIGH | 22 feature modules audited, 103 ETL tables cross-referenced, 12 unwired features identified |
-| Architecture | HIGH | Pure-function pattern well-established across 22 modules, no structural changes needed |
-| Pitfalls | HIGH | v1.5 CQR failure provides concrete evidence, code-level analysis of leakage paths |
+| Stack | HIGH | All tools verified installed at required versions. LightGBM API tested live. scipy/sklearn imports verified. Zero new dependencies needed. |
+| Features | HIGH | yurelu article provides strong empirical evidence (+40% IC race-level, +120% IC market-cross). Data availability verified (38,825 races with wide odds). Existing codebase audit confirms most race-level features already computed but not registered. |
+| Architecture | HIGH | Full source code analysis of feature_engine.py, training_pipeline.py, backtest/engine.py, race_predictor.py. Integration points and insertion locations identified at line-level granularity. |
+| Pitfalls | HIGH | 8 pitfalls identified with specific prevention strategies, warning signs, and recovery costs. Code-level analysis of leakage paths, cache mechanism, and dual-path (train/inference) feature computation. |
 
 **Overall confidence:** HIGH
 
 ### Gaps to Address
 
-- **n_mining column semantics:** 82-column table with unknown column names/meanings. Need DB inspection during Phase 4 planning.
-- **n_taisyogata_mining structure:** Pairwise comparison data potentially valuable but structure unknown. DB inspection needed.
-- **POST_RACE completeness:** Current `POST_RACE_COLS` list may not cover all post-race columns in new tables. Need per-table PRE/POST classification.
+- **Trio quinella (sanrenpuku) pre-race odds unavailable:** yurelu strongest feature used trio odds, which we do not have. The wide odds substitute (rl_favorite_in_wide_top1) is the closest analogue but signal strength is untested. Must validate during Phase 3 implementation.
+- **Harville approximation accuracy for wide bets:** The exact Harville wide probability requires iterating over all permutations of positions 1-3. The proposed approximation is untested. Need numerical comparison during Phase 3.
+- **Multi-seed Gain per Depth stability:** The two-stage structure hypothesis (shallow=market, deep=fundamental) is plausible but untested on our models. If depth patterns differ across seeds, the diagnostic has less interpretive value.
+- **Wide odds sparsity in early years (2015-2017):** Market cross-consistency features may have many NaN values for early data. Coverage percentage needs checking before committing to features.
 
 ## Sources
 
 ### Primary (HIGH confidence)
-- Codebase analysis: 22 feature modules in src/features/, training_pipeline.py, feature_engine.py
-- ETL configuration: 103 tables extracted, 40+ unused
-- v1.5 failure analysis: CQR overfitting root cause and fix (commit f3a4c10)
+- yurelu (zenn.dev): AI to 26 round giron shite kojin kaihatsu no keiba yosoku ML wo sodateta hanashi -- Race-level features, market-cross features, C-orthogonal IC improvements, Gain per Depth analysis, 4-formulation Residual IC battery, ROI 0.91 to 1.66 on 408 races
+- Codebase analysis: feature_engine.py (build_all/build_features dual paths), market_bias_features.py (race-level pattern), training_pipeline.py (wide odds merge, OOF prediction), backtest/engine.py (wide odds merge), race_predictor.py (inference chain), stacked_ensemble.py (lgbm_model access)
+- LightGBM 4.6.0: trees_to_dataframe() API verified via official docs and live test
+- Data verification: odds_wide.parquet (3.68M rows, 38,825 races), payouts.parquet (38,835 races, 201 cols)
 
 ### Secondary (MEDIUM confidence)
-- LightGBM documentation: feature importance methods, categorical handling
-- sklearn documentation: permutation_importance API
-- Horse racing ML literature: feature engineering patterns
+- Harville (1973): Assigning probabilities to the outcomes of multi-entry competitions -- Harville formula for quinella/exacta/trifecta from win odds
+- scipy 1.17.1: Verified spearmanr, entropy importable and functional
+- sklearn 1.8.0: Verified LinearRegression for orthogonalization with synthetic data
+- Snowberg and Wolfers: Explaining the Favorite-Longshot Bias -- Harville conditional probability derivation
 
 ### Tertiary (LOW confidence)
-- EveryDB2 table semantics: Inferred from table/column names, needs DB verification
-- ROI improvement estimates: Based on similar feature engineering improvements in literature
+- Gain per Depth two-stage structure hypothesis -- plausible but untested on keiba-ai models
+- Market cross-consistency ROI improvement replication -- yurelu results may not transfer due to different data environment (no trio odds)
+- Harville approximation accuracy for wide bets -- numerical comparison with exact computation not yet performed
 
 ---
-*Research completed: 2026-05-10*
+*Research completed: 2026-05-17*
 *Ready for roadmap: yes*

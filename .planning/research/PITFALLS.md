@@ -1,324 +1,317 @@
-# Domain Pitfalls: Feature Engineering Overhaul (v1.6)
+# Pitfalls Research
 
-**Domain:** Horse racing ML prediction system (LightGBM/XGBoost/CatBoost stacking)
-**Context:** v1.6 milestone -- comprehensive feature engineering overhaul for existing v5.5 system with 100+ features across 20 modules
-**Researched:** 2026-05-10
-**Confidence:** HIGH (based on direct codebase analysis of all 22 feature modules, v1.5 CQR failure investigation, and domain research)
-
----
+**Domain:** Horse racing ML -- adding race-level aggregation features, market cross-consistency features, Residual IC evaluation, and Gain per Depth analysis to an existing 100+ feature LightGBM pipeline
+**Researched:** 2026-05-17
+**Confidence:** HIGH (reference article zenn.dev/yurelu + direct codebase analysis + domain knowledge)
 
 ## Critical Pitfalls
 
-Mistakes that cause rewrites or major issues. Ranked by severity based on v1.5 failure evidence and codebase analysis.
+### Pitfall 1: Binary Outcome Spearman Breakdown in Residual IC
 
-### Pitfall 1: Using Model Outputs as Features for Downstream Models (Cascade Overfitting)
+**What goes wrong:**
+Using Spearman(model_score, y - market_probs) where y is binary {0,1} produces mechanically negative IC values that make the model look worse than random. The residual = y - market_probs is bimodal: mostly large-negative (y=0, market_probs moderate-to-high) with a thin spike at large-positive (y=1, market_probs moderate). The reference article (zenn.dev/yurelu) demonstrated this exactly: the naive formulation produced IC = -0.68 and led to false "Echo Chamber" conclusions.
 
-**What goes wrong:** A downstream model (e.g., CQR, EV correction, second-stage model) receives the main model's predictions as input features. The downstream model overfits to the training data because the main model's predictions are already highly correlated with the target.
+**Why it happens:**
+The residual y - market_probs for binary outcomes is dominated by the y=0 class (12-17 out of 18 horses per race). When model_score correlates with market_probs (which it always does for any competent model), the majority of data points cluster at (high model_score, large-negative residual), producing a mechanically negative Spearman. This is a structural artifact of applying a financial metric (designed for continuous returns) to a binary outcome.
 
-**Why it happens:** The "residual learning" pattern seems theoretically sound -- learn what the main model got wrong. But in practice, the downstream model sees the main model's output (trained on the same data) and essentially memorizes the residuals rather than learning generalizable patterns.
+**How to avoid:**
+Use the 4-formulation battery from the reference article as a cross-check system:
+- **A (naive):** Spearman(model, y - market) -- KNOWN BROKEN for binary. Include only as a negative control to demonstrate the failure.
+- **B (difference):** Spearman(model - market, y) -- safe but sensitive to model-market correlation direction.
+- **C (orthogonal):** Spearman(orthog(model | market), y) -- the primary metric for market-independent predictive power. Use GAM (SplineTransformer + LogisticRegression) to compute market_probs from p_implied, then residualize.
+- **D (per-race):** Mean of per-race Spearman(model, y) -- auxiliary metric for ranking quality.
+- **E (incremental):** IC(model, y) - IC(market, y) -- most interpretable, simplest to explain.
 
-**Consequences:** In v1.5, CQR used 437 features including 44 model output columns (ev_win_calibrated, p_hit, e_return, etc.). Q_90 dropped to 0.0000 (infinitely tight conformal interval). Combined with cascade filters, this produced 272 bets/year with 99.6% win rate. After fix, ROI returned to 84.4% -- the entire v1.5 improvement was fake.
+All 4 should move in consistent directions. If C is positive but B is negative (or vice versa), investigate before drawing conclusions.
 
-**Prevention:**
-- Any new feature module MUST NOT consume model outputs (p_hit, ev_*, edge_*, selection_*, calibrated values) as inputs
-- Maintain `_MODEL_OUTPUT_COLS` blacklist alongside `POST_RACE_COLS` in `domain/types.py` as hard boundaries
-- If a "second stage" model is needed, it MUST use only raw features, never predictions from earlier stages
-- Audit: grep for any import or reference to model output column names inside feature modules
+**Warning signs:**
+- Residual IC values below -0.3 (mechanically negative, not real signal).
+- A and C giving opposite-signed results.
+- Any single IC metric being used as the sole decision criterion for feature evaluation.
 
-**Detection:**
-- Backtest bet count drops below 1000/year (was 272 in v1.5 failure)
-- Calibration quantiles (Q_90, Q_80) are near 0.0000
-- Win rate exceeds 90% in any segment (place base rate is 18-35%)
-- ROI spikes above 200% in any single validation fold
-
-**Phase to address:** First phase of feature audit -- safety gate before any new features are added.
-
----
-
-### Pitfall 2: Post-Race Data Leakage Through Implicit Column Access
-
-**What goes wrong:** `POST_RACE_COLS` (kakuteijyuni, confirmed_odds, ninki, time, timediff, harontimel3/4, jyuni1c-4c, honsyokin, chakusacd, dmjyuni, dmtime) are defined in `domain/types.py` but survive through multiple merge paths in the pipeline.
-
-**Why it happens:** The architecture merges race_df, entry_df, odds_df, hist_df in multiple stages. Post-race columns leak through specific paths identified in the v1.5 spike investigation:
-
-1. **`feature_engine.py:build_all()`** returns result_df that still contains post-race columns (spike M1 -- not yet fixed)
-2. **`popularity_rank` fallback chain**: tanodds -> tanninki -> ninki, where ninki is confirmed popularity (spike M6). When tanodds is unavailable, ninki (post-race) silently becomes a feature
-3. **JODDS DataKubun=3/4** (confirmed odds snapshots) are not explicitly filtered in `odds_dynamics_features.py` (spike M5)
-4. **`build_features()` inference path** injects kakuteijyuni and ninki into DataFrame (spike L2) -- values should be 0 but have no protective assertion
-
-**Consequences:** Any model that accidentally uses confirmed_odds or kakuteijyuni from the CURRENT race (not history) achieves near-perfect training accuracy but fails completely in production.
-
-**Prevention:**
-- At `build_all()` exit, explicitly drop all POST_RACE_COLS from returned DataFrame (spike M1 fix)
-- Add CI test: after `build_all()`, assert no POST_RACE_COLS in output (except when explicitly needed for target labels)
-- Extend `leakage_validators.py` to validate the final feature matrix, not just expanding() features
-- For new features: any module reading from entry_df or race_df MUST document which columns it accesses and confirm they are pre-race
-
-**Detection:**
-- Feature importance shows kakuteijyuni, confirmed_odds, ninki, or time among top features
-- Training AUC exceeds 0.99 (implausible for horse racing)
-- Large gap between training and validation metrics
-
-**Phase to address:** First phase, before feature audit begins. This is a prerequisite safety gate.
+**Phase to address:**
+Residual IC implementation phase. Must be built BEFORE race-level features are evaluated -- otherwise there is no instrument to measure whether new features add market-independent information.
 
 ---
 
-### Pitfall 3: Feature Audit Using In-Sample Importance (Selection Bias)
+### Pitfall 2: Look-Ahead Bias in Multi-Bet-Type Odds Features
 
-**What goes wrong:** When auditing existing features, using impurity-based importance (LightGBM's default `feature_importance()`) on the training set to decide which features to keep. This biases toward high-cardinality features and features that overfit the training data.
+**What goes wrong:**
+Market cross-consistency features (e.g., "Does 1st-favorite appear in trifecta-box top combination?") require multi-bet-type odds data. Using POST-RACE odds (final payout odds) instead of pre-race snapshot odds introduces look-ahead bias. The reference article used "odds at voting deadline" for all bet types, but keiba-ai currently only has:
+- `tanodds` / `fukuoddslow` (win/place snapshot from `jodds_tanpuku`)
+- `odds_wide` (wide odds with `oddslow` / `oddshigh`)
+- Time series odds (`jodds_tanpuku` time-series)
+- **NO trio (sanrenpuku) or trifecta (sanrentan) odds data in the current pipeline**
 
-**Why it happens:** Tree-based impurity importance measures how much a feature reduces loss during training -- not how much it helps on unseen data. Features that are noisy but high-cardinality can score high. Features that are genuinely predictive but low-cardinality can score low.
+EveryDB2 queries only fetch `s_jodds_tanpuku` / `n_jodds_tanpuku`. Trio/trifecta odds would require new EveryDB2 tables (e.g., `s_jodds_sanrenpuku`) that are not currently extracted. The reference article's author had the same constraint: their dataset had only single, trio, and trifecta but NOT place odds, forcing a design pivot.
 
-**Consequences:**
-- Removing genuinely useful low-cardinality features (e.g., categorical features like kyakusitukubun_cd)
-- Keeping noisy high-cardinality features that overfit (e.g., engineered ratios that memorize training patterns)
-- Net result: model performance degrades after "pruning"
+**Why it happens:**
+- The reference article had trio odds in their dataset but keiba-ai does not extract them from EveryDB2.
+- If you construct "theoretical trio odds from win odds" (e.g., p1 * p2 * p3 from normalized win implied probabilities), you create a feature that is a deterministic function of existing features (tanodds). LightGBM discovers this relationship on its own, making the feature redundant.
+- Payout data (`raw.payouts`) exists for post-race verification but contains POST-RACE information and must never be used as a feature.
 
-**Prevention:**
-- Use permutation importance on a held-out validation set (sklearn `permutation_importance`), not training-set impurity importance
-- Use SHAP values for interpretability but NOT as the sole pruning criterion (they also reflect training set behavior)
-- Perform feature ablation: remove one feature at a time, retrain, measure validation loss change
-- Any feature with permutation importance near zero or negative on the validation set is a candidate for removal
-- Validate pruning decisions with walk-forward validation (`run_wf_validation.py`)
+**How to avoid:**
+1. Audit EveryDB2 for available multi-bet-type odds tables BEFORE designing cross-consistency features. Specifically check if `s_jodds_sanrenpuku`, `s_jodds_sanrentan`, or `s_jodds_umaren` external tables exist in EveryDB2.
+2. If trio/trifecta odds ARE available, add them to the ETL pipeline (`run_etl.py`) BEFORE building features.
+3. If they are NOT available, redesign cross-consistency features to use only available data:
+   - **Win-place consistency:** Compare tanodds implied probability with fukuoddslow implied probability per horse. A horse with high win implied prob but low place implied prob may indicate market disagreement.
+   - **Wide odds structure:** The system already has `odds_wide` data -- use wide-odds dispersion across pairs as a race-level signal.
+   - **Win-wide cross-consistency:** Does the top-favorite horse appear in the lowest wide-odds pair? Similar to the reference article's `rl_market_consistency`.
+4. NEVER use payout data (`paytansyopay1`, `payfukusyopay*`) as feature input. These are POST_RACE by definition.
 
-**Detection:**
-- Model improves on training set but degrades on validation set after feature changes
-- Feature importance rankings differ significantly between training and validation sets
-- Walk-forward validation shows high ROI gap (>30pp between folds)
+**Warning signs:**
+- Feature that perfectly separates winners from losers (suspicious IC > 0.5).
+- Cross-consistency feature that uses data only available after race completion.
+- Features computed from theoretical odds products (p1*p2*p3) that add zero information beyond individual p_i values.
 
-**Phase to address:** Feature audit phase. Must establish evaluation methodology before touching features.
-
----
-
-### Pitfall 4: Adding New Features Without Expanding Validation Rigor
-
-**What goes wrong:** Each new feature increases model capacity. With 100+ features and ~50K training samples (2015-2025), the effective samples-per-feature ratio is already low. Adding 20+ more features without increasing validation rigor leads to overfitting.
-
-**Why it happens:** GBM models handle hundreds of features well computationally, but each feature adds a dimension for memorizing training-specific patterns. The current 2-fold walk-forward validation is too coarse to detect this.
-
-**Consequences:** New features appear to improve backtest ROI (same temporal period) but walk-forward validation reveals the improvement is not real.
-
-**Prevention:**
-- For each batch of new features, run walk-forward validation (not just single backtest)
-- Use the existing 4-fold walk-forward in `run_strategy_optimization.py` as gold standard
-- Require minimum 2pp ROI improvement on ALL folds (not average) before accepting new features
-- Track feature count as a metric -- growth from 100 to 150 demands proportionally stricter validation
-- Apply "one standard error rule": only accept feature additions if improvement exceeds variance across folds
-
-**Detection:**
-- Walk-forward ROI gap > 30pp between folds
-- Backtest ROI improves but walk-forward ROI does not
-- Feature importance of new features is inconsistent across folds
-
-**Phase to address:** Every phase that adds features. Validation protocol must be established first.
+**Phase to address:**
+Market cross-consistency feature implementation phase. ETL extension (if needed) must come first. Feature design must document which odds snapshot (pre-race vs post-race) each feature uses.
 
 ---
 
-### Pitfall 5: EveryDB2 Column Semantics Misunderstanding
+### Pitfall 3: Race-Level Feature Leakage via Self-Inclusion in Aggregation
 
-**What goes wrong:** EveryDB2 (JRA-VAN DataLab) columns have specific semantics that are not obvious from column names. Some columns that appear pre-race are actually post-race. Some have different meanings depending on DataKubun values.
+**What goes wrong:**
+When computing race-level aggregation features (e.g., `rl_odds_dispersion` = std of odds across all horses in a race), you include ALL horses in the groupby, including the horse being predicted. For odds-based aggregation, this is fine -- at prediction time, you have all horses' odds. But for performance-based aggregation (e.g., "average past win rate of all runners in this race"), including the current horse's own past performance creates a subtle inconsistency: the feature has different information content depending on whether the horse is the first or last in the prediction order.
 
-**Why it happens:** EveryDB2 is a Japanese horse racing database with opaque column names. Key pitfalls already identified:
+More critically: if race-level features are computed from fields that include post-race information for OTHER horses in the same race (e.g., `kakuteijyuni` of other runners), this is direct leakage.
 
-| Column | Appears to be | Actually is | Status |
-|--------|--------------|-------------|--------|
-| `odds` (entries) | Pre-race odds | Confirmed odds (post-race) | Handled (tanodds preferred) |
-| `ninki` | Pre-race popularity | Confirmed popularity (post-race) | Partially handled (fallback only) |
-| `kyakusitukubun` | Running style code | Current race running style (post-race) | Correctly uses kyakusitukubun_cd |
-| `kakuteijyuni` | Finishing position | Confirmed finishing position (post-race) | In POST_RACE_COLS |
-| JODDS DataKubun 3/4 | Odds snapshot | Confirmed odds (post-race) | Not explicitly filtered |
-| `hassotime` | Post time | Pre-race (race schedule) | Correctly used |
+**Why it happens:**
+The existing `POST_RACE_COLS` guard in `feature_engine.py` (line 362-370) drops post-race columns from the final output. But it does NOT prevent a race-level aggregation computed BEFORE the guard from having used those columns. For example:
+```python
+# WRONG: compute aggregate BEFORE dropping post-race cols
+df["avg_finish_pos_in_race"] = df.groupby("race_id")["kakuteijyuni"].transform("mean")
+# NOW drop post-race cols -- but the aggregate already leaked!
+```
 
-**Consequences:** A new feature built on what the developer thinks is pre-race data could silently contain post-race information.
+The current system's `market_bias_features.py` and `intra_race_features.py` use only `tanodds`, `bataijyu`, and `umaban` for aggregation, which are pre-race features. This is safe. New race-level features must be held to the same standard.
 
-**Prevention:**
-- Before extracting any new column from EveryDB2, check `docs/everydb2/*.md` documentation
-- Classify each new column as PRE_RACE or POST_RACE explicitly
-- If a column's timing is uncertain, assume POST_RACE until proven otherwise
-- Add new POST_RACE columns to `POST_RACE_COLS` in `domain/types.py` immediately
-- Test: after adding new features, verify they produce NaN for future (unrun) races
+**How to avoid:**
+1. Only aggregate over columns available at prediction time (before race start).
+2. Safe aggregation sources: `tanodds`, `fukuoddslow`, `umaban`, `bataijyu`, `popularity_rank`, `field_size`, `grade_code`, bloodline features, jockey/trainer stats.
+3. Never aggregate over: `kakuteijyuni`, `confirmed_odds`, `ninki` (confirmed popularity), `time`, `timediff`, `harontimel3/4`, corner positions, `honsyokin`.
+4. Add a CI test similar to the existing POST_RACE_COLS whitelist check that verifies race-level features only use pre-race columns.
+5. Compute race-level features AFTER the POST_RACE_COLS drop, or explicitly document that the aggregation source columns are pre-race.
 
-**Detection:**
-- New feature produces non-NaN values for horses that have not yet raced
-- New feature correlates > 0.8 with any POST_RACE column
-- Feature values change between "pre-race" and "post-race" snapshots of same race
+**Warning signs:**
+- Race-level feature with per-race IC > 0.4 (suspiciously high for a single aggregate).
+- Feature that is constant within a race but varies across races -- verify it does not encode "who won."
+- Backtest ROI jumping >10pp from a single race-level feature addition.
 
-**Phase to address:** Phase where EveryDB2 unused tables/columns are explored for new features.
-
----
-
-## Moderate Pitfalls
-
-### Pitfall 6: Feature Interaction Explosion
-
-**What goes wrong:** Adding pairwise feature interactions (e.g., `feature_a * feature_b`) to a system with 100+ features creates thousands of new columns. Even selective interactions (only "meaningful" pairs) cause feature count to grow faster than the model's ability to distinguish signal from noise.
-
-**Why it happens:** The existing `interaction_features.py` creates interactions like `kyakusitu_x_distance` (categorical product) and `weight_x_distance` (numeric product). Extending this pattern to more pairs creates an explosion. With N features, there are N*(N-1)/2 possible pairs.
-
-**Prevention:**
-- LightGBM, XGBoost, and CatBoost already capture feature interactions through tree structure. Do NOT create explicit interactions for pairs the model can learn naturally.
-- Only create explicit interactions where the relationship is strongly non-linear AND domain knowledge confirms meaning (e.g., distance x surface is meaningful because turf/dirt have fundamentally different distance dynamics)
-- Limit explicit interactions to at most 10-15 new features per phase
-- Validate each interaction individually: add one, run ablation, confirm it helps
-
-**Detection:**
-- Feature count grows by more than 20% in a single phase
-- New interaction features have near-zero permutation importance
-- Model training time increases by more than 50% after adding interactions
-
-### Pitfall 7: Feature Cache Invalidation After Schema Changes
-
-**What goes wrong:** The feature engine uses content-hash-based cache (`compute_cache_key` in `feature_engine.py`). The cache key is computed from input file paths and date ranges, NOT from feature computation code. If feature logic changes without input changes, stale cached features are returned.
-
-**Why it happens:** Modifying `horse_history_features.py` to compute a new feature does not change the input parquet file paths or date range, so `is_cache_valid()` returns True and old features (without the new one) are used.
-
-**Prevention:**
-- After ANY change to feature computation code, delete `data/features/cache/` before training
-- Add the feature module source file hashes to cache key (engineering effort)
-- Add a test: after adding a new feature, verify it appears in training DataFrame with non-NaN values
-
-**Detection:**
-- New feature column is all NaN after training
-- Feature count in training data does not match expected count
-- Backtest results are identical before and after feature changes
-
-### Pitfall 8: Removing Features That Enable Downstream Interactions
-
-**What goes wrong:** Feature audit identifies a feature with near-zero standalone importance and removes it. But the feature was an input to interaction features (e.g., kyakusitukubun_cd is used in kyakusitu_x_distance). Removing the base feature breaks the interaction.
-
-**Why it happens:** Permutation importance measures standalone contribution, not contribution through interactions. A feature with zero direct importance may be critical when combined with another feature.
-
-**Prevention:** Before removing any feature, check if it appears in `interaction_features.py`, `compute_intra_race_features()`, or is referenced by other computed features. Build a feature dependency graph. The `HorseHistoryFeatures.BASE_COLS` list partially documents this but is incomplete.
-
-### Pitfall 9: Train/Test Feature Distribution Shift After Pruning
-
-**What goes wrong:** Feature pruning changes model behavior on certain data subsets. Removing a feature primarily used for long-distance races may silently degrade long-distance predictions while improving overall metrics.
-
-**Why it happens:** Aggregate metrics (overall ROI, overall AUC) hide segment-specific degradations. Horse racing has distinct segments: turf vs dirt, sprint vs long, high-grade vs low-grade.
-
-**Prevention:** After feature pruning, evaluate performance by segment (surface, distance_bin, grade). Do not accept pruning if any major segment degrades by more than 5pp ROI.
-
-### Pitfall 10: New Features With Sparse Coverage (High NaN Rate)
-
-**What goes wrong:** New features from EveryDB2 unused tables may have high NaN rates (20-40%). Bloodline/pedigree features are missing for foreign-bred horses and NAR transfers. LightGBM may learn "has NaN" as a proxy for "low-quality horse" -- a real but non-generalizable signal.
-
-**Prevention:** Compute NaN rate for any new feature before training. If NaN rate exceeds 30%, consider a binary "has_data" flag or hierarchical fallback (pattern already used for haron-time z-score in `horse_history_features.py`).
-
-### Pitfall 11: Temporal Leakage in Expanding Window Features
-
-**What goes wrong:** `info_asymmetry_features.py` correctly uses `expanding().mean().shift(1)`. New features computing historical statistics may forget the shift(1) or use wrong time boundaries.
-
-**Why it happens:** The expanding window pattern requires careful handling. `expanding().mean()` at row i includes row i. To use only past data, shift(1) is required.
-
-**Prevention:** Any new feature computing historical statistics MUST use `expanding().shift(1)` or `searchsorted(target_date, side="left")` (as in `horse_history_features.py`). Use `leakage_validators.py` to verify. Add test cases for every new historical feature.
-
-### Pitfall 12: Grade/Class Encoding Duplication Across Modules
-
-**What goes wrong:** `_GRADE_LEVEL_MAP` (A=8, B=7, C=6, D=5, E=4) is duplicated in three files: `feature_engine.py`, `horse_history_features.py`, and `high_odds_features.py`. Changes to one file without updating others create inconsistency.
-
-**Prevention:** Centralize the mapping in `domain/types.py` alongside `POST_RACE_COLS`. Import from there in all feature modules.
+**Phase to address:**
+Race-level feature implementation phase. Must include leakage test as part of the implementation phase, not as a separate verification phase later.
 
 ---
 
-## Minor Pitfalls
+### Pitfall 4: Race-Level Features Become Redundant Constants Within a Race
 
-### Pitfall 13: Feature Naming Collisions
+**What goes wrong:**
+Race-level aggregation features (entropy, dispersion, top-odds gap) are constant for all horses within the same race. With 18 horses per race, a single race-level feature adds 18 identical values per race. LightGBM handles this correctly (it can split on constant-within-group features), but these features provide NO discriminative power between horses within the same race for the binary win/lose target. They only help distinguish between "hard races" and "easy races" at the race level.
 
-**What goes wrong:** A new feature module creates a column with the same name as an existing feature in a different module. The later module's `compute_*()` silently overwrites the earlier value.
+**Why it happens:**
+The reference article demonstrates that race-level features work because they improve the IMPLICIT two-stage structure of LightGBM (upper nodes = race context, lower nodes = individual horse). This only works when strong individual-horse features exist in the lower nodes. In a system with 100+ features, the upper nodes may already be saturated with individual-horse features that act as proxies for race-level information (e.g., `popularity_rank` already encodes relative standing).
 
-**Prevention:** Maintain a central feature registry (dict of feature_name -> source_module). Check for collisions before adding new features.
+**How to avoid:**
+1. Expect race-level features to improve C-orthogonal IC and B-difference IC, NOT Simple IC. The reference article showed v9 (race-level) improved C-orthogonal by +40% but Simple IC by only +0.001.
+2. Evaluate race-level features using Gain per Depth analysis. If they appear at Depth 1-3, they are functioning as race-context features. If they appear at Depth 5+, they are not being used correctly.
+3. Do NOT expect race-level features alone to improve ROI substantially. They are infrastructure features that enable other features (especially market-cross features) to work better.
+4. The reference article's race-level features (5 features) contributed +0.03 to ROI, while market-cross features (5 features) contributed +0.37. Race-level features are a foundation, not the payoff.
 
-### Pitfall 14: OOF Prediction Leakage Through Feature Cache
+**Warning signs:**
+- Race-level features appearing only at very low depths (< 2) or very high depths (> 8) in Gain per Depth.
+- Zero or negative SHAP values for race-level features.
+- C-orthogonal IC not improving after adding race-level features.
 
-**What goes wrong:** The feature cache stores features computed on the full training set. During walk-forward validation, different folds use different train/test splits but may load the same cached features computed using future data.
-
-**Prevention:** The cache key includes date range, partially handling this. Verify that fold-specific date ranges produce different cache keys during WF validation.
-
-### Pitfall 15: Odds Snapshot Timing Assumptions
-
-**What goes wrong:** `odds_dynamics_features.py` picks snapshots at t-10, t-30, t-60 minutes before post time with 15-20 minute tolerance. For races where final snapshot is at post time, the "t-10" snapshot may be confirmed odds.
-
-**Prevention:** Verify JODDS DataKubun=3/4 (confirmed) snapshots have negative minutes_before_anchor and are not picked by `_pick_target_snapshot()`.
-
-### Pitfall 16: Blacklist-Based Column Exclusion vs Whitelist
-
-**What goes wrong:** The CQR model (spike M2) and training pipeline use blacklist-based feature selection: take all numeric columns except those in POST_RACE_COLS and _MODEL_OUTPUT_COLS. Any new column automatically becomes a feature, even if it should not be.
-
-**Why it happens:** `_non_feature_cols` in training_pipeline.py (line 897-902) lists columns to exclude. Any column not listed becomes a feature by default.
-
-**Prevention:** Consider moving toward explicit whitelist for at least the secondary models (CQR, EV correction). New columns added to the DataFrame should require explicit opt-in for model training, not automatic inclusion.
+**Phase to address:**
+Race-level feature implementation phase. Set expectations correctly: these are "infrastructure" features, not "payoff" features.
 
 ---
 
-## Phase-Specific Warnings
+### Pitfall 5: Gain per Depth Over-Interpretation and Over-Optimization
 
-| Phase Topic | Likely Pitfall | Mitigation |
-|-------------|---------------|------------|
-| POST_RACE safety gate | Pitfall 2: Implicit column leakage | Add explicit POST_RACE drop at build_all() exit; extend leakage_validators |
-| Feature audit methodology | Pitfall 3: In-sample importance bias | Use permutation importance on held-out set; ablation testing |
-| Feature pruning | Pitfall 8: Removing interaction enablers | Build feature dependency graph; check interaction_features.py |
-| EveryDB2 new columns | Pitfall 5: Column semantics misunderstanding | Classify each column PRE/POST before use; check docs/everydb2/*.md |
-| Feature interactions | Pitfall 6: Interaction explosion | Max 10-15 new interactions per phase; validate each individually |
-| Historical statistics | Pitfall 11: Temporal leakage | Use expanding().shift(1) pattern; verify with leakage_validators |
-| Bloodline/pedigree features | Pitfall 10: Sparse coverage | Check NaN rate; use hierarchical fallback for >30% NaN |
-| Model retraining | Pitfall 7: Stale feature cache | Delete cache directory after any feature code change |
-| Walk-forward validation | Pitfall 4: Insufficient validation rigor | Run 4-fold WF for every feature batch; require improvement on ALL folds |
-| Segment evaluation | Pitfall 9: Distribution shift after pruning | Evaluate by surface, distance_bin, grade after each change |
-| Cross-module consistency | Pitfall 12: Grade encoding duplication | Centralize constants in domain/types.py |
-| Secondary model features | Pitfall 16: Blacklist vs whitelist | Move toward explicit feature whitelists for CQR/EV models |
+**What goes wrong:**
+Gain per Depth analysis (using `trees_to_dataframe()` from LightGBM) reveals which features dominate at which tree depth. The reference article shows a clean pattern: Depth 1-2 = Market (99%), Depth 3-4 = Market-cross (70%), Depth 5+ = Categorical/Fundamental. This is seductively interpretable, but over-interpreting this structure and trying to "optimize" it (e.g., forcing certain features to specific depths via feature engineering) leads to overfitting to a particular model checkpoint.
+
+**Why it happens:**
+- Gain per Depth is a POST-HOC analysis of a specific trained model. If the model is retrained with different seeds, data, or hyperparameters, the depth allocation shifts.
+- LightGBM uses leaf-wise growth (not level-wise like XGBoost). The "depth" in `trees_to_dataframe()` does NOT correspond to uniform tree levels. A depth-3 node in one tree may correspond to a completely different decision boundary than a depth-3 node in another tree.
+- Feature correlation distorts gain allocation: if two features are highly correlated, LightGBM picks one arbitrarily for the split, making the other appear "unused" at that depth even though it carries equivalent information.
+
+**How to avoid:**
+1. Use Gain per Depth as a DIAGNOSTIC tool, not an optimization target. Verify that race-level features appear at upper depths and individual features at lower depths. Do NOT try to force this pattern.
+2. Aggregate across all trees (the reference article's table shows aggregate percentages per depth, which is the correct approach).
+3. Run Gain per Depth analysis on at least 2-3 models (different seeds) to verify the pattern is stable, not an artifact of one training run.
+4. Do NOT make feature engineering decisions based solely on Gain per Depth. Always cross-validate with Residual IC metrics.
+5. The keiba-ai system does NOT currently have `trees_to_dataframe()` usage. Only LightGBM supports this natively. XGBoost requires `trees_to_dataframe()` from `xgboost.plotting` and CatBoost has `calc_feature_statistics()`. The multi-model stacking means analysis must cover all 3 base models, not just LightGBM.
+
+**Warning signs:**
+- Gain per Depth analysis showing dramatically different patterns across training seeds.
+- Making feature engineering decisions to "push" features to specific depths.
+- Interpreting depth-1 splits as "the model's most important decision" without considering that leaf-wise growth means depth-1 may apply to only a subset of data.
+
+**Phase to address:**
+Gain per Depth diagnostic phase. Use it as validation that race-level features are working as intended, not as a design tool.
+
+---
+
+### Pitfall 6: "Removing Odds Features Makes Things Better" Fallacy
+
+**What goes wrong:**
+After discovering Echo Chamber (model is a market clone), the instinct is to remove odds features (tanodds, popularity_rank) from the model. The reference article PROVES this is wrong: v3_fundamental (odds removed) had C-orthogonal IC = -0.0261 while v3 (odds kept) had C-orthogonal IC = +0.0856. Removing odds made things WORSE, not better. The correct approach is to ADD new information (race-level, market-cross) while KEEPING odds features.
+
+**Why it happens:**
+LightGBM's tree structure implicitly creates a two-stage architecture: upper nodes capture market information (via tanodds/popularity), lower nodes capture fundamental information (via bloodline/past performance/jockey). Removing odds features destroys the upper-node market context, making it harder for the lower nodes to refine predictions. The model becomes weaker overall because it loses the "easy wins" from market information.
+
+**How to avoid:**
+1. NEVER remove odds features from the model. The keiba-ai system's 100+ features already include tanodds, fukuoddslow, and popularity-related features. Keep all of them.
+2. The correct strategy is ADDITIVE: keep existing features + add race-level + add market-cross.
+3. Verify this approach by comparing two models: (a) current features + new features vs (b) current features with odds removed + new features. If (a) wins, the principle holds.
+4. The keiba-ai system already has `market_bias_features.py` computing `p_market_win_adj`, `market_entropy`, `overround` -- these are "odds" features that must be kept. The new race-level features are a DIFFERENT type of odds usage (aggregation vs individual).
+
+**Warning signs:**
+- A/B test showing that removing odds features improves Simple IC but worsens C-orthogonal IC.
+- Backtest ROI improving from feature removal (likely overfitting to a specific test period).
+- Any proposal to "simplify" the model by removing correlated features.
+
+**Phase to address:**
+All phases. This is a meta-principle that must be maintained throughout the entire v1.7 milestone.
 
 ---
 
-## Warning Signs Checklist
+### Pitfall 7: Feature Cache Invalidation After Adding New Feature Modules
 
-After each feature engineering change, verify ALL of the following:
+**What goes wrong:**
+The `FeatureEngine.build_all()` method uses a caching mechanism (`compute_cache_key()`) that includes a code hash from `src/features/*.py` via `compute_code_hash()`. This was added in v1.6 and should correctly invalidate when new `.py` files are added to `src/features/`. However, if new features are computed in a module outside `src/features/` or added as inline code in `feature_engine.py` without creating a new file, the hash may not change and stale cached features will be served without new columns.
 
-- [ ] Bet count >= 1000/year in backtest (if < 500, STOP and investigate overfitting)
-- [ ] Win rate < 50% for win bets (if > 50%, likely leakage)
-- [ ] Walk-forward ROI gap < 30pp between folds
-- [ ] No POST_RACE_COLS in feature importance top 20
-- [ ] New features have non-NaN values for at least 60% of samples
-- [ ] Feature count changed as expected (check `len(feature_cols)`)
-- [ ] Feature cache was cleared before training
-- [ ] Permutation importance of new features > 0 on validation set
-- [ ] No correlation > 0.8 between new features and existing features
-- [ ] Performance by segment (turf/dirt, sprint/mile/long) did not degrade by > 5pp ROI
-- [ ] No model output columns (ev_*, p_hit, edge_*) used as feature inputs
-- [ ] `build_all()` output DataFrame does not contain POST_RACE_COLS (except target labels)
+**Why it happens:**
+The `compute_code_hash()` function scans `src/features/*.py` files. If new features are:
+- Located outside `src/features/` (e.g., in a notebook or script)
+- Added as inline code in `feature_engine.py` (which IS scanned, but the hash change may be subtle)
+- Named with a different extension (`.pyx`, `.pyi`)
+
+...then the hash may not change or the cache may not invalidate properly.
+
+**How to avoid:**
+1. All new feature computation must live in `src/features/*.py` modules.
+2. After adding new feature modules, verify cache invalidation by checking that the `feat_*.parquet` filename changes.
+3. The `build_all()` method calls feature modules in a specific order. New race-level features should be computed AFTER existing `market_bias_features` but BEFORE the POST_RACE_COLS drop.
+4. During development, delete `data/features/cache/` to force recomputation.
+
+**Warning signs:**
+- New features showing zero variance in training data.
+- Feature importance of new features being exactly zero across all models.
+- Cache HIT log message when you expected a MISS after adding new code.
+
+**Phase to address:**
+First training run after adding any new feature module.
 
 ---
+
+### Pitfall 8: Inference Path Missing Race-Level Feature Computation
+
+**What goes wrong:**
+`FeatureEngine.build_features()` (the single-race inference method) is a SEPARATE code path from `build_all()` (the batch training method). The inference path (lines 385-455) currently only computes basic features via `_map_basic_features()` and does NOT call the sub-modules (intra_race, odds_dynamics, market_bias, etc.). If race-level features are added only to `build_all()`, they will be missing at inference time, causing a train-inference mismatch.
+
+**Why it happens:**
+The current design has an explicit comment at line 453: "6. sub-module feature computation (inference -- hist features excluded)" with an empty implementation. The single-race path returns after `_map_basic_features()`. This was acceptable because the inference pipeline (`BettingOrchestrator`) handles some features differently, but race-level features MUST be computed at inference time for live prediction.
+
+**How to avoid:**
+1. Race-level features must be computed in BOTH `build_all()` and `build_features()`.
+2. For `build_features()`, the race-level aggregation is simpler because all horses for one race are already in the DataFrame. No groupby across races is needed.
+3. The inference path receives `odds_snapshot` -- verify this contains `tanodds` for all horses in the race (needed for entropy/dispersion computation).
+4. Add an explicit test that verifies feature parity between `build_all()` and `build_features()` for new race-level columns.
+
+**Warning signs:**
+- Live predictions producing different rankings than backtest predictions.
+- NaN values for race-level features in the inference path but not in training.
+- `FeatureEngine.build_features()` returning fewer columns than `build_all()` for the same race.
+
+**Phase to address:**
+Race-level feature implementation phase. Must update BOTH code paths simultaneously.
+
+---
+
+## Technical Debt Patterns
+
+| Shortcut | Immediate Benefit | Long-term Cost | When Acceptable |
+|----------|-------------------|----------------|-----------------|
+| Compute race-level features inline in `build_all()` | Faster to implement | Duplicated logic in `build_features()`, easy to drift | Never -- must be in a separate module |
+| Use theoretical trio odds (p1*p2*p3) instead of real trio odds | No new ETL needed | Feature is deterministic function of tanodds, adds zero information | Only as a baseline comparison, never as a shipped feature |
+| Skip `build_features()` update for race-level features | Ship faster | Train-inference mismatch, broken live predictions | Never |
+| Single IC formulation instead of 4-formulation battery | Simpler evaluation | Misleading conclusions from binary Spearman breakdown | Never -- all 4 formulations are cheap to compute |
+| Gain per Depth on single model seed | Faster analysis | Unstable conclusions, overfitting to one training run | Acceptable for initial exploration only; must verify with multi-seed |
+| Use payout odds as "approximation" for pre-race odds | Easier data access | Direct look-ahead bias, inflated metrics | Never |
+
+## Integration Gotchas
+
+| Integration | Common Mistake | Correct Approach |
+|-------------|----------------|------------------|
+| EveryDB2 trio/trifecta odds | Assuming EveryDB2 has trio odds tables without checking | Query EveryDB2 schema first; if unavailable, design features around win+place+wide odds only |
+| Parquet cache invalidation | Adding features without verifying cache key changes | Run with explicit cache check after any `src/features/` change |
+| `build_features()` vs `build_all()` parity | Only adding features to `build_all()` | Must update both paths; add feature-parity test |
+| POST_RACE_COLS whitelist | Computing race-level aggregates BEFORE the POST_RACE drop guard | Either compute after the drop, or explicitly verify source columns are pre-race |
+| Residual IC with existing OOF predictions | Using training predictions instead of OOF predictions for IC calculation | Must use OOF (out-of-fold) predictions to avoid in-sample bias in IC |
+| Stacking meta-learner and IC | Computing Residual IC on meta-learner output vs base model output | Compute IC at the level where features are being evaluated (base model output for feature evaluation) |
+| LightGBM `trees_to_dataframe()` | Assuming all 3 stacking models support the same API | Only LightGBM supports this natively; XGBoost needs `xgboost.plotting`; CatBoost has different API |
+| Multi-bet odds join keys | Joining wide odds by `race_id` only (missing `kumi` column) | Wide odds use (race_id, kumi) composite key; pivot required for per-horse features |
+| FEATURE_COLS manifest | Forgetting to update SHA256 manifest after adding new features | Must regenerate manifest after any feature column change |
+
+## Performance Traps
+
+| Trap | Symptoms | Prevention | When It Breaks |
+|------|----------|------------|----------------|
+| Race-level features on small fields | High variance entropy/dispersion for 5-6 horse fields | Add `min_field_size` guard; return NaN for fields < 5 | Races with < 8 runners (common at small venues) |
+| Multi-bet-type odds sparse coverage | Many NaN values in cross-consistency features | Check coverage percentage before committing to feature; set NaN fallback | Early years (2015-2017) when data collection was incomplete |
+| Gain per Depth on shallow trees | Few depth levels to analyze, inconclusive patterns | Ensure `max_depth` is sufficient (existing system uses default 31 for LightGBM) | Models with aggressive early stopping |
+| Residual IC with small holdout | Wildly fluctuating IC values across different holdout periods | Use holdout of at least 300+ races; report IC with confidence intervals | Any evaluation with < 200 races (reference article uses 336 + 72 OOH) |
+| Wide odds pivot memory | Pivoting wide odds for all races at once consumes excessive memory | Pivot per race or use sparse representation | Full-dataset training (50K+ races) |
+
+## "Looks Done But Isn't" Checklist
+
+- [ ] **Race-level features:** Often missing the `build_features()` inference path update -- verify both `build_all()` and `build_features()` produce the same columns for a single race
+- [ ] **Residual IC:** Often implemented with only formulation A (naive Spearman) -- verify all 4 formulations (B/C/D/E) are implemented and cross-checked
+- [ ] **Market cross-consistency:** Often uses post-race payout odds instead of pre-race snapshot odds -- verify every odds source used is a pre-race snapshot
+- [ ] **Gain per Depth:** Often analyzed on a single model/seed -- verify analysis across at least 3 seeds to confirm pattern stability
+- [ ] **Feature cache:** Often stale after adding new features -- verify `feat_*.parquet` filename changes after code modification
+- [ ] **Leakage test for race-level:** Often forgotten because "it is just aggregation" -- verify CI test covers race-level feature source columns
+- [ ] **Multi-bet-type odds availability:** Often assumed to exist -- verify EveryDB2 has the required tables before designing features around them
+- [ ] **FEATURE_COLS manifest:** Often not updated -- verify SHA256 manifest is regenerated after feature column changes
+- [ ] **OOF predictions for IC:** Often uses in-sample predictions -- verify Residual IC uses OOF predictions only
+
+## Recovery Strategies
+
+| Pitfall | Recovery Cost | Recovery Steps |
+|---------|---------------|----------------|
+| Binary Spearman breakdown | LOW | Switch to B/C/D/E formulations; no retraining needed |
+| Look-ahead bias in multi-bet features | HIGH | Remove affected features, retrain model, re-run backtest (~1 hour) |
+| Race-level self-inclusion leakage | MEDIUM | Re-compute features excluding target horse, retrain (~30 min) |
+| Feature cache serving stale data | LOW | Delete `data/features/cache/`, re-run training |
+| Missing inference path features | MEDIUM | Add to `build_features()`, re-deploy inference pipeline |
+| Over-optimized Gain per Depth | LOW | Revert to original features, use Gain per Depth only as diagnostic |
+| Removed odds features (fallacy) | MEDIUM | Restore odds features, retrain, verify C-orthogonal IC improvement |
+| Multi-bet-type odds not available | HIGH | Redesign features to use available data (win+place+wide only), or extend ETL to extract new odds tables |
+
+## Pitfall-to-Phase Mapping
+
+| Pitfall | Prevention Phase | Verification |
+|---------|------------------|--------------|
+| Binary Spearman breakdown | Residual IC implementation phase | All 4 formulations produce consistent direction |
+| Look-ahead bias in multi-bet features | Market cross-consistency design phase | Feature audit: all odds sources are pre-race snapshots |
+| Race-level self-inclusion leakage | Race-level feature implementation phase | CI test: race-level features use only pre-race columns |
+| Race-level features become redundant constants | Race-level feature evaluation phase | Gain per Depth shows features at Depth 1-3; C-orthogonal IC improves |
+| Gain per Depth over-interpretation | Gain per Depth analysis phase | Multi-seed stability check; depth pattern consistent across seeds |
+| Removing odds features fallacy | All phases (meta-principle) | A/B test: current+new vs current-without-odds+new |
+| Feature cache invalidation | First training run with new features | Verify cache filename changes; verify new columns in output |
+| Inference path missing features | Race-level feature implementation phase | Feature parity test between `build_all()` and `build_features()` |
 
 ## Sources
 
-### HIGH confidence (direct codebase analysis)
-- `.planning/spikes/data-leak-phase-20-22.md` -- v1.5 data leak investigation (22-file audit, 3 parallel agents)
-- CQR fix commit `f3a4c10` -- structural overfitting + selection bias root cause
-- `src/domain/types.py` -- POST_RACE_COLS definition
-- `src/features/feature_engine.py` -- main orchestrator, build_all(), cache mechanism
-- `src/features/horse_history_features.py` -- 1324 lines, per-horse feature computation with PIT
-- `src/features/leakage_validators.py` -- expanding window leak detection
-- `src/features/interaction_features.py` -- explicit feature interactions
-- `src/features/odds_dynamics_features.py` -- odds time series features
-- `src/features/high_odds_features.py` -- 18 high-odds pattern features
-- `src/features/info_asymmetry_features.py` -- expanding().shift(1) historical stats
-- `src/features/market_bias_features.py` -- market distortion features
-- `src/pipelines/training_pipeline.py` -- feature consumption, CQR feature selection (lines 897-907)
-- `src/backtest/engine.py` -- POST_RACE drop before predict (lines 818-820)
-- `src/models/conformal_ev_model.py` -- CQR blacklist approach (spike M2)
-
-### MEDIUM confidence (general ML domain knowledge, verified with multiple sources)
-- [Common Pitfalls in Feature Engineering -- Statsig](https://www.statsig.com/perspectives/feature-engineering-pitfalls)
-- [Seven Common Causes of Data Leakage -- Towards Data Science](https://towardsdatascience.com/seven-common-causes-of-data-leakage-in-machine-learning-75f8a6243ea5/)
-- [Data Leakage in Time-Dependent Feature Engineering -- BitPeak](https://bitpeak.com/data-leakage-in-time-dependent-feature-engineering/)
-- [5 Critical Feature Engineering Mistakes -- KDnuggets](https://www.kdnuggets.com/5-critical-feature-engineering-mistakes-that-kill-machine-learning-projects)
-- [Designing ML Systems -- Feature Engineering Summary](https://github.com/serodriguez68/designing-ml-systems-summary/blob/main/05-feature-engineering.md)
-
-### HIGH confidence (official documentation, peer-reviewed)
-- [Permutation Feature Importance -- scikit-learn](https://scikit-learn.org/stable/modules/permutation_importance.html)
-- [Feature Importance in Gradient Boosting Trees -- PMC/NIH](https://pmc.ncbi.nlm.nih.gov/articles/PMC9140774/)
+- zenn.dev/yurelu "AI to 26 round giron shite kojin kaihatsu no keiba yosoku ML wo sodateta hanashi" -- primary reference for Echo Chamber, Residual IC 4-formulation battery, Gain per Depth analysis, race-level features (v9), and market cross-consistency features (v11). Includes quantitative results from 408-race holdout evaluation.
+- keiba-ai codebase analysis: `src/features/feature_engine.py` (build_all/build_features dual paths, cache mechanism), `src/features/market_bias_features.py` (existing entropy/overround computation), `src/features/intra_race_features.py` (existing per-race aggregation), `src/features/odds_dynamics_features.py` (odds time series), `src/db/etl.py` (table type rules, odds conversion), `src/db/readers.py` (odds loading, wide odds), `src/db/schema.py` (wide_odds table definition), `src/db/everydb2_queries.py` (available EveryDB2 tables), `src/domain/types.py` (POST_RACE_COLS definition)
+- ML Digest "The Illustrated LightGBM" -- leaf-wise vs level-wise growth strategy and implications for depth interpretation
+- Bill Benter (1994) "Computer Based Horse Race Handicapping and Wagering Systems" -- original Two-Stage architecture context
 
 ---
-
-*Pitfalls research for: Feature Engineering Overhaul (v1.6)*
-*Previous version: v1.4 Ensemble Filter Recalibration pitfalls (2026-05-05)*
-*Ready for roadmap: yes*
+*Pitfalls research for: keiba-ai v1.7 Market-Independent Edge Discovery milestone*
+*Previous version: v1.6 Feature Engineering Overhaul (2026-05-10)*
+*Researched: 2026-05-17*

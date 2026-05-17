@@ -1,542 +1,865 @@
-# Architecture: Feature Engineering Overhaul (v1.6)
+# Architecture: Market-Independent Edge Discovery (v1.7)
 
-**Project:** keiba-ai v1.6 -- Feature Engineering Overhaul
-**Researched:** 2026-05-10
-**Scope:** How feature audit, new feature addition, and interaction engineering integrate with the existing ML pipeline without disrupting the data flow or model structure.
-**Confidence:** HIGH (verified against full source code)
+**Project:** keiba-ai v1.7 -- Market-Independent Edge Discovery
+**Researched:** 2026-05-17
+**Scope:** Integration architecture for race-level aggregation features, market cross-consistency features, Gain per Depth diagnostics, and Residual IC evaluation within the existing pipeline.
+**Confidence:** HIGH (verified against full source code of feature_engine.py, training_pipeline.py, backtest/engine.py, race_predictor.py, stacked_ensemble.py, all feature modules)
 
 ## Executive Summary
 
-The v1.6 milestone overhauls feature engineering within the existing pipeline architecture. The system already has a well-structured, modular feature pipeline: `FeatureEngine.build_all()` orchestrates 14 feature modules that generate 100+ columns, consumed downstream by `AbilityModel` (Stage1, ~50 features) and `WinTwoStageModel` (Stage2, ~37 features). The overhaul has three workstreams: (1) audit and prune noisy features from the existing 100+ set, (2) extract new features from unused EveryDB2 tables, and (3) engineer feature interactions and transformations.
+The v1.7 milestone introduces four capabilities that require different integration strategies. Race-level aggregation features and market cross-consistency features add new columns to the existing feature pipeline. Gain per Depth and Residual IC are diagnostic/evaluation capabilities that plug into the training and validation pipelines respectively.
 
-The architecture requires no structural changes. Feature modules are pure functions (input DataFrame -> output DataFrame with new columns) that chain through `build_all()` and `_train_submodel()`. Adding or removing features means changing module logic and updating `FEATURE_COLS` lists in model files. The critical constraint is the Point-in-Time (PIT) safety protocol: every new feature must use only data available before race start. The existing `leakage_validators.py` framework enforces this.
+The critical architectural insight is the race-level vs horse-level feature distinction. The existing pipeline is fundamentally per-horse: one DataFrame row = one horse. Race-level features (constant for all horses in a race) must be computed at race granularity then broadcast to every horse row via `groupby("race_id").transform("first")` or a merge on `race_id`. The existing codebase already handles this pattern in `compute_market_bias()` (overround, entropy are race-level) and `RecordFeatures.compute()` (returns unique-by-race_id DataFrame merged on race_id). The new race-level features follow this exact pattern.
 
-The recommended build order follows the dependency chain: audit first (to establish a clean baseline), then new features from unused data (to expand signal), then interactions (which depend on clean base features). Each phase validates against backtest ROI to ensure no regression.
+The recommended build order follows the dependency chain: race-level features first (independent, feeds into market cross-consistency), then market cross-consistency (needs both race-level and multi-odds data), then Gain per Depth (diagnostic, needs trained model), then Residual IC (evaluation, needs model predictions and backtest output).
 
 ## Recommended Architecture
 
-### Current Feature Pipeline Data Flow
+### Integration Overview
 
 ```
-TrainingPipelineV5.run()
+EXISTING PIPELINE (unchanged flow, new modules inserted):
+================================================================
+
+ParquetStore
   |
-  +-> FeatureEngine.build_all(race_df, entry_df, odds_df, odds_ts_df, store)
-  |     |
-  |     +-> [MERGE] race_df + entry_df + odds_df -> result_df
-  |     +-> [EXCLUDE] steeple races (trackcd >= 51)
-  |     +-> _map_basic_features(result_df)           # 12 basic feature mappings
-  |     |
-  |     +-> compute_intra_race_features(result_df)    # B: weight_diff, odds_rank
-  |     +-> compute_odds_dynamics(result_df, ts_df)   # C: 7 odds dynamics features
-  |     +-> compute_market_bias(result_df)             # D: p_market, entropy, overround
-  |     +-> compute_flb_slope(result_df)               # D: skewness, HHI
-  |     +-> compute_difficulty_score(result_df)        # E: difficulty_score
-  |     +-> BloodlineFeatures(store).compute(result_df) # B: 6 bloodline features
-  |     |
-  |     +-> [CACHE WRITE] -> features/cache/feat_*.parquet
+  +-> [data/raw/races.parquet]  +-> [data/raw/entries.parquet]
+  +-> [data/odds/snapshots]     +-> [data/odds/time_series/]
+  +-> [data/odds/odds_wide]     +-> [data/odds/wide.parquet]     <-- v1.7 uses this
   |
-  +-> SubModelManager.add_distance_band_features(feat_df)  # F: surface/distance one-hot
+  v
+FeatureEngine.build_all(race_df, entry_df, odds_df, odds_ts_df, store)
+  |
+  +-> ... existing modules ...
+  +-> compute_market_bias(result_df)          # D: p_market, entropy, overround (RACE-LEVEL)
+  +-> compute_flb_slope(result_df)            # D: skewness, HHI (RACE-LEVEL)
+  |
+  +-> [NEW] compute_race_level_aggregation(result_df)   # v1.7: entropy, dispersion, gap (RACE-LEVEL)
+  +-> [NEW] compute_market_cross_consistency(result_df)  # v1.7: win-place-wide consistency (RACE-LEVEL)
+  |
+  +-> [CACHE WRITE] -> features/cache/feat_*.parquet
   |
   v
 TrainingPipelineV5._train_submodel(df, surface)
   |
-  +-> HorseHistoryFeatures.compute(race_df, entry_df, target_race_ids)  # ~45 horse features
-  +-> HorseHistoryFeatures.add_race_transforms(df)                       # 5 race_rank features
-  +-> PaceAptitudeFeatures(store).compute_batch(df)                      # 6 pace features
-  +-> CourseFeatures(store).compute_batch(df)                            # 2 course features
-  +-> SireFeatures(sire_stats).compute_batch(df)                         # 5 sire features
-  +-> compute_interaction_features(df)                                    # 9 interaction features
-  |
-  +-> MarketModel.train/predict_oof(df)          # market signed/abs log_error
-  +-> AbilityModel.train_oof(df)                 # Stage1: p_ability_win
-  +-> odds_to_ability_ratio computation          # FEAT-02 derived feature
-  +-> compute_odds_deviation_features(df)        # ODDS-01: deviation_rank, deviation_zscore
-  +-> PlaceAbilityModel.train/predict(df)
-  +-> WinTwoStageModel: hit + return stages      # Stage2: p_win_pred, ev_win
-  +-> EVCorrectionModel + ConformalEVModel
-  +-> WinSelectionGateModel / PlaceSelectionGateModel
+  +-> ... existing modules (horse_history, pace, sire, record, interaction, mining, relative) ...
+  +-> MarketModel.train/predict_oof(df)
+  +-> AbilityModel.train_oof(df)
+  +-> ... rest of pipeline unchanged ...
   |
   v
-BacktestEngine / RacePredictor (inference path mirrors training path)
-```
-
-### Feature Module Inventory
-
-| Module | File | Category | Features Generated | Used By |
-|--------|------|----------|-------------------|---------|
-| `_map_basic_features` | `feature_engine.py` | A: Basic | distance_bin, grade_code, class_level, field_size, popularity_rank, draw_ratio, frame_number, blinker_on, weight_change_zone, weight_change_ratio | AbilityModel, WinTwoStageModel |
-| `compute_intra_race_features` | `intra_race_features.py` | B: Intra-race | weight_diff_from_mean, odds_rank | AbilityModel |
-| `compute_odds_dynamics` | `odds_dynamics_features.py` | C: Odds dynamics | odds_drop_rate_60_10, odds_drop_rate_30_10, odds_velocity, odds_volatility, odds_acceleration, odds_direction_consistency, popularity_change_30_10 | WinTwoStageModel |
-| `compute_market_bias` | `market_bias_features.py` | D: Market bias | p_market_win_adj, market_entropy, overround | AbilityModel, WinTwoStageModel, RegimeDetector |
-| `compute_flb_slope` | `market_bias_features.py` | D: Market shape | odds_skewness, implied_prob_hhi | WinTwoStageModel |
-| `compute_difficulty_score` | `race_difficulty_model.py` | E: Difficulty | difficulty_score | AbilityModel |
-| `BloodlineFeatures` | `bloodline_features.py` | B: Bloodline | blood_surface_wr, blood_distance_wr, blood_condition_wr, blood_total_wr, blood_prize_log, blood_keito_cd | AbilityModel |
-| `HorseHistoryFeatures` | `horse_history_features.py` | A: Horse history | ~45 features (norm_finish_logit_avg, harontimel5_*, form_*, class_*, jockey_*, weight_*, etc.) | AbilityModel |
-| `PaceAptitudeFeatures` | `pace_aptitude_features.py` | C: Pace | pace_aptitude, front_pace_wr, closing_pace_wr, pace_corner_stability, pace_closing_power, pace_position_consistency | AbilityModel, interaction_features |
-| `CourseFeatures` | `course_features.py` | D: Course | course_wr, course_distance_wr | AbilityModel |
-| `SireFeatures` | `sire_features.py` | B: Sire | sire_wr, sire_surface_wr, sire_distance_wr, sire_prize_avg, bms_wr | AbilityModel |
-| `compute_interaction_features` | `interaction_features.py` | E: Interaction | kyakusitu_x_distance, kyakusitu_x_surface, weight_x_distance, race_mean_fuku_odds, race_std_fuku_odds, odds_gap_fav12, odds_popularity_gap, surface_track_interaction, pace_pressure, closer_share, pace_scenario_fit, actual_pace_fit | AbilityModel, WinTwoStageModel |
-| `compute_odds_deviation` | `odds_deviation_features.py` | F: Deviation | deviation_rank, deviation_zscore | WinTwoStageModel |
-| `compute_form_features` | `form_cycle_features.py` | B: Form cycle | form_trend, form_consistency, form_peak_flag | (via HorseHistoryFeatures) |
-| `compute_class_trajectory` etc. | `high_odds_features.py` | A: High-odds | class_promotions/demotions, v_recovery, time/position_improvement_rate, env_adaptability (9) | (via HorseHistoryFeatures) |
-
-### Target Architecture for v1.6
-
-```
-Phase 1: FEATURE AUDIT (no architecture changes)
-  |
-  +-> FeatureAuditTool (NEW SCRIPT, not a module)
-  |     - Extract feature importance from trained models (gain, split, SHAP)
-  |     - Compute permutation importance on OOF predictions
-  |     - Identify zero-importance and noise features
-  |     - Generate prune_candidates.json
-  |
-  +-> Prune features from FEATURE_COLS in model files
-        - AbilityModel.FEATURE_COLS (Stage1, ~50 features)
-        - WinTwoStageModel.FEATURE_COLS (Stage2, ~37 features)
-        - WinTwoStageModel.HIT_FEATURE_COLS (Stage2 hit sub-model)
-        - WinTwoStageModel.RETURN_FEATURE_COLS (Stage2 return sub-model)
+[NEW DIAGNOSTIC HOOK - after model training]:
+  +-> GainPerDepthAnalysis(model, df_oof)     # v1.7: depth-wise gain distribution
   |
   v
-Phase 2: NEW FEATURES from unused EveryDB2 data
-  |
-  +-> JockeyTrainerContextFeatures (EXISTING, partially used)
-  |     Currently available but NOT wired into _train_submodel()
-  |     Wire: jockey_context_features.py + trainer_context_features.py
-  |
-  +-> RaceContextFeatures (NEW MODULE)
-  |     Source: n_toku_race, n_schedule, n_hyosu (vote counts)
-  |     Features: tokubetsu_race_flag, vote_total, vote_concentration
-  |
-  +-> HorsePhysicalFeatures (NEW MODULE, expand existing)
-  |     Source: n_uma (horses master), n_uma_race existing columns
-  |     Features: age_at_race, sex_encoding, distant_past_form_features
-  |
-  +-> JockeyTrainerComboFeatures (EXISTING, unused)
-  |     Currently available but NOT wired into _train_submodel()
-  |     Wire: jockey_trainer_combo.py
-  |
-  v
-Phase 3: INTERACTION & TRANSFORMATION FEATURES
-  |
-  +-> expand compute_interaction_features()
-  |     - Horse-vs-horse relative features (normalized gap within race)
-  |     - Conditional interactions (surface x form, class x distance)
-  |     - Polynomial features for key continuous variables
-  |
-  +-> Target encoding for high-cardinality categoricals
-        - blood_keito_cd, kisyucode, chokyosicode
-        - PIT-safe: expanding mean with shift(1)
+[NEW EVALUATION HOOK - after backtest]:
+  +-> ResidualICEvaluator(df_oof, predictions) # v1.7: B/C/E decomposition
 ```
 
-## Component Boundaries
+### Component Boundaries
 
-### Components to MODIFY
-
-| Component | File | Change | Scope | Risk |
-|-----------|------|--------|-------|------|
-| `AbilityModel` | `models/stage1_ability_model.py` | Update `FEATURE_COLS` list (prune/add features) | List edit only | LOW -- LightGBM handles missing columns gracefully |
-| `WinTwoStageModel` | `models/two_stage_return_model.py` | Update `FEATURE_COLS`, `HIT_FEATURE_COLS`, `RETURN_FEATURE_COLS` | List edit only | LOW -- same |
-| `HorseHistoryFeatures` | `features/horse_history_features.py` | Add/remove features in `BASE_COLS` and `compute()` loop | Medium -- 1300-line file, per-horse loop | MEDIUM -- changes affect all downstream models |
-| `compute_interaction_features` | `features/interaction_features.py` | Expand with new interaction features | Medium -- new functions | LOW -- additive only |
-| `_train_submodel` | `pipelines/training_pipeline.py` | Wire new feature modules into the pipeline | ~20 lines per module | MEDIUM -- insertion point order matters |
-| `build_all` | `features/feature_engine.py` | Potentially add new module calls for batch-level features | ~10 lines per module | LOW -- additive |
-
-### Components to CREATE
-
-| Component | File | Purpose | Dependencies |
-|-----------|------|---------|-------------|
-| `FeatureAuditScript` | `scripts/run_feature_audit.py` | Extract importance, identify noise features | Trained models, OOF predictions |
-| `RaceContextFeatures` | `features/race_context_features.py` | Extract from n_toku_race, n_schedule, n_hyosu | ParquetStore, existing readers |
-| `HorsePhysicalFeatures` | `features/horse_physical_features.py` | Age, sex, extended career stats | n_uma master table |
-| `RelativeFeatureBuilder` | `features/relative_features.py` | Horse-vs-horse comparison features within race | Existing features from other modules |
-
-### Components UNCHANGED
-
-| Component | Why Unchanged |
-|-----------|--------------|
-| `ParquetStore` | I/O layer, feature-agnostic |
-| `DataRepository` | Data access layer, feature-agnostic |
-| `StackedEnsemble` | Model layer, consumes whatever features are provided |
-| `EVCorrectionModel` | Model layer, features are independent |
-| `RegimeDetector` | Uses race-level features, not horse-level |
-| `RaceQualityScreener` | Uses race-level features |
-| `DrawdownController` | Betting layer, feature-independent |
-| `StrategyOptimizer` | Betting strategy, feature-independent |
-| `BacktestEngine` | Orchestrates pipeline, feature-agnostic |
-| `ConformalEVModel` | Model layer, features are independent |
-| `ETL pipeline` | Data source unchanged |
-| `all odds modules` | No changes to odds processing |
-| `leakage_validators.py` | Framework exists, new features must pass it |
+| Component | Type | File | Responsibility | Communicates With |
+|-----------|------|------|---------------|-------------------|
+| `compute_race_level_aggregation` | NEW MODULE | `src/features/race_level_features.py` | Race-level odds entropy, dispersion, top-3 gap | FeatureEngine.build_all() |
+| `compute_market_cross_consistency` | NEW MODULE | `src/features/market_cross_features.py` | Win-place-wide odds cross-consistency | FeatureEngine.build_all() |
+| `GainPerDepthAnalysis` | NEW CLASS | `src/diagnostics/gain_per_depth.py` | LightGBM depth-wise gain extraction and analysis | TrainingPipeline._train_submodel() |
+| `ResidualICEvaluator` | NEW CLASS | `src/diagnostics/residual_ic.py` | B/C/E IC decomposition on OOF predictions | TrainingPipeline._train_submodel() output |
+| `FeatureEngine` | MODIFIED | `src/features/feature_engine.py` | Wire new modules into build_all() | New feature modules |
+| `RacePredictor` | MODIFIED | `src/backtest/race_predictor.py` | Wire new modules into predict() | New feature modules |
+| `BacktestEngine` | MODIFIED | `src/backtest/engine.py` | Wire new modules into run() pre-computation | New feature modules |
+| `TrainingPipelineV5` | MODIFIED | `src/pipelines/training_pipeline.py` | Wire diagnostics hooks | New diagnostic classes |
+| `FEATURE_COLS` | MODIFIED | Model files (two_stage_return_model.py, stage1_ability_model.py) | Add new feature column names to whitelist | Feature modules |
 
 ## Data Flow Changes
 
-### CHANGE 1: Feature Audit and Pruning
+### CHANGE 1: Race-Level Aggregation Features
 
-No data flow changes. Pruning removes columns from model `FEATURE_COLS` lists. The feature modules still compute all features, but models simply ignore the pruned columns. This is safe because LightGBM silently ignores missing columns.
+**What:** New features that capture the overall market structure of a race: odds dispersion, log-odds entropy, top-3 odds gap. These are RACE-LEVEL features -- same value for every horse in the race.
 
-**Why not remove from modules too:** Keeping feature computation intact preserves the option to re-add features later. The cost of computing unused features is minimal compared to the risk of breaking the pipeline.
+**Target features (from PROJECT.md):**
+- `rl_odds_dispersion`: Std dev of implied probabilities within race (high = wide-open race)
+- `rl_log_odds_entropy`: Shannon entropy of implied probabilities (information content)
+- `rl_top3_odds_gap`: Gap between 3rd-favorite and 1st-favorite odds (competitive depth)
+- `rl_favorite_dominance`: Ratio of 1st-favorite implied prob to sum (concentration)
+- `rl_field_competitiveness`: 1 - HHI of implied probabilities (inverse concentration)
+- `rl_longshot_ratio`: Max odds / median odds (longshot presence indicator)
 
-### CHANGE 2: New Features from Unused EveryDB2 Data
-
-New feature modules follow the existing pattern: pure functions or classes with `compute()` methods that take a DataFrame and return a DataFrame with new columns.
-
-**Insertion points in the pipeline:**
+**Data flow:**
 
 ```
-build_all() insertion (batch-level, before surface split):
-  - RaceContextFeatures: race-level features available to all surfaces
-  - HorsePhysicalFeatures: horse-level features from master tables
-
-_train_submodel() insertion (after HorseHistoryFeatures):
-  - JockeyContextFeatures: jockey annual stats (Stage2 feature)
-  - TrainerContextFeatures: trainer annual stats (Stage2 feature)
-  - JockeyTrainerComboFeatures: combo statistics (Stage2 feature)
+FeatureEngine.build_all()
+  |
+  v  (after compute_market_bias, which creates p_market_win_adj)
+compute_race_level_aggregation(result_df)
+  Input columns: race_id, tanodds (from odds_df merge)
+  Computation: groupby("race_id").agg(...)
+  Output: 6 new columns broadcast to every row via transform("first")
+  |
+  v  (continues to existing cache write)
 ```
 
-**EveryDB2 data sources not yet used for features:**
+**Why this insertion point:** After `compute_market_bias()` because it needs `tanodds` which is already merged and cleaned. Before `BloodlineFeatures` because it is a fast vectorized computation. The features are available to both Stage1 (AbilityModel) and Stage2 (WinTwoStageModel) since they are computed in `build_all()`.
 
-| Table | Parquet Key | Potential Features | PIT Safety |
-|-------|-------------|-------------------|------------|
-| `n_toku_race` | `toku_race` | Special race metadata (prize, conditions) | SAFE -- pre-race |
-| `n_toku` | `toku` | Special race details per entry | SAFE -- pre-race |
-| `n_hyosu` | `hyosu` | Total vote count per race | SAFE -- pre-race snapshot |
-| `n_hyosu_tanpuku` | `hyosu_tanpuku` | Vote count per horse (popularity proxy) | SAFE -- pre-race snapshot |
-| `n_kisyu_seiseki` | `kisyu_seiseki` | Jockey annual stats (already has module, unused) | SAFE -- SetYear < race_year |
-| `n_chokyo_seiseki` | `chokyo_seiseki` | Trainer annual stats (already has module, unused) | SAFE -- SetYear < race_year |
-| `n_jogaiba` | `jogaiba` | Late scratch/changes info | PARTIAL -- depends on timing |
-| `n_mining` | `mining` | Pre-computed analytics (index values) | NEEDS AUDIT -- verify pre-race |
-| `n_uma` | `horses` | Horse master (sex, birth year for age) | SAFE -- static |
-| `n_hansyoku` | `hansyoku` | Breeding details | SAFE -- static |
-| `n_bameiorigin` | `bameiorigin` | Extended pedigree | SAFE -- static |
-| `n_record` | `record` | Course records | SAFE -- historical |
-| `n_schedule` | `schedule` | Race schedule metadata | SAFE -- pre-race |
+**Race-level broadcasting pattern (existing in market_bias_features.py):**
+```python
+# Example: overround is race-level, broadcast to all horses
+overround = p_raw.groupby(df["race_id"], observed=True).transform("sum") - 1.0
+df["overround"] = overround
+```
 
-### CHANGE 3: Interaction and Transformation Features
+New features use the same pattern:
+```python
+def compute_race_level_aggregation(df: pd.DataFrame) -> pd.DataFrame:
+    df = df.copy()
+    if "tanodds" not in df.columns:
+        # NaN fallback for all 6 features
+        return df
 
-Interactions are added in `compute_interaction_features()`, which already runs after all base features are computed. This is the correct insertion point because it has access to all feature columns.
+    # Implied probabilities (per horse)
+    p_raw = 1.0 / df["tanodds"].replace(0, np.nan)
 
-**New interaction categories:**
+    # --- Race-level features (constant within race, broadcast via transform) ---
 
-1. **Relative features (horse-vs-horse within race):**
-   - Gap between horse's norm_finish_logit and race average
-   - Gap between horse's harontimel5_avg and race best
-   - Gap between horse's p_ability_win and race max (requires Stage1 output)
+    # Dispersion: std of implied probs within race
+    df["rl_odds_dispersion"] = p_raw.groupby(
+        df["race_id"], observed=True
+    ).transform("std")
 
-2. **Conditional interactions:**
-   - surface x form_trend (form on specific surface)
-   - class_level x distance_change (class change at specific distance)
-   - weight_change_zone x rest_category (weight pattern after rest)
+    # Log-odds entropy (already computed as market_entropy, but
+    # this version uses raw implied probs without normalization for different signal)
+    # Note: market_entropy already exists from compute_market_bias().
+    # rl_log_odds_entropy uses a different normalization to capture dispersion vs entropy.
+    # If identical, this column is redundant. Research should verify.
+    p_sum = p_raw.groupby(df["race_id"], observed=True).transform("sum")
+    p_norm = p_raw / p_sum.replace(0, np.nan)
+    def _entropy(group):
+        p = group.dropna().values
+        p = p[p > 0]
+        return float(-np.sum(p * np.log(p))) if len(p) > 0 else np.nan
+    df["rl_log_odds_entropy"] = p_norm.groupby(
+        df["race_id"], observed=True
+    ).transform(_entropy)
 
-3. **Target encoding (PIT-safe):**
-   - blood_keito_cd target-encoded win rate (expanding mean with shift(1))
-   - kisyucode target-encoded win rate (expanding, not used in Stage1 to avoid leak)
+    # Top-3 gap: ratio of 3rd-favorite to 1st-favorite odds
+    odds_sorted = df.groupby("race_id", observed=True)["tanodds"].apply(
+        lambda x: np.sort(x.dropna().values)
+    )
+    # ... broadcast back to df
+    return df
+```
+
+**Inference path:** Same function called in `RacePredictor.predict()` (via `FeatureEngine.build_features()` single-race path) and `BacktestEngine.run()` (via `FeatureEngine.build_all()` batch path).
+
+**PIT safety:** All features use only `tanodds` (pre-race snapshot). No post-race data. SAFE.
+
+### CHANGE 2: Market Cross-Consistency Features
+
+**What:** Features that capture how consistent the market is across different bet types (win, place, wide). A "readable race" has consistent odds across bet types; an "unreadable race" has divergent signals.
+
+**Target features:**
+- `mc_win_place_consistency`: Correlation between win implied prob and place implied prob across horses in race
+- `mc_win_wide_divergence`: Spread between win favorite rank and wide favorite rank
+- `mc_place_fav_gap`: Gap between 1st and 2nd in place odds (place market conviction)
+- `mc_cross_entropy_ratio`: Win entropy / place entropy (market structure ratio)
+
+**Data requirements:** This is the critical dependency. These features need odds from MULTIPLE bet types in the same feature computation call:
+- **Win odds:** `tanodds` (already in feat_df from odds_df merge)
+- **Place odds:** `fukuoddslow` (already in feat_df from odds_df merge)
+- **Wide odds:** `wide_odds_{lo}_{hi}` columns (already merged in training_pipeline.py and backtest/engine.py)
+
+**Data flow:**
+
+```
+TrainingPipeline._train_submodel()  /  BacktestEngine.run()
+  |
+  +-> feat_df = FeatureEngine.build_all(...)
+  +-> wide_odds_df = load_wide_odds(store, start, end)
+  +-> feat_df = feat_df.merge(wide_pivot, on="race_id", how="left")   # EXISTING
+  |
+  +-> [NEW] feat_df = compute_market_cross_consistency(feat_df)
+  |     Input: race_id, tanodds, fukuoddslow, wide_odds_* columns
+  |     Computation: groupby("race_id").agg(cross-type correlations)
+  |     Output: 4 new race-level columns broadcast to every row
+  |
+  v
+```
+
+**CRITICAL INSERTION POINT:** `compute_market_cross_consistency()` MUST run AFTER the wide odds merge in the pipeline. Currently the wide odds merge happens:
+- **Training:** `TrainingPipelineV5.run()` line ~191-201 (after `build_all()` and `add_distance_band_features()`)
+- **Backtest:** `BacktestEngine.run()` line ~624-639 (after `build_all()` and `add_distance_band_features()`)
+
+This means the new module cannot be called from inside `build_all()` -- it must be called separately in both `TrainingPipeline.run()` and `BacktestEngine.run()`, after the wide odds merge.
+
+**Alternative approach (recommended):** Move the wide odds merge INTO `build_all()` so that all feature computation is centralized. Then `compute_market_cross_consistency()` can be called from inside `build_all()` along with all other feature modules. This would require passing `wide_odds_df` as an optional parameter to `build_all()`.
+
+**Recommended parameter addition to FeatureEngine.build_all():**
+```python
+def build_all(
+    self,
+    race_df: pd.DataFrame,
+    entry_df: pd.DataFrame,
+    odds_df: pd.DataFrame,
+    odds_ts_df: pd.DataFrame | None = None,
+    store: object | None = None,
+    preserve_columns: list[str] | None = None,
+    wide_odds_df: pd.DataFrame | None = None,  # NEW PARAMETER
+) -> pd.DataFrame:
+```
+
+Then inside `build_all()`, after the existing odds merge:
+```python
+# Wide odds merge (consolidated into build_all)
+if wide_odds_df is not None and not wide_odds_df.empty:
+    # ... existing wide odds pivot logic from training_pipeline.py ...
+    result_df = result_df.merge(wide_pivot, on="race_id", how="left")
+
+# Market cross-consistency (needs tanodds + fukuoddslow + wide_odds)
+from features.market_cross_features import compute_market_cross_consistency
+result_df = compute_market_cross_consistency(result_df)
+```
+
+**This approach:** Eliminates code duplication between training and backtest pipelines. The wide odds merge logic is identical in both paths. Centralizing it in `build_all()` is cleaner.
+
+**PIT safety:** All odds are pre-race snapshots. Wide odds are final pre-race odds from `odds_wide` Parquet. SAFE.
+
+**Inference path:** For live inference (`build_features()` single-race method), wide odds may not be available for future races. The module must handle `wide_odds_df=None` gracefully by producing NaN features.
+
+### CHANGE 3: Gain per Depth Diagnostic
+
+**What:** Extracts LightGBM's internal tree structure via `trees_to_dataframe()` and aggregates gain contribution by tree depth. This reveals whether the model has an implicit two-stage structure (shallow splits = coarse groupings, deep splits = fine-grained).
+
+**Data flow:**
+
+```
+TrainingPipeline._train_submodel()
+  |
+  +-> stage1 = AbilityModel()
+  +-> df = stage1.train_oof(df, ...)
+  +-> win_2s = WinTwoStageModel()
+  +-> win_2s.train_hit_model(df_oof, ...)
+  |
+  +-> [NEW DIAGNOSTIC HOOK]:
+  |     if use_ensemble:
+  |         # StackedEnsemble wraps LightGBM + XGBoost + CatBoost
+  |         # Gain per depth only works on LightGBM Booster directly
+  |         gpd = GainPerDepthAnalysis()
+  |         gpd_report = gpd.analyze(
+  |             model=win_2s.hit_model.lgbm_model,  # LightGBM Booster
+  |             feature_names=win_2s.hit_model.feature_name(),
+  |             output_dir=Path("data/diagnostics"),
+  |             surface=surface,
+  |         )
+  |     else:
+  |         gpd = GainPerDepthAnalysis()
+  |         gpd_report = gpd.analyze(
+  |             model=win_2s.hit_model,  # LightGBM Booster directly
+  |             feature_names=win_2s.hit_model.feature_name(),
+  |             output_dir=Path("data/diagnostics"),
+  |             surface=surface,
+  |         )
+  |
+  v  (pipeline continues unchanged)
+```
+
+**LightGBM `trees_to_dataframe()` API (verified via LightGBM docs):**
+
+Returns a pandas DataFrame with columns:
+- `tree_index`: Tree number in the ensemble
+- `node_depth`: Depth of the node (0 = root)
+- `split_feature`: Feature name used for splitting
+- `threshold`: Split threshold
+- `gain`: Information gain from the split
+- `left_child`, `right_child`: Child node indices
+- `leaf_value`: Predicted value (leaf nodes only)
+
+**Analysis output:**
+```python
+class GainPerDepthReport:
+    depth_gain_distribution: dict[int, float]  # depth -> total gain fraction
+    top_features_by_depth: dict[int, list[str]]  # depth -> top-5 features
+    implicit_stage_boundary: int  # depth where gain accumulation plateaus
+    shallow_vs_deep_gain_ratio: float  # depth<=3 gain / depth>3 gain
+```
+
+**Files to create:**
+- `src/diagnostics/__init__.py`
+- `src/diagnostics/gain_per_depth.py` (~120 lines)
+
+**Files to modify:**
+- `src/pipelines/training_pipeline.py`: Add diagnostic hook after model training (~15 lines)
+
+**No effect on:** Feature computation, model inference, backtest results. Pure diagnostic.
+
+### CHANGE 4: Residual IC Evaluation
+
+**What:** Information Coefficient (IC) decomposition of model predictions into components that are independent of the market. This quantifies how much of the model's predictive power comes from the market (echo chamber) vs. from fundamental analysis (edge).
+
+**Three IC metrics:**
+- **B (Brute-force difference IC):** IC(model predictions) - IC(market implied probabilities). Measures how much IC the model adds over the market.
+- **C (Conditional orthogonal IC):** IC of residuals after regressing model predictions on market probabilities. Measures the market-independent component.
+- **E (Incremental IC):** IC of the change in predictions when adding the model to the market. Measures marginal information gain.
+
+**Data flow:**
+
+```
+TrainingPipeline._train_submodel()
+  |
+  +-> ... (after all model training and OOF prediction) ...
+  +-> df_oof contains:
+  |     - p_ability_win (Stage1 OOF prediction)
+  |     - ev_win / ev_win_corrected (Stage2 output)
+  |     - p_market_win_adj (market probability from compute_market_bias)
+  |     - kakuteijyuni (target variable)
+  |
+  +-> [NEW DIAGNOSTIC HOOK]:
+  |     ic_eval = ResidualICEvaluator()
+  |     ic_report = ic_eval.evaluate(
+  |         y_true=(df_oof["kakuteijyuni"] == 1).astype(float),
+  |         y_pred_model=df_oof["p_ability_win"],  # or ev_win_corrected
+  |         y_pred_market=df_oof["p_market_win_adj"],
+  |         groups=df_oof["race_id"],
+  |     )
+  |     ic_report.save(Path("data/diagnostics") / f"residual_ic_{surface}.json")
+  |
+  v  (pipeline continues unchanged)
+```
+
+**IC computation formulas:**
+
+```python
+class ResidualICEvaluator:
+    def evaluate(self, y_true, y_pred_model, y_pred_market, groups) -> ICReport:
+        # B: Brute-force difference
+        ic_model = spearmanr(y_true, y_pred_model).statistic
+        ic_market = spearmanr(y_true, y_pred_market).statistic
+        ic_b = ic_model - ic_market
+
+        # C: Conditional orthogonal IC
+        # Regress model predictions on market predictions, take residuals
+        from sklearn.linear_model import LinearRegression
+        lr = LinearRegression()
+        lr.fit(y_pred_market.values.reshape(-1, 1), y_pred_model.values)
+        residuals = y_pred_model - lr.predict(y_pred_market.values.reshape(-1, 1))
+        ic_c = spearmanr(y_true, residuals).statistic
+
+        # E: Incremental IC
+        # IC improvement when using both model + market vs market alone
+        combined = y_pred_model + y_pred_market  # simple combination
+        ic_combined = spearmanr(y_true, combined).statistic
+        ic_e = ic_combined - ic_market
+
+        return ICReport(ic_model=ic_model, ic_market=ic_market,
+                       ic_b=ic_b, ic_c=ic_c, ic_e=ic_e)
+```
+
+**Per-race IC variant:** Compute IC within each race (rank correlation among horses in the same race), then average across races. This is more meaningful for horse racing than global IC because predictions are relative within races.
+
+```python
+# Per-race IC (Spearman rank correlation within each race)
+def per_race_ic(y_true, y_pred, groups):
+    race_ics = []
+    for race_id in groups.unique():
+        mask = groups == race_id
+        if mask.sum() < 3:  # Need at least 3 horses for meaningful rank
+            continue
+        ic = spearmanr(y_true[mask], y_pred[mask]).statistic
+        if not np.isnan(ic):
+            race_ics.append(ic)
+    return np.mean(race_ics) if race_ics else 0.0
+```
+
+**Files to create:**
+- `src/diagnostics/residual_ic.py` (~150 lines)
+
+**Files to modify:**
+- `src/pipelines/training_pipeline.py`: Add IC evaluation hook after OOF prediction (~20 lines)
+- `src/backtest/validation_report.py`: Optionally include IC metrics in validation reports (~10 lines)
+
+**No effect on:** Feature computation, model training, backtest results. Pure evaluation.
 
 ## Patterns to Follow
 
-### Pattern 1: Pure Function Feature Modules
+### Pattern 1: Race-Level Feature Broadcasting
 
-**What:** Feature modules are pure functions or classes with `compute()` methods that take a DataFrame and return a DataFrame with new columns. No side effects on the input.
+**What:** Compute a statistic per race, then broadcast (copy) it to every horse row in that race.
 
-**When:** All feature modules follow this pattern.
+**When:** Any feature that is constant within a race (market structure, field composition, course record).
 
-**Why:** Makes modules composable, testable, and reorderable. The pipeline chains them without coupling.
+**Why:** The pipeline is fundamentally per-horse (one row = one horse). LightGBM needs every row to have the feature. Race-level features are the same value for all horses, which is fine -- the model learns that this value modulates the prediction context.
 
-**Example (existing pattern):**
+**Existing examples:** `overround`, `market_entropy`, `odds_skewness`, `implied_prob_hhi`, `course_record_time`, `difficulty_score`.
+
+**Implementation:**
 ```python
-def compute_intra_race_features(df: pd.DataFrame) -> pd.DataFrame:
-    df = df.copy()  # Never mutate input
-    df["weight_diff_from_mean"] = ...
-    return df
+# Approach 1: transform("first") -- compute per group, broadcast to all rows
+race_entropy = df.groupby("race_id", observed=True)["p_market_win_adj"].transform(_entropy)
+df["market_entropy"] = race_entropy
+
+# Approach 2: compute unique-by-race DataFrame, then merge
+result = race_df[["race_id"]].drop_duplicates()
+result["new_feature"] = ...  # compute once per race
+df = df.merge(result, on="race_id", how="left")
 ```
 
-### Pattern 2: PIT-Safe Time-Series Features
+### Pattern 2: Feature Module Integration Points
 
-**What:** Any feature using historical data must use `expanding().shift(1)` or `searchsorted(side="left")` to exclude the current race.
+**What:** Three distinct integration points exist for feature modules, depending on data dependencies.
 
-**When:** All features computed from past race results (horse history, jockey stats, sire stats, etc.).
+| Point | Location | Available Data | When to Use |
+|-------|----------|---------------|-------------|
+| `build_all()` | `feature_engine.py` | race_df + entry_df + odds_df + odds_ts_df + store | Race-level features, basic horse features, odds features |
+| `build_all()` (with wide_odds_df param) | `feature_engine.py` | above + wide odds pivot | Market cross-consistency features |
+| `_train_submodel()` | `training_pipeline.py` | above + horse_history + pace + sire + course + interaction | Features requiring horse history or computed features |
+| `RacePredictor.predict()` | `backtest/race_predictor.py` | same as _train_submodel for single race | Inference-time feature computation |
 
-**Why:** Including current-race results in features is look-ahead bias that inflates backtest ROI but fails in live betting.
+**Rule:** If a feature depends only on `tanodds`, `fukuoddslow`, and basic race/entry data, put it in `build_all()`. If it needs `wide_odds_*` columns, it needs the wide_odds_df parameter. If it needs horse history features (e.g., relative features), put it in `_train_submodel()`.
 
-**Example (existing pattern in HorseHistoryFeatures):**
+### Pattern 3: Diagnostic Hook Placement
+
+**What:** Diagnostics are hooks that read model state and predictions but do not modify them.
+
+**When:** Gain per Depth, Residual IC, drift diagnostics, EV diagnostics.
+
+**Where:** After model training in `_train_submodel()`, gated by `use_ensemble` flag or a separate `--diagnostics` flag.
+
+**Implementation:**
 ```python
-# searchsorted with side="left" excludes current-race date
-target_date_np = np.datetime64(race_date, "ns")
-idx = valid_dates.searchsorted(target_date_np, side="left")
-start = max(0, idx - self._n_past)
-# Only use data BEFORE idx (never includes current race)
+# In _train_submodel(), after model training:
+if use_ensemble:  # or: if self._run_diagnostics:
+    from diagnostics.gain_per_depth import GainPerDepthAnalysis
+    gpd = GainPerDepthAnalysis()
+    gpd.analyze(win_2s.hit_model.lgbm_model, output_dir=..., surface=surface)
+
+    from diagnostics.residual_ic import ResidualICEvaluator
+    ic_eval = ResidualICEvaluator()
+    ic_eval.evaluate(df_oof, output_dir=..., surface=surface)
 ```
 
-### Pattern 3: Feature Module Caching
+### Pattern 4: Inference Path Mirroring
 
-**What:** `build_all()` uses SHA-256 cache key based on input file paths and date range. If inputs unchanged, cache hit returns pre-computed features.
+**What:** Every feature added to the training path must also be computed in the inference path.
 
-**When:** Batch feature generation in `build_all()`.
+**Training paths:**
+1. `TrainingPipeline._train_submodel()` (full feature set for model training)
+2. `BacktestEngine.run()` (full feature set for backtest simulation)
 
-**Implication for new features:** Adding new features to `build_all()` changes the output columns, automatically invalidating the cache (the cache key does not include feature columns, so manual cache invalidation may be needed if only adding columns).
+**Inference paths:**
+3. `RacePredictor.predict()` (single-race inference for live betting)
+4. `FeatureEngine.build_features()` (single-race feature generation for live betting)
 
-**Caution:** The cache key is based on input file paths and date range, NOT on the feature computation code. Adding new feature modules requires manually clearing the feature cache (`data/features/cache/`).
-
-### Pattern 4: Two-Stage Feature Consumption
-
-**What:** Features flow through two model stages with different feature subsets.
-
-**When:** All features flow through Stage1 (AbilityModel, ~50 features) then Stage2 (WinTwoStageModel, ~37 features).
-
-**Implication:** New features must be added to the correct `FEATURE_COLS` list:
-- Horse-level features (history, bloodline, physical) -> `AbilityModel.FEATURE_COLS` (Stage1)
-- Race-level/market features (odds dynamics, market bias, interactions) -> `WinTwoStageModel.FEATURE_COLS` (Stage2)
-- Some features appear in both stages (e.g., `distance_bin`, `surface`)
-
-### Pattern 5: Beta-Smoothed Win Rates
-
-**What:** Win rates computed from small samples use Beta prior smoothing: `(alpha + wins) / (alpha + beta + starts)`.
-
-**When:** All win-rate features (bloodline, sire, pace, course, jockey, trainer).
-
-**Why:** Raw win rates from 3-5 starts are unreliable. Beta smoothing shrinks toward the prior mean.
-
-**Constants:** alpha=1, beta=10 (used consistently across all modules).
+**Rule:** If a feature is added to `build_all()` (paths 1 and 2), it is automatically available in both training and backtest. But it must also be added to `build_features()` (path 4) for live inference. The single-race path currently only calls `_map_basic_features()` and skips all sub-modules. Race-level features computed from `tanodds` should be computed in both paths.
 
 ## Anti-Patterns to Avoid
 
-### Anti-Pattern 1: Using Post-Race Data in Features
+### Anti-Pattern 1: Computing Race-Level Features Inside the Per-Horse Module Chain
 
-**What:** Including `kakuteijyuni`, `odds` (confirmed odds), `time`, `honsyokin` in features for the current race.
+**What:** Adding race-level feature computation inside `HorseHistoryFeatures.compute()` or other per-horse modules.
 
-**Why bad:** These values are only available after the race. Using them creates look-ahead bias that inflates backtest ROI but fails in production.
+**Why bad:** Race-level features should be computed ONCE per race (via groupby), not N times per horse. Putting them in per-horse modules means they run for every horse unnecessarily or are computed per-horse when they should be per-race.
 
-**Instead:** The codebase already uses `confirmed_odds` vs `tanodds` separation. New features must follow the same discipline. The `POST_RACE_COLS` constant in `domain/types.py` lists all post-race columns that must never appear in features.
+**Instead:** Compute race-level features in a dedicated module called from `build_all()` using vectorized groupby operations.
 
-**Detection:** Run `leakage_validators.validate_no_future_leakage()` after adding any new expanding-window feature.
+### Anti-Pattern 2: Wide Odds Dependency in build_all() Without Parameter
 
-### Anti-Pattern 2: Adding Features Without Checking Model Capacity
+**What:** Calling `load_wide_odds()` from inside `build_all()` without receiving it as a parameter.
 
-**What:** Adding 50+ new features without pruning existing noise features.
+**Why bad:** `build_all()` is a pure feature computation function that takes DataFrames as input. Adding a side-effect data load inside it breaks the pattern and makes testing harder. It also means the wide odds load happens even when not needed (e.g., for Stage2 training).
 
-**Why bad:** LightGBM handles high dimensionality well, but adding noise features (zero importance) can dilute signal in small-sample splits. With ~9K training races and surface submodels, each surface gets ~4.5K races. Adding many noisy features increases overfitting risk in tree splits.
+**Instead:** Pass `wide_odds_df` as an optional parameter to `build_all()`. The caller (training pipeline or backtest engine) is responsible for loading it.
 
-**Instead:** Audit first, prune noise, then add new features incrementally with backtest validation.
+### Anti-Pattern 3: Diagnostics That Modify Model State
 
-### Anti-Pattern 3: Computing Expensive Features in the Per-Horse Loop
+**What:** Diagnostic functions that modify the model's internal state (e.g., calling `save_model()` or changing model parameters).
 
-**What:** Adding database queries or complex computations inside `HorseHistoryFeatures.compute()` per-horse loop.
+**Why bad:** Diagnostics are read-only operations. Modifying model state during training can corrupt the model or introduce non-determinism.
 
-**Why bad:** The per-horse loop iterates ~500-2000 times per surface. Each microsecond of overhead per horse adds seconds to total pipeline time.
+**Instead:** Diagnostics should only read from `model.trees_to_dataframe()`, `model.feature_importance()`, `model.predict()`. Never write to the model.
 
-**Instead:** Pre-load all data before the loop (as done with `past_by_ketto_arr`, `expanding_stats`). Use vectorized numpy operations within the loop.
+### Anti-Pattern 4: Race-Level Features Without NaN Guard for Single-Horse Races
 
-### Anti-Pattern 4: Target Encoding Without PIT Safety
+**What:** Computing groupby statistics without handling the case where a race has only 1 horse.
 
-**What:** Computing target-encoded features using the full training data (including the current row).
+**Why bad:** `groupby("race_id").std()` returns NaN for single-element groups. `groupby("race_id").rank()` returns 1.0. These edge cases produce NaN features that may cause issues in downstream models if not handled.
 
-**Why bad:** Target encoding with current-row inclusion is equivalent to look-ahead bias. The model sees information about the outcome in the feature.
+**Instead:** Add `fillna(0)` or explicit NaN handling after groupby operations. The existing `compute_market_bias()` handles this with `_entropy()` returning 0.0 for empty groups.
 
-**Instead:** Use `expanding().shift(1)` or leave-one-out encoding that excludes the current row. The `info_asymmetry_features.py` module demonstrates the correct pattern.
+### Anti-Pattern 5: Adding Features Without Updating FEATURE_COLS Manifest
 
-### Anti-Pattern 5: Modifying Feature Computation Without Cache Invalidation
+**What:** Computing new features but forgetting to add them to the FEATURE_COLS lists in model files and the SHA256 manifest.
 
-**What:** Adding new features to a module, then running training with feature cache enabled.
+**Why bad:** The SHA256 feature manifest (`domain/types.py` + model FEATURE_COLS) is the PIT safety gate. New features that bypass the manifest are invisible to the leakage validator.
 
-**Why bad:** The cache key is based on input files, not on computation code. If the cache is stale, training uses old features without the new additions. This silently produces incorrect results.
-
-**Instead:** Delete `data/features/cache/` when adding or modifying feature modules. Or set `use_cache=False` in `FeatureEngine.__init__()` during development.
+**Instead:** Add new feature column names to `AbilityModel.FEATURE_COLS` (Stage1) or `WinTwoStageModel.FEATURE_COLS` / `HIT_FEATURE_COLS` / `RETURN_FEATURE_COLS` (Stage2). Re-run the manifest generation after changes.
 
 ## Detailed Integration Points
 
-### Integration Point 1: Feature Audit Script
+### Integration Point 1: Race-Level Aggregation Features
 
-**New file:** `scripts/run_feature_audit.py`
+**New file:** `src/features/race_level_features.py`
 
-The audit script loads trained models and their OOF predictions, then:
-1. Extracts `feature_importance("gain")` from each LightGBM model
-2. Computes permutation importance on OOF predictions (Stage1 and Stage2)
-3. Optionally computes SHAP values for top features
-4. Identifies features with zero importance across all models
-5. Identifies features with negative permutation importance (noise)
-6. Outputs `data/feature_audit/prune_candidates.json`
-
-**Data requirements:**
-- Trained models from `data/models/` or `data/models-backtest/`
-- OOF predictions (must re-run training pipeline to generate)
-- Feature DataFrame (from `FeatureEngine.build_all()`)
-
-**Does NOT require:** Changes to any existing modules. Script-only.
-
-### Integration Point 2: Jockey/Trainer Context Features (Wiring Existing Modules)
-
-**Files to modify:** `src/pipelines/training_pipeline.py`
-
-The `JockeyContextFeatures` and `TrainerContextFeatures` modules already exist in `src/features/` but are NOT wired into the training pipeline. They use `kisyu_seiseki` and `chokyo_seiseki` tables (already ETL'd to Parquet).
-
-**Insertion point:** `_train_submodel()`, after `SireFeatures` and before `compute_interaction_features`:
-
+**Module signature:**
 ```python
-# Group D: Jockey context features (Stage2 only -- uses annual jockey stats)
-from features.jockey_context_features import JockeyContextFeatures
-with TimingContext(f"{surface}/jockey_context"):
-    jockey_feat = JockeyContextFeatures(store=self.store)
-    jockey_df = jockey_feat.compute_batch(df)
-    df = df.merge(jockey_df, on=["race_id", "umaban"], how="left")
+FEATURE_COLS: list[str] = [
+    "rl_odds_dispersion",
+    "rl_log_odds_entropy",
+    "rl_top3_odds_gap",
+    "rl_favorite_dominance",
+    "rl_field_competitiveness",
+    "rl_longshot_ratio",
+]
 
-# Group D: Trainer context features (Stage2 only -- uses annual trainer stats)
-from features.trainer_context_features import TrainerContextFeatures
-with TimingContext(f"{surface}/trainer_context"):
-    trainer_feat = TrainerContextFeatures(store=self.store)
-    trainer_df = trainer_feat.compute_batch(df)
-    df = df.merge(trainer_df, on=["race_id", "umaban"], how="left")
+def compute_race_level_aggregation(df: pd.DataFrame) -> pd.DataFrame:
+    """Race-level market structure features.
+
+    All features are constant within a race (broadcast via groupby transform).
+    Uses only tanodds (pre-race snapshot). PIT-safe.
+    """
+    ...
 ```
 
-**PIT safety:** Both modules already enforce `SetYear < race_year` (year-before comparison).
-
-### Integration Point 3: Horse-vs-Horse Relative Features
-
-**New file:** `src/features/relative_features.py`
-
-Relative features compute within-race comparisons. These run AFTER all per-horse features are computed.
-
+**Insertion in `FeatureEngine.build_all()`:**
+After `compute_flb_slope()` (line ~338), before `compute_difficulty_score()` (line ~342):
 ```python
-def compute_relative_features(df: pd.DataFrame) -> pd.DataFrame:
-    """Horse-vs-horse relative features within each race."""
-    df = df.copy()
-
-    # Gap between horse's ability and race mean
-    for col in ["norm_finish_logit_avg", "harontimel5_avg", "harontimel5_zscore"]:
-        if col in df.columns:
-            race_mean = df.groupby("race_id", observed=True)[col].transform("mean")
-            df[f"{col}_vs_mean"] = df[col] - race_mean
-
-            race_max = df.groupby("race_id", observed=True)[col].transform("max")
-            df[f"{col}_vs_max"] = df[col] - race_max
-
-    return df
+from features.race_level_features import compute_race_level_aggregation
+with TimingContext("build_all/race_level_agg"):
+    result_df = compute_race_level_aggregation(result_df)
 ```
 
-**Insertion point:** `_train_submodel()`, after `compute_interaction_features` (needs all base features).
-
-**Model update:** Add to `AbilityModel.FEATURE_COLS` (Stage1 features that capture relative ability).
-
-### Integration Point 4: Race Context Features from Unused Tables
-
-**New file:** `src/features/race_context_features.py`
-
+**Insertion in `FeatureEngine.build_features()` (single-race inference):**
+After `_map_basic_features()` and odds merge, add:
 ```python
-class RaceContextFeatures:
-    """Features from n_hyosu (vote totals), n_toku_race (special race metadata)."""
+from features.race_level_features import compute_race_level_aggregation
+df = compute_race_level_aggregation(df)
+```
 
-    def __init__(self, store: ParquetStore) -> None:
-        self.store = store
+**Training pipeline:** No changes needed (build_all handles it).
 
-    def compute_batch(self, df: pd.DataFrame) -> pd.DataFrame:
-        # vote concentration from hyosu_tanpuku
-        # special race flags from toku_race
+**Backtest engine:** No changes needed (build_all handles it).
+
+**Model FEATURE_COLS updates:**
+- `WinTwoStageModel.HIT_FEATURE_COLS`: Add all 6 `rl_*` features (market structure affects hit probability)
+- `WinTwoStageModel.RETURN_FEATURE_COLS`: Add `rl_odds_dispersion`, `rl_top3_odds_gap` (affects return estimation)
+- `AbilityModel.FEATURE_COLS`: Optionally add `rl_field_competitiveness`, `rl_favorite_dominance` (race context for ability estimation)
+
+### Integration Point 2: Market Cross-Consistency Features
+
+**New file:** `src/features/market_cross_features.py`
+
+**Module signature:**
+```python
+FEATURE_COLS: list[str] = [
+    "mc_win_place_consistency",
+    "mc_win_wide_divergence",
+    "mc_place_fav_gap",
+    "mc_cross_entropy_ratio",
+]
+
+def compute_market_cross_consistency(df: pd.DataFrame) -> pd.DataFrame:
+    """Market cross-bet-type consistency features.
+
+    Requires: tanodds, fukuoddslow, and optionally wide_odds_* columns.
+    All features are constant within a race (broadcast via groupby transform).
+    Uses only pre-race odds snapshots. PIT-safe.
+    """
+    ...
+```
+
+**Option A: Consolidate wide odds into build_all() (recommended):**
+
+Modify `FeatureEngine.build_all()` signature to accept `wide_odds_df`:
+```python
+def build_all(
+    self,
+    race_df: pd.DataFrame,
+    entry_df: pd.DataFrame,
+    odds_df: pd.DataFrame,
+    odds_ts_df: pd.DataFrame | None = None,
+    store: object | None = None,
+    preserve_columns: list[str] | None = None,
+    wide_odds_df: pd.DataFrame | None = None,  # NEW
+) -> pd.DataFrame:
+```
+
+Inside `build_all()`, after the existing odds merge (line ~300):
+```python
+# Wide odds merge (consolidated from training_pipeline and backtest_engine)
+if wide_odds_df is not None and not wide_odds_df.empty:
+    _wide = wide_odds_df[["race_id", "kumi", "oddslow"]].dropna(subset=["oddslow"])
+    if not _wide.empty:
+        wide_pivot = _wide.pivot_table(index="race_id", columns="kumi", values="oddslow")
+        new_cols = [f"wide_odds_{int(c[:2])}_{int(c[2:])}" for c in wide_pivot.columns]
+        wide_pivot.columns = new_cols
+        wide_pivot = wide_pivot.reset_index()
+        result_df = result_df.merge(wide_pivot, on="race_id", how="left")
+
+# Market cross-consistency (needs tanodds + fukuoddslow + wide_odds)
+from features.market_cross_features import compute_market_cross_consistency
+with TimingContext("build_all/market_cross"):
+    result_df = compute_market_cross_consistency(result_df)
+```
+
+**Then remove wide odds merge from:**
+- `TrainingPipelineV5.run()` lines ~190-201
+- `BacktestEngine.run()` lines ~624-639
+
+**Option B: Call separately in pipeline (simpler but duplicates code):**
+
+Add calls to `compute_market_cross_consistency()` after the wide odds merge in both `TrainingPipeline.run()` and `BacktestEngine.run()`. Less clean but avoids changing `build_all()` signature.
+
+**Recommendation:** Option A. Consolidating wide odds into `build_all()` eliminates code duplication and makes the feature pipeline self-contained. The wide odds merge logic is identical in training and backtest paths.
+
+**Model FEATURE_COLS updates:**
+- `WinTwoStageModel.HIT_FEATURE_COLS`: Add all 4 `mc_*` features
+- `AbilityModel.FEATURE_COLS`: NOT recommended -- cross-consistency is a market-level signal best used in Stage2
+
+### Integration Point 3: Gain per Depth Diagnostic
+
+**New file:** `src/diagnostics/gain_per_depth.py`
+
+**Module signature:**
+```python
+@dataclass
+class GainPerDepthReport:
+    surface: str
+    model_name: str  # "win_hit", "win_return", etc.
+    depth_gain_distribution: dict[str, float]  # depth -> gain fraction
+    top_features_by_depth: dict[str, list[str]]  # depth -> top-5 features
+    total_trees: int
+    total_gain: float
+    shallow_gain_fraction: float  # depth 0-3 gain / total gain
+    deep_gain_fraction: float  # depth 4+ gain / total gain
+    implicit_stages: int  # number of gain plateaus (1 = no stages, 2 = implicit 2-stage)
+
+class GainPerDepthAnalysis:
+    def analyze(
+        self,
+        model: lgb.Booster,
+        output_dir: Path | None = None,
+        surface: str = "",
+        model_name: str = "",
+    ) -> GainPerDepthReport:
+        """Extract depth-wise gain distribution from LightGBM model.
+
+        Uses Booster.trees_to_dataframe() to get per-node gain and depth.
+        Aggregates gain by depth level across all trees.
+        """
+        tree_df = model.trees_to_dataframe()
+        # Filter to internal (split) nodes only (leaf_value is NaN)
+        splits = tree_df[tree_df["leaf_value"].isna()].copy()
+        # Aggregate gain by depth
+        depth_gain = splits.groupby("node_depth")["gain"].sum()
+        total_gain = depth_gain.sum()
         ...
 ```
 
-**Data sources:** `hyosu_tanpuku` (per-horse vote count), `toku_race` (special race metadata), `schedule` (race schedule data).
+**Insertion in `TrainingPipeline._train_submodel()`:**
+After `win_2s.train_hit_model()` (or ensemble training), add:
+```python
+# Gain per Depth diagnostic (after win hit model training)
+if use_ensemble:
+    from diagnostics.gain_per_depth import GainPerDepthAnalysis
+    _gpd = GainPerDepthAnalysis()
+    # Access inner LightGBM model from StackedEnsemble
+    _gpd.analyze(
+        model=win_2s.hit_model.lgbm_model,
+        output_dir=Path("data/diagnostics"),
+        surface=surface,
+        model_name="win_hit",
+    )
+else:
+    from diagnostics.gain_per_depth import GainPerDepthAnalysis
+    _gpd = GainPerDepthAnalysis()
+    _gpd.analyze(
+        model=win_2s.hit_model,
+        output_dir=Path("data/diagnostics"),
+        surface=surface,
+        model_name="win_hit",
+    )
+```
 
-**PIT safety:** Vote counts (`n_hyosu_tanpuku`) are pre-race snapshots. `toku_race` is pre-race metadata. Both are safe.
+**For ensemble mode:** `StackedEnsemble` wraps `lgb.Booster` as `self.lgbm_model`. The `trees_to_dataframe()` method is available on this attribute. XGBoost and CatBoost have different tree extraction APIs; the diagnostic focuses on LightGBM for consistency with the primary model.
 
-**Insertion point:** `FeatureEngine.build_all()` -- these are race-level features available before surface split.
+### Integration Point 4: Residual IC Evaluation
+
+**New file:** `src/diagnostics/residual_ic.py`
+
+**Module signature:**
+```python
+@dataclass
+class ICReport:
+    surface: str
+    ic_model: float           # Spearman IC of model predictions
+    ic_market: float          # Spearman IC of market implied probabilities
+    ic_b_difference: float    # B: IC_model - IC_market
+    ic_c_orthogonal: float    # C: IC of model residuals orthogonal to market
+    ic_e_incremental: float   # E: IC improvement of model+market over market alone
+    per_race_ic_model: float  # Mean per-race Spearman IC of model
+    per_race_ic_market: float # Mean per-race Spearman IC of market
+    per_race_ic_c: float      # Mean per-race orthogonal IC
+    n_races: int              # Number of races evaluated
+    n_horses: int             # Total horses evaluated
+
+class ResidualICEvaluator:
+    def evaluate(
+        self,
+        y_true: pd.Series,
+        y_pred_model: pd.Series,
+        y_pred_market: pd.Series,
+        groups: pd.Series,  # race_id for per-race IC
+        output_dir: Path | None = None,
+        surface: str = "",
+    ) -> ICReport:
+        """Compute B/C/E residual IC decomposition."""
+        ...
+```
+
+**Insertion in `TrainingPipeline._train_submodel()`:**
+After `AbilityModel.train_oof()` produces `p_ability_win`, add:
+```python
+# Residual IC evaluation (after Stage1 OOF predictions)
+from diagnostics.residual_ic import ResidualICEvaluator
+ic_eval = ResidualICEvaluator()
+ic_report = ic_eval.evaluate(
+    y_true=(df_oof["kakuteijyuni"] == 1).astype(float),
+    y_pred_model=df_oof["p_ability_win"],
+    y_pred_market=df_oof["p_market_win_adj"],
+    groups=df_oof["race_id"],
+    output_dir=Path("data/diagnostics"),
+    surface=surface,
+)
+logger.info(
+    "Residual IC for %s: B=%.4f, C=%.4f, E=%.4f (model=%.4f, market=%.4f)",
+    surface, ic_report.ic_b_difference, ic_report.ic_c_orthogonal,
+    ic_report.ic_e_incremental, ic_report.ic_model, ic_report.ic_market,
+)
+```
+
+**Optional integration in `BacktestEngine`:**
+Add IC metrics to the validation report generated at the end of backtest:
+```python
+# In _build_race_level_features or validation_report.py
+# Compute IC on test-period predictions
+```
 
 ## Build Order (Dependency-Driven)
 
-### Phase 1: Feature Audit and Pruning
-**Dependencies:** Existing trained models
+### Phase 1: Race-Level Aggregation Features
+**Dependencies:** None (uses only existing tanodds data)
 **Changes:**
-- New script: `scripts/run_feature_audit.py`
-- Modify `FEATURE_COLS` in `AbilityModel`, `WinTwoStageModel` (and sub-lists)
-**Verification:** Backtest ROI does not decrease after pruning (noise removal should improve or maintain ROI)
+- New module: `src/features/race_level_features.py` (~80 lines)
+- Modify: `src/features/feature_engine.py` (add module call in build_all, ~5 lines)
+- Modify: `src/features/feature_engine.py` (add module call in build_features for inference, ~5 lines)
+- Modify: model FEATURE_COLS lists (~10 lines)
+**Verification:** Backtest with new features, verify ROI changes
 **Estimated effort:** Small
+**Risk:** LOW -- additive only, follows existing pattern exactly
 
-### Phase 2A: Wire Existing Unused Feature Modules
-**Dependencies:** Phase 1 (clean baseline)
+### Phase 2: Market Cross-Consistency Features
+**Dependencies:** Phase 1 (uses race-level patterns); wide odds data already ETL'd
 **Changes:**
-- Modify `_train_submodel()` to call `JockeyContextFeatures.compute_batch()` and `TrainerContextFeatures.compute_batch()`
-- Add feature columns to appropriate `FEATURE_COLS` lists
-**Verification:** Backtest ROI improves
-**Estimated effort:** Small (modules exist, just need wiring)
+- New module: `src/features/market_cross_features.py` (~100 lines)
+- Modify: `src/features/feature_engine.py` (add wide_odds_df parameter, add module call, ~20 lines)
+- Modify: `src/pipelines/training_pipeline.py` (remove wide odds merge, pass to build_all, ~15 lines)
+- Modify: `src/backtest/engine.py` (remove wide odds merge, pass to build_all, ~15 lines)
+- Modify: model FEATURE_COLS lists (~5 lines)
+**Verification:** Backtest with new features, verify ROI changes
+**Estimated effort:** Medium (code consolidation required)
+**Risk:** MEDIUM -- changing build_all signature affects two callers; wide odds may be sparse
 
-### Phase 2B: New Features from Unused EveryDB2 Tables
-**Dependencies:** Phase 1
+### Phase 3: Gain per Depth Diagnostic
+**Dependencies:** Trained LightGBM model (from existing pipeline)
 **Changes:**
-- New module: `features/race_context_features.py` (vote concentration, special race metadata)
-- New module: `features/horse_physical_features.py` (age, sex, extended career)
-- Wire into `build_all()` and `_train_submodel()` as appropriate
-- Add to `FEATURE_COLS` lists
-**Verification:** Incremental backtest ROI improvement per feature group
-**Estimated effort:** Medium
+- New file: `src/diagnostics/__init__.py`
+- New file: `src/diagnostics/gain_per_depth.py` (~120 lines)
+- Modify: `src/pipelines/training_pipeline.py` (add diagnostic hook, ~15 lines)
+**Verification:** Run training, verify diagnostic output JSON
+**Estimated effort:** Small
+**Risk:** LOW -- read-only diagnostic, no effect on model or predictions
 
-### Phase 3: Interaction and Transformation Features
-**Dependencies:** Phase 2 (needs complete base feature set)
+### Phase 4: Residual IC Evaluation
+**Dependencies:** OOF predictions from Stage1 (p_ability_win, p_market_win_adj)
 **Changes:**
-- Expand `compute_interaction_features()` with relative features, conditional interactions
-- Optionally add target encoding for high-cardinality categoricals
-- Add to `FEATURE_COLS` lists
-**Verification:** Backtest ROI improvement, interaction features appear in importance ranking
-**Estimated effort:** Medium
+- New file: `src/diagnostics/residual_ic.py` (~150 lines)
+- Modify: `src/pipelines/training_pipeline.py` (add evaluation hook, ~15 lines)
+- Optionally modify: `src/backtest/validation_report.py` (include IC metrics, ~10 lines)
+**Verification:** Run training, verify IC report output; verify C > 0 (market-independent edge exists)
+**Estimated effort:** Small
+**Risk:** LOW -- read-only evaluation, no effect on model or predictions
 
-### Phase 4: Validation and Cleanup
-**Dependencies:** Phases 1-3
+### Phase 5: Validation and Manifest Update
+**Dependencies:** All phases complete
 **Changes:**
-- Run walk-forward validation to detect overfitting from new features
-- Run Optuna strategy re-optimization with new feature set
-- Final backtest validation targeting ROI > 100%
-**Verification:** WF validation passes, final backtest ROI > 100%
+- Update SHA256 feature manifest with new columns
+- Run full backtest to validate ROI impact
+- Run walk-forward validation to detect overfitting
+**Verification:** WF validation passes, backtest ROI improvement
 **Estimated effort:** Medium (mainly compute time)
 
 ## Modified vs New Components Summary
 
-### Modified Components (7 files)
-
-| File | Change | LOC Impact |
-|------|--------|-----------|
-| `models/stage1_ability_model.py` | Update `FEATURE_COLS` | ~5 lines |
-| `models/two_stage_return_model.py` | Update `FEATURE_COLS`, `HIT_FEATURE_COLS`, `RETURN_FEATURE_COLS` | ~15 lines |
-| `features/horse_history_features.py` | Possibly add/remove features from `BASE_COLS` and `compute()` | ~20-50 lines |
-| `features/interaction_features.py` | Expand with relative/conditional interactions | ~50-80 lines |
-| `pipelines/training_pipeline.py` | Wire new modules into `_train_submodel()` | ~30 lines |
-| `features/feature_engine.py` | Optionally add new batch-level module calls in `build_all()` | ~10 lines |
-| `features/horse_history_features.py` | Update `BASE_COLS` list | ~5 lines |
-
-### New Components (3-4 files)
+### New Components (4 files)
 
 | File | Purpose | LOC Estimate |
 |------|---------|-------------|
-| `scripts/run_feature_audit.py` | Feature importance analysis and noise identification | ~150 lines |
-| `features/race_context_features.py` | Vote concentration, special race flags | ~100 lines |
-| `features/horse_physical_features.py` | Age, sex, extended career features | ~120 lines |
-| `features/relative_features.py` | Horse-vs-horse within-race comparisons | ~80 lines |
+| `src/features/race_level_features.py` | Race-level odds aggregation features (6 features) | ~80 lines |
+| `src/features/market_cross_features.py` | Market cross-consistency features (4 features) | ~100 lines |
+| `src/diagnostics/__init__.py` | Package init | ~1 line |
+| `src/diagnostics/gain_per_depth.py` | Gain per Depth analysis | ~120 lines |
+| `src/diagnostics/residual_ic.py` | Residual IC (B/C/E) evaluation | ~150 lines |
+
+### Modified Components (5 files)
+
+| File | Change | LOC Impact |
+|------|--------|-----------|
+| `src/features/feature_engine.py` | Add race_level + market_cross module calls; add wide_odds_df param | ~30 lines |
+| `src/pipelines/training_pipeline.py` | Remove wide odds merge (consolidate into build_all); add diagnostic hooks | ~30 lines net change |
+| `src/backtest/engine.py` | Remove wide odds merge (consolidate into build_all); pass wide_odds_df | ~15 lines net change |
+| `src/backtest/race_predictor.py` | No changes needed (race-level features from build_all) | 0 lines |
+| Model FEATURE_COLS files | Add rl_* and mc_* column names | ~15 lines |
+
+### Unchanged Components
+
+| Component | Why Unchanged |
+|-----------|--------------|
+| `ParquetStore` | I/O layer, feature-agnostic |
+| `DataRepository` / readers.py | Data access layer, feature-agnostic |
+| `StackedEnsemble` | Model layer, consumes whatever features are provided |
+| `EVCorrectionModel` | Model layer, features are independent |
+| `RegimeDetector` | Uses race-level features but not the new ones |
+| `RaceQualityScreener` | Uses race-level features but not the new ones |
+| `DrawdownController` | Betting layer, feature-independent |
+| `StakeCalculator` | Betting layer, feature-independent |
+| `OddsBandFilter` | Betting layer, feature-independent |
+| `ConformalEVModel` | Model layer, features are independent |
+| `ETL pipeline` | Data source unchanged |
+| `domain/types.py` | POST_RACE_COLS unchanged; new features are PRE-race |
+| `leakage_validators.py` | Framework exists, new features pass by design |
+| `all existing feature modules` | No changes to existing feature computation |
 
 ## Scalability Considerations
 
-| Concern | Current (100+ features) | After v1.6 (potentially 150+ features) | Mitigation |
-|---------|------------------------|---------------------------------------|------------|
-| Feature computation time | ~17 min training | ~18-20 min (new features are cheap) | Feature cache handles batch features; per-horse loop is the bottleneck |
-| Memory per surface | ~4.5K races x 100 cols | ~4.5K races x 150 cols | +50% memory but still fits in RAM easily |
-| LightGBM training time | ~5 min per surface | ~6-7 min per surface | LightGBM handles 150 features efficiently; early stopping prevents overfitting |
-| Per-horse loop (HorseHistoryFeatures) | ~100s for ~2000 horses | ~120s if adding 5 features to loop | New features should be vectorized where possible; avoid DB queries in loop |
-| Feature cache size | ~200 MB | ~300 MB | Manageable; cache invalidation is manual |
-| Backtest time per year | ~41 min | ~45 min | Acceptable increase |
+| Concern | Current | After v1.7 | Mitigation |
+|---------|---------|-----------|------------|
+| Feature count | ~120 | ~130 (+10) | LightGBM handles this easily |
+| Feature computation time (build_all) | ~3 min | ~3.5 min (+10 race-level computations are cheap vectorized groupby) | Negligible |
+| Memory per surface | ~4.5K races x 120 cols | ~4.5K races x 130 cols | +8% memory |
+| Diagnostic output | ~100 KB | ~200 KB (2 new JSON reports) | Negligible |
+| Backtest time per year | ~41 min | ~42 min (new features add ~1 min) | Acceptable |
+| Training time | ~17 min | ~17.5 min (diagnostics add ~30s) | Acceptable |
 
 ## Sources
 
-- Code analysis: `src/features/feature_engine.py` -- orchestrator, build_all() flow, cache mechanism
-- Code analysis: `src/features/horse_history_features.py` -- per-horse loop, PIT safety via searchsorted
-- Code analysis: `src/features/intra_race_features.py` -- pure function pattern
-- Code analysis: `src/features/odds_dynamics_features.py` -- vectorized computation pattern
-- Code analysis: `src/features/market_bias_features.py` -- market feature computation
-- Code analysis: `src/features/bloodline_features.py` -- PIT-safe bloodline features from career stats
-- Code analysis: `src/features/pace_aptitude_features.py` -- vectorized batch computation with cumulative sums
-- Code analysis: `src/features/course_features.py` -- course-specific features with searchsorted
-- Code analysis: `src/features/sire_features.py` -- sire features with Beta smoothing
-- Code analysis: `src/features/interaction_features.py` -- interaction/pace features
-- Code analysis: `src/features/high_odds_features.py` -- class trajectory, form improvement, env adaptability
-- Code analysis: `src/features/leakage_validators.py` -- PIT safety verification framework
-- Code analysis: `src/features/jockey_context_features.py` -- existing but unwired jockey features
-- Code analysis: `src/features/trainer_context_features.py` -- existing but unwired trainer features
-- Code analysis: `src/models/stage1_ability_model.py` -- Stage1 FEATURE_COLS (50 features)
-- Code analysis: `src/models/two_stage_return_model.py` -- Stage2 FEATURE_COLS (37 features), hit/return split
-- Code analysis: `src/pipelines/training_pipeline.py` -- pipeline orchestration, feature module wiring
-- Code analysis: `config/etl_tables.yaml` -- 103 EveryDB2 tables available for feature extraction
-- Code analysis: `.planning/PROJECT.md` -- v1.6 milestone context
+- Code analysis: `src/features/feature_engine.py` -- build_all() flow, cache mechanism, _map_basic_features()
+- Code analysis: `src/features/market_bias_features.py` -- race-level feature pattern (overround, entropy)
+- Code analysis: `src/features/intra_race_features.py` -- within-race relative features pattern
+- Code analysis: `src/features/record_features.py` -- race-level feature merge pattern (unique-by-race_id)
+- Code analysis: `src/features/relative_features.py` -- within-race z-score/rank pattern
+- Code analysis: `src/pipelines/training_pipeline.py` -- _train_submodel() flow, wide odds merge, diagnostic hooks
+- Code analysis: `src/backtest/engine.py` -- BacktestEngine.run() flow, wide odds merge, feature pre-computation
+- Code analysis: `src/backtest/race_predictor.py` -- RacePredictor.predict() inference chain
+- Code analysis: `src/models/stacked_ensemble.py` -- StackedEnsemble.lgbm_model access for diagnostics
+- Code analysis: `src/db/readers.py` -- load_wide_odds(), load_odds_snapshots()
+- Code analysis: `src/db/odds_extractor.py` -- odds column extraction (tanodds, fukuoddslow, tanninki)
+- Code analysis: `src/domain/types.py` -- POST_RACE_COLS, Feature whitelist
+- LightGBM docs: `Booster.trees_to_dataframe()` API -- returns DataFrame with tree_index, node_depth, split_feature, gain, threshold columns
+- Project context: `.planning/PROJECT.md` -- v1.7 milestone scope and feature targets

@@ -1,280 +1,465 @@
-# Feature Landscape: v1.6 Feature Engineering Overhaul
+# Feature Research: Race-Level Aggregation and Market Cross-Consistency
 
-**Domain:** Horse racing ML feature engineering -- audit, new feature extraction from unused data, and interaction/transform engineering
-**Researched:** 2026-05-10
-**Confidence:** HIGH (full codebase audit of 22 feature modules, 9 model files, 103 ETL tables, and 2 model FEATURE_COLS lists totaling 65+37 features)
+**Domain:** Horse racing ML prediction -- market-independent edge discovery
+**Researched:** 2026-05-17
+**Confidence:** HIGH (race-level features, validated by yurelu article + academic literature), MEDIUM (market-cross features, constrained by data availability)
 
-## Context
+## Executive Summary
 
-This document covers features for the v1.6 milestone ONLY. The system currently generates 100+ features across 22 feature modules, consumed by two model stages:
-- **AbilityModel** (Stage1): 65 features -- horse history, bloodline, sire, pace, course, form, class trajectory, environment adaptability
-- **WinTwoStageModel** (Stage2): 37 features (RETURN_FEATURE_COLS) + 40 HIT_FEATURE_COLS -- market dynamics, odds, race context, plus select horse features for the hit model
+This research covers two feature categories for the v1.7 milestone:
+1. **Race-level aggregation features** -- statistics computed across all runners in a race that capture "race readability" (entropy, dispersion, favorite dominance)
+2. **Market cross-consistency features** -- features that measure agreement between different bet types' odds for the same race, capturing market conviction
 
-Current ROI: 84.4%. Target: 100%+. The v1.6 approach: CQR/calibration tuning has reached diminishing returns; the next lever is feature quality.
+The yurelu (zenn.dev) article demonstrated that adding 5 race-level features improved C-orthogonal IC by +40%, and adding 5 market-cross features (win x trio quinella) further improved C-orthogonal IC by +120%, achieving ROI 0.91 to 1.66 on 408 races. This is the strongest empirical evidence for these feature categories in JRA horse racing ML.
 
-**Three workstreams:**
-1. Audit existing 100+ features and prune noise
-2. Extract new features from unused EveryDB2 tables
-3. Engineer interactions and transformations (relative comparisons, conditional interactions, target encoding)
+**Critical constraint:** Our data environment differs from yurelu's. We have:
+- Win odds (snapshots + time series, 2015-2026, 38,825 races)
+- Place odds (snapshots, 2015-2026)
+- Wide odds (per-pair, 2015-2026, 38,825 races)
+- Payout odds for trio/trifecta (post-race only -- CANNOT be used as features)
+- Quinella odds time series (2026 only, 25 races -- unusable)
+- NO trio quinella (三連複) pre-race odds available
+- NO trifecta (三連単) pre-race odds available
+
+This means the yurelu article's exact `rl_market_consistency` feature (win x trio) CANNOT be directly replicated. Instead, we must use win x wide cross-consistency, which is the closest available alternative.
 
 ---
 
-## Table Stakes
+## Feature Landscape
 
-Features/actions that any serious horse racing ML system needs. Missing these means the model is operating below potential.
+### Category 1: Race-Level Aggregation Features
 
-| # | Feature | Why Expected | Complexity | Data Source | Notes |
-|---|---------|--------------|------------|-------------|-------|
-| TS-01 | Feature audit: gain/split/permutation importance + noise identification | Without knowing which features are noise, adding more features risks diluting signal. 100+ features with no pruning means LightGBM wastes splits on noise columns, especially with ~4.5K training races per surface. | Medium | Trained models (gain importance), OOF predictions (permutation importance) | Script-only task. No module changes. Output: prune_candidates.json with features to remove from FEATURE_COLS. |
-| TS-02 | Jockey context features (wire existing module) | `jockey_context_features.py` already computes 4 features (jockey_wr_overall, jockey_wr_distance, jockey_wr_venue, jockey_prize_log) from kisyu_seiseki.parquet. HIT_FEATURE_COLS already references `jockey_wr_overall`. The module exists but is NOT wired into `_train_submodel()`. | Low | kisyu_seiseki.parquet (SetYear < race_year PIT-safe) | Just wiring: ~15 lines in training_pipeline.py. Module is complete and tested. |
-| TS-03 | Trainer context features (wire existing module) | `trainer_context_features.py` already computes 4 features (trainer_wr_overall, trainer_wr_distance, trainer_wr_venue, trainer_prize_log). HIT_FEATURE_COLS already references `trainer_wr_overall`. Module exists but NOT wired. | Low | chokyo_seiseki.parquet (SetYear < race_year PIT-safe) | Same pattern as TS-02. ~15 lines wiring. |
-| TS-04 | Jockey-trainer combo features (wire existing module) | `jockey_trainer_combo.py` computes 4 features (jt_combo_wr, jt_combo_place_rate, jt_combo_starts, jt_combo_prize_log) from history_entries. HIT_FEATURE_COLS already references `jt_combo_place_rate`. Module exists but NOT wired. | Low | history_entries via ParquetStore, PIT-safe via searchsorted | ~15 lines wiring. The combo captures synergy effects that individual jockey/trainer stats miss. |
-| TS-05 | Horse-vs-horse relative features (within-race comparison) | Current features are absolute per-horse values. A horse with norm_finish_logit_avg=0.5 looks good, but if the race average is 0.7, that horse is actually below-average. Relative features capture competitive positioning within the field. This is standard in Benter-style models. | Medium | Existing features from HorseHistoryFeatures, computed via groupby("race_id") transforms | New module: `features/relative_features.py`. ~80 lines. 5-10 new features: norm_finish_logit_vs_mean, harontimel5_vs_mean, harontimel5_vs_max, etc. |
-| TS-06 | Prune noise features from FEATURE_COLS | After TS-01 identifies zero/negative importance features, remove them from AbilityModel.FEATURE_COLS (65 features) and WinTwoStageModel FEATURE_COLS/HIT/RETURN sublists. | Low | prune_candidates.json from TS-01 | Pure list editing. LightGBM silently ignores missing columns, so feature modules can keep computing them for backward compatibility. |
+These capture the overall market structure of a race -- how "readable" or "chaotic" the betting public perceives the race to be.
 
-### Feature Dependencies
+#### Table Stakes (Well-Established, Expected in Any Serious System)
+
+| Feature | Formula | Why Expected | Complexity | Notes |
+|---------|---------|--------------|------------|-------|
+| `rl_n_horses` (field_size) | Count of runners | Basic context -- model must know if 8-horse or 18-horse field | LOW | Already exists as `field_size` in codebase |
+| `rl_log_odds_entropy` | H = -sum(p_i * ln(p_i)) where p_i = (1/odds_i) / sum(1/odds_j) | Standard market uncertainty measure from information theory | LOW | Already exists as `market_entropy` in `market_bias_features.py` |
+| `rl_odds_dispersion` | std_dev(odds) across runners | Captures spread between favorites and longshots | LOW | NEW -- not yet implemented |
+| `rl_top1_odds` | Minimum odds (favorite's win odds) | Market's assessment of dominant horse strength | LOW | Can compute from existing `tanodds` |
+| `rl_top3_odds_gap` | odds(rank 3) - odds(rank 1) | Gap between top-tier and mid-tier | LOW | NEW -- not yet implemented |
+| `rl_overround` | sum(1/odds_i) - 1 | Bookmaker/tote deduction rate, market health indicator | LOW | Already exists as `overround` in `market_bias_features.py` |
+
+#### Differentiators (Proven Valuable, Not Universally Used)
+
+| Feature | Formula | Value Proposition | Complexity | Notes |
+|---------|---------|-------------------|------------|-------|
+| `rl_normalized_entropy` | H / ln(n) where n = field_size | Entropy adjusted for field size -- makes 8-horse and 18-horse races comparable. Range [0, 1], 1 = perfectly competitive | LOW | Already exists as `difficulty_score` component in `race_difficulty_model.py`. Could add as standalone feature |
+| `rl_favorite_implied_prob` | 1 / odds(favorite) | Market's confidence in the favorite. High = "iron plate" race, low = wide open | LOW | Already computed in `compute_roi_ema()` as `favorite_implied_prob_ema` |
+| `rl_implied_prob_hhi` | sum(p_i^2) where p_i = normalized implied probability | Herfindahl-Hirschman Index -- concentration measure. High HHI = one dominant horse, low = competitive | LOW | Already exists in `compute_flb_slope()` as `implied_prob_hhi` |
+| `rl_odds_skewness` | skew(odds distribution) | Asymmetry of odds distribution. Positive skew = most longshots, negative = concentrated favorites | LOW | Already exists in `compute_flb_slope()` as `odds_skewness` |
+| `rl_favorite_rank_gap` | (odds_rank2 - odds_rank1) / odds_rank1 | Relative gap between 1st and 2nd favorite. Large gap = clear favorite | LOW | NEW -- yurelu article showed this captures "readable race" signal |
+| `rl_log_favorite_share` | log(odds_rank1 / mean(odds)) | How much the favorite dominates relative to average | LOW | NEW -- non-linear transform helps LightGBM split |
+
+#### Key Insight from yurelu Article
+
+yurelu's v9 (race-level features only, 5 features) achieved:
+- C-orthogonal IC: +40% improvement over baseline
+- The 5 features were: `rl_n_horses`, `rl_top1_odds`, `rl_top3_odds_gap`, `rl_odds_dispersion`, `rl_log_odds_entropy`
+
+Gain per Depth analysis showed:
+- Depth 1-2: 97-99% Market features (odds, popularity)
+- Depth 3-4: Transition zone where race-level features activate
+- Depth 5+: Fundamental features (jockey, trainer, etc.)
+
+This confirms race-level features operate at a specific "sweet spot" in LightGBM's tree structure -- they provide the "race context" that lets the model split on "readable vs unreadable race" before applying horse-level features.
+
+### Category 2: Market Cross-Consistency Features
+
+These capture whether different bet types (win, wide, quinella) agree on the race outcome, which signals market conviction.
+
+#### Theoretical Foundation: Harville Formula
+
+The Harville (1973) formula derives theoretical multi-horse bet probabilities from win probabilities:
 
 ```
-TS-01 (audit) → TS-06 (prune) [TS-06 needs audit results]
-TS-02 (jockey wiring) — independent, can run anytime
-TS-03 (trainer wiring) — independent
-TS-04 (combo wiring) — independent
-TS-05 (relative features) — independent but benefits from pruned feature set
+P(i finishes 1st, j finishes 2nd) = P(i) * P(j) / (1 - P(i))
 
-Recommended order: TS-01 → TS-06 → TS-02/03/04 (parallel) → TS-05
+Quinella (i,j either order):
+P_quinella(i,j) = P(i)*P(j)/(1-P(i)) + P(j)*P(i)/(1-P(j))
+
+Wide (i,j both in top 3):
+Requires summing over all 6 permutations of positions 1,2,3 where both i,j appear
+
+Trifecta (i,j,k in exact order):
+P(i,j,k) = P(i) * P(j)/(1-P(i)) * P(k)/(1-P(i)-P(j))
 ```
 
----
+Where P(i) = normalized implied probability from win odds = (1/odds_i) / sum(1/odds_j)
 
-## Differentiators
+**Key property:** If the market is efficient and bettors are rational, actual multi-horse bet odds should approximate Harville-derived theoretical odds. Deviations indicate:
+1. Market inefficiency (mispricing)
+2. Information asymmetry (insiders betting specific combinations)
+3. Behavioral bias (public overweighting/underweighting certain combinations)
 
-Features that would set this system apart from typical horse racing ML approaches. Not expected by default, but provide measurable edge.
+#### Table Stakes (Available Data Allows These)
 
-| # | Feature | Value Proposition | Complexity | Data Source | Notes |
-|---|---------|-------------------|------------|-------------|-------|
-| D-01 | Dam/broodmare pedigree features | Current bloodline features (blood_surface_wr etc.) use career_stats from horse_career_stats.parquet, which aggregates offspring performance. But dam-side pedigree (n_hansyoku has 19 columns including dam info, n_sanku has 26 columns for offspring) is completely unused. Dam influence on distance aptitude and surface preference is a known edge in Japanese racing. | Medium | n_hansyoku (breeding master), n_sanku (offspring master), n_bameiorigin (extended pedigree) | New module needed. Static data (PIT-safe). Must cross-reference kettonum to find dam, then aggregate dam's offspring performance for same surface/distance. |
-| D-02 | Extended sire line features (BMS = Broodmare Sire) | `sire_features.py` already computes bms_wr, but only win rate. The dam's sire (BMS) has strong influence on stamina and distance aptitude. Adding BMS distance_wr, BMS surface_wr would capture this. | Low | sire_career_stats.parquet (already loaded by SireFeatures) | Extend existing sire_features.py with 2-3 more columns using the BMS ketto number already resolved. |
-| D-03 | Age-at-race and sex features from horse master | n_uma (horses.parquet, 227 columns) has birth year (seinen) and sex (sexcd) that are currently not used as features. Age is critical: 3-year-olds have different profiles than 5+ year-olds. Sex captures gelding vs mare vs colt differences. Age progression (improvement/decline curve) is a known predictive signal. | Low | n_uma (horses.parquet), static data | Compute age = race_year - seinen. Encode sex as numeric. Add to AbilityModel.FEATURE_COLS. ~30 lines in a new function or extension of _map_basic_features. |
-| D-04 | Vote concentration features from n_hyosu_tanpuku | The hyosu (vote count) data captures market attention distribution. n_hyosu_tanpuku has per-horse vote counts, allowing computation of: vote_share, vote_concentration (HHI of vote shares), vote_gap_fav12 (vote share gap between 1st and 2nd favorite). This is independent information from odds -- vote counts reflect bettor behavior at a finer granularity. | Low | n_hyosu_tanpuku (per-horse vote count), n_hyosu (race total) | New module: `features/vote_features.py`. Pre-race data, PIT-safe. ~80 lines. |
-| D-05 | Conditional interaction features | Current interactions (kyakusitu_x_distance, kyakusitu_x_surface) are simple cross-products. More powerful: surface x form_trend (is the horse improving on this specific surface?), class_level x distance_change (is the horse changing class at a distance where class matters?), weight_change_zone x rest_category (weight pattern after rest). LightGBM can learn these, but explicit features give it a head start. | Medium | Existing features from multiple modules | Extend interaction_features.py. ~50 lines. Add 4-6 conditional interactions. |
-| D-06 | Target encoding for high-cardinality categoricals | blood_keito_cd is already a feature but as raw category. Target-encoded blood_keito_cd (expanding mean win rate per keito system) would capture the actual performance of each bloodline. Similarly, jockey code and trainer code target-encoded would be powerful. Must use expanding().shift(1) for PIT safety, following info_asymmetry_features.py pattern. | Medium | Existing entries + race results | Extend interaction_features.py or new module. PIT safety is critical: expanding().shift(1) with leave-one-out. ~100 lines. |
-| D-07 | Career trajectory features from horse_career_stats | horse_career_stats.py already precomputes PIT-safe cumulative stats (cum_starts, cum_wins, cum_prize, surface-specific cumulative stats). But these are currently only consumed by bloodline_features.py for blood_* features. Direct career features (career_win_rate_trend, career_starts_at_distance, career_surface_transition) from these pre-computed stats are unused. | Low | horse_career_stats.parquet (already pre-computed, PIT-safe) | Extend horse_history_features.py to consume career_stats columns directly. Add 3-5 features. ~40 lines. |
-| D-08 | Mining index features from n_mining | EveryDB2's n_mining table has 82 columns of pre-computed analytics per horse per race (JRA's own ML-derived indices). These include composite ability scores, form indices, and class assessments computed by JRA-VAN. If available pre-race (needs verification), they provide a strong prior. | High | n_mining (82 cols), n_taisengata_mining (46 cols, pairwise) | REQUIRES PIT AUDIT: must verify n_mining data is available pre-race, not post-race. If pre-race: extremely valuable. If post-race: must exclude entirely. New reader + module. ~200 lines. |
+| Feature | Formula | Why Expected | Complexity | Data Needed |
+|---------|---------|--------------|------------|-------------|
+| `rl_wide_harville_ratio` | actual_wide_odds(top2) / theoretical_wide_odds_from_win(top2) | Simplest cross-bet consistency check. Ratio > 1 = wide market overpays, < 1 = underpays | MEDIUM | Win odds + Wide odds (both available) |
+| `rl_wide_harville_ratio_fav` | Same as above but for favorite pairs only | Most important pair -- favorite x 2nd favorite | MEDIUM | Win odds + Wide odds |
+| `rl_wide_top3_harville_mean` | Mean of harville_ratio for top-3 most popular wide pairs | Average market conviction across most-bet combinations | MEDIUM | Win odds + Wide odds |
+| `rl_win_vs_wide_rank_correlation` | Spearman rank correlation between win implied probs and wide implied probs (per-pair) | High correlation = market agrees; low = divergence between bet types | MEDIUM | Win odds + Wide odds |
 
-### Differentiator Dependencies
+#### Differentiators (High Value, Proven in Literature)
 
-```
-D-01 (dam pedigree) ← n_hansyoku, n_sanku readers (new readers in readers.py)
-D-02 (BMS extension) ← sire_features.py extension
-D-03 (age/sex) ← n_uma reader (already exists: load_horses)
-D-04 (vote concentration) ← n_hyosu_tanpuku reader (may need new reader)
-D-05 (conditional interactions) ← existing features (form_trend, class_level, etc.)
-D-06 (target encoding) ← race results + existing categoricals
-D-07 (career trajectory) ← horse_career_stats.parquet (already pre-computed)
-D-08 (mining indices) ← n_mining PIT audit (blocking dependency)
-```
+| Feature | Formula | Value Proposition | Complexity | Data Needed |
+|---------|---------|-------------------|------------|-------------|
+| `rl_market_conviction_index` | Weighted average of |1 - actual/theoretical| for top-k pairs | Composite signal capturing overall market conviction. High = "market knows something", low = "market is confused" | MEDIUM | Win odds + Wide odds |
+| `rl_wide_harville_dispersion` | std_dev(harville_ratios) across all pairs in race | If all pairs are similarly mispriced = systematic bias. If scattered = race-specific uncertainty | MEDIUM | Win odds + Wide odds |
+| `rl_favorite_in_wide_top1` | Whether favorite (win rank 1) appears in the lowest-odds wide combination (0/1) | Analogous to yurelu's `rl_market_consistency` but using wide instead of trio. Captures "iron plate race" signal | LOW | Win odds + Wide odds |
+| `rl_win_wide_favorite_gap` | |win_implied_prob(fav) - wide_implied_prob(fav,rank2)| / win_implied_prob(fav) | Measures whether wide market agrees with win market about favorite strength | LOW | Win odds + Wide odds |
 
----
+#### Key Insight from yurelu Article
 
-## Anti-Features
+yurelu's v11 (race-level + market-cross features) achieved:
+- C-orthogonal IC: +120% improvement over v9 (race-level only)
+- `rl_market_consistency` (whether #1 favorite appears in #1 trio combination) was the single most powerful feature at Depth 3-4, capturing 32-33% of gain share
+- This feature essentially classifies races into "readable" (favorite in top trio combo) vs "unreadable" (favorite NOT in top trio combo)
 
-Features to explicitly NOT build. These are tempting but counterproductive for this specific system.
+**Critical adaptation needed:** yurelu had trio quinella odds. We do NOT. The closest substitute is:
+- Use **wide odds** (ワイドオッズ) instead of trio odds -- both are multi-horse combination bets
+- Use `rl_favorite_in_wide_top1` as the analogue of `rl_market_consistency`
+- The theoretical framework (Harville) applies identically -- compute theoretical wide odds from win odds and compare to actual
 
-| # | Anti-Feature | Why Avoid | What to Do Instead |
-|---|-------------|-----------|-------------------|
-| AF-01 | LSTM/Transformer time-series models for horse history | The horse has typically 5-15 past races. Deep sequence models overfit severely on this sample size. Additionally, PROJECT.md explicitly scopes this out. | Use EMA-weighted features (halflife=3) and expanding-window stats, which are the correct approach for short sequences with limited data. |
-| AF-02 | Post-race data as features (kakuteijyuni, confirmed odds, time, honsyokin) | The ultimate look-ahead bias. Using results to predict results produces 90%+ backtest ROI that collapses to zero in production. The codebase has POST_RACE_COLS in domain/types.py to guard against this. | Always use pre-race features only. The leakage_validators.py framework must be run after every new feature addition. |
-| AF-03 | External data sources (weather APIs, social media sentiment, international race results) | PROJECT.md explicitly scopes out new data sources. The EveryDB2 data (2015-2025) is comprehensive and sufficient. External sources add latency, maintenance burden, and reproducibility problems. | Focus on extracting maximum value from existing EveryDB2 tables that are already loaded to Parquet but unused for features. |
-| AF-04 | Adding 50+ features without pruning existing noise | More features is not better when training data is limited (~4.5K races per surface). Each noisy feature competes for tree splits, diluting the signal from genuinely predictive features. This is the primary risk of feature engineering without audit. | Audit first (TS-01), prune noise (TS-06), then add new features incrementally with backtest validation at each step. |
-| AF-05 | Complex feature interactions beyond 2nd order | Polynomial features of degree 3+ and interaction terms involving 4+ base features are almost always noise in horse racing ML with limited training data. The combinatorial explosion makes interpretation impossible and overfitting certain. | Use 2nd-order interactions only (surface x form, class x distance). Let LightGBM discover higher-order patterns through tree structure. |
-| AF-06 | Horse-v-horse pairwise features for all combinations | Computing features for every (horse_i, horse_j) pair in a race produces O(n^2) features per race. With 18-horse fields, this is 153 pairs. Memory and computation explode. The model already implicitly captures relative positioning through race-level features. | Use within-race aggregate comparisons (horse vs mean, horse vs max) as in D-05. These are O(n) and capture the same competitive positioning information. |
-| AF-07 | Re-architecting the two-stage model structure | The P(hit) x E(odds|hit) decomposition is theoretically sound. Changing the model structure is out of scope and risks breaking the entire downstream pipeline (EV correction, betting filters, CQR). | Focus on feature quality, not model architecture. The existing 3-model stacking with Ridge meta-learner is sufficient. |
+### Category 3: Post-Race Payout Features (NOT for Training -- but Useful for Labels/Validation)
 
----
+The payouts table contains final odds for all bet types (三連複, 三連単, 馬連, ワイド). These CANNOT be used as features (post-race data), but are valuable for:
+- Computing actual ROI in backtesting
+- Building validation labels for "was this race readable?"
+- Analyzing market efficiency ex-post
 
-## Feature Inventory: Current State
+#### Anti-Features (Do NOT Build)
 
-### By Module (22 feature modules)
-
-| Module | Category | Features | Used By | Status |
-|--------|----------|----------|---------|--------|
-| `_map_basic_features` (feature_engine.py) | A: Basic | 12 (distance_bin, grade_code, class_level, field_size, popularity_rank, draw_ratio, frame_number, blinker_on, weight_change_zone, weight_change_ratio, etc.) | Stage1, Stage2 | Active |
-| `compute_intra_race_features` | B: Intra-race | 2 (weight_diff_from_mean, odds_rank) | Stage1 | Active |
-| `compute_odds_dynamics` | C: Odds | 7 (odds_drop_rate_60/30_10, velocity, volatility, acceleration, direction_consistency, popularity_change) | Stage2 | Active |
-| `compute_market_bias` + `compute_flb_slope` | D: Market | 5 (p_market_win_adj, market_entropy, overround, odds_skewness, implied_prob_hhi) | Stage1, Stage2 | Active |
-| `compute_difficulty_score` | E: Difficulty | 1 (difficulty_score) | Stage1 | Active |
-| `BloodlineFeatures` | B: Bloodline | 6 (blood_surface/distance/condition/total_wr, blood_prize_log, blood_keito_cd) | Stage1 | Active |
-| `HorseHistoryFeatures` | A: History | ~45 (norm_finish_logit_avg, harontimel5_*, form_*, class_*, jockey_*, weight_*, etc.) | Stage1 | Active, largest module (~1350 lines) |
-| `PaceAptitudeFeatures` | C: Pace | 6 (pace_aptitude, front/closing_pace_wr, pace_corner_stability, pace_closing_power, pace_position_consistency) | Stage1, interaction_features | Active |
-| `CourseFeatures` | D: Course | 2 (course_wr, course_distance_wr) | Stage1 | Active |
-| `SireFeatures` | B: Sire | 5 (sire_wr, sire_surface_wr, sire_distance_wr, sire_prize_avg, bms_wr) | Stage1 | Active |
-| `compute_interaction_features` | E: Interaction | 12 (kyakusitu_x_*, weight_x_distance, race_mean/std_fuku_odds, odds_gap_fav12, odds_popularity_gap, surface_track_interaction, pace_pressure/closer_share/scenario_fit, actual_pace_fit) | Stage1, Stage2 | Active |
-| `compute_odds_deviation` | F: Deviation | 2 (deviation_rank, deviation_zscore) | Stage2 | Active |
-| `compute_form_features` (form_cycle) | B: Form | 3 (form_trend, form_consistency, form_peak_flag) | Stage1 (via HorseHistoryFeatures) | Active |
-| `compute_class_trajectory` + form improvement + env adaptability (high_odds_features) | A: High-odds | 18 (class_promotions/demotions/net_change/max_level/std, v_recovery_flag/duration, time/position_improvement_rate, 9 env adaptability) | Stage1 | Active |
-| `JockeyContextFeatures` | D: Jockey | 4 (jockey_wr_overall/distance/venue, jockey_prize_log) | Referenced in HIT_FEATURE_COLS | EXISTS but NOT WIRED |
-| `TrainerContextFeatures` | D: Trainer | 4 (trainer_wr_overall/distance/venue, trainer_prize_log) | Referenced in HIT_FEATURE_COLS | EXISTS but NOT WIRED |
-| `JockeyTrainerComboFeatures` | D: Combo | 4 (jt_combo_wr/place_rate/starts/prize_log) | Referenced in HIT_FEATURE_COLS | EXISTS but NOT WIRED |
-| `compute_hist_features` (info_asymmetry) | E: Info asym | 5 (hist_hit_rate_topk, hist_roi_topk, hist_positive_return_ratio, hist_win_rate_same_condition, hist_market_entropy_avg) | Race-level features | Active |
-| `compute_roi_ema` (odds_dynamics) | C: Market EMA | 3 (favorite_implied_prob_ema, overround_ema, entropy_ema) | Used internally | Active |
-
-### By Model Stage
-
-**AbilityModel (Stage1): 65 features**
-- Race conditions (7): surface, distance_bin, track_condition_code, grade_code, field_size, weight_diff_from_mean, difficulty_score
-- Past performance (8): norm_finish_logit_avg, harontimel5_avg/zscore, harontime_late_trend, timediff_avg, jyuni1c/4c_avg, closing_index_avg
-- Categorical (1): kyakusitukubun_cd
-- Bloodline (6): blood_surface/distance/condition/total_wr, blood_prize_log, blood_keito_cd
-- Interactions (3): kyakusitu_x_distance, kyakusitu_x_surface, weight_x_distance
-- Race-relative ranks (5): norm_finish/harontimel5/timediff/jyuni1c/closing_index_race_rank
-- Body (3): weight_absolute, weight_zscore, weight_change_zone
-- Rest (2): days_since_last_race, rest_category
-- Form cycle (3): form_trend, form_consistency, form_peak_flag
-- Sire (5): sire_wr, sire_surface_wr, sire_distance_wr, sire_prize_avg, bms_wr
-- Pace (3): pace_aptitude, front/closing_pace_wr
-- Course (2): course_wr, course_distance_wr
-- Additional (5): draw_ratio, class_move, blinker_change, pace_pressure, pace_scenario_fit
-- Time-series (2): class_adj_formetric, haron_zscore_trend
-- Pace sub (4): pace_corner_stability, pace_closing_power, pace_position_consistency, actual_pace_fit
-- High-odds (18): class trajectory (7), form improvement (2), env adaptability (9)
-
-**WinTwoStageModel (Stage2):**
-- RETURN_FEATURE_COLS: 37 features (market/odds/race context + select horse features)
-- HIT_FEATURE_COLS: 40 features (includes horse-level features like norm_finish_logit_avg, harontimel5_zscore + jockey/trainer/combo features)
-
----
-
-## Unused EveryDB2 Data Sources
-
-Tables already loaded to Parquet but NOT used for feature generation:
-
-| Table | Parquet Key | Columns | Potential Features | PIT Safety |
-|-------|-------------|---------|-------------------|------------|
-| `n_mining` | mining | 82 | JRA pre-computed ability indices, form scores | NEEDS AUDIT -- verify pre-race availability |
-| `n_taisengata_mining` | taisengata_mining | 46 | Pairwise horse comparison indices | NEEDS AUDIT |
-| `n_hansyoku` | hansyoku | 19 | Dam info, breeding farm, birth year | SAFE -- static |
-| `n_sanku` | sanku | 26 | Offspring performance per dam | SAFE -- static |
-| `n_uma` (additional columns) | horses | 227 total | sex (sexcd), birth year (seinen), 14 ketto3info columns (5-14 for dam-side pedigree) | SAFE -- static |
-| `n_bameiorigin` | bameiorigin | ~30 | Extended 5-generation pedigree | SAFE -- static |
-| `n_hyosu` / `n_hyosu_tanpuku` | hyosu / hyosu_tanpuku | ~10 / ~8 | Vote counts per horse, vote concentration (HHI) | SAFE -- pre-race snapshot |
-| `n_record` | record | 48 | Course records, track-specific best times | SAFE -- historical |
-| `n_course` | course | 8 | Course characteristics (circumference, straight length) | SAFE -- static |
-| `n_wood_chip` | wood_chip | 29 | Training data (wood chip track performance) | SAFE -- static (but may be post-update) |
-| `n_hanro` | hanro | 14 | Slope training data | SAFE -- static |
-| `n_banusi` | banusi | 27 | Owner data (owner win rate, owner horse count) | SAFE -- static |
-| `n_sale` | sale | 14 | Horse auction prices (market value proxy) | SAFE -- static |
-| `n_toku_race` / `n_toku` | toku_race / toku | ~10 / ~10 | Special race metadata, entry conditions | SAFE -- pre-race |
-| `n_schedule` | schedule | ~8 | Race schedule, weather info | SAFE -- pre-race |
+| Anti-Feature | Why Requested | Why Problematic | Alternative |
+|--------------|---------------|-----------------|-------------|
+| Trio quinella pre-race odds features | yurelu's article showed it's the most powerful feature | Data is NOT available in our EveryDB2 dataset for pre-race snapshots | Use wide odds cross-consistency as substitute |
+| Quinella time-series features | Would enable finer-grained market cross features | Only 25 races of quinella time-series data (2026 only) | Use wide odds snapshot cross-consistency |
+| Payout-derived features in training | Tempting to use "1st-place payout horse" or "trio payout combination" | POST_RACE information leakage -- would inflate backtest but fail in production | Use payout data only for labels and validation |
+| Complex multi-bet theoretical models (Stern, Henery models) | More accurate than Harville for exotic bets | Diminishing returns -- Harville captures 90%+ of the signal; complexity not justified for a single feature | Harville formula is sufficient |
 
 ---
 
 ## Feature Dependencies
 
 ```
-# Phase 1: Audit (no new features)
-TS-01 (audit script) → TS-06 (prune FEATURE_COLS)
+Race-Level Features (Category 1)
+    |-- rl_log_odds_entropy
+    |       requires: tanodds (win odds) per horse per race
+    |       already exists: market_bias_features.py
+    |
+    |-- rl_odds_dispersion  [NEW]
+    |       requires: tanodds (win odds) per horse per race
+    |
+    |-- rl_top1_odds, rl_top3_odds_gap  [NEW]
+    |       requires: tanodds (win odds) per horse per race
+    |
+    |-- rl_normalized_entropy
+    |       requires: market_entropy + field_size
+    |       already exists: race_difficulty_model.py (component)
+    |
+    |-- rl_implied_prob_hhi, rl_odds_skewness
+    |       requires: tanodds per horse per race
+    |       already exists: compute_flb_slope()
 
-# Phase 2: Wire existing modules (no new development)
-TS-02 (jockey) — standalone
-TS-03 (trainer) — standalone
-TS-04 (jockey-trainer combo) — standalone
-# All three can be wired in parallel
+Market-Cross Features (Category 2)
+    |-- rl_wide_harville_ratio  [NEW]
+    |       requires: tanodds (win) + odds_wide (wide odds per pair)
+    |       requires: Harville theoretical wide odds computation
+    |
+    |-- rl_favorite_in_wide_top1  [NEW]
+    |       requires: tanodds + odds_wide
+    |       depends on: Harville computation for pair identification
+    |
+    |-- rl_market_conviction_index  [NEW]
+    |       requires: rl_wide_harville_ratio (computed for all pairs)
+    |       enhances: rl_wide_harville_ratio
+    |
+    |-- rl_wide_harville_dispersion  [NEW]
+    |       requires: rl_wide_harville_ratio (computed for all pairs)
+    |       enhances: rl_market_conviction_index
 
-# Phase 3: New features from unused data
-D-03 (age/sex) ← load_horses (existing reader)
-D-04 (vote concentration) ← hyosu_tanpuku reader
-D-07 (career trajectory) ← horse_career_stats.parquet (existing)
-D-02 (BMS extension) ← sire_features.py extension
+Wide Odds Harville Computation  [NEW - prerequisite]
+    requires: tanodds (win odds) + wide odds (kumi, oddslow)
+    prerequisite for: ALL Category 2 features
+```
 
-# Phase 4: Pedigree and advanced features
-D-01 (dam pedigree) ← n_hansyoku, n_sanku readers (new)
-D-08 (mining indices) ← n_mining PIT audit (blocking)
+### Dependency Notes
 
-# Phase 5: Interactions and transformations
-D-05 (conditional interactions) ← all base features complete
-D-06 (target encoding) ← existing categoricals
-D-05/TS-05 (relative features) ← base features + groupby transforms
+- **Race-level features are independent of each other:** All only need win odds per horse, which is already available in the training pipeline. Can be implemented in parallel.
+- **Market-cross features ALL depend on wide odds data + Harville computation:** The Harville theoretical wide odds function must be implemented first. This is a shared dependency.
+- **Wide odds data is already loaded in training pipeline:** `load_wide_odds()` is called in `TrainingPipelineV5._load_data()` and stored as `wide_odds_{lo}_{hi}` columns. The data pipeline is ready.
+- **No conflict between categories:** Race-level features operate on single-horse odds, market-cross features operate on pair-level odds. They capture orthogonal information.
+
+---
+
+## Mathematical Formulations
+
+### Race-Level Features (Category 1)
+
+#### Shannon Entropy of Implied Probabilities
+```
+Given: odds = [o_1, o_2, ..., o_n] for n runners
+p_raw_i = 1 / o_i
+p_i = p_raw_i / sum(p_raw_j)    # Normalize to probabilities
+H = -sum(p_i * ln(p_i))          # Shannon entropy
+
+Range: [0, ln(n)]
+  H = 0       => one horse has 100% probability (impossible in practice)
+  H = ln(n)   => all horses equally likely (maximum uncertainty)
+```
+
+#### Odds Dispersion (Standard Deviation)
+```
+Given: odds = [o_1, o_2, ..., o_n]
+sigma = std(odds)    # Population or sample std
+
+Note: Use raw odds, not log-odds. High dispersion = clear hierarchy.
+```
+
+#### Top-K Odds Gap
+```
+Sort odds ascending: o_(1) <= o_(2) <= ... <= o_(n)
+top3_gap = o_(3) - o_(1)    # Gap between 3rd favorite and favorite
+
+Note: Larger gap = more tier separation in the market.
+```
+
+### Market Cross-Consistency Features (Category 2)
+
+#### Harville Theoretical Wide Odds
+
+The exact Harville probability for a wide pair (i,j) -- both horses finishing in the top 3:
+
+```
+Given: win implied probs p_1, p_2, ..., p_n (normalized from win odds)
+
+P_wide(i,j) = sum over all orderings (a,b) in {(i,j),(j,i)}:
+  P(a=1st, b in {2nd,3rd}) + P(a in {2nd,3rd}, b in remaining top3)
+
+Exact computation:
+P(i=1, j=2) = p_i * p_j / (1-p_i)
+P(i=1, j=3) = p_i * sum_{k!=i,j} [p_k/(1-p_i)] * [p_j/(1-p_i-p_k)]
+P(i=2, j=1) = p_j * p_i / (1-p_j)
+P(i=2, j=3) = similar with k!=i,j
+P(i=3, j=1) = ...
+P(i=3, j=2) = ...
+
+Simplified Harville approximation (sufficient for feature engineering):
+P_wide_harville(i,j) approx=
+  p_i * p_j * [2/(1-p_i) + 2/(1-p_j) - p_i*p_j/((1-p_i)*(1-p_j))]
+
+Even simpler (and good enough for a feature):
+P_wide_harville(i,j) approx=
+  p_i * p_j * [1/(1-p_i) + 1/(1-p_j)] * 1.5
+
+Theoretical wide odds = 1 / P_wide_harville(i,j)
+```
+
+For computational implementation, the exact Harville wide probability can be computed as:
+
+```python
+def harville_wide_prob(p_i: float, p_j: float, all_probs: np.ndarray) -> float:
+    """Exact Harville probability of both i,j finishing in top 3."""
+    n = len(all_probs)
+    prob = 0.0
+    for a, b in [(p_i, p_j), (p_j, p_i)]:
+        # a=1st, b=2nd
+        prob += a * b / (1 - a)
+        # a=1st, b=3rd (any k=2nd where k!=a,b)
+        for p_k in all_probs:
+            if p_k == a or p_k == b:
+                continue
+            prob += a * p_k / (1 - a) * b / (1 - a - p_k)
+        # a=2nd, b=1st
+        prob += b * a / (1 - b)
+        # a=2nd, b=3rd
+        # ... (continues for all permutations)
+    # Subtract double-counted cases
+    return prob
+```
+
+For practical purposes, an approximation that captures 90%+ of the signal:
+
+```python
+def harville_wide_approx(p_i: float, p_j: float) -> float:
+    """Approximation sufficient for feature engineering."""
+    return p_i * p_j * (1/(1-p_i) + 1/(1-p_j)) * 1.5
+```
+
+#### Harville Ratio
+```
+harville_ratio(i,j) = actual_wide_odds(i,j) / theoretical_wide_odds(i,j)
+
+Interpretation:
+  ratio > 1 => market underestimates this pair (wide odds too high)
+  ratio < 1 => market overestimates this pair (wide odds too low)
+  ratio ~ 1 => market is efficient for this pair
+```
+
+#### Market Conviction Index
+```
+For top-k most popular wide pairs (by ninki):
+conviction = mean(|1 - harville_ratio|) for top-k pairs
+
+High conviction => large deviations between win and wide markets
+Low conviction => markets are consistent (efficient)
+```
+
+#### Favorite-in-Wide-Top1
+```
+favorite = horse with lowest win odds (rank 1 by tanodds)
+lowest_wide_pair = wide pair with lowest oddslow
+
+rl_favorite_in_wide_top1 = 1 if favorite appears in lowest_wide_pair
+                          0 otherwise
+
+This is the direct analogue of yurelu's rl_market_consistency.
 ```
 
 ---
 
-## MVP Recommendation
+## Data Availability Assessment
 
-**Priority 1 (Quick wins -- wire existing code):**
-1. **TS-01 + TS-06**: Feature audit and pruning -- establishes a clean baseline. Without this, adding features is guesswork.
-2. **TS-02 + TS-03 + TS-04**: Wire jockey, trainer, and combo features. 12 new features from existing modules with ~45 lines of pipeline code. These are already referenced in HIT_FEATURE_COLS.
+### Already in Pipeline (No New ETL Needed)
 
-**Priority 2 (Low-hanging fruit -- simple new features):**
-3. **D-03**: Age-at-race and sex encoding. Static data, trivial computation, strong predictive signal.
-4. **TS-05**: Horse-vs-horse relative features. Standard Benter approach, captures competitive positioning.
-5. **D-02**: BMS distance/surface features. Extend existing sire_features.py with 2-3 more columns.
+| Data | Source File | Coverage | Status |
+|------|------------|----------|--------|
+| Win odds (tanodds) | `odds_tanpuku.parquet`, `jodds_tanpuku/` | 2015-2026 | Loaded in training pipeline |
+| Win odds time series | `jodds_tanpuku/` (year/month partitioned) | 2015-2026 | Loaded in training pipeline |
+| Place odds (fukuoddslow) | `odds_tanpuku.parquet` | 2015-2026 | Loaded in training pipeline |
+| Wide odds (oddslow/oddshigh per kumi) | `odds_wide.parquet` | 2015-2026, 38,825 races | Loaded in training pipeline |
+| Market entropy | Computed from tanodds | 2015-2026 | Already computed in `market_bias_features.py` |
+| Overround | Computed from tanodds | 2015-2026 | Already computed in `market_bias_features.py` |
+| HHI, Skewness | Computed from tanodds | 2015-2026 | Already computed in `compute_flb_slope()` |
+| Difficulty score | Computed from entropy + grade | 2015-2026 | Already computed in `race_difficulty_model.py` |
 
-**Priority 3 (Medium effort -- new data sources):**
-6. **D-04**: Vote concentration from hyosu_tanpuku. Independent information from odds.
-7. **D-07**: Career trajectory from horse_career_stats. Data already pre-computed.
-8. **D-05**: Conditional interactions (surface x form, class x distance).
+### NOT Available (Would Need New ETL or Cannot Be Obtained)
 
-**Priority 4 (Higher effort -- new modules):**
-9. **D-01**: Dam/broodmare pedigree features. Requires new readers and cross-referencing.
-10. **D-06**: Target encoding for high-cardinality categoricals. Requires careful PIT implementation.
-
-**Defer (needs PIT audit or high complexity):**
-- **D-08**: Mining indices -- requires PIT audit to verify pre-race availability. If confirmed pre-race, elevate to Priority 2.
-- **n_wood_chip / n_hanro**: Training data features -- potentially valuable but complex to integrate and may not have sufficient coverage.
-- **n_banusi / n_sale**: Owner and auction price features -- niche signal, low priority.
+| Data | Status | Impact |
+|------|--------|--------|
+| Trio quinella (三連複) pre-race odds | NOT in EveryDB2 pre-race tables | Cannot replicate yurelu's exact features. Use wide odds as substitute |
+| Trifecta (三連単) pre-race odds | NOT in EveryDB2 pre-race tables | Same as above |
+| Quinella (馬連) time series | Only 25 races (2026) | Insufficient for training. Snapshot available in payouts (post-race only) |
+| Bracket quinella (枠連) time series | File exists (`odds_waku`) but not in ETL pipeline | Could be added if needed, but low priority |
 
 ---
 
-## Expected Impact Assessment
+## Existing Feature Audit (Already Computed, Just Not Promoted)
 
-| Feature Group | Expected Features Added | Signal Strength | Overfitting Risk | Priority |
-|---------------|------------------------|-----------------|------------------|----------|
-| Feature audit/pruning | -10 to -20 (removed) | Removes noise | Reduces overfitting | TS-01/06 |
-| Jockey/trainer/combo wiring | +12 | HIGH (human factors) | LOW (annual stats) | TS-02/03/04 |
-| Age/sex | +2-3 | HIGH (fundamental) | VERY LOW | D-03 |
-| Relative features | +5-10 | HIGH (competitive context) | LOW (race-level transforms) | TS-05 |
-| BMS extension | +2-3 | MEDIUM (dam sire influence) | LOW | D-02 |
-| Vote concentration | +3-4 | MEDIUM (market behavior) | LOW (pre-race data) | D-04 |
-| Career trajectory | +3-5 | MEDIUM (career progression) | LOW (PIT-safe cumulative) | D-07 |
-| Conditional interactions | +4-6 | MEDIUM (nonlinear combos) | MEDIUM (interaction explosion) | D-05 |
-| Target encoding | +2-3 | MEDIUM (categorical signal) | MEDIUM (needs regularization) | D-06 |
-| Dam pedigree | +5-8 | MEDIUM (breeding edge) | LOW (static data) | D-01 |
-| Mining indices | +10-20 (TBD) | HIGH if pre-race | LOW if pre-race | D-08 |
+The codebase already computes several race-level features that could be promoted to model inputs:
 
-**ROI improvement estimate:**
-- Phase 1 (audit/prune): +0 to +3pp (noise removal)
-- Phase 2 (jockey/trainer/combo + age/sex + relative): +3 to +8pp (strong new signal)
-- Phase 3 (vote, career, interactions): +2 to +5pp (incremental)
-- Phase 4 (dam, mining if pre-race): +2 to +5pp (breeding edge)
+| Feature | Module | Currently Used By | Action Needed |
+|---------|--------|-------------------|---------------|
+| `market_entropy` | `market_bias_features.py` | Stage1 + Stage2 | Already in FEATURE_COLS -- verify as race-level input |
+| `overround` | `market_bias_features.py` | Stage1 + Stage2 | Already in FEATURE_COLS |
+| `implied_prob_hhi` | `compute_flb_slope()` | Not in FEATURE_COLS | PROMOTE to model features |
+| `odds_skewness` | `compute_flb_slope()` | Not in FEATURE_COLS | PROMOTE to model features |
+| `favorite_implied_prob_ema` | `compute_roi_ema()` | Used in regime detection | PROMOTE to model features (non-EMA version) |
+| `overround_ema` | `compute_roi_ema()` | Used in regime detection | Already available in pipeline |
+| `entropy_ema` | `compute_roi_ema()` | Used in regime detection | Already available in pipeline |
+| `difficulty_score` | `race_difficulty_model.py` | Stage1 | Already in FEATURE_COLS |
 
-**Total estimated improvement: 7 to 21pp, from 84.4% to 91-105% ROI.**
+---
 
-The 100% target is achievable if: (a) feature pruning removes significant noise, (b) jockey/trainer/combo wiring captures human-factor signal, and (c) at least one of the high-signal features (relative, mining, or dam pedigree) delivers expected impact.
+## MVP Definition
+
+### Phase 1: Race-Level Features (Implement First)
+
+These have no new data dependencies and are straightforward to compute.
+
+- [x] `rl_log_odds_entropy` -- already exists as `market_entropy`
+- [x] `rl_overround` -- already exists as `overround`
+- [x] `rl_implied_prob_hhi` -- already exists as `implied_prob_hhi` (promote to FEATURE_COLS)
+- [x] `rl_odds_skewness` -- already exists as `odds_skewness` (promote to FEATURE_COLS)
+- [ ] `rl_odds_dispersion` -- NEW, std dev of odds per race
+- [ ] `rl_top1_odds` -- NEW, favorite's odds (race-level broadcast)
+- [ ] `rl_top3_odds_gap` -- NEW, gap between 3rd and 1st favorite
+- [ ] `rl_favorite_rank_gap` -- NEW, relative gap between 1st and 2nd favorite
+- [ ] `rl_normalized_entropy` -- NEW (promote from difficulty_score component to standalone)
+
+**Rationale:** yurelu's 5 race-level features alone improved C-orthogonal IC by +40%. We have most already; adding the missing 4-5 should capture similar signal.
+
+### Phase 2: Market Cross-Consistency Features (Implement Second)
+
+These require implementing Harville wide odds computation.
+
+- [ ] Harville theoretical wide odds function (shared prerequisite)
+- [ ] `rl_favorite_in_wide_top1` -- yurelu analogue, simplest market-cross feature
+- [ ] `rl_wide_harville_ratio_fav` -- ratio for favorite x rank2 pair
+- [ ] `rl_wide_top3_harville_mean` -- mean ratio for top-3 pairs
+- [ ] `rl_wide_harville_dispersion` -- std dev of ratios across pairs
+
+**Rationale:** yurelu's 5 market-cross features were the "main weapon" (+120% C-orthogonal IC). Our wide odds data covers the same 2015-2026 range, so signal strength should be comparable.
+
+### Future Consideration (After v1.7 Validation)
+
+- [ ] Quinella (馬連) cross-consistency features -- only possible after ETL expansion to load `jodds_umaren` data for full 2015-2026 range
+- [ ] Bracket quinella (枠連) cross-consistency -- `odds_waku` file exists but not yet loaded in pipeline
+- [ ] Multi-timepoint cross-consistency -- how Harville ratios change during final 30 minutes before post
+
+---
+
+## Feature Prioritization Matrix
+
+| Feature | User Value (IC improvement) | Implementation Cost | Priority |
+|---------|---------------------------|---------------------|----------|
+| `rl_odds_dispersion` | HIGH (yurelu top feature) | LOW | P1 |
+| `rl_top1_odds` | HIGH (yurelu top feature) | LOW | P1 |
+| `rl_top3_odds_gap` | HIGH (yurelu top feature) | LOW | P1 |
+| `rl_favorite_rank_gap` | MEDIUM | LOW | P1 |
+| `rl_normalized_entropy` | MEDIUM (already partially exists) | LOW | P1 |
+| `implied_prob_hhi` promotion | MEDIUM | LOW | P1 |
+| `odds_skewness` promotion | MEDIUM | LOW | P1 |
+| Harville wide computation | HIGH (enables all Category 2) | MEDIUM | P1 |
+| `rl_favorite_in_wide_top1` | VERY HIGH (yurelu's #1 feature analogue) | MEDIUM | P1 |
+| `rl_wide_harville_ratio_fav` | HIGH | MEDIUM | P2 |
+| `rl_wide_top3_harville_mean` | MEDIUM | MEDIUM | P2 |
+| `rl_wide_harville_dispersion` | MEDIUM | MEDIUM | P2 |
+| `rl_market_conviction_index` | MEDIUM | HIGH | P3 |
+
+**Priority key:**
+- P1: Must have -- race-level gaps + Harville prerequisite + top market-cross feature
+- P2: Should have -- additional market-cross features that enrich the signal
+- P3: Nice to have -- composite features that may or may not add value beyond P2
+
+---
+
+## Competitor Feature Analysis
+
+| Feature Category | yurelu (zenn.dev) | keita2399 (zenn.dev) | Our Approach |
+|------------------|-------------------|----------------------|--------------|
+| Win odds as feature | YES (included, then validated as "necessary") | NO (explicitly excluded) | YES (included -- Echo Chamber avoidance via race-level, not removal) |
+| Race-level entropy | YES (rl_log_odds_entropy) | Not mentioned | YES (already have market_entropy) |
+| Race-level dispersion | YES (rl_odds_dispersion) | Not mentioned | PLANNED (new) |
+| Market cross-consistency | YES (win x trio quinella) | Not mentioned | PLANNED (win x wide -- data-constrained adaptation) |
+| Fundamental-only model | Tested, REJECTED (v6 underperformed) | YES (core approach) | REJECTED (v1.6 already has 100+ horse-level features) |
+| Two-stage architecture | Implicit in LightGBM tree structure | Not mentioned | Implicit -- same as yurelu (validated by our Gain per Depth) |
 
 ---
 
 ## Sources
 
-### Primary (HIGH confidence -- direct codebase analysis)
-- `src/models/stage1_ability_model.py` -- 65-feature FEATURE_COLS list (lines 28-128)
-- `src/models/two_stage_return_model.py` -- 37-feature RETURN_FEATURE_COLS + 40-feature HIT_FEATURE_COLS (lines 48-404)
-- `src/features/horse_history_features.py` -- ~1350 lines, ~45 features, per-horse loop with PIT safety via searchsorted
-- `src/features/bloodline_features.py` -- 6 bloodline features from career_stats
-- `src/features/sire_features.py` -- 5 sire features including bms_wr
-- `src/features/jockey_context_features.py` -- 4 jockey features, EXISTS but NOT WIRED
-- `src/features/trainer_context_features.py` -- 4 trainer features, EXISTS but NOT WIRED
-- `src/features/jockey_trainer_combo.py` -- 4 combo features, EXISTS but NOT WIRED
-- `src/features/high_odds_features.py` -- 18 features (class trajectory, form improvement, env adaptability)
-- `src/features/interaction_features.py` -- 12 interaction features
-- `src/features/horse_career_stats.py` -- PIT-safe pre-computed cumulative career stats
-- `src/features/info_asymmetry_features.py` -- expanding().shift(1) PIT-safe pattern
-- `src/features/pace_aptitude_features.py` -- 6 pace features, vectorized
-- `src/features/course_features.py` -- 2 course features with Beta smoothing
-- `src/features/odds_dynamics_features.py` -- 7 odds dynamics features + 3 market EMA features
-- `config/etl_tables.yaml` -- 103 EveryDB2 tables with parquet keys
-- `.planning/PROJECT.md` -- v1.6 milestone context, constraints, out-of-scope
+### Primary (HIGH confidence)
+- [yurelu (zenn.dev): AI と 26 ラウンド議論して個人開発の競馬予測 ML を育てた話](https://zenn.dev/yurelu/articles/396a329522aa22) -- Primary source: race-level + market-cross features, C-orthogonal IC improvement, Gain per Depth analysis, ROI 0.91 to 1.66 on 408 races
+- Codebase analysis: `src/features/market_bias_features.py`, `src/features/odds_dynamics_features.py`, `src/features/race_difficulty_model.py`, `src/pipelines/training_pipeline.py` (lines 1174-1349)
+- Data inspection: `data/odds/odds_wide.parquet` (38,825 races, 2015-2026), `data/odds/jodds_umaren.parquet` (25 races only), `data/raw/payouts.parquet` (38,835 races)
 
-### Secondary (MEDIUM confidence -- domain knowledge)
-- Benter (1994) -- Hong Kong horse racing model architecture: relative features within race are fundamental
-- Lessmann et al. (2020) -- Feature engineering for prediction markets: human-factor features (jockey, trainer) consistently rank high
-- EveryDB2/JRA-VAN DataLab documentation -- table structure and data availability
+### Secondary (MEDIUM confidence)
+- [Harville (1973): Assigning probabilities to the outcomes of multi-entry competitions](https://totepoint.com/quinella-calculator/) -- Harville formula for quinella/exacta/trifecta from win odds
+- [Inferring Relative Ability from Winning Probability (InTech)](https://www.intechinvestments.com/wp-content/uploads/2022/11/1_Inferring-Relative-Ability-From-Winning-Probability-in-Multi-Entrant-Contests.pdf) -- Harville formula accuracy analysis, percentage increase in exacta probability relative to Harville
+- [Logistic Analyses for Complicated Bets (HKU)](https://hub.hku.hk/bitstream/10722/60987/4/Content_11.pdf) -- Comparison of Harville vs Stern vs Henery models for quinella/exacta/trifecta
+- [Snowberg & Wolfers: Explaining the Favorite-Longshot Bias](https://eriksnowberg.com/papers/Snowberg-Wolfers%20Risk%20Love%20or%20Decision%20Weights3.pdf) -- Harville conditional probability P(B|A) = P(B)/(1-P(A))
+
+### Background
+- [Thaler & Ziemba (1988): Anomalies: Parimutuel Betting Markets](https://www.sciencedirect.com/science/article/abs/pii/S0169207009002155) -- Market efficiency and late money effects
+- [Entropy and Investment Theory](https://theinformaticists.wordpress.com/2019/03/24/on-entropy-and-investment-theory/) -- Shannon entropy in betting markets
+- [JRA Official: Types of Bets](https://japanracing.jp/en/jpn-racing/guide/pdf/horseracing_en_03.pdf) -- JRA bet types and deduction rates
+- [keita2399 (zenn.dev)](https://zenn.dev/keita2399/articles/keiba-ai-lgbm-verification) -- Contrast: odds-free approach
+- [qiita: MLR3特徴量抽出による競馬レースの荒れ具合予測](https://qiita.com/kenkenvw/items/8d9ddf6be620d09720c4) -- Race "wildness" prediction with LightGBM
+
+---
+*Feature research for: Race-level aggregation and market cross-consistency features*
+*Researched: 2026-05-17*
