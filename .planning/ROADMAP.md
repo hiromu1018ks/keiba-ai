@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.6
 milestone_name: Feature Engineering Overhaul
-status: executing
-stopped_at: Phase 28 context gathered
-last_updated: "2026-05-15T22:22:10.517Z"
-last_activity: 2026-05-15 -- Phase 28 execution started
+status: milestone-complete
+stopped_at: Phase 28 complete — v1.6 milestone shipped
+last_updated: "2026-05-17T06:22:00.000Z"
+last_activity: 2026-05-17 -- Phase 28 completed, v1.6 milestone shipped
 progress:
   total_phases: 6
-  completed_phases: 5
+  completed_phases: 6
   total_plans: 14
-  completed_plans: 12
-  percent: 86
+  completed_plans: 14
+  percent: 100
 ---
 
 # Project State
@@ -21,16 +21,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-05-10)
 
 **Core value:** 単勝モデルのバックテストROIを100%超えにすること
-**Current focus:** Phase 28 — validation-freeze
+**Current focus:** Phase 28 complete — v1.6 milestone shipped
 
 ## Current Position
 
-Phase: 28 (validation-freeze) — EXECUTING
-Plan: 1 of 2
-Status: Executing Phase 28
-Last activity: 2026-05-15 -- Phase 28 execution started
+Phase: 28 (validation-freeze) — COMPLETE
+Plan: 2 of 2
+Status: v1.6 milestone complete — ROI v1.5: 84.4% -> v1.6: 85.7% (+1.3pp)
+Last activity: 2026-05-17 -- Phase 28 completed
 
-Progress: [█████████░] 89%
+Progress: [██████████] 100%
 
 ## Performance Metrics
 
@@ -71,7 +71,17 @@ Recent decisions affecting current work:
 
 ### Blockers/Concerns
 
-None — ready for Phase 26 planning
+None — v1.6 milestone complete
+
+### v1.6 Result
+
+**ROI v1.5: 84.4% -> v1.6: 85.7% (+1.3pp improvement). 100% target not reached.**
+
+Multi-year BT (2023/2024/2025):
+- 2023: ROI 87.6% (2,256 bets)
+- 2024: ROI 76.1% (2,389 bets)
+- 2025: ROI 93.6% (2,403 bets)
+- Overall: ROI 85.7% (7,048 bets, -100,530 yen)
 
 ## Deferred Items
 
@@ -86,6 +96,6 @@ Items acknowledged and deferred at milestone close:
 
 ## Session Continuity
 
-Last session: 2026-05-15T07:51:15.831Z
-Stopped at: Phase 28 context gathered
-Resume file: .planning/phases/28-validation-freeze/28-CONTEXT.md
+Last session: 2026-05-17T06:22:00.000Z
+Stopped at: Phase 28 complete — v1.6 milestone shipped
+Resume file: N/A
