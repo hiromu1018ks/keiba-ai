@@ -41,7 +41,7 @@ tables:
     parquet_key: odds_wide
     category: odds
     type: raced
-    pk: [year, monthday, jyocd, kaiji, nichiji, racenum, umaban1, umaban2]
+    pk: [year, monthday, jyocd, kaiji, nichiji, racenum, kumi]
 
   - db_table: n_jodds_tanpuku
     parquet_key: jodds_tanpuku
@@ -72,7 +72,7 @@ tables:
     parquet_key: odds_umaren
     category: odds
     type: raced
-    pk: [year, monthday, jyocd, kaiji, nichiji, racenum, umaban1, umaban2]
+    pk: [year, monthday, jyocd, kaiji, nichiji, racenum, kumi]
 
   - db_table: n_odds_umatan_head
     parquet_key: odds_umatan_head
@@ -84,7 +84,7 @@ tables:
     parquet_key: odds_umatan
     category: odds
     type: raced
-    pk: [year, monthday, jyocd, kaiji, nichiji, racenum, umaban1, umaban2]
+    pk: [year, monthday, jyocd, kaiji, nichiji, racenum, kumi]
 
   - db_table: n_odds_sanren_head
     parquet_key: odds_sanren_head
@@ -96,7 +96,7 @@ tables:
     parquet_key: odds_sanren
     category: odds
     type: raced
-    pk: [year, monthday, jyocd, kaiji, nichiji, racenum, umaban1, umaban2, umaban3]
+    pk: [year, monthday, jyocd, kaiji, nichiji, racenum, kumi]
 
   - db_table: n_odds_sanrentan_head
     parquet_key: odds_sanrentan_head
@@ -108,7 +108,7 @@ tables:
     parquet_key: odds_sanrentan
     category: odds
     type: raced
-    pk: [year, monthday, jyocd, kaiji, nichiji, racenum, umaban1, umaban2, umaban3]
+    pk: [year, monthday, jyocd, kaiji, nichiji, racenum, kumi]
 
   - db_table: n_odds_wide_head
     parquet_key: odds_wide_head
@@ -367,7 +367,7 @@ tables:
     parquet_key: odds_wide
     category: odds
     type: delta
-    pk: [year, monthday, jyocd, kaiji, nichiji, racenum, umaban1, umaban2]
+    pk: [year, monthday, jyocd, kaiji, nichiji, racenum, kumi]
 
   - db_table: s_jodds_tanpuku
     parquet_key: jodds_tanpuku
@@ -397,7 +397,7 @@ tables:
     parquet_key: odds_umaren
     category: odds
     type: delta
-    pk: [year, monthday, jyocd, kaiji, nichiji, racenum, umaban1, umaban2]
+    pk: [year, monthday, jyocd, kaiji, nichiji, racenum, kumi]
 
   - db_table: s_odds_umatan_head
     parquet_key: odds_umatan_head
@@ -409,7 +409,7 @@ tables:
     parquet_key: odds_umatan
     category: odds
     type: delta
-    pk: [year, monthday, jyocd, kaiji, nichiji, racenum, umaban1, umaban2]
+    pk: [year, monthday, jyocd, kaiji, nichiji, racenum, kumi]
 
   - db_table: s_odds_sanren_head
     parquet_key: odds_sanren_head
@@ -421,7 +421,7 @@ tables:
     parquet_key: odds_sanren
     category: odds
     type: delta
-    pk: [year, monthday, jyocd, kaiji, nichiji, racenum, umaban1, umaban2, umaban3]
+    pk: [year, monthday, jyocd, kaiji, nichiji, racenum, kumi]
 
   - db_table: s_odds_sanrentan_head
     parquet_key: odds_sanrentan_head
@@ -433,7 +433,7 @@ tables:
     parquet_key: odds_sanrentan
     category: odds
     type: delta
-    pk: [year, monthday, jyocd, kaiji, nichiji, racenum, umaban1, umaban2, umaban3]
+    pk: [year, monthday, jyocd, kaiji, nichiji, racenum, kumi]
 
   - db_table: s_odds_wide_head
     parquet_key: odds_wide_head
