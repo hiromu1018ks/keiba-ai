@@ -219,15 +219,21 @@ class TestMergeDelta:
 
 class TestRunFullLoad:
     @patch("db.etl._read_db_table")
-    def test_processes_all_raced_and_master_tables(self, mock_read):
+    @patch("db.etl.pd.read_sql")
+    def test_processes_all_raced_and_master_tables(self, mock_read_sql, mock_read):
         """Full load processes raced + master tables, skips delta tables"""
         from db.etl import run_full_load
+        from db.parquet_store import ParquetStore
 
-        mock_store = MagicMock()
         mock_engine = MagicMock()
+        mock_read_sql.return_value = pd.DataFrame(
+            {"year": ["2024"], "monthday": ["0101"], "col1": ["val"]}
+        )
         mock_read.return_value = pd.DataFrame(
             {"year": ["2024"], "monthday": ["0101"], "col1": ["val"]}
         )
+
+        store = ParquetStore(data_dir=str(Path(__file__).parent / "tmp_etl_test"))
 
         config = [
             {
@@ -253,12 +259,16 @@ class TestRunFullLoad:
             },
         ]
 
-        result = run_full_load(mock_store, mock_engine, config, "20240101", "20241231")
+        try:
+            result = run_full_load(store, mock_engine, config, "20240101", "20241231")
 
-        # Should have processed 2 tables (races + horses), skipped 1 (delta)
-        assert "races" in result
-        assert "horses" in result
-        assert mock_store.write.call_count == 2
+            assert "races" in result
+            assert "horses" in result
+            assert store.exists("raw", "races")
+            assert store.exists("raw", "horses")
+        finally:
+            import shutil
+            shutil.rmtree(store.data_dir / "raw", ignore_errors=True)
 
     @patch("db.etl._read_db_table")
     def test_table_filter_limits_scope(self, mock_read):
@@ -293,14 +303,14 @@ class TestRunFullLoad:
         assert "races" in result
         assert "horses" not in result
 
-    @patch("db.etl._read_db_table")
-    def test_raced_table_gets_race_date_and_race_id(self, mock_read):
+    @patch("db.etl.pd.read_sql")
+    def test_raced_table_gets_race_date_and_race_id(self, mock_read_sql):
         """type=raced テーブルは race_date と race_id を付与"""
         from db.etl import run_full_load
+        from db.parquet_store import ParquetStore
 
-        mock_store = MagicMock()
         mock_engine = MagicMock()
-        mock_read.return_value = pd.DataFrame(
+        mock_read_sql.return_value = pd.DataFrame(
             {
                 "year": ["2024"],
                 "monthday": ["0101"],
@@ -310,6 +320,8 @@ class TestRunFullLoad:
                 "racenum": ["01"],
             }
         )
+
+        store = ParquetStore(data_dir=str(Path(__file__).parent / "tmp_etl_raced"))
 
         config = [
             {
@@ -321,12 +333,16 @@ class TestRunFullLoad:
             },
         ]
 
-        run_full_load(mock_store, mock_engine, config, "20240101", "20241231")
+        try:
+            run_full_load(store, mock_engine, config, "20240101", "20241231")
 
-        written_df = mock_store.write.call_args[0][2]
-        assert "race_date" in written_df.columns
-        assert "race_id" in written_df.columns
-        assert written_df["race_id"].iloc[0] == "2024010105010101"
+            written_df = store.read("raw", "races")
+            assert "race_date" in written_df.columns
+            assert "race_id" in written_df.columns
+            assert written_df["race_id"].iloc[0] == "2024010105010101"
+        finally:
+            import shutil
+            shutil.rmtree(store.data_dir / "raw", ignore_errors=True)
 
     @patch("db.etl._read_db_table")
     def test_master_table_no_race_date(self, mock_read):

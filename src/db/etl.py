@@ -276,21 +276,44 @@ def run_full_load(
                         logger.info("  %s year=%d: %d rows", key, year, n)
                         del df, table
                 counts[key] = total_rows
+            elif table_type == "raced":
+                # Year-by-year chunked read + incremental Parquet write
+                import pyarrow as pa
+                import pyarrow.parquet as pq
+
+                start_year = int(start) // 10000
+                end_year = int(end) // 10000
+                output_path = store.data_dir / category / f"{key}.parquet"
+                output_path.parent.mkdir(parents=True, exist_ok=True)
+                tmp_path = output_path.with_suffix(".parquet.tmp")
+                writer: pq.ParquetWriter | None = None
+                total_rows = 0
+                for year in range(start_year, end_year + 1):
+                    sql = text(f"SELECT * FROM {cfg['db_table']} WHERE year = :year")
+                    raw = pd.read_sql(sql, engine, params={"year": str(year)})
+                    if raw.empty:
+                        continue
+                    raw = _compute_race_date(raw)
+                    raw = _compute_race_id(raw)
+                    raw = _apply_type_conversions(raw, key)
+                    raw = _compute_surface(raw)
+                    raw = _compute_track_condition_code(raw)
+                    table = pa.Table.from_pandas(raw)
+                    if writer is None:
+                        writer = pq.ParquetWriter(str(tmp_path), table.schema)
+                    writer.write_table(table)
+                    n = len(raw)
+                    total_rows += n
+                    logger.info("  %s year=%d: %d rows", key, year, n)
+                    del raw, table
+                if writer is not None:
+                    writer.close()
+                    tmp_path.replace(output_path)
+                counts[key] = total_rows
             else:
-                df = _read_db_table(
-                    engine,
-                    cfg,
-                    start=start if table_type == "raced" else None,
-                    end=end if table_type == "raced" else None,
-                )
+                df = _read_db_table(engine, cfg)
                 if not df.empty:
-                    if table_type == "raced":
-                        df = _compute_race_date(df)
-                        df = _compute_race_id(df)
                     df = _apply_type_conversions(df, key)
-                    if table_type == "raced":
-                        df = _compute_surface(df)
-                        df = _compute_track_condition_code(df)
                     store.write(category, key, df)
                     counts[key] = len(df)
                 else:
