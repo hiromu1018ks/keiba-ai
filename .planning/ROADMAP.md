@@ -148,7 +148,10 @@ Plans:
   1. 6つのrace-level特徴量(rl_log_odds_entropy, rl_odds_dispersion, rl_top3_odds_gap, rl_top1_odds, rl_favorite_rank_gap, rl_n_horses)がbuild_all()とbuild_features()の両方で計算される
   2. implied_prob_hhi と odds_skewness がFEATURE_COLSに昇格し、SHA256 manifestが更新される
   3. 全テストが通過し、新特徴量がPOST_RACE情報漏洩テストで安全であることが確認される
-**Plans**: TBD
+**Plans**: 2 plans
+Plans:
+- [ ] 31-01-PLAN.md -- race_level_features.py新規作成 + 全12モデルFEATURE_COLS昇格 (RLF-01~06, EFP-01~02)
+- [ ] 31-02-PLAN.md — feature_engine統合 + POST_RACEテスト拡張 + manifest更新 (RLF-07, EFP-03)
 
 ### Phase 32: Market Cross-Consistency Features
 **Goal**: Harville理論オッズによる馬券種クロス整合性特徴量が追加され、単勝×ワイド×三連複の市場構造矛盾を捉えられるようになる
@@ -222,7 +225,7 @@ Then: 31 -> 32 -> 33 -> 34 (sequential).
 | 28. Validation & Freeze | v1.6 | 2/2 | Complete | 2026-05-17 |
 | 29. ETL Expansion | v1.7 | 3/3 | Complete | 2026-05-17 |
 | 30. Residual IC Evaluation Framework | v1.7 | 0/2 | Planned | - |
-| 31. Race-Level Aggregation Features | v1.7 | 0/? | Not started | - |
+| 31. Race-Level Aggregation Features | v1.7 | 0/2 | Planned | - |
 | 32. Market Cross-Consistency Features | v1.7 | 0/? | Not started | - |
 | 33. Gain per Depth Diagnostic | v1.7 | 0/? | Not started | - |
 | 34. Validation and Manifest Update | v1.7 | 0/? | Not started | - |
