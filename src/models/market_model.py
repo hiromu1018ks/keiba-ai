@@ -38,6 +38,13 @@ class MarketModel:
         "rl_market_consistency",
         "rl_trio_odds_ratio",
         "rl_wide_harville_ratio",
+        # レースレベル集約 (RLF-01~06)
+        "rl_log_odds_entropy",
+        "rl_odds_dispersion",
+        "rl_top3_odds_gap",
+        "rl_top1_odds",
+        "rl_favorite_rank_gap",
+        "rl_n_horses",
     ]
 
     P_PRED_CLIP_MIN: float = 0.01

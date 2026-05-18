@@ -161,6 +161,13 @@ class WinTwoStageModel:
         "rl_market_consistency",
         "rl_trio_odds_ratio",
         "rl_wide_harville_ratio",
+        # レースレベル集約 (RLF-01~06)
+        "rl_log_odds_entropy",
+        "rl_odds_dispersion",
+        "rl_top3_odds_gap",
+        "rl_top1_odds",
+        "rl_favorite_rank_gap",
+        "rl_n_horses",
     ]
 
     def __init__(self, cfg: TwoStageConfig | None = None) -> None:
@@ -461,6 +468,13 @@ class PlaceTwoStageModel:
         "rl_market_consistency",
         "rl_trio_odds_ratio",
         "rl_wide_harville_ratio",
+        # レースレベル集約 (RLF-01~06)
+        "rl_log_odds_entropy",
+        "rl_odds_dispersion",
+        "rl_top3_odds_gap",
+        "rl_top1_odds",
+        "rl_favorite_rank_gap",
+        "rl_n_horses",
     ]
 
     # --- Return model (Stage B): 配当回帰用 ---
@@ -584,6 +598,13 @@ class PlaceTwoStageModel:
         "rl_market_consistency",
         "rl_trio_odds_ratio",
         "rl_wide_harville_ratio",
+        # レースレベル集約 (RLF-01~06)
+        "rl_log_odds_entropy",
+        "rl_odds_dispersion",
+        "rl_top3_odds_gap",
+        "rl_top1_odds",
+        "rl_favorite_rank_gap",
+        "rl_n_horses",
     ]
 
     # 後方互換: FEATURE_COLS は return model のリストを返す (最も情報量が多いため)
