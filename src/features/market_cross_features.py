@@ -343,17 +343,9 @@ def _compute_trio_features(
         if actual_odds <= 0 or np.isnan(actual_odds):
             trio_ratio = np.nan
         else:
-            p_a, p_b = _get_prob_for_umaban(h1, h2, tanodds_valid, umaban, p_norm)
-            _, p_c = _get_prob_for_umaban(h3, h3, tanodds_valid, umaban, p_norm)
-            # p_cのために正しく取得
-            p_h3 = np.nan
-            for idx in tanodds_valid.index:
-                try:
-                    ub = int(umaban.loc[idx])
-                except (KeyError, ValueError, TypeError):
-                    continue
-                if ub == h3 and idx in p_norm.index:
-                    p_h3 = float(p_norm.loc[idx])
+            p_a, _ = _get_prob_for_umaban(h1, h1, tanodds_valid, umaban, p_norm)
+            _, p_b = _get_prob_for_umaban(h2, h2, tanodds_valid, umaban, p_norm)
+            _, p_h3 = _get_prob_for_umaban(h3, h3, tanodds_valid, umaban, p_norm)
 
             if np.isnan(p_a) or np.isnan(p_b) or np.isnan(p_h3):
                 trio_ratio = np.nan
