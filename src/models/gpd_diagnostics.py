@@ -306,8 +306,11 @@ def _extract_boosters(models: TrainedModelsV5) -> dict[str, lgb.Booster]:
 
         # Place (optional)
         if sub.place is not None:
-            if _is_booster(sub.place.hit_model):
-                boosters[f"place_hit_{surface}"] = sub.place.hit_model
+            place_hit = sub.place.hit_model
+            if _is_booster(place_hit):
+                boosters[f"place_hit_{surface}"] = place_hit
+            elif hasattr(place_hit, "lgbm_model") and place_hit.lgbm_model is not None:
+                boosters[f"place_ensemble_lgbm_{surface}"] = place_hit.lgbm_model
             if _is_booster(sub.place.return_model):
                 boosters[f"place_ret_{surface}"] = sub.place.return_model
 
