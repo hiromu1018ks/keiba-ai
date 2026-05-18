@@ -201,3 +201,68 @@ class TestPostRaceLeakage:
         assert not overlap, (
             f"ConformalEVModel.FEATURE_COLS whitelist contains POST_RACE_COLS: {overlap}"
         )
+
+
+# ---------------------------------------------------------------------------
+# Race-Level Features: POST_RACE Safety Verification
+# ---------------------------------------------------------------------------
+
+
+class TestRaceLevelFeatures:
+    """rl_* 特徴量の POST_RACE 安全性検証"""
+
+    def test_race_level_features_no_post_race_input(self) -> None:
+        """compute_race_level_features() のソースコードに POST_RACE_COLS が含まれない"""
+        import ast
+        import inspect
+
+        from features.race_level_features import compute_race_level_features
+
+        source = inspect.getsource(compute_race_level_features)
+        tree = ast.parse(source)
+
+        # ソースコード内の全ての文字列リテラルを収集
+        string_literals: set[str] = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Constant) and isinstance(node.value, str):
+                string_literals.add(node.value)
+
+        # POST_RACE_COLS に含まれる列名が文字列リテラルとして参照されていないことを確認
+        post_race_referenced = string_literals & set(POST_RACE_COLS)
+        assert not post_race_referenced, (
+            f"compute_race_level_features() references POST_RACE column names: "
+            f"{post_race_referenced}"
+        )
+
+    def test_rl_feature_cols_not_in_post_race(self) -> None:
+        """6つの rl_* 列名が POST_RACE_COLS に含まれないことを検証"""
+        from features.race_level_features import RL_COLS
+
+        overlap = set(RL_COLS) & set(POST_RACE_COLS)
+        assert not overlap, (
+            f"rl_* feature column names overlap with POST_RACE_COLS: {overlap}"
+        )
+
+    def test_build_all_produces_rl_features(self) -> None:
+        """build_all() の出力に6つの rl_* 列が含まれることを検証"""
+        from features.race_level_features import RL_COLS
+
+        engine = FeatureEngine(use_cache=False)
+        race_df = _make_race_df()
+        entry_df = _make_entry_df()
+        odds_df = _make_odds_df()
+
+        result = engine.build_all(race_df, entry_df, odds_df)
+
+        for col in RL_COLS:
+            assert col in result.columns, (
+                f"build_all() output missing rl_* column: {col}. "
+                f"Available columns: {sorted(result.columns.tolist())}"
+            )
+
+        # 値がNaNでないことを確認 (テストデータには有効なtanoddsがあるため)
+        for col in RL_COLS:
+            assert result[col].notna().any(), (
+                f"build_all() output column {col} is all-NaN "
+                f"(expected at least one valid value from test data)"
+            )
