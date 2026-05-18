@@ -342,6 +342,11 @@ class FeatureEngine:
         with TimingContext("build_all/difficulty"):
             result_df = compute_difficulty_score(result_df)
 
+        from features.race_level_features import compute_race_level_features
+
+        with TimingContext("build_all/race_level"):
+            result_df = compute_race_level_features(result_df)
+
         # Group B: 血統特徴量
         if store is not None:
             with TimingContext("build_all/bloodline"):
@@ -451,6 +456,10 @@ class FeatureEngine:
         df = self._map_basic_features(df)
 
         # 6. サブモジュールの特徴量計算（推論用 — hist特徴量は除く）
+        # 6b. レース構造特徴量 (RLF-07 parity)
+        from features.race_level_features import compute_race_level_features
+
+        df = compute_race_level_features(df)
 
         return df
 
