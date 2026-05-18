@@ -221,7 +221,7 @@ Then: 31 -> 32 -> 33 -> 34 (sequential).
 | 27. Feature Interactions | v1.6 | 3/3 | Complete | 2026-05-15 |
 | 28. Validation & Freeze | v1.6 | 2/2 | Complete | 2026-05-17 |
 | 29. ETL Expansion | v1.7 | 3/3 | Complete | 2026-05-17 |
-| 30. Residual IC Evaluation Framework | v1.7 | 0/? | Not started | - |
+| 30. Residual IC Evaluation Framework | v1.7 | 0/2 | Planned | - |
 | 31. Race-Level Aggregation Features | v1.7 | 0/? | Not started | - |
 | 32. Market Cross-Consistency Features | v1.7 | 0/? | Not started | - |
 | 33. Gain per Depth Diagnostic | v1.7 | 0/? | Not started | - |

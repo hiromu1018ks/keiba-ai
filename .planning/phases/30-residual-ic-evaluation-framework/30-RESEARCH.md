@@ -448,22 +448,13 @@ def _check_direction_consistency(ic_results: dict) -> dict:
 
 **If this table is empty:** All claims in this research were verified or cited.
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **OOF save timing -- confirmed_odds availability**
-   - What we know: Line 958 copies df_oof before confirmed_odds is dropped (line 969). The copy should have confirmed_odds.
-   - What's unclear: Whether df_oof_for_save has been used to actually save features (line 244-248 in run() uses a different concat).
-   - Recommendation: The save hook should go in run() after line 244 where full_features_df is already saved to features parquet. Alternatively, add a second save at line 958 in _train_submodel() for the richer per-surface OOF. The planner should verify which point has the most complete column set.
+1. **OOF save timing -- confirmed_odds availability** RESOLVED: Save hook goes in `run()` after line 244 where `full_features_df = pd.concat(oof_dfs)` produces the combined OOF DataFrame. Plan 30-02 Task 1 implements this. The per-surface `_train_submodel()` line 958 is NOT used because the combined `full_features_df` already has all surfaces with complete columns.
 
-2. **MLflow run context for IC evaluation**
-   - What we know: Training pipeline logs to MLflow in _log_to_mlflow(). IC evaluation runs after training.
-   - What's unclear: Whether IC evaluation should log within the existing MLflow run or start a new one.
-   - Recommendation: Start a new MLflow run for IC evaluation (independent experiment). This allows running IC evaluation standalone without retraining.
+2. **MLflow run context for IC evaluation** RESOLVED: Start a new independent MLflow run for IC evaluation (`mlflow.start_run(run_name="ic_baseline_eval")`). This allows running IC evaluation standalone without retraining. Plan 30-02 Task 2 implements this via the `--mlflow` flag.
 
-3. **Per-race IC: which prediction column to use for grouping**
-   - What we know: p_win_corrected is the final model prediction. But there's also p_win_combined (after Benter) and p_win_final (after race normalization).
-   - What's unclear: Which prediction column best represents the "model" for IC evaluation.
-   - Recommendation: Use p_win_corrected as the primary model prediction (it is the model output before market blending). Also compute IC for p_win_combined to measure blended model performance. Default to p_win_corrected for consistency with RIC-01 through RIC-04 definitions which describe "model" predictions.
+3. **Per-race IC: which prediction column to use for grouping** RESOLVED: Use `p_win_corrected` as the primary model prediction (model output before market blending). Fallback to `p_win_pred` if `p_win_corrected` is absent. Plan 30-01 Task 1 implements this in `run_ic_evaluation()` with column validation.
 
 ## Environment Availability
 
