@@ -235,7 +235,16 @@ def run_ic_evaluation(
             result[surface_key] = {"warning": "insufficient_samples"}
             continue
 
-        sub_df = df_oof[surface_filter]
+        # B/C/Eとper-raceで同じ行サブセットを使用するため
+        # model_pred/market_prob/yの全てがfiniteな行のみ残す
+        valid_mask = (
+            np.isfinite(model_pred)
+            & np.isfinite(market_prob)
+            & np.isfinite(y)
+        )
+        combined_filter = surface_filter & pd.Series(valid_mask, index=df_oof.index)
+        sub_df_valid = df_oof[combined_filter]
+
         sub_pred = _model_prob_filter(model_pred, market_prob, y, surface_filter)
         if sub_pred is None:
             result[surface_key] = {"warning": "insufficient_samples"}
@@ -246,7 +255,7 @@ def run_ic_evaluation(
             "b_difference": _compute_b_difference_ic(sp, sm, sy),
             "c_orthogonal": _compute_c_orthogonal_ic(sp, sm, sy),
             "e_incremental": _compute_e_incremental_ic(sp, sm, sy),
-            "per_race": _compute_per_race_ic(sub_df, pred_col, IC_TARGET_COLUMN),
+            "per_race": _compute_per_race_ic(sub_df_valid, pred_col, IC_TARGET_COLUMN),
         }
         result[surface_key] = surface_result
 
