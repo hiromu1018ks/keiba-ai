@@ -266,3 +266,92 @@ class TestRaceLevelFeatures:
                 f"build_all() output column {col} is all-NaN "
                 f"(expected at least one valid value from test data)"
             )
+
+
+# ---------------------------------------------------------------------------
+# Market Cross-Consistency Features: POST_RACE Safety Verification
+# ---------------------------------------------------------------------------
+
+
+class TestMarketCrossFeatures:
+    """MCF特徴量の POST_RACE 安全性検証 + build_all統合テスト"""
+
+    def test_market_cross_features_no_post_race_input(self) -> None:
+        """compute_market_cross_features() のソースコードに POST_RACE_COLS が含まれない"""
+        import ast
+        import inspect
+
+        from features.market_cross_features import compute_market_cross_features
+
+        source = inspect.getsource(compute_market_cross_features)
+        tree = ast.parse(source)
+
+        # ソースコード内の全ての文字列リテラルを収集
+        string_literals: set[str] = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Constant) and isinstance(node.value, str):
+                string_literals.add(node.value)
+
+        # POST_RACE_COLS に含まれる列名が文字列リテラルとして参照されていないことを確認
+        post_race_referenced = string_literals & set(POST_RACE_COLS)
+        assert not post_race_referenced, (
+            f"compute_market_cross_features() references POST_RACE column names: "
+            f"{post_race_referenced}"
+        )
+
+    def test_mcf_cols_not_in_post_race(self) -> None:
+        """MCF_COLSの5列名がPOST_RACE_COLSに含まれないことを検証"""
+        from features.market_cross_features import MCF_COLS
+
+        overlap = set(MCF_COLS) & set(POST_RACE_COLS)
+        assert not overlap, (
+            f"MCF column names overlap with POST_RACE_COLS: {overlap}"
+        )
+
+    def test_build_all_produces_mcf_features(self) -> None:
+        """build_all() の出力に5つのMCF列が含まれることを検証 (NaNでも可)"""
+        from features.market_cross_features import MCF_COLS
+
+        engine = FeatureEngine(use_cache=False)
+        race_df = _make_race_df()
+        entry_df = _make_entry_df()
+        odds_df = _make_odds_df()
+
+        result = engine.build_all(race_df, entry_df, odds_df)
+
+        for col in MCF_COLS:
+            assert col in result.columns, (
+                f"build_all() output missing MCF column: {col}. "
+                f"Available columns: {sorted(result.columns.tolist())}"
+            )
+
+    def test_all_models_have_mcf_features(self) -> None:
+        """全12モデルのFEATURE_COLSに5つのMCF特徴量が含まれる"""
+        from features.market_cross_features import MCF_COLS
+        from models.market_model import MarketModel
+        from models.place_ability_model import PlaceAbilityModel
+        from models.race_quality_screener import RaceQualityScreener
+        from models.regime_detector import RegimeDetector
+        from models.stage1_ability_model import AbilityModel
+        from models.wide_two_stage_model import WideTwoStageModel
+
+        model_feature_lists = [
+            ("AbilityModel.FEATURE_COLS", AbilityModel.FEATURE_COLS),
+            ("MarketModel.FEATURE_COLS", MarketModel.FEATURE_COLS),
+            ("RegimeDetector.FEATURE_COLS", RegimeDetector.FEATURE_COLS),
+            ("PlaceAbilityModel.FEATURE_COLS", PlaceAbilityModel.FEATURE_COLS),
+            ("RaceQualityScreener.FEATURE_COLS", RaceQualityScreener.FEATURE_COLS),
+            ("WideTwoStageModel.SHARED_FEATURE_COLS", WideTwoStageModel.SHARED_FEATURE_COLS),
+            ("WinTwoStageModel.FEATURE_COLS", WinTwoStageModel.FEATURE_COLS),
+            ("PlaceTwoStageModel.HIT_FEATURE_COLS", PlaceTwoStageModel.HIT_FEATURE_COLS),
+            ("PlaceTwoStageModel.RETURN_FEATURE_COLS", PlaceTwoStageModel.RETURN_FEATURE_COLS),
+            ("EVCorrectionModel.FEATURE_COLS", EVCorrectionModel.FEATURE_COLS),
+            ("PlaceEVCorrectionModel.FEATURE_COLS", PlaceEVCorrectionModel.FEATURE_COLS),
+            ("ConformalEVModel.FEATURE_COLS", ConformalEVModel.FEATURE_COLS),
+        ]
+
+        for list_name, cols in model_feature_lists:
+            for mcf_col in MCF_COLS:
+                assert mcf_col in cols, (
+                    f"{list_name} missing MCF feature: {mcf_col}"
+                )
