@@ -107,7 +107,8 @@ progress:
 - [x] **Phase 29: ETL Expansion** - 三連複/馬連/三連単オッズのParquet抽出 -- completed 2026-05-17
 - [ ] **Phase 30: Residual IC Evaluation Framework** - 市場独立性の測定器を構築
 - [x] **Phase 31: Race-Level Aggregation Features** - レース全体の市場構造を捉える6特徴量 + 既存特徴量昇格 -- completed 2026-05-18
-- [x] **Phase 32: Market Cross-Consistency Features** - Harville理論オッズによる馬券種クロス整合性 (completed 2026-05-18)
+- [x] **Phase 32: Market Cross-Consistency Features** - Harville理論オッズによる馬券種クロス整合性
+ (completed 2026-05-18)
 - [ ] **Phase 33: Gain per Depth Diagnostic** - LightGBM木構造のdepth別gain分析
 - [ ] **Phase 34: Validation and Manifest Update** - 全特徴量統合検証 + manifest凍結
 
@@ -175,7 +176,10 @@ Plans:
   1. LightGBM trees_to_dataframe()でdepth別gain寄与率が集計され、Market/Fundamental/Categoricalの3分類でレポートが出力される
   2. StackedEnsemble内のLightGBMモデルにアクセスし、depth別分析が実行できる
   3. 暗黙的Two-Stage構造(上位depth=Market, 下位depth=Fundamental)の仮説がデータで検証される
-**Plans**: TBD
+**Plans**: 2 plans
+Plans:
+- [ ] 33-01-PLAN.md -- Core gpd_diagnostics.py: FEATURE_CATEGORY_MAP + Booster extraction + depth-gain computation + MDR/FAD metrics + JSON + console_summary() + tests (GPD-01, GPD-03, GPD-04)
+- [ ] 33-02-PLAN.md -- CLI script run_gpd.py + matplotlib stacked bar PNG visualization + tests (GPD-02)
 
 ### Phase 34: Validation and Manifest Update
 **Goal**: 新特徴量追加後のフルバックテストでROI改善を確認し、IC改善をベースラインと比較し、FEATURE_COLS manifestを凍結する
@@ -230,5 +234,5 @@ Then: 31 -> 32 -> 33 -> 34 (sequential).
 | 30. Residual IC Evaluation Framework | v1.7 | 0/2 | Planned | - |
 | 31. Race-Level Aggregation Features | v1.7 | 0/2 | Planned | - |
 | 32. Market Cross-Consistency Features | v1.7 | 2/2 | Complete    | 2026-05-18 |
-| 33. Gain per Depth Diagnostic | v1.7 | 0/? | Not started | - |
+| 33. Gain per Depth Diagnostic | v1.7 | 0/2 | Planned | - |
 | 34. Validation and Manifest Update | v1.7 | 0/? | Not started | - |
