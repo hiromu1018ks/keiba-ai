@@ -264,6 +264,15 @@ class TestRemoveNoiseFeatures:
             "te_blood_keito_cd",
             "te_kisyucode",
             "te_chokyosicode",
+            # Race-level aggregation features (Phase 31)
+            "implied_prob_hhi",
+            "odds_skewness",
+            # Market cross-consistency features (Phase 32)
+            "rl_favorite_in_wide_top1",
+            "rl_trio_overlap",
+            "rl_market_consistency",
+            "rl_trio_odds_ratio",
+            "rl_wide_harville_ratio",
         ]
         # FEATURE_COLSは元の特徴量の部分集合であること
         for feat in WinTwoStageModel.FEATURE_COLS:

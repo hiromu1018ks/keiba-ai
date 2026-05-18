@@ -231,6 +231,11 @@ def _make_feature_df(n: int = 8000, n_races: int = 800) -> pd.DataFrame:
                     "popularity_change_30_10": np.random.normal(0, 1),
                     "odds_skewness": np.random.uniform(0.5, 3.0),
                     "implied_prob_hhi": np.random.uniform(0.05, 0.15),
+                    "rl_favorite_in_wide_top1": np.random.randint(0, 2),
+                    "rl_trio_overlap": np.random.randint(0, 4),
+                    "rl_market_consistency": np.random.randint(0, 2),
+                    "rl_trio_odds_ratio": np.random.uniform(0.5, 2.0),
+                    "rl_wide_harville_ratio": np.random.uniform(0.5, 2.0),
                     "race_date": f"2020-{(r // 28) % 12 + 1:02d}-{(r % 28) + 1:02d}",
                 }
             )

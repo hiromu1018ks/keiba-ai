@@ -39,6 +39,15 @@ def race_features_df() -> pd.DataFrame:
             # v5.6: EMA平滑化市場指標
             "overround_ema": [0.21, 0.19, 0.24, 0.17],
             "entropy_ema": [2.7, 2.1, 2.9, 1.8],
+            # Phase 31: race-level aggregation features
+            "implied_prob_hhi": [0.12, 0.10, 0.15, 0.08],
+            "odds_skewness": [0.5, 0.3, 0.8, 0.2],
+            # Phase 32: market cross-consistency features
+            "rl_favorite_in_wide_top1": [1, 1, 0, 1],
+            "rl_trio_overlap": [2, 3, 1, 2],
+            "rl_market_consistency": [1, 1, 0, 1],
+            "rl_trio_odds_ratio": [1.1, 0.9, 1.3, 0.8],
+            "rl_wide_harville_ratio": [0.95, 1.05, 0.85, 1.10],
         }
     )
 
@@ -117,8 +126,8 @@ class TestRaceQualityScreener:
         """EMA平滑化市場指標が含まれる (v5.6追加)"""
         assert "overround_ema" in RaceQualityScreener.FEATURE_COLS
         assert "entropy_ema" in RaceQualityScreener.FEATURE_COLS
-        # 合計22列であること
-        assert len(RaceQualityScreener.FEATURE_COLS) == 22
+        # 合計29列であること (Phase 31: +2, Phase 32: +5)
+        assert len(RaceQualityScreener.FEATURE_COLS) == 29
 
     def test_screener_independence(self) -> None:
         """品質スコアとedge_max_per_raceの相関<0.30 (§13.1)

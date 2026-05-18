@@ -28,6 +28,13 @@ def pair_df() -> pd.DataFrame:
             "track_condition_code": [1] * 3,
             "grade_code": ["_"] * 3,
             "field_size": [3] * 3,
+            "implied_prob_hhi": [0.15] * 3,
+            "odds_skewness": [0.5] * 3,
+            "rl_favorite_in_wide_top1": [1] * 3,
+            "rl_trio_overlap": [2] * 3,
+            "rl_market_consistency": [1] * 3,
+            "rl_trio_odds_ratio": [1.1] * 3,
+            "rl_wide_harville_ratio": [0.95] * 3,
         }
     )
 
@@ -175,6 +182,13 @@ class TestEarlyStopping:
                 "track_condition_code": [1] * n,
                 "grade_code": ["_"] * n,
                 "field_size": [n] * n,
+                "implied_prob_hhi": [0.15] * n,
+                "odds_skewness": [0.5] * n,
+                "rl_favorite_in_wide_top1": [1] * n,
+                "rl_trio_overlap": [2] * n,
+                "rl_market_consistency": [1] * n,
+                "rl_trio_odds_ratio": [1.1] * n,
+                "rl_wide_harville_ratio": [0.95] * n,
             }
         )
 
@@ -208,6 +222,13 @@ class TestEarlyStopping:
                 "track_condition_code": [1] * n,
                 "grade_code": ["_"] * n,
                 "field_size": [n] * n,
+                "implied_prob_hhi": [0.15] * n,
+                "odds_skewness": [0.5] * n,
+                "rl_favorite_in_wide_top1": [1] * n,
+                "rl_trio_overlap": [2] * n,
+                "rl_market_consistency": [1] * n,
+                "rl_trio_odds_ratio": [1.1] * n,
+                "rl_wide_harville_ratio": [0.95] * n,
             }
         )
 

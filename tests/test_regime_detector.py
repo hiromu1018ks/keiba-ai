@@ -26,6 +26,13 @@ def regime_stats_df() -> pd.DataFrame:
             "odds_skewness_rolling": [0.8, 0.3, 1.2, 0.2, 1.0],
             "odds_volatility_mean": [0.15, 0.08, 0.25, 0.05, 0.20],
             "field_size_mean": [14, 12, 16, 10, 15],
+            "implied_prob_hhi": [0.12, 0.10, 0.15, 0.08, 0.13],
+            "odds_skewness": [0.5, 0.3, 0.8, 0.2, 0.6],
+            "rl_favorite_in_wide_top1": [1, 1, 0, 1, 1],
+            "rl_trio_overlap": [2, 3, 1, 2, 3],
+            "rl_market_consistency": [1, 1, 0, 1, 1],
+            "rl_trio_odds_ratio": [1.1, 0.9, 1.3, 0.8, 1.0],
+            "rl_wide_harville_ratio": [0.95, 1.05, 0.85, 1.10, 0.90],
         }
     )
 
@@ -113,6 +120,13 @@ class TestRegimeDetector:
                 "odds_skewness_rolling": [0.3],
                 "odds_volatility_mean": [0.05],
                 "field_size_mean": [12],
+                "implied_prob_hhi": [0.10],
+                "odds_skewness": [0.3],
+                "rl_favorite_in_wide_top1": [1],
+                "rl_trio_overlap": [2],
+                "rl_market_consistency": [1],
+                "rl_trio_odds_ratio": [1.0],
+                "rl_wide_harville_ratio": [1.0],
             }
         )
         result = detector.detect(small_df)
@@ -205,6 +219,13 @@ class TestRegimeDetector:
                 "odds_skewness_rolling": np.random.uniform(0.1, 1.5, n),
                 "odds_volatility_mean": np.random.uniform(0.05, 0.25, n),
                 "field_size_mean": np.random.choice([10, 12, 14, 16], n),
+                "implied_prob_hhi": np.random.uniform(0.05, 0.20, n),
+                "odds_skewness": np.random.uniform(0.2, 1.0, n),
+                "rl_favorite_in_wide_top1": np.random.randint(0, 2, n),
+                "rl_trio_overlap": np.random.randint(0, 4, n),
+                "rl_market_consistency": np.random.randint(0, 2, n),
+                "rl_trio_odds_ratio": np.random.uniform(0.5, 2.0, n),
+                "rl_wide_harville_ratio": np.random.uniform(0.5, 2.0, n),
             }
         )
         detector.train(df_race, num_threads=1)

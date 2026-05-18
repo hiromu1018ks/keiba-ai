@@ -289,6 +289,13 @@ class TestWideTwoStageModelTraining:
                 "wide_odds": np.random.uniform(3.0, 50.0, n),
                 "popularity_sum": np.random.randint(2, 20, n),
                 "kyakusitukubun_cd_combo": np.random.randint(2, 8, n),
+                "implied_prob_hhi": np.random.uniform(0.1, 0.4, n),
+                "odds_skewness": np.random.uniform(-1.0, 1.0, n),
+                "rl_favorite_in_wide_top1": np.random.randint(0, 2, n),
+                "rl_trio_overlap": np.random.randint(0, 4, n),
+                "rl_market_consistency": np.random.randint(0, 2, n),
+                "rl_trio_odds_ratio": np.random.uniform(0.5, 2.0, n),
+                "rl_wide_harville_ratio": np.random.uniform(0.5, 2.0, n),
             }
         )
 
