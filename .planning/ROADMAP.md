@@ -135,7 +135,10 @@ Plans:
   1. B差分IC / C直交IC / E Incremental IC / Per-race IC の4指標がOOF予測に対して計算され、数値レポートとして出力される
   2. 4定式化バッテリーの方向一致性が自動検証され、矛盾がある場合に警告が出力される
   3. v1.6モデルのベースラインIC値が記録され、将来の改善測定の基準として利用可能である
-**Plans**: TBD
+**Plans**: 2 plans
+Plans:
+- [ ] 30-01-PLAN.md -- IC evaluation module with 4 formulations + tests (RIC-01~06)
+- [ ] 30-02-PLAN.md -- OOF save hook + CLI script + pipeline integration (RIC-05)
 
 ### Phase 31: Race-Level Aggregation Features
 **Goal**: レース全体の市場構造を表す6特徴量が追加され、既存の未登録特徴量2つがFEATURE_COLSに昇格し、train/inference両パスで同じ特徴量が計算される
