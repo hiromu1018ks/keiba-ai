@@ -109,7 +109,7 @@ progress:
 - [x] **Phase 31: Race-Level Aggregation Features** - レース全体の市場構造を捉える6特徴量 + 既存特徴量昇格 -- completed 2026-05-18
 - [x] **Phase 32: Market Cross-Consistency Features** - Harville理論オッズによる馬券種クロス整合性
  (completed 2026-05-18)
-- [ ] **Phase 33: Gain per Depth Diagnostic** - LightGBM木構造のdepth別gain分析
+- [x] **Phase 33: Gain per Depth Diagnostic** - LightGBM木構造のdepth別gain分析 (completed 2026-05-18)
 - [ ] **Phase 34: Validation and Manifest Update** - 全特徴量統合検証 + manifest凍結
 
 ## Phase Details
@@ -179,7 +179,7 @@ Plans:
 **Plans**: 2 plans
 Plans:
 - [x] 33-01-PLAN.md -- Core gpd_diagnostics.py: FEATURE_CATEGORY_MAP + Booster extraction + depth-gain computation + MDR/FAD metrics + JSON + console_summary() + tests (GPD-01, GPD-03, GPD-04)
-- [ ] 33-02-PLAN.md -- CLI script run_gpd.py + matplotlib stacked bar PNG visualization + tests (GPD-02)
+- [x] 33-02-PLAN.md -- CLI script run_gpd.py + matplotlib stacked bar PNG visualization + tests (GPD-02)
 
 ### Phase 34: Validation and Manifest Update
 **Goal**: 新特徴量追加後のフルバックテストでROI改善を確認し、IC改善をベースラインと比較し、FEATURE_COLS manifestを凍結する
@@ -234,5 +234,5 @@ Then: 31 -> 32 -> 33 -> 34 (sequential).
 | 30. Residual IC Evaluation Framework | v1.7 | 0/2 | Planned | - |
 | 31. Race-Level Aggregation Features | v1.7 | 0/2 | Planned | - |
 | 32. Market Cross-Consistency Features | v1.7 | 2/2 | Complete    | 2026-05-18 |
-| 33. Gain per Depth Diagnostic | v1.7 | 1/2 | In Progress|  |
+| 33. Gain per Depth Diagnostic | v1.7 | 2/2 | Complete   | 2026-05-18 |
 | 34. Validation and Manifest Update | v1.7 | 0/? | Not started | - |
