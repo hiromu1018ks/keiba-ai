@@ -172,6 +172,10 @@ def _compute_for_single_race(
     """単一レースのMCF特徴量計算 (race_idなし、groupbyなし).
 
     build_features() パリティ用。DataFrame全体を1レースとして処理する。
+    Note: 現在のbuild_features()パスではwide_df/trio_dfにNoneが渡されるため、
+    compute_market_cross_features()のNaNフォールバック(本関数より前でreturn)に
+    よりこの関数は実行されない。将来の単一レース推論パスでwide/trioデータが
+    利用可能になった場合に備えたパリティ実装である。
 
     Args:
         df: 特徴量追加先のDataFrame
