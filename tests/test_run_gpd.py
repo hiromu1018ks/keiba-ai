@@ -7,17 +7,13 @@ and integration with compute_gpd_diagnostics.
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import matplotlib
-import pytest
 
 # Use Agg backend for headless testing
 matplotlib.use("Agg")
-
-import matplotlib.pyplot as plt  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -91,11 +87,15 @@ class TestCLIArgumentParsing:
         from scripts.run_gpd import build_parser
 
         parser = build_parser()
-        args = parser.parse_args([
-            "--models-dir", "/tmp/models",
-            "--output-dir", "/tmp/gpd_out",
-            "--ensemble",
-        ])
+        args = parser.parse_args(
+            [
+                "--models-dir",
+                "/tmp/models",
+                "--output-dir",
+                "/tmp/gpd_out",
+                "--ensemble",
+            ]
+        )
 
         assert args.models_dir == Path("/tmp/models")
         assert args.output_dir == Path("/tmp/gpd_out")
@@ -338,22 +338,35 @@ class TestIntegrationWithGpdDiagnostics:
         mock_models = MagicMock()
         mock_info = MagicMock()
 
-        with patch("scripts.run_gpd.ModelLoader") as MockLoader, \
-             patch("scripts.run_gpd.compute_gpd_diagnostics", return_value=mock_result) as mock_compute, \
-             patch("scripts.run_gpd.console_summary") as mock_console, \
-             patch("scripts.run_gpd.plot_gpd_charts", return_value=[]) as mock_plot, \
-             patch("sys.argv", [
-                 "run_gpd.py",
-                 "--models-dir", str(tmp_path / "models"),
-                 "--output-dir", str(tmp_path / "gpd"),
-                 "--ensemble",
-             ]):
-            MockLoader.return_value.load_from_dir.return_value = (mock_models, mock_info)
+        with (
+            patch("scripts.run_gpd.ModelLoader") as mock_loader,
+            patch(
+                "scripts.run_gpd.compute_gpd_diagnostics",
+                return_value=mock_result,
+            ) as mock_compute,
+            patch("scripts.run_gpd.console_summary") as mock_console,
+            patch(
+                "scripts.run_gpd.plot_gpd_charts",
+                return_value=[],
+            ) as mock_plot,
+            patch(
+                "sys.argv",
+                [
+                    "run_gpd.py",
+                    "--models-dir",
+                    str(tmp_path / "models"),
+                    "--output-dir",
+                    str(tmp_path / "gpd"),
+                    "--ensemble",
+                ],
+            ),
+        ):
+            mock_loader.return_value.load_from_dir.return_value = (mock_models, mock_info)
             main()
 
             # Verify ModelLoader was called with correct args
-            MockLoader.return_value.load_from_dir.assert_called_once()
-            call_kwargs = MockLoader.return_value.load_from_dir.call_args
+            mock_loader.return_value.load_from_dir.assert_called_once()
+            call_kwargs = mock_loader.return_value.load_from_dir.call_args
             assert call_kwargs.kwargs.get("use_ensemble_override") is True
 
             # Verify compute_gpd_diagnostics was called
@@ -373,17 +386,27 @@ class TestIntegrationWithGpdDiagnostics:
         mock_models = MagicMock()
         mock_info = MagicMock()
 
-        with patch("scripts.run_gpd.ModelLoader") as MockLoader, \
-             patch("scripts.run_gpd.compute_gpd_diagnostics", return_value=mock_result), \
-             patch("scripts.run_gpd.console_summary"), \
-             patch("scripts.run_gpd.plot_gpd_charts", return_value=[]), \
-             patch("sys.argv", [
-                 "run_gpd.py",
-                 "--models-dir", str(tmp_path / "models"),
-                 "--output-dir", str(tmp_path / "gpd"),
-             ]):
-            MockLoader.return_value.load_from_dir.return_value = (mock_models, mock_info)
+        with (
+            patch("scripts.run_gpd.ModelLoader") as mock_loader,
+            patch(
+                "scripts.run_gpd.compute_gpd_diagnostics",
+                return_value=mock_result,
+            ),
+            patch("scripts.run_gpd.console_summary"),
+            patch("scripts.run_gpd.plot_gpd_charts", return_value=[]),
+            patch(
+                "sys.argv",
+                [
+                    "run_gpd.py",
+                    "--models-dir",
+                    str(tmp_path / "models"),
+                    "--output-dir",
+                    str(tmp_path / "gpd"),
+                ],
+            ),
+        ):
+            mock_loader.return_value.load_from_dir.return_value = (mock_models, mock_info)
             main()
 
-            call_kwargs = MockLoader.return_value.load_from_dir.call_args
+            call_kwargs = mock_loader.return_value.load_from_dir.call_args
             assert call_kwargs.kwargs.get("use_ensemble_override") is False
