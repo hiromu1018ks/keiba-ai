@@ -125,6 +125,10 @@ def _compute_per_race_ic(
             skipped += 1
             continue
         rho, _ = spearmanr(pred.loc[common].values, actual.loc[common].values)
+        # kakuteijyuniは1=1着,2=2着,...なので正のrho=モデルが悪い方向に予測
+        # B/C/Eはbinary y(1=勝利)なので正のrho=モデルが良い方向に予測
+        # 方向を統一するためper-raceはrhoを反転
+        rho = -rho
         if np.isfinite(rho):
             results.append(float(rho))
     if not results:
