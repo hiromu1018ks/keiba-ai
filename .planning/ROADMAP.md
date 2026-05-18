@@ -162,7 +162,10 @@ Plans:
   2. 5つの市場クロス整合性特徴量(rl_favorite_in_wide_top1, rl_trio_overlap, rl_market_consistency, rl_trio_odds_ratio, rl_wide_harville_ratio)がFEATURE_COLSに追加される
   3. ワイドオッズmergeをbuild_all()に統合され、training/backtestでの重複コードが排除される
   4. 全特徴量がpre-race snapshot oddsのみを使用し、post-race payout oddsの情報漏洩がないことがテストで検証される
-**Plans**: TBD
+**Plans**: 2 plans
+Plans:
+- [ ] 32-01-PLAN.md -- market_cross_features.py (Harville公式, 5 MCF特徴量) + DataRepository.load_wide_odds() (MCF-01~06)
+- [ ] 32-02-PLAN.md -- feature_engine統合 + FEATURE_COLS更新 + POST_RACEテスト + manifest (MCF-07)
 
 ### Phase 33: Gain per Depth Diagnostic
 **Goal**: LightGBMの木構造をdepth別に分析し、race-level/market-cross特徴量が適切なshallow depthで機能していることを検証できる
@@ -226,6 +229,6 @@ Then: 31 -> 32 -> 33 -> 34 (sequential).
 | 29. ETL Expansion | v1.7 | 3/3 | Complete | 2026-05-17 |
 | 30. Residual IC Evaluation Framework | v1.7 | 0/2 | Planned | - |
 | 31. Race-Level Aggregation Features | v1.7 | 0/2 | Planned | - |
-| 32. Market Cross-Consistency Features | v1.7 | 0/? | Not started | - |
+| 32. Market Cross-Consistency Features | v1.7 | 0/2 | Planned | - |
 | 33. Gain per Depth Diagnostic | v1.7 | 0/? | Not started | - |
 | 34. Validation and Manifest Update | v1.7 | 0/? | Not started | - |
