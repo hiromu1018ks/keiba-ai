@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.7
 milestone_name: Market-Independent Edge Discovery
 status: executing
-stopped_at: Phase 30 planned (2 plans, 2 waves)
-last_updated: "2026-05-18T04:00:00Z"
-last_activity: 2026-05-18 -- Phase 30 planned: 30-01 (IC evaluator module), 30-02 (OOF save + CLI)
+stopped_at: Phase 30 complete (2/2 plans executed)
+last_updated: "2026-05-18T06:00:00Z"
+last_activity: 2026-05-18 -- Phase 31 context gathered: race-level features + feature promotion decisions
 progress:
   total_phases: 6
   completed_phases: 1
   total_plans: 5
-  completed_plans: 3
-  percent: 60
+  completed_plans: 5
+  percent: 100
 ---
 
 # Project State
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-05-17)
 
 **Core value:** 単勝モデルのバックテストROIを100%超えにすること
-**Current focus:** Phase 30 (Residual IC Evaluation Framework) -- planned, ready to execute
+**Current focus:** Phase 30 complete. Next: Phase 31+ (新特徴量設計)
 
 ## Current Position
 
-Phase: 30 of 34 (Residual IC Evaluation Framework)
-Plan: 0 of 2 in current phase (READY TO EXECUTE)
-Status: Executing (Phase 30 planned)
-Last activity: 2026-05-18 -- Phase 30 planned: 30-01 (IC evaluator module), 30-02 (OOF save + CLI)
+Phase: 31 of 34 (Race-Level Aggregation Features) — CONTEXT GATHERED
+Plan: 0 of ? in current phase (not started)
+Status: Context gathered, ready for planning
+Last activity: 2026-05-18 -- Phase 31 context gathered
 
 Progress: [=================   ] 85% (29/34 phases, 63 plans complete)
 
@@ -91,6 +91,6 @@ Key insight for v1.7: Echo Chamber脱却 -- race-level + market-cross特徴量�
 
 ## Session Continuity
 
-Last session: 2026-05-18T03:31:41.022Z
-Stopped at: Phase 30 context gathered
-Resume file: .planning/phases/30-residual-ic-evaluation-framework/30-CONTEXT.md
+Last session: 2026-05-18T06:00:00Z
+Stopped at: Phase 31 context gathered
+Resume file: .planning/phases/31-race-level-aggregation-features/31-CONTEXT.md
