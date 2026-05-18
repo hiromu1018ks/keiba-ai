@@ -3,7 +3,7 @@ gsd_state_version: 1.0
 milestone: v1.7
 milestone_name: Market-Independent Edge Discovery
 status: executing
-last_updated: "2026-05-17T13:11:04Z"
+last_updated: "2026-05-19T00:00:00Z"
 progress:
   total_phases: 34
   completed_phases: 30
@@ -109,7 +109,7 @@ progress:
 - [x] **Phase 31: Race-Level Aggregation Features** - レース全体の市場構造を捉える6特徴量 + 既存特徴量昇格 -- completed 2026-05-18
 - [x] **Phase 32: Market Cross-Consistency Features** - Harville理論オッズによる馬券種クロス整合性
  (completed 2026-05-18)
-- [x] **Phase 33: Gain per Depth Diagnostic** - LightGBM木構造のdepth別gain分析 (completed 2026-05-18)
+- [x] **Phase 33: Gain per Depth Diagnostic** - LightGBM木構造のdepth別gain分析 (completed 2026-05-18)
 - [ ] **Phase 34: Validation and Manifest Update** - 全特徴量統合検証 + manifest凍結
 
 ## Phase Details
@@ -191,7 +191,12 @@ Plans:
   3. Gain per Depthレポートで新特徴量がdepth 3-5で機能していることが確認される
   4. FEATURE_COLS manifestがSHA256ハッシュで凍結され、全12モデルのmanifestが更新される
   5. 新特徴量に対するPOST_RACE情報漏洩テストが全て通過する
-**Plans**: TBD
+**Plans**: 4 plans
+Plans:
+- [ ] 34-01-PLAN.md — rl_* features FEATURE_COLS registration + GPD MAP update + leakage test (prerequisite)
+- [ ] 34-02-PLAN.md — POST_RACE leakage test execution (VAL-05)
+- [ ] 34-03-PLAN.md — BT 2024 + IC evaluation + GPD diagnostic (VAL-01, VAL-02, VAL-03)
+- [ ] 34-04-PLAN.md — Manifest freeze v1.7 (VAL-04)
 
 ## Progress
 
@@ -235,4 +240,4 @@ Then: 31 -> 32 -> 33 -> 34 (sequential).
 | 31. Race-Level Aggregation Features | v1.7 | 0/2 | Planned | - |
 | 32. Market Cross-Consistency Features | v1.7 | 2/2 | Complete    | 2026-05-18 |
 | 33. Gain per Depth Diagnostic | v1.7 | 2/2 | Complete    | 2026-05-18 |
-| 34. Validation and Manifest Update | v1.7 | 0/? | Not started | - |
+| 34. Validation and Manifest Update | v1.7 | 0/4 | Not started | - |
