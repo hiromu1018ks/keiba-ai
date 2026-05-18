@@ -169,6 +169,7 @@ class TestPostRaceLeakage:
                 "jt_combo_prize_log": [3.0] * 3,
                 "signed_log_error_win": [0.1] * 3,
                 "abs_log_error_win": [0.2] * 3,
+                "odds_skewness": [0.5] * 3,
             }
         )
 

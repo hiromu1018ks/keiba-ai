@@ -161,6 +161,8 @@ class EVCorrectionModel:
         "popularity_rank",
         # FLB slope (市場集中度)
         "implied_prob_hhi",
+        # 市場構造 (D-06: 歪度)
+        "odds_skewness",
         # レース条件
         "surface",
         "distance_bin",
@@ -414,6 +416,8 @@ class PlaceEVCorrectionModel:
         "popularity_rank",
         # FLB slope (市場集中度)
         "implied_prob_hhi",
+        # 市場構造 (D-06: 歪度)
+        "odds_skewness",
         # レース条件
         "surface",
         "distance_bin",

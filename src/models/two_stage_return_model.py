@@ -153,6 +153,8 @@ class WinTwoStageModel:
         "te_blood_keito_cd",
         "te_kisyucode",
         "te_chokyosicode",
+        # 市場構造 (D-06: 市場集中度)
+        "implied_prob_hhi",
     ]
 
     def __init__(self, cfg: TwoStageConfig | None = None) -> None:
@@ -445,6 +447,8 @@ class PlaceTwoStageModel:
         "te_blood_keito_cd",
         "te_kisyucode",
         "te_chokyosicode",
+        # 市場構造 (D-06: 市場集中度)
+        "implied_prob_hhi",
     ]
 
     # --- Return model (Stage B): 配当回帰用 ---
@@ -560,6 +564,8 @@ class PlaceTwoStageModel:
         "te_blood_keito_cd",
         "te_kisyucode",
         "te_chokyosicode",
+        # 市場構造 (D-06: 市場集中度)
+        "implied_prob_hhi",
     ]
 
     # 後方互換: FEATURE_COLS は return model のリストを返す (最も情報量が多いため)

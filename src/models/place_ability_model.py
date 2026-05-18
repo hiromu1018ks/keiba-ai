@@ -99,6 +99,9 @@ class PlaceAbilityModel:
         "race_std_fuku_odds",
         "odds_popularity_gap",
         "surface_track_interaction",
+        # 市場構造 (D-06: 市場集中度・歪度)
+        "implied_prob_hhi",
+        "odds_skewness",
     ]
 
     def __init__(self) -> None:

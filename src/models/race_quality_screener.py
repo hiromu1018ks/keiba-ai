@@ -51,6 +51,9 @@ class RaceQualityScreener:
         # v5.6: EMA平滑化市場指標
         "overround_ema",
         "entropy_ema",
+        # 市場構造 (D-06: 市場集中度・歪度)
+        "implied_prob_hhi",
+        "odds_skewness",
     ]
 
     _CATEGORY_COLS: list[str] = ["surface", "distance_bin", "grade_code"]

@@ -47,6 +47,9 @@ class WideTwoStageModel:
         "track_condition_code",
         "grade_code",
         "field_size",
+        # 市場構造 (D-06: 市場集中度・歪度)
+        "implied_prob_hhi",
+        "odds_skewness",
     ]
 
     hit_model: Any

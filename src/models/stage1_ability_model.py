@@ -18,7 +18,7 @@ class AbilityModel:
     """
     馬の基本能力を評価するStage1モデル。
     LightGBM Ranker (lambdarank) で芝/ダート別に学習する。
-    オッズ特徴量は一切使用しない (Rule 1)。
+    オッズ特徴量(implied_prob_hhi, odds_skewness) は市場構造指標として含む (D-06)。
 
     出力:
       p_ability_win:  レース内相対確率 (softmax変換)
@@ -145,6 +145,9 @@ class AbilityModel:
         "rel_blood_quality_rank",
         "rel_sire_quality_rank",
         "rel_weight_zscore",
+        # 市場構造 (D-06: 市場集中度・歪度)
+        "implied_prob_hhi",
+        "odds_skewness",
     ]
 
     def __init__(self) -> None:

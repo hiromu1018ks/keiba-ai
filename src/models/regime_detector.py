@@ -59,6 +59,9 @@ class RegimeDetector:
         "odds_volatility_mean",
         # レース構造 (発走前確定)
         "field_size_mean",
+        # 市場構造指標 (D-06: 市場集中度・歪度)
+        "implied_prob_hhi",
+        "odds_skewness",
     ]
 
     def __init__(

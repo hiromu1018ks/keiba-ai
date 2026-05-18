@@ -29,6 +29,9 @@ class MarketModel:
         "weight_diff_from_mean",
         # レース難易度
         "difficulty_score",
+        # 市場構造 (D-06: 市場集中度・歪度)
+        "implied_prob_hhi",
+        "odds_skewness",
     ]
 
     P_PRED_CLIP_MIN: float = 0.01
