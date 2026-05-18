@@ -362,3 +362,49 @@ class TestMarketCrossFeatures:
                 assert mcf_col in cols, (
                     f"{list_name} missing MCF feature: {mcf_col}"
                 )
+
+    def test_all_models_have_rl_features(self) -> None:
+        """全12モデルのFEATURE_COLSに6つのrl_*レースレベル特徴量が含まれる"""
+        from features.race_level_features import RL_COLS
+        from models.market_model import MarketModel
+        from models.place_ability_model import PlaceAbilityModel
+        from models.race_quality_screener import RaceQualityScreener
+        from models.regime_detector import RegimeDetector
+        from models.stage1_ability_model import AbilityModel
+        from models.two_stage_return_model import PlaceTwoStageModel, WinTwoStageModel
+        from models.wide_two_stage_model import WideTwoStageModel
+
+        model_feature_lists = [
+            ("AbilityModel.FEATURE_COLS", AbilityModel.FEATURE_COLS),
+            ("MarketModel.FEATURE_COLS", MarketModel.FEATURE_COLS),
+            ("RegimeDetector.FEATURE_COLS", RegimeDetector.FEATURE_COLS),
+            ("PlaceAbilityModel.FEATURE_COLS", PlaceAbilityModel.FEATURE_COLS),
+            ("RaceQualityScreener.FEATURE_COLS", RaceQualityScreener.FEATURE_COLS),
+            ("WideTwoStageModel.SHARED_FEATURE_COLS", WideTwoStageModel.SHARED_FEATURE_COLS),
+            ("WinTwoStageModel.FEATURE_COLS", WinTwoStageModel.FEATURE_COLS),
+            ("PlaceTwoStageModel.HIT_FEATURE_COLS", PlaceTwoStageModel.HIT_FEATURE_COLS),
+            ("PlaceTwoStageModel.RETURN_FEATURE_COLS", PlaceTwoStageModel.RETURN_FEATURE_COLS),
+            ("EVCorrectionModel.FEATURE_COLS", EVCorrectionModel.FEATURE_COLS),
+            ("PlaceEVCorrectionModel.FEATURE_COLS", PlaceEVCorrectionModel.FEATURE_COLS),
+            ("ConformalEVModel.FEATURE_COLS", ConformalEVModel.FEATURE_COLS),
+        ]
+
+        for list_name, cols in model_feature_lists:
+            for rl_col in RL_COLS:
+                assert rl_col in cols, (
+                    f"{list_name} missing rl_* feature: {rl_col}"
+                )
+
+    def test_gpd_category_map_has_rl_features(self) -> None:
+        """GPD FEATURE_CATEGORY_MAPに6つのrl_*特徴量がmarket分類で登録されている"""
+        from features.race_level_features import RL_COLS
+        from models.gpd_diagnostics import FEATURE_CATEGORY_MAP
+
+        for rl_col in RL_COLS:
+            assert rl_col in FEATURE_CATEGORY_MAP, (
+                f"FEATURE_CATEGORY_MAP missing rl_* feature: {rl_col}"
+            )
+            assert FEATURE_CATEGORY_MAP[rl_col] == "market", (
+                f"FEATURE_CATEGORY_MAP[{rl_col}] = '{FEATURE_CATEGORY_MAP[rl_col]}', "
+                f"expected 'market'"
+            )
