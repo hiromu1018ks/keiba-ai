@@ -433,12 +433,17 @@ def _compute_for_multi_race(
 
     # 結果をブロードキャスト
     result_series = pd.Series(results)
+    s_fav = result_series.map(lambda x: x[0])
+    s_overlap = result_series.map(lambda x: x[1])
+    s_consistency = result_series.map(lambda x: x[2])
+    s_trio_ratio = result_series.map(lambda x: x[3])
+    s_wide_ratio = result_series.map(lambda x: x[4])
 
-    df["rl_favorite_in_wide_top1"] = race_ids.map(result_series.map(lambda x: x[0]))
-    df["rl_trio_overlap"] = race_ids.map(result_series.map(lambda x: x[1]))
-    df["rl_market_consistency"] = race_ids.map(result_series.map(lambda x: x[2]))
-    df["rl_trio_odds_ratio"] = race_ids.map(result_series.map(lambda x: x[3]))
-    df["rl_wide_harville_ratio"] = race_ids.map(result_series.map(lambda x: x[4]))
+    df["rl_favorite_in_wide_top1"] = race_ids.map(s_fav)
+    df["rl_trio_overlap"] = race_ids.map(s_overlap)
+    df["rl_market_consistency"] = race_ids.map(s_consistency)
+    df["rl_trio_odds_ratio"] = race_ids.map(s_trio_ratio)
+    df["rl_wide_harville_ratio"] = race_ids.map(s_wide_ratio)
 
     return df
 
