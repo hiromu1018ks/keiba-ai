@@ -369,17 +369,19 @@ trio_n1 = trio_df[trio_df["ninki_num"] == 1]
 | A5 | build_features() (inference path) will not have wide/trio data available, so MCF features will be NaN | Architecture Patterns | Low -- acceptable per D-06, LightGBM handles NaN |
 | A6 | Wide odds values can be < 1.0 (sub-yen payouts) and are valid data | Common Pitfalls | Low -- verified against actual Parquet data (min oddslow ~0.3) |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **How should build_all() obtain the date range for wide/trio data loading?**
    - What we know: build_all() receives race_df which has race_date column. DataRepository.load_wide_odds() requires start/end date strings.
    - What's unclear: Whether to extract date range from race_df inside build_all(), or pass it as a parameter, or have the caller (TrainingPipeline/BacktestEngine) load and pass the data.
    - Recommendation: Extract from race_df inside build_all() (simplest, self-contained). The race_df always has race_date when called from training/backtest paths.
+   - **RESOLVED:** race_df内で日付抽出 (Plan 32-02 action A通り)。`pd.to_datetime(result_df["race_date"])`からmin/maxを取得。
 
 2. **Should compute_market_cross_features() filter wide/trio to ninki=1 internally, or receive pre-filtered data?**
    - What we know: Only ninki=1 is needed (D-02, D-03).
    - What's unclear: Whether filtering happens at load time or compute time.
    - Recommendation: Filter at compute time (inside the function). This keeps DataRepository generic and makes the ninki=1 constraint visible in one place.
+   - **RESOLVED:** compute関数内でフィルタ (Plan 32-01 action通り)。`pd.to_numeric(df["ninki"], errors="coerce")`後に`== 1`でフィルタ。
 
 ## Environment Availability
 
