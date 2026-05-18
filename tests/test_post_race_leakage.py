@@ -176,6 +176,13 @@ class TestPostRaceLeakage:
                 "rl_market_consistency": [1.0] * 3,
                 "rl_trio_odds_ratio": [0.8] * 3,
                 "rl_wide_harville_ratio": [1.1] * 3,
+                # レースレベル集約 (RLF-01~06)
+                "rl_log_odds_entropy": [2.5] * 3,
+                "rl_odds_dispersion": [2.0] * 3,
+                "rl_top3_odds_gap": [5.0] * 3,
+                "rl_top1_odds": [3.0] * 3,
+                "rl_favorite_rank_gap": [0.5] * 3,
+                "rl_n_horses": [12.0] * 3,
             }
         )
 
