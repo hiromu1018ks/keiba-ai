@@ -57,12 +57,12 @@ MLflow で実験管理。PostgreSQL (EveryDB2/JRA-VAN DataLab) をデータソ�
 - ✓ EveryDB2未活用データから22新特徴量(mining/血統/BMS/record/相対比較)抽出 — v1.6
 - ✓ ドメイン知識交互作用項12個 + OOF安全ターゲットエンコーディング3特徴量 — v1.6
 - ✓ マルチ年度BT (ROI 85.7%, +1.3pp改善) + 12モデルSHA256特徴量凍結manifest — v1.6
+- ✓ Gain per Depth診断 — 179特徴量をMarket/Fundamental/Categoricalに分類しdepth別gain集計 + MDR/FAD メトリクス + CLI可視化 — v1.7
 
 ### Active
 
 - Race-level集約特徴量 (entropy, dispersion, top-odds gap) の実装 — レース全体の市場構造を捉える
 - 市場整合性特徴量 (単勝×複数馬券種クロスコンシステンシー) の実装 — 「読める vs 読めないレース」の選別
-- Gain per Depth診断 — LightGBM暗黙的Two-Stage構造の検証
 - Residual IC評価指標 (B差分/C直交/E Incremental) の実装 — 市場独立性の定量評価
 - ROI 100%超えの達成 (現在85.7%)
 
@@ -96,11 +96,11 @@ race-level + market-cross特徴量でC直交IC +120%、ROI 0.91→1.66を達成�
 
 ## Current State
 
-**Shipped:** v1.6 Feature Engineering Overhaul (2026-05-17)
-**Phases:** 28 total (v1.0-v1.6)
-**LOC:** ~23,215 (src/)
-**Tests:** 1,527 passed, 0 failed
-**Next:** v1.7 Market-Independent Edge Discovery
+**Shipped:** v1.7 Phase 33 — Gain per Depth Diagnostic (2026-05-18)
+**Phases:** 31 total (v1.0-v1.7)
+**LOC:** ~24,100 (src/)
+**Tests:** 1,571 passed, 33 new (GPD diagnostics + CLI)
+**Next:** Phase 34 — Validation and Manifest Update
 
 ## Context
 
