@@ -1,7 +1,7 @@
 {
   "models": {
     "AbilityModel": {
-      "feature_count": 97,
+      "feature_count": 102,
       "features": [
         "surface",
         "distance_bin",
@@ -99,12 +99,17 @@
         "rel_sire_quality_rank",
         "rel_weight_zscore",
         "implied_prob_hhi",
-        "odds_skewness"
+        "odds_skewness",
+        "rl_favorite_in_wide_top1",
+        "rl_trio_overlap",
+        "rl_market_consistency",
+        "rl_trio_odds_ratio",
+        "rl_wide_harville_ratio"
       ],
-      "sha256": "e1fe6f3dbaab28b0d0ae41c1654930b8850202ce18263a3fe35ac3a81c3f6bad"
+      "sha256": "c9d0a25f9fd9a3fced89eb57c610f38250fc59ed9c095fa14701011a1a0e245d"
     },
     "ConformalEVModel": {
-      "feature_count": 131,
+      "feature_count": 136,
       "features": [
         "surface",
         "distance_bin",
@@ -236,12 +241,17 @@
         "bataijyu",
         "zogen_sa",
         "kyori",
-        "trackcd"
+        "trackcd",
+        "rl_favorite_in_wide_top1",
+        "rl_trio_overlap",
+        "rl_market_consistency",
+        "rl_trio_odds_ratio",
+        "rl_wide_harville_ratio"
       ],
-      "sha256": "d6f9d5d1fd8f25326b7fdeb44208d122eaf819d8d36ef22f402d0c5538bd2e61"
+      "sha256": "035fc5653e34baf56527910954cdbb86c6b2dede287e4a73b9365cf76d970217"
     },
     "EVCorrectionModel": {
-      "feature_count": 25,
+      "feature_count": 30,
       "features": [
         "e_return_win_pred",
         "p_x_e_interaction",
@@ -267,12 +277,17 @@
         "jt_combo_wr",
         "jt_combo_place_rate",
         "jt_combo_starts",
-        "jt_combo_prize_log"
+        "jt_combo_prize_log",
+        "rl_favorite_in_wide_top1",
+        "rl_trio_overlap",
+        "rl_market_consistency",
+        "rl_trio_odds_ratio",
+        "rl_wide_harville_ratio"
       ],
-      "sha256": "27bdcffd54d83ae741a6a66990ed74bd93b58d9f320ba3430f8142822663177b"
+      "sha256": "d765b9cb480661ea2619d4f8859e34210efae26b782fb82e3c7c8ca33349d0c2"
     },
     "MarketModel": {
-      "feature_count": 9,
+      "feature_count": 14,
       "features": [
         "surface",
         "distance_bin",
@@ -282,12 +297,17 @@
         "weight_diff_from_mean",
         "difficulty_score",
         "implied_prob_hhi",
-        "odds_skewness"
+        "odds_skewness",
+        "rl_favorite_in_wide_top1",
+        "rl_trio_overlap",
+        "rl_market_consistency",
+        "rl_trio_odds_ratio",
+        "rl_wide_harville_ratio"
       ],
-      "sha256": "fbd84ae24083fb7106f147febab321ae0fc36690a9e87a34d8628d8e03b7c854"
+      "sha256": "3c639c82bf1a7cb15fb3f55d9760a996c32b78b509bb15ba1254eb978edee93c"
     },
     "PlaceAbilityModel": {
-      "feature_count": 63,
+      "feature_count": 68,
       "features": [
         "surface",
         "distance_bin",
@@ -351,12 +371,17 @@
         "odds_popularity_gap",
         "surface_track_interaction",
         "implied_prob_hhi",
-        "odds_skewness"
+        "odds_skewness",
+        "rl_favorite_in_wide_top1",
+        "rl_trio_overlap",
+        "rl_market_consistency",
+        "rl_trio_odds_ratio",
+        "rl_wide_harville_ratio"
       ],
-      "sha256": "320ca5bbc26356cff93097d54c609e825b17542753181422cf0fe53216bda637"
+      "sha256": "04919edd88a7d768e5f3d3610f284748b6e2ae6f2c6fd9fbb5e22bbd96ba2a80"
     },
     "PlaceEVCorrectionModel": {
-      "feature_count": 25,
+      "feature_count": 30,
       "features": [
         "e_return_place_pred",
         "fukuoddslow",
@@ -382,12 +407,17 @@
         "jt_combo_wr",
         "jt_combo_place_rate",
         "jt_combo_starts",
-        "jt_combo_prize_log"
+        "jt_combo_prize_log",
+        "rl_favorite_in_wide_top1",
+        "rl_trio_overlap",
+        "rl_market_consistency",
+        "rl_trio_odds_ratio",
+        "rl_wide_harville_ratio"
       ],
-      "sha256": "d728bee1f75c8a56e7815de3951725e5a4b5dce39db59736921bb7de5bb51a50"
+      "sha256": "c5162766181b1a054bff896da6cba76f2c182ca97db7778e80c281fa7acd38f8"
     },
     "PlaceTwoStageModel.HIT": {
-      "feature_count": 85,
+      "feature_count": 90,
       "features": [
         "p_ability_win",
         "p_ability_place",
@@ -473,12 +503,17 @@
         "te_blood_keito_cd",
         "te_kisyucode",
         "te_chokyosicode",
-        "implied_prob_hhi"
+        "implied_prob_hhi",
+        "rl_favorite_in_wide_top1",
+        "rl_trio_overlap",
+        "rl_market_consistency",
+        "rl_trio_odds_ratio",
+        "rl_wide_harville_ratio"
       ],
-      "sha256": "de4b629b2a513d46fb2bcf1395c8df46a29aed7eeaf46e856e63b97a74e52440"
+      "sha256": "ffbbf3ea9dbd4a87996d929684d9ef452a845a1f53eb11ed650579b515beacc6"
     },
     "PlaceTwoStageModel.RETURN": {
-      "feature_count": 87,
+      "feature_count": 92,
       "features": [
         "p_ability_win",
         "p_ability_place",
@@ -566,12 +601,17 @@
         "te_blood_keito_cd",
         "te_kisyucode",
         "te_chokyosicode",
-        "implied_prob_hhi"
+        "implied_prob_hhi",
+        "rl_favorite_in_wide_top1",
+        "rl_trio_overlap",
+        "rl_market_consistency",
+        "rl_trio_odds_ratio",
+        "rl_wide_harville_ratio"
       ],
-      "sha256": "ef2727fe299c6d88f5534002aa5e9247e3b0fcd772653e603563a9f7931246bf"
+      "sha256": "1276e8b372764832111ad8396db81ae683480ef6498a025f730cca81b55b568e"
     },
     "RaceQualityScreener": {
-      "feature_count": 24,
+      "feature_count": 29,
       "features": [
         "market_log_error_max_abs",
         "market_log_error_std",
@@ -596,12 +636,17 @@
         "overround_ema",
         "entropy_ema",
         "implied_prob_hhi",
-        "odds_skewness"
+        "odds_skewness",
+        "rl_favorite_in_wide_top1",
+        "rl_trio_overlap",
+        "rl_market_consistency",
+        "rl_trio_odds_ratio",
+        "rl_wide_harville_ratio"
       ],
-      "sha256": "33e580a81a4559a5f942ae7538ddc1be2a8486c328633a731a17d06842d00634"
+      "sha256": "0f461005fabc4a8954976ff701b3c4984c83ac763c17109ab73f49c8d70e529a"
     },
     "RegimeDetector": {
-      "feature_count": 10,
+      "feature_count": 15,
       "features": [
         "market_error_std",
         "market_error_mean",
@@ -612,12 +657,17 @@
         "odds_volatility_mean",
         "field_size_mean",
         "implied_prob_hhi",
-        "odds_skewness"
+        "odds_skewness",
+        "rl_favorite_in_wide_top1",
+        "rl_trio_overlap",
+        "rl_market_consistency",
+        "rl_trio_odds_ratio",
+        "rl_wide_harville_ratio"
       ],
-      "sha256": "26239e43d42f1ed329ef168375cf2394526e039283e1fe12d089dfa0508fe3bd"
+      "sha256": "bda76155f3733ebb7023840e828672b4f16be5cea8526112535bc6eeec606f8c"
     },
     "WideTwoStageModel.SHARED": {
-      "feature_count": 7,
+      "feature_count": 12,
       "features": [
         "surface",
         "distance_bin",
@@ -625,12 +675,17 @@
         "grade_code",
         "field_size",
         "implied_prob_hhi",
-        "odds_skewness"
+        "odds_skewness",
+        "rl_favorite_in_wide_top1",
+        "rl_trio_overlap",
+        "rl_market_consistency",
+        "rl_trio_odds_ratio",
+        "rl_wide_harville_ratio"
       ],
-      "sha256": "dcbc13873322cf268695e314c4a3baceec943313deb1617517c4d60e96194185"
+      "sha256": "1dc7cb48557e4d2ed6749fe5f565b897f02cc55938ce464119ac883b627ed448"
     },
     "WinTwoStageModel": {
-      "feature_count": 82,
+      "feature_count": 87,
       "features": [
         "p_ability_win",
         "signed_log_error_win",
@@ -713,12 +768,17 @@
         "te_blood_keito_cd",
         "te_kisyucode",
         "te_chokyosicode",
-        "implied_prob_hhi"
+        "implied_prob_hhi",
+        "rl_favorite_in_wide_top1",
+        "rl_trio_overlap",
+        "rl_market_consistency",
+        "rl_trio_odds_ratio",
+        "rl_wide_harville_ratio"
       ],
-      "sha256": "26c94572fc8af46a243382251e9c8d63542dc9fdc475b3a73fa95eae7017831d"
+      "sha256": "7f135dab59a7868e1d46b99fe31dacb559ae6c14d0e3925e4dcbf3c31c0c44e3"
     }
   },
-  "overall_sha256": "003189225d7b162474516c3eb02940ddcc84d8842584679c81b56256153a5a0c",
-  "timestamp": "2026-05-18T07:30:41.686565+00:00",
+  "overall_sha256": "7239272657395876cde0e63b066cc68d69ba98ca2b76b240e03a6362bcfa10c9",
+  "timestamp": "2026-05-18T10:40:13.298619+00:00",
   "version": "v1.6"
 }
