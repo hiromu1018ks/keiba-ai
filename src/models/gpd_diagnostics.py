@@ -275,13 +275,34 @@ def _extract_boosters(models: TrainedModelsV5) -> dict[str, lgb.Booster]:
 
         # Market Model
         if sub.market.model is not None:
-            boosters[f"market_{surface}"] = sub.market.model
+            model = sub.market.model
+            if _is_booster(model):
+                boosters[f"market_{surface}"] = model
+            else:
+                logger.warning(
+                    "market_%s is not a Booster (type=%s), skipping",
+                    surface, type(model).__name__,
+                )
 
         # EV Correction: P + E models
         if sub.ev_corrector.p_correction_model is not None:
-            boosters[f"ev_corr_p_{surface}"] = sub.ev_corrector.p_correction_model
+            model = sub.ev_corrector.p_correction_model
+            if _is_booster(model):
+                boosters[f"ev_corr_p_{surface}"] = model
+            else:
+                logger.warning(
+                    "ev_corr_p_%s is not a Booster (type=%s), skipping",
+                    surface, type(model).__name__,
+                )
         if sub.ev_corrector.e_correction_model is not None:
-            boosters[f"ev_corr_e_{surface}"] = sub.ev_corrector.e_correction_model
+            model = sub.ev_corrector.e_correction_model
+            if _is_booster(model):
+                boosters[f"ev_corr_e_{surface}"] = model
+            else:
+                logger.warning(
+                    "ev_corr_e_%s is not a Booster (type=%s), skipping",
+                    surface, type(model).__name__,
+                )
 
         # Place (optional)
         if sub.place is not None:
@@ -293,27 +314,65 @@ def _extract_boosters(models: TrainedModelsV5) -> dict[str, lgb.Booster]:
         # Place EV Correction (optional)
         if sub.place_ev_corrector is not None:
             if sub.place_ev_corrector.p_correction_model is not None:
-                boosters[f"place_ev_corr_p_{surface}"] = (
-                    sub.place_ev_corrector.p_correction_model
-                )
+                model = sub.place_ev_corrector.p_correction_model
+                if _is_booster(model):
+                    boosters[f"place_ev_corr_p_{surface}"] = model
+                else:
+                    logger.warning(
+                        "place_ev_corr_p_%s is not a Booster (type=%s), skipping",
+                        surface, type(model).__name__,
+                    )
             if sub.place_ev_corrector.e_correction_model is not None:
-                boosters[f"place_ev_corr_e_{surface}"] = (
-                    sub.place_ev_corrector.e_correction_model
-                )
+                model = sub.place_ev_corrector.e_correction_model
+                if _is_booster(model):
+                    boosters[f"place_ev_corr_e_{surface}"] = model
+                else:
+                    logger.warning(
+                        "place_ev_corr_e_%s is not a Booster (type=%s), skipping",
+                        surface, type(model).__name__,
+                    )
 
         # Wide (optional)
         if sub.wide is not None:
             if sub.wide.hit_model is not None:
-                boosters[f"wide_hit_{surface}"] = sub.wide.hit_model
+                model = sub.wide.hit_model
+                if _is_booster(model):
+                    boosters[f"wide_hit_{surface}"] = model
+                else:
+                    logger.warning(
+                        "wide_hit_%s is not a Booster (type=%s), skipping",
+                        surface, type(model).__name__,
+                    )
             if sub.wide.return_model is not None:
-                boosters[f"wide_ret_{surface}"] = sub.wide.return_model
+                model = sub.wide.return_model
+                if _is_booster(model):
+                    boosters[f"wide_ret_{surface}"] = model
+                else:
+                    logger.warning(
+                        "wide_ret_%s is not a Booster (type=%s), skipping",
+                        surface, type(model).__name__,
+                    )
 
         # ConformalEV / CQR (optional)
         if sub.conformal_ev_model is not None:
             if sub.conformal_ev_model.q_low_model is not None:
-                boosters[f"cqr_q_low_{surface}"] = sub.conformal_ev_model.q_low_model
+                model = sub.conformal_ev_model.q_low_model
+                if _is_booster(model):
+                    boosters[f"cqr_q_low_{surface}"] = model
+                else:
+                    logger.warning(
+                        "cqr_q_low_%s is not a Booster (type=%s), skipping",
+                        surface, type(model).__name__,
+                    )
             if sub.conformal_ev_model.q_high_model is not None:
-                boosters[f"cqr_q_high_{surface}"] = sub.conformal_ev_model.q_high_model
+                model = sub.conformal_ev_model.q_high_model
+                if _is_booster(model):
+                    boosters[f"cqr_q_high_{surface}"] = model
+                else:
+                    logger.warning(
+                        "cqr_q_high_%s is not a Booster (type=%s), skipping",
+                        surface, type(model).__name__,
+                    )
 
         # PlaceAbilityModel (optional, uses LGBMClassifier -> .booster_)
         if sub.place_ability is not None and hasattr(sub.place_ability, "_model"):
