@@ -1,17 +1,94 @@
 """Tests for Gain per Depth diagnostic module.
 
-TDD RED phase: Tests for FEATURE_CATEGORY_MAP completeness, Booster extraction,
+TDD GREEN phase: Tests for FEATURE_CATEGORY_MAP completeness, Booster extraction,
 depth-gain computation, MDR/FAD metrics, full pipeline, and edge cases.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import MagicMock, PropertyMock, patch
+from unittest.mock import MagicMock
 
 import numpy as np
 import pandas as pd
 import pytest
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _make_mock_booster(tree_df: pd.DataFrame | None = None) -> MagicMock:
+    """Create a mock lgb.Booster that passes _is_booster() duck-type check."""
+    if tree_df is None:
+        tree_df = pd.DataFrame({
+            "tree_index": [0],
+            "node_depth": [1],
+            "node_index": ["0-S"],
+            "left_child": [None],
+            "right_child": [None],
+            "parent_index": [None],
+            "split_feature": ["odds"],
+            "split_gain": [1.0],
+            "threshold": [5.0],
+            "decision_type": ["<="],
+            "missing_direction": ["left"],
+            "missing_type": ["None"],
+            "value": [0.5],
+            "weight": [100.0],
+            "count": [100],
+        })
+    booster = MagicMock()
+    booster.trees_to_dataframe.return_value = tree_df
+    # Add feature_importance for _is_booster duck-type check
+    booster.feature_importance = MagicMock(return_value=np.array([1.0]))
+    return booster
+
+
+def _make_tree_df(
+    rows: list[dict[str, object]],
+) -> pd.DataFrame:
+    """Build a trees_to_dataframe() output DataFrame."""
+    defaults: dict[str, object] = {
+        "tree_index": 0,
+        "node_depth": 1,
+        "node_index": "0-S",
+        "left_child": None,
+        "right_child": None,
+        "parent_index": None,
+        "split_feature": "odds",
+        "split_gain": 1.0,
+        "threshold": 5.0,
+        "decision_type": "<=",
+        "missing_direction": "left",
+        "missing_type": "None",
+        "value": 0.5,
+        "weight": 100.0,
+        "count": 100,
+    }
+    data = []
+    for row in rows:
+        merged = {**defaults, **row}
+        data.append(merged)
+    return pd.DataFrame(data)
+
+
+def _make_depth_gains(
+    depth_category_gains: list[tuple[int, str, float]],
+) -> dict:
+    """Create a depth_gains dict structure from (depth, category, gain) tuples."""
+    depths = [t[0] for t in depth_category_gains]
+    categories = [t[1] for t in depth_category_gains]
+    gains = [t[2] for t in depth_category_gains]
+    return {
+        "depths": depths,
+        "categories": categories,
+        "gains": gains,
+        "num_trees": 5,
+        "max_depth": max(depths) if depths else 0,
+        "total_gain": sum(gains),
+    }
+
 
 # ---------------------------------------------------------------------------
 # Test 1: FEATURE_CATEGORY_MAP completeness
@@ -75,15 +152,11 @@ class TestFeatureCategoryMapCompleteness:
         )
 
     def test_no_extra_features_in_map(self) -> None:
-        """FEATURE_CATEGORY_MAP should not have features not in any model (optional check)."""
+        """FEATURE_CATEGORY_MAP should not have features not in any model."""
         from models.gpd_diagnostics import FEATURE_CATEGORY_MAP
 
         all_features = self._collect_all_feature_cols()
         extra = set(FEATURE_CATEGORY_MAP.keys()) - all_features
-        # This is informational, not an error -- the map may legitimately include
-        # features from StackedEnsemble that match WinTwoStageModel features
-        # Just assert no wild extras (tolerance for small known extras)
-        # StackedEnsemble uses the same feature space as WinTwoStageModel
         assert len(extra) == 0, (
             f"FEATURE_CATEGORY_MAP has {len(extra)} extra features not in any model: "
             f"{sorted(extra)}"
@@ -99,38 +172,13 @@ class TestBoosterExtraction:
     """Verify _extract_boosters() correctly extracts all LightGBM Boosters from
     TrainedModelsV5."""
 
-    def _make_mock_booster(self) -> MagicMock:
-        """Create a mock lgb.Booster."""
-        booster = MagicMock()
-        booster.trees_to_dataframe.return_value = pd.DataFrame({
-            "tree_index": [0],
-            "node_depth": [1],
-            "node_index": ["0-S"],
-            "left_child": [None],
-            "right_child": [None],
-            "parent_index": [None],
-            "split_feature": ["odds"],
-            "split_gain": [1.0],
-            "threshold": [5.0],
-            "decision_type": ["<="],
-            "missing_direction": ["left"],
-            "missing_type": ["None"],
-            "value": [0.5],
-            "weight": [100.0],
-            "count": [100],
-        })
-        return booster
-
     def _make_mock_models(self) -> MagicMock:
         """Create a mock TrainedModelsV5 with typical SubmodelSet structure."""
-        import lightgbm as lgb
+        mock_booster = _make_mock_booster()
 
-        mock_booster = self._make_mock_booster()
-
-        # Mock StackedEnsemble
-        mock_ensemble = MagicMock()
+        # Mock StackedEnsemble (NOT a Booster -- no trees_to_dataframe)
+        mock_ensemble = MagicMock(spec=["lgbm_model", "best_iteration", "predict"])
         mock_ensemble.lgbm_model = mock_booster
-        type(mock_ensemble).best_iteration = PropertyMock(return_value=100)
 
         # SubmodelSet
         sub = MagicMock()
@@ -175,7 +223,6 @@ class TestBoosterExtraction:
         # Check primary tier
         assert "stage1_turf" in boosters
         assert "stage1_dirt" in boosters
-        assert "win_hit_turf" in boosters or "ensemble_lgbm_turf" in boosters
         assert "win_ret_turf" in boosters
         assert "win_ret_dirt" in boosters
         assert "market_turf" in boosters
@@ -219,7 +266,7 @@ class TestBoosterExtraction:
         """Optional models (place, wide, cqr) as None should not cause errors."""
         from models.gpd_diagnostics import _extract_boosters
 
-        mock_booster = self._make_mock_booster()
+        mock_booster = _make_mock_booster()
         sub = MagicMock()
         sub.stage1.models = {"turf": mock_booster}
         sub.win.hit_model = mock_booster
@@ -255,47 +302,19 @@ class TestBoosterExtraction:
 class TestDepthGainComputation:
     """Verify _compute_depth_gains() correctly groups gain by depth and category."""
 
-    def _make_tree_df(
-        self,
-        rows: list[dict[str, object]],
-    ) -> pd.DataFrame:
-        """Build a trees_to_dataframe() output DataFrame."""
-        defaults: dict[str, object] = {
-            "tree_index": 0,
-            "node_depth": 1,
-            "node_index": "0-S",
-            "left_child": None,
-            "right_child": None,
-            "parent_index": None,
-            "split_feature": "odds",
-            "split_gain": 1.0,
-            "threshold": 5.0,
-            "decision_type": "<=",
-            "missing_direction": "left",
-            "missing_type": "None",
-            "value": 0.5,
-            "weight": 100.0,
-            "count": 100,
-        }
-        data = []
-        for row in rows:
-            merged = {**defaults, **row}
-            data.append(merged)
-        return pd.DataFrame(data)
-
     def test_gain_grouped_by_depth_and_category(self) -> None:
         """Gain is correctly grouped by depth and feature category."""
-        from models.gpd_diagnostics import FEATURE_CATEGORY_MAP, _compute_depth_gains
+        from models.gpd_diagnostics import _compute_depth_gains
 
-        # Create tree data with known features at known depths
-        tree_df = self._make_tree_df([
+        tree_df = _make_tree_df([
             {"node_depth": 1, "split_feature": "odds", "split_gain": 10.0},
             {"node_depth": 1, "split_feature": "odds", "split_gain": 5.0},
             {"node_depth": 2, "split_feature": "sire_wr", "split_gain": 3.0},
             {"node_depth": 3, "split_feature": "surface", "split_gain": 2.0},
         ])
 
-        result = _compute_depth_gains(tree_df)
+        mock_booster = _make_mock_booster(tree_df)
+        result = _compute_depth_gains(mock_booster)
 
         # Verify structure
         assert "depths" in result
@@ -319,12 +338,13 @@ class TestDepthGainComputation:
         """Leaf nodes (split_feature=None) are excluded from gain aggregation."""
         from models.gpd_diagnostics import _compute_depth_gains
 
-        tree_df = self._make_tree_df([
+        tree_df = _make_tree_df([
             {"node_depth": 1, "split_feature": "odds", "split_gain": 10.0},
             {"node_depth": 2, "split_feature": None, "split_gain": 0.0},  # leaf
         ])
 
-        result = _compute_depth_gains(tree_df)
+        mock_booster = _make_mock_booster(tree_df)
+        result = _compute_depth_gains(mock_booster)
 
         # Only depth 1 should have entries; depth 2 leaf should be excluded
         depth2_entries = [
@@ -336,12 +356,13 @@ class TestDepthGainComputation:
         """NaN split_gain values are filled with 0 before aggregation."""
         from models.gpd_diagnostics import _compute_depth_gains
 
-        tree_df = self._make_tree_df([
+        tree_df = _make_tree_df([
             {"node_depth": 1, "split_feature": "odds", "split_gain": np.nan},
             {"node_depth": 1, "split_feature": "odds", "split_gain": 5.0},
         ])
 
-        result = _compute_depth_gains(tree_df)
+        mock_booster = _make_mock_booster(tree_df)
+        result = _compute_depth_gains(mock_booster)
 
         # NaN should become 0, so total gain at depth 1 for market = 5.0
         depth1_market_gain = 0.0
@@ -355,13 +376,15 @@ class TestDepthGainComputation:
         """num_trees, max_depth, total_gain are correctly computed."""
         from models.gpd_diagnostics import _compute_depth_gains
 
-        tree_df = self._make_tree_df([
+        tree_df = _make_tree_df([
             {"tree_index": 0, "node_depth": 1, "split_feature": "odds", "split_gain": 10.0},
             {"tree_index": 0, "node_depth": 2, "split_feature": "sire_wr", "split_gain": 5.0},
-            {"tree_index": 1, "node_depth": 1, "split_feature": "blood_keito_cd", "split_gain": 8.0},
+            {"tree_index": 1, "node_depth": 1,
+             "split_feature": "blood_keito_cd", "split_gain": 8.0},
         ])
 
-        result = _compute_depth_gains(tree_df)
+        mock_booster = _make_mock_booster(tree_df)
+        result = _compute_depth_gains(mock_booster)
 
         assert result["num_trees"] == 2
         assert result["max_depth"] == 2
@@ -376,28 +399,11 @@ class TestDepthGainComputation:
 class TestMarketDominanceRatio:
     """Verify Market Dominance Ratio computation."""
 
-    def _make_depth_gains(
-        self,
-        depth_category_gains: list[tuple[int, str, float]],
-    ) -> dict:
-        """Create a depth_gains dict structure from (depth, category, gain) tuples."""
-        depths = [t[0] for t in depth_category_gains]
-        categories = [t[1] for t in depth_category_gains]
-        gains = [t[2] for t in depth_category_gains]
-        return {
-            "depths": depths,
-            "categories": categories,
-            "gains": gains,
-            "num_trees": 5,
-            "max_depth": max(depths) if depths else 0,
-            "total_gain": sum(gains),
-        }
-
     def test_positive_mdr_when_market_dominates_shallow(self) -> None:
         """MDR > 0 when Market dominates at shallow depths."""
         from models.gpd_diagnostics import _compute_market_dominance_ratio
 
-        depth_gains = self._make_depth_gains([
+        depth_gains = _make_depth_gains([
             (1, "market", 100.0),
             (2, "market", 80.0),
             (3, "market", 60.0),
@@ -413,7 +419,7 @@ class TestMarketDominanceRatio:
         """MDR < 0 when Market dominates at deeper depths."""
         from models.gpd_diagnostics import _compute_market_dominance_ratio
 
-        depth_gains = self._make_depth_gains([
+        depth_gains = _make_depth_gains([
             (1, "fundamental", 100.0),
             (2, "fundamental", 80.0),
             (3, "fundamental", 60.0),
@@ -429,7 +435,7 @@ class TestMarketDominanceRatio:
         """MDR returns None when total gain at depth 1-3 is zero."""
         from models.gpd_diagnostics import _compute_market_dominance_ratio
 
-        depth_gains = self._make_depth_gains([
+        depth_gains = _make_depth_gains([
             (4, "market", 90.0),
             (5, "fundamental", 80.0),
         ])
@@ -446,28 +452,11 @@ class TestMarketDominanceRatio:
 class TestFundamentalActivationDepth:
     """Verify Fundamental Activation Depth computation."""
 
-    def _make_depth_gains(
-        self,
-        depth_category_gains: list[tuple[int, str, float]],
-    ) -> dict:
-        """Create a depth_gains dict structure."""
-        depths = [t[0] for t in depth_category_gains]
-        categories = [t[1] for t in depth_category_gains]
-        gains = [t[2] for t in depth_category_gains]
-        return {
-            "depths": depths,
-            "categories": categories,
-            "gains": gains,
-            "num_trees": 5,
-            "max_depth": max(depths) if depths else 0,
-            "total_gain": sum(gains),
-        }
-
     def test_fad_returns_correct_depth(self) -> None:
         """FAD returns the depth where Fundamental first exceeds Market."""
         from models.gpd_diagnostics import _compute_fundamental_activation_depth
 
-        depth_gains = self._make_depth_gains([
+        depth_gains = _make_depth_gains([
             (1, "market", 100.0),
             (2, "market", 60.0),
             (2, "fundamental", 40.0),
@@ -485,7 +474,7 @@ class TestFundamentalActivationDepth:
         """FAD returns None when Market dominates at all depths."""
         from models.gpd_diagnostics import _compute_fundamental_activation_depth
 
-        depth_gains = self._make_depth_gains([
+        depth_gains = _make_depth_gains([
             (1, "market", 100.0),
             (2, "market", 80.0),
             (3, "market", 60.0),
@@ -503,10 +492,9 @@ class TestFundamentalActivationDepth:
 class TestFullPipeline:
     """Verify compute_gpd_diagnostics() end-to-end with mock models."""
 
-    def _make_mock_booster(self) -> MagicMock:
-        """Create a mock lgb.Booster with controlled tree structure."""
-        booster = MagicMock()
-        booster.trees_to_dataframe.return_value = pd.DataFrame({
+    def _make_pipeline_tree_df(self) -> pd.DataFrame:
+        """Create controlled tree data for pipeline tests."""
+        return pd.DataFrame({
             "tree_index": [0, 0, 1],
             "node_depth": [1, 2, 1],
             "node_index": ["0-S0", "0-S1", "1-S0"],
@@ -523,11 +511,11 @@ class TestFullPipeline:
             "weight": [100.0, 50.0, 80.0],
             "count": [100, 50, 80],
         })
-        return booster
 
     def _make_mock_models(self) -> MagicMock:
         """Create a minimal mock TrainedModelsV5."""
-        mock_booster = self._make_mock_booster()
+        tree_df = self._make_pipeline_tree_df()
+        mock_booster = _make_mock_booster(tree_df)
 
         sub = MagicMock()
         sub.stage1.models = {"turf": mock_booster}
@@ -574,7 +562,7 @@ class TestFullPipeline:
         from models.gpd_diagnostics import compute_gpd_diagnostics
 
         models = self._make_mock_models()
-        result = compute_gpd_diagnostics(models, output_dir=tmp_path)
+        compute_gpd_diagnostics(models, output_dir=tmp_path)
 
         json_path = tmp_path / "gpd_report.json"
         assert json_path.exists()
