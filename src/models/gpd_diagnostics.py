@@ -564,11 +564,13 @@ def compute_gpd_diagnostics(
         },
     }
 
+    failed_names: list[str] = []
     for name, booster in boosters.items():
         try:
             depth_gains = _compute_depth_gains(booster)
         except Exception:
             logger.warning("Failed to compute depth gains for %s", name, exc_info=True)
+            failed_names.append(name)
             continue
 
         mdr = _compute_market_dominance_ratio(depth_gains)
@@ -580,6 +582,10 @@ def compute_gpd_diagnostics(
             "market_dominance_ratio": mdr,
             "fundamental_activation_depth": fad,
         }
+
+    if failed_names:
+        result["metadata"]["failed_boosters"] = failed_names
+        result["metadata"]["num_failed"] = len(failed_names)
 
     # Write JSON if output_dir provided
     if output_dir is not None:
