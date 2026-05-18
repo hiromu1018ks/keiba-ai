@@ -43,7 +43,8 @@ def _get_market_probability(df: pd.DataFrame) -> np.ndarray:
     implied_prob列があれば使用、なければ1/tanoddsから計算。
     """
     if "implied_prob" in df.columns:
-        return pd.to_numeric(df["implied_prob"], errors="coerce").values
+        raw = pd.to_numeric(df["implied_prob"], errors="coerce").values
+        return np.clip(np.where(np.isfinite(raw), raw, np.nan), 0.01, 0.99)
     odds = pd.to_numeric(df[MARKET_ODDS_COLUMN], errors="coerce").replace(0, np.nan)
     return np.clip(1.0 / odds.values, 0.01, 0.99)
 
