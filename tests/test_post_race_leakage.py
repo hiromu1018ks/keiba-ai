@@ -170,6 +170,12 @@ class TestPostRaceLeakage:
                 "signed_log_error_win": [0.1] * 3,
                 "abs_log_error_win": [0.2] * 3,
                 "odds_skewness": [0.5] * 3,
+                # 市場クロス整合性 (MCF-07)
+                "rl_favorite_in_wide_top1": [1.0] * 3,
+                "rl_trio_overlap": [2.0] * 3,
+                "rl_market_consistency": [1.0] * 3,
+                "rl_trio_odds_ratio": [0.8] * 3,
+                "rl_wide_harville_ratio": [1.1] * 3,
             }
         )
 
@@ -333,6 +339,7 @@ class TestMarketCrossFeatures:
         from models.race_quality_screener import RaceQualityScreener
         from models.regime_detector import RegimeDetector
         from models.stage1_ability_model import AbilityModel
+        from models.two_stage_return_model import PlaceTwoStageModel, WinTwoStageModel
         from models.wide_two_stage_model import WideTwoStageModel
 
         model_feature_lists = [

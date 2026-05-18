@@ -54,6 +54,12 @@ class RaceQualityScreener:
         # 市場構造 (D-06: 市場集中度・歪度)
         "implied_prob_hhi",
         "odds_skewness",
+        # 市場クロス整合性 (MCF-07)
+        "rl_favorite_in_wide_top1",
+        "rl_trio_overlap",
+        "rl_market_consistency",
+        "rl_trio_odds_ratio",
+        "rl_wide_harville_ratio",
     ]
 
     _CATEGORY_COLS: list[str] = ["surface", "distance_bin", "grade_code"]

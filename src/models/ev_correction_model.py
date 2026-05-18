@@ -183,6 +183,12 @@ class EVCorrectionModel:
         "jt_combo_place_rate",
         "jt_combo_starts",
         "jt_combo_prize_log",
+        # 市場クロス整合性 (MCF-07)
+        "rl_favorite_in_wide_top1",
+        "rl_trio_overlap",
+        "rl_market_consistency",
+        "rl_trio_odds_ratio",
+        "rl_wide_harville_ratio",
     ]
 
     def _add_interaction_features(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -438,6 +444,12 @@ class PlaceEVCorrectionModel:
         "jt_combo_place_rate",
         "jt_combo_starts",
         "jt_combo_prize_log",
+        # 市場クロス整合性 (MCF-07)
+        "rl_favorite_in_wide_top1",
+        "rl_trio_overlap",
+        "rl_market_consistency",
+        "rl_trio_odds_ratio",
+        "rl_wide_harville_ratio",
     ]
 
     def __init__(self) -> None:

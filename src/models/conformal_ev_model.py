@@ -146,6 +146,12 @@ class ConformalEVModel:
         "bataijyu", "zogen_sa",
         # --- Interaction features ---
         "kyori", "trackcd",
+        # --- 市場クロス整合性 (MCF-07) ---
+        "rl_favorite_in_wide_top1",
+        "rl_trio_overlap",
+        "rl_market_consistency",
+        "rl_trio_odds_ratio",
+        "rl_wide_harville_ratio",
     ]
 
     def __init__(self, alpha: float = 0.1, feature_cols: list[str] | None = None) -> None:

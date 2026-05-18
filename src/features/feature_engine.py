@@ -347,6 +347,30 @@ class FeatureEngine:
         with TimingContext("build_all/race_level"):
             result_df = compute_race_level_features(result_df)
 
+        # 6b. 市場クロス整合性特徴量 (MCF-07)
+        from features.market_cross_features import compute_market_cross_features
+
+        with TimingContext("build_all/market_cross"):
+            wide_df_mcf = None
+            trio_df_mcf = None
+            if store is not None:
+                try:
+                    from db.repository import DataRepository
+
+                    repo = DataRepository(store)
+                    rd = pd.to_datetime(result_df["race_date"], errors="coerce")
+                    rd_valid = rd.dropna()
+                    if len(rd_valid) > 0:
+                        start_str = str(rd_valid.min().date())
+                        end_str = str(rd_valid.max().date())
+                        wide_df_mcf = repo.load_wide_odds(start_str, end_str)
+                        trio_df_mcf = repo.load_trio_odds(start_str, end_str)
+                except Exception:
+                    logger.warning("MCF: wide/trio odds load failed, using NaN fallback")
+            result_df = compute_market_cross_features(
+                result_df, wide_df=wide_df_mcf, trio_df=trio_df_mcf,
+            )
+
         # Group B: 血統特徴量
         if store is not None:
             with TimingContext("build_all/bloodline"):
@@ -460,6 +484,11 @@ class FeatureEngine:
         from features.race_level_features import compute_race_level_features
 
         df = compute_race_level_features(df)
+
+        # 7. 市場クロス整合性特徴量 (MCF-07 parity)
+        from features.market_cross_features import compute_market_cross_features
+
+        df = compute_market_cross_features(df)
 
         return df
 

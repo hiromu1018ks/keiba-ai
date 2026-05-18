@@ -155,6 +155,12 @@ class WinTwoStageModel:
         "te_chokyosicode",
         # 市場構造 (D-06: 市場集中度)
         "implied_prob_hhi",
+        # 市場クロス整合性 (MCF-07)
+        "rl_favorite_in_wide_top1",
+        "rl_trio_overlap",
+        "rl_market_consistency",
+        "rl_trio_odds_ratio",
+        "rl_wide_harville_ratio",
     ]
 
     def __init__(self, cfg: TwoStageConfig | None = None) -> None:
@@ -449,6 +455,12 @@ class PlaceTwoStageModel:
         "te_chokyosicode",
         # 市場構造 (D-06: 市場集中度)
         "implied_prob_hhi",
+        # 市場クロス整合性 (MCF-07)
+        "rl_favorite_in_wide_top1",
+        "rl_trio_overlap",
+        "rl_market_consistency",
+        "rl_trio_odds_ratio",
+        "rl_wide_harville_ratio",
     ]
 
     # --- Return model (Stage B): 配当回帰用 ---
@@ -566,6 +578,12 @@ class PlaceTwoStageModel:
         "te_chokyosicode",
         # 市場構造 (D-06: 市場集中度)
         "implied_prob_hhi",
+        # 市場クロス整合性 (MCF-07)
+        "rl_favorite_in_wide_top1",
+        "rl_trio_overlap",
+        "rl_market_consistency",
+        "rl_trio_odds_ratio",
+        "rl_wide_harville_ratio",
     ]
 
     # 後方互換: FEATURE_COLS は return model のリストを返す (最も情報量が多いため)
