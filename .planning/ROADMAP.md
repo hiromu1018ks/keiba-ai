@@ -178,7 +178,7 @@ Plans:
   3. 暗黙的Two-Stage構造(上位depth=Market, 下位depth=Fundamental)の仮説がデータで検証される
 **Plans**: 2 plans
 Plans:
-- [ ] 33-01-PLAN.md -- Core gpd_diagnostics.py: FEATURE_CATEGORY_MAP + Booster extraction + depth-gain computation + MDR/FAD metrics + JSON + console_summary() + tests (GPD-01, GPD-03, GPD-04)
+- [x] 33-01-PLAN.md -- Core gpd_diagnostics.py: FEATURE_CATEGORY_MAP + Booster extraction + depth-gain computation + MDR/FAD metrics + JSON + console_summary() + tests (GPD-01, GPD-03, GPD-04)
 - [ ] 33-02-PLAN.md -- CLI script run_gpd.py + matplotlib stacked bar PNG visualization + tests (GPD-02)
 
 ### Phase 34: Validation and Manifest Update
@@ -234,5 +234,5 @@ Then: 31 -> 32 -> 33 -> 34 (sequential).
 | 30. Residual IC Evaluation Framework | v1.7 | 0/2 | Planned | - |
 | 31. Race-Level Aggregation Features | v1.7 | 0/2 | Planned | - |
 | 32. Market Cross-Consistency Features | v1.7 | 2/2 | Complete    | 2026-05-18 |
-| 33. Gain per Depth Diagnostic | v1.7 | 0/2 | Planned | - |
+| 33. Gain per Depth Diagnostic | v1.7 | 1/2 | In Progress|  |
 | 34. Validation and Manifest Update | v1.7 | 0/? | Not started | - |
