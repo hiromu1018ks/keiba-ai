@@ -23,10 +23,10 @@
 
 ### Gain per Depth Diagnostic
 
-- [ ] **GPD-01**: LightGBM trees_to_dataframe() でdepth別gain寄与率を集計する機能
-- [ ] **GPD-02**: Market/Fundamental/Categorical 3分類でdepth別シェアを可視化する機能
-- [ ] **GPD-03**: StackedEnsemble内LightGBMモデルへのアクセスと分析機能
-- [ ] **GPD-04**: 暗黙的Two-Stage構造 (上位depth=Market, 下位depth=Fundamental) の検証
+- [x] **GPD-01**: LightGBM trees_to_dataframe() でdepth別gain寄与率を集計する機能
+- [x] **GPD-02**: Market/Fundamental/Categorical 3分類でdepth別シェアを可視化する機能
+- [x] **GPD-03**: StackedEnsemble内LightGBMモデルへのアクセスと分析機能
+- [x] **GPD-04**: 暗黙的Two-Stage構造 (上位depth=Market, 下位depth=Fundamental) の検証
 
 ### Race-Level Aggregation Features
 
@@ -114,10 +114,10 @@
 | MCF-05 | Phase 32 | Complete |
 | MCF-06 | Phase 32 | Complete |
 | MCF-07 | Phase 32 | Complete |
-| GPD-01 | Phase 33 | Pending |
-| GPD-02 | Phase 33 | Pending |
-| GPD-03 | Phase 33 | Pending |
-| GPD-04 | Phase 33 | Pending |
+| GPD-01 | Phase 33 | Complete |
+| GPD-02 | Phase 33 | Complete |
+| GPD-03 | Phase 33 | Complete |
+| GPD-04 | Phase 33 | Complete |
 | VAL-01 | Phase 34 | Pending |
 | VAL-02 | Phase 34 | Pending |
 | VAL-03 | Phase 34 | Pending |

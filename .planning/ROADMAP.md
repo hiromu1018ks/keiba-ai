@@ -234,5 +234,5 @@ Then: 31 -> 32 -> 33 -> 34 (sequential).
 | 30. Residual IC Evaluation Framework | v1.7 | 0/2 | Planned | - |
 | 31. Race-Level Aggregation Features | v1.7 | 0/2 | Planned | - |
 | 32. Market Cross-Consistency Features | v1.7 | 2/2 | Complete    | 2026-05-18 |
-| 33. Gain per Depth Diagnostic | v1.7 | 2/2 | Complete   | 2026-05-18 |
+| 33. Gain per Depth Diagnostic | v1.7 | 2/2 | Complete    | 2026-05-18 |
 | 34. Validation and Manifest Update | v1.7 | 0/? | Not started | - |
