@@ -6,12 +6,12 @@ status: executing
 last_updated: "2026-05-17T13:11:04Z"
 progress:
   total_phases: 34
-  completed_phases: 29
-  total_plans: 63
-  completed_plans: 63
-  v17_plans: 3
-  v17_plans_complete: 3
-  percent: 85
+  completed_phases: 30
+  total_plans: 65
+  completed_plans: 65
+  v17_plans: 5
+  v17_plans_complete: 5
+  percent: 88
 ---
 
 # Roadmap: keiba-ai Win Model Improvement
@@ -106,7 +106,7 @@ progress:
 
 - [x] **Phase 29: ETL Expansion** - 三連複/馬連/三連単オッズのParquet抽出 -- completed 2026-05-17
 - [ ] **Phase 30: Residual IC Evaluation Framework** - 市場独立性の測定器を構築
-- [ ] **Phase 31: Race-Level Aggregation Features** - レース全体の市場構造を捉える6特徴量 + 既存特徴量昇格
+- [x] **Phase 31: Race-Level Aggregation Features** - レース全体の市場構造を捉える6特徴量 + 既存特徴量昇格 -- completed 2026-05-18
 - [ ] **Phase 32: Market Cross-Consistency Features** - Harville理論オッズによる馬券種クロス整合性
 - [ ] **Phase 33: Gain per Depth Diagnostic** - LightGBM木構造のdepth別gain分析
 - [ ] **Phase 34: Validation and Manifest Update** - 全特徴量統合検証 + manifest凍結
@@ -150,8 +150,8 @@ Plans:
   3. 全テストが通過し、新特徴量がPOST_RACE情報漏洩テストで安全であることが確認される
 **Plans**: 2 plans
 Plans:
-- [ ] 31-01-PLAN.md -- race_level_features.py新規作成 + 全12モデルFEATURE_COLS昇格 (RLF-01~06, EFP-01~02)
-- [ ] 31-02-PLAN.md — feature_engine統合 + POST_RACEテスト拡張 + manifest更新 (RLF-07, EFP-03)
+- [x] 31-01-PLAN.md -- race_level_features.py新規作成 + 全12モデルFEATURE_COLS昇格 (RLF-01~06, EFP-01~02) (complete)
+- [x] 31-02-PLAN.md — feature_engine統合 + POST_RACEテスト拡張 + manifest更新 (RLF-07, EFP-03) (complete)
 
 ### Phase 32: Market Cross-Consistency Features
 **Goal**: Harville理論オッズによる馬券種クロス整合性特徴量が追加され、単勝×ワイド×三連複の市場構造矛盾を捉えられるようになる

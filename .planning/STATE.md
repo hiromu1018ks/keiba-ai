@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.7
 milestone_name: Market-Independent Edge Discovery
 status: executing
-stopped_at: Phase 30 complete (2/2 plans executed)
-last_updated: "2026-05-18T06:00:00Z"
-last_activity: 2026-05-18 -- Phase 31 context gathered: race-level features + feature promotion decisions
+stopped_at: Phase 31 complete (2/2 plans)
+last_updated: "2026-05-18T14:00:00Z"
+last_activity: 2026-05-18 -- Phase 31 execution complete: 2 plans, 2 waves, verification passed
 progress:
-  total_phases: 6
-  completed_phases: 1
+  total_phases: 34
+  completed_phases: 30
   total_plans: 5
   completed_plans: 5
   percent: 100
@@ -21,16 +21,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-05-17)
 
 **Core value:** 単勝モデルのバックテストROIを100%超えにすること
-**Current focus:** Phase 30 complete. Next: Phase 31+ (新特徴量設計)
+**Current focus:** Phase 31 complete. Next: Phase 30 or Phase 32
 
 ## Current Position
 
-Phase: 31 of 34 (Race-Level Aggregation Features) — CONTEXT GATHERED
-Plan: 0 of ? in current phase (not started)
-Status: Context gathered, ready for planning
-Last activity: 2026-05-18 -- Phase 31 context gathered
+Phase: 31 of 34 (Race-Level Aggregation Features) — COMPLETE
+Plan: 2 of 2 in current phase (all complete)
+Status: Verified, ready for next phase
+Last activity: 2026-05-18 -- Phase 31 complete (2 plans, verification passed)
 
-Progress: [=================   ] 85% (29/34 phases, 63 plans complete)
+Progress: [==================  ] 88% (30/34 phases, 65 plans complete)
 
 ## Performance Metrics
 
@@ -43,14 +43,15 @@ Progress: [=================   ] 85% (29/34 phases, 63 plans complete)
 - v1.4: 5 phases, 10 plans
 - v1.5: 5 phases, 13 plans
 - v1.6: 6 phases, 14 plans
-- Total plans completed: 60 (v1.0-v1.6)
+- v1.7: Phase 29 + 31 complete (5 plans)
+- Total plans completed: 62 (v1.0-v1.7)
 - Average duration: ~12min/plan
 
 **Cumulative:**
 
-- LOC (src/): ~23,215
-- Tests: 1,527+
-- Total features implemented: 55+ across 7 milestones
+- LOC (src/): ~23,500
+- Tests: 1,542+
+- Total features implemented: 57+ across 7 milestones
 
 ## Accumulated Context
 
@@ -69,12 +70,14 @@ Key insight for v1.7: Echo Chamber脱却 -- race-level + market-cross特徴量�
 
 - ROI 100%目標未達 (85.7%) -- v1.7でEcho Chamber脱却アプローチを試行
 - Wide odds sparsity (2015-2017) -- market cross-consistency features may have many NaN values for early years
+- WR-02 (code review): build_features()にcompute_flb_slope()未呼出 → 推論時implied_prob_hhi/odds_skewnessがNaNになる既存問題
 
 ### v1.7 Architecture Notes
 
-- Phase 29 (ETL) and Phase 30 (Residual IC) have NO dependency -- can run in parallel
-- Phase 31 depends on Phase 29 for trio odds data
-- Phase 32 depends on Phase 29 (trio/wide odds) AND Phase 31 (race-level patterns)
+- Phase 29 (ETL) COMPLETE
+- Phase 30 (Residual IC) has NO dependency -- can run independently
+- Phase 31 (Race-Level) COMPLETE
+- Phase 32 depends on Phase 29 (trio/wide odds) AND Phase 31 (race-level patterns) -- now unblocked
 - Phase 33 depends on Phase 31+32 (needs trained models with new features)
 - Phase 34 depends on all prior phases
 
@@ -91,6 +94,6 @@ Key insight for v1.7: Echo Chamber脱却 -- race-level + market-cross特徴量�
 
 ## Session Continuity
 
-Last session: 2026-05-18T06:00:00Z
-Stopped at: Phase 31 context gathered
-Resume file: .planning/phases/31-race-level-aggregation-features/31-CONTEXT.md
+Last session: 2026-05-18T14:00:00Z
+Stopped at: Phase 31 complete
+Resume file: .planning/phases/32-market-cross-consistency-features/ (not yet created)
