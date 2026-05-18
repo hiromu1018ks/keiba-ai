@@ -236,7 +236,7 @@ def run_ic_evaluation(
             continue
 
         sub_df = df_oof[surface_filter]
-        sub_pred = model_prob_filter(model_pred, market_prob, y, surface_filter)
+        sub_pred = _model_prob_filter(model_pred, market_prob, y, surface_filter)
         if sub_pred is None:
             result[surface_key] = {"warning": "insufficient_samples"}
             continue
@@ -271,7 +271,7 @@ def run_ic_evaluation(
     return result
 
 
-def model_prob_filter(
+def _model_prob_filter(
     model_pred: np.ndarray,
     market_prob: np.ndarray,
     y: np.ndarray,
