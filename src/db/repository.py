@@ -60,3 +60,16 @@ class DataRepository:
         """
         df = self._store.read("odds", "odds_sanrentan", filters=date_filters(start, end))
         return coerce_types(df)
+
+    def load_wide_odds(self, start: str, end: str) -> pd.DataFrame:
+        """ワイドオッズを読み込む。
+
+        Args:
+            start: 開始日 (YYYYMMDD)
+            end: 終了日 (YYYYMMDD)
+
+        Returns:
+            フィルタ・型変換済みのDataFrame
+        """
+        df = self._store.read("odds", "odds_wide", filters=date_filters(start, end))
+        return coerce_types(df)
