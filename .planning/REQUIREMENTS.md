@@ -46,13 +46,13 @@
 
 ### Market Cross-Consistency Features
 
-- [ ] **MCF-01**: Harville公式による理論ワイドオッズ計算機能の実装
-- [ ] **MCF-02**: rl_favorite_in_wide_top1 — 1番人気がワイドTOP1組合せに含まれるか (0/1)
-- [ ] **MCF-03**: rl_trio_overlap — 三連複1組合せが単勝上位3頭に含まれる馬数 (0-3)
-- [ ] **MCF-04**: rl_market_consistency — 1番人気が三連複1組合せに含まれるか (0/1)
-- [ ] **MCF-05**: rl_trio_odds_ratio — 実三連複1オッズ / Harville理論三連複オッズ
-- [ ] **MCF-06**: rl_wide_harville_ratio — 実ワイドTOP1オッズ / Harville理論ワイドオッズ
-- [ ] **MCF-07**: ワイドオッズmergeをbuild_all()に統合 (training/backtest重複排除)
+- [x] **MCF-01**: Harville公式による理論ワイドオッズ計算機能の実装
+- [x] **MCF-02**: rl_favorite_in_wide_top1 — 1番人気がワイドTOP1組合せに含まれるか (0/1)
+- [x] **MCF-03**: rl_trio_overlap — 三連複1組合せが単勝上位3頭に含まれる馬数 (0-3)
+- [x] **MCF-04**: rl_market_consistency — 1番人気が三連複1組合せに含まれるか (0/1)
+- [x] **MCF-05**: rl_trio_odds_ratio — 実三連複1オッズ / Harville理論三連複オッズ
+- [x] **MCF-06**: rl_wide_harville_ratio — 実ワイドTOP1オッズ / Harville理論ワイドオッズ
+- [x] **MCF-07**: ワイドオッズmergeをbuild_all()に統合 (training/backtest重複排除)
 
 ### Validation
 
@@ -107,13 +107,13 @@
 | EFP-01 | Phase 31 | Pending |
 | EFP-02 | Phase 31 | Pending |
 | EFP-03 | Phase 31 | Pending |
-| MCF-01 | Phase 32 | Pending |
-| MCF-02 | Phase 32 | Pending |
-| MCF-03 | Phase 32 | Pending |
-| MCF-04 | Phase 32 | Pending |
-| MCF-05 | Phase 32 | Pending |
-| MCF-06 | Phase 32 | Pending |
-| MCF-07 | Phase 32 | Pending |
+| MCF-01 | Phase 32 | Complete |
+| MCF-02 | Phase 32 | Complete |
+| MCF-03 | Phase 32 | Complete |
+| MCF-04 | Phase 32 | Complete |
+| MCF-05 | Phase 32 | Complete |
+| MCF-06 | Phase 32 | Complete |
+| MCF-07 | Phase 32 | Complete |
 | GPD-01 | Phase 33 | Pending |
 | GPD-02 | Phase 33 | Pending |
 | GPD-03 | Phase 33 | Pending |
