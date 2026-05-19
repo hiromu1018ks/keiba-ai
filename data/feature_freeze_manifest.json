@@ -1,7 +1,7 @@
 {
   "models": {
     "AbilityModel": {
-      "feature_count": 102,
+      "feature_count": 108,
       "features": [
         "surface",
         "distance_bin",
@@ -104,12 +104,18 @@
         "rl_trio_overlap",
         "rl_market_consistency",
         "rl_trio_odds_ratio",
-        "rl_wide_harville_ratio"
+        "rl_wide_harville_ratio",
+        "rl_log_odds_entropy",
+        "rl_odds_dispersion",
+        "rl_top3_odds_gap",
+        "rl_top1_odds",
+        "rl_favorite_rank_gap",
+        "rl_n_horses"
       ],
-      "sha256": "c9d0a25f9fd9a3fced89eb57c610f38250fc59ed9c095fa14701011a1a0e245d"
+      "sha256": "35e6bdf9a1d982adf09e9b4afaa91bf11f54da5a856697ac212827929617c31f"
     },
     "ConformalEVModel": {
-      "feature_count": 136,
+      "feature_count": 142,
       "features": [
         "surface",
         "distance_bin",
@@ -246,12 +252,18 @@
         "rl_trio_overlap",
         "rl_market_consistency",
         "rl_trio_odds_ratio",
-        "rl_wide_harville_ratio"
+        "rl_wide_harville_ratio",
+        "rl_log_odds_entropy",
+        "rl_odds_dispersion",
+        "rl_top3_odds_gap",
+        "rl_top1_odds",
+        "rl_favorite_rank_gap",
+        "rl_n_horses"
       ],
-      "sha256": "035fc5653e34baf56527910954cdbb86c6b2dede287e4a73b9365cf76d970217"
+      "sha256": "0d4aa6c9fa98bb10a333b43a8bfa33014dc87fd621e68d67dc09dfffb71a81bf"
     },
     "EVCorrectionModel": {
-      "feature_count": 30,
+      "feature_count": 36,
       "features": [
         "e_return_win_pred",
         "p_x_e_interaction",
@@ -282,12 +294,18 @@
         "rl_trio_overlap",
         "rl_market_consistency",
         "rl_trio_odds_ratio",
-        "rl_wide_harville_ratio"
+        "rl_wide_harville_ratio",
+        "rl_log_odds_entropy",
+        "rl_odds_dispersion",
+        "rl_top3_odds_gap",
+        "rl_top1_odds",
+        "rl_favorite_rank_gap",
+        "rl_n_horses"
       ],
-      "sha256": "d765b9cb480661ea2619d4f8859e34210efae26b782fb82e3c7c8ca33349d0c2"
+      "sha256": "13e124a30a07c6662ce8901e420337405af4cefbd84e421368ad3fe02ea8b5fc"
     },
     "MarketModel": {
-      "feature_count": 14,
+      "feature_count": 20,
       "features": [
         "surface",
         "distance_bin",
@@ -302,12 +320,18 @@
         "rl_trio_overlap",
         "rl_market_consistency",
         "rl_trio_odds_ratio",
-        "rl_wide_harville_ratio"
+        "rl_wide_harville_ratio",
+        "rl_log_odds_entropy",
+        "rl_odds_dispersion",
+        "rl_top3_odds_gap",
+        "rl_top1_odds",
+        "rl_favorite_rank_gap",
+        "rl_n_horses"
       ],
-      "sha256": "3c639c82bf1a7cb15fb3f55d9760a996c32b78b509bb15ba1254eb978edee93c"
+      "sha256": "d8c73d7447aed95de80a56a0d3632cb33632181be915d4307250ca77294b730a"
     },
     "PlaceAbilityModel": {
-      "feature_count": 68,
+      "feature_count": 74,
       "features": [
         "surface",
         "distance_bin",
@@ -376,12 +400,18 @@
         "rl_trio_overlap",
         "rl_market_consistency",
         "rl_trio_odds_ratio",
-        "rl_wide_harville_ratio"
+        "rl_wide_harville_ratio",
+        "rl_log_odds_entropy",
+        "rl_odds_dispersion",
+        "rl_top3_odds_gap",
+        "rl_top1_odds",
+        "rl_favorite_rank_gap",
+        "rl_n_horses"
       ],
-      "sha256": "04919edd88a7d768e5f3d3610f284748b6e2ae6f2c6fd9fbb5e22bbd96ba2a80"
+      "sha256": "ddc603c5e63bd87bd6c17e8cf042ceeb769936dec245a5a39761986880a26b32"
     },
     "PlaceEVCorrectionModel": {
-      "feature_count": 30,
+      "feature_count": 36,
       "features": [
         "e_return_place_pred",
         "fukuoddslow",
@@ -412,12 +442,18 @@
         "rl_trio_overlap",
         "rl_market_consistency",
         "rl_trio_odds_ratio",
-        "rl_wide_harville_ratio"
+        "rl_wide_harville_ratio",
+        "rl_log_odds_entropy",
+        "rl_odds_dispersion",
+        "rl_top3_odds_gap",
+        "rl_top1_odds",
+        "rl_favorite_rank_gap",
+        "rl_n_horses"
       ],
-      "sha256": "c5162766181b1a054bff896da6cba76f2c182ca97db7778e80c281fa7acd38f8"
+      "sha256": "f540febc4c07b1201e9eec216c750b66ad8bbcb80722b4217965e7b796005a3b"
     },
     "PlaceTwoStageModel.HIT": {
-      "feature_count": 90,
+      "feature_count": 96,
       "features": [
         "p_ability_win",
         "p_ability_place",
@@ -508,12 +544,18 @@
         "rl_trio_overlap",
         "rl_market_consistency",
         "rl_trio_odds_ratio",
-        "rl_wide_harville_ratio"
+        "rl_wide_harville_ratio",
+        "rl_log_odds_entropy",
+        "rl_odds_dispersion",
+        "rl_top3_odds_gap",
+        "rl_top1_odds",
+        "rl_favorite_rank_gap",
+        "rl_n_horses"
       ],
-      "sha256": "ffbbf3ea9dbd4a87996d929684d9ef452a845a1f53eb11ed650579b515beacc6"
+      "sha256": "0a9021a92fc848f890a385ec512ecaaa673211997e1623455798772bed2cceb4"
     },
     "PlaceTwoStageModel.RETURN": {
-      "feature_count": 92,
+      "feature_count": 98,
       "features": [
         "p_ability_win",
         "p_ability_place",
@@ -606,12 +648,18 @@
         "rl_trio_overlap",
         "rl_market_consistency",
         "rl_trio_odds_ratio",
-        "rl_wide_harville_ratio"
+        "rl_wide_harville_ratio",
+        "rl_log_odds_entropy",
+        "rl_odds_dispersion",
+        "rl_top3_odds_gap",
+        "rl_top1_odds",
+        "rl_favorite_rank_gap",
+        "rl_n_horses"
       ],
-      "sha256": "1276e8b372764832111ad8396db81ae683480ef6498a025f730cca81b55b568e"
+      "sha256": "0370b1bc362e2eb7e2a64c43b8c17de5d0c4b81f6bffaf0dcb17def124e1890b"
     },
     "RaceQualityScreener": {
-      "feature_count": 29,
+      "feature_count": 35,
       "features": [
         "market_log_error_max_abs",
         "market_log_error_std",
@@ -641,12 +689,18 @@
         "rl_trio_overlap",
         "rl_market_consistency",
         "rl_trio_odds_ratio",
-        "rl_wide_harville_ratio"
+        "rl_wide_harville_ratio",
+        "rl_log_odds_entropy",
+        "rl_odds_dispersion",
+        "rl_top3_odds_gap",
+        "rl_top1_odds",
+        "rl_favorite_rank_gap",
+        "rl_n_horses"
       ],
-      "sha256": "0f461005fabc4a8954976ff701b3c4984c83ac763c17109ab73f49c8d70e529a"
+      "sha256": "e2136eca074ca9e85db888884d061d7492eb9dc4aa97693b6dc62f9bf4425165"
     },
     "RegimeDetector": {
-      "feature_count": 15,
+      "feature_count": 21,
       "features": [
         "market_error_std",
         "market_error_mean",
@@ -662,12 +716,18 @@
         "rl_trio_overlap",
         "rl_market_consistency",
         "rl_trio_odds_ratio",
-        "rl_wide_harville_ratio"
+        "rl_wide_harville_ratio",
+        "rl_log_odds_entropy",
+        "rl_odds_dispersion",
+        "rl_top3_odds_gap",
+        "rl_top1_odds",
+        "rl_favorite_rank_gap",
+        "rl_n_horses"
       ],
-      "sha256": "bda76155f3733ebb7023840e828672b4f16be5cea8526112535bc6eeec606f8c"
+      "sha256": "983a8c4085967ed21acb8570321c5ac846e0cdba7e5100e126aa8d68c82bdc13"
     },
     "WideTwoStageModel.SHARED": {
-      "feature_count": 12,
+      "feature_count": 18,
       "features": [
         "surface",
         "distance_bin",
@@ -680,12 +740,18 @@
         "rl_trio_overlap",
         "rl_market_consistency",
         "rl_trio_odds_ratio",
-        "rl_wide_harville_ratio"
+        "rl_wide_harville_ratio",
+        "rl_log_odds_entropy",
+        "rl_odds_dispersion",
+        "rl_top3_odds_gap",
+        "rl_top1_odds",
+        "rl_favorite_rank_gap",
+        "rl_n_horses"
       ],
-      "sha256": "1dc7cb48557e4d2ed6749fe5f565b897f02cc55938ce464119ac883b627ed448"
+      "sha256": "cddc016a9698f5242cfb52a54eac1d36a5e6ec9bedde76b8af6446d4973f51b3"
     },
     "WinTwoStageModel": {
-      "feature_count": 87,
+      "feature_count": 93,
       "features": [
         "p_ability_win",
         "signed_log_error_win",
@@ -773,12 +839,18 @@
         "rl_trio_overlap",
         "rl_market_consistency",
         "rl_trio_odds_ratio",
-        "rl_wide_harville_ratio"
+        "rl_wide_harville_ratio",
+        "rl_log_odds_entropy",
+        "rl_odds_dispersion",
+        "rl_top3_odds_gap",
+        "rl_top1_odds",
+        "rl_favorite_rank_gap",
+        "rl_n_horses"
       ],
-      "sha256": "7f135dab59a7868e1d46b99fe31dacb559ae6c14d0e3925e4dcbf3c31c0c44e3"
+      "sha256": "da2d8f77ffcf444230f0363e8000291224c74d2ed56bd108a7ea7c756a679108"
     }
   },
-  "overall_sha256": "7239272657395876cde0e63b066cc68d69ba98ca2b76b240e03a6362bcfa10c9",
-  "timestamp": "2026-05-18T10:40:13.298619+00:00",
-  "version": "v1.6"
+  "overall_sha256": "e08c25509769fc3237dacb00c4d603296fbec62c63ac9628d5cdff481ad97c1b",
+  "timestamp": "2026-05-19T01:57:47.001171+00:00",
+  "version": "v1.7"
 }

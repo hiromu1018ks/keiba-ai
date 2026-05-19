@@ -74,7 +74,7 @@ def freeze_feature_manifest(output_path: Path) -> str:
 
     # 全体manifestのSHA256 (models部分のみでhash計算 → 全体JSONでoverall_sha256)
     full_manifest = {
-        "version": "v1.6",
+        "version": "v1.7",
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "overall_sha256": "",  # placeholder, computed below
         "models": models_manifest,
