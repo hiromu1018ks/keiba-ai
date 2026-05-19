@@ -1159,7 +1159,7 @@ class BacktestEngine:
                         "umaban": bet.umaban,
                         "stake": bet.stake,
                         "odds": bet.odds,
-                        "final_odds": bet.final_odds,
+                        "fuku_odds_low": bet.final_odds,
                         "result": bet_result,
                         "surface": surface_key,
                         "kyori": (
@@ -1373,12 +1373,12 @@ class BacktestEngine:
             win_key = (bet.race_id, bet.umaban)
             if hasattr(self, "win_payout_map") and win_key in self.win_payout_map:
                 return float(bet.stake * self.win_payout_map[win_key])
+            # WIN fallback: tanodds を使用 (fukuoddslow は単勝精算に不適切)
             logger.warning(
-                "Win payout missing for %s umaban=%d, using odds fallback",
-                bet.race_id, bet.umaban,
+                "Win payout missing for %s umaban=%d, using tanodds fallback=%.1f",
+                bet.race_id, bet.umaban, bet.odds,
             )
-            settle_odds = bet.final_odds if bet.final_odds > 0 else bet.odds
-            return float(bet.stake * settle_odds)
+            return float(bet.stake * bet.odds)
 
         # 複勝: payout_map（確定配当）から精算
         payout_key = (bet.race_id, bet.umaban)

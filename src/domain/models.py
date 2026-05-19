@@ -159,7 +159,7 @@ class Bet:
     ev_lower_corrected: float  # EV下限値（補正済み）
     stake: float  # 投票金額
     edge: float = 0.0  # Value Betting edge (p_model - p_market)
-    final_odds: float = 0.0  # 精算用オッズ（確定オッズ）
+    final_odds: float = 0.0  # 複勝オッズ下限（fukuoddslow）。place/wide 精算のフォールバック用
     result: Optional[float] = None  # 払戻金（確定後）
     umaban_b: Optional[int] = None  # ワイドペア相手の馬番（place/win では None）
 

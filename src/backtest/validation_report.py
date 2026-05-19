@@ -140,7 +140,7 @@ def generate_cause_analysis(bet_history: list[dict[str, Any]]) -> dict[str, Any]
         "10.0+": [],
     }
     for b in bet_history:
-        odds = b.get("final_odds", b.get("odds", 0))
+        odds = b.get("fuku_odds_low", b.get("odds", 0))
         stake = float(b.get("stake", 0))
         result_val = float(b.get("result", 0))
         if odds <= 2.0:
