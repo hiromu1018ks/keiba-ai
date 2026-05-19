@@ -45,6 +45,8 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 sys.path.insert(0, os.path.join(ROOT, "src"))
 
+from domain.types import POST_RACE_COLS  # noqa: E402
+
 load_dotenv(os.path.join(ROOT, ".env"))
 
 logging.basicConfig(
@@ -53,8 +55,6 @@ logging.basicConfig(
     datefmt="%H:%M:%S",
 )
 logger = logging.getLogger(__name__)
-
-from domain.types import POST_RACE_COLS
 
 
 def _drop_post_race_cols(df: pd.DataFrame) -> pd.DataFrame:
