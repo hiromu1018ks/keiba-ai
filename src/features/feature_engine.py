@@ -480,6 +480,12 @@ class FeatureEngine:
         df = self._map_basic_features(df)
 
         # 6. サブモジュールの特徴量計算（推論用 — hist特徴量は除く）
+        # 6a. オッズ分布形状指標 (WR-02 parity with build_all)
+        from features.market_bias_features import compute_flb_slope
+
+        flb_result = compute_flb_slope(df)
+        df = pd.concat([df, flb_result], axis=1)
+
         # 6b. レース構造特徴量 (RLF-07 parity)
         from features.race_level_features import compute_race_level_features
 
