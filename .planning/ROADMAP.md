@@ -147,7 +147,10 @@ Plans:
   3. Haron/Lap history features (harontimel4_avg, harontimel4_zscore, haron_l3l4_ratio, lap pace ratios) are computed using expanding_stats + searchsorted (PIT-safe, no current-race data)
   4. All HLF/TRF/INT features appear in all 12 models' FEATURE_COLS lists
   5. Both training pipeline (_train_submodel) and inference path (BettingOrchestrator.build_features) produce identical feature sets
-**Plans**: TBD
+**Plans**: 2 plans
+Plans:
+- [ ] 36-01-PLAN.md -- TRF + INT features: race-rank, weighted_recent_form, interactions, model registration
+- [ ] 36-02-PLAN.md -- HLF features: HaronTime L4/unified history, LapTime pace, model registration, dual-path
 
 ### Phase 37: EV Calibration Layers
 **Goal**: Popularity band calibration and regime-surface EV correction improve EV accuracy for turf middle-popularity horses
@@ -216,6 +219,6 @@ Phases execute in numeric order: 35 -> 36 -> 37 -> 38
 | 33. Gain per Depth Diagnostic | v1.7 | 2/2 | Complete | 2026-05-18 |
 | 34. Validation and Manifest Update | v1.7 | 4/4 | Complete | 2026-05-19 |
 | 35. ETL Data Foundation | v1.8 | 2/2 | Complete    | 2026-05-19 |
-| 36. Feature Computation | v1.8 | 0/? | Not started | - |
+| 36. Feature Computation | v1.8 | 0/2 | Planned | - |
 | 37. EV Calibration Layers | v1.8 | 0/? | Not started | - |
 | 38. Integrated Validation | v1.8 | 0/? | Not started | - |
