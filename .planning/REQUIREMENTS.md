@@ -86,40 +86,40 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| ETL-01 | — | Pending |
-| ETL-02 | — | Pending |
-| ETL-03 | — | Pending |
-| ETL-04 | — | Pending |
-| ETL-05 | — | Pending |
-| HLF-01 | — | Pending |
-| HLF-02 | — | Pending |
-| HLF-03 | — | Pending |
-| HLF-04 | — | Pending |
-| HLF-05 | — | Pending |
-| TRF-01 | — | Pending |
-| TRF-02 | — | Pending |
-| TRF-03 | — | Pending |
-| INT-01 | — | Pending |
-| INT-02 | — | Pending |
-| INT-03 | — | Pending |
-| INT-04 | — | Pending |
-| CAL-01 | — | Pending |
-| CAL-02 | — | Pending |
-| CAL-03 | — | Pending |
-| CAL-04 | — | Pending |
-| CAL-05 | — | Pending |
-| VAL-01 | — | Pending |
-| VAL-02 | — | Pending |
-| VAL-03 | — | Pending |
-| VAL-04 | — | Pending |
-| VAL-05 | — | Pending |
-| VAL-06 | — | Pending |
+| ETL-01 | Phase 35 | Pending |
+| ETL-02 | Phase 35 | Pending |
+| ETL-03 | Phase 35 | Pending |
+| ETL-04 | Phase 35 | Pending |
+| ETL-05 | Phase 35 | Pending |
+| HLF-01 | Phase 36 | Pending |
+| HLF-02 | Phase 36 | Pending |
+| HLF-03 | Phase 36 | Pending |
+| HLF-04 | Phase 36 | Pending |
+| HLF-05 | Phase 36 | Pending |
+| TRF-01 | Phase 36 | Pending |
+| TRF-02 | Phase 36 | Pending |
+| TRF-03 | Phase 36 | Pending |
+| INT-01 | Phase 36 | Pending |
+| INT-02 | Phase 36 | Pending |
+| INT-03 | Phase 36 | Pending |
+| INT-04 | Phase 36 | Pending |
+| CAL-01 | Phase 37 | Pending |
+| CAL-02 | Phase 37 | Pending |
+| CAL-03 | Phase 37 | Pending |
+| CAL-04 | Phase 37 | Pending |
+| CAL-05 | Phase 37 | Pending |
+| VAL-01 | Phase 38 | Pending |
+| VAL-02 | Phase 38 | Pending |
+| VAL-03 | Phase 38 | Pending |
+| VAL-04 | Phase 38 | Pending |
+| VAL-05 | Phase 38 | Pending |
+| VAL-06 | Phase 38 | Pending |
 
 **Coverage:**
 - v1.8 requirements: 28 total
-- Mapped to phases: 0
-- Unmapped: 28 ⚠️
+- Mapped to phases: 28
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-05-19*
-*Last updated: 2026-05-19 after initial definition*
+*Last updated: 2026-05-19 after roadmap creation*
