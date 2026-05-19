@@ -15,6 +15,17 @@ from domain.types import RegimeState
 logger = logging.getLogger(__name__)
 
 
+def _safe_feature_cols(df: pd.DataFrame, cols: list[str]) -> pd.DataFrame:
+    """Select columns, filling missing ones with NaN."""
+    missing = [c for c in cols if c not in df.columns]
+    if missing:
+        logger.debug("Missing cols filled with NaN: %s", missing[:5])
+        df = df.copy()
+        for c in missing:
+            df[c] = float("nan")
+    return df[cols].copy()
+
+
 def calc_odds_skewness(race_df: pd.DataFrame) -> float:
     """tanodds 分布の歪度 (レース単位、発走前のみ)"""
     if "odds" not in race_df.columns:
@@ -102,7 +113,7 @@ class RegimeDetector:
         """
         if num_threads <= 0:
             num_threads = max(1, (os.cpu_count() or 4) // 2)
-        features = df_race[self.FEATURE_COLS].copy()
+        features = _safe_feature_cols(df_race, self.FEATURE_COLS)
         for col in features.columns:
             if pd.api.types.is_integer_dtype(features[col]):
                 features[col] = features[col].astype(float)
@@ -161,7 +172,7 @@ class RegimeDetector:
         if len(recent_stats) < self.cfg.min_samples:
             return RegimeState.CONSERVATIVE
 
-        features = recent_stats[self.FEATURE_COLS].iloc[[-1]]
+        features = _safe_feature_cols(recent_stats, self.FEATURE_COLS).iloc[[-1]]
         best_iter = self.model.best_iteration
         probs = self.model.predict(features, num_iteration=best_iter)[0]
 

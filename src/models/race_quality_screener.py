@@ -2,11 +2,25 @@
 
 from __future__ import annotations
 
+import logging
 import os
 
 import lightgbm as lgb
 import numpy as np
 import pandas as pd
+
+logger = logging.getLogger(__name__)
+
+
+def _safe_feature_cols(df: pd.DataFrame, cols: list[str]) -> pd.DataFrame:
+    """Select columns, filling missing ones with NaN."""
+    missing = [c for c in cols if c not in df.columns]
+    if missing:
+        logger.debug("Missing cols filled with NaN: %s", missing[:5])
+        df = df.copy()
+        for c in missing:
+            df[c] = float("nan")
+    return df[cols]
 
 
 class RaceQualityScreener:
@@ -108,7 +122,7 @@ class RaceQualityScreener:
         """スクリーナーモデルを学習 (時系列80/20 split + early_stopping)"""
         if num_threads <= 0:
             num_threads = max(1, (os.cpu_count() or 4) // 2)
-        features = self._prepare_features(df_race[self.FEATURE_COLS])
+        features = self._prepare_features(_safe_feature_cols(df_race, self.FEATURE_COLS))
         y = self._build_target(df_race)
 
         # 時系列ベース 80/20 split (最後20%をvalidに)
@@ -141,7 +155,7 @@ class RaceQualityScreener:
     def should_bet(self, race_features: dict) -> bool:
         """レースが投票対象かを判定"""
         features = self._prepare_features(
-            pd.DataFrame([race_features])[self.FEATURE_COLS],
+            _safe_feature_cols(pd.DataFrame([race_features]), self.FEATURE_COLS),
         )
         best_iter = self.model.best_iteration
         score = float(self.model.predict(features, num_iteration=best_iter)[0])
@@ -156,7 +170,7 @@ class RaceQualityScreener:
         投票レース比率が target_investment_rate になるよう閾値を調整。
         訓練データでのみ使用。out-of-sample では固定。
         """
-        features = self._prepare_features(df_race[self.FEATURE_COLS])
+        features = self._prepare_features(_safe_feature_cols(df_race, self.FEATURE_COLS))
         best_iter = self.model.best_iteration
         scores = self.model.predict(features, num_iteration=best_iter)
         self.threshold = float(

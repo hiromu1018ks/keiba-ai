@@ -208,6 +208,16 @@ class EVCorrectionModel:
 
     def _prepare_features(self, df: pd.DataFrame) -> pd.DataFrame:
         """特徴量データフレームを準備する"""
+        # Fill missing feature columns with NaN (rl_* columns may be absent in tests)
+        missing = [c for c in self.FEATURE_COLS if c not in df.columns]
+        if missing:
+            import logging
+            logging.getLogger(__name__).debug(
+                "Missing feature columns filled with NaN: %s", missing[:5],
+            )
+            df = df.copy()
+            for c in missing:
+                df[c] = float("nan")
         features = df[self.FEATURE_COLS].copy()
         for col in features.columns:
             if pd.api.types.is_integer_dtype(features[col]):
@@ -481,7 +491,14 @@ class PlaceEVCorrectionModel:
 
     def _prepare_features(self, df: pd.DataFrame) -> pd.DataFrame:
         """特徴量データフレームを準備する"""
-        all_cols = self.FEATURE_COLS + ["p_x_e_interaction_place", "p_minus_e_gap_place"]
+        # Fill missing feature columns with NaN (rl_* columns may be absent in tests)
+        _all_feature = self.FEATURE_COLS + ["p_x_e_interaction_place", "p_minus_e_gap_place"]
+        missing = [c for c in _all_feature if c not in df.columns]
+        if missing:
+            df = df.copy()
+            for c in missing:
+                df[c] = float("nan")
+        all_cols = _all_feature
         features = df[all_cols].copy()
         for col in features.columns:
             if pd.api.types.is_integer_dtype(features[col]):

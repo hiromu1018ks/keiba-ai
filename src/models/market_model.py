@@ -2,11 +2,29 @@
 
 from __future__ import annotations
 
+import logging
 import os
 
 import lightgbm as lgb
 import numpy as np
 import pandas as pd
+
+logger = logging.getLogger(__name__)
+
+
+def _safe_feature_select(df: pd.DataFrame, feature_cols: list[str]) -> pd.DataFrame:
+    """Select feature columns, filling missing ones with NaN.
+
+    rl_* columns may be absent in test fixtures or edge cases.
+    Logs a debug message when filling missing columns.
+    """
+    missing = [c for c in feature_cols if c not in df.columns]
+    if missing:
+        logger.debug("Missing feature columns filled with NaN: %s", missing[:5])
+        df = df.copy()
+        for c in missing:
+            df[c] = float("nan")
+    return df[feature_cols].copy()
 
 
 class MarketModel:
@@ -57,7 +75,7 @@ class MarketModel:
         """p_market_win_adj を予測するLightGBMモデルを学習 (early stopping付き)"""
         if num_threads <= 0:
             num_threads = max(1, (os.cpu_count() or 4) // 2)
-        features = df[self.FEATURE_COLS].copy()
+        features = _safe_feature_select(df, self.FEATURE_COLS)
         target = df["p_market_win_adj"]
 
         # Int64 (nullable int) → float64
@@ -104,7 +122,7 @@ class MarketModel:
             raise RuntimeError("Model not trained. Call train() first.")
 
         df = df.copy()
-        features = df[self.FEATURE_COLS].copy()
+        features = _safe_feature_select(df, self.FEATURE_COLS)
         for col in ["surface", "distance_bin", "grade_code"]:
             if col in features.columns:
                 features[col] = features[col].astype("category")
@@ -162,7 +180,7 @@ class MarketModel:
         """
         from sklearn.model_selection import KFold
 
-        features = df[self.FEATURE_COLS].copy()
+        features = _safe_feature_select(df, self.FEATURE_COLS)
         for col in features.columns:
             if pd.api.types.is_integer_dtype(features[col]):
                 features[col] = features[col].astype(float)

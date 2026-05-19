@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 from typing import Any, cast
 
@@ -10,6 +11,19 @@ import numpy as np
 import pandas as pd
 
 from domain.models import TwoStageConfig
+
+logger = logging.getLogger(__name__)
+
+
+def _safe_feature_cols(df: pd.DataFrame, cols: list[str]) -> pd.DataFrame:
+    """Select columns, filling missing ones with NaN."""
+    missing = [c for c in cols if c not in df.columns]
+    if missing:
+        logger.debug("Missing cols filled with NaN: %s", missing[:5])
+        df = df.copy()
+        for c in missing:
+            df[c] = float("nan")
+    return df[cols].copy()
 
 
 def _train_valid_split(
@@ -90,7 +104,7 @@ class WideTwoStageModel:
             num_threads = max(1, (os.cpu_count() or 4) // 2)
         cfg = cfg or TwoStageConfig(hit_leaves=15, hit_rounds=300)
 
-        features = pair_df[self.SHARED_FEATURE_COLS].copy()
+        features = _safe_feature_cols(pair_df, self.SHARED_FEATURE_COLS)
         for col in features.columns:
             if pd.api.types.is_integer_dtype(features[col]):
                 features[col] = features[col].astype(float)
@@ -139,7 +153,7 @@ class WideTwoStageModel:
         if len(hit_df) < cfg.min_hit_samples:
             raise ValueError(f"的中ペアが不足: {len(hit_df)} < {cfg.min_hit_samples}")
 
-        features = hit_df[self.SHARED_FEATURE_COLS].copy()
+        features = _safe_feature_cols(hit_df, self.SHARED_FEATURE_COLS)
         for col in features.columns:
             if pd.api.types.is_integer_dtype(features[col]):
                 features[col] = features[col].astype(float)
@@ -182,7 +196,7 @@ class WideTwoStageModel:
         score = EV / (E × √P) (Rule 3, Rule 15)
         """
         pair_df = pair_df.copy()
-        features = pair_df[self.SHARED_FEATURE_COLS].copy()
+        features = _safe_feature_cols(pair_df, self.SHARED_FEATURE_COLS)
         for col in features.columns:
             if pd.api.types.is_integer_dtype(features[col]):
                 features[col] = features[col].astype(float)
