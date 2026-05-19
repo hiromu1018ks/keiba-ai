@@ -336,6 +336,9 @@ class HorseHistoryFeatures:
         "cond_change_avg_pos",
         "cond_change_win_rate",
         "cond_change_exp_count",
+        # TRF-02: weighted_recent_form (EMA halflife=3, D-07/D-08)
+        "weighted_recent_form_finish",
+        "weighted_recent_form_time",
     ]
 
     def __init__(self, store: ParquetStore, *, n_past: int = 5) -> None:
@@ -1258,6 +1261,49 @@ class HorseHistoryFeatures:
             else:
                 freshness_score = float("nan")
 
+            # TRF-02: weighted_recent_form (EMA halflife=3, D-07/D-08)
+            if n_past > 0:
+                # weighted_recent_form_finish: EMA(norm_finish_logit, halflife=3)
+                _wrf_logits = _norm_finish_logit_vec(
+                    hp_kakuteijyuni.astype(float),
+                    hp_syussotosu.astype(float),
+                )
+                _wrf_valid_logits = _wrf_logits[~np.isnan(_wrf_logits)]
+                if len(_wrf_valid_logits) > 0:
+                    halflife_wrf = 3
+                    decay_wrf = np.log(2) / halflife_wrf
+                    n_wrf = len(_wrf_valid_logits)
+                    weights_wrf = (1 - decay_wrf) ** np.arange(n_wrf)
+                    weights_wrf = weights_wrf[::-1]
+                    weights_wrf = weights_wrf / weights_wrf.sum()
+                    weighted_recent_form_finish: float = float(
+                        np.sum(_wrf_valid_logits * weights_wrf)
+                    )
+                else:
+                    weighted_recent_form_finish = float("nan")
+
+                # weighted_recent_form_time: EMA(timediff, halflife=3)
+                if _has_timediff:
+                    _wrf_td = horse_arrs["timediff"][valid_mask][start:idx].astype(float)
+                    _wrf_valid_td = _wrf_td[~np.isnan(_wrf_td)]
+                    if len(_wrf_valid_td) > 0:
+                        halflife_wrf2 = 3
+                        decay_wrf2 = np.log(2) / halflife_wrf2
+                        n_wrf2 = len(_wrf_valid_td)
+                        weights_wrf2 = (1 - decay_wrf2) ** np.arange(n_wrf2)
+                        weights_wrf2 = weights_wrf2[::-1]
+                        weights_wrf2 = weights_wrf2 / weights_wrf2.sum()
+                        weighted_recent_form_time: float = float(
+                            np.sum(_wrf_valid_td * weights_wrf2)
+                        )
+                    else:
+                        weighted_recent_form_time = float("nan")
+                else:
+                    weighted_recent_form_time = float("nan")
+            else:
+                weighted_recent_form_finish = float("nan")
+                weighted_recent_form_time = float("nan")
+
             results.append(
                 {
                     "race_id": row.race_id,
@@ -1316,6 +1362,9 @@ class HorseHistoryFeatures:
                     "cond_change_avg_pos": env_stats["cond_change_avg_pos"],
                     "cond_change_win_rate": env_stats["cond_change_win_rate"],
                     "cond_change_exp_count": env_stats["cond_change_exp_count"],
+                    # TRF-02: weighted_recent_form (EMA halflife=3, D-07/D-08)
+                    "weighted_recent_form_finish": weighted_recent_form_finish,
+                    "weighted_recent_form_time": weighted_recent_form_time,
                 }
             )
 
@@ -1337,6 +1386,10 @@ class HorseHistoryFeatures:
             "jyuni1c_avg",
             "jyuni4c_avg",
             "closing_index_avg",
+            # TRF-01: 新規race-rank列 (D-13)
+            "form_trend",
+            "blood_total_wr",
+            "blood_surface_wr",
             # 注意: kyakusitukubun_cd, jockey系, harontime_late_trend は
             # race_rank を生成しない
         ]
