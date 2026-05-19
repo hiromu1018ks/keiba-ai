@@ -2,13 +2,13 @@
 gsd_state_version: 1.0
 milestone: v1.8
 milestone_name: Turf Precision Calibration
-status: planning
-last_updated: "2026-05-19T10:26:21.255Z"
-last_activity: 2026-05-19 -- Roadmap created
+status: executing
+last_updated: "2026-05-19T11:54:23.855Z"
+last_activity: 2026-05-19 -- Phase 35 execution started
 progress:
   total_phases: 4
   completed_phases: 0
-  total_plans: 0
+  total_plans: 2
   completed_plans: 0
   percent: 0
 ---
@@ -20,16 +20,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-05-19)
 
 **Core value:** 単勝モデルのバックテストROIを100%超えにすること
-**Current focus:** v1.8 Turf Precision Calibration — Phase 35 ready to plan
+**Current focus:** Phase 35 — etl-data-foundation
 
 ## Current Position
 
-Phase: 35 of 38 (ETL Data Foundation)
-Plan: —
-Status: Ready to plan
-Last activity: 2026-05-19 -- Roadmap created
+Phase: 35 (etl-data-foundation) — EXECUTING
+Plan: 1 of 2
+Status: Executing Phase 35
+Last activity: 2026-05-19 -- Phase 35 execution started
 
-Progress: [░░░░░░░░░░░░░░░░░░░░] 0% (v1.8: 0/4 phases)
+Progress: [▓░░░░░░░░░░░░░░░░░░░░] 5% (v1.8: 0/4 phases, Phase 35 planned)
 
 ## v1.8 Roadmap
 
@@ -82,5 +82,5 @@ v1.8: TRF/INT/HLF combined into single Feature Computation phase (all are featur
 
 ## Session Continuity
 
-Last session: 2026-05-19T10:26:21.245Z
-Status: v1.8 ROADMAP CREATED — Phase 35 ready to plan
+Last session: 2026-05-19T11:00:00.000Z
+Status: PHASE 35 PLANNED — 2 plans, 1 wave, verification passed

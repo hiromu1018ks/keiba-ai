@@ -115,7 +115,7 @@ progress:
 
 **Milestone Goal:** IC b_difference --> positive, ROI 97.8%-->100%+
 
-- [ ] **Phase 35: ETL Data Foundation** - HaronTime/LapTime/Jyuni float64 + POST_RACE_COLS
+- [x] **Phase 35: ETL Data Foundation** - HaronTime/LapTime/Jyuni float64 + POST_RACE_COLS (completed 2026-05-19)
 - [ ] **Phase 36: Feature Computation** - Turf relative features + conditional interactions + Haron/Lap PIT-safe
 - [ ] **Phase 37: EV Calibration Layers** - Pop band calibration + regime x surface EV correction
 - [ ] **Phase 38: Integrated Validation** - CI leakage tests + IC confirmation + BT ROI 100% + Manifest freeze
@@ -134,8 +134,8 @@ progress:
   5. HaronTimeL3/L4 mutual exclusivity is validated and coalescing logic (harontime_last3f) is documented
 **Plans**: 2 plans
 Plans:
-- [ ] 35-01-PLAN.md -- sentinel_float/sentinel_int rules + _TABLE_TYPE_RULES update + readers.py
-- [ ] 35-02-PLAN.md -- POST_RACE_COLS consolidation + HaronTime mutual exclusivity analysis
+- [x] 35-01-PLAN.md -- sentinel_float/sentinel_int rules + _TABLE_TYPE_RULES update + readers.py
+- [x] 35-02-PLAN.md -- POST_RACE_COLS consolidation + HaronTime mutual exclusivity analysis
 
 ### Phase 36: Feature Computation
 **Goal**: All new turf-focused features (relative ranks, conditional interactions, haron/lap history) are computed PIT-safe and registered across all 12 models
@@ -215,7 +215,7 @@ Phases execute in numeric order: 35 -> 36 -> 37 -> 38
 | 32. Market Cross-Consistency Features | v1.7 | 2/2 | Complete | 2026-05-18 |
 | 33. Gain per Depth Diagnostic | v1.7 | 2/2 | Complete | 2026-05-18 |
 | 34. Validation and Manifest Update | v1.7 | 4/4 | Complete | 2026-05-19 |
-| 35. ETL Data Foundation | v1.8 | 0/2 | Not started | - |
+| 35. ETL Data Foundation | v1.8 | 2/2 | Complete   | 2026-05-19 |
 | 36. Feature Computation | v1.8 | 0/? | Not started | - |
 | 37. EV Calibration Layers | v1.8 | 0/? | Not started | - |
 | 38. Integrated Validation | v1.8 | 0/? | Not started | - |
