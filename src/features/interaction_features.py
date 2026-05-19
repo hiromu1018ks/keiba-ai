@@ -5,7 +5,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-# 12個の交互作用特徴量名 (既存3 + 新規9)
+# 15個の交互作用特徴量名 (既存3 + INTER-02:9 + INT-01/02/03:3)
 INTERACTION_COLS: list[str] = [
     # 既存 (3)
     "kyakusitu_x_distance",
@@ -22,6 +22,10 @@ INTERACTION_COLS: list[str] = [
     "haron_x_distance",
     "surface_x_past_perf",
     "weight_x_class",
+    # Phase 36 INT-01/02/03: TRF/INT交互作用 (3)
+    "grade_x_form_trend",
+    "distance_x_closing_index",
+    "grade_x_blood_prize_log",
 ]
 
 
@@ -127,10 +131,37 @@ def compute_interaction_features(df: pd.DataFrame) -> pd.DataFrame:
 
     # 馬体×クラス (体重 * grade_code数値マッピング)
     _GRADE_MAP = {"G1": 5, "G2": 4, "G3": 3, "OP": 2, "J.G1": 5, "J.G2": 4, "J.G3": 3}
-    if weight_col in df.columns and "grade_code" in df.columns:
+    grade_num = pd.Series(dtype=float)
+    if "grade_code" in df.columns:
         grade_num = df["grade_code"].map(_GRADE_MAP).fillna(1.0)
+    if weight_col in df.columns and "grade_code" in df.columns:
         df["weight_x_class"] = (df[weight_col] * grade_num).where(
             df[weight_col].notna() & df["grade_code"].notna(),
+            other=float("nan"),
+        )
+
+    # --- Phase 36: INT-01/02/03 交互作用特徴量 ---
+
+    # INT-01: grade_x_form_trend (grade_code × form_trend, D-10)
+    if "grade_code" in df.columns and "form_trend" in df.columns:
+        df["grade_x_form_trend"] = (grade_num * df["form_trend"]).where(
+            grade_num.notna() & df["form_trend"].notna(),
+            other=float("nan"),
+        )
+
+    # INT-02: distance_x_closing_index (kyori × closing_index_avg, D-11)
+    if "kyori" in df.columns and "closing_index_avg" in df.columns:
+        df["distance_x_closing_index"] = (
+            df["kyori"] * df["closing_index_avg"]
+        ).where(
+            df["kyori"].notna() & df["closing_index_avg"].notna(),
+            other=float("nan"),
+        )
+
+    # INT-03: grade_x_blood_prize_log (grade_code × blood_prize_log, D-12)
+    if "grade_code" in df.columns and "blood_prize_log" in df.columns:
+        df["grade_x_blood_prize_log"] = (grade_num * df["blood_prize_log"]).where(
+            grade_num.notna() & df["blood_prize_log"].notna(),
             other=float("nan"),
         )
 

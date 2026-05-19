@@ -339,11 +339,14 @@ def test_missing_interaction_columns_skipped():
 
 
 def test_interaction_cols_constant():
-    """INTERACTION_COLS定数が12個の交互作用名を含む"""
+    """INTERACTION_COLS定数が15個の交互作用名を含む (12既存 + 3新規 INT-01/02/03)"""
     from features.interaction_features import INTERACTION_COLS
-    assert len(INTERACTION_COLS) == 12
+    assert len(INTERACTION_COLS) == 15
     assert "surface_x_distance_bin" in INTERACTION_COLS
     assert "sire_wr_x_distance" in INTERACTION_COLS
+    assert "grade_x_form_trend" in INTERACTION_COLS
+    assert "distance_x_closing_index" in INTERACTION_COLS
+    assert "grade_x_blood_prize_log" in INTERACTION_COLS
 
 
 def test_weight_x_class_bataijyu_fallback():
@@ -358,3 +361,129 @@ def test_weight_x_class_bataijyu_fallback():
     assert "weight_x_class" in result.columns
     assert result["weight_x_class"].iloc[0] == pytest.approx(460.0 * 5)
     assert result["weight_x_class"].iloc[1] == pytest.approx(510.0 * 3)
+
+
+# ---------------------------------------------------------------------------
+# INT-01/02/03: 新規交互作用特徴量 (Phase 36)
+# ---------------------------------------------------------------------------
+
+
+def test_grade_x_form_trend():
+    """INT-01: grade_code × form_trend の数値積"""
+    df = pd.DataFrame({
+        "grade_code": ["G1"],
+        "form_trend": [0.5],
+    })
+    result = compute_interaction_features(df)
+    assert "grade_x_form_trend" in result.columns
+    # G1 maps to 5, so grade_x_form_trend = 5 * 0.5 = 2.5
+    assert abs(result["grade_x_form_trend"].iloc[0] - 2.5) < 1e-6
+
+
+def test_grade_x_form_trend_nan():
+    """INT-01: form_trend が NaN の場合、grade_x_form_trend も NaN"""
+    df = pd.DataFrame({
+        "grade_code": ["G1"],
+        "form_trend": [float("nan")],
+    })
+    result = compute_interaction_features(df)
+    assert "grade_x_form_trend" in result.columns
+    assert pd.isna(result["grade_x_form_trend"].iloc[0])
+
+
+def test_distance_x_closing_index():
+    """INT-02: kyori × closing_index_avg の数値積"""
+    df = pd.DataFrame({
+        "kyori": [1600.0],
+        "closing_index_avg": [0.3],
+    })
+    result = compute_interaction_features(df)
+    assert "distance_x_closing_index" in result.columns
+    assert abs(result["distance_x_closing_index"].iloc[0] - 480.0) < 1e-6
+
+
+def test_distance_x_closing_index_nan():
+    """INT-02: closing_index_avg が NaN の場合、distance_x_closing_index も NaN"""
+    df = pd.DataFrame({
+        "kyori": [1600.0],
+        "closing_index_avg": [float("nan")],
+    })
+    result = compute_interaction_features(df)
+    assert "distance_x_closing_index" in result.columns
+    assert pd.isna(result["distance_x_closing_index"].iloc[0])
+
+
+def test_grade_x_blood_prize_log():
+    """INT-03: grade_code × blood_prize_log の数値積"""
+    df = pd.DataFrame({
+        "grade_code": ["G3"],
+        "blood_prize_log": [2.0],
+    })
+    result = compute_interaction_features(df)
+    assert "grade_x_blood_prize_log" in result.columns
+    # G3 maps to 3, so grade_x_blood_prize_log = 3 * 2.0 = 6.0
+    assert abs(result["grade_x_blood_prize_log"].iloc[0] - 6.0) < 1e-6
+
+
+def test_grade_x_blood_prize_log_nan():
+    """INT-03: blood_prize_log が NaN の場合、grade_x_blood_prize_log も NaN"""
+    df = pd.DataFrame({
+        "grade_code": ["G1"],
+        "blood_prize_log": [float("nan")],
+    })
+    result = compute_interaction_features(df)
+    assert "grade_x_blood_prize_log" in result.columns
+    assert pd.isna(result["grade_x_blood_prize_log"].iloc[0])
+
+
+# ---------------------------------------------------------------------------
+# TRF-03/INT-04: 全モデルFEATURE_COLS登録検証
+# ---------------------------------------------------------------------------
+
+
+def test_all_models_have_new_features():
+    """全12モデル+WideTwoStageのFEATURE_COLSに8新規特徴量が含まれる"""
+    from models.conformal_ev_model import ConformalEVModel
+    from models.ev_correction_model import EVCorrectionModel, PlaceEVCorrectionModel
+    from models.market_model import MarketModel
+    from models.place_ability_model import PlaceAbilityModel
+    from models.race_quality_screener import RaceQualityScreener
+    from models.regime_detector import RegimeDetector
+    from models.stage1_ability_model import AbilityModel
+    from models.two_stage_return_model import PlaceTwoStageModel, WinTwoStageModel
+    from models.wide_two_stage_model import WideTwoStageModel
+
+    new_trf_features = [
+        "form_trend_race_rank",
+        "blood_total_wr_race_rank",
+        "blood_surface_wr_race_rank",
+        "weighted_recent_form_finish",
+        "weighted_recent_form_time",
+    ]
+    new_int_features = [
+        "grade_x_form_trend",
+        "distance_x_closing_index",
+        "grade_x_blood_prize_log",
+    ]
+    all_new = new_trf_features + new_int_features
+
+    model_lists = {
+        "AbilityModel": AbilityModel.FEATURE_COLS,
+        "WinTwoStageModel": WinTwoStageModel.FEATURE_COLS,
+        "PlaceTwoStageModel.HIT": PlaceTwoStageModel.HIT_FEATURE_COLS,
+        "PlaceTwoStageModel.RETURN": PlaceTwoStageModel.RETURN_FEATURE_COLS,
+        "EVCorrectionModel": EVCorrectionModel.FEATURE_COLS,
+        "PlaceEVCorrectionModel": PlaceEVCorrectionModel.FEATURE_COLS,
+        "ConformalEVModel": ConformalEVModel.FEATURE_COLS,
+        "MarketModel": MarketModel.FEATURE_COLS,
+        "PlaceAbilityModel": PlaceAbilityModel.FEATURE_COLS,
+        "RaceQualityScreener": RaceQualityScreener.FEATURE_COLS,
+        "RegimeDetector": RegimeDetector.FEATURE_COLS,
+        "WideTwoStageModel.SHARED": WideTwoStageModel.SHARED_FEATURE_COLS,
+    }
+
+    for model_name, feature_cols in model_lists.items():
+        for feat in all_new:
+            assert feat in feature_cols, (
+                f"{model_name} missing feature: {feat}"
+            )

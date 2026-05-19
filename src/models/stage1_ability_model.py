@@ -61,6 +61,10 @@ class AbilityModel:
         "timediff_avg_race_rank",
         "jyuni1c_avg_race_rank",
         "closing_index_avg_race_rank",
+        # TRF-01: レース内正規化 (3) — race_rank (D-13)
+        "form_trend_race_rank",
+        "blood_total_wr_race_rank",
+        "blood_surface_wr_race_rank",
         # 馬体 (3)
         "weight_absolute",
         "weight_zscore",
@@ -125,6 +129,9 @@ class AbilityModel:
         "cond_change_avg_pos",
         "cond_change_win_rate",
         "cond_change_exp_count",
+        # TRF-02: weighted_recent_form (D-07/D-08)
+        "weighted_recent_form_finish",
+        "weighted_recent_form_time",
         # n_mining予想特徴量 (DATA-04)
         "dm_time_rank",
         "dm_time_zscore",
@@ -145,6 +152,10 @@ class AbilityModel:
         "rel_blood_quality_rank",
         "rel_sire_quality_rank",
         "rel_weight_zscore",
+        # INT-01/02/03: Phase 36 交互作用特徴量
+        "grade_x_form_trend",
+        "distance_x_closing_index",
+        "grade_x_blood_prize_log",
         # 市場構造 (D-06: 市場集中度・歪度)
         "implied_prob_hhi",
         "odds_skewness",

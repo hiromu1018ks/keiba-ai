@@ -196,6 +196,15 @@ class EVCorrectionModel:
         "rl_top1_odds",
         "rl_favorite_rank_gap",
         "rl_n_horses",
+        # TRF-01/02/03 + INT-01/02/03/04: Phase 36
+        "form_trend_race_rank",
+        "blood_total_wr_race_rank",
+        "blood_surface_wr_race_rank",
+        "weighted_recent_form_finish",
+        "weighted_recent_form_time",
+        "grade_x_form_trend",
+        "distance_x_closing_index",
+        "grade_x_blood_prize_log",
     ]
 
     def _add_interaction_features(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -474,6 +483,15 @@ class PlaceEVCorrectionModel:
         "rl_top1_odds",
         "rl_favorite_rank_gap",
         "rl_n_horses",
+        # TRF-01/02/03 + INT-01/02/03/04: Phase 36
+        "form_trend_race_rank",
+        "blood_total_wr_race_rank",
+        "blood_surface_wr_race_rank",
+        "weighted_recent_form_finish",
+        "weighted_recent_form_time",
+        "grade_x_form_trend",
+        "distance_x_closing_index",
+        "grade_x_blood_prize_log",
     ]
 
     def __init__(self) -> None:

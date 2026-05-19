@@ -99,6 +99,12 @@ class WinTwoStageModel:
         # ODDS-01: オッズ乖離レース内相対特徴量
         "deviation_rank",
         "deviation_zscore",
+        # TRF-01/02: Phase 36 race-rank + weighted_recent_form
+        "form_trend_race_rank",
+        "blood_total_wr_race_rank",
+        "blood_surface_wr_race_rank",
+        "weighted_recent_form_finish",
+        "weighted_recent_form_time",
         # 騎手コンテキスト (Group C, Stage2)
         "jockey_wr_overall",
         "jockey_wr_distance",
@@ -149,6 +155,10 @@ class WinTwoStageModel:
         "haron_x_distance",
         "surface_x_past_perf",
         "weight_x_class",
+        # INT-01/02/03: Phase 36 交互作用特徴量
+        "grade_x_form_trend",
+        "distance_x_closing_index",
+        "grade_x_blood_prize_log",
         # Target Encoding (INTER-03): OOF-safe expanding window
         "te_blood_keito_cd",
         "te_kisyucode",
@@ -456,6 +466,16 @@ class PlaceTwoStageModel:
         "haron_x_distance",
         "surface_x_past_perf",
         "weight_x_class",
+        # TRF-01/02: Phase 36 race-rank + weighted_recent_form
+        "form_trend_race_rank",
+        "blood_total_wr_race_rank",
+        "blood_surface_wr_race_rank",
+        "weighted_recent_form_finish",
+        "weighted_recent_form_time",
+        # INT-01/02/03: Phase 36 交互作用特徴量
+        "grade_x_form_trend",
+        "distance_x_closing_index",
+        "grade_x_blood_prize_log",
         # Target Encoding (INTER-03): OOF-safe expanding window
         "te_blood_keito_cd",
         "te_kisyucode",
@@ -555,6 +575,12 @@ class PlaceTwoStageModel:
         "dm_time_zscore",
         "dm_confidence_range",
         "dm_time_margin_to_fav",
+        # TRF-01/02: Phase 36 race-rank + weighted_recent_form
+        "form_trend_race_rank",
+        "blood_total_wr_race_rank",
+        "blood_surface_wr_race_rank",
+        "weighted_recent_form_finish",
+        "weighted_recent_form_time",
         # 繁殖牝馬産駒特徴量 (DATA-01)
         "dam_wr",
         "breeder_strength",
@@ -586,6 +612,10 @@ class PlaceTwoStageModel:
         "haron_x_distance",
         "surface_x_past_perf",
         "weight_x_class",
+        # INT-01/02/03: Phase 36 交互作用特徴量
+        "grade_x_form_trend",
+        "distance_x_closing_index",
+        "grade_x_blood_prize_log",
         # Target Encoding (INTER-03): OOF-safe expanding window
         "te_blood_keito_cd",
         "te_kisyucode",

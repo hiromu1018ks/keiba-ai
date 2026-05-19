@@ -89,6 +89,10 @@ class RacePredictor:
             "jyuni1c_avg",
             "jyuni4c_avg",
             "closing_index_avg",
+            # TRF-01: Phase 36 race-rank source columns (D-13)
+            "form_trend",
+            "blood_total_wr",
+            "blood_surface_wr",
         ]
         df = df.copy()
         for _col in _race_rank_cols:
