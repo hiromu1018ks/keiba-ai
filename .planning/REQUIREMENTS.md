@@ -7,11 +7,11 @@
 
 ### ETL — Data Foundation
 
-- [ ] **ETL-01**: HaronTimeL3/L4 (SE table) をfloat64変換してentries Parquetに格納、センチネル値(000/999)をNaN化
-- [ ] **ETL-02**: LapTime1~25 (RA table) をfloat64変換してraces Parquetに格納、センチネル値(000)をNaN化
-- [ ] **ETL-03**: Jyuni1c~4c (SE table) コーナー通過順位を数値化してentries Parquetに格納
-- [ ] **ETL-04**: 全新POST_RACE列を `domain/types.py` の POST_RACE_COLS に登録し、v1.6の3層CI漏洩検出が機能することを確認
-- [ ] **ETL-05**: HaronTimeL3/L4の相互排他性を検証し、統合ロジック(harontime_last3f)を決定
+- [x] **ETL-01**: HaronTimeL3/L4 (SE table) をfloat64変換してentries Parquetに格納、センチネル値(000/999)をNaN化
+- [x] **ETL-02**: LapTime1~25 (RA table) をfloat64変換してraces Parquetに格納、センチネル値(000)をNaN化
+- [x] **ETL-03**: Jyuni1c~4c (SE table) コーナー通過順位を数値化してentries Parquetに格納
+- [x] **ETL-04**: 全新POST_RACE列を `domain/types.py` の POST_RACE_COLS に登録し、v1.6の3層CI漏洩検出が機能することを確認
+- [x] **ETL-05**: HaronTimeL3/L4の相互排他性を検証し、統合ロジック(harontime_last3f)を決定
 
 ### HLF — Haron/Lap Feature Computation
 
@@ -86,11 +86,11 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| ETL-01 | Phase 35 | Pending |
-| ETL-02 | Phase 35 | Pending |
-| ETL-03 | Phase 35 | Pending |
-| ETL-04 | Phase 35 | Pending |
-| ETL-05 | Phase 35 | Pending |
+| ETL-01 | Phase 35 | Complete |
+| ETL-02 | Phase 35 | Complete |
+| ETL-03 | Phase 35 | Complete |
+| ETL-04 | Phase 35 | Complete |
+| ETL-05 | Phase 35 | Complete |
 | HLF-01 | Phase 36 | Pending |
 | HLF-02 | Phase 36 | Pending |
 | HLF-03 | Phase 36 | Pending |

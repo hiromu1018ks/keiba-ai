@@ -215,7 +215,7 @@ Phases execute in numeric order: 35 -> 36 -> 37 -> 38
 | 32. Market Cross-Consistency Features | v1.7 | 2/2 | Complete | 2026-05-18 |
 | 33. Gain per Depth Diagnostic | v1.7 | 2/2 | Complete | 2026-05-18 |
 | 34. Validation and Manifest Update | v1.7 | 4/4 | Complete | 2026-05-19 |
-| 35. ETL Data Foundation | v1.8 | 2/2 | Complete   | 2026-05-19 |
+| 35. ETL Data Foundation | v1.8 | 2/2 | Complete    | 2026-05-19 |
 | 36. Feature Computation | v1.8 | 0/? | Not started | - |
 | 37. EV Calibration Layers | v1.8 | 0/? | Not started | - |
 | 38. Integrated Validation | v1.8 | 0/? | Not started | - |
