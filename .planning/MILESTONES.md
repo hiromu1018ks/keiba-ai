@@ -147,3 +147,34 @@
 
 - `.planning/milestones/v1.6-ROADMAP.md`
 - `.planning/milestones/v1.6-REQUIREMENTS.md`
+
+## v1.7 Market-Independent Edge Discovery — 2026-05-19
+
+**Status:** ✅ Shipped
+**Phases:** 6 (29-34) | **Plans:** 15 | **LOC:** ~24,100
+
+### Key Accomplishments
+
+1. ETL Pipeline拡張 — 三連複/馬連/三連単オッズParquet抽出 + DataRepository DI + カバレッジ検証
+2. 11新特徴量を全12モデルに登録 — 6 rl_* (entropy/dispersion/gap等) + 5 MCF (Harville理論オッズ)
+3. IC評価フレームワーク構築 — 4定式化IC (B差分/C直交/E Incremental/Per-race) + OOF save hook + CLI
+4. Gain-per-Depth診断システム — 179特徴量カテゴリマップ + MDR/FAD メトリクス + 可視化CLI
+5. BT 2024 ROI 85.7% → 97.8% (+12.1pp改善) — ダート107.4%、Aggressive 116.7%、高オッズ(10+) 179.9%
+6. POST_RACE漏洩安全性検証 — 13テスト全通過 + Manifest v1.7凍結
+
+### Known Deferred Items
+
+- Phase 30/34 VERIFICATION.md不足 (11 requirements PARTIAL, implementation complete)
+- ROI 100%目標未達 (97.8%、あと2.2pp)
+- Turf conservative regime unprofitable
+- training_pipeline _build_race_level_features() rl_*列処理未追加
+- WF検証未実行 (~4時間、PostgreSQL環境必要)
+- Human UAT 5項目 (PostgreSQL依存)
+
+Known deferred items at close: 11 (see STATE.md Deferred Items)
+
+### Archive
+
+- `.planning/milestones/v1.7-ROADMAP.md`
+- `.planning/milestones/v1.7-REQUIREMENTS.md`
+- `.planning/milestones/v1.7-MILESTONE-AUDIT.md`

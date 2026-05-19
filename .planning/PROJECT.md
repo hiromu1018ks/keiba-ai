@@ -5,6 +5,7 @@
 競馬AI予測システム v5.5 — 統計的 horse racing prediction system (単勝/複勝/ワイド)。
 LightGBM + XGBoost + CatBoost 3モデルスタッキング、Optuna個別HP最適化、Isotonic EVキャリブレーション + オッズバンド別補正、CQR Conformal EV区間を搭載。
 POST_RACE情報漏洩完全排除(3層CI検出)、100+特徴量Tier分類監査基盤、EveryDB2未活用データからの22新特徴量(mining/血統/BMS/record/相対比較)、12ドメイン知識交互作用項、OOF安全ターゲットエンコーディング(血統/騎手/調教師)を追加。
+Race-level集約特徴量6 + 市場クロス整合性特徴量5 (Harville公式) で市場独立性を獲得。IC評価フレームワーク (B差分/C直交/E Incremental/Per-race) + Gain-per-Depth診断システム搭載。
 3段階ベットフィルター(動的EV_lower/OddsBand/COLLAPSED skip)、レジーム別Kellyサイジング、DD%のみ3段階制御、Optuna TPE 16次元パラメータ最適化 + multi-seed安定性検証、SHA256特徴量凍結manifestを搭載。
 MLflow で実験管理。PostgreSQL (EveryDB2/JRA-VAN DataLab) をデータソースとする。
 
@@ -57,27 +58,22 @@ MLflow で実験管理。PostgreSQL (EveryDB2/JRA-VAN DataLab) をデータソ�
 - ✓ EveryDB2未活用データから22新特徴量(mining/血統/BMS/record/相対比較)抽出 — v1.6
 - ✓ ドメイン知識交互作用項12個 + OOF安全ターゲットエンコーディング3特徴量 — v1.6
 - ✓ マルチ年度BT (ROI 85.7%, +1.3pp改善) + 12モデルSHA256特徴量凍結manifest — v1.6
-- ✓ Gain per Depth診断 — 179特徴量をMarket/Fundamental/Categoricalに分類しdepth別gain集計 + MDR/FAD メトリクス + CLI可視化 — v1.7
+- ✓ ETL拡張: 三連複/馬連/三連単オッズParquet抽出 + DataRepository DI + カバレッジ検証 — v1.7
+- ✓ Race-level集約特徴量6 + 既存特徴量2昇格 (implied_prob_hhi, odds_skewness) — v1.7
+- ✓ 市場クロス整合性特徴量5 (Harville理論オッズ) + ワイドオッズmerge統合 — v1.7
+- ✓ IC評価フレームワーク (B差分/C直交/E Incremental/Per-race + 方向一致性) — v1.7
+- ✓ Gain per Depth診断 (179特徴量カテゴリマップ + MDR/FAD + 可視化CLI) — v1.7
+- ✓ BT 2024 ROI 97.8% (v1.6: 85.7%, +12.1pp改善) + Manifest v1.7凍結 — v1.7
 
 ### Active
 
-- Race-level集約特徴量 (entropy, dispersion, top-odds gap) の実装 — レース全体の市場構造を捉える
-- 市場整合性特徴量 (単勝×複数馬券種クロスコンシステンシー) の実装 — 「読める vs 読めないレース」の選別
-- Residual IC評価指標 (B差分/C直交/E Incremental) の実装 — 市場独立性の定量評価
-- ROI 100%超えの達成 (現在85.7%)
+(None — next milestone to be defined via `/gsd:new-milestone`)
 
-## Current Milestone: v1.7 Market-Independent Edge Discovery
+## Current Milestone: Planning Next Milestone
 
-**Goal:** Echo Chamber脱却 — 市場と独立な予測成分を獲得し、ROI 100%超えを実現する
-
-**Target features:**
-- Race-level集約特徴量: rl_odds_dispersion, rl_log_odds_entropy, rl_top3_odds_gap 等
-- 市場整合性特徴量: 単勝×複数馬券種のクロスコンシステンシー
-- Gain per Depth診断: trees_to_dataframe()でdepth別gain寄与率を分析
-- Residual IC評価指標: B差分/C直交/E Incremental IC
-
-**Key insight:** v1.6で特徴量追加の限界を確認 (37新特徴量でROI +1.3pp)。記事の実証では
-race-level + market-cross特徴量でC直交IC +120%、ROI 0.91→1.66を達成。
+**Shipped:** v1.7 Market-Independent Edge Discovery (2026-05-19)
+**Total phases completed:** 34 across 8 milestones
+**BT ROI progress:** 84.4% (v1.5) → 85.7% (v1.6) → 97.8% (v1.7)
 
 ### Out of Scope
 
@@ -93,32 +89,39 @@ race-level + market-cross特徴量でC直交IC +120%、ROI 0.91→1.66を達成�
 | sklearn StackingClassifier | ネイティブブースティングAPIとPIT安全フォールドに非対応 |
 | 外部Kellyライブラリ導入 | 既存StakeCalculatorで十分、JRA固有制約はカスタム実装が必要 |
 | モデル再学習 | 既存3モデルスタッキングをそのまま使用 |
+| オッズ特徴量の除去 | Echo Chamber脱却 = 追加アプローチ。除去はC直交ICを悪化させる (実証済み) |
+| Stern/Heneryモデル | Harvilleで90%+のシグナルを捕捉。複雑モデルは利益逓減 |
 
 ## Current State
 
-**Shipped:** v1.7 Phase 33 — Gain per Depth Diagnostic (2026-05-18)
-**Phases:** 31 total (v1.0-v1.7)
+**Shipped:** v1.7 Market-Independent Edge Discovery (2026-05-19)
+**Phases:** 34 total (v1.0-v1.7)
 **LOC:** ~24,100 (src/)
-**Tests:** 1,571 passed, 33 new (GPD diagnostics + CLI)
-**Next:** Phase 34 — Validation and Manifest Update
+**Tests:** 1,540+ passed
+**BT ROI:** 97.8% (v1.7), up from 85.7% (v1.6)
+**C-orthogonal IC:** 0.2753 (market-independent predictive power confirmed)
+**Next:** Planning next milestone
 
 ## Context
 
-### 現状 (v1.6完了)
+### 現状 (v1.7完了)
 
-- 7マイルストーン28フェーズ完了 (v1.0〜v1.6)
-- バックテスト結果: ROI 85.7% (v1.5: 84.4%、+1.3pp改善)
-- POST_RACE情報漏洩完全排除 + 3層CI検出
-- EveryDB2未活用データから22新特徴量追加 (mining/血統/BMS/record/相対比較)
-- 12交互作用項 + 3ターゲットエンコーディング特徴量追加
-- 12モデルFEATURE_COLS SHA256凍結manifest生成
-- ROI 100%目標は未達 — 特徴量改善だけで1.3ppの限界
+- 8マイルストーン34フェーズ完了 (v1.0〜v1.7)
+- BT ROI 85.7% → 97.8% (+12.1pp改善)
+- 11新特徴量 (6 rl_* + 5 MCF) + 2既存特徴量昇格
+- C直交IC 0.2753で市場独立予測力を確認
+- ダートROI 107.4%、Aggressive regime 116.7%で黒字セグメント確認
+- 高オッズ帯(10.0+) ROI 179.9%で高オッズ改善確認
+- Turf conservative regimeは赤字 — 改善余地あり
+- GPD診断でStage1モデルがfundamental-dominatedであることを確認 (Echo Chamber脱却)
 
 ### 残存課題
 
-- ROI 100%目標未達 (85.7%) — 特徴量アプローチの限界、根本的見直しが必要
+- ROI 100%目標未達 (97.8%、あと2.2pp)
+- Turf conservative regime unprofitable — 最大の改善余地
+- training_pipeline.pyの_build_race_level_features()にrl_*列処理追加必要
+- GPD診断はplace modelがなくても動作するように修正が必要
 - WF検証未実行 — 過学習の有無未確認
-- 高オッズ帯(20+)のベット機会なし — モデルが高オッズ候補を除外
 - Human UAT 5項目がPostgreSQL環境依存で未実行
 - test_training_pipeline.py 3件既知失敗(RecordFeatures.compute mock問題)
 
@@ -126,22 +129,24 @@ race-level + market-cross特徴量でC直交IC +120%、ROI 0.91→1.66を達成�
 
 - 3モデルGBMスタッキング: LightGBM + XGBoost + CatBoost (Optuna個別HP最適化)
 - Isotonic EVキャリブレーション + オッズバンド別補正層
-- CQR Conformal EV区間: 80%/90% 2レベルalpha信頼区間 (要設計見直し)
-- 18高オッズ特徴量: クラストラジェクトリ、フォーム改善率、環境変化適性
+- CQR Conformal EV区間: 80%/90% 2レベルalpha信頼区間
+- Race-level特徴量: entropy, dispersion, top3_gap, top1_odds, favorite_rank_gap, n_horses
+- Market-cross特徴量: Harville理論オッズ比率、単勝×ワイド×三連複クロス整合性
+- IC評価: B差分/C直交/E Incremental/Per-race + 方向一致性自動チェック
+- GPD診断: FEATURE_CATEGORY_MAP (179 features), MDR/FAD メトリクス
 - Parquetベースのデータパイプライン(PostgreSQLはETL専用)
 - RegimeDetector: 3状態(aggressive/conservative/collapsed) + override_params外部注入
 - 3段階ベットフィルター: COLLAPSED skip → 動的EV_lower → OddsBandFilter
 - Kelly基準レジーム別サイジング: AGGRESSIVE(0.50)/CONSERVATIVE(0.25)/COLLAPSED(0.00)
 - DD%のみ3段階制御: NORMAL/REDUCED/STOP + ヒステリシス + 段階的リカバリ
-- Optuna TPE 16次元最適化: レジーム別6 + DD制御5 + EVスケーリング2 + OddsBandFilter1 + EV_lower(turf/dirt)2
+- Optuna TPE 16次元最適化
 - ParameterFreezeProtocol: JSON manifest + SHA256改ざん検知 + 二重検証
-- 自動検証レポート: ROI判定 + 5項目原因分析(odds band/regime/EV/bet count/turf-dirt)
 
 ## Constraints
 
 - **Tech stack**: Python 3.11, LightGBM, XGBoost, CatBoost, Optuna, pandas, pyarrow
 - **Data**: EveryDB2 (2015-2025) — 新データ源は追加しない
-- **Testing**: 全テスト mock使用(DB不要) — 1,392+テスト
+- **Testing**: 全テスト mock使用(DB不要) — 1,540+テスト
 - **Code style**: Ruff (py311, line-length=100), mypy (strict)
 - **No external services**: ローカル実行のみ、クラウドサービス不使用
 
@@ -149,9 +154,9 @@ race-level + market-cross特徴量でC直交IC +120%、ROI 0.91→1.66を達成�
 
 | Decision | Rationale | Outcome |
 |----------|-----------|---------|
-| 単勝に集中 | 複勝で100%超え困難、単勝は中穴でエッジが出やすい | — Pending (backtest未実行) |
-| 既存データ活用 | EveryDB2のデータ量(2015-2025)で十分な学習データがある | — Pending |
-| 2段階モデル維持 | P×E分解は理論的に正当、改善は精度面で行う | — Pending |
+| 単勝に集中 | 複勝で100%超え困難、単勝は中穴でエッジが出やすい | ✓ Good — ダート107.4%、Aggressive 116.7%で黒字 |
+| 既存データ活用 | EveryDB2のデータ量(2015-2025)で十分な学習データがある | ✓ Good |
+| 2段階モデル維持 | P×E分解は理論的に正当、改善は精度面で行う | ✓ Good |
 | 特徴量分析から開始 | モデル改善の前に、どの特徴量が効いているか把握が必要 | ✓ Good (v1.0) |
 | 3モデルスタッキング | 単一モデルより精度向上が期待できる | ✓ Good (v1.1) |
 | EMA halflife=3 | 金融時系列解析の標準値。3走前の重みは直近の50% | ✓ Good (v1.1) |
@@ -173,12 +178,16 @@ race-level + market-cross特徴量でC直交IC +120%、ROI 0.91→1.66を達成�
 | Isotonic EVキャリブレーション | P×E独立性仮定を緩和しOOF予測で直接キャリブレーション | ✓ Good (v1.5) |
 | CQR残差学習への変更 | 主モデル出力をCQR入力特徴量に含める設計変更 | ⚠️ Revisit (v1.5) — CQR過学習を引き起こし修正が必要だった |
 | POST_RACE_COLS共通化 | domain/types.pyで一元管理し漏れ防止 | ✓ Good (v1.5) |
-| 高オッズ18特徴量追加 | クラストラジェクトリ/フォーム改善率/環境変化適性 | — Pending (効果検証不十分) |
+| 高オッズ18特徴量追加 | クラストラジェクトリ/フォーム改善率/環境変化適性 | ⚠️ Revisit — ROI寄与は間接的 |
 | POST_RACE whitelist化 | blacklistの脆弱性をwhitelist FEATURE_COLSで排除 | ✓ Good (v1.6) — 3層CI検出で安全保証 |
 | DataKubun=3優先 | 直前予想(馬体重発表後)が情報量最大 | ✓ Good (v1.6) |
 | Stage1にTE追加せず | TE target == Stage1 targetでOOFリークの可能性 | ✓ Good (v1.6) — 安全性優先 |
-| 特徴量追加アプローチの限界 | 22新特徴量+12交互作用+3TEでROI+1.3ppのみ | ⚠️ Revisit (v1.6) — 特徴量だけではROI 100%困難 |
-| Echo Chamber脱却アプローチ | 記事知見: race-level + market-cross特徴量で市場独立性を獲得 | — Pending (v1.7) |
+| 特徴量追加アプローチの限界 | 22新特徴量+12交互作用+3TEでROI+1.3ppのみ | ⚠️ Revisit (v1.6) — Echo Chamber脱却で解決 |
+| Echo Chamber脱却アプローチ | race-level + market-cross特徴量で市場独立性を獲得 | ✓ Good (v1.7) — C-orth IC 0.2753, ROI +12.1pp |
+| Harville公式採用 | 計算コスト低+90%以上のシグナル捕捉 | ✓ Good (v1.7) |
+| GPD raw metrics only | PASS/FAIL判定は恣意的、数値ベースで判断 | ✓ Good (v1.7) |
+| DataRepository DI pattern | ParquetStore注入でテスト容易性確保 | ✓ Good (v1.7) |
+| Manifest freeze proceeds regardless | 特徴量凍結は検証結果に依存しない | ✓ Good (v1.7) |
 
 ## Evolution
 
@@ -198,4 +207,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-17 after v1.7 milestone started*
+*Last updated: 2026-05-19 after v1.7 milestone shipped*
