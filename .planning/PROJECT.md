@@ -67,7 +67,7 @@ MLflow で実験管理。PostgreSQL (EveryDB2/JRA-VAN DataLab) をデータソ�
 
 ### Active
 
-- 上がりタイム+ラップ特徴量の実装 (HaronTimeL3/L4 + LapTime1~25 ETL・特徴量化) — v1.8
+- 上がりタイム+ラップ特徴量のETL基盤 (sentinel_float NaN化 + POST_RACE_COLS 41列化 + 漏洩検出) — v1.8 Phase 35
 - 人気帯キャリブレーションレイヤーの追加 (OOF residual ratio 5段階スケーリング) — v1.8
 - 芝レース内相対特徴量強化 (form_trend/blood_wr race_rank系追加) — v1.8
 - 条件交互作用特徴量の追加 (grade×form, distance×closing等) — v1.8
