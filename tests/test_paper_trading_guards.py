@@ -2,24 +2,7 @@
 
 import pandas as pd
 
-POST_RACE_COLS = (
-    "kakuteijyuni",
-    "confirmed_odds",
-    "ninki",
-    "kyakusitukubun",
-    "time",
-    "timediff",
-    "harontimel3",
-    "harontimel4",
-    "jyuni1c",
-    "jyuni2c",
-    "jyuni3c",
-    "jyuni4c",
-    "honsyokin",
-    "chakusacd",
-    "dmjyuni",
-    "dmtime",
-)
+from domain.types import POST_RACE_COLS
 
 
 def _drop_post_race_cols(df: pd.DataFrame) -> pd.DataFrame:

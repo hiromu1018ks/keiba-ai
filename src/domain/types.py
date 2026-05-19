@@ -52,4 +52,6 @@ POST_RACE_COLS: list[str] = [
     "chakusacd",
     "dmjyuni",
     "dmtime",
+    # ETL-02: LapTime1~25 (RA table, race-level POST_RACE)
+    *[f"laptime{i}" for i in range(1, 26)],
 ]
