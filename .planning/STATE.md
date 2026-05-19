@@ -1,17 +1,17 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.7
-milestone_name: Market-Independent Edge Discovery
-status: complete
-stopped_at: v1.7 milestone shipped
-last_updated: "2026-05-19T12:00:00.000Z"
-last_activity: 2026-05-19 -- v1.7 milestone completed and archived
+milestone: v1.8
+milestone_name: Turf Precision Calibration
+status: planning
+stopped_at:
+last_updated: "2026-05-19T14:00:00.000Z"
+last_activity: 2026-05-19 -- v1.8 milestone started
 progress:
-  total_phases: 34
-  completed_phases: 34
-  total_plans: 80
-  completed_plans: 80
-  percent: 100
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
@@ -21,60 +21,65 @@ progress:
 See: .planning/PROJECT.md (updated 2026-05-19)
 
 **Core value:** 単勝モデルのバックテストROIを100%超えにすること
-**Current focus:** Planning next milestone
+**Current focus:** v1.8 Turf Precision Calibration — 芝IC改善 + ROI 100%超え
 
 ## Current Position
 
-Phase: 34 (last phase of v1.7) — SHIPPED
-Status: v1.7 milestone complete and archived
-Last activity: 2026-05-19 -- Milestone archived, tag v1.7 created
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-05-19 -- Milestone v1.8 started
 
-Progress: [====================] 100% (34/34 phases total, 8 milestones)
+Progress: [                    ] 0% (v1.8 phases to be defined)
 
-## v1.7 Results Summary
+## v1.8 Goal
 
-| Metric | v1.6 | v1.7 | Change |
-|--------|------|------|--------|
-| BT ROI | 85.7% | 97.8% | +12.1pp |
-| C-orthogonal IC | — | 0.2753 | new |
-| Dirt ROI | — | 107.4% | profitable |
-| Aggressive ROI | — | 116.7% | profitable |
-| High-odds (10+) ROI | — | 179.9% | profitable |
-| New features | — | 11 (6 rl_* + 5 MCF) | +11 |
-| Tests | 1,460+ | 1,540+ | +84 |
+芝モデルのIC b_differenceを負から正に転換し、ROI 97.8%→100%超えを達成。
+
+### Root Causes (3 layers)
+
+1. 芝Stage1モデルが市場に負けている (IC b_difference = -0.004)
+2. 芝中位人気(4-12番)の確率過大推定 (calibration ratio = 0.527)
+3. 距離×グレードの交互効果が未学習 (芝一般戦短距離: ROI 51.5%)
+
+### Target Features
+
+- A: 上がりタイム+ラップ特徴量 (期待 +3~5%)
+- B: 人気帯キャリブレーション (期待 +1.5~2.5%)
+- C: 芝レース内相対特徴量強化 (期待 +1~2%)
+- D: 条件交互作用特徴量 (期待 +2~3%)
+- E: レジーム×サーフェスEV補正 (期待 +1~2%)
+
+### Absolute Constraint
+
+リーク・PIT安全性への最新の注意。全POST_RACE由来特徴量は過走データのみ集計。
 
 ## Performance Metrics
 
-**Velocity (historical):**
+**Historical (v1.0-v1.7):**
 
-- v1.0: 4 phases, 7 plans
-- v1.1: 3 phases, 5 plans
-- v1.2: 3 phases, 5 plans
-- v1.3: 3 phases, 7 plans
-- v1.4: 5 phases, 10 plans
-- v1.5: 5 phases, 13 plans
-- v1.6: 6 phases, 14 plans
-- v1.7: 6 phases, 15 plans
-- Total plans completed: 80 (v1.0-v1.7)
-
-**Cumulative:**
-
-- LOC (src/): ~24,100
+- Total phases: 34
+- Total plans: 80
+- Cumulative LOC: ~24,100
 - Tests: 1,540+
-- Total features implemented: 68+ across 8 milestones
+
+**BT ROI progression:**
+
+- v1.0: baseline
+- v1.5: 84.4%
+- v1.6: 85.7% (+1.3pp)
+- v1.7: 97.8% (+12.1pp)
+- v1.8: target 100%+ (+2.2pp+ needed)
 
 ## Accumulated Context
 
 ### Decisions
 
 Decisions are logged in PROJECT.md Key Decisions table.
-Key insight from v1.6: 特徴量追加アプローチの限界 (37新特徴量でROI+1.3ppのみ)
-Key insight for v1.7: Echo Chamber脱却 -- race-level + market-cross特徴量で市場独立性を獲得 (+12.1pp)
-v1.7 result: C-orthogonal IC 0.2753 confirms market-independent predictive power
+v1.7: C-orthogonal IC 0.2753 confirms market-independent predictive power
+v1.8: 芝b_difference負が最大ボトルネック — 上がりタイム+ラップデータ存在確認済 (EveryDB2 RA/SE tables)
 
 ### Deferred Items
-
-Items acknowledged and deferred at milestone close on 2026-05-19:
 
 | Category | Item | Status |
 |----------|------|--------|
@@ -83,22 +88,18 @@ Items acknowledged and deferred at milestone close on 2026-05-19:
 | UAT | Human UAT 5項目 (PostgreSQL依存) | Pending since v1.4 |
 | Feature | n_taisyogata_miningペアワイズ比較特徴量 | Pending since v1.6 |
 | Feature | n_sale/n_banusi統計特徴量 | Pending since v1.6 |
-| Bug | test_training_pipeline.py 3件既知失敗 | Pending since v1.6 |
-| Verification | Phase 30 VERIFICATION.md (RIC-01~06 PARTIAL) | Deferred at v1.7 close |
-| Verification | Phase 34 VERIFICATION.md (VAL-01~05 PARTIAL) | Deferred at v1.7 close |
-| Bug | training_pipeline _build_race_level_features() rl_*列処理 | Known at v1.7 close |
-| Bug | GPD診断 place model graceful skip | Known at v1.7 close |
-| Bug | build_features() compute_flb_slope() → implied_prob_hhi/odds_skewness NaN | Known since v1.7 (WR-02) |
+| Feature | 坂路調教タイム(37-HANRO) ETL・特徴量化 | Deferred from v1.8 |
+| Bug | test_training_pipeline.py 3件既知失敗 (RecordFeatures.compute mock問題) | Pending since v1.6 |
+| Verification | Phase 30/34 VERIFICATION.md不足 | Deferred at v1.7 close |
 
-### Known Issues for Next Milestone
+### Known Issues
 
-1. ROI 100%目標未達 (97.8%、あと2.2pp)
-2. Turf conservative regime unprofitable — 最大の改善余地
-3. training_pipeline.pyの_build_race_level_features()にrl_*列の処理を追加する必要あり
-4. GPD診断はplace modelがなくても動作するように修正が必要
-5. BT 2024の再実行が必要 (rl_*パイプライン修正後)
+1. ROI 100%目標未達 (97.8%、あと2.2pp) — v1.8で対応
+2. Turf conservative regime unprofitable — v1.8で対応
+3. training_pipeline _build_race_level_features() rl_*列処理未追加
+4. GPD place model skip issue — v1.7で修正済だがwide model skip残存
 
 ## Session Continuity
 
 Last session: 2026-05-19
-Status: v1.7 SHIPPED — ready for next milestone planning
+Status: v1.8 PLANNING — requirements definition in progress

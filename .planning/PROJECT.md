@@ -67,13 +67,29 @@ MLflow で実験管理。PostgreSQL (EveryDB2/JRA-VAN DataLab) をデータソ�
 
 ### Active
 
-(None — next milestone to be defined via `/gsd:new-milestone`)
+- 上がりタイム+ラップ特徴量の実装 (HaronTimeL3/L4 + LapTime1~25 ETL・特徴量化) — v1.8
+- 人気帯キャリブレーションレイヤーの追加 (OOF residual ratio 5段階スケーリング) — v1.8
+- 芝レース内相対特徴量強化 (form_trend/blood_wr race_rank系追加) — v1.8
+- 条件交互作用特徴量の追加 (grade×form, distance×closing等) — v1.8
+- レジーム×サーフェスEV補正 (EV補正FEATURE_COLSにregime等追加) — v1.8
 
-## Current Milestone: Planning Next Milestone
+## Current Milestone: v1.8 Turf Precision Calibration
 
-**Shipped:** v1.7 Market-Independent Edge Discovery (2026-05-19)
-**Total phases completed:** 34 across 8 milestones
-**BT ROI progress:** 84.4% (v1.5) → 85.7% (v1.6) → 97.8% (v1.7)
+**Goal:** 芝モデルのIC b_differenceを負から正に転換し、ROI 97.8%→100%超えを達成する
+
+**Target features:**
+- A: 上がりタイム+ラップ特徴量実装 (HaronTimeL3/L4 + LapTime1~25 ETL・特徴量化)
+- B: 人気帯キャリブレーション (OOF residual ratio 5段階スケーリング)
+- C: 芝レース内相対特徴量強化 (form_trend/blood_wr等のrace_rank系追加)
+- D: 条件交互作用特徴量 (grade×form, distance×closing等)
+- E: レジーム×サーフェスEV補正 (EV補正FEATURE_COLSにregime等追加)
+
+**絶対制約: リーク・PIT安全性への最新の注意**
+> 提案Aの上がりタイム(HaronTimeL3/L4)・ラップタイム(LapTime1~25)は全てPOST_RACE情報。
+> 特徴量化は必ず過走データのみから集計し、当該レースのPOST_RACEデータは一切使用しない。
+> v1.6で構築した3層CI漏洩検出テストを全新特徴量に適用。提案B~EもOOF予測ベースを確認。
+
+**BT ROI progress:** 84.4% (v1.5) → 85.7% (v1.6) → 97.8% (v1.7) → 目標 100%+
 
 ### Out of Scope
 
@@ -95,12 +111,14 @@ MLflow で実験管理。PostgreSQL (EveryDB2/JRA-VAN DataLab) をデータソ�
 ## Current State
 
 **Shipped:** v1.7 Market-Independent Edge Discovery (2026-05-19)
-**Phases:** 34 total (v1.0-v1.7)
+**Current:** v1.8 Turf Precision Calibration (planning)
+**Phases:** 34 total (v1.0-v1.7), v1.8 starting at Phase 35
 **LOC:** ~24,100 (src/)
 **Tests:** 1,540+ passed
-**BT ROI:** 97.8% (v1.7), up from 85.7% (v1.6)
+**BT ROI:** 97.8% (v1.7), target 100%+ (v1.8)
 **C-orthogonal IC:** 0.2753 (market-independent predictive power confirmed)
-**Next:** Planning next milestone
+**Turf b_difference:** -0.004 (market-losing, target: positive)
+**Next:** Phase 35 — v1.8 execution
 
 ## Context
 
@@ -207,4 +225,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-19 after v1.7 milestone shipped*
+*Last updated: 2026-05-19 after v1.8 milestone planning started*
