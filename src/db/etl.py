@@ -80,9 +80,19 @@ def _compute_race_id(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-_TABLE_TYPE_RULES: dict[str, dict[str, list[str]]] = {
+_TABLE_TYPE_RULES: dict[str, dict[str, list[str] | dict | list[dict]]] = {
     "races": {
         "int": ["trackcd", "kyori", "tenkocd", "syussotosu", "honsyokin"],
+        "sentinel_float": [
+            # RA table HaronTimeL3/L4: race-level, sentinels 000/999, no divisor
+            {"columns": ["harontimel3", "harontimel4"], "sentinels": ["000", "999"]},
+            # RA table LapTime1~25: varchar(3), sentinels 000, divisor=10
+            {
+                "columns": [f"laptime{i}" for i in range(1, 26)],
+                "sentinels": ["000"],
+                "divisor": 10,
+            },
+        ],
     },
     "entries": {
         "int": [
@@ -94,8 +104,12 @@ _TABLE_TYPE_RULES: dict[str, dict[str, list[str]]] = {
             "jyuni4c",
             "zogenfugo",
         ],
-        "float": ["time", "bataijyu", "zogensa", "harontimel3", "timediff"],
+        "float": ["time", "bataijyu", "zogensa", "timediff"],
         "odds10": ["odds"],
+        "sentinel_float": {
+            "columns": ["harontimel3", "harontimel4", "jyuni2c", "jyuni3c"],
+            "sentinels": ["000", "999", "00"],
+        },
     },
     "odds_tanpuku": {
         "int": ["umaban"],
@@ -172,6 +186,42 @@ def _apply_type_conversions(df: pd.DataFrame, table_key: str) -> pd.DataFrame:
     for col in rules.get("odds100", []):
         if col in df.columns:
             df[col] = df[col].apply(lambda v: _to_odds(v, 100))
+
+    # Sentinel float: replace sentinel strings with NaN, convert to float64
+    _sentinel_float_rule = rules.get("sentinel_float")
+    if _sentinel_float_rule is not None:
+        _rule_list: list[dict] = (
+            list(_sentinel_float_rule)
+            if isinstance(_sentinel_float_rule, list)
+            else [_sentinel_float_rule]  # type: ignore[list-item]
+        )
+        for _rule in _rule_list:
+            _cols = _rule.get("columns", [])
+            _sentinels = _rule.get("sentinels", [])
+            _divisor = _rule.get("divisor", 1)
+            for _col in _cols:
+                if _col in df.columns:
+                    df[_col] = df[_col].replace(_sentinels, float("nan"))
+                    df[_col] = pd.to_numeric(df[_col], errors="coerce")
+                    if _divisor != 1:
+                        df[_col] = df[_col] / _divisor
+
+    # Sentinel int: replace sentinel strings with NaN, convert to Int64
+    _sentinel_int_rule = rules.get("sentinel_int")
+    if _sentinel_int_rule is not None:
+        _int_rules: list[dict] = (
+            list(_sentinel_int_rule)
+            if isinstance(_sentinel_int_rule, list)
+            else [_sentinel_int_rule]  # type: ignore[list-item]
+        )
+        for _rule in _int_rules:
+            _cols = _rule.get("columns", [])
+            _sentinels = _rule.get("sentinels", [])
+            for _col in _cols:
+                if _col in df.columns:
+                    df[_col] = df[_col].replace(_sentinels, float("nan"))
+                    df[_col] = pd.to_numeric(df[_col], errors="coerce")
+                    df[_col] = df[_col].astype("Int64")
 
     return df
 
