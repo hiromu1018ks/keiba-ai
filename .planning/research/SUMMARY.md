@@ -1,154 +1,168 @@
 # Project Research Summary
 
-**Project:** keiba-ai v1.7 Market-Independent Edge Discovery
-**Domain:** Horse racing ML prediction -- race-level aggregation, market cross-consistency, diagnostic evaluation
-**Researched:** 2026-05-17
+**Project:** keiba-ai v1.8 Turf Precision Calibration
+**Domain:** Horse racing ML prediction system -- turf model improvement for ROI 97.8% to 100%+
+**Researched:** 2026-05-19
 **Confidence:** HIGH
 
 ## Executive Summary
 
-The v1.7 milestone adds four capabilities to the keiba-ai horse racing ML system: race-level aggregation features (entropy, dispersion, odds gaps), market cross-consistency features (win-wide Harville ratios), Gain per Depth diagnostics (LightGBM tree structure analysis), and Residual IC evaluation (B/C/E information coefficient decomposition). These are inspired by the yurelu (zenn.dev) article, which demonstrated +40% C-orthogonal IC from race-level features and +120% from market-cross features, taking ROI from 0.91 to 1.66 across 408 races.
+keiba-ai v1.8 targets the turf model's negative IC b_difference (-0.004), the single largest bottleneck preventing overall ROI from crossing the 100% profitability threshold. The system is a mature LightGBM-based prediction pipeline (8 milestones, 34 phases, ~24K LOC) with a well-established PIT (point-in-time) safety architecture. The v1.8 milestone adds 5 feature groups -- all implementable within the existing technology stack with zero new dependencies.
 
-The recommended approach is additive: keep all existing 100+ features (never remove odds features -- that destroys the implicit two-stage tree structure), add 6 race-level features computed from existing win odds via standard groupby patterns, then add 4+ market cross-consistency features using existing win and wide odds data with Harville theoretical odds computation. Zero new library installations are required -- every capability is covered by the installed stack (pandas, scipy, sklearn, LightGBM 4.6.0). The only external action is an ETL run to extract odds_umaren/sanren Parquet files for future expansion.
+The recommended approach is a dependency-ordered build: ETL data extraction first (making HaronTimeL4 and LapTime columns available as floats in Parquet), then feature computation (turf relative features + conditional interactions in parallel), then EV calibration layers (popularity band calibration + regime-surface correction), then integrated validation. Four of the five features are low-risk extensions of existing patterns (add_race_transforms, INTERACTION_COLS, FEATURE_COLS). The fifth -- popularity band calibration -- is a novel calibration layer that requires careful OOF-only validation to avoid look-ahead bias.
 
-The critical risks are: (1) binary outcome Spearman breakdown in Residual IC computation -- using a naive formulation produces mechanically negative IC values, requiring the 4-formulation battery as a cross-check; (2) look-ahead bias from using post-race payout odds instead of pre-race snapshot odds in cross-consistency features; (3) train-inference mismatch if race-level features are added to build_all() but not to the build_features() single-race inference path. Each of these has a clear prevention strategy documented in the pitfalls research.
-
+The dominant risk is POST_RACE data leakage. HaronTimeL4, LapTime1~25, and related columns are outcome data known only after a race finishes. The existing 3-layer PIT defense (feature drop, computation guard, CI tests) must be extended to cover every new feature. A secondary risk is the HaronTimeL3/L4 sentinel value problem (000/999 stored as 0.0/999.0 in Parquet), which must be handled during ETL to prevent corrupted feature averages.
 ## Key Findings
 
 ### Recommended Stack
 
-Zero new dependencies. Every required tool is already installed at current versions. The v1.7 milestone is purely additive feature modules and diagnostic tools built with pandas groupby, scipy.stats, sklearn LinearRegression, and LightGBM trees_to_dataframe().
+No new dependencies required. All 5 feature groups use existing libraries (pandas 2.3.3, numpy 2.4.3, LightGBM 4.6.0, scikit-learn 1.8.0). The only infrastructure action is an ETL re-extraction to convert HaronTimeL4 and LapTime1~25 from strings to floats in Parquet files.
 
 **Core technologies:**
-- pandas groupby().transform(): Race-level feature broadcasting (constant within race, copied to every horse row) -- identical pattern to existing market_bias_features.py
-- scipy.stats entropy + spearmanr: Shannon entropy for race readability, Spearman IC for model evaluation -- more numerically stable than manual implementations
-- sklearn LinearRegression: OLS residualization for C-orthogonal IC (model predictions regressed on market probabilities, residual IC measured) -- mathematically identical to partial correlation
-- LightGBM 4.6.0 trees_to_dataframe(): Per-node gain and depth extraction for Gain per Depth analysis -- confirmed 15-column output including tree_index, node_depth, split_gain
-- Harville (1973) formula: Theoretical multi-horse odds from win implied probabilities -- enables win x wide cross-consistency without trio quinella data
+- pandas `groupby` + `transform`: Race-rank computation, popularity band aggregation, lap time aggregation -- already the foundation for all feature modules
+- pandas `cut` (conceptual): Fixed popularity band binning with domain-knowledge boundaries (1-3, 4-6, 7-9, 10-12, 13+)
+- numpy `polyfit`: Lap time trend features using existing pattern from haron_zscore_trend
+- LightGBM native categorical handling: Regime-surface interaction learned automatically when both columns are categorical
+- SQLAlchemy `text()`: ETL queries already use `SELECT *` -- only type conversion rules need updating
+
 ### Expected Features
 
-**Must have (table stakes):**
-- Race-level aggregation features (rl_odds_dispersion, rl_top3_odds_gap, rl_favorite_rank_gap, rl_log_odds_entropy) -- yurelu 5 race-level features improved C-orthogonal IC by +40%
-- rl_favorite_in_wide_top1 -- analogue of yurelu single most powerful feature (market consistency), uses wide odds instead of trio quinella
-- Residual IC evaluation with 4-formulation battery (B-diff, C-orthogonal, E-incremental, per-race) -- without this instrument, there is no way to measure market-independent edge
-- Promotion of existing computed-but-unregistered features (implied_prob_hhi, odds_skewness) to FEATURE_COLS
+**Must have (table stakes for v1.8 goal):**
+- HaronTimeL4-based closing speed features (harontimel4_avg, harontimel4_zscore, haron_l3l4_ratio) -- extends existing `_compute_haron_stats` pattern
+- Turf race-rank features (7 new _race_rank columns for form_trend, blood_total_wr, etc.) -- extends existing `add_race_transforms`
+- Conditional interaction features (grade_x_form_trend, distance_x_closing_index) -- extends existing `interaction_features.py`
+- Regime x surface EV correction -- adds regime_state to EVCorrectionModel.FEATURE_COLS
 
-**Should have (competitive):**
-- Harville wide odds ratio features (rl_wide_harville_ratio_fav, rl_wide_top3_harville_mean, rl_wide_harville_dispersion) -- deeper market cross-consistency signal
-- Gain per Depth diagnostic -- validates that race-level features appear at shallow tree depths (implicit two-stage structure)
-- Market conviction index (composite cross-consistency signal) -- aggregates multiple Harville ratios
+**Should have (high-impact differentiators):**
+- Popularity band calibration (per-band EV scaling from OOF residuals) -- new calibration layer between Isotonic and OddsBand
+- Lap pace features (lap_early_ratio, lap_closing_ratio from LapTime1~25) -- requires ETL schema addition
 
 **Defer (v2+):**
-- Quinella (umaren) cross-consistency features -- requires ETL expansion for jodds_umaren time-series data beyond 2026
-- Multi-dimensional orthogonal IC (win+wide+umaren simultaneously) -- correlated market signals may produce unstable residuals
-- Stern/Henery models for more accurate theoretical odds -- Harville captures 90%+ of signal, diminishing returns
+- Lap pace features if ETL re-extraction proves problematic -- haron features alone provide closing speed signal
+- Fine-grained calibration beyond 5 popularity bands
+- Per-horse lap decomposition (LapTime is leader-only, not per-horse)
 
 ### Architecture Approach
 
-Four new modules integrate into the existing pure-function feature pipeline (DataFrame in, DataFrame out). Race-level and market-cross features are new src/features/ modules wired into FeatureEngine.build_all(). Gain per Depth and Residual IC are new src/diagnostics/ classes hooked into TrainingPipeline._train_submodel(). The critical architectural decision is consolidating the wide odds merge into build_all() (via new wide_odds_df parameter) to eliminate code duplication between training and backtest pipelines.
+The v1.8 changes are all additive extensions to existing pipeline stages. No new components are created except a small `lap_features.py` module. The architecture follows an "extend-not-replace" principle: new features are appended to existing column lists (INTERACTION_COLS, FEATURE_COLS, BASE_COLS), new calibration is added as a parallel multiplicative layer alongside existing OddsBand scaling, and regime propagation injects a DataFrame column rather than changing method signatures.
 
-**Major components:**
-1. race_level_features.py (NEW): 6 race-level aggregation features from tanodds groupby -- entropy, dispersion, top-3 gap, favorite dominance, field competitiveness, longshot ratio
-2. market_cross_features.py (NEW): 4+ market cross-consistency features using Harville theoretical wide odds -- win-wide divergence, favorite-in-wide-top1, Harville ratios
-3. gain_per_depth.py (NEW): Diagnostic extracting LightGBM tree structure via trees_to_dataframe(), aggregating gain by depth level
-4. residual_ic.py (NEW): B/C/E IC decomposition on OOF predictions, measuring market-independent predictive power
+**Major components (modified):**
+1. **ETL type rules** (`src/db/etl.py`) -- Add float conversion for harontimel4 and laptime1~25
+2. **Lap feature module** (`src/features/lap_features.py` NEW) -- PIT-safe harontimel4 and LapTime feature computation using expanding_stats + searchsorted pattern
+3. **Interaction features** (`src/features/interaction_features.py`) -- Add 2-3 domain-knowledge interaction terms
+4. **EV correction model** (`src/models/ev_correction_model.py`) -- Add popularity band scaling layer + regime_state feature
+5. **Training pipeline** (`src/pipelines/training_pipeline.py`) -- Wire popularity band computation and regime label assignment
+6. **Backtest engine** (`src/backtest/engine.py` + `race_predictor.py`) -- Inject regime_state into prediction DataFrame
 ### Critical Pitfalls
 
-1. **Binary outcome Spearman breakdown** -- Naive Residual IC (Spearman on binary residuals) produces mechanically negative IC (~-0.68). Use the 4-formulation battery (B-diff, C-orthogonal, E-incremental, per-race) and require consistent direction across all metrics.
-2. **Look-ahead bias in multi-bet-type odds** -- Post-race payout odds from payouts.parquet must never be used as features. Only pre-race snapshot odds (tanodds, fukuoddslow, wide oddslow) are PIT-safe. Feature design must document the odds source for every cross-consistency feature.
-3. **Train-inference feature parity** -- Race-level features added to build_all() must also be added to build_features() (the single-race inference path). The inference path currently only calls _map_basic_features() and skips all sub-modules. Both paths must produce identical new columns.
-4. **Race-level feature redundancy** -- These features are constant within a race and provide no within-race discriminative power. They are infrastructure features that improve C-orthogonal IC, not Simple IC. yurelu 5 race-level features contributed +0.03 to ROI; the 5 market-cross features contributed +0.37. Set expectations accordingly.
-5. **Never remove odds features** -- The Echo Chamber instinct is to remove odds (tanodds, popularity_rank) to force fundamental-only prediction. yurelu proved this wrong: removing odds dropped C-orthogonal IC from +0.0856 to -0.0261. The correct strategy is additive: keep existing features + add new ones.
+1. **POST_RACE leakage in haron/lap features** -- Using current race's HaronTimeL4 or LapTime as features inflates backtest ROI but fails in production. Prevent by adding all new POST_RACE columns to POST_RACE_COLS, using expanding_stats + searchsorted (side='left') for all history aggregation, and extending the 3-layer CI leakage tests.
+
+2. **Look-ahead bias in popularity band calibration** -- Computing band ratios from full OOF data (including future folds) creates overconfident EV estimates. Prevent by computing ratios inside the OOF loop or using training-set-only data, following the v1.4 OddsBandFilter discipline.
+
+3. **HaronTime sentinel values (000/999)** -- EveryDB2 stores measurement failures as 0.0 or 999.0 after float conversion, corrupting feature averages. Prevent by replacing values outside physiological range (haron < 30 or > 50) with NaN during ETL.
+
+4. **Feature cache invalidation after ETL schema changes** -- The code-hash-based cache does not detect Parquet schema changes (new columns). Prevent by explicitly deleting `data/features/cache/` after ETL re-extraction.
+
+5. **Inference path missing new features** -- `FeatureEngine.build_features()` (single-race inference) is a separate code path from `build_all()` (batch training). New lap features must be wired into both paths to prevent training-inference feature mismatch.
 
 ## Implications for Roadmap
 
-Based on research, suggested phase structure:
+Based on research, suggested phase structure follows the natural dependency chain:
 
-### Phase 1: Residual IC Evaluation Framework
-**Rationale:** Must build the measurement instrument before adding features. Without Residual IC, there is no way to determine whether new features add market-independent information or just echo the market. The 4-formulation battery prevents the binary Spearman breakdown pitfall.
-**Delivers:** src/diagnostics/residual_ic.py, IC reports on current model (baseline), 4-formulation cross-check system
-**Addresses:** Pitfall #1 (binary Spearman breakdown)
-**Avoids:** Building features without a way to measure their value
+### Phase 1: ETL Data Foundation
+**Rationale:** All downstream features depend on HaronTimeL4 and LapTime data being available as float64 in Parquet files. This is the lowest-risk change -- declarative type rule additions, no logic change.
+**Delivers:** harontimel4 in entries.parquet, laptime1~25 in races.parquet, sentinel value handling
+**Addresses:** Feature Groups A (haron time), A-extension (lap pace)
+**Avoids:** Pitfall 3 (sentinel values), Pitfall 12 (POST_RACE_COLS whitelist gap)
+**Effort:** Small
 
-### Phase 2: Race-Level Aggregation Features
-**Rationale:** No new data dependencies -- uses only existing tanodds already in the pipeline. Follows the exact same groupby-transform pattern as market_bias_features.py. These are the foundation features that enable market-cross features to work better (yurelu showed they activate at tree depth 3-4, providing race context).
-**Delivers:** src/features/race_level_features.py, 6 new race-level features, promotion of implied_prob_hhi and odds_skewness to FEATURE_COLS, both build_all() and build_features() paths updated
-**Uses:** pandas groupby/transform, scipy.stats.entropy
-**Avoids:** Pitfall #3 (inference path missing features), Pitfall #7 (feature cache invalidation)
+### Phase 2: Turf Relative Features + Conditional Interactions
+**Rationale:** These are the safest features -- zero new data required, extending existing well-tested patterns. They can be built in parallel since they touch different modules. Feature C adds 7 race_rank columns via groupby.rank(pct=True). Feature D adds 2-3 interaction terms via multiplication with NaN guards.
+**Delivers:** form_trend_race_rank, blood_total_wr_race_rank, grade_x_form_score, distance_x_closing_index, and 5 more race_rank features
+**Addresses:** Feature Group C (turf relative), Feature Group D (conditional interactions)
+**Uses:** pandas groupby + rank (existing pattern), interaction_features.py (existing module)
+**Avoids:** Pitfall 5 (overfitting -- limited to high-conviction interactions), Pitfall 11 (NaN propagation -- using existing .where() pattern)
+**Effort:** Medium
+### Phase 3: Haron/Lap Feature Computation
+**Rationale:** Depends on Phase 1 ETL data being available. Extends existing `_compute_haron_stats` with HaronTimeL4 support and creates new lap feature module. Requires careful PIT validation since these features derive from POST_RACE columns.
+**Delivers:** harontimel4_avg, harontimel4_zscore, haron_l3l4_ratio, lap_closing_speed_avg, lap_pace_differential (~6-9 new features)
+**Addresses:** Feature Group A (haron time), Feature Group A-extension (lap pace)
+**Implements:** New `src/features/lap_features.py` module, wired into both training and inference paths
+**Avoids:** Pitfall 1 (POST_RACE leakage -- expanding_stats + searchsorted pattern), Pitfall 4 (data quality -- sentinel handling from Phase 1)
+**Effort:** Medium
 
-### Phase 3: Market Cross-Consistency Features
-**Rationale:** The main weapon -- yurelu market-cross features delivered +120% C-orthogonal IC improvement. Uses existing wide odds data (17.9 MB, 38,825 races). Requires Harville theoretical odds computation as a shared prerequisite. Consolidates wide odds merge into build_all() to eliminate training/backtest duplication.
-**Delivers:** src/features/market_cross_features.py, Harville wide odds computation, 4+ cross-consistency features, wide odds merge consolidation into build_all()
-**Uses:** pandas merge + vectorized operations, Harville formula
-**Avoids:** Pitfall #2 (look-ahead bias -- uses only pre-race wide odds snapshots), Pitfall #4 (redundancy -- cross-consistency is orthogonal to race-level)
+### Phase 4: EV Calibration Layers
+**Rationale:** Depends on all new features being available for model training. Modifies the EV correction model and training pipeline -- affects all betting decisions so requires A/B backtest comparison. Popularity band calibration is the riskiest change (novel, needs OOF validation). Regime-surface propagation is lower risk (additive feature column).
+**Delivers:** Popularity band EV scaling factors, regime_state in EV correction model
+**Addresses:** Feature Group B (popularity band calibration), Feature Group E (regime x surface EV correction)
+**Uses:** LightGBM native categorical handling, parallel multiplicative calibration layer pattern
+**Avoids:** Pitfall 2 (look-ahead bias -- OOF-only computation), Pitfall 3 (circular dependency -- regime is market-derived only)
+**Effort:** Medium
 
-### Phase 4: Gain per Depth Diagnostic
-**Rationale:** Read-only diagnostic that validates race-level features are functioning correctly (appearing at shallow tree depths). Pure analysis tool with no effect on model predictions. Runs after model training as a verification step.
-**Delivers:** src/diagnostics/gain_per_depth.py, depth-stratified gain distribution reports, implicit two-stage structure verification
-**Uses:** LightGBM trees_to_dataframe(), pandas groupby
-**Avoids:** Pitfall #5 (over-interpretation -- used as diagnostic only, not optimization target)
-
-### Phase 5: Validation and Manifest Update
-**Rationale:** All features and diagnostics are in place. Now run full validation to confirm ROI improvement, update feature manifests, and verify no leakage.
-**Delivers:** Updated FEATURE_COLS manifest, SHA256 feature hash, full backtest with new features, walk-forward validation
-**Avoids:** Pitfall #8 (stale cache after feature changes), all leakage risks
+### Phase 5: Integrated Validation
+**Rationale:** Final validation that all features work together. Extends the existing 3-layer PIT test framework with all new feature column names. Full backtest with walk-forward validation to confirm ROI improvement without overfitting.
+**Delivers:** Extended CI tests, full backtest results, walk-forward validation, turf b_difference measurement
+**Avoids:** Pitfall 1 (leakage -- comprehensive CI test extension), Pitfall 7 (cache invalidation -- explicit cache bust), Pitfall 8 (inference parity -- feature parity verification)
+**Effort:** Medium (mainly compute time)
 
 ### Phase Ordering Rationale
 
-- Residual IC first because it is the measurement instrument -- you cannot evaluate features without it
-- Race-level features second because they have zero new data dependencies and follow proven patterns
-- Market cross-consistency third because it depends on race-level patterns being established and requires the Harville computation prerequisite
-- Gain per Depth fourth because it needs a trained model with the new features to analyze
-- Validation last because it needs the frozen feature set and trained models
-
+- **Data before computation:** ETL (Phase 1) must complete before any feature can use the new columns. This is a hard dependency.
+- **Safe features before risky features:** Phase 2 (race_rank + interactions) uses only existing data and patterns, providing early validation that the pipeline integration works before tackling the PIT-sensitive haron/lap features.
+- **Features before models:** Phases 2-3 (feature computation) must complete before Phase 4 (EV calibration layers) because model training needs all features available.
+- **Validation last:** Phase 5 runs the full test suite against the integrated system.
+- **Popularity band calibration is last among model changes:** It is the riskiest feature (novel, OOF-sensitive) and should be validated in isolation against a baseline with features C+D+A+E already working.
 ### Research Flags
 
 Phases likely needing deeper research during planning:
-- **Phase 3:** Harville wide odds computation -- exact numerical implementation and edge case handling (small fields, zero odds, wide odds sparsity in early years)
-- **Phase 3:** Wide odds pivot memory -- pivoting wide odds for all races at once may consume excessive memory; may need per-race or sparse approach
+- **Phase 1 (ETL):** LapTime column names in EveryDB2 are not yet verified against the actual database schema. Need to query `information_schema.columns` to confirm exact names and count (Pitfall 9).
+- **Phase 4 (EV Calibration):** Popularity band calibration is a novel approach. The optimal band boundaries, regularization strength, and interaction with existing OddsBand scaling need empirical validation. Consider `--research-phase 4` for OOF residual analysis.
 
 Phases with standard patterns (skip research-phase):
-- **Phase 1:** Standard Spearman IC + OLS residualization, well-documented in quantitative finance
-- **Phase 2:** Identical groupby-transform pattern to existing market_bias_features.py
-- **Phase 4:** LightGBM API well-documented, code example verified in STACK.md
+- **Phase 2 (Features C+D):** Well-documented patterns (add_race_transforms, interaction_features). Existing code provides clear templates.
+- **Phase 3 (Haron/Lap):** Follows existing `_compute_haron_stats` and PaceAptitudeFeatures patterns exactly. PIT-safe by design if searchsorted pattern is replicated.
+- **Phase 5 (Validation):** Extends existing 3-layer CI test framework. Standard validation approach.
 
 ## Confidence Assessment
 
 | Area | Confidence | Notes |
 |------|------------|-------|
-| Stack | HIGH | All tools verified installed at required versions. LightGBM API tested live. scipy/sklearn imports verified. Zero new dependencies needed. |
-| Features | HIGH | yurelu article provides strong empirical evidence (+40% IC race-level, +120% IC market-cross). Data availability verified (38,825 races with wide odds). Existing codebase audit confirms most race-level features already computed but not registered. |
-| Architecture | HIGH | Full source code analysis of feature_engine.py, training_pipeline.py, backtest/engine.py, race_predictor.py. Integration points and insertion locations identified at line-level granularity. |
-| Pitfalls | HIGH | 8 pitfalls identified with specific prevention strategies, warning signs, and recovery costs. Code-level analysis of leakage paths, cache mechanism, and dual-path (train/inference) feature computation. |
+| Stack | HIGH | Zero new dependencies. All features verified implementable with existing libraries. Codebase analysis confirms every API surface exists. |
+| Features | HIGH | 4 of 5 feature groups extend existing proven patterns. Only popularity band calibration (Group B) is novel and rated MEDIUM confidence. |
+| Architecture | HIGH | All integration points verified against source code. File names, line numbers, and method signatures confirmed. 6 detailed data flow diagrams. |
+| Pitfalls | HIGH | All pitfalls verified against source code. POST_RACE leakage prevention has 3-layer defense already in place. Sentinel value handling is a known pattern from harontimel3. |
 
 **Overall confidence:** HIGH
 
 ### Gaps to Address
 
-- **Trio quinella (sanrenpuku) pre-race odds unavailable:** yurelu strongest feature used trio odds, which we do not have. The wide odds substitute (rl_favorite_in_wide_top1) is the closest analogue but signal strength is untested. Must validate during Phase 3 implementation.
-- **Harville approximation accuracy for wide bets:** The exact Harville wide probability requires iterating over all permutations of positions 1-3. The proposed approximation is untested. Need numerical comparison during Phase 3.
-- **Multi-seed Gain per Depth stability:** The two-stage structure hypothesis (shallow=market, deep=fundamental) is plausible but untested on our models. If depth patterns differ across seeds, the diagnostic has less interpretive value.
-- **Wide odds sparsity in early years (2015-2017):** Market cross-consistency features may have many NaN values for early data. Coverage percentage needs checking before committing to features.
+- **LapTime schema discovery:** The exact column names and count for LapTime in EveryDB2 are inferred from docs (`docs/everydb2/03-RACE.md` fields 68-92) but not verified against the live database. Phase 1 must start with a schema query before writing ETL type rules.
+- **Popularity band optimal boundaries:** The research proposes 5 bands (1-3, 4-6, 7-9, 10-12, 13+) but the optimal boundaries depend on the actual OOF residual distribution. Phase 4 should include exploratory analysis of residual patterns by popularity rank before finalizing boundaries.
+- **HaronTimeL3/L4 mutual exclusivity handling:** EveryDB2 docs indicate L3 and L4 are rarely both available for the same race. The coalescing strategy (use L3 first, fall back to L4) needs validation against actual data distribution after Phase 1 ETL.
+- **Inference path for lap features:** `RacePredictor.predict()` currently does not have access to `races_df` for LapTime columns. The integration may require extending the predictor's data access or pre-computing race-level lap features.
 
 ## Sources
 
 ### Primary (HIGH confidence)
-- yurelu (zenn.dev): AI to 26 round giron shite kojin kaihatsu no keiba yosoku ML wo sodateta hanashi -- Race-level features, market-cross features, C-orthogonal IC improvements, Gain per Depth analysis, 4-formulation Residual IC battery, ROI 0.91 to 1.66 on 408 races
-- Codebase analysis: feature_engine.py (build_all/build_features dual paths), market_bias_features.py (race-level pattern), training_pipeline.py (wide odds merge, OOF prediction), backtest/engine.py (wide odds merge), race_predictor.py (inference chain), stacked_ensemble.py (lgbm_model access)
-- LightGBM 4.6.0: trees_to_dataframe() API verified via official docs and live test
-- Data verification: odds_wide.parquet (3.68M rows, 38,825 races), payouts.parquet (38,835 races, 201 cols)
+- Codebase analysis: `src/db/etl.py` (ETL type rules, SELECT * pattern)
+- Codebase analysis: `src/features/horse_history_features.py` (expanding_stats + searchsorted PIT pattern)
+- Codebase analysis: `src/features/interaction_features.py` (NaN-safe interaction computation)
+- Codebase analysis: `src/models/ev_correction_model.py` (FEATURE_COLS, correct_ev flow)
+- Codebase analysis: `src/backtest/race_predictor.py` (inference pipeline sequence)
+- Codebase analysis: `src/backtest/engine.py` (per-race regime detection loop)
+- Codebase analysis: `src/domain/types.py` (POST_RACE_COLS definition)
+- EveryDB2 schema docs: `docs/everydb2/03-RACE.md` (LapTime1~25, HaronTimeS3/S4/L3/L4)
+- EveryDB2 schema docs: `docs/everydb2/04-UMA_RACE.md` (HaronTimeL4, HaronTimeL3)
 
 ### Secondary (MEDIUM confidence)
-- Harville (1973): Assigning probabilities to the outcomes of multi-entry competitions -- Harville formula for quinella/exacta/trifecta from win odds
-- scipy 1.17.1: Verified spearmanr, entropy importable and functional
-- sklearn 1.8.0: Verified LinearRegression for orthogonalization with synthetic data
-- Snowberg and Wolfers: Explaining the Favorite-Longshot Bias -- Harville conditional probability derivation
+- PROJECT.md v1.8 milestone requirements (5 feature group definitions)
+- Existing GPD diagnostics: `src/models/gpd_diagnostics.py` (179 features tracked)
+- Milestone history: v1.6 POST_RACE leakage prevention, v1.4 OddsBandFilter look-ahead fix
 
 ### Tertiary (LOW confidence)
-- Gain per Depth two-stage structure hypothesis -- plausible but untested on keiba-ai models
-- Market cross-consistency ROI improvement replication -- yurelu results may not transfer due to different data environment (no trio odds)
-- Harville approximation accuracy for wide bets -- numerical comparison with exact computation not yet performed
+- LapTime column names in EveryDB2 -- inferred from docs, not verified against live database schema
+- Popularity band calibration effectiveness -- theoretical analysis, no empirical validation yet
 
 ---
-*Research completed: 2026-05-17*
+*Research completed: 2026-05-19*
 *Ready for roadmap: yes*
