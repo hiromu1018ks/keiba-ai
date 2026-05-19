@@ -642,10 +642,20 @@ class ModelLoader:
                 except Exception:
                     logger.warning("Failed to load %s, skipping", pa_file)
 
-            # WideTwoStageModel
-            wide = WideTwoStageModel()
-            wide.hit_model = self._load_lgbm(str(models_dir / f"wide_hit_{surface}.lgb"))
-            wide.return_model = self._load_lgbm(str(models_dir / f"wide_ret_{surface}.lgb"))
+            # WideTwoStageModel (optional — may not exist when betting_target=win)
+            wide = None
+            wide_hit_file = models_dir / f"wide_hit_{surface}.lgb"
+            wide_hit_joblib = models_dir / f"wide_hit_{surface}.joblib"
+            wide_ret_file = models_dir / f"wide_ret_{surface}.lgb"
+            if wide_hit_file.is_file() or wide_hit_joblib.is_file():
+                wide = WideTwoStageModel()
+                wide.hit_model = self._load_lgbm(str(wide_hit_file))
+                wide.return_model = self._load_lgbm(str(wide_ret_file))
+            else:
+                logger.info(
+                    "Wide model files not found for %s, skipping (betting_target=win?)",
+                    surface,
+                )
 
             # Phase 21: ConformalEVModel (CQR per-surface files)
             conformal_ev = ConformalEVModel.load(models_dir, surface)
