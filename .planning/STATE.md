@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.8
 milestone_name: Turf Precision Calibration
 status: planning
-last_updated: "2026-05-19T13:36:59.684Z"
+last_updated: "2026-05-19T15:30:00Z"
 last_activity: 2026-05-19
 progress:
   total_phases: 4
   completed_phases: 1
-  total_plans: 2
+  total_plans: 4
   completed_plans: 2
-  percent: 100
+  percent: 50
 ---
 
 # Project State
@@ -20,16 +20,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-05-19)
 
 **Core value:** 単勝モデルのバックテストROIを100%超えにすること
-**Current focus:** Phase 35 — etl-data-foundation
+**Current focus:** Phase 36 — feature-computation
 
 ## Current Position
 
 Phase: 36
-Plan: Not started
-Status: Ready to plan
+Plan: 2 plans in 2 waves
+Status: Ready to execute
 Last activity: 2026-05-19
 
-Progress: [▓░░░░░░░░░░░░░░░░░░░░] 5% (v1.8: 0/4 phases, Phase 35 planned)
+Progress: [▓▓▓░░░░░░░░░░░░░░░░░░] 15% (v1.8: 1/4 phases done, Phase 36 planned)
 
 ## v1.8 Roadmap
 
