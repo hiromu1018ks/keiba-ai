@@ -126,8 +126,8 @@ class TestRaceQualityScreener:
         """EMA平滑化市場指標が含まれる (v5.6追加)"""
         assert "overround_ema" in RaceQualityScreener.FEATURE_COLS
         assert "entropy_ema" in RaceQualityScreener.FEATURE_COLS
-        # 合計29列であること (Phase 31: +2, Phase 32: +5)
-        assert len(RaceQualityScreener.FEATURE_COLS) == 29
+        # 合計35列であること (Phase 31: +2, Phase 32: +5, Plan 34-01: +6)
+        assert len(RaceQualityScreener.FEATURE_COLS) == 35
 
     def test_screener_independence(self) -> None:
         """品質スコアとedge_max_per_raceの相関<0.30 (§13.1)

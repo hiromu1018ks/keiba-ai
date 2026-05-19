@@ -751,7 +751,8 @@ class TestLeakIntegration:
         """RegimeDetector.FEATURE_COLS が PRE_RACE 指標のみで構成される"""
         from models.regime_detector import RegimeDetector
 
-        expected_cols = {
+        # Core pre-race columns (always expected)
+        expected_core = {
             "market_error_std",
             "market_error_mean",
             "overround_rolling",
@@ -761,6 +762,19 @@ class TestLeakIntegration:
             "odds_volatility_mean",
             "field_size_mean",
         }
+        # Pre-race rl_* columns added by Plan 34-01 (RLF-01~06 + MCF-07)
+        expected_rl = {
+            "rl_log_odds_entropy", "rl_odds_dispersion", "rl_top3_odds_gap",
+            "rl_top1_odds", "rl_favorite_rank_gap", "rl_n_horses",
+            "rl_favorite_in_wide_top1", "rl_trio_overlap", "rl_market_consistency",
+            "rl_trio_odds_ratio", "rl_wide_harville_ratio",
+        }
+        # Pre-race market structure columns (D-06)
+        expected_market = {
+            "implied_prob_hhi",
+            "odds_skewness",
+        }
+        expected_cols = expected_core | expected_rl | expected_market
         actual_cols = set(RegimeDetector.FEATURE_COLS)
         assert actual_cols == expected_cols, (
             f"FEATURE_COLS mismatch: expected {expected_cols}, got {actual_cols}"

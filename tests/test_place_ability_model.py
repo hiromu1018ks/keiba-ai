@@ -121,7 +121,14 @@ class TestPlaceAbilityModel:
         test_df = _make_train_df()
         # v5: レースコンテキスト特徴量はバックテスト/本番でのみ存在
         v5_context_cols = {"race_mean_fuku_odds", "race_std_fuku_odds",
-                           "odds_popularity_gap", "surface_track_interaction"}
+                           "odds_popularity_gap", "surface_track_interaction",
+                           # rl_* features added by Plan 34-01 (pipeline-only, not in test fixtures)
+                           "rl_log_odds_entropy", "rl_odds_dispersion", "rl_top3_odds_gap",
+                           "rl_top1_odds", "rl_favorite_rank_gap", "rl_n_horses",
+                           "rl_favorite_in_wide_top1", "rl_trio_overlap", "rl_market_consistency",
+                           "rl_trio_odds_ratio", "rl_wide_harville_ratio",
+                           # FLB slope features (pipeline-only)
+                           "implied_prob_hhi", "odds_skewness"}
         for col in model.FEATURE_COLS:
             if col in v5_context_cols:
                 continue

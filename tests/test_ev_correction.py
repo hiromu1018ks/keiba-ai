@@ -48,6 +48,21 @@ def pre_ev_df() -> pd.DataFrame:
             "jt_combo_place_rate": [0.25] * 8,
             "jt_combo_starts": [5.0] * 8,
             "jt_combo_prize_log": [4.0] * 8,
+            # レースレベル集約 (RLF-01~06, Plan 34-01)
+            "rl_log_odds_entropy": [1.8] * 8,
+            "rl_odds_dispersion": [20.0] * 8,
+            "rl_top3_odds_gap": [5.0] * 8,
+            "rl_top1_odds": [4.0] * 8,
+            "rl_favorite_rank_gap": [0.4] * 8,
+            "rl_n_horses": [8.0] * 8,
+            # 市場クロス整合性 (MCF-07, Plan 34-01)
+            "rl_favorite_in_wide_top1": [1.0] * 8,
+            "rl_trio_overlap": [2.0] * 8,
+            "rl_market_consistency": [1.0] * 8,
+            "rl_trio_odds_ratio": [1.1] * 8,
+            "rl_wide_harville_ratio": [1.05] * 8,
+            # FLB slope
+            "odds_skewness": [1.5] * 8,
         }
     )
 
@@ -292,6 +307,21 @@ def large_ev_df() -> pd.DataFrame:
                     "jt_combo_place_rate": float(np.random.uniform(0.10, 0.35)),
                     "jt_combo_starts": float(np.random.randint(1, 30)),
                     "jt_combo_prize_log": float(np.random.uniform(2.0, 6.0)),
+                    # レースレベル集約 (RLF-01~06, Plan 34-01)
+                    "rl_log_odds_entropy": float(np.random.uniform(1.5, 2.5)),
+                    "rl_odds_dispersion": float(np.random.uniform(10.0, 40.0)),
+                    "rl_top3_odds_gap": float(np.random.uniform(2.0, 10.0)),
+                    "rl_top1_odds": float(np.random.uniform(2.0, 8.0)),
+                    "rl_favorite_rank_gap": float(np.random.uniform(0.1, 0.8)),
+                    "rl_n_horses": float(n_horses),
+                    # 市場クロス整合性 (MCF-07, Plan 34-01)
+                    "rl_favorite_in_wide_top1": float(np.random.choice([0.0, 1.0])),
+                    "rl_trio_overlap": float(np.random.randint(0, 4)),
+                    "rl_market_consistency": float(np.random.choice([0.0, 1.0])),
+                    "rl_trio_odds_ratio": float(np.random.uniform(0.8, 1.5)),
+                    "rl_wide_harville_ratio": float(np.random.uniform(0.8, 1.5)),
+                    # FLB slope
+                    "odds_skewness": float(np.random.uniform(-1.0, 3.0)),
                 }
             )
     return pd.DataFrame(rows)
@@ -422,6 +452,21 @@ def pre_place_ev_df():
         "jt_combo_starts": [50] * n,
         "jt_combo_prize_log": [12.0] * n,
         "implied_prob_hhi": [0.15] * n,
+        # レースレベル集約 (RLF-01~06, Plan 34-01)
+        "rl_log_odds_entropy": [1.8] * n,
+        "rl_odds_dispersion": [20.0] * n,
+        "rl_top3_odds_gap": [5.0] * n,
+        "rl_top1_odds": [4.0] * n,
+        "rl_favorite_rank_gap": [0.4] * n,
+        "rl_n_horses": [float(n)] * n,
+        # 市場クロス整合性 (MCF-07, Plan 34-01)
+        "rl_favorite_in_wide_top1": [1.0] * n,
+        "rl_trio_overlap": [2.0] * n,
+        "rl_market_consistency": [1.0] * n,
+        "rl_trio_odds_ratio": [1.1] * n,
+        "rl_wide_harville_ratio": [1.05] * n,
+        # FLB slope
+        "odds_skewness": [1.5] * n,
     })
 
 
@@ -577,6 +622,20 @@ class TestEVCorrectionTemporalSplit:
             "jt_combo_place_rate": np.random.uniform(0.10, 0.35, n),
             "jt_combo_starts": np.random.uniform(1, 30, n),
             "jt_combo_prize_log": np.random.uniform(2.0, 6.0, n),
+            # レースレベル集約 (RLF-01~06)
+            "rl_log_odds_entropy": np.random.uniform(1.5, 2.5, n),
+            "rl_odds_dispersion": np.random.uniform(10.0, 40.0, n),
+            "rl_top3_odds_gap": np.random.uniform(2.0, 10.0, n),
+            "rl_top1_odds": np.random.uniform(2.0, 8.0, n),
+            "rl_favorite_rank_gap": np.random.uniform(0.1, 0.8, n),
+            "rl_n_horses": np.random.uniform(8.0, 16.0, n),
+            # 市場クロス整合性 (MCF-07)
+            "rl_favorite_in_wide_top1": np.random.choice([0.0, 1.0], n),
+            "rl_trio_overlap": np.random.randint(0, 4, n).astype(float),
+            "rl_market_consistency": np.random.choice([0.0, 1.0], n),
+            "rl_trio_odds_ratio": np.random.uniform(0.8, 1.5, n),
+            "rl_wide_harville_ratio": np.random.uniform(0.8, 1.5, n),
+            "odds_skewness": np.random.uniform(-1.0, 3.0, n),
         })
 
         model = EVCorrectionModel()
@@ -629,6 +688,20 @@ class TestEVCorrectionTemporalSplit:
             "jt_combo_starts": np.random.uniform(1, 30, n),
             "jt_combo_prize_log": np.random.uniform(2.0, 6.0, n),
             "implied_prob_hhi": np.random.uniform(0.05, 0.15, n),
+            # レースレベル集約 (RLF-01~06)
+            "rl_log_odds_entropy": np.random.uniform(1.5, 2.5, n),
+            "rl_odds_dispersion": np.random.uniform(10.0, 40.0, n),
+            "rl_top3_odds_gap": np.random.uniform(2.0, 10.0, n),
+            "rl_top1_odds": np.random.uniform(2.0, 8.0, n),
+            "rl_favorite_rank_gap": np.random.uniform(0.1, 0.8, n),
+            "rl_n_horses": np.random.uniform(8.0, 16.0, n),
+            # 市場クロス整合性 (MCF-07)
+            "rl_favorite_in_wide_top1": np.random.choice([0.0, 1.0], n),
+            "rl_trio_overlap": np.random.randint(0, 4, n).astype(float),
+            "rl_market_consistency": np.random.choice([0.0, 1.0], n),
+            "rl_trio_odds_ratio": np.random.uniform(0.8, 1.5, n),
+            "rl_wide_harville_ratio": np.random.uniform(0.8, 1.5, n),
+            "odds_skewness": np.random.uniform(-1.0, 3.0, n),
         })
 
         model = PlaceEVCorrectionModel()

@@ -579,6 +579,21 @@ class TestBuildRegimeStats:
                     "overround_deviation": 0.0,
                     "hist_win_rate_same_condition": 0.3,
                     "hist_market_entropy_avg": 2.0,
+                    # rl_* features (Plan 34-01)
+                    "rl_log_odds_entropy": np.random.uniform(1.5, 2.5),
+                    "rl_odds_dispersion": np.random.uniform(10.0, 40.0),
+                    "rl_top3_odds_gap": np.random.uniform(2.0, 10.0),
+                    "rl_top1_odds": np.random.uniform(2.0, 8.0),
+                    "rl_favorite_rank_gap": np.random.uniform(0.1, 0.8),
+                    "rl_n_horses": 12.0,
+                    "rl_favorite_in_wide_top1": float(r % 2),
+                    "rl_trio_overlap": float(r % 3),
+                    "rl_market_consistency": float((r + 1) % 2),
+                    "rl_trio_odds_ratio": np.random.uniform(0.8, 1.5),
+                    "rl_wide_harville_ratio": np.random.uniform(0.8, 1.5),
+                    # FLB slope
+                    "implied_prob_hhi": np.random.uniform(0.05, 0.15),
+                    "odds_skewness": np.random.uniform(-1.0, 3.0),
                     "race_date": f"2020-{(r // 28) % 12 + 1:02d}-{(r % 28) + 1:02d}",
                 }
             )
