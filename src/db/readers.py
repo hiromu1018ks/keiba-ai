@@ -35,6 +35,8 @@ _INT_COLS: set[str] = {
     "kyakusitukubun",
     "jyuni1c",
     "jyuni4c",
+    "jyuni2c",  # ETL-03: corner position 2
+    "jyuni3c",  # ETL-03: corner position 3
     "zogenfugo",
     "tanninki",
 }
@@ -43,7 +45,9 @@ _FLOAT_COLS: set[str] = {
     "bataijyu",
     "zogensa",
     "harontimel3",
+    "harontimel4",  # ETL-01: SE table haron time L4
     "timediff",
+    *[f"laptime{i}" for i in range(1, 26)],  # ETL-02: RA table lap times
 }
 
 # _coerce_typesで数値変換しない文字列固有列
