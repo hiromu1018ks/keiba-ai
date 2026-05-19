@@ -78,3 +78,13 @@ None.
 ## Threat Flags
 
 None. All new surface is internal ETL type conversion with no network endpoints or auth paths.
+
+## Self-Check: PASSED
+
+- src/db/etl.py: FOUND
+- src/db/readers.py: FOUND
+- tests/test_etl_type_conversion.py: FOUND
+- .planning/phases/35-etl-data-foundation/35-01-SUMMARY.md: FOUND
+- 066e55e (RED): FOUND
+- cc37656 (GREEN): FOUND
+- 1b8942b (SUMMARY): FOUND
