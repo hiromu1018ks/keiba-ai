@@ -145,6 +145,15 @@ No source code commits -- all tasks produce data artifacts (ignored by .gitignor
   - `data/baseline/ic_baseline.json`: complete
   - `data/gpd/gpd_report.json`: missing
 
+## Self-Check: PASSED
+
+- `.planning/phases/34-validation-and-manifest-update/34-03-SUMMARY.md`: FOUND
+- `data/baseline/ic_baseline.json`: FOUND
+- `data/oof/oof_predictions.parquet`: FOUND (139,042 rows)
+- `data/gpd/gpd_report.json`: MISSING (expected -- GPD failed)
+- `data/backtest/multi_year_result.json`: OLD (May 17, not from this run)
+- Commit `e12f73a`: CONFIRMED
+
 ---
 *Phase: 34-validation-and-manifest-update*
 *Completed: 2026-05-19*
