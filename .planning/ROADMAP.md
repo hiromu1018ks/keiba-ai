@@ -16,109 +16,109 @@ progress:
 
 ## Milestones
 
-- ✅ **v1.0 Win Model** — Phases 1-4 (shipped 2026-05-03)
-- ✅ **v1.1 ROI Advanced Model** — Phases 5-7 (shipped 2026-05-03)
-- ✅ **v1.2 Win Backtest Validation** — Phases 8-10 (shipped 2026-05-04)
-- ✅ **v1.3 Betting Strategy Optimization** — Phases 11-13 (shipped 2026-05-05)
-- ✅ **v1.4 Ensemble Filter Recalibration** — Phases 14-18 (shipped 2026-05-07)
-- ✅ **v1.5 Model Accuracy Improvement** — Phases 19-22 (shipped 2026-05-10)
-- ✅ **v1.6 Feature Engineering Overhaul** — Phases 23-28 (shipped 2026-05-17)
-- ✅ **v1.7 Market-Independent Edge Discovery** — Phases 29-34 (shipped 2026-05-19)
-- 🚧 **v1.8 Turf Precision Calibration** — Phases 35-38 (in progress)
+- **v1.0 Win Model** -- Phases 1-4 (shipped 2026-05-03)
+- **v1.1 ROI Advanced Model** -- Phases 5-7 (shipped 2026-05-03)
+- **v1.2 Win Backtest Validation** -- Phases 8-10 (shipped 2026-05-04)
+- **v1.3 Betting Strategy Optimization** -- Phases 11-13 (shipped 2026-05-05)
+- **v1.4 Ensemble Filter Recalibration** -- Phases 14-18 (shipped 2026-05-07)
+- **v1.5 Model Accuracy Improvement** -- Phases 19-22 (shipped 2026-05-10)
+- **v1.6 Feature Engineering Overhaul** -- Phases 23-28 (shipped 2026-05-17)
+- **v1.7 Market-Independent Edge Discovery** -- Phases 29-34 (shipped 2026-05-19)
+- **v1.8 Turf Precision Calibration** -- Phases 35-38 (in progress)
 
 ## Phases
 
 <details>
-<summary>✅ v1.0 Win Model (Phases 1-4) — SHIPPED 2026-05-03</summary>
+<summary>v1.0 Win Model (Phases 1-4) -- SHIPPED 2026-05-03</summary>
 
-- [x] Phase 1: Feature Analysis & Enhancement (2/2 plans) — completed 2026-05-02
-- [x] Phase 2: Win Benter Combination & Calibration (2/2 plans) — completed 2026-05-02
-- [x] Phase 3: Selection Gate, Confidence & Betting (2/2 plans) — completed 2026-05-02
-- [x] Phase 4: Walk-Forward Validation (1/1 plan) — completed 2026-05-03
-
-</details>
-
-<details>
-<summary>✅ v1.1 ROI Advanced Model (Phases 5-7) — SHIPPED 2026-05-03</summary>
-
-- [x] Phase 5: Foundation Features (2/2 plans) — completed 2026-05-03
-- [x] Phase 6: Odds Deviation EV (1/1 plan) — completed 2026-05-03
-- [x] Phase 7: Ensemble Enhancement (1/1 plan) — completed 2026-05-03
+- [x] Phase 1: Feature Analysis & Enhancement (2/2 plans) -- completed 2026-05-02
+- [x] Phase 2: Win Benter Combination & Calibration (2/2 plans) -- completed 2026-05-02
+- [x] Phase 3: Selection Gate, Confidence & Betting (2/2 plans) -- completed 2026-05-02
+- [x] Phase 4: Walk-Forward Validation (1/1 plan) -- completed 2026-05-03
 
 </details>
 
 <details>
-<summary>✅ v1.2 Win Backtest Validation (Phases 8-10) — SHIPPED 2026-05-04</summary>
+<summary>v1.1 ROI Advanced Model (Phases 5-7) -- SHIPPED 2026-05-03</summary>
 
-- [x] Phase 8: Win Backtest Core (2/2 plans) — completed 2026-05-04
-- [x] Phase 9: Win Reporting (1/1 plan) — completed 2026-05-04
-- [x] Phase 10: Pipeline Performance (2/2 plans) — completed 2026-05-04
-
-</details>
-
-<details>
-<summary>✅ v1.3 Betting Strategy Optimization (Phases 11-13) — SHIPPED 2026-05-05</summary>
-
-- [x] Phase 11: Bet Selection Filters (2/2 plans) — completed 2026-05-04
-- [x] Phase 12: Stake Sizing Enhancement (2/2 plans) — completed 2026-05-05
-- [x] Phase 13: Risk Calibration & Parameter Optimization (3/3 plans) — completed 2026-05-05
+- [x] Phase 5: Foundation Features (2/2 plans) -- completed 2026-05-03
+- [x] Phase 6: Odds Deviation EV (1/1 plan) -- completed 2026-05-03
+- [x] Phase 7: Ensemble Enhancement (1/1 plan) -- completed 2026-05-03
 
 </details>
 
 <details>
-<summary>✅ v1.4 Ensemble Filter Recalibration (Phases 14-18) — SHIPPED 2026-05-07</summary>
+<summary>v1.2 Win Backtest Validation (Phases 8-10) -- SHIPPED 2026-05-04</summary>
 
-- [x] Phase 14: Gate Recalibration (2/2 plans) — completed 2026-05-06
-- [x] Phase 15: EV Filter Enhancement (2/2 plans) — completed 2026-05-06
-- [x] Phase 16: Odds Band Rebuild (2/2 plans) — completed 2026-05-06
-- [x] Phase 17: Optuna Optimization (2/2 plans) — completed 2026-05-06
-- [x] Phase 18: Validation & Freeze (2/2 plans) — completed 2026-05-07
+- [x] Phase 8: Win Backtest Core (2/2 plans) -- completed 2026-05-04
+- [x] Phase 9: Win Reporting (1/1 plan) -- completed 2026-05-04
+- [x] Phase 10: Pipeline Performance (2/2 plans) -- completed 2026-05-04
 
 </details>
 
 <details>
-<summary>✅ v1.5 Model Accuracy Improvement (Phases 19-22) — SHIPPED 2026-05-10</summary>
+<summary>v1.3 Betting Strategy Optimization (Phases 11-13) -- SHIPPED 2026-05-05</summary>
 
-- [x] Phase 19: EV推定キャリブレーション (2/2 plans) — completed 2026-05-07
-- [x] Phase 19.1: バックテスト高速化 (5/5 plans) — completed 2026-05-08
-- [x] Phase 20: 高オッズ的中パターン特徴量 (3/3 plans) — completed 2026-05-09
-- [x] Phase 21: Conformal EV予測区間 (2/2 plans) — completed 2026-05-09
-- [x] Phase 22: 統合検証とバックテスト (1/1 plan) — completed 2026-05-10
+- [x] Phase 11: Bet Selection Filters (2/2 plans) -- completed 2026-05-04
+- [x] Phase 12: Stake Sizing Enhancement (2/2 plans) -- completed 2026-05-05
+- [x] Phase 13: Risk Calibration & Parameter Optimization (3/3 plans) -- completed 2026-05-05
 
 </details>
 
 <details>
-<summary>✅ v1.6 Feature Engineering Overhaul (Phases 23-28) — SHIPPED 2026-05-17</summary>
+<summary>v1.4 Ensemble Filter Recalibration (Phases 14-18) -- SHIPPED 2026-05-07</summary>
 
-- [x] Phase 23: Safety Gate (2/2 plans) — completed 2026-05-11
-- [x] Phase 24: Feature Audit & Pruning (2/2 plans) — completed 2026-05-12
-- [x] Phase 25: Quick Win Wire Existing (2/2 plans) — completed 2026-05-12
-- [x] Phase 26: EveryDB2 New Features (3/3 plans) — completed 2026-05-14
-- [x] Phase 27: Feature Interactions (3/3 plans) — completed 2026-05-15
-- [x] Phase 28: Validation & Freeze (2/2 plans) — completed 2026-05-17
+- [x] Phase 14: Gate Recalibration (2/2 plans) -- completed 2026-05-06
+- [x] Phase 15: EV Filter Enhancement (2/2 plans) -- completed 2026-05-06
+- [x] Phase 16: Odds Band Rebuild (2/2 plans) -- completed 2026-05-06
+- [x] Phase 17: Optuna Optimization (2/2 plans) -- completed 2026-05-06
+- [x] Phase 18: Validation & Freeze (2/2 plans) -- completed 2026-05-07
 
 </details>
 
 <details>
-<summary>✅ v1.7 Market-Independent Edge Discovery (Phases 29-34) — SHIPPED 2026-05-19</summary>
+<summary>v1.5 Model Accuracy Improvement (Phases 19-22) -- SHIPPED 2026-05-10</summary>
 
-- [x] Phase 29: ETL Expansion (3/3 plans) — completed 2026-05-17
-- [x] Phase 30: Residual IC Evaluation Framework (2/2 plans) — completed 2026-05-18
-- [x] Phase 31: Race-Level Aggregation Features (2/2 plans) — completed 2026-05-18
-- [x] Phase 32: Market Cross-Consistency Features (2/2 plans) — completed 2026-05-18
-- [x] Phase 33: Gain per Depth Diagnostic (2/2 plans) — completed 2026-05-18
-- [x] Phase 34: Validation and Manifest Update (4/4 plans) — completed 2026-05-19
+- [x] Phase 19: EV推定キャリブレーション (2/2 plans) -- completed 2026-05-07
+- [x] Phase 19.1: バックテスト高速化 (5/5 plans) -- completed 2026-05-08
+- [x] Phase 20: 高オッズ的中パターン特徴量 (3/3 plans) -- completed 2026-05-09
+- [x] Phase 21: Conformal EV予測区間 (2/2 plans) -- completed 2026-05-09
+- [x] Phase 22: 統合検証とバックテスト (1/1 plan) -- completed 2026-05-10
 
 </details>
 
-### 🚧 v1.8 Turf Precision Calibration (In Progress)
+<details>
+<summary>v1.6 Feature Engineering Overhaul (Phases 23-28) -- SHIPPED 2026-05-17</summary>
 
-**Milestone Goal:** 芝IC b_difference負→正転換、ROI 97.8%→100%超え
+- [x] Phase 23: Safety Gate (2/2 plans) -- completed 2026-05-11
+- [x] Phase 24: Feature Audit & Pruning (2/2 plans) -- completed 2026-05-12
+- [x] Phase 25: Quick Win Wire Existing (2/2 plans) -- completed 2026-05-12
+- [x] Phase 26: EveryDB2 New Features (3/3 plans) -- completed 2026-05-14
+- [x] Phase 27: Feature Interactions (3/3 plans) -- completed 2026-05-15
+- [x] Phase 28: Validation & Freeze (2/2 plans) -- completed 2026-05-17
 
-- [ ] **Phase 35: ETL Data Foundation** - HaronTime/LapTime/Jyuni float64化 + POST_RACE_COLS登録
-- [ ] **Phase 36: Feature Computation** - 芝相対特徴量 + 条件交互作用 + Haron/Lap特徴量のPIT-safe計算
-- [ ] **Phase 37: EV Calibration Layers** - 人気帯キャリブレーション + レジームxサーフェスEV補正
-- [ ] **Phase 38: Integrated Validation** - CI漏洩テスト + IC確認 + BT ROI 100%検証 + Manifest凍結
+</details>
+
+<details>
+<summary>v1.7 Market-Independent Edge Discovery (Phases 29-34) -- SHIPPED 2026-05-19</summary>
+
+- [x] Phase 29: ETL Expansion (3/3 plans) -- completed 2026-05-17
+- [x] Phase 30: Residual IC Evaluation Framework (2/2 plans) -- completed 2026-05-18
+- [x] Phase 31: Race-Level Aggregation Features (2/2 plans) -- completed 2026-05-18
+- [x] Phase 32: Market Cross-Consistency Features (2/2 plans) -- completed 2026-05-18
+- [x] Phase 33: Gain per Depth Diagnostic (2/2 plans) -- completed 2026-05-18
+- [x] Phase 34: Validation and Manifest Update (4/4 plans) -- completed 2026-05-19
+
+</details>
+
+### v1.8 Turf Precision Calibration (In Progress)
+
+**Milestone Goal:** IC b_difference --> positive, ROI 97.8%-->100%+
+
+- [ ] **Phase 35: ETL Data Foundation** - HaronTime/LapTime/Jyuni float64 + POST_RACE_COLS
+- [ ] **Phase 36: Feature Computation** - Turf relative features + conditional interactions + Haron/Lap PIT-safe
+- [ ] **Phase 37: EV Calibration Layers** - Pop band calibration + regime x surface EV correction
+- [ ] **Phase 38: Integrated Validation** - CI leakage tests + IC confirmation + BT ROI 100% + Manifest freeze
 
 ## Phase Details
 
@@ -132,7 +132,10 @@ progress:
   3. entries.parquet contains Jyuni1c~4c corner position columns as numeric values
   4. All new POST_RACE columns appear in domain/types.py POST_RACE_COLS and 3-layer CI leakage tests detect any misuse
   5. HaronTimeL3/L4 mutual exclusivity is validated and coalescing logic (harontime_last3f) is documented
-**Plans**: TBD
+**Plans**: 2 plans
+Plans:
+- [ ] 35-01-PLAN.md -- sentinel_float/sentinel_int rules + _TABLE_TYPE_RULES update + readers.py
+- [ ] 35-02-PLAN.md -- POST_RACE_COLS consolidation + HaronTime mutual exclusivity analysis
 
 ### Phase 36: Feature Computation
 **Goal**: All new turf-focused features (relative ranks, conditional interactions, haron/lap history) are computed PIT-safe and registered across all 12 models
@@ -173,7 +176,7 @@ progress:
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 35 → 36 → 37 → 38
+Phases execute in numeric order: 35 -> 36 -> 37 -> 38
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
@@ -212,7 +215,7 @@ Phases execute in numeric order: 35 → 36 → 37 → 38
 | 32. Market Cross-Consistency Features | v1.7 | 2/2 | Complete | 2026-05-18 |
 | 33. Gain per Depth Diagnostic | v1.7 | 2/2 | Complete | 2026-05-18 |
 | 34. Validation and Manifest Update | v1.7 | 4/4 | Complete | 2026-05-19 |
-| 35. ETL Data Foundation | v1.8 | 0/? | Not started | - |
+| 35. ETL Data Foundation | v1.8 | 0/2 | Not started | - |
 | 36. Feature Computation | v1.8 | 0/? | Not started | - |
 | 37. EV Calibration Layers | v1.8 | 0/? | Not started | - |
 | 38. Integrated Validation | v1.8 | 0/? | Not started | - |
