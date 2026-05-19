@@ -120,10 +120,15 @@ class ModelLoader:
                 )
                 place_ev_corr = PlaceEVCorrectionModel()
 
-            # PlaceTwoStageModel
-            place = PlaceTwoStageModel()
-            place.hit_model = self._load_lgbm(f"{artifact_uri}/place_hit_{surface}")
-            place.return_model = self._load_lgbm(f"{artifact_uri}/place_ret_{surface}")
+            # PlaceTwoStageModel (optional — may not exist when betting_target=win)
+            place = None
+            try:
+                place = PlaceTwoStageModel()
+                place.hit_model = self._load_lgbm(f"{artifact_uri}/place_hit_{surface}")
+                place.return_model = self._load_lgbm(f"{artifact_uri}/place_ret_{surface}")
+            except Exception:
+                logger.info("Place model files not found for %s, skipping", surface)
+                place = None
 
             place_selection_gate = None
             try:
@@ -585,20 +590,31 @@ class ModelLoader:
             else:
                 place_ev_corr = PlaceEVCorrectionModel()
 
-            # PlaceTwoStageModel
-            place = PlaceTwoStageModel()
-            place.hit_model = self._load_hit_model(
-                models_dir, f"place_hit_{surface}", use_ensemble=use_ensemble
-            )
-            place.return_model = self._load_lgbm(str(models_dir / f"place_ret_{surface}.lgb"))
+            # PlaceTwoStageModel (optional — may not exist when betting_target=win)
+            place = None
+            place_hit_file = models_dir / f"place_hit_{surface}.lgb"
+            place_hit_joblib = models_dir / f"place_hit_{surface}.joblib"
+            place_ret_file = models_dir / f"place_ret_{surface}.lgb"
+            if place_hit_file.is_file() or place_hit_joblib.is_file():
+                place = PlaceTwoStageModel()
+                place.hit_model = self._load_hit_model(
+                    models_dir, f"place_hit_{surface}", use_ensemble=use_ensemble
+                )
+                place.return_model = self._load_lgbm(str(place_ret_file))
+            else:
+                logger.info(
+                    "Place model files not found for %s, skipping (betting_target=win?)",
+                    surface,
+                )
 
             # Place calibrator (IsotonicRegression)
-            calibrator_file = models_dir / f"place_calibrator_{surface}.joblib"
-            if calibrator_file.is_file():
-                try:
-                    place._place_calibrator = joblib.load(calibrator_file)
-                except Exception:
-                    logger.warning("Failed to load %s, skipping", calibrator_file)
+            if place is not None:
+                calibrator_file = models_dir / f"place_calibrator_{surface}.joblib"
+                if calibrator_file.is_file():
+                    try:
+                        place._place_calibrator = joblib.load(calibrator_file)
+                    except Exception:
+                        logger.warning("Failed to load %s, skipping", calibrator_file)
 
             place_selection_gate = None
             gate_file = models_dir / f"place_selection_gate_{surface}.joblib"
