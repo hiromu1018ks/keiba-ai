@@ -110,15 +110,16 @@ class TestHaronTimeL4Stats:
         """HLF-01: compute() returns harontimel4_avg with correct EMA-weighted values."""
         ketto = "12345"
         # Horse has 3 past races with harontimel4 values
+        # Note: syussotosu comes from races_hist, not entries_hist
         past_entries = [
             _make_entry_row("202306010101", 1, ketto, race_date=pd.Timestamp("2023-06-01"),
-                           kakuteijyuni=3, odds=10.0, syussotosu=16,
+                           kakuteijyuni=3, odds=10.0,
                            harontimel3=35.0, harontimel4=47.0),
             _make_entry_row("202307010101", 1, ketto, race_date=pd.Timestamp("2023-07-01"),
-                           kakuteijyuni=2, odds=8.0, syussotosu=16,
+                           kakuteijyuni=2, odds=8.0,
                            harontimel3=34.5, harontimel4=46.5),
             _make_entry_row("202308010101", 1, ketto, race_date=pd.Timestamp("2023-08-01"),
-                           kakuteijyuni=1, odds=5.0, syussotosu=16,
+                           kakuteijyuni=1, odds=5.0,
                            harontimel3=34.0, harontimel4=46.0),
         ]
         past_races = [
@@ -152,7 +153,7 @@ class TestHaronTimeL4Stats:
         # Only 1 past race - not enough for expanding_stats
         past_entries = [
             _make_entry_row("202312010101", 1, ketto, race_date=pd.Timestamp("2023-12-01"),
-                           kakuteijyuni=1, odds=5.0, syussotosu=16,
+                           kakuteijyuni=1, odds=5.0,
                            harontimel3=35.0, harontimel4=47.0),
         ]
         past_races = [
@@ -177,13 +178,13 @@ class TestHaronTimeL4Stats:
         # 3 past races with decreasing L4 times (improving)
         past_entries = [
             _make_entry_row("202310010101", 1, ketto, race_date=pd.Timestamp("2023-10-01"),
-                           kakuteijyuni=3, odds=10.0, syussotosu=16,
+                           kakuteijyuni=3, odds=10.0,
                            harontimel3=35.5, harontimel4=48.0),
             _make_entry_row("202311010101", 1, ketto, race_date=pd.Timestamp("2023-11-01"),
-                           kakuteijyuni=2, odds=8.0, syussotosu=16,
+                           kakuteijyuni=2, odds=8.0,
                            harontimel3=34.5, harontimel4=46.0),
             _make_entry_row("202312010101", 1, ketto, race_date=pd.Timestamp("2023-12-01"),
-                           kakuteijyuni=1, odds=5.0, syussotosu=16,
+                           kakuteijyuni=1, odds=5.0,
                            harontimel3=34.0, harontimel4=45.0),
         ]
         past_races = [
@@ -210,7 +211,7 @@ class TestHaronTimeL4Stats:
         ketto = "12345"
         past_entries = [
             _make_entry_row("202312010101", 1, ketto, race_date=pd.Timestamp("2023-12-01"),
-                           kakuteijyuni=1, odds=5.0, syussotosu=16,
+                           kakuteijyuni=1, odds=5.0,
                            harontimel3=35.0),
             # Note: NO harontimel4 column
         ]
@@ -243,10 +244,10 @@ class TestHaronTimeLast3fUnified:
         ketto = "12345"
         past_entries = [
             _make_entry_row("202310010101", 1, ketto, race_date=pd.Timestamp("2023-10-01"),
-                           kakuteijyuni=1, odds=5.0, syussotosu=16,
+                           kakuteijyuni=1, odds=5.0,
                            harontimel3=35.0, harontimel4=47.0),
             _make_entry_row("202311010101", 1, ketto, race_date=pd.Timestamp("2023-11-01"),
-                           kakuteijyuni=2, odds=8.0, syussotosu=16,
+                           kakuteijyuni=2, odds=8.0,
                            harontimel3=34.0, harontimel4=46.0),
         ]
         past_races = [
@@ -274,10 +275,10 @@ class TestHaronTimeLast3fUnified:
         ketto = "12345"
         past_entries = [
             _make_entry_row("202310010101", 1, ketto, race_date=pd.Timestamp("2023-10-01"),
-                           kakuteijyuni=1, odds=5.0, syussotosu=16,
+                           kakuteijyuni=1, odds=5.0,
                            harontimel3=35.0, harontimel4=47.0),
             _make_entry_row("202311010101", 1, ketto, race_date=pd.Timestamp("2023-11-01"),
-                           kakuteijyuni=2, odds=8.0, syussotosu=16,
+                           kakuteijyuni=2, odds=8.0,
                            harontimel3=34.0, harontimel4=46.0),
         ]
         past_races = [
@@ -304,10 +305,10 @@ class TestHaronTimeLast3fUnified:
         ketto = "12345"
         past_entries = [
             _make_entry_row("202310010101", 1, ketto, race_date=pd.Timestamp("2023-10-01"),
-                           kakuteijyuni=1, odds=5.0, syussotosu=16,
+                           kakuteijyuni=1, odds=5.0,
                            harontimel3=35.0, harontimel4=float("nan")),
             _make_entry_row("202311010101", 1, ketto, race_date=pd.Timestamp("2023-11-01"),
-                           kakuteijyuni=2, odds=8.0, syussotosu=16,
+                           kakuteijyuni=2, odds=8.0,
                            harontimel3=34.0, harontimel4=float("nan")),
         ]
         past_races = [
@@ -400,7 +401,7 @@ class TestLapTimePaceFeatures:
         ketto = "12345"
         past_entries = [
             _make_entry_row("202310010101", 1, ketto, race_date=pd.Timestamp("2023-10-01"),
-                           kakuteijyuni=1, odds=5.0, syussotosu=16,
+                           kakuteijyuni=1, odds=5.0,
                            harontimel3=35.0),
         ]
         past_races = [
@@ -433,10 +434,10 @@ class TestLapTimePaceFeatures:
 
         past_entries = [
             _make_entry_row("202310010101", 1, ketto, race_date=pd.Timestamp("2023-10-01"),
-                           kakuteijyuni=1, odds=5.0, syussotosu=16,
+                           kakuteijyuni=1, odds=5.0,
                            harontimel3=35.0, harontimel4=47.0),
             _make_entry_row("202311010101", 1, ketto, race_date=pd.Timestamp("2023-11-01"),
-                           kakuteijyuni=2, odds=8.0, syussotosu=16,
+                           kakuteijyuni=2, odds=8.0,
                            harontimel3=34.0, harontimel4=46.0),
         ]
         past_races = [
@@ -472,7 +473,7 @@ class TestLapTimePaceFeatures:
 
         past_entries = [
             _make_entry_row("202310010101", 1, ketto, race_date=pd.Timestamp("2023-10-01"),
-                           kakuteijyuni=1, odds=5.0, syussotosu=16,
+                           kakuteijyuni=1, odds=5.0,
                            harontimel3=35.0, harontimel4=47.0),
         ]
         past_races = [
