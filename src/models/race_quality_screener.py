@@ -106,9 +106,6 @@ class RaceQualityScreener:
         # HLF-02: HaronTime race-rank
         "harontimel4_avg_race_rank",
         "harontime_last3f_avg_race_rank",
-        "grade_x_form_trend",
-        "distance_x_closing_index",
-        "grade_x_blood_prize_log",
     ]
 
     _CATEGORY_COLS: list[str] = ["surface", "distance_bin", "grade_code"]

@@ -911,7 +911,7 @@ class HorseHistoryFeatures:
                     halflife = 3
                     decay = np.log(2) / halflife  # ≈ 0.231
                     n_ht = len(ht_valid)
-                    # w[i] = (1-decay)^i where i=0 is oldest, i=n-1 is newest
+                    # Geometric decay: w[i] = (1 - ln(2)/halflife)^i, i=0 oldest
                     weights = (1 - decay) ** np.arange(n_ht)
                     # Reverse so index 0 = newest (highest weight)
                     weights = weights[::-1]
@@ -1089,6 +1089,7 @@ class HorseHistoryFeatures:
             harontime_last3f_avg: float = float("nan")
             harontime_last3f_zscore: float = float("nan")
             harontime_last3f_trend: float = float("nan")
+            unified_raw: np.ndarray | None = None
 
             current_kyori = float(getattr(row, "kyori", 0))
 
@@ -1136,9 +1137,7 @@ class HorseHistoryFeatures:
             # Unified zscore: use L3 expanding_stats as proxy (D-02: L3 has more coverage)
             if n_past > 0 and _has_distance_bin and expanding_stats:
                 # Re-use unified_raw from above if available
-                if "unified_raw" not in dir() or unified_raw is None or np.all(
-                    np.isnan(unified_raw)
-                ):
+                if unified_raw is None or np.all(np.isnan(unified_raw)):
                     pass  # no unified data
                 else:
                     db_raw_u = horse_arrs["distance_bin"][valid_mask][start:idx]
