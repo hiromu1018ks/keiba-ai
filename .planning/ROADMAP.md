@@ -182,7 +182,7 @@ Plans:
   3. RaceQualityScreenerが馬単位Phase36列ではなくrace aggregate特徴量(phase36_top1_strength, phase36_top1_top2_gap, form_signal_dispersion等)を使用する
   4. EV>=1.5高EV長穴をfeature family合意度で分類し、Phase36単独跳ねは縮小、複数合意はaggressiveに扱う
   5. v1.7 vs 現行 共通632レースの同馬/別馬差分レポートでPhase36寄与分解が可能
-  6. BT 2024再学習で ROI >= 97.8% (v1.7水準) に回復、ベット数 >= 1500
+  6. BT 2024再学習で ROI >= 97.8% (v1.7水準) に回復、ベット数 >= 1500 **[Phase 38で検証]** -- Phase 36.1.1はコード修正を完了し、Phase 38 (Integrated Validation) でBT再実行によるROI検証を実施
 **Plans:** 4 plans
 
 Plans:
