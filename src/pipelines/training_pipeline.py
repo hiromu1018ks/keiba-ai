@@ -617,9 +617,13 @@ class TrainingPipelineV5:
 
             with TimingContext(f"{surface}/win_hit_ensemble"):
                 features = win_2s._prepare_features(df_oof)
+                # Per-surface: drop constant columns that carry no information
+                _const_cols = ["surface"] + [c for c in features.columns if c.startswith("surface_x_")]
+                features = features.drop(columns=[c for c in _const_cols if c in features.columns])
                 y = (df_oof["kakuteijyuni"] == 1).astype(int)
                 split = int(len(features) * 0.8)
-                ensemble = StackedEnsemble(cat_cols=["surface", "distance_bin", "grade_code"])
+                _cat_cols = [c for c in ["distance_bin", "grade_code"] if c in features.columns]
+                ensemble = StackedEnsemble(cat_cols=_cat_cols)
                 ensemble.train(
                     features.iloc[:split],
                     y.iloc[:split],
@@ -705,9 +709,13 @@ class TrainingPipelineV5:
 
                 with TimingContext(f"{surface}/place_hit_ensemble"):
                     features = place_2s._prepare_features(df_oof, use_cols=place_2s.HIT_FEATURE_COLS)
+                    # Per-surface: drop constant columns that carry no information
+                    _const_cols = ["surface"] + [c for c in features.columns if c.startswith("surface_x_")]
+                    features = features.drop(columns=[c for c in _const_cols if c in features.columns])
                     y = (df_oof["kakuteijyuni"] <= 3).astype(int)
                     split = int(len(features) * 0.8)
-                    ensemble_place = StackedEnsemble(cat_cols=["surface", "distance_bin", "grade_code"])
+                    _place_cat_cols = [c for c in ["distance_bin", "grade_code"] if c in features.columns]
+                    ensemble_place = StackedEnsemble(cat_cols=_place_cat_cols)
                     ensemble_place.train(
                         features.iloc[:split],
                         y.iloc[:split],
