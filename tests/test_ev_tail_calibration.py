@@ -301,6 +301,35 @@ class TestConstants:
 # Test: Integration with get_win_candidates()
 # ---------------------------------------------------------------------------
 
+class TestAllNaNValues:
+    """race_vals が全て NaN の場合、mean/std が pd.NA ではなく安全に skip されること"""
+
+    def test_all_nan_feature_columns_no_crash(self) -> None:
+        calibrator = EVTtailCalibrator()
+        n = 8
+        race_df = pd.DataFrame({
+            "race_id": ["R001"] * n,
+            "umaban": list(range(1, n + 1)),
+        })
+        # 全列を NaN にする
+        for family_cols in FAMILY_FEATURES.values():
+            for col in family_cols:
+                race_df[col] = [np.nan] * n
+        row_data: dict[str, float] = {"race_id": "R001", "umaban": 999}
+        for family_cols in FAMILY_FEATURES.values():
+            for col in family_cols:
+                row_data[col] = 1.0
+        horse_row = pd.Series(row_data)
+        ev = 2.0
+        result = calibrator.calibrate(horse_row, race_df, ev)
+        # dropna後 empty → 0 families → NO_FAMILY_FACTOR
+        assert result == pytest.approx(ev * NO_FAMILY_FACTOR, abs=1e-6)
+
+
+# ---------------------------------------------------------------------------
+# Test: Integration with get_win_candidates()
+# ---------------------------------------------------------------------------
+
 class TestGetWinCandidatesIntegration:
     """get_win_candidates() で高EV候補にキャリブレーションが適用されるか検証"""
 

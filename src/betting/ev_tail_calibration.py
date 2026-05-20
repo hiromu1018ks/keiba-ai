@@ -88,7 +88,9 @@ class EVTtailCalibrator:
                 if pd.isna(horse_val):
                     continue
 
-                race_vals = pd.to_numeric(race_df[col], errors="coerce")
+                race_vals = pd.to_numeric(race_df[col], errors="coerce").dropna()
+                if len(race_vals) < 2:
+                    continue
                 race_mean = float(race_vals.mean())
                 race_std = float(race_vals.std())
 
