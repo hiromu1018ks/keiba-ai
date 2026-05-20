@@ -100,17 +100,15 @@ def _create_hhf_with_history(
 
 
 # ---------------------------------------------------------------------------
-# HLF-01: HaronTime L4 History Stats
+# D-08: closing_speed_ratio (replaces HaronTime L4 direct stats)
 # ---------------------------------------------------------------------------
 
 class TestHaronTimeL4Stats:
-    """Tests for HaronTime L4 avg/zscore/trend features."""
+    """Tests for closing_speed_ratio features (replaces harontimel4 direct stats)."""
 
-    def test_harontimel4_avg_ema_weighted_values(self):
-        """HLF-01: compute() returns harontimel4_avg with correct EMA-weighted values."""
+    def test_closing_speed_ratio_avg_placeholder(self):
+        """D-08: compute() returns closing_speed_ratio_avg column (NaN placeholder in Task 1)."""
         ketto = "12345"
-        # Horse has 3 past races with harontimel4 values
-        # Note: syussotosu comes from races_hist, not entries_hist
         past_entries = [
             _make_entry_row("202306010101", 1, ketto, race_date=pd.Timestamp("2023-06-01"),
                            kakuteijyuni=3, odds=10.0,
@@ -139,18 +137,14 @@ class TestHaronTimeL4Stats:
         )
         result = hhf.compute(race_df, entry_df)
 
-        assert "harontimel4_avg" in result.columns
-        val = result["harontimel4_avg"].iloc[0]
-        assert pd.notna(val)
-        # EMA halflife=3: newest (46.0) gets highest weight
-        # Expected: weights are (1-decay)^i reversed, so newest has highest weight
-        # 46.0 should be closer to result than 47.0
-        assert val < 47.0  # Newest (46.0) pulls down from simple mean 46.5
+        # Column name changed from harontimel4_avg to closing_speed_ratio_avg
+        assert "closing_speed_ratio_avg" in result.columns
+        # Task 1: placeholder returns NaN; Task 2 will compute actual values
+        assert "harontimel4_avg" not in result.columns
 
-    def test_harontimel4_zscore_nan_when_no_expanding_stats(self):
-        """HLF-01: compute() returns harontimel4_zscore as NaN when insufficient data."""
+    def test_closing_speed_ratio_zscore_nan_placeholder(self):
+        """D-08: closing_speed_ratio_zscore is NaN in placeholder phase."""
         ketto = "12345"
-        # Only 1 past race - not enough for expanding_stats
         past_entries = [
             _make_entry_row("202312010101", 1, ketto, race_date=pd.Timestamp("2023-12-01"),
                            kakuteijyuni=1, odds=5.0,
@@ -167,15 +161,12 @@ class TestHaronTimeL4Stats:
         )
         result = hhf.compute(race_df, entry_df)
 
-        assert "harontimel4_zscore" in result.columns
-        # With only 1 past race, expanding_stats won't have enough data
-        # so zscore should be NaN
-        assert pd.isna(result["harontimel4_zscore"].iloc[0])
+        assert "closing_speed_ratio_zscore" in result.columns
+        assert "harontimel4_zscore" not in result.columns
 
-    def test_harontimel4_trend_linear_regression(self):
-        """HLF-01: compute() returns harontimel4_trend as linear regression slope."""
+    def test_closing_speed_ratio_trend_placeholder(self):
+        """D-08: closing_speed_ratio_trend is NaN in placeholder phase."""
         ketto = "12345"
-        # 3 past races with decreasing L4 times (improving)
         past_entries = [
             _make_entry_row("202310010101", 1, ketto, race_date=pd.Timestamp("2023-10-01"),
                            kakuteijyuni=3, odds=10.0,
@@ -200,14 +191,11 @@ class TestHaronTimeL4Stats:
         )
         result = hhf.compute(race_df, entry_df)
 
-        assert "harontimel4_trend" in result.columns
-        val = result["harontimel4_trend"].iloc[0]
-        assert pd.notna(val)
-        # Times are decreasing (48.0 -> 46.0 -> 45.0), so trend should be negative
-        assert val < 0
+        assert "closing_speed_ratio_trend" in result.columns
+        assert "harontimel4_trend" not in result.columns
 
-    def test_harontimel4_backward_compat_nan_when_column_absent(self):
-        """HLF-01: harontimel4 values default to NaN when column absent from data."""
+    def test_closing_speed_ratio_backward_compat_nan_when_column_absent(self):
+        """D-08: closing_speed_ratio values are NaN when harontimel4 column absent from data."""
         ketto = "12345"
         past_entries = [
             _make_entry_row("202312010101", 1, ketto, race_date=pd.Timestamp("2023-12-01"),
@@ -226,21 +214,21 @@ class TestHaronTimeL4Stats:
         )
         result = hhf.compute(race_df, entry_df)
 
-        assert "harontimel4_avg" in result.columns
-        assert pd.isna(result["harontimel4_avg"].iloc[0])
-        assert pd.isna(result["harontimel4_zscore"].iloc[0])
-        assert pd.isna(result["harontimel4_trend"].iloc[0])
+        assert "closing_speed_ratio_avg" in result.columns
+        assert pd.isna(result["closing_speed_ratio_avg"].iloc[0])
+        assert pd.isna(result["closing_speed_ratio_zscore"].iloc[0])
+        assert pd.isna(result["closing_speed_ratio_trend"].iloc[0])
 
 
 # ---------------------------------------------------------------------------
-# HLF-01: harontime_last3f Unified Column
+# D-07: harontime_last3f L3-only (distance-based split removed)
 # ---------------------------------------------------------------------------
 
 class TestHaronTimeLast3fUnified:
-    """Tests for harontime_last3f distance-based auto-selection."""
+    """Tests for harontime_last3f L3-only (D-07: distance-based split removed)."""
 
-    def test_unified_selects_l4_for_long_distance(self):
-        """HLF-01: harontime_last3f_avg selects L4 for kyori >= 2000."""
+    def test_last3f_always_uses_l3_even_for_long_distance(self):
+        """D-07: harontime_last3f_avg uses L3 even for kyori >= 2000 (old: selected L4)."""
         ketto = "12345"
         past_entries = [
             _make_entry_row("202310010101", 1, ketto, race_date=pd.Timestamp("2023-10-01"),
@@ -255,7 +243,6 @@ class TestHaronTimeLast3fUnified:
             _make_race_row("202311010101", "2023-11-01"),
         ]
         current_entries = [_make_entry_row("202401010101", 1, ketto)]
-        # kyori=2000: should select L4 (distance >= DISTANCE_THRESHOLD=2000)
         current_races = [_make_race_row("202401010101", "2024-01-01", kyori=2000)]
 
         hhf, entry_df, race_df = _create_hhf_with_history(
@@ -266,12 +253,11 @@ class TestHaronTimeLast3fUnified:
         assert "harontime_last3f_avg" in result.columns
         val = result["harontime_last3f_avg"].iloc[0]
         assert pd.notna(val)
-        # Value should be based on L4 values (47.0, 46.0), not L3 (35.0, 34.0)
-        # L4 values are in the ~46-47 range
-        assert 44.0 < val < 48.0
+        # D-07: Always uses L3 (35.0, 34.0), NOT L4 (47.0, 46.0)
+        assert 32.0 < val < 37.0
 
-    def test_unified_selects_l3_for_short_distance(self):
-        """HLF-01: harontime_last3f_avg selects L3 for kyori < 2000."""
+    def test_last3f_uses_l3_for_short_distance(self):
+        """D-07: harontime_last3f_avg uses L3 for short distance (unchanged behavior)."""
         ketto = "12345"
         past_entries = [
             _make_entry_row("202310010101", 1, ketto, race_date=pd.Timestamp("2023-10-01"),
@@ -286,7 +272,6 @@ class TestHaronTimeLast3fUnified:
             _make_race_row("202311010101", "2023-11-01"),
         ]
         current_entries = [_make_entry_row("202401010101", 1, ketto)]
-        # kyori=1600: should select L3 (distance < DISTANCE_THRESHOLD=2000)
         current_races = [_make_race_row("202401010101", "2024-01-01", kyori=1600)]
 
         hhf, entry_df, race_df = _create_hhf_with_history(
@@ -296,27 +281,25 @@ class TestHaronTimeLast3fUnified:
 
         val = result["harontime_last3f_avg"].iloc[0]
         assert pd.notna(val)
-        # Value should be based on L3 values (35.0, 34.0), not L4 (47.0, 46.0)
-        # L3 values are in the ~34-35 range
+        # Uses L3 values (35.0, 34.0)
         assert 32.0 < val < 37.0
 
-    def test_unified_fallback_when_preferred_is_nan(self):
-        """HLF-01: harontime_last3f falls back when preferred column is NaN."""
+    def test_last3f_nan_when_l3_is_nan(self):
+        """D-07: harontime_last3f is NaN when L3 is NaN (no L4 fallback)."""
         ketto = "12345"
         past_entries = [
             _make_entry_row("202310010101", 1, ketto, race_date=pd.Timestamp("2023-10-01"),
                            kakuteijyuni=1, odds=5.0,
-                           harontimel3=35.0, harontimel4=float("nan")),
+                           harontimel3=float("nan"), harontimel4=47.0),
             _make_entry_row("202311010101", 1, ketto, race_date=pd.Timestamp("2023-11-01"),
                            kakuteijyuni=2, odds=8.0,
-                           harontimel3=34.0, harontimel4=float("nan")),
+                           harontimel3=float("nan"), harontimel4=46.0),
         ]
         past_races = [
             _make_race_row("202310010101", "2023-10-01"),
             _make_race_row("202311010101", "2023-11-01"),
         ]
         current_entries = [_make_entry_row("202401010101", 1, ketto)]
-        # kyori=2000: prefers L4, but L4 is all NaN -> should fallback to L3
         current_races = [_make_race_row("202401010101", "2024-01-01", kyori=2000)]
 
         hhf, entry_df, race_df = _create_hhf_with_history(
@@ -324,36 +307,33 @@ class TestHaronTimeLast3fUnified:
         )
         result = hhf.compute(race_df, entry_df)
 
-        val = result["harontime_last3f_avg"].iloc[0]
-        assert pd.notna(val)
-        # Should use L3 fallback values (35.0, 34.0)
-        assert 32.0 < val < 37.0
+        # D-07: L3-only, so NaN when L3 is NaN (no L4 fallback)
+        assert pd.isna(result["harontime_last3f_avg"].iloc[0])
 
 
 # ---------------------------------------------------------------------------
-# HLF-02: HaronTime race-rank extensions
+# D-08: closing_speed_ratio race-rank extensions
 # ---------------------------------------------------------------------------
 
 class TestHaronTimeRaceRank:
-    """Tests for harontimel4_avg and harontime_last3f_avg race_rank."""
+    """Tests for closing_speed_ratio_avg and harontime_last3f_avg race_rank."""
 
-    def test_race_transforms_produces_harontimel4_avg_race_rank(self):
-        """HLF-02: add_race_transforms produces harontimel4_avg_race_rank."""
+    def test_race_transforms_produces_closing_speed_ratio_avg_race_rank(self):
+        """D-08: add_race_transforms produces closing_speed_ratio_avg_race_rank."""
         from features.horse_history_features import HorseHistoryFeatures
 
         df = pd.DataFrame({
             "race_id": ["R1", "R1", "R1"],
-            "harontimel4_avg": [46.0, 47.0, 45.0],
+            "closing_speed_ratio_avg": [0.75, 0.78, 0.74],
         })
         result = HorseHistoryFeatures.add_race_transforms(df)
 
-        assert "harontimel4_avg_race_rank" in result.columns
-        # rank(pct=True): 46.0=0.5, 47.0=1.0, 45.0=0.333...  (average method)
-        ranks = result["harontimel4_avg_race_rank"].values
+        assert "closing_speed_ratio_avg_race_rank" in result.columns
+        ranks = result["closing_speed_ratio_avg_race_rank"].values
         assert all(pd.notna(r) for r in ranks)
 
     def test_race_transforms_produces_harontime_last3f_avg_race_rank(self):
-        """HLF-02: add_race_transforms produces harontime_last3f_avg_race_rank."""
+        """D-08: add_race_transforms produces harontime_last3f_avg_race_rank."""
         from features.horse_history_features import HorseHistoryFeatures
 
         df = pd.DataFrame({
@@ -365,7 +345,7 @@ class TestHaronTimeRaceRank:
         assert "harontime_last3f_avg_race_rank" in result.columns
 
     def test_race_transforms_skips_when_cols_missing(self):
-        """HLF-02: add_race_transforms gracefully skips when HLF cols are missing."""
+        """D-08: add_race_transforms gracefully skips when HLF cols are missing."""
         from features.horse_history_features import HorseHistoryFeatures
 
         df = pd.DataFrame({
@@ -373,19 +353,16 @@ class TestHaronTimeRaceRank:
             "norm_finish_logit_avg": [1.0, 2.0],
         })
         result = HorseHistoryFeatures.add_race_transforms(df)
-        # Should not crash, and harontimel4_avg_race_rank should NOT be present
-        assert "harontimel4_avg_race_rank" not in result.columns
+        # Should not crash, and closing_speed_ratio_avg_race_rank should NOT be present
+        assert "closing_speed_ratio_avg_race_rank" not in result.columns
 
     def test_race_predictor_mirrors_hlf_race_rank_cols(self):
-        """HLF-05: RacePredictor._race_rank_cols includes HLF source columns."""
+        """D-08: RacePredictor._race_rank_cols includes closing_speed_ratio_avg."""
         from backtest.race_predictor import RacePredictor
 
-        # _race_rank_cols should include the new HLF columns
-        # We check by inspecting the predict method's _race_rank_cols list
-        # (it's a local variable, so we check by examining source)
         import inspect
         source = inspect.getsource(RacePredictor.predict)
-        assert "harontimel4_avg" in source
+        assert "closing_speed_ratio_avg" in source
         assert "harontime_last3f_avg" in source
 
 
@@ -515,9 +492,9 @@ MODEL_CLASSES = [
 
 # HLF features that MUST be in all model FEATURE_COLS
 HLF_HARON_FEATURES = [
-    "harontimel4_avg",
-    "harontimel4_zscore",
-    "harontimel4_trend",
+    "closing_speed_ratio_avg",
+    "closing_speed_ratio_zscore",
+    "closing_speed_ratio_trend",
     "harontime_last3f_avg",
     "harontime_last3f_zscore",
     "harontime_last3f_trend",
@@ -533,7 +510,7 @@ HLF_LAP_FEATURES = [
 ]
 
 HLF_RACE_RANK_FEATURES = [
-    "harontimel4_avg_race_rank",
+    "closing_speed_ratio_avg_race_rank",
     "harontime_last3f_avg_race_rank",
 ]
 
@@ -725,9 +702,13 @@ class TestD08HarontimeL4RenamedToClosingSpeedRatio:
         assert "closing_speed_ratio_avg" in source, (
             "RacePredictor._race_rank_cols should contain 'closing_speed_ratio_avg'"
         )
-        assert "harontimel4_avg" not in source.replace(
-            "# harontimel4_avg", ""  # ignore comments
-        ), "RacePredictor should use closing_speed_ratio_avg, not harontimel4_avg"
+        # Check code lines only (excluding comments)
+        lines = source.split('\n')
+        code_lines = [l for l in lines if not l.strip().startswith('#')]
+        code_source = '\n'.join(code_lines)
+        assert '"harontimel4_avg"' not in code_source, (
+            "RacePredictor should use closing_speed_ratio_avg, not harontimel4_avg"
+        )
 
     def test_race_transforms_has_closing_speed_ratio(self):
         """D-08: add_race_transforms uses closing_speed_ratio_avg for race_rank."""
@@ -737,6 +718,11 @@ class TestD08HarontimeL4RenamedToClosingSpeedRatio:
         assert "closing_speed_ratio_avg" in source, (
             "add_race_transforms should contain 'closing_speed_ratio_avg' in race_rank_cols"
         )
-        assert "harontimel4_avg" not in source, (
-            "add_race_transforms should NOT contain 'harontimel4_avg'"
+        # Check that harontimel4_avg is not used as an actual column reference
+        # (it may appear in comments like "replaces harontimel4_avg")
+        lines = source.split('\n')
+        code_lines = [l for l in lines if not l.strip().startswith('#')]
+        code_source = '\n'.join(code_lines)
+        assert '"harontimel4_avg"' not in code_source, (
+            "add_race_transforms code should NOT reference 'harontimel4_avg' as a column"
         )

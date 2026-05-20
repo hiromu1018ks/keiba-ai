@@ -128,7 +128,19 @@ class TestPlaceAbilityModel:
                            "rl_favorite_in_wide_top1", "rl_trio_overlap", "rl_market_consistency",
                            "rl_trio_odds_ratio", "rl_wide_harville_ratio",
                            # FLB slope features (pipeline-only)
-                           "implied_prob_hhi", "odds_skewness"}
+                           "implied_prob_hhi", "odds_skewness",
+                           # Phase 36 TRF/HLF/interaction features (pipeline-only, not in test fixtures)
+                           "form_trend_race_rank", "blood_total_wr_race_rank",
+                           "blood_surface_wr_race_rank",
+                           "grade_x_form_trend", "grade_x_blood_prize_log",
+                           "distance_x_closing_index",
+                           "closing_speed_ratio_avg", "closing_speed_ratio_zscore",
+                           "closing_speed_ratio_trend", "closing_speed_ratio_avg_race_rank",
+                           "harontime_last3f_avg", "harontime_last3f_zscore",
+                           "harontime_last3f_trend", "harontime_last3f_avg_race_rank",
+                           "pace_ratio_avg", "pace_ratio_zscore", "pace_ratio_trend",
+                           "pace_early_avg", "pace_mid_avg", "pace_late_avg",
+                           "weighted_recent_form_finish", "weighted_recent_form_time"}
         for col in model.FEATURE_COLS:
             if col in v5_context_cols:
                 continue

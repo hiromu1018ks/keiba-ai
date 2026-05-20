@@ -55,9 +55,6 @@ _CLASS_LEVEL_MAP: dict[str, float] = {
     "E": 4.0,
 }
 
-# HLF-01: Distance threshold for harontime_last3f unified column (D-01)
-DISTANCE_THRESHOLD: int = 2000  # >= 2000m: prefer L4, < 2000m: prefer L3
-
 
 def _coerce_float(value: object) -> float:
     numeric = pd.to_numeric(pd.Series([value]), errors="coerce").iloc[0]
@@ -342,10 +339,10 @@ class HorseHistoryFeatures:
         # TRF-02: weighted_recent_form (EMA halflife=3, D-07/D-08)
         "weighted_recent_form_finish",
         "weighted_recent_form_time",
-        # HLF-01: HaronTime L4 history stats (avg/zscore/trend)
-        "harontimel4_avg",
-        "harontimel4_zscore",
-        "harontimel4_trend",
+        # HLF-01 → D-08: HaronTime L4 replaced by closing_speed_ratio (L3/L4 ratio)
+        "closing_speed_ratio_avg",
+        "closing_speed_ratio_zscore",
+        "closing_speed_ratio_trend",
         # HLF-01: harontime_last3f unified column (distance-based auto-selection)
         "harontime_last3f_avg",
         "harontime_last3f_zscore",
@@ -460,6 +457,7 @@ class HorseHistoryFeatures:
             "track_condition_code",
             "gradecd",
             "jyokencd1",
+            "harontimel4",  # D-09: race-level L4 from races_hist (not entries)
         ]
         races_subset = races_hist[races_hist["race_id"].isin(entries_filtered["race_id"].unique())]
         race_cols = [c for c in race_cols_all if c in races_subset.columns]
@@ -668,64 +666,12 @@ class HorseHistoryFeatures:
                     expanding_stats[("all",)] = arr
 
         # -------------------------------------------------------------------
-        # Pre-compute EXPANDING stats for harontimel4 z-score (HLF-01)
-        # Same FALLBACK_LEVELS structure, separate dict to avoid key collision
+        # D-08: Pre-compute EXPANDING stats for closing_speed_ratio z-score
+        # closing_speed_ratio = L3 / L4 (both must be valid).
+        # Same FALLBACK_LEVELS structure, separate dict to avoid key collision.
+        # Will be populated in Task 2 with actual CSR values.
         # -------------------------------------------------------------------
-        expanding_stats_hl4: dict[tuple, np.ndarray] = {}
-        if _has_harontimel4 and _has_distance_bin:
-            valid_past_hl4 = past_df_sorted[
-                past_df_sorted["harontimel4"].notna() & past_df_sorted["distance_bin"].notna()
-            ].copy()
-            if len(valid_past_hl4) > 0:
-                if _has_surface:
-                    valid_past_hl4["_surf"] = valid_past_hl4["surface"].fillna("")
-                else:
-                    valid_past_hl4["_surf"] = ""
-                if _has_baba_cd:
-                    valid_past_hl4["_baba"] = valid_past_hl4["baba_cd"].fillna("")
-                else:
-                    valid_past_hl4["_baba"] = ""
-                valid_past_hl4["_db"] = valid_past_hl4["distance_bin"]
-                valid_past_hl4["_ht4"] = valid_past_hl4["harontimel4"].astype(float)
-                valid_past_hl4["_rd"] = valid_past_hl4["race_date"]
-
-                valid_past_hl4 = valid_past_hl4.sort_values("_rd").reset_index(drop=True)
-
-                for cols, min_n in FALLBACK_LEVELS:
-                    if cols:
-                        col_map = {"distance_bin": "_db", "surface": "_surf", "baba_cd": "_baba"}
-                        group_cols = [col_map[c] for c in cols]
-                        grouped = valid_past_hl4.groupby(group_cols, observed=True)
-                        for key, grp_df in grouped:
-                            if not isinstance(key, tuple):
-                                key = (key,)
-                            if len(grp_df) < min_n:
-                                continue
-                            ht4_vals = grp_df["_ht4"].values
-                            dates_vals = grp_df["_rd"].values
-                            cum_count = np.arange(1, len(ht4_vals) + 1)
-                            cum_mean = np.cumsum(ht4_vals) / cum_count
-                            cum_x2 = np.cumsum(ht4_vals**2) / cum_count
-                            cum_var = cum_x2 - cum_mean**2
-                            cum_var[1:] = cum_var[1:] * cum_count[1:] / (cum_count[1:] - 1)
-                            cum_var[0] = 0.0
-                            cum_std = np.sqrt(np.maximum(cum_var, 0.0))
-                            arr = np.column_stack([dates_vals.astype(float), cum_mean, cum_std])
-                            expanding_stats_hl4[key] = arr
-
-                # Global fallback (L4 level)
-                ht4_all_vals = valid_past_hl4["_ht4"].values
-                dates_all_vals = valid_past_hl4["_rd"].values
-                if len(ht4_all_vals) > 0:
-                    cum_count = np.arange(1, len(ht4_all_vals) + 1)
-                    cum_mean = np.cumsum(ht4_all_vals) / cum_count
-                    cum_x2 = np.cumsum(ht4_all_vals**2) / cum_count
-                    cum_var = cum_x2 - cum_mean**2
-                    cum_var[1:] = cum_var[1:] * cum_count[1:] / (cum_count[1:] - 1)
-                    cum_var[0] = 0.0
-                    cum_std = np.sqrt(np.maximum(cum_var, 0.0))
-                    arr = np.column_stack([dates_all_vals.astype(float), cum_mean, cum_std])
-                    expanding_stats_hl4[("all",)] = arr
+        expanding_stats_csr: dict[tuple, np.ndarray] = {}
 
         # -------------------------------------------------------------------
         # HLF-03: Pre-compute LapTime pace_ratio per past race (PIT-safe)
@@ -1012,173 +958,91 @@ class HorseHistoryFeatures:
                 harontimel5_zscore = float("nan")
 
             # -----------------------------------------------------------------
-            # HLF-01: HaronTime L4 history stats (avg/zscore/trend)
+            # D-08: closing_speed_ratio (replaces harontimel4 direct stats)
+            # closing_speed_ratio = harontimel3_horse / harontimel4_race
+            # Placeholder: actual computation in Task 2, NaN for now.
             # -----------------------------------------------------------------
-            harontimel4_avg: float = float("nan")
-            harontimel4_zscore: float = float("nan")
-            harontimel4_trend: float = float("nan")
-
-            if _has_harontimel4 and n_past > 0:
-                ht4_raw = horse_arrs["harontimel4"][valid_mask][start:idx].astype(float)
-                ht4_valid = ht4_raw[~np.isnan(ht4_raw)]
-
-                if len(ht4_valid) > 0:
-                    # L4 avg: EMA(halflife=3) — same pattern as harontimel5_avg
-                    halflife_ht4 = 3
-                    decay_ht4 = np.log(2) / halflife_ht4
-                    n_ht4 = len(ht4_valid)
-                    weights_ht4 = (1 - decay_ht4) ** np.arange(n_ht4)
-                    weights_ht4 = weights_ht4[::-1]
-                    weights_ht4 = weights_ht4 / weights_ht4.sum()
-                    harontimel4_avg = float(np.sum(ht4_valid * weights_ht4))
-
-                    # L4 trend: linear regression slope of last 3 valid values
-                    ht4_for_trend = ht4_valid[-3:] if len(ht4_valid) >= 3 else ht4_valid
-                    if len(ht4_for_trend) >= 2:
-                        x_trend = np.arange(len(ht4_for_trend), dtype=float)
-                        harontimel4_trend = float(np.polyfit(x_trend, ht4_for_trend, 1)[0])
-
-            # L4 zscore: hierarchical expanding_stats (separate dict for L4)
-            if _has_harontimel4 and _has_distance_bin and n_past > 0 and expanding_stats_hl4:
-                ht4_raw_z = horse_arrs["harontimel4"][valid_mask][start:idx].astype(float)
-                db_raw = horse_arrs["distance_bin"][valid_mask][start:idx]
-                surf_raw = horse_arrs.get("surface", np.array([], dtype=object))
-                if len(surf_raw) > 0:
-                    surf_raw = surf_raw[valid_mask][start:idx]
-                else:
-                    surf_raw = np.array([""] * len(ht4_raw_z))
-                baba_raw = horse_arrs.get("baba_cd", np.array([], dtype=object))
-                if len(baba_raw) > 0:
-                    baba_raw = baba_raw[valid_mask][start:idx]
-                else:
-                    baba_raw = np.array([""] * len(ht4_raw_z))
-
-                valid_ht4_db = ~np.isnan(ht4_raw_z) & pd.notna(db_raw)
-                if valid_ht4_db.any():
-                    ht4_v = ht4_raw_z[valid_ht4_db]
-                    db_v = db_raw[valid_ht4_db]
-                    surf_v = surf_raw[valid_ht4_db]
-                    baba_v = baba_raw[valid_ht4_db]
-                    dates_v = horse_arrs["race_date"][valid_mask][start:idx][valid_ht4_db]
-                    dates_v = dates_v.astype("datetime64[ns]")
-
-                    zscores_hl4: list[float] = []
-                    for j in range(len(ht4_v)):
-                        target_np = dates_v[j]
-                        mean4, std4 = _lookup_expanding_stats(
-                            target_np,
-                            str(db_v[j]),
-                            str(surf_v[j]),
-                            str(baba_v[j]),
-                            expanding_stats_hl4,
-                        )
-                        if std4 > 0:
-                            zscores_hl4.append(float((ht4_v[j] - mean4) / std4))
-                        else:
-                            zscores_hl4.append(float("nan"))
-                    if zscores_hl4:
-                        z_arr_hl4 = np.array(zscores_hl4)
-                        harontimel4_zscore = float(
-                            pd.Series(z_arr_hl4).tail(self._n_past).mean()
-                        )
+            closing_speed_ratio_avg: float = float("nan")
+            closing_speed_ratio_zscore: float = float("nan")
+            closing_speed_ratio_trend: float = float("nan")
 
             # -----------------------------------------------------------------
-            # HLF-01: harontime_last3f unified column (D-01, D-02)
-            # Distance-based auto-selection: >=2000m prefer L4, <2000m prefer L3
+            # D-07: harontime_last3f — L3-only (distance-based L4/L3 split removed)
+            # Always uses harontimel3 data. harontimel4 is race-level, not horse-level.
             # -----------------------------------------------------------------
             harontime_last3f_avg: float = float("nan")
             harontime_last3f_zscore: float = float("nan")
             harontime_last3f_trend: float = float("nan")
-            unified_raw: np.ndarray | None = None
-
-            current_kyori = float(getattr(row, "kyori", 0))
+            l3_only_raw: np.ndarray | None = None
 
             if n_past > 0:
-                # Build unified raw array based on distance preference
-                l3_raw = (
+                l3_only_raw = (
                     horse_arrs["harontimel3"][valid_mask][start:idx].astype(float)
                     if _has_harontimel3
                     else np.full(idx - start, np.nan)
                 )
-                l4_raw = (
-                    horse_arrs["harontimel4"][valid_mask][start:idx].astype(float)
-                    if _has_harontimel4
-                    else np.full(idx - start, np.nan)
-                )
+                l3_valid = l3_only_raw[~np.isnan(l3_only_raw)]
 
-                # Per-race: select preferred, fallback to other
-                if current_kyori >= DISTANCE_THRESHOLD:
-                    # Long distance: prefer L4, fallback L3
-                    primary, fallback = l4_raw, l3_raw
-                else:
-                    # Short/middle: prefer L3, fallback L4
-                    primary, fallback = l3_raw, l4_raw
+                if len(l3_valid) > 0:
+                    # L3 avg: EMA(halflife=3)
+                    halflife_l3 = 3
+                    decay_l3 = np.log(2) / halflife_l3
+                    n_l3 = len(l3_valid)
+                    weights_l3 = (1 - decay_l3) ** np.arange(n_l3)
+                    weights_l3 = weights_l3[::-1]
+                    weights_l3 = weights_l3 / weights_l3.sum()
+                    harontime_last3f_avg = float(np.sum(l3_valid * weights_l3))
 
-                # Build unified array: use primary where valid, else fallback
-                unified_raw = np.where(~np.isnan(primary), primary, fallback)
-                unified_valid = unified_raw[~np.isnan(unified_raw)]
+                    # L3 trend: linear regression slope of last 3
+                    l3_for_trend = l3_valid[-3:] if len(l3_valid) >= 3 else l3_valid
+                    if len(l3_for_trend) >= 2:
+                        x_l3 = np.arange(len(l3_for_trend), dtype=float)
+                        harontime_last3f_trend = float(np.polyfit(x_l3, l3_for_trend, 1)[0])
 
-                if len(unified_valid) > 0:
-                    # Unified avg: EMA(halflife=3)
-                    halflife_uni = 3
-                    decay_uni = np.log(2) / halflife_uni
-                    n_uni = len(unified_valid)
-                    weights_uni = (1 - decay_uni) ** np.arange(n_uni)
-                    weights_uni = weights_uni[::-1]
-                    weights_uni = weights_uni / weights_uni.sum()
-                    harontime_last3f_avg = float(np.sum(unified_valid * weights_uni))
-
-                    # Unified trend: linear regression slope of last 3
-                    uni_for_trend = unified_valid[-3:] if len(unified_valid) >= 3 else unified_valid
-                    if len(uni_for_trend) >= 2:
-                        x_uni = np.arange(len(uni_for_trend), dtype=float)
-                        harontime_last3f_trend = float(np.polyfit(x_uni, uni_for_trend, 1)[0])
-
-            # Unified zscore: use L3 expanding_stats as proxy (D-02: L3 has more coverage)
+            # L3-only zscore: use L3 expanding_stats
             if n_past > 0 and _has_distance_bin and expanding_stats:
-                # Re-use unified_raw from above if available
-                if unified_raw is None or np.all(np.isnan(unified_raw)):
-                    pass  # no unified data
+                if l3_only_raw is None or np.all(np.isnan(l3_only_raw)):
+                    pass  # no L3 data
                 else:
                     db_raw_u = horse_arrs["distance_bin"][valid_mask][start:idx]
                     surf_raw_u = horse_arrs.get("surface", np.array([], dtype=object))
                     if len(surf_raw_u) > 0:
                         surf_raw_u = surf_raw_u[valid_mask][start:idx]
                     else:
-                        surf_raw_u = np.array([""] * len(unified_raw))
+                        surf_raw_u = np.array([""] * len(l3_only_raw))
                     baba_raw_u = horse_arrs.get("baba_cd", np.array([], dtype=object))
                     if len(baba_raw_u) > 0:
                         baba_raw_u = baba_raw_u[valid_mask][start:idx]
                     else:
-                        baba_raw_u = np.array([""] * len(unified_raw))
+                        baba_raw_u = np.array([""] * len(l3_only_raw))
 
-                    valid_uni_db = ~np.isnan(unified_raw) & pd.notna(db_raw_u)
-                    if valid_uni_db.any():
-                        uni_v = unified_raw[valid_uni_db]
-                        db_u = db_raw_u[valid_uni_db]
-                        surf_u = surf_raw_u[valid_uni_db]
-                        baba_u = baba_raw_u[valid_uni_db]
-                        dates_u = horse_arrs["race_date"][valid_mask][start:idx][valid_uni_db]
+                    valid_l3_db = ~np.isnan(l3_only_raw) & pd.notna(db_raw_u)
+                    if valid_l3_db.any():
+                        l3_v = l3_only_raw[valid_l3_db]
+                        db_u = db_raw_u[valid_l3_db]
+                        surf_u = surf_raw_u[valid_l3_db]
+                        baba_u = baba_raw_u[valid_l3_db]
+                        dates_u = horse_arrs["race_date"][valid_mask][start:idx][valid_l3_db]
                         dates_u = dates_u.astype("datetime64[ns]")
 
-                        zscores_uni: list[float] = []
-                        for j in range(len(uni_v)):
+                        zscores_l3: list[float] = []
+                        for j in range(len(l3_v)):
                             target_np_u = dates_u[j]
                             mean_u, std_u = _lookup_expanding_stats(
                                 target_np_u,
                                 str(db_u[j]),
                                 str(surf_u[j]),
                                 str(baba_u[j]),
-                                expanding_stats,  # L3 stats as proxy
+                                expanding_stats,  # L3 stats
                             )
                             if std_u > 0:
-                                zscores_uni.append(float((uni_v[j] - mean_u) / std_u))
+                                zscores_l3.append(float((l3_v[j] - mean_u) / std_u))
                             else:
-                                zscores_uni.append(float("nan"))
-                        if zscores_uni:
-                            z_arr_uni = np.array(zscores_uni)
+                                zscores_l3.append(float("nan"))
+                        if zscores_l3:
+                            z_arr_l3 = np.array(zscores_l3)
                             harontime_last3f_zscore = float(
-                                pd.Series(z_arr_uni).tail(self._n_past).mean()
+                                pd.Series(z_arr_l3).tail(self._n_past).mean()
                             )
 
             # harontime_late_trend: 最後2走 vs 最初3走 (負=改善傾向)
@@ -1764,11 +1628,11 @@ class HorseHistoryFeatures:
                     # TRF-02: weighted_recent_form (EMA halflife=3, D-07/D-08)
                     "weighted_recent_form_finish": weighted_recent_form_finish,
                     "weighted_recent_form_time": weighted_recent_form_time,
-                    # HLF-01: HaronTime L4 history stats
-                    "harontimel4_avg": harontimel4_avg,
-                    "harontimel4_zscore": harontimel4_zscore,
-                    "harontimel4_trend": harontimel4_trend,
-                    # HLF-01: harontime_last3f unified column
+                    # D-08: closing_speed_ratio (replaces harontimel4 direct stats)
+                    "closing_speed_ratio_avg": closing_speed_ratio_avg,
+                    "closing_speed_ratio_zscore": closing_speed_ratio_zscore,
+                    "closing_speed_ratio_trend": closing_speed_ratio_trend,
+                    # D-07: harontime_last3f L3-only column
                     "harontime_last3f_avg": harontime_last3f_avg,
                     "harontime_last3f_zscore": harontime_last3f_zscore,
                     "harontime_last3f_trend": harontime_last3f_trend,
@@ -1804,8 +1668,8 @@ class HorseHistoryFeatures:
             "form_trend",
             "blood_total_wr",
             "blood_surface_wr",
-            # HLF-02: HaronTime L4 + unified race-rank
-            "harontimel4_avg",
+            # D-08: closing_speed_ratio race-rank (replaces harontimel4_avg)
+            "closing_speed_ratio_avg",
             "harontime_last3f_avg",
             # 注意: kyakusitukubun_cd, jockey系, harontime_late_trend は
             # race_rank を生成しない

@@ -280,6 +280,32 @@ class TestRemoveNoiseFeatures:
             "rl_top1_odds",
             "rl_favorite_rank_gap",
             "rl_n_horses",
+            # Phase 36 TRF/HLF race-rank features (D-13)
+            "form_trend_race_rank",
+            "blood_total_wr_race_rank",
+            "blood_surface_wr_race_rank",
+            # Phase 36 interaction features
+            "grade_x_form_trend",
+            "grade_x_blood_prize_log",
+            "distance_x_closing_index",
+            # Phase 36 HLF features
+            "closing_speed_ratio_avg",
+            "closing_speed_ratio_zscore",
+            "closing_speed_ratio_trend",
+            "closing_speed_ratio_avg_race_rank",
+            "harontime_last3f_avg",
+            "harontime_last3f_zscore",
+            "harontime_last3f_trend",
+            "harontime_last3f_avg_race_rank",
+            "pace_ratio_avg",
+            "pace_ratio_zscore",
+            "pace_ratio_trend",
+            "pace_early_avg",
+            "pace_mid_avg",
+            "pace_late_avg",
+            # Phase 36 TRF features
+            "weighted_recent_form_finish",
+            "weighted_recent_form_time",
         ]
         # FEATURE_COLSは元の特徴量の部分集合であること
         for feat in WinTwoStageModel.FEATURE_COLS:

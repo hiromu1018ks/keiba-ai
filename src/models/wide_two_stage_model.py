@@ -87,9 +87,9 @@ class WideTwoStageModel:
         "distance_x_closing_index",
         "grade_x_blood_prize_log",
         # HLF-01/02/03: Phase 36 HaronTime L4 + LapTime pace features
-        "harontimel4_avg",
-        "harontimel4_zscore",
-        "harontimel4_trend",
+        "closing_speed_ratio_avg",
+        "closing_speed_ratio_zscore",
+        "closing_speed_ratio_trend",
         "harontime_last3f_avg",
         "harontime_last3f_zscore",
         "harontime_last3f_trend",
@@ -100,7 +100,7 @@ class WideTwoStageModel:
         "pace_mid_avg",
         "pace_late_avg",
         # HLF-02: HaronTime race-rank
-        "harontimel4_avg_race_rank",
+        "closing_speed_ratio_avg_race_rank",
         "harontime_last3f_avg_race_rank",
     ]
 

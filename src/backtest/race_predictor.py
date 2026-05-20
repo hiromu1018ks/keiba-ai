@@ -93,8 +93,8 @@ class RacePredictor:
             "form_trend",
             "blood_total_wr",
             "blood_surface_wr",
-            # HLF-02: HaronTime L4 + unified race-rank
-            "harontimel4_avg",
+            # D-08: closing_speed_ratio race-rank (replaces harontimel4_avg)
+            "closing_speed_ratio_avg",
             "harontime_last3f_avg",
         ]
         df = df.copy()

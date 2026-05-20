@@ -774,7 +774,32 @@ class TestLeakIntegration:
             "implied_prob_hhi",
             "odds_skewness",
         }
-        expected_cols = expected_core | expected_rl | expected_market
+        # Phase 36 HLF/TRF/interaction features (registered in RegimeDetector)
+        expected_hlf_trf = {
+            "closing_speed_ratio_avg",
+            "closing_speed_ratio_avg_race_rank",
+            "closing_speed_ratio_zscore",
+            "closing_speed_ratio_trend",
+            "harontime_last3f_avg",
+            "harontime_last3f_avg_race_rank",
+            "harontime_last3f_zscore",
+            "harontime_last3f_trend",
+            "pace_ratio_avg",
+            "pace_ratio_zscore",
+            "pace_ratio_trend",
+            "pace_early_avg",
+            "pace_mid_avg",
+            "pace_late_avg",
+            "weighted_recent_form_finish",
+            "weighted_recent_form_time",
+            "form_trend_race_rank",
+            "blood_surface_wr_race_rank",
+            "blood_total_wr_race_rank",
+            "grade_x_form_trend",
+            "grade_x_blood_prize_log",
+            "distance_x_closing_index",
+        }
+        expected_cols = expected_core | expected_rl | expected_market | expected_hlf_trf
         actual_cols = set(RegimeDetector.FEATURE_COLS)
         assert actual_cols == expected_cols, (
             f"FEATURE_COLS mismatch: expected {expected_cols}, got {actual_cols}"
