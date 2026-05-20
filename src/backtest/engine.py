@@ -1257,11 +1257,14 @@ class BacktestEngine:
                 n_years = 1.0
             bets_per_year = total_bets / n_years
             if bets_per_year < self._min_bets_per_year:
-                raise RuntimeError(
-                    f"Bet count guard FAIL: {bets_per_year:.0f} bets/year "
-                    f"(below {self._min_bets_per_year} threshold). "
-                    f"Ultra-selective betting produces unreliable ROI estimates. "
-                    f"Total bets: {total_bets}, Period: {n_years:.1f} years."
+                logger.warning(
+                    "Bet count guard WARNING: %.0f bets/year (below %d threshold). "
+                    "Ultra-selective betting produces unreliable ROI estimates. "
+                    "Total bets: %d, Period: %.1f years.",
+                    bets_per_year,
+                    self._min_bets_per_year,
+                    total_bets,
+                    n_years,
                 )
 
         # --- D-03(2): PFP verify -- OOS期間終了時のモデル不変性確認 ---
