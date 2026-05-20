@@ -240,3 +240,58 @@ class TestMarketModelStage2Features:
         assert "signed_log_error_win" in features
         assert "abs_log_error_win" in features
         assert "market_error_rank_in_race" in features
+
+
+# Phase36 fundamental features that must NOT be in MarketModel (RTG-01)
+_PHASE36_FEATURES = [
+    "form_trend_race_rank",
+    "blood_total_wr_race_rank",
+    "blood_surface_wr_race_rank",
+    "weighted_recent_form_finish",
+    "weighted_recent_form_time",
+    "grade_x_form_trend",
+    "distance_x_closing_index",
+    "grade_x_blood_prize_log",
+    "closing_speed_ratio_avg",
+    "closing_speed_ratio_zscore",
+    "closing_speed_ratio_trend",
+    "harontime_last3f_avg",
+    "harontime_last3f_zscore",
+    "harontime_last3f_trend",
+    "haron_race_gap_avg",
+    "haron_race_gap_zscore",
+    "haron_race_gap_trend",
+    "pace_adj_finish_avg",
+    "pace_ratio_avg",
+    "pace_ratio_zscore",
+    "pace_ratio_trend",
+    "pace_early_avg",
+    "pace_mid_avg",
+    "pace_late_avg",
+    "closing_speed_ratio_avg_race_rank",
+    "harontime_last3f_avg_race_rank",
+]
+
+
+class TestMarketModelFeatureRouting:
+    """RTG-01: MarketModel must NOT contain Phase36 fundamental features."""
+
+    def test_no_phase36_features_in_feature_cols(self) -> None:
+        """MarketModel.FEATURE_COLS に Phase36 特徴量が含まれない (RTG-01)"""
+        for feat in _PHASE36_FEATURES:
+            assert feat not in MarketModel.FEATURE_COLS, (
+                f"Phase36 feature '{feat}' found in MarketModel.FEATURE_COLS"
+            )
+
+    def test_market_features_still_present(self) -> None:
+        """MarketModel.FEATURE_COLS に market-only 特徴量が残っている"""
+        must_have = [
+            "implied_prob_hhi",
+            "odds_skewness",
+            "rl_log_odds_entropy",
+            "rl_odds_dispersion",
+        ]
+        for feat in must_have:
+            assert feat in MarketModel.FEATURE_COLS, (
+                f"Required market feature '{feat}' missing from MarketModel.FEATURE_COLS"
+            )

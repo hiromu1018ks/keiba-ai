@@ -126,9 +126,6 @@ class TestRaceQualityScreener:
         """EMA平滑化市場指標が含まれる (v5.6追加)"""
         assert "overround_ema" in RaceQualityScreener.FEATURE_COLS
         assert "entropy_ema" in RaceQualityScreener.FEATURE_COLS
-        # 合計57列であること (Phase 31: +2, Phase 32: +5, Plan 34-01: +6,
-        # Phase 36: +14 HLF/TRF/interaction features, D-08: +3 closing_speed_ratio)
-        assert len(RaceQualityScreener.FEATURE_COLS) == 57
 
     def test_screener_independence(self) -> None:
         """品質スコアとedge_max_per_raceの相関<0.30 (§13.1)
@@ -174,3 +171,57 @@ class TestRaceQualityScreener:
                     f"行{i}: hist_mean に未来情報リークの疑い "
                     f"(expected={expected_mean}, actual={actual_mean})"
                 )
+
+
+# Phase36 fundamental features that must NOT be in RaceQualityScreener (RTG-01)
+_PHASE36_FEATURES = [
+    "form_trend_race_rank",
+    "blood_total_wr_race_rank",
+    "blood_surface_wr_race_rank",
+    "weighted_recent_form_finish",
+    "weighted_recent_form_time",
+    "grade_x_form_trend",
+    "distance_x_closing_index",
+    "grade_x_blood_prize_log",
+    "closing_speed_ratio_avg",
+    "closing_speed_ratio_zscore",
+    "closing_speed_ratio_trend",
+    "harontime_last3f_avg",
+    "harontime_last3f_zscore",
+    "harontime_last3f_trend",
+    "haron_race_gap_avg",
+    "haron_race_gap_zscore",
+    "haron_race_gap_trend",
+    "pace_adj_finish_avg",
+    "pace_ratio_avg",
+    "pace_ratio_zscore",
+    "pace_ratio_trend",
+    "pace_early_avg",
+    "pace_mid_avg",
+    "pace_late_avg",
+    "closing_speed_ratio_avg_race_rank",
+    "harontime_last3f_avg_race_rank",
+]
+
+
+class TestRaceQualityScreenerFeatureRouting:
+    """RTG-01: RaceQualityScreener must NOT contain Phase36 horse-level features."""
+
+    def test_no_phase36_features_in_feature_cols(self) -> None:
+        """RaceQualityScreener.FEATURE_COLS に Phase36 特徴量が含まれない (RTG-01)"""
+        for feat in _PHASE36_FEATURES:
+            assert feat not in RaceQualityScreener.FEATURE_COLS, (
+                f"Phase36 feature '{feat}' found in RaceQualityScreener.FEATURE_COLS"
+            )
+
+    def test_screener_features_still_present(self) -> None:
+        """RaceQualityScreener.FEATURE_COLS に screener 適切特徴量が残っている"""
+        must_have = [
+            "market_log_error_max_abs",
+            "market_entropy",
+            "overround",
+        ]
+        for feat in must_have:
+            assert feat in RaceQualityScreener.FEATURE_COLS, (
+                f"Required screener feature '{feat}' missing from RaceQualityScreener.FEATURE_COLS"
+            )

@@ -81,37 +81,6 @@ class RaceQualityScreener:
         "rl_top1_odds",
         "rl_favorite_rank_gap",
         "rl_n_horses",
-        # TRF-01/02/03 + INT-01/02/03/04: Phase 36
-        "form_trend_race_rank",
-        "blood_total_wr_race_rank",
-        "blood_surface_wr_race_rank",
-        "weighted_recent_form_finish",
-        "weighted_recent_form_time",
-        "grade_x_form_trend",
-        "distance_x_closing_index",
-        "grade_x_blood_prize_log",
-        # HLF-01/02/03: Phase 36 HaronTime L4 + LapTime pace features
-        "closing_speed_ratio_avg",
-        "closing_speed_ratio_zscore",
-        "closing_speed_ratio_trend",
-        "harontime_last3f_avg",
-        "harontime_last3f_zscore",
-        "harontime_last3f_trend",
-        # D-02: haron_race_gap (Phase 36.1 new)
-        "haron_race_gap_avg",
-        "haron_race_gap_zscore",
-        "haron_race_gap_trend",
-        # D-03: pace_adj_finish (Phase 36.1 new)
-        "pace_adj_finish_avg",
-        "pace_ratio_avg",
-        "pace_ratio_zscore",
-        "pace_ratio_trend",
-        "pace_early_avg",
-        "pace_mid_avg",
-        "pace_late_avg",
-        # HLF-02: HaronTime race-rank
-        "closing_speed_ratio_avg_race_rank",
-        "harontime_last3f_avg_race_rank",
     ]
 
     _CATEGORY_COLS: list[str] = ["surface", "distance_bin", "grade_code"]
