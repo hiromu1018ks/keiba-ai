@@ -275,7 +275,7 @@ def compare_calibrations(
     try:
         from betacal import BetaCalibration
 
-        beta_cal = BetaCalibration(parameters="abc")
+        beta_cal = BetaCalibration(parameters="abm")
         beta_cal.fit(p_train, y_train)
         p_beta = np.asarray(beta_cal.transform(p_val), dtype=float)
         has_beta = True
