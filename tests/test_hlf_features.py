@@ -106,8 +106,8 @@ def _create_hhf_with_history(
 class TestHaronTimeL4Stats:
     """Tests for closing_speed_ratio features (replaces harontimel4 direct stats)."""
 
-    def test_closing_speed_ratio_avg_placeholder(self):
-        """D-08: compute() returns closing_speed_ratio_avg column (NaN placeholder in Task 1)."""
+    def test_closing_speed_ratio_avg_column_exists(self):
+        """D-08: compute() returns closing_speed_ratio_avg column (replaces harontimel4_avg)."""
         ketto = "12345"
         past_entries = [
             _make_entry_row("202306010101", 1, ketto, race_date=pd.Timestamp("2023-06-01"),
@@ -139,11 +139,10 @@ class TestHaronTimeL4Stats:
 
         # Column name changed from harontimel4_avg to closing_speed_ratio_avg
         assert "closing_speed_ratio_avg" in result.columns
-        # Task 1: placeholder returns NaN; Task 2 will compute actual values
         assert "harontimel4_avg" not in result.columns
 
-    def test_closing_speed_ratio_zscore_nan_placeholder(self):
-        """D-08: closing_speed_ratio_zscore is NaN in placeholder phase."""
+    def test_closing_speed_ratio_zscore_exists(self):
+        """D-08: closing_speed_ratio_zscore column exists (NaN with insufficient data)."""
         ketto = "12345"
         past_entries = [
             _make_entry_row("202312010101", 1, ketto, race_date=pd.Timestamp("2023-12-01"),
@@ -164,8 +163,8 @@ class TestHaronTimeL4Stats:
         assert "closing_speed_ratio_zscore" in result.columns
         assert "harontimel4_zscore" not in result.columns
 
-    def test_closing_speed_ratio_trend_placeholder(self):
-        """D-08: closing_speed_ratio_trend is NaN in placeholder phase."""
+    def test_closing_speed_ratio_trend_column_exists(self):
+        """D-08: closing_speed_ratio_trend column exists (may be NaN with insufficient data)."""
         ketto = "12345"
         past_entries = [
             _make_entry_row("202310010101", 1, ketto, race_date=pd.Timestamp("2023-10-01"),
@@ -741,7 +740,7 @@ class TestClosingSpeedRatio:
         past_entries = [
             _make_entry_row("202310010101", 1, ketto, race_date=pd.Timestamp("2023-10-01"),
                            kakuteijyuni=1, odds=5.0,
-                           harontimel3=34.5, harontimel4=46.0),
+                           harontimel3=34.5),
         ]
         past_races = [
             _make_race_row("202310010101", "2023-10-01", harontimel4=46.0),
@@ -808,18 +807,18 @@ class TestClosingSpeedRatio:
         past_entries = [
             _make_entry_row("202310010101", 1, ketto, race_date=pd.Timestamp("2023-10-01"),
                            kakuteijyuni=3, odds=10.0,
-                           harontimel3=33.0, harontimel4=48.0),  # ratio = 0.6875
+                           harontimel3=33.0),  # ratio = 0.6875 (L4=48.0 from race)
             _make_entry_row("202311010101", 1, ketto, race_date=pd.Timestamp("2023-11-01"),
                            kakuteijyuni=2, odds=8.0,
-                           harontimel3=34.5, harontimel4=46.0),  # ratio = 0.75
+                           harontimel3=34.5),  # ratio = 0.75 (L4=46.0 from race)
             _make_entry_row("202312010101", 1, ketto, race_date=pd.Timestamp("2023-12-01"),
                            kakuteijyuni=1, odds=5.0,
-                           harontimel3=35.5, harontimel4=44.0),  # ratio = 0.807
+                           harontimel3=35.5),  # ratio = 0.807 (L4=44.0 from race)
         ]
         past_races = [
-            _make_race_row("202310010101", "2023-10-01"),
-            _make_race_row("202311010101", "2023-11-01"),
-            _make_race_row("202312010101", "2023-12-01"),
+            _make_race_row("202310010101", "2023-10-01", harontimel4=48.0),
+            _make_race_row("202311010101", "2023-11-01", harontimel4=46.0),
+            _make_race_row("202312010101", "2023-12-01", harontimel4=44.0),
         ]
         current_entries = [_make_entry_row("202401010101", 1, ketto)]
         current_races = [_make_race_row("202401010101", "2024-01-01", kyori=2000)]
@@ -840,18 +839,18 @@ class TestClosingSpeedRatio:
         past_entries = [
             _make_entry_row("202310010101", 1, ketto, race_date=pd.Timestamp("2023-10-01"),
                            kakuteijyuni=3, odds=10.0,
-                           harontimel3=33.0, harontimel4=48.0),  # ratio = 0.6875
+                           harontimel3=33.0),  # ratio = 0.6875 (L4=48.0)
             _make_entry_row("202311010101", 1, ketto, race_date=pd.Timestamp("2023-11-01"),
                            kakuteijyuni=2, odds=8.0,
-                           harontimel3=34.0, harontimel4=47.0),  # ratio = 0.723
+                           harontimel3=34.0),  # ratio = 0.723 (L4=47.0)
             _make_entry_row("202312010101", 1, ketto, race_date=pd.Timestamp("2023-12-01"),
                            kakuteijyuni=1, odds=5.0,
-                           harontimel3=35.0, harontimel4=46.0),  # ratio = 0.761
+                           harontimel3=35.0),  # ratio = 0.761 (L4=46.0)
         ]
         past_races = [
-            _make_race_row("202310010101", "2023-10-01"),
-            _make_race_row("202311010101", "2023-11-01"),
-            _make_race_row("202312010101", "2023-12-01"),
+            _make_race_row("202310010101", "2023-10-01", harontimel4=48.0),
+            _make_race_row("202311010101", "2023-11-01", harontimel4=47.0),
+            _make_race_row("202312010101", "2023-12-01", harontimel4=46.0),
         ]
         current_entries = [_make_entry_row("202401010101", 1, ketto)]
         current_races = [_make_race_row("202401010101", "2024-01-01", kyori=2000)]
@@ -876,10 +875,10 @@ class TestHaronRaceGap:
         past_entries = [
             _make_entry_row("202310010101", 1, ketto, race_date=pd.Timestamp("2023-10-01"),
                            kakuteijyuni=1, odds=5.0,
-                           harontimel3=34.5, harontimel4=46.0),
+                           harontimel3=34.5),
         ]
         past_races = [
-            _make_race_row("202310010101", "2023-10-01"),
+            _make_race_row("202310010101", "2023-10-01", harontimel4=46.0),
         ]
         current_entries = [_make_entry_row("202401010101", 1, ketto)]
         current_races = [_make_race_row("202401010101", "2024-01-01", kyori=2000)]
@@ -900,10 +899,10 @@ class TestHaronRaceGap:
         past_entries = [
             _make_entry_row("202310010101", 1, ketto, race_date=pd.Timestamp("2023-10-01"),
                            kakuteijyuni=1, odds=5.0,
-                           harontimel3=33.0, harontimel4=46.0),
+                           harontimel3=33.0),
         ]
         past_races = [
-            _make_race_row("202310010101", "2023-10-01"),
+            _make_race_row("202310010101", "2023-10-01", harontimel4=46.0),
         ]
         current_entries = [_make_entry_row("202401010101", 1, ketto)]
         current_races = [_make_race_row("202401010101", "2024-01-01", kyori=2000)]
@@ -945,11 +944,12 @@ class TestPaceAdjFinish:
 
         past_entries = [
             _make_entry_row("202310010101", 1, ketto, race_date=pd.Timestamp("2023-10-01"),
-                           kakuteijyuni=1, odds=5.0, syussotosu=12,
-                           harontimel3=35.0, harontimel4=47.0),
+                           kakuteijyuni=1, odds=5.0,
+                           harontimel3=35.0),
         ]
         past_races = [
-            _make_race_row("202310010101", "2023-10-01", kyori=2400, syussotosu=12, **race1_laps),
+            _make_race_row("202310010101", "2023-10-01", kyori=2400, syussotosu=12,
+                           harontimel4=47.0, **race1_laps),
         ]
         current_entries = [_make_entry_row("202401010101", 1, ketto)]
         current_races = [_make_race_row("202401010101", "2024-01-01", kyori=2400)]

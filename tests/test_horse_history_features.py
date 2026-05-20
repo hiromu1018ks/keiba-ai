@@ -1856,11 +1856,12 @@ class TestNewFeaturesInBaseCols:
             )
 
     def test_base_cols_count(self) -> None:
-        """BASE_COLSが62件 (50既存 + 6 HaronTime L4 + 6 LapTime pace) である"""
+        """BASE_COLSが66件 (50既存 - 3 harontimel4 + 3 closing_speed_ratio + 6 LapTime pace
+        + 3 haron_race_gap + 1 pace_adj_finish + 2 weighted_recent_form) である"""
         from features.horse_history_features import HorseHistoryFeatures
 
-        assert len(HorseHistoryFeatures.BASE_COLS) == 62, (
-            f"Expected 62 BASE_COLS, got {len(HorseHistoryFeatures.BASE_COLS)}: "
+        assert len(HorseHistoryFeatures.BASE_COLS) == 66, (
+            f"Expected 66 BASE_COLS, got {len(HorseHistoryFeatures.BASE_COLS)}: "
             f"{HorseHistoryFeatures.BASE_COLS}"
         )
 
