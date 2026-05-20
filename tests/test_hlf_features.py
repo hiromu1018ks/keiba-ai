@@ -497,6 +497,12 @@ HLF_HARON_FEATURES = [
     "harontime_last3f_avg",
     "harontime_last3f_zscore",
     "harontime_last3f_trend",
+    # D-02: haron_race_gap (new in Phase 36.1)
+    "haron_race_gap_avg",
+    "haron_race_gap_zscore",
+    "haron_race_gap_trend",
+    # D-03: pace_adj_finish (new in Phase 36.1)
+    "pace_adj_finish_avg",
 ]
 
 HLF_LAP_FEATURES = [
