@@ -53,6 +53,7 @@ class StackedEnsemble:
         self.cat_model = None
         self.meta_model: Ridge | None = None
         self.best_params: dict[str, dict[str, Any]] = {}
+        self._train_feature_names: list[str] = []
 
     def train(
         self,
@@ -74,6 +75,7 @@ class StackedEnsemble:
         n = len(X_train)
         oof_preds = np.full((n, 3), np.nan)
         self._learn_cat_codes(X_train)
+        self._train_feature_names = list(X_train.columns)
 
         for i in range(self.n_folds):
             # 時系列考慮: 各foldのvalidは後半部分、trainは前半 (expanding window)
@@ -118,6 +120,15 @@ class StackedEnsemble:
 
     def predict(self, X: pd.DataFrame, num_iteration: int | None = None) -> np.ndarray:
         """アンサンブル予測。Ridge で3モデルの予測を統合。"""
+        # Use only columns present at training time to avoid categorical feature mismatch
+        # (e.g., caller may pass extra columns like "surface" that were dropped before training)
+        if self._train_feature_names:
+            missing = [c for c in self._train_feature_names if c not in X.columns]
+            if missing:
+                raise ValueError(
+                    f"StackedEnsemble.predict(): missing feature columns: {missing[:5]}"
+                )
+            X = X[self._train_feature_names]
         p_lgbm = self.lgbm_model.predict(X)
 
         import xgboost as xgb
