@@ -254,7 +254,7 @@ class RacePredictor:
             place_df["EV_upper_place"] = place_df["EV_lower_place"]
         df = win_df
         if "EV_lower_place" in place_df.columns:
-            df["EV_lower_place"] = place_df["EV_lower_place"].reindex(df.index).values
+            df["EV_lower_place"] = place_df["EV_lower_place"].reindex(df.index)
 
         # --- Place推論ブロック (place model がある場合のみ) ---
         if submodel.place is not None:
@@ -990,6 +990,11 @@ class RacePredictor:
         BacktestEngine._build_race_features() から移行。
         """
         row = race_df.iloc[0]
+
+        def _safe_val(col: str, default: Any) -> Any:
+            v = row.get(col, default)
+            return default if v is pd.NA or (isinstance(v, float) is False and pd.isna(v)) else v
+
         signed_error = (
             race_df["signed_log_error_win"]
             if "signed_log_error_win" in race_df.columns
@@ -1001,12 +1006,12 @@ class RacePredictor:
             else pd.Series([0.0])
         )
         return {
-            "surface": row.get("surface", "turf"),
-            "distance_bin": row.get("distance_bin", "mile"),
-            "track_condition_code": row.get("track_condition_code", 2),
-            "grade_code": row.get("grade_code", "C"),
-            "field_size": row.get("field_size", 10),
-            "difficulty_score": row.get("difficulty_score", 0.5),
+            "surface": _safe_val("surface", "turf"),
+            "distance_bin": _safe_val("distance_bin", "mile"),
+            "track_condition_code": _safe_val("track_condition_code", 2),
+            "grade_code": _safe_val("grade_code", "C"),
+            "field_size": _safe_val("field_size", 10),
+            "difficulty_score": _safe_val("difficulty_score", 0.5),
             "market_log_error_mean": float(signed_error.mean()),
             "market_log_error_std": float(signed_error.std()) if len(signed_error) > 1 else 0.0,
             "market_log_error_abs_mean": float(abs_error.mean()),
@@ -1019,32 +1024,32 @@ class RacePredictor:
             if len(signed_error) >= 3
             else 0.0,
             "positive_error_ratio": float((signed_error > 0).sum()) / max(len(signed_error), 1),
-            "market_entropy": row.get("market_entropy", 2.0),
-            "overround": row.get("overround", 0.20),
+            "market_entropy": _safe_val("market_entropy", 2.0),
+            "overround": _safe_val("overround", 0.20),
             "overround_deviation": 0.0,
-            "hist_hit_rate_topk": row.get("hist_hit_rate_topk", 0.3),
-            "hist_roi_topk": row.get("hist_roi_topk", 1.0),
-            "hist_positive_return_ratio": row.get("hist_positive_return_ratio", 0.3),
-            "hist_win_rate_same_condition": row.get("hist_hit_rate_topk", 0.3),
-            "hist_market_entropy_avg": row.get("market_entropy", 2.0),
+            "hist_hit_rate_topk": _safe_val("hist_hit_rate_topk", 0.3),
+            "hist_roi_topk": _safe_val("hist_roi_topk", 1.0),
+            "hist_positive_return_ratio": _safe_val("hist_positive_return_ratio", 0.3),
+            "hist_win_rate_same_condition": _safe_val("hist_hit_rate_topk", 0.3),
+            "hist_market_entropy_avg": _safe_val("market_entropy", 2.0),
             # v5.6: EMA平滑化市場指標
-            "overround_ema": row.get("overround_ema", 0.20),
-            "entropy_ema": row.get("entropy_ema", 2.0),
+            "overround_ema": _safe_val("overround_ema", 0.20),
+            "entropy_ema": _safe_val("entropy_ema", 2.0),
             # rl_* columns (RLF-01~06, MCF-07)
-            "rl_log_odds_entropy": row.get("rl_log_odds_entropy", float("nan")),
-            "rl_odds_dispersion": row.get("rl_odds_dispersion", float("nan")),
-            "rl_top3_odds_gap": row.get("rl_top3_odds_gap", float("nan")),
-            "rl_top1_odds": row.get("rl_top1_odds", float("nan")),
-            "rl_favorite_rank_gap": row.get("rl_favorite_rank_gap", float("nan")),
-            "rl_n_horses": row.get("rl_n_horses", float("nan")),
-            "rl_favorite_in_wide_top1": row.get("rl_favorite_in_wide_top1", float("nan")),
-            "rl_trio_overlap": row.get("rl_trio_overlap", float("nan")),
-            "rl_market_consistency": row.get("rl_market_consistency", float("nan")),
-            "rl_trio_odds_ratio": row.get("rl_trio_odds_ratio", float("nan")),
-            "rl_wide_harville_ratio": row.get("rl_wide_harville_ratio", float("nan")),
+            "rl_log_odds_entropy": _safe_val("rl_log_odds_entropy", float("nan")),
+            "rl_odds_dispersion": _safe_val("rl_odds_dispersion", float("nan")),
+            "rl_top3_odds_gap": _safe_val("rl_top3_odds_gap", float("nan")),
+            "rl_top1_odds": _safe_val("rl_top1_odds", float("nan")),
+            "rl_favorite_rank_gap": _safe_val("rl_favorite_rank_gap", float("nan")),
+            "rl_n_horses": _safe_val("rl_n_horses", float("nan")),
+            "rl_favorite_in_wide_top1": _safe_val("rl_favorite_in_wide_top1", float("nan")),
+            "rl_trio_overlap": _safe_val("rl_trio_overlap", float("nan")),
+            "rl_market_consistency": _safe_val("rl_market_consistency", float("nan")),
+            "rl_trio_odds_ratio": _safe_val("rl_trio_odds_ratio", float("nan")),
+            "rl_wide_harville_ratio": _safe_val("rl_wide_harville_ratio", float("nan")),
             # FLB slope (market_bias_features.py)
-            "implied_prob_hhi": row.get("implied_prob_hhi", float("nan")),
-            "odds_skewness": row.get("odds_skewness", float("nan")),
+            "implied_prob_hhi": _safe_val("implied_prob_hhi", float("nan")),
+            "odds_skewness": _safe_val("odds_skewness", float("nan")),
             # Phase36 race-level aggregates (RTG-02/03)
             **_compute_phase36_aggregates(race_df),
         }

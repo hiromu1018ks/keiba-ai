@@ -928,10 +928,16 @@ class BacktestEngine:
                     if "signed_log_error_win" in result_df.columns
                     else 0.0
                 ),
-                "overround_rolling": float(row_data.get("overround", 0.20))
-                    if not result_df.empty else 0.20,
-                "entropy_rolling": float(row_data.get("market_entropy", 2.0))
-                    if not result_df.empty else 2.0,
+                "overround_rolling": (
+                    float(row_data["overround"])
+                    if "overround" in row_data.index and pd.notna(row_data.get("overround"))
+                    else 0.20
+                ) if not result_df.empty else 0.20,
+                "entropy_rolling": (
+                    float(row_data["market_entropy"])
+                    if "market_entropy" in row_data.index and pd.notna(row_data.get("market_entropy"))
+                    else 2.0
+                ) if not result_df.empty else 2.0,
                 "odds_skewness_rolling": calc_odds_skewness(result_df),
                 "favorite_implied_prob_rolling": calc_favorite_implied_prob(result_df),
                 "odds_volatility_mean": (
@@ -939,8 +945,11 @@ class BacktestEngine:
                     if "odds_volatility" in result_df.columns and not result_df.empty
                     else 0.1
                 ),
-                "field_size_mean": float(row_data.get("field_size", 14.0))
-                    if not result_df.empty else 14.0,
+                "field_size_mean": (
+                    float(row_data["field_size"])
+                    if "field_size" in row_data.index and pd.notna(row_data.get("field_size"))
+                    else 14.0
+                ) if not result_df.empty else 14.0,
             })
 
             # D-11: COLLAPSED regime skip (race-level, D-09: filter order #1)
@@ -980,12 +989,18 @@ class BacktestEngine:
                 on=["race_id", "umaban"],
                 how="left",
             )
-            race_aggressive_strength = float(
-                result_df.get("aggressive_strength", pd.Series([np.nan])).iloc[0]
+            race_aggressive_strength = (
+                float(result_df["aggressive_strength"].iloc[0])
+                if "aggressive_strength" in result_df.columns
+                and pd.notna(result_df["aggressive_strength"].iloc[0])
+                else float("nan")
             )
             race_aggressive_tier = result_df.get("aggressive_tier", pd.Series([None])).iloc[0]
-            race_market_condition = float(
-                result_df.get("market_condition_score", pd.Series([np.nan])).iloc[0]
+            race_market_condition = (
+                float(result_df["market_condition_score"].iloc[0])
+                if "market_condition_score" in result_df.columns
+                and pd.notna(result_df["market_condition_score"].iloc[0])
+                else float("nan")
             )
 
             _quality_score = self._race_predictor.get_quality_score(result_df)
