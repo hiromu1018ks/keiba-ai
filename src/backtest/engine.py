@@ -782,10 +782,22 @@ class BacktestEngine:
         # NOTE: compute_relative_features は RacePredictor.predict() 内で呼び出す
         # (HorseHistoryFeatures の base 列が feat_df にまだ存在しないため)
 
+        # D-11: hist_df_all を feat_df に事前マージ
+        # backtest parquet に hist 特徴量が含まれるようにする (二重マージ回避)
+        if not hist_df_all.empty:
+            # Drop merge keys from hist_df_all for the merge
+            hist_merge_cols = [c for c in hist_df_all.columns if c not in feat_df.columns or c in ("race_id", "umaban")]
+            feat_df = feat_df.merge(
+                hist_df_all[hist_merge_cols],
+                on=["race_id", "umaban"],
+                how="left",
+            )
+            logger.info("Merged hist features into feat_df: %d columns", len(hist_merge_cols) - 2)
+
         # 5. レースごとにシミュレーション (推論は RacePredictor に委譲)
         # Groupby dict preprocessing — O(1) race lookups per D-07
         feat_groups = build_race_groups(feat_df, name="features")
-        hist_groups = build_race_groups(hist_df_all, name="history")
+        hist_groups = build_race_groups(hist_df_all, name="history")  # 互換性のため維持
         jockey_groups = build_race_groups(jockey_df_all, name="jockey")
         trainer_groups = build_race_groups(trainer_df_all, name="trainer")
         jt_groups = build_race_groups(jt_df_all, name="jockey_trainer")
@@ -859,7 +871,7 @@ class BacktestEngine:
                 )
 
             # 事前計算済み特徴量をマージ (groupby dict O(1) lookup)
-            hist_df_race = hist_groups.get(race_id)
+            hist_df_race = hist_groups.get(race_id)  # D-11: 互換性のため残す
             jockey_df_race = jockey_groups.get(race_id)
             trainer_df_race = trainer_groups.get(race_id)
             jt_df_race = jt_groups.get(race_id)
@@ -870,9 +882,10 @@ class BacktestEngine:
                 errors="ignore",
             )
             # RacePredictor に委譲
+            # D-11: hist_features=None — 既に feat_df に事前マージ済み (二重マージ回避)
             result_df = self._race_predictor.predict(
                 predict_df,
-                hist_features=hist_df_race,
+                hist_features=None,
                 jockey_features=jockey_df_race,
                 trainer_features=trainer_df_race,
                 jt_combo_features=jt_df_race,
