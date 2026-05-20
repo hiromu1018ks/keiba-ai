@@ -2,11 +2,11 @@
 gsd_state_version: 1.0
 milestone: v1.8
 milestone_name: Turf Precision Calibration
-status: Ready for Phase 37
-last_updated: "2026-05-20T01:56:27.790Z"
+status: Ready to execute
+last_updated: "2026-05-20T16:30:00.000Z"
 last_activity: 2026-05-20
 progress:
-  total_phases: 4
+  total_phases: 5
   completed_phases: 2
   total_plans: 4
   completed_plans: 4
@@ -20,16 +20,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-05-19)
 
 **Core value:** 単勝モデルのバックテストROIを100%超えにすること
-**Current focus:** Phase 37 — EV Calibration Layers (next)
+**Current focus:** Phase 36.1 — HaronTime L4/LapTime Feature Redesign (PLANNED — 2 plans)
 
 ## Current Position
 
-Phase: 36 COMPLETE
-Plan: 2 plans in 2 waves — ALL DONE
-Status: Ready for Phase 37
+Phase: 36.1 HaronTime L4/LapTime Feature Redesign (INSERTED)
+Plan: 2 plans (36.1-01, 36.1-02)
+Status: Ready to execute
 Last activity: 2026-05-20
 
-Progress: [▓▓▓▓▓▓▓▓▓▓▓░░░░░░░░░░] 75% (v1.8: 2/4 phases done, Phase 36 executed)
+Progress: [▓▓▓▓▓▓▓▓▓▓▓▓░░░░░░░░░] 75% (v1.8: 2/4 phases done, Phase 36.1 planned)
 
 ## v1.8 Roadmap
 
@@ -37,7 +37,8 @@ Progress: [▓▓▓▓▓▓▓▓▓▓▓░░░░░░░░░░] 75% 
 |-------|------|--------------|--------|
 | 35. ETL Data Foundation | HaronTime/LapTime/Jyuni float64 in Parquet + POST_RACE safety | ETL-01~05 | DONE |
 | 36. Feature Computation | Turf relative + conditional interactions + Haron/Lap PIT-safe | TRF-01~03, INT-01~04, HLF-01~05 | DONE |
-| 37. EV Calibration Layers | Pop band calibration + regime-surface EV correction | CAL-01~05 | NEXT |
+| 36.1. HaronTime L4/LapTime Redesign | クロスレベル派生特徴量への再設計 + BT hist_features欠落修正 | RED-01~06 | PLANNED (2 plans) |
+| 37. EV Calibration Layers | Pop band calibration + regime-surface EV correction | CAL-01~05 | Blocked by 36.1 |
 | 38. Integrated Validation | CI tests + IC positive + BT ROI 100%+ + Manifest freeze | VAL-01~06 | Pending |
 
 ## Performance Metrics
@@ -54,6 +55,10 @@ Progress: [▓▓▓▓▓▓▓▓▓▓▓░░░░░░░░░░] 75% 
 - v1.5: 84.4% → v1.6: 85.7% → v1.7: 97.8% → v1.8 target: 100%+
 
 ## Accumulated Context
+
+### Roadmap Evolution
+
+- Phase 36.1 inserted after Phase 36: HaronTime L4/LapTime Feature Redesign - クロスレベル派生特徴量への再設計 + backtest engine hist_features欠落修正 (URGENT)
 
 ### Decisions
 
