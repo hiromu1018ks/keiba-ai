@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.8
 milestone_name: Turf Precision Calibration
-status: Phase 36.1 Complete
-last_updated: "2026-05-20T17:30:00.000Z"
-last_activity: 2026-05-20
+status: executing
+last_updated: "2026-05-20T08:45:33.437Z"
+last_activity: 2026-05-20 -- Phase 36.1.1 planning complete
 progress:
-  total_phases: 5
-  completed_phases: 4
-  total_plans: 6
+  total_phases: 6
+  completed_phases: 3
+  total_plans: 10
   completed_plans: 6
-  percent: 100
+  percent: 60
 ---
 
 # Project State
@@ -20,16 +20,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-05-19)
 
 **Core value:** 単勝モデルのバックテストROIを100%超えにすること
-**Current focus:** Phase 37 — EV Calibration Layers (next up)
+**Current focus:** Phase 36.1.1 — MarketModel & RaceQuality配線修正 (URGENT insertion)
 
 ## Current Position
 
-Phase: 36.1 COMPLETE
-Plan: 2/2 plans done (36.1-01, 36.1-02)
-Status: Verified — 10/10 must-haves passed, 352 tests passing
-Last activity: 2026-05-20
+Phase: 36.1.1 NOT STARTED (URGENT)
+Plan: 0/? plans
+Status: Ready to execute
+Last activity: 2026-05-20 -- Phase 36.1.1 planning complete
 
-Progress: [▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓░] 80% (v1.8: 4/5 phases done, Phase 37 next)
+Progress: [▓▓▓▓▓▓▓▓▓▓▓▓▓▓░░░░░░░] 67% (v1.8: 4/6 phases done, Phase 36.1.1 next)
 
 ## v1.8 Roadmap
 
@@ -38,7 +38,8 @@ Progress: [▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓░] 80% (v1
 | 35. ETL Data Foundation | HaronTime/LapTime/Jyuni float64 in Parquet + POST_RACE safety | ETL-01~05 | DONE |
 | 36. Feature Computation | Turf relative + conditional interactions + Haron/Lap PIT-safe | TRF-01~03, INT-01~04, HLF-01~05 | DONE |
 | 36.1. HaronTime L4/LapTime Redesign | クロスレベル派生特徴量への再設計 + BT hist_features欠落修正 | RED-01~06 | DONE (352 tests) |
-| 37. EV Calibration Layers | Pop band calibration + regime-surface EV correction | CAL-01~05 | Next |
+| 36.1.1. MarketModel & RaceQuality配線修正 | Phase36特徴量ルーティング修正 + EV Tail Calibration | RTG-01~05 | Next (URGENT) |
+| 37. EV Calibration Layers | Pop band calibration + regime-surface EV correction | CAL-01~05 | Pending |
 | 38. Integrated Validation | CI tests + IC positive + BT ROI 100%+ + Manifest freeze | VAL-01~06 | Pending |
 
 ## Performance Metrics
@@ -52,13 +53,14 @@ Progress: [▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓░] 80% (v1
 
 **BT ROI progression:**
 
-- v1.5: 84.4% → v1.6: 85.7% → v1.7: 97.8% → v1.8 target: 100%+
+- v1.5: 84.4% → v1.6: 85.7% → v1.7: 97.8% → v1.8 post-36.1: 77.3% (regression!) → target: 100%+
 
 ## Accumulated Context
 
 ### Roadmap Evolution
 
 - Phase 36.1 inserted after Phase 36: HaronTime L4/LapTime Feature Redesign - クロスレベル派生特徴量への再設計 + backtest engine hist_features欠落修正 (URGENT)
+- Phase 36.1.1 inserted after Phase 36.1: MarketModel & RaceQuality配線修正 — Phase36強力fundamental特徴量の全モデル一律登録でMarketModel・RaceQualityScreenerの役割崩壊を修復 (URGENT)
 
 ### Decisions
 
@@ -81,9 +83,11 @@ v1.8 Phase 36: 22 new features across 3 categories (TRF=8, INT=3, HLF=14→12 un
 
 ### Known Issues
 
-1. ROI 100%目標未達 (97.8%) — v1.8で対応
+1. ROI 100%目標未達 (97.8%) → Phase36.1後 77.3%に悪化 — Phase 36.1.1で回復
 2. Turf conservative regime unprofitable — v1.8で対応
-3. training_pipeline _build_race_level_features() rl_*列処理未追加
+3. Phase36特徴量のMarketModel支配 (gain share 80%+) → Phase 36.1.1で修正
+4. RaceQualityScreenerが利益源レースを71.9%除外 → Phase 36.1.1で再設計
+5. training_pipeline _build_race_level_features() rl_*列処理未追加
 4. LapTime column names in EveryDB2 not yet verified against live schema
 
 ## Session Continuity
