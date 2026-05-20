@@ -3,7 +3,7 @@ gsd_state_version: 1.0
 milestone: v1.8
 milestone_name: Turf Precision Calibration
 status: planning
-last_updated: "2026-05-19T15:00:00Z"
+last_updated: "2026-05-20T15:00:00Z"
 progress:
   total_phases: 38
   completed_phases: 34
@@ -152,6 +152,16 @@ Plans:
 - [ ] 36-01-PLAN.md -- TRF + INT features: race-rank, weighted_recent_form, interactions, model registration
 - [ ] 36-02-PLAN.md -- HLF features: HaronTime L4/unified history, LapTime pace, model registration, dual-path
 
+### Phase 36.1: HaronTime L4/LapTime Feature Redesign - クロスレベル派生特徴量への再設計 + backtest engine hist_features欠落修正 (INSERTED)
+
+**Goal:** HaronTimeL4 データソースを races レベルに修正し、L3/L4 クロスレベル派生特徴量（closing_speed_ratio, haron_race_gap, pace_adj_finish）を PIT-safe に実装し、harontime_last3f を L3 ベースに統一し、backtest engine の hist_features 欠落バグを修正する
+**Requirements**: RED-01, RED-02, RED-03, RED-04, RED-05, RED-06
+**Depends on:** Phase 36
+**Plans:** 2 plans
+Plans:
+- [ ] 36.1-01-PLAN.md -- D-09 データソース修正 + D-01/02/03 新規派生特徴量 + D-07 last3f L3統一 + D-08 harontimel4 置換
+- [ ] 36.1-02-PLAN.md -- D-11 backtest engine hist_features マージ修正 + 全10モデル FEATURE_COLS 更新
+
 ### Phase 37: EV Calibration Layers
 **Goal**: Popularity band calibration and regime-surface EV correction improve EV accuracy for turf middle-popularity horses
 **Depends on**: Phase 36
@@ -179,7 +189,7 @@ Plans:
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 35 -> 36 -> 37 -> 38
+Phases execute in numeric order: 35 -> 36 -> 36.1 -> 37 -> 38
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
@@ -220,5 +230,6 @@ Phases execute in numeric order: 35 -> 36 -> 37 -> 38
 | 34. Validation and Manifest Update | v1.7 | 4/4 | Complete | 2026-05-19 |
 | 35. ETL Data Foundation | v1.8 | 2/2 | Complete    | 2026-05-19 |
 | 36. Feature Computation | v1.8 | 0/2 | Planned | - |
+| 36.1. HaronTime L4/LapTime Redesign | v1.8 | 0/2 | Planned | - |
 | 37. EV Calibration Layers | v1.8 | 0/? | Not started | - |
 | 38. Integrated Validation | v1.8 | 0/? | Not started | - |
