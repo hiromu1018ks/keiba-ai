@@ -116,7 +116,8 @@ progress:
 **Milestone Goal:** IC b_difference --> positive, ROI 97.8%-->100%+
 
 - [x] **Phase 35: ETL Data Foundation** - HaronTime/LapTime/Jyuni float64 + POST_RACE_COLS (completed 2026-05-19)
-- [ ] **Phase 36: Feature Computation** - Turf relative features + conditional interactions + Haron/Lap PIT-safe
+- [x] **Phase 36: Feature Computation** - Turf relative features + conditional interactions + Haron/Lap PIT-safe (completed 2026-05-20)
+- [x] **Phase 36.1: HaronTime L4/LapTime Redesign** - クロスレベル派生特徴量 + BT hist_features修正 (completed 2026-05-20)
 - [ ] **Phase 37: EV Calibration Layers** - Pop band calibration + regime x surface EV correction
 - [ ] **Phase 38: Integrated Validation** - CI leakage tests + IC confirmation + BT ROI 100% + Manifest freeze
 
@@ -149,8 +150,8 @@ Plans:
   5. Both training pipeline (_train_submodel) and inference path (BettingOrchestrator.build_features) produce identical feature sets
 **Plans**: 2 plans
 Plans:
-- [ ] 36-01-PLAN.md -- TRF + INT features: race-rank, weighted_recent_form, interactions, model registration
-- [ ] 36-02-PLAN.md -- HLF features: HaronTime L4/unified history, LapTime pace, model registration, dual-path
+- [x] 36-01-PLAN.md -- TRF + INT features: race-rank, weighted_recent_form, interactions, model registration
+- [x] 36-02-PLAN.md -- HLF features: HaronTime L4/unified history, LapTime pace, model registration, dual-path
 
 ### Phase 36.1: HaronTime L4/LapTime Feature Redesign - クロスレベル派生特徴量への再設計 + backtest engine hist_features欠落修正 (INSERTED)
 
@@ -159,8 +160,8 @@ Plans:
 **Depends on:** Phase 36
 **Plans:** 2 plans
 Plans:
-- [ ] 36.1-01-PLAN.md -- D-09 データソース修正 + D-01/02/03 新規派生特徴量 + D-07 last3f L3統一 + D-08 harontimel4 置換
-- [ ] 36.1-02-PLAN.md -- D-11 backtest engine hist_features マージ修正 + 全10モデル FEATURE_COLS 更新
+- [x] 36.1-01-PLAN.md -- D-09 データソース修正 + D-01/02/03 新規派生特徴量 + D-07 last3f L3統一 + D-08 harontimel4 置換
+- [x] 36.1-02-PLAN.md -- D-11 backtest engine hist_features マージ修正 + 全10モデル FEATURE_COLS 更新
 
 ### Phase 37: EV Calibration Layers
 **Goal**: Popularity band calibration and regime-surface EV correction improve EV accuracy for turf middle-popularity horses
@@ -229,7 +230,7 @@ Phases execute in numeric order: 35 -> 36 -> 36.1 -> 37 -> 38
 | 33. Gain per Depth Diagnostic | v1.7 | 2/2 | Complete | 2026-05-18 |
 | 34. Validation and Manifest Update | v1.7 | 4/4 | Complete | 2026-05-19 |
 | 35. ETL Data Foundation | v1.8 | 2/2 | Complete    | 2026-05-19 |
-| 36. Feature Computation | v1.8 | 0/2 | Planned | - |
-| 36.1. HaronTime L4/LapTime Redesign | v1.8 | 0/2 | Planned | - |
+| 36. Feature Computation | v1.8 | 2/2 | Complete | 2026-05-20 |
+| 36.1. HaronTime L4/LapTime Redesign | v1.8 | 2/2 | Complete | 2026-05-20 |
 | 37. EV Calibration Layers | v1.8 | 0/? | Not started | - |
 | 38. Integrated Validation | v1.8 | 0/? | Not started | - |

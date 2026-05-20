@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v1.8
 milestone_name: Turf Precision Calibration
-status: Ready to execute
-last_updated: "2026-05-20T16:30:00.000Z"
+status: Phase 36.1 Complete
+last_updated: "2026-05-20T17:30:00.000Z"
 last_activity: 2026-05-20
 progress:
   total_phases: 5
-  completed_phases: 2
-  total_plans: 4
-  completed_plans: 4
+  completed_phases: 4
+  total_plans: 6
+  completed_plans: 6
   percent: 100
 ---
 
@@ -20,16 +20,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-05-19)
 
 **Core value:** 単勝モデルのバックテストROIを100%超えにすること
-**Current focus:** Phase 36.1 — HaronTime L4/LapTime Feature Redesign (PLANNED — 2 plans)
+**Current focus:** Phase 37 — EV Calibration Layers (next up)
 
 ## Current Position
 
-Phase: 36.1 HaronTime L4/LapTime Feature Redesign (INSERTED)
-Plan: 2 plans (36.1-01, 36.1-02)
-Status: Ready to execute
+Phase: 36.1 COMPLETE
+Plan: 2/2 plans done (36.1-01, 36.1-02)
+Status: Verified — 10/10 must-haves passed, 352 tests passing
 Last activity: 2026-05-20
 
-Progress: [▓▓▓▓▓▓▓▓▓▓▓▓░░░░░░░░░] 75% (v1.8: 2/4 phases done, Phase 36.1 planned)
+Progress: [▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓░] 80% (v1.8: 4/5 phases done, Phase 37 next)
 
 ## v1.8 Roadmap
 
@@ -37,8 +37,8 @@ Progress: [▓▓▓▓▓▓▓▓▓▓▓▓░░░░░░░░░] 75% 
 |-------|------|--------------|--------|
 | 35. ETL Data Foundation | HaronTime/LapTime/Jyuni float64 in Parquet + POST_RACE safety | ETL-01~05 | DONE |
 | 36. Feature Computation | Turf relative + conditional interactions + Haron/Lap PIT-safe | TRF-01~03, INT-01~04, HLF-01~05 | DONE |
-| 36.1. HaronTime L4/LapTime Redesign | クロスレベル派生特徴量への再設計 + BT hist_features欠落修正 | RED-01~06 | PLANNED (2 plans) |
-| 37. EV Calibration Layers | Pop band calibration + regime-surface EV correction | CAL-01~05 | Blocked by 36.1 |
+| 36.1. HaronTime L4/LapTime Redesign | クロスレベル派生特徴量への再設計 + BT hist_features欠落修正 | RED-01~06 | DONE (352 tests) |
+| 37. EV Calibration Layers | Pop band calibration + regime-surface EV correction | CAL-01~05 | Next |
 | 38. Integrated Validation | CI tests + IC positive + BT ROI 100%+ + Manifest freeze | VAL-01~06 | Pending |
 
 ## Performance Metrics
