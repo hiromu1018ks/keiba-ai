@@ -25,6 +25,18 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def _safe_float(val: Any, default: float = 0.0) -> float:
+    """Convert *val* to float, returning *default* when val is pd.NA or NaN."""
+    if val is pd.NA:
+        return default
+    try:
+        if pd.isna(val):
+            return default
+    except (TypeError, ValueError):
+        pass
+    return float(val)
+
+
 def _compute_phase36_aggregates(race_df: pd.DataFrame) -> dict[str, float]:
     """Phase36 horse-level features から race-level aggregate を計算 (NaN-safe)"""
     result: dict[str, float] = {}
@@ -549,7 +561,7 @@ class RacePredictor:
         calibrated_edges: list[float] = []
         masked_race = race_df.loc[mask]
         for idx, row in candidates.iterrows():
-            raw_edge = float(row.get(edge_col, 0.0))
+            raw_edge = _safe_float(row.get(edge_col, 0.0))
             if raw_edge >= 1.5:
                 cal_edge = _calibrator.calibrate(row, masked_race, raw_edge)
                 calibrated_edges.append(cal_edge)
@@ -756,8 +768,8 @@ class RacePredictor:
             candidates = candidates.head(max_bets)
 
             for _, row in candidates.iterrows():
-                edge_val = float(row.get(edge_col, 0))
-                odds_val = float(row.get("tanodds", 0))
+                edge_val = _safe_float(row.get(edge_col, 0))
+                odds_val = _safe_float(row.get("tanodds", 0))
 
                 if self._betting_mode == "kelly" and self.stake_calc is not None:
                     stake = self.stake_calc.calc_stake(
@@ -767,7 +779,7 @@ class RacePredictor:
                         bet_type=BetType.WIN,
                     )
                     # D-07: EV比例乗算 (Kelly→EV→DD パイプライン)
-                    ev_val = float(row.get(ev_col, 0))
+                    ev_val = _safe_float(row.get(ev_col, 0))
                     stake = self.stake_calc.apply_ev_scaling(stake, ev=ev_val)
                     if self.dd_ctrl is not None:
                         stake = self.dd_ctrl.adjust_stake(stake, bankroll)
@@ -784,7 +796,7 @@ class RacePredictor:
                         umaban=int(row["umaban"]),
                         bet_type=BetType.WIN,
                         odds=odds_val,
-                        ev_lower_corrected=float(row.get(ev_col, 0)),
+                        ev_lower_corrected=_safe_float(row.get(ev_col, 0)),
                         stake=stake,
                         edge=edge_val,
                     )
@@ -875,7 +887,7 @@ class RacePredictor:
                     umaban=int(row["umaban"]),
                     bet_type=BetType.PLACE,
                     odds=odds_val,
-                    ev_lower_corrected=float(row.get(ev_col, row.get("ev_place_corrected", 0))),
+                    ev_lower_corrected=_safe_float(row.get(ev_col, row.get("ev_place_corrected", 0))),
                     stake=stake,
                     edge=edge_val,
                 )
@@ -954,8 +966,8 @@ class RacePredictor:
                 if row_a is None or row_b is None:
                     continue
 
-                fuku_a = float(row_a.get("fukuoddslow", 0))
-                fuku_b = float(row_b.get("fukuoddslow", 0))
+                fuku_a = _safe_float(row_a.get("fukuoddslow", 0))
+                fuku_b = _safe_float(row_b.get("fukuoddslow", 0))
                 if fuku_a <= 0 or fuku_b <= 0:
                     continue
 

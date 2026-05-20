@@ -1228,11 +1228,15 @@ class BacktestEngine:
                         "p_place_pred": (
                             float(horse_rows.iloc[0].get("p_place_pred", 0))
                             if not horse_rows.empty
+                            and horse_rows.iloc[0].get("p_place_pred", 0) is not pd.NA
+                            and not pd.isna(horse_rows.iloc[0].get("p_place_pred", 0))
                             else 0.0
                         ),
                         "e_return_place_pred": (
                             float(horse_rows.iloc[0].get("e_return_place_pred", 0))
                             if not horse_rows.empty
+                            and horse_rows.iloc[0].get("e_return_place_pred", 0) is not pd.NA
+                            and not pd.isna(horse_rows.iloc[0].get("e_return_place_pred", 0))
                             else 0.0
                         ),
                         "top3_finishers": _top3,
