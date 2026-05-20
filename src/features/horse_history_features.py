@@ -727,6 +727,93 @@ class HorseHistoryFeatures:
                     arr = np.column_stack([dates_all_vals.astype(float), cum_mean, cum_std])
                     expanding_stats_hl4[("all",)] = arr
 
+        # -------------------------------------------------------------------
+        # HLF-03: Pre-compute LapTime pace_ratio per past race (PIT-safe)
+        # LapTime1~25 are POST_RACE_COLS — only past-race data is used.
+        # pace_ratio = late_avg / early_avg (D-05)
+        # n_laps = kyori / 200 (D-04), segments via np.array_split
+        #
+        # Note: LapTime columns live in races_hist (not merged into past_df).
+        # We build a per-race lookup from races_hist, then match to horses
+        # via entries_hist during per-horse computation.
+        # -------------------------------------------------------------------
+        _has_laptime = any(c in races_hist.columns for c in ["laptime1", "laptime2"])
+        _pace_lookup: dict[str, dict[str, np.ndarray]] = {}
+
+        if _has_laptime and "kyori" in races_hist.columns:
+            lap_cols = [f"laptime{i}" for i in range(1, 26)]
+            available_lap_cols = [c for c in lap_cols if c in races_hist.columns]
+
+            # Build per-race pace_ratio from races_hist
+            _race_pace_lookup: dict[str, dict[str, float]] = {}
+            for _, race_row in races_hist.iterrows():
+                kyori_val = race_row.get("kyori")
+                if pd.isna(kyori_val) or float(kyori_val) < 600:
+                    continue
+                n_laps = int(float(kyori_val) / 200)
+                if n_laps < 3:
+                    continue
+
+                laptimes = np.array([
+                    float(race_row[c]) if c in available_lap_cols and pd.notna(race_row.get(c))
+                    else float("nan")
+                    for c in [f"laptime{i}" for i in range(1, n_laps + 1)]
+                ])
+                if np.any(np.isnan(laptimes)):
+                    continue
+
+                segments = np.array_split(laptimes, 3)
+                e_avg = float(np.nanmean(segments[0])) if len(segments[0]) > 0 else float("nan")
+                m_avg = float(np.nanmean(segments[1])) if len(segments[1]) > 0 else float("nan")
+                l_avg = float(np.nanmean(segments[2])) if len(segments[2]) > 0 else float("nan")
+
+                if not np.isnan(e_avg) and e_avg > 0 and not np.isnan(l_avg):
+                    _race_pace_lookup[str(race_row["race_id"])] = {
+                        "pace_ratio": l_avg / e_avg,
+                        "early_avg": e_avg,
+                        "mid_avg": m_avg,
+                        "late_avg": l_avg,
+                    }
+
+            # Build per-horse pace history from entries_hist + race_pace_lookup
+            if _race_pace_lookup:
+                # Group entries_hist by kettonum to find each horse's past races
+                entries_hist_sorted = (
+                    entries_filtered.sort_values(["kettonum", "race_date"]).reset_index(drop=True)
+                    if "race_date" in entries_filtered.columns
+                    else entries_filtered
+                )
+
+                for ketto_key, ketto_grp in entries_hist_sorted.groupby("kettonum", observed=True):
+                    pace_ratios: list[float] = []
+                    early_avgs: list[float] = []
+                    mid_avgs: list[float] = []
+                    late_avgs: list[float] = []
+                    pace_dates: list[np.datetime64] = []
+
+                    for _, ent_row in ketto_grp.iterrows():
+                        rid = str(ent_row["race_id"])
+                        pace_info = _race_pace_lookup.get(rid)
+                        if pace_info is None:
+                            continue
+                        pace_ratios.append(pace_info["pace_ratio"])
+                        early_avgs.append(pace_info["early_avg"])
+                        mid_avgs.append(pace_info["mid_avg"])
+                        late_avgs.append(pace_info["late_avg"])
+                        rd = ent_row.get("race_date")
+                        if pd.notna(rd):
+                            pace_dates.append(np.datetime64(rd, "ns"))
+
+                    if pace_ratios and len(pace_dates) == len(pace_ratios):
+                        sort_idx = np.argsort(pace_dates)
+                        _pace_lookup[str(ketto_key)] = {
+                            "pace_ratios": np.array(pace_ratios)[sort_idx],
+                            "early_avgs": np.array(early_avgs)[sort_idx],
+                            "mid_avgs": np.array(mid_avgs)[sort_idx],
+                            "late_avgs": np.array(late_avgs)[sort_idx],
+                            "race_dates": np.array(pace_dates)[sort_idx],
+                        }
+
         total = len(horses)
         results: list[dict] = []
 
@@ -1049,7 +1136,9 @@ class HorseHistoryFeatures:
             # Unified zscore: use L3 expanding_stats as proxy (D-02: L3 has more coverage)
             if n_past > 0 and _has_distance_bin and expanding_stats:
                 # Re-use unified_raw from above if available
-                if "unified_raw" not in dir() or unified_raw is None or np.all(np.isnan(unified_raw)):
+                if "unified_raw" not in dir() or unified_raw is None or np.all(
+                    np.isnan(unified_raw)
+                ):
                     pass  # no unified data
                 else:
                     db_raw_u = horse_arrs["distance_bin"][valid_mask][start:idx]
@@ -1553,13 +1642,67 @@ class HorseHistoryFeatures:
                 weighted_recent_form_finish = float("nan")
                 weighted_recent_form_time = float("nan")
 
-            # HLF-03: LapTime pace features — placeholder (Task 2 will compute)
+            # -----------------------------------------------------------------
+            # HLF-03: LapTime pace features from past races (PIT-safe)
+            # -----------------------------------------------------------------
             pace_ratio_avg: float = float("nan")
             pace_ratio_zscore: float = float("nan")
             pace_ratio_trend: float = float("nan")
             pace_early_avg: float = float("nan")
             pace_mid_avg: float = float("nan")
             pace_late_avg: float = float("nan")
+
+            if _has_laptime:
+                _pace_data = _pace_lookup.get(ketto)
+                if _pace_data is not None and len(_pace_data["pace_ratios"]) > 0:
+                    # PIT-safe: searchsorted on pace_dates
+                    pace_dates_arr = _pace_data["race_dates"].astype("datetime64[ns]")
+                    pace_idx = pace_dates_arr.searchsorted(target_date_np, side="left")
+                    if pace_idx > 0:
+                        past_pr = _pace_data["pace_ratios"][:pace_idx]
+                        past_ea = _pace_data["early_avgs"][:pace_idx]
+                        past_ma = _pace_data["mid_avgs"][:pace_idx]
+                        past_la = _pace_data["late_avgs"][:pace_idx]
+
+                        if len(past_pr) > 0:
+                            # pace_ratio_avg: EMA(halflife=3)
+                            pr_valid = past_pr[~np.isnan(past_pr)]
+                            if len(pr_valid) > 0:
+                                halflife_pr = 3
+                                decay_pr = np.log(2) / halflife_pr
+                                n_pr = len(pr_valid)
+                                weights_pr = (1 - decay_pr) ** np.arange(n_pr)
+                                weights_pr = weights_pr[::-1]
+                                weights_pr = weights_pr / weights_pr.sum()
+                                pace_ratio_avg = float(np.sum(pr_valid * weights_pr))
+
+                                # pace_ratio_trend: linear regression of last 3
+                                pr_trend = pr_valid[-3:] if len(pr_valid) >= 3 else pr_valid
+                                if len(pr_trend) >= 2:
+                                    x_pr = np.arange(len(pr_trend), dtype=float)
+                                    pace_ratio_trend = float(np.polyfit(x_pr, pr_trend, 1)[0])
+
+                                # pace_ratio_zscore: global z-score from horse's own history
+                                if len(pr_valid) >= 3:
+                                    pr_mean = float(np.mean(pr_valid))
+                                    pr_std = float(np.std(pr_valid, ddof=1))
+                                    if pr_std > 0:
+                                        pace_ratio_zscore = float(
+                                            (pace_ratio_avg - pr_mean) / pr_std
+                                        )
+
+                            # Segment averages: simple mean of past values
+                            ea_valid = past_ea[~np.isnan(past_ea)]
+                            if len(ea_valid) > 0:
+                                pace_early_avg = float(np.mean(ea_valid))
+
+                            ma_valid = past_ma[~np.isnan(past_ma)]
+                            if len(ma_valid) > 0:
+                                pace_mid_avg = float(np.mean(ma_valid))
+
+                            la_valid = past_la[~np.isnan(past_la)]
+                            if len(la_valid) > 0:
+                                pace_late_avg = float(np.mean(la_valid))
 
             results.append(
                 {
