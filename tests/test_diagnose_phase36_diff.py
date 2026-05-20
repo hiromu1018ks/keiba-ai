@@ -19,7 +19,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from diagnose_phase36_diff import (
+from scripts.diagnose_phase36_diff import (
     compute_horse_overlap,
     compute_roi_breakdown,
     find_common_races,
