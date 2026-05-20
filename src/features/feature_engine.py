@@ -312,6 +312,11 @@ class FeatureEngine:
         if self._exclude_steeple:
             result_df = result_df[result_df["trackcd"] < 51]
 
+        # 3b. 出走取消・競走除外馬 (kakuteijyuni=0) を除外
+        # 取消馬はオッズが設定されず popularity_rank が NaN になるため特徴量計算の対象外
+        if "kakuteijyuni" in result_df.columns:
+            result_df = result_df[result_df["kakuteijyuni"] > 0]
+
         # 4. 基本特徴量のマッピング
         result_df = self._map_basic_features(result_df)
 
