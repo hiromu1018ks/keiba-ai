@@ -542,6 +542,22 @@ class RacePredictor:
         if candidates.empty:
             return candidates
 
+        # --- EV tail calibration (RTG-04): scale high-EV candidates by family agreement ---
+        from betting.ev_tail_calibration import EVTtailCalibrator
+
+        _calibrator = EVTtailCalibrator()
+        calibrated_edges: list[float] = []
+        masked_race = race_df.loc[mask]
+        for idx, row in candidates.iterrows():
+            raw_edge = float(row.get(edge_col, 0.0))
+            if raw_edge >= 1.5:
+                cal_edge = _calibrator.calibrate(row, masked_race, raw_edge)
+                calibrated_edges.append(cal_edge)
+            else:
+                calibrated_edges.append(raw_edge)
+        candidates["_calibrated_edge"] = calibrated_edges
+        sort_edge_col = "_calibrated_edge"
+
         # D-08: Log gate pass status for debugging (not used as filter)
         if "win_gate_pass" in candidates.columns:
             n_gate_pass = int(candidates["win_gate_pass"].fillna(False).astype(bool).sum())
@@ -549,7 +565,7 @@ class RacePredictor:
                 "Win candidates: %d total, %d gate pass", len(candidates), n_gate_pass,
             )
 
-        # D-07: Rank by win_gate_score DESC, fallback to win_selection_edge DESC
+        # D-07: Rank by win_gate_score DESC, fallback to calibrated_edge DESC
         if "win_gate_score" in candidates.columns:
             gate_score = pd.to_numeric(candidates["win_gate_score"], errors="coerce")
             candidates["_win_gate_score_num"] = gate_score.fillna(float("-inf"))
@@ -560,18 +576,21 @@ class RacePredictor:
                 )
                 candidates["_conf_score"] = conf_score.fillna(0.0)
                 candidates = candidates.sort_values(
-                    ["_win_gate_score_num", edge_col, "_conf_score"],
+                    ["_win_gate_score_num", sort_edge_col, "_conf_score"],
                     ascending=[False, False, False],
                 )
                 candidates = candidates.drop(columns=["_conf_score"])
             else:
                 candidates = candidates.sort_values(
-                    ["_win_gate_score_num", edge_col],
+                    ["_win_gate_score_num", sort_edge_col],
                     ascending=[False, False],
                 )
             candidates = candidates.drop(columns=["_win_gate_score_num"])
         else:
-            candidates = candidates.sort_values([edge_col], ascending=[False])
+            candidates = candidates.sort_values([sort_edge_col], ascending=[False])
+
+        # Drop internal calibration column; original edge_col preserved for diagnostics
+        candidates = candidates.drop(columns=[sort_edge_col])
 
         # D-09: Max 2 candidates per race
         return candidates.head(2)

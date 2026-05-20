@@ -295,3 +295,90 @@ class TestConstants:
 
     def test_ability_features_correct(self) -> None:
         assert FAMILY_FEATURES["ability"] == ["p_win_pred"]
+
+
+# ---------------------------------------------------------------------------
+# Test: Integration with get_win_candidates()
+# ---------------------------------------------------------------------------
+
+class TestGetWinCandidatesIntegration:
+    """get_win_candidates() で高EV候補にキャリブレーションが適用されるか検証"""
+
+    def _make_race_df_with_edges(
+        self,
+        edges: list[float],
+        n_horses: int = 8,
+        seed: int = 42,
+        *,
+        with_gate_score: bool = False,
+    ) -> pd.DataFrame:
+        """win_selection_edge 付きのrace_dfを生成
+
+        Args:
+            edges: 各馬のedge値 (最初のlen(edges)馬に設定)
+            n_horses: 馬数
+            seed: 乱数シード
+            with_gate_score: Trueの場合、win_gate_score列を追加 (値=馬番号)
+        """
+        rng = np.random.default_rng(seed)
+        df = _build_race_df(n_horses=n_horses, seed=seed)
+        # 最初の len(edges) 馬にedgeを設定
+        edge_col = [0.0] * n_horses
+        for i, e in enumerate(edges):
+            if i < n_horses:
+                edge_col[i] = e
+        df["win_selection_edge"] = edge_col
+        df["tanodds"] = [5.0 + i for i in range(n_horses)]
+        if with_gate_score:
+            df["win_gate_score"] = [float(i) for i in range(n_horses)]
+        return df
+
+    def test_low_ev_candidate_not_calibrated(self) -> None:
+        """edge < 1.5 の候補はソート順が変わらない (gate_scoreなし=edge順sort)"""
+        from backtest.race_predictor import RacePredictor
+
+        df = self._make_race_df_with_edges([0.5, 0.3, 0.1, 0.05, 0.0, 0.0, 0.0, 0.0])
+        rp = RacePredictor.__new__(RacePredictor)
+        rp.models = object()
+        result = rp.get_win_candidates(df)
+        # edge > 0 のみ候補 → 4頭、edge DESC → head(2)
+        assert len(result) == 2
+        assert float(result.iloc[0]["win_selection_edge"]) == pytest.approx(0.5)
+        assert float(result.iloc[1]["win_selection_edge"]) == pytest.approx(0.3)
+
+    def test_high_ev_candidate_calibrated(self) -> None:
+        """edge >= 1.5 の候補がキャリブレーションされることを確認
+
+        gate_scoreなしの場合、sort keyは_calibrated_edgeのみ。
+        edge=2.0は平均値の馬なので0 families → 2.0*0.70=1.4 に縮小。
+        edge=1.5の馬が calibration 後に上位になることを確認。
+        """
+        from backtest.race_predictor import RacePredictor
+
+        # edge=2.0 (calibrated→1.4), edge=1.5 (calibrated→1.05), edge=0.5 (not calibrated)
+        df = self._make_race_df_with_edges([2.0, 1.5, 0.5, 0.0, 0.0, 0.0, 0.0, 0.0])
+        rp = RacePredictor.__new__(RacePredictor)
+        rp.models = object()
+        result = rp.get_win_candidates(df)
+        assert len(result) == 2
+        # sorted by _calibrated_edge DESC:
+        # idx0: edge=2.0 → cal=1.4
+        # idx1: edge=1.5 → cal=1.05
+        # idx2: edge=0.5 → cal=0.5
+        # → [1.4, 1.05] → original edges [2.0, 1.5]
+        first_edge = float(result.iloc[0]["win_selection_edge"])
+        second_edge = float(result.iloc[1]["win_selection_edge"])
+        assert first_edge == pytest.approx(2.0)
+        assert second_edge == pytest.approx(1.5)
+
+    def test_no_calibrated_edge_column_in_result(self) -> None:
+        """返却DataFrameに_calibrated_edge列が含まれないことを確認"""
+        from backtest.race_predictor import RacePredictor
+
+        df = self._make_race_df_with_edges([2.0, 0.5, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+        rp = RacePredictor.__new__(RacePredictor)
+        rp.models = object()
+        result = rp.get_win_candidates(df)
+        assert "_calibrated_edge" not in result.columns
+        # 元のedge列は保持
+        assert "win_selection_edge" in result.columns
