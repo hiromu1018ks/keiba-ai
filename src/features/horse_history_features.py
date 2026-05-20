@@ -26,8 +26,8 @@ import pandas as pd
 from features.form_cycle_features import compute_form_features
 from features.high_odds_features import (
     compute_class_trajectory,
-    compute_form_improvement_rate,
     compute_env_adaptability,
+    compute_form_improvement_rate,
 )
 
 logger = logging.getLogger(__name__)
