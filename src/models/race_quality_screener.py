@@ -81,6 +81,12 @@ class RaceQualityScreener:
         "rl_top1_odds",
         "rl_favorite_rank_gap",
         "rl_n_horses",
+        # Phase36 race-level aggregates (RTG-02/03)
+        "phase36_top1_strength",
+        "phase36_top1_top2_gap",
+        "phase36_field_dispersion",
+        "phase36_form_signal_dispersion",
+        "phase36_weighted_form_mean",
     ]
 
     _CATEGORY_COLS: list[str] = ["surface", "distance_bin", "grade_code"]
@@ -154,12 +160,16 @@ class RaceQualityScreener:
 
     def should_bet(self, race_features: dict) -> bool:
         """レースが投票対象かを判定"""
+        score = self.predict_score(race_features)
+        return score >= self.threshold
+
+    def predict_score(self, race_features: dict) -> float:
+        """品質スコアを返す (should_bet と同じモデル推論、bool 変換なし)"""
         features = self._prepare_features(
             _safe_feature_cols(pd.DataFrame([race_features]), self.FEATURE_COLS),
         )
         best_iter = self.model.best_iteration
-        score = float(self.model.predict(features, num_iteration=best_iter)[0])
-        return score >= self.threshold
+        return float(self.model.predict(features, num_iteration=best_iter)[0])
 
     def calibrate_threshold(
         self,
