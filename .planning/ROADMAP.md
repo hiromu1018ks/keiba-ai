@@ -118,7 +118,7 @@ progress:
 - [x] **Phase 35: ETL Data Foundation** - HaronTime/LapTime/Jyuni float64 + POST_RACE_COLS (completed 2026-05-19)
 - [x] **Phase 36: Feature Computation** - Turf relative features + conditional interactions + Haron/Lap PIT-safe (completed 2026-05-20)
 - [x] **Phase 36.1: HaronTime L4/LapTime Redesign** - クロスレベル派生特徴量 + BT hist_features修正 (completed 2026-05-20)
-- [ ] **Phase 36.1.1: MarketModel & RaceQuality配線修正** - Phase36特徴量ルーティング修正 + EV Tail Calibration (INSERTED)
+- [x] **Phase 36.1.1: MarketModel & RaceQuality配線修正** - Phase36特徴量ルーティング修正 + EV Tail Calibration (INSERTED) (completed 2026-05-20)
 - [ ] **Phase 37: EV Calibration Layers** - Pop band calibration + regime x surface EV correction
 - [ ] **Phase 38: Integrated Validation** - CI leakage tests + IC confirmation + BT ROI 100% + Manifest freeze
 
@@ -183,12 +183,12 @@ Plans:
   4. EV>=1.5高EV長穴をfeature family合意度で分類し、Phase36単独跳ねは縮小、複数合意はaggressiveに扱う
   5. v1.7 vs 現行 共通632レースの同馬/別馬差分レポートでPhase36寄与分解が可能
   6. BT 2024再学習で ROI >= 97.8% (v1.7水準) に回復、ベット数 >= 1500 **[Phase 38で検証]** -- Phase 36.1.1はコード修正を完了し、Phase 38 (Integrated Validation) でBT再実行によるROI検証を実施
-**Plans:** 2/4 plans executed
+**Plans:** 4/4 plans complete
 
 Plans:
 - [x] 36.1.1-01-PLAN.md -- Phase36特徴量の3モデルFEATURE_COLS除外 (RTG-01)
-- [ ] 36.1.1-02-PLAN.md -- Race-level aggregate追加 + quality_score修正 (RTG-02, RTG-03)
-- [ ] 36.1.1-03-PLAN.md -- EV Tail Calibration feature family合意度 (RTG-04)
+- [x] 36.1.1-02-PLAN.md -- Race-level aggregate追加 + quality_score修正 (RTG-02, RTG-03)
+- [x] 36.1.1-03-PLAN.md -- EV Tail Calibration feature family合意度 (RTG-04)
 - [x] 36.1.1-04-PLAN.md -- v1.7 vs 現行 差分診断スクリプト (RTG-05)
 
 ### Phase 37: EV Calibration Layers
@@ -260,6 +260,6 @@ Phases execute in numeric order: 35 -> 36 -> 36.1 -> 36.1.1 -> 37 -> 38
 | 35. ETL Data Foundation | v1.8 | 2/2 | Complete    | 2026-05-19 |
 | 36. Feature Computation | v1.8 | 2/2 | Complete | 2026-05-20 |
 | 36.1. HaronTime L4/LapTime Redesign | v1.8 | 2/2 | Complete | 2026-05-20 |
-| 36.1.1. MarketModel & RaceQuality配線修正 | v1.8 | 2/4 | In Progress|  |
+| 36.1.1. MarketModel & RaceQuality配線修正 | v1.8 | 4/4 | Complete    | 2026-05-20 |
 | 37. EV Calibration Layers | v1.8 | 0/? | Not started | - |
 | 38. Integrated Validation | v1.8 | 0/? | Not started | - |
