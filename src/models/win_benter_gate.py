@@ -277,7 +277,7 @@ def compare_calibrations(
 
         beta_cal = BetaCalibration(parameters="abm")
         beta_cal.fit(p_train, y_train)
-        p_beta = np.asarray(beta_cal.transform(p_val), dtype=float)
+        p_beta = np.asarray(beta_cal.predict(p_val), dtype=float)
         has_beta = True
     except (ImportError, Exception) as e:
         logger.warning("betacal unavailable or failed (%s), using manual fallback", e)
