@@ -579,7 +579,164 @@ class TestPostRaceSafety:
                 f"HLF feature '{feature}' missing from BASE_COLS"
             )
 
-    def test_distance_threshold_constant(self):
-        """HLF-01: DISTANCE_THRESHOLD = 2000 constant exists at module level."""
-        from features.horse_history_features import DISTANCE_THRESHOLD
-        assert DISTANCE_THRESHOLD == 2000
+    def test_distance_threshold_removed_or_unused(self):
+        """D-07: DISTANCE_THRESHOLD should not exist or not be used in last3f calculation."""
+        import features.horse_history_features as hhf_mod
+        # DISTANCE_THRESHOLD should not be defined (removed)
+        assert not hasattr(hhf_mod, "DISTANCE_THRESHOLD"), (
+            "DISTANCE_THRESHOLD should be removed per D-07"
+        )
+
+
+class TestD09DataSourceFix:
+    """D-09: race_cols_all must include harontimel4 for race-level L4 data."""
+
+    def test_race_cols_all_includes_harontimel4(self):
+        """D-09: race_cols_all has harontimel4 so races side L4 is merged."""
+        from features.horse_history_features import HorseHistoryFeatures
+        # We need to check that race_cols_all (used in compute()) includes harontimel4.
+        # Since race_cols_all is a local variable, we verify by checking the source.
+        import inspect
+        source = inspect.getsource(HorseHistoryFeatures.compute)
+        # Check that harontimel4 is in the race_cols_all list within the source
+        assert '"harontimel4"' in source or "'harontimel4'" in source, (
+            "race_cols_all must include 'harontimel4' per D-09"
+        )
+
+
+class TestD07Last3fL3Only:
+    """D-07: harontime_last3f uses only L3 data, no DISTANCE_THRESHOLD branching."""
+
+    def test_last3f_always_uses_l3_regardless_of_distance(self):
+        """D-07: harontime_last3f_avg should use L3 values even for long distance races."""
+        ketto = "12345"
+        past_entries = [
+            _make_entry_row("202310010101", 1, ketto, race_date=pd.Timestamp("2023-10-01"),
+                           kakuteijyuni=1, odds=5.0,
+                           harontimel3=35.0, harontimel4=47.0),
+            _make_entry_row("202311010101", 1, ketto, race_date=pd.Timestamp("2023-11-01"),
+                           kakuteijyuni=2, odds=8.0,
+                           harontimel3=34.0, harontimel4=46.0),
+        ]
+        past_races = [
+            _make_race_row("202310010101", "2023-10-01", kyori=2400),
+            _make_race_row("202311010101", "2023-11-01", kyori=2400),
+        ]
+        current_entries = [_make_entry_row("202401010101", 1, ketto)]
+        # kyori=2400 (long distance): OLD behavior would select L4 (47,46)
+        # NEW behavior (D-07): always uses L3 (35,34)
+        current_races = [_make_race_row("202401010101", "2024-01-01", kyori=2400)]
+
+        hhf, entry_df, race_df = _create_hhf_with_history(
+            past_entries, past_races, current_entries, current_races
+        )
+        result = hhf.compute(race_df, entry_df)
+
+        val = result["harontime_last3f_avg"].iloc[0]
+        assert pd.notna(val)
+        # Should be based on L3 values (35.0, 34.0) = ~34.5 range, NOT L4 (46-47)
+        assert 32.0 < val < 37.0, (
+            f"Expected L3-based value (~34-35), got {val}. "
+            "harontime_last3f should always use L3 per D-07"
+        )
+
+    def test_last3f_ignores_l4_fully(self):
+        """D-07: When L3 is present but L4 is NaN, last3f should still work with L3."""
+        ketto = "12345"
+        past_entries = [
+            _make_entry_row("202310010101", 1, ketto, race_date=pd.Timestamp("2023-10-01"),
+                           kakuteijyuni=1, odds=5.0,
+                           harontimel3=35.0, harontimel4=float("nan")),
+            _make_entry_row("202311010101", 1, ketto, race_date=pd.Timestamp("2023-11-01"),
+                           kakuteijyuni=2, odds=8.0,
+                           harontimel3=34.0, harontimel4=float("nan")),
+        ]
+        past_races = [
+            _make_race_row("202310010101", "2023-10-01"),
+            _make_race_row("202311010101", "2023-11-01"),
+        ]
+        current_entries = [_make_entry_row("202401010101", 1, ketto)]
+        current_races = [_make_race_row("202401010101", "2024-01-01", kyori=2400)]
+
+        hhf, entry_df, race_df = _create_hhf_with_history(
+            past_entries, past_races, current_entries, current_races
+        )
+        result = hhf.compute(race_df, entry_df)
+
+        val = result["harontime_last3f_avg"].iloc[0]
+        assert pd.notna(val)
+        # Uses L3 (35.0, 34.0)
+        assert 32.0 < val < 37.0
+
+
+class TestD08HarontimeL4RenamedToClosingSpeedRatio:
+    """D-08: harontimel4_avg/zscore/trend renamed to closing_speed_ratio_avg/zscore/trend."""
+
+    def test_base_cols_has_closing_speed_ratio(self):
+        """D-08: BASE_COLS contains closing_speed_ratio_avg/zscore/trend."""
+        from features.horse_history_features import HorseHistoryFeatures
+        for col in ["closing_speed_ratio_avg", "closing_speed_ratio_zscore",
+                     "closing_speed_ratio_trend"]:
+            assert col in HorseHistoryFeatures.BASE_COLS, (
+                f"BASE_COLS missing: {col}"
+            )
+
+    def test_base_cols_no_harontimel4_avg(self):
+        """D-08: BASE_COLS does NOT contain harontimel4_avg/zscore/trend."""
+        from features.horse_history_features import HorseHistoryFeatures
+        for col in ["harontimel4_avg", "harontimel4_zscore", "harontimel4_trend"]:
+            assert col not in HorseHistoryFeatures.BASE_COLS, (
+                f"BASE_COLS should NOT contain: {col} (replaced by closing_speed_ratio)"
+            )
+
+    def test_results_dict_keys_renamed(self):
+        """D-08: compute() result has closing_speed_ratio_* keys, not harontimel4_*."""
+        ketto = "12345"
+        past_entries = [
+            _make_entry_row("202310010101", 1, ketto, race_date=pd.Timestamp("2023-10-01"),
+                           kakuteijyuni=1, odds=5.0,
+                           harontimel3=35.0, harontimel4=47.0),
+        ]
+        past_races = [
+            _make_race_row("202310010101", "2023-10-01", harontimel4=47.0),
+        ]
+        current_entries = [_make_entry_row("202401010101", 1, ketto)]
+        current_races = [_make_race_row("202401010101", "2024-01-01", kyori=2000)]
+
+        hhf, entry_df, race_df = _create_hhf_with_history(
+            past_entries, past_races, current_entries, current_races
+        )
+        result = hhf.compute(race_df, entry_df)
+
+        # New keys should exist
+        assert "closing_speed_ratio_avg" in result.columns
+        assert "closing_speed_ratio_zscore" in result.columns
+        assert "closing_speed_ratio_trend" in result.columns
+        # Old keys should NOT exist
+        assert "harontimel4_avg" not in result.columns
+        assert "harontimel4_zscore" not in result.columns
+        assert "harontimel4_trend" not in result.columns
+
+    def test_race_predictor_has_closing_speed_ratio(self):
+        """D-08: RacePredictor._race_rank_cols uses closing_speed_ratio_avg."""
+        from backtest.race_predictor import RacePredictor
+        import inspect
+        source = inspect.getsource(RacePredictor.predict)
+        assert "closing_speed_ratio_avg" in source, (
+            "RacePredictor._race_rank_cols should contain 'closing_speed_ratio_avg'"
+        )
+        assert "harontimel4_avg" not in source.replace(
+            "# harontimel4_avg", ""  # ignore comments
+        ), "RacePredictor should use closing_speed_ratio_avg, not harontimel4_avg"
+
+    def test_race_transforms_has_closing_speed_ratio(self):
+        """D-08: add_race_transforms uses closing_speed_ratio_avg for race_rank."""
+        from features.horse_history_features import HorseHistoryFeatures
+        import inspect
+        source = inspect.getsource(HorseHistoryFeatures.add_race_transforms)
+        assert "closing_speed_ratio_avg" in source, (
+            "add_race_transforms should contain 'closing_speed_ratio_avg' in race_rank_cols"
+        )
+        assert "harontimel4_avg" not in source, (
+            "add_race_transforms should NOT contain 'harontimel4_avg'"
+        )
