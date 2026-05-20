@@ -306,6 +306,11 @@ class TestRemoveNoiseFeatures:
             # Phase 36 TRF features
             "weighted_recent_form_finish",
             "weighted_recent_form_time",
+            # Phase 36.1 horse-level features
+            "haron_race_gap_avg",
+            "haron_race_gap_zscore",
+            "haron_race_gap_trend",
+            "pace_adj_finish_avg",
         ]
         # FEATURE_COLSは元の特徴量の部分集合であること
         for feat in WinTwoStageModel.FEATURE_COLS:

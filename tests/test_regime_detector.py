@@ -232,7 +232,7 @@ class TestRegimeDetector:
         assert hasattr(detector, "model")
 
 
-# Phase36 fundamental features that must NOT be in RegimeDetector (RTG-01)
+# Phase36 fundamental features restored to RegimeDetector
 _PHASE36_FEATURES = [
     "form_trend_race_rank",
     "blood_total_wr_race_rank",
@@ -264,13 +264,13 @@ _PHASE36_FEATURES = [
 
 
 class TestRegimeDetectorFeatureRouting:
-    """RTG-01: RegimeDetector must NOT contain Phase36 fundamental features."""
+    """Phase36 特徴量が RegimeDetector に復元されていることを検証"""
 
-    def test_no_phase36_features_in_feature_cols(self) -> None:
-        """RegimeDetector.FEATURE_COLS に Phase36 特徴量が含まれない (RTG-01)"""
+    def test_phase36_features_in_feature_cols(self) -> None:
+        """RegimeDetector.FEATURE_COLS に Phase36 特徴量が含まれる"""
         for feat in _PHASE36_FEATURES:
-            assert feat not in RegimeDetector.FEATURE_COLS, (
-                f"Phase36 feature '{feat}' found in RegimeDetector.FEATURE_COLS"
+            assert feat in RegimeDetector.FEATURE_COLS, (
+                f"Phase36 feature '{feat}' missing from RegimeDetector.FEATURE_COLS"
             )
 
     def test_market_indicators_still_present(self) -> None:

@@ -638,6 +638,9 @@ class TestBuildRegimeStats:
             "blood_surface_wr_race_rank",
             "grade_x_form_trend", "grade_x_blood_prize_log",
             "distance_x_closing_index",
+            # Phase 36.1 horse-level features
+            "haron_race_gap_avg", "haron_race_gap_zscore",
+            "haron_race_gap_trend", "pace_adj_finish_avg",
         }
         for col in RegimeDetector.FEATURE_COLS:
             if col in horse_level_cols:

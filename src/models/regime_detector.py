@@ -86,6 +86,38 @@ class RegimeDetector:
         "rl_top1_odds",
         "rl_favorite_rank_gap",
         "rl_n_horses",
+        # フォーム・血統ランク
+        "form_trend_race_rank",
+        "blood_total_wr_race_rank",
+        "blood_surface_wr_race_rank",
+        "weighted_recent_form_finish",
+        "weighted_recent_form_time",
+        # 交差特徴量
+        "grade_x_form_trend",
+        "distance_x_closing_index",
+        "grade_x_blood_prize_log",
+        # 末脚指標
+        "closing_speed_ratio_avg",
+        "closing_speed_ratio_zscore",
+        "closing_speed_ratio_trend",
+        "closing_speed_ratio_avg_race_rank",
+        # 上がりタイム
+        "harontime_last3f_avg",
+        "harontime_last3f_zscore",
+        "harontime_last3f_trend",
+        "harontime_last3f_avg_race_rank",
+        # ハロンギャップ
+        "haron_race_gap_avg",
+        "haron_race_gap_zscore",
+        "haron_race_gap_trend",
+        # ペース指標
+        "pace_adj_finish_avg",
+        "pace_ratio_avg",
+        "pace_ratio_zscore",
+        "pace_ratio_trend",
+        "pace_early_avg",
+        "pace_mid_avg",
+        "pace_late_avg",
     ]
 
     def __init__(

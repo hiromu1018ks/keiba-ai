@@ -242,7 +242,7 @@ class TestMarketModelStage2Features:
         assert "market_error_rank_in_race" in features
 
 
-# Phase36 fundamental features that must NOT be in MarketModel (RTG-01)
+# Phase36 fundamental features restored to MarketModel
 _PHASE36_FEATURES = [
     "form_trend_race_rank",
     "blood_total_wr_race_rank",
@@ -274,13 +274,13 @@ _PHASE36_FEATURES = [
 
 
 class TestMarketModelFeatureRouting:
-    """RTG-01: MarketModel must NOT contain Phase36 fundamental features."""
+    """Phase36 特徴量が MarketModel に復元されていることを検証"""
 
-    def test_no_phase36_features_in_feature_cols(self) -> None:
-        """MarketModel.FEATURE_COLS に Phase36 特徴量が含まれない (RTG-01)"""
+    def test_phase36_features_in_feature_cols(self) -> None:
+        """MarketModel.FEATURE_COLS に Phase36 特徴量が含まれる"""
         for feat in _PHASE36_FEATURES:
-            assert feat not in MarketModel.FEATURE_COLS, (
-                f"Phase36 feature '{feat}' found in MarketModel.FEATURE_COLS"
+            assert feat in MarketModel.FEATURE_COLS, (
+                f"Phase36 feature '{feat}' missing from MarketModel.FEATURE_COLS"
             )
 
     def test_market_features_still_present(self) -> None:

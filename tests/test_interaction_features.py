@@ -477,7 +477,6 @@ def test_all_models_have_new_features():
         "ConformalEVModel": ConformalEVModel.FEATURE_COLS,
         "MarketModel": MarketModel.FEATURE_COLS,
         "PlaceAbilityModel": PlaceAbilityModel.FEATURE_COLS,
-        "RaceQualityScreener": RaceQualityScreener.FEATURE_COLS,
         "RegimeDetector": RegimeDetector.FEATURE_COLS,
         "WideTwoStageModel.SHARED": WideTwoStageModel.SHARED_FEATURE_COLS,
     }

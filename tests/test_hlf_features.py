@@ -484,7 +484,6 @@ MODEL_CLASSES = [
     ("ConformalEVModel", "src.models.conformal_ev_model", "FEATURE_COLS"),
     ("MarketModel", "src.models.market_model", "FEATURE_COLS"),
     ("PlaceAbilityModel", "src.models.place_ability_model", "FEATURE_COLS"),
-    ("RaceQualityScreener", "src.models.race_quality_screener", "FEATURE_COLS"),
     ("RegimeDetector", "src.models.regime_detector", "FEATURE_COLS"),
     ("WideTwoStageModel", "src.models.wide_two_stage_model", "SHARED_FEATURE_COLS"),
 ]
