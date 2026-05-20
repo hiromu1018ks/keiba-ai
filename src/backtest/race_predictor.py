@@ -700,6 +700,11 @@ class RacePredictor:
         features = self.build_race_features(race_df)
         return bool(self.models.quality_screener.should_bet(features))
 
+    def get_quality_score(self, race_df: pd.DataFrame) -> float:
+        """RaceQualityScreener の品質スコアを取得 (should_bet と同じ推論、bool 変換なし)"""
+        features = self.build_race_features(race_df)
+        return float(self.models.quality_screener.predict_score(features))
+
     def select_bets(
         self,
         race_df: pd.DataFrame,

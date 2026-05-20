@@ -988,14 +988,17 @@ class BacktestEngine:
                 result_df.get("market_condition_score", pd.Series([np.nan])).iloc[0]
             )
 
-            if not self._race_predictor.should_bet(result_df):
+            _quality_score = self._race_predictor.get_quality_score(result_df)
+            _quality_passed = self._race_predictor.should_bet(result_df)
+
+            if not _quality_passed:
                 diag_logger.log_race(
                     race_id=race_id,
                     regime=str(regime),
                     ev_threshold=regime_params.get("ev_threshold", 1.10),
                     edge_threshold=edge_threshold,
                     quality_passed=False,
-                    quality_score=0.0,
+                    quality_score=_quality_score,
                     n_candidates=n_candidates,
                     n_bets=0,
                     aggressive_strength=race_aggressive_strength,
@@ -1086,7 +1089,7 @@ class BacktestEngine:
                 ev_threshold=regime_params.get("ev_threshold", 1.10),
                 edge_threshold=edge_threshold,
                 quality_passed=True,
-                quality_score=0.0,
+                quality_score=_quality_score,
                 n_candidates=n_candidates,
                 n_bets=len(bets),
                 aggressive_strength=race_aggressive_strength,
