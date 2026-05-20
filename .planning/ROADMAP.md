@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.8
 milestone_name: Turf Precision Calibration
 status: planning
-last_updated: "2026-05-20T15:00:00Z"
+last_updated: "2026-05-20T17:30:00Z"
 progress:
-  total_phases: 38
+  total_phases: 39
   completed_phases: 34
-  total_plans: 80
+  total_plans: 84
   completed_plans: 80
-  percent: 89
+  percent: 87
 ---
 
 # Roadmap: keiba-ai Win Model Improvement
@@ -118,6 +118,7 @@ progress:
 - [x] **Phase 35: ETL Data Foundation** - HaronTime/LapTime/Jyuni float64 + POST_RACE_COLS (completed 2026-05-19)
 - [x] **Phase 36: Feature Computation** - Turf relative features + conditional interactions + Haron/Lap PIT-safe (completed 2026-05-20)
 - [x] **Phase 36.1: HaronTime L4/LapTime Redesign** - クロスレベル派生特徴量 + BT hist_features修正 (completed 2026-05-20)
+- [ ] **Phase 36.1.1: MarketModel & RaceQuality配線修正** - Phase36特徴量ルーティング修正 + EV Tail Calibration (INSERTED)
 - [ ] **Phase 37: EV Calibration Layers** - Pop band calibration + regime x surface EV correction
 - [ ] **Phase 38: Integrated Validation** - CI leakage tests + IC confirmation + BT ROI 100% + Manifest freeze
 
@@ -163,9 +164,36 @@ Plans:
 - [x] 36.1-01-PLAN.md -- D-09 データソース修正 + D-01/02/03 新規派生特徴量 + D-07 last3f L3統一 + D-08 harontimel4 置換
 - [x] 36.1-02-PLAN.md -- D-11 backtest engine hist_features マージ修正 + 全10モデル FEATURE_COLS 更新
 
+### Phase 36.1.1: MarketModel & RaceQuality配線修正 — Phase36特徴量ルーティング修正 + EV Tail Calibration (INSERTED)
+
+**Goal:** Phase36/36.1の強いfundamental特徴量が全モデルに一律登録されたことで、MarketModelの市場歪み検出役割とRaceQualityScreenerのレース品質判定が崩壊した問題を修復する。Phase36特徴量は残すが、モデルごとの役割に応じたルーティングに変更し、高EV長穴のtail calibrationを実装して、BT 2024 ROIをv1.7水準(97.8%)以上に回復させる
+
+**主因診断:**
+1. RaceQualityScreenerが利益源レースを大量脱落（旧ROI 103.4%の1831件を除外）
+2. 高EV長穴の較正崩壊（EV>=1.5: 160件0勝、人気7+ ROI 58.3%）
+3. 共通レースの馬選択悪化（別馬394件でROI 59.8%）
+4. Phase36特徴量がMarketModelを支配（gain share 80%+、市場モデル契約が崩壊）
+
+**Requirements**: RTG-01, RTG-02, RTG-03, RTG-04, RTG-05
+**Depends on:** Phase 36.1
+**Success Criteria** (what must be TRUE):
+  1. MarketModel.FEATURE_COLS からPhase36 fundamental特徴量を除外し、market-only特徴量(odds distribution, overround, market_entropy, popularity_rank, late_money)に戻す
+  2. RaceQualityScreenerが quality_score=0 固定問題を解消し、実効的なscore/thresholdを出力する
+  3. RaceQualityScreenerが馬単位Phase36列ではなくrace aggregate特徴量(phase36_top1_strength, phase36_top1_top2_gap, form_signal_dispersion等)を使用する
+  4. EV>=1.5高EV長穴をfeature family合意度で分類し、Phase36単独跳ねは縮小、複数合意はaggressiveに扱う
+  5. v1.7 vs 現行 共通632レースの同馬/別馬差分レポートでPhase36寄与分解が可能
+  6. BT 2024再学習で ROI >= 97.8% (v1.7水準) に回復、ベット数 >= 1500
+**Plans:** 4 plans
+
+Plans:
+- [ ] 36.1.1-01-PLAN.md -- Phase36特徴量の3モデルFEATURE_COLS除外 (RTG-01)
+- [ ] 36.1.1-02-PLAN.md -- Race-level aggregate追加 + quality_score修正 (RTG-02, RTG-03)
+- [ ] 36.1.1-03-PLAN.md -- EV Tail Calibration feature family合意度 (RTG-04)
+- [ ] 36.1.1-04-PLAN.md -- v1.7 vs 現行 差分診断スクリプト (RTG-05)
+
 ### Phase 37: EV Calibration Layers
 **Goal**: Popularity band calibration and regime-surface EV correction improve EV accuracy for turf middle-popularity horses
-**Depends on**: Phase 36
+**Depends on**: Phase 36.1.1
 **Requirements**: CAL-01, CAL-02, CAL-03, CAL-04, CAL-05
 **Success Criteria** (what must be TRUE):
   1. Popularity band calibration (5 bands: 1-3, 4-6, 7-9, 10-12, 13+) produces per-band EV scaling factors computed from OOF residuals with extended-window OOF to prevent look-ahead bias
@@ -176,7 +204,7 @@ Plans:
 
 ### Phase 38: Integrated Validation
 **Goal**: All v1.8 features and calibration layers are validated safe, turf IC is positive, and BT ROI exceeds 100%
-**Depends on**: Phase 37
+**Depends on**: Phase 36.1.1, Phase 37
 **Requirements**: VAL-01, VAL-02, VAL-03, VAL-04, VAL-05, VAL-06
 **Success Criteria** (what must be TRUE):
   1. 3-layer CI leakage tests cover all new HLF/TRF/INT feature columns and all pass
@@ -190,7 +218,7 @@ Plans:
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 35 -> 36 -> 36.1 -> 37 -> 38
+Phases execute in numeric order: 35 -> 36 -> 36.1 -> 36.1.1 -> 37 -> 38
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
@@ -232,5 +260,6 @@ Phases execute in numeric order: 35 -> 36 -> 36.1 -> 37 -> 38
 | 35. ETL Data Foundation | v1.8 | 2/2 | Complete    | 2026-05-19 |
 | 36. Feature Computation | v1.8 | 2/2 | Complete | 2026-05-20 |
 | 36.1. HaronTime L4/LapTime Redesign | v1.8 | 2/2 | Complete | 2026-05-20 |
+| 36.1.1. MarketModel & RaceQuality配線修正 | v1.8 | 0/4 | Not started | - |
 | 37. EV Calibration Layers | v1.8 | 0/? | Not started | - |
 | 38. Integrated Validation | v1.8 | 0/? | Not started | - |
