@@ -570,22 +570,22 @@ class TestComputeConditionStatsWin:
             {
                 "surface": "turf", "kyori": 1200, "popularity": 1,
                 "ev": 1.8, "stake": 100.0, "result": 250.0, "is_win": True,
-                "tanoddslow": 2.5, "regime": "aggressive",
+                "odds": 2.5, "regime": "aggressive",
             },
             {
                 "surface": "turf", "kyori": 1600, "popularity": 5,
                 "ev": 1.3, "stake": 100.0, "result": 300.0, "is_win": True,
-                "tanoddslow": 5.0, "regime": "conservative",
+                "odds": 5.0, "regime": "conservative",
             },
             {
                 "surface": "dirt", "kyori": 1200, "popularity": 8,
                 "ev": 0.9, "stake": 100.0, "result": 0.0, "is_win": False,
-                "tanoddslow": 15.0, "regime": "aggressive",
+                "odds": 15.0, "regime": "aggressive",
             },
             {
                 "surface": "dirt", "kyori": 1800, "popularity": 3,
                 "ev": 1.5, "stake": 100.0, "result": 400.0, "is_win": True,
-                "tanoddslow": 8.0, "regime": "collapsed",
+                "odds": 8.0, "regime": "collapsed",
             },
         ]
 
@@ -620,7 +620,7 @@ class TestComputeConditionStatsWin:
             self._make_win_bets(), betting_target="win"
         )
         bands = result["odds_multiplier_bands"]
-        # tanoddslow: 2.5, 5.0, 15.0, 8.0
+        # odds: 2.5, 5.0, 15.0, 8.0
         # bands: 1.0-3.0 (1), 3.0-10.0 (2), 10.0-30.0 (1)
         band_names = [b["band"] for b in bands]
         assert "1.0-3.0" in band_names
@@ -646,7 +646,7 @@ class TestSaveAiDiagnostics:
                 "kyori": 1200 + (i % 4) * 400,
                 "popularity": 1 + (i % 8),
                 "ev": 1.0 + (i % 5) * 0.2,
-                "tanoddslow": 2.0 + i * 1.5,
+                "odds": 2.0 + i * 1.5,
                 "regime": ["aggressive", "conservative", "collapsed"][i % 3],
                 "race_date": f"2024-{month:02d}-{10 + i:02d}",
                 "is_win": i % 2 == 0,
@@ -729,7 +729,7 @@ class TestSaveAiDiagnostics:
                 "kyori": 1200,
                 "popularity": 3,
                 "ev": 1.2,
-                "tanoddslow": 3.0,
+                "odds": 3.0,
                 "regime": "aggressive",
                 "race_date": f"2024-{month:02d}-{10 + i:02d}",
                 "is_win": is_second_half,
@@ -774,7 +774,7 @@ class TestSaveAiDiagnostics:
                 "kyori": 1200,
                 "popularity": 3,
                 "ev": 1.2,
-                "tanoddslow": 3.0,
+                "odds": 3.0,
                 "regime": "aggressive",
                 "race_date": f"2024-{month:02d}-{10 + i:02d}",
                 "is_win": is_first_half,
@@ -818,7 +818,7 @@ class TestSaveAiDiagnostics:
                 "kyori": 1200,
                 "popularity": 3,
                 "ev": 1.2,
-                "tanoddslow": 3.0,
+                "odds": 3.0,
                 "regime": "aggressive",
                 "race_date": f"2024-{month:02d}-{10 + i:02d}",
                 "is_win": True,
@@ -910,7 +910,7 @@ class TestExclusionStatsReporting:
                 "kyori": 1200,
                 "popularity": 3,
                 "ev": 1.5,
-                "tanoddslow": 2.4,
+                "odds": 2.4,
                 "regime": "aggressive",
                 "race_date": "2024-01-01",
                 "is_win": True,
@@ -950,7 +950,7 @@ class TestExclusionStatsReporting:
                 "kyori": 1200,
                 "popularity": 3,
                 "ev": 1.5,
-                "tanoddslow": 2.4,
+                "odds": 2.4,
                 "regime": "aggressive",
                 "race_date": "2024-01-01",
                 "is_win": True,

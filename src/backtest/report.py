@@ -417,9 +417,9 @@ class BacktestReportGenerator:
             odds_multiplier_bands = _band_stats(
                 bets,
                 lambda b: (
-                    "1.0-3.0" if b.get("tanoddslow", 0) < 3.0
-                    else "3.0-10.0" if b.get("tanoddslow", 0) < 10.0
-                    else "10.0-30.0" if b.get("tanoddslow", 0) < 30.0
+                    "1.0-3.0" if b.get("odds", 0) < 3.0
+                    else "3.0-10.0" if b.get("odds", 0) < 10.0
+                    else "10.0-30.0" if b.get("odds", 0) < 30.0
                     else "30.0+"
                 ),
                 ["1.0-3.0", "3.0-10.0", "10.0-30.0", "30.0+"],

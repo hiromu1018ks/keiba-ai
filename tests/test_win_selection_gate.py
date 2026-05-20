@@ -29,7 +29,7 @@ def test_win_selection_gate_trains_and_scores() -> None:
                     "race_date": race_date,
                     "umaban": umaban,
                     "kakuteijyuni": finish,
-                    "tanoddslow": odds,
+                    "tanodds": odds,
                     "win_selection_prob": prob,
                     "win_selection_edge": edge,
                 }
@@ -47,7 +47,7 @@ def test_win_selection_gate_trains_and_scores() -> None:
                 "race_id": ["T1", "T1"],
                 "race_date": [pd.Timestamp("2025-01-01"), pd.Timestamp("2025-01-01")],
                 "umaban": [1, 2],
-                "tanoddslow": [2.2, 11.0],
+                "tanodds": [2.2, 11.0],
                 "win_selection_prob": [0.60, 0.09],
                 "win_selection_edge": [0.22, -0.18],
             }
@@ -134,7 +134,7 @@ def test_win_selection_gate_hit_condition() -> None:
                     "race_date": race_date,
                     "umaban": umaban,
                     "kakuteijyuni": finish,
-                    "tanoddslow": odds,
+                    "tanodds": odds,
                     "win_selection_prob": prob,
                     "win_selection_edge": edge,
                 }
@@ -168,7 +168,7 @@ def test_win_selection_gate_save_load_roundtrip() -> None:
                     "race_date": race_date,
                     "umaban": umaban,
                     "kakuteijyuni": finish,
-                    "tanoddslow": odds,
+                    "tanodds": odds,
                     "win_selection_prob": prob,
                     "win_selection_edge": edge,
                 }
@@ -209,7 +209,7 @@ def test_win_selection_gate_soft_pass_mask() -> None:
         {
             "race_id": ["R1", "R1", "R2", "R2"],
             "umaban": [1, 2, 1, 2],
-            "tanoddslow": [9.8, 8.0, 5.0, 8.5],
+            "tanodds": [9.8, 8.0, 5.0, 8.5],
             "win_selection_prob": [0.375, 0.31, 0.42, 0.375],
             "win_selection_edge": [0.035, 0.08, 0.07, 0.04],
             "win_gate_score": [1.4, 1.0, 1.2, 1.1],
@@ -259,7 +259,7 @@ def _build_gate_fixture_rows(
                     "race_date": race_date,
                     "umaban": umaban,
                     "kakuteijyuni": finish,
-                    "tanoddslow": odds,
+                    "tanodds": odds,
                     "win_selection_prob": prob,
                     "win_selection_edge": edge,
                 }

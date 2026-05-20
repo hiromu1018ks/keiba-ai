@@ -173,7 +173,7 @@ class TestEnsembleFlagPropagation:
             "race_date": pd.date_range("2023-01-01", periods=n_rows, freq="h"),
             "umaban": [1, 2, 3] * n_races,
             "kakuteijyuni": [1, 2, 3] * n_races,
-            "tanoddslow": np.random.uniform(2.0, 50.0, n_rows),
+            "tanodds": np.random.uniform(2.0, 50.0, n_rows),
             "win_selection_prob": np.random.uniform(0.01, 0.5, n_rows),
             "win_selection_edge": np.random.uniform(-0.5, 1.0, n_rows),
         })
