@@ -726,3 +726,248 @@ class TestD08HarontimeL4RenamedToClosingSpeedRatio:
         assert '"harontimel4_avg"' not in code_source, (
             "add_race_transforms code should NOT reference 'harontimel4_avg' as a column"
         )
+
+
+# ---------------------------------------------------------------------------
+# Task 2: D-01 closing_speed_ratio + D-02 haron_race_gap + D-03 pace_adj_finish
+# ---------------------------------------------------------------------------
+
+class TestClosingSpeedRatio:
+    """D-01: closing_speed_ratio = L3 / L4 computation tests."""
+
+    def test_closing_speed_ratio_correct_calculation(self):
+        """D-01: closing_speed_ratio = L3/L4 is correctly computed (L3=34.5, L4=46.0 -> ratio=0.750)."""
+        ketto = "12345"
+        past_entries = [
+            _make_entry_row("202310010101", 1, ketto, race_date=pd.Timestamp("2023-10-01"),
+                           kakuteijyuni=1, odds=5.0,
+                           harontimel3=34.5, harontimel4=46.0),
+        ]
+        past_races = [
+            _make_race_row("202310010101", "2023-10-01", harontimel4=46.0),
+        ]
+        current_entries = [_make_entry_row("202401010101", 1, ketto)]
+        current_races = [_make_race_row("202401010101", "2024-01-01", kyori=2000)]
+
+        hhf, entry_df, race_df = _create_hhf_with_history(
+            past_entries, past_races, current_entries, current_races
+        )
+        result = hhf.compute(race_df, entry_df)
+
+        val = result["closing_speed_ratio_avg"].iloc[0]
+        assert pd.notna(val)
+        # 34.5 / 46.0 = 0.75 (single value, EMA = value itself)
+        assert abs(val - 0.75) < 0.01, f"Expected ~0.75, got {val}"
+
+    def test_closing_speed_ratio_nan_when_l3_nan(self):
+        """D-01: closing_speed_ratio is NaN when L3 is NaN."""
+        ketto = "12345"
+        past_entries = [
+            _make_entry_row("202310010101", 1, ketto, race_date=pd.Timestamp("2023-10-01"),
+                           kakuteijyuni=1, odds=5.0,
+                           harontimel3=float("nan"), harontimel4=46.0),
+        ]
+        past_races = [
+            _make_race_row("202310010101", "2023-10-01"),
+        ]
+        current_entries = [_make_entry_row("202401010101", 1, ketto)]
+        current_races = [_make_race_row("202401010101", "2024-01-01", kyori=2000)]
+
+        hhf, entry_df, race_df = _create_hhf_with_history(
+            past_entries, past_races, current_entries, current_races
+        )
+        result = hhf.compute(race_df, entry_df)
+
+        assert pd.isna(result["closing_speed_ratio_avg"].iloc[0])
+
+    def test_closing_speed_ratio_nan_when_l4_nan(self):
+        """D-01: closing_speed_ratio is NaN when L4 is NaN."""
+        ketto = "12345"
+        past_entries = [
+            _make_entry_row("202310010101", 1, ketto, race_date=pd.Timestamp("2023-10-01"),
+                           kakuteijyuni=1, odds=5.0,
+                           harontimel3=35.0, harontimel4=float("nan")),
+        ]
+        past_races = [
+            _make_race_row("202310010101", "2023-10-01"),
+        ]
+        current_entries = [_make_entry_row("202401010101", 1, ketto)]
+        current_races = [_make_race_row("202401010101", "2024-01-01", kyori=2000)]
+
+        hhf, entry_df, race_df = _create_hhf_with_history(
+            past_entries, past_races, current_entries, current_races
+        )
+        result = hhf.compute(race_df, entry_df)
+
+        assert pd.isna(result["closing_speed_ratio_avg"].iloc[0])
+
+    def test_closing_speed_ratio_ema_avg(self):
+        """D-01: closing_speed_ratio_avg uses EMA(halflife=3)."""
+        ketto = "12345"
+        # 3 races with increasing closing speed ratio
+        past_entries = [
+            _make_entry_row("202310010101", 1, ketto, race_date=pd.Timestamp("2023-10-01"),
+                           kakuteijyuni=3, odds=10.0,
+                           harontimel3=33.0, harontimel4=48.0),  # ratio = 0.6875
+            _make_entry_row("202311010101", 1, ketto, race_date=pd.Timestamp("2023-11-01"),
+                           kakuteijyuni=2, odds=8.0,
+                           harontimel3=34.5, harontimel4=46.0),  # ratio = 0.75
+            _make_entry_row("202312010101", 1, ketto, race_date=pd.Timestamp("2023-12-01"),
+                           kakuteijyuni=1, odds=5.0,
+                           harontimel3=35.5, harontimel4=44.0),  # ratio = 0.807
+        ]
+        past_races = [
+            _make_race_row("202310010101", "2023-10-01"),
+            _make_race_row("202311010101", "2023-11-01"),
+            _make_race_row("202312010101", "2023-12-01"),
+        ]
+        current_entries = [_make_entry_row("202401010101", 1, ketto)]
+        current_races = [_make_race_row("202401010101", "2024-01-01", kyori=2000)]
+
+        hhf, entry_df, race_df = _create_hhf_with_history(
+            past_entries, past_races, current_entries, current_races
+        )
+        result = hhf.compute(race_df, entry_df)
+
+        val = result["closing_speed_ratio_avg"].iloc[0]
+        assert pd.notna(val)
+        # Simple avg = 0.748, EMA weights newest more -> should be closer to 0.807
+        assert val > 0.748, f"EMA avg should be > simple avg, got {val}"
+
+    def test_closing_speed_ratio_trend(self):
+        """D-01: closing_speed_ratio_trend is computed as linear regression slope."""
+        ketto = "12345"
+        past_entries = [
+            _make_entry_row("202310010101", 1, ketto, race_date=pd.Timestamp("2023-10-01"),
+                           kakuteijyuni=3, odds=10.0,
+                           harontimel3=33.0, harontimel4=48.0),  # ratio = 0.6875
+            _make_entry_row("202311010101", 1, ketto, race_date=pd.Timestamp("2023-11-01"),
+                           kakuteijyuni=2, odds=8.0,
+                           harontimel3=34.0, harontimel4=47.0),  # ratio = 0.723
+            _make_entry_row("202312010101", 1, ketto, race_date=pd.Timestamp("2023-12-01"),
+                           kakuteijyuni=1, odds=5.0,
+                           harontimel3=35.0, harontimel4=46.0),  # ratio = 0.761
+        ]
+        past_races = [
+            _make_race_row("202310010101", "2023-10-01"),
+            _make_race_row("202311010101", "2023-11-01"),
+            _make_race_row("202312010101", "2023-12-01"),
+        ]
+        current_entries = [_make_entry_row("202401010101", 1, ketto)]
+        current_races = [_make_race_row("202401010101", "2024-01-01", kyori=2000)]
+
+        hhf, entry_df, race_df = _create_hhf_with_history(
+            past_entries, past_races, current_entries, current_races
+        )
+        result = hhf.compute(race_df, entry_df)
+
+        val = result["closing_speed_ratio_trend"].iloc[0]
+        assert pd.notna(val)
+        # Ratios increasing: 0.6875 -> 0.723 -> 0.761 -> positive trend
+        assert val > 0
+
+
+class TestHaronRaceGap:
+    """D-02: haron_race_gap = L3 - L4*0.75 computation tests."""
+
+    def test_haron_race_gap_correct_calculation(self):
+        """D-02: haron_race_gap = L3 - L4*0.75 (L3=34.5, L4=46.0 -> gap=0.0)."""
+        ketto = "12345"
+        past_entries = [
+            _make_entry_row("202310010101", 1, ketto, race_date=pd.Timestamp("2023-10-01"),
+                           kakuteijyuni=1, odds=5.0,
+                           harontimel3=34.5, harontimel4=46.0),
+        ]
+        past_races = [
+            _make_race_row("202310010101", "2023-10-01"),
+        ]
+        current_entries = [_make_entry_row("202401010101", 1, ketto)]
+        current_races = [_make_race_row("202401010101", "2024-01-01", kyori=2000)]
+
+        hhf, entry_df, race_df = _create_hhf_with_history(
+            past_entries, past_races, current_entries, current_races
+        )
+        result = hhf.compute(race_df, entry_df)
+
+        val = result["haron_race_gap_avg"].iloc[0]
+        assert pd.notna(val)
+        # 34.5 - 46.0*0.75 = 34.5 - 34.5 = 0.0
+        assert abs(val - 0.0) < 0.01, f"Expected ~0.0, got {val}"
+
+    def test_haron_race_gap_negative_when_fast_closing(self):
+        """D-02: Negative gap means fast closing (strong kick)."""
+        ketto = "12345"
+        past_entries = [
+            _make_entry_row("202310010101", 1, ketto, race_date=pd.Timestamp("2023-10-01"),
+                           kakuteijyuni=1, odds=5.0,
+                           harontimel3=33.0, harontimel4=46.0),
+        ]
+        past_races = [
+            _make_race_row("202310010101", "2023-10-01"),
+        ]
+        current_entries = [_make_entry_row("202401010101", 1, ketto)]
+        current_races = [_make_race_row("202401010101", "2024-01-01", kyori=2000)]
+
+        hhf, entry_df, race_df = _create_hhf_with_history(
+            past_entries, past_races, current_entries, current_races
+        )
+        result = hhf.compute(race_df, entry_df)
+
+        val = result["haron_race_gap_avg"].iloc[0]
+        assert pd.notna(val)
+        # 33.0 - 46.0*0.75 = 33.0 - 34.5 = -1.5
+        assert val < 0, f"Expected negative (fast closing), got {val}"
+
+    def test_haron_race_gap_in_base_cols(self):
+        """D-02: haron_race_gap_avg/zscore/trend are in BASE_COLS."""
+        from features.horse_history_features import HorseHistoryFeatures
+        for col in ["haron_race_gap_avg", "haron_race_gap_zscore", "haron_race_gap_trend"]:
+            assert col in HorseHistoryFeatures.BASE_COLS, f"Missing: {col}"
+
+
+class TestPaceAdjFinish:
+    """D-03: pace_adj_finish_avg = norm_finish * pace_ratio past average."""
+
+    def test_pace_adj_finish_in_base_cols(self):
+        """D-03: pace_adj_finish_avg is in BASE_COLS."""
+        from features.horse_history_features import HorseHistoryFeatures
+        assert "pace_adj_finish_avg" in HorseHistoryFeatures.BASE_COLS
+
+    def test_pace_adj_finish_computed_with_laptime(self):
+        """D-03: pace_adj_finish_avg is computed when laptime data is available."""
+        ketto = "12345"
+        # 2400m = 12 laps, split into 3 segments of 4
+        lap_values = [12.0, 12.1, 12.2, 12.3, 12.5, 12.6, 12.7, 12.8,
+                      13.0, 13.1, 13.2, 13.3]
+        race1_laps = {f"laptime{i+1}": lap_values[i] for i in range(12)}
+        for i in range(13, 26):
+            race1_laps[f"laptime{i}"] = float("nan")
+
+        past_entries = [
+            _make_entry_row("202310010101", 1, ketto, race_date=pd.Timestamp("2023-10-01"),
+                           kakuteijyuni=1, odds=5.0, syussotosu=12,
+                           harontimel3=35.0, harontimel4=47.0),
+        ]
+        past_races = [
+            _make_race_row("202310010101", "2023-10-01", kyori=2400, syussotosu=12, **race1_laps),
+        ]
+        current_entries = [_make_entry_row("202401010101", 1, ketto)]
+        current_races = [_make_race_row("202401010101", "2024-01-01", kyori=2400)]
+
+        hhf, entry_df, race_df = _create_hhf_with_history(
+            past_entries, past_races, current_entries, current_races
+        )
+        result = hhf.compute(race_df, entry_df)
+
+        assert "pace_adj_finish_avg" in result.columns
+
+
+class TestBaseColsCount:
+    """BASE_COLS total count after Task 2 additions."""
+
+    def test_base_cols_count_after_task2(self):
+        """BASE_COLS should be 66 after Task 2 (old 62 - 3 + 7 new = 66)."""
+        from features.horse_history_features import HorseHistoryFeatures
+        assert len(HorseHistoryFeatures.BASE_COLS) == 66, (
+            f"BASE_COLS should be 66, got {len(HorseHistoryFeatures.BASE_COLS)}"
+        )
