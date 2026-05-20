@@ -166,6 +166,12 @@ class WinTwoStageModel:
         "harontime_last3f_avg",
         "harontime_last3f_zscore",
         "harontime_last3f_trend",
+        # D-02: haron_race_gap (Phase 36.1 new)
+        "haron_race_gap_avg",
+        "haron_race_gap_zscore",
+        "haron_race_gap_trend",
+        # D-03: pace_adj_finish (Phase 36.1 new)
+        "pace_adj_finish_avg",
         "pace_ratio_avg",
         "pace_ratio_zscore",
         "pace_ratio_trend",
@@ -499,6 +505,12 @@ class PlaceTwoStageModel:
         "harontime_last3f_avg",
         "harontime_last3f_zscore",
         "harontime_last3f_trend",
+        # D-02: haron_race_gap (Phase 36.1 new)
+        "haron_race_gap_avg",
+        "haron_race_gap_zscore",
+        "haron_race_gap_trend",
+        # D-03: pace_adj_finish (Phase 36.1 new)
+        "pace_adj_finish_avg",
         "pace_ratio_avg",
         "pace_ratio_zscore",
         "pace_ratio_trend",
@@ -655,6 +667,12 @@ class PlaceTwoStageModel:
         "harontime_last3f_avg",
         "harontime_last3f_zscore",
         "harontime_last3f_trend",
+        # D-02: haron_race_gap (Phase 36.1 new)
+        "haron_race_gap_avg",
+        "haron_race_gap_zscore",
+        "haron_race_gap_trend",
+        # D-03: pace_adj_finish (Phase 36.1 new)
+        "pace_adj_finish_avg",
         "pace_ratio_avg",
         "pace_ratio_zscore",
         "pace_ratio_trend",
