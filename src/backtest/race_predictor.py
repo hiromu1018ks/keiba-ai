@@ -25,6 +25,48 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def _compute_phase36_aggregates(race_df: pd.DataFrame) -> dict[str, float]:
+    """Phase36 horse-level features から race-level aggregate を計算 (NaN-safe)"""
+    result: dict[str, float] = {}
+    col_csr = "closing_speed_ratio_avg"
+    col_ftr = "form_trend_race_rank"
+    col_wrf = "weighted_recent_form_finish"
+
+    if col_csr in race_df.columns:
+        csr = pd.to_numeric(race_df[col_csr], errors="coerce")
+        result["phase36_top1_strength"] = float(csr.max()) if csr.notna().any() else 0.0
+        if csr.notna().sum() >= 2:
+            top2 = csr.nlargest(2)
+            result["phase36_top1_top2_gap"] = float(top2.iloc[0] - top2.iloc[1])
+        else:
+            result["phase36_top1_top2_gap"] = 0.0
+        result["phase36_field_dispersion"] = (
+            float(csr.std()) if csr.notna().sum() >= 2 else 0.0
+        )
+    else:
+        result["phase36_top1_strength"] = 0.0
+        result["phase36_top1_top2_gap"] = 0.0
+        result["phase36_field_dispersion"] = 0.0
+
+    if col_ftr in race_df.columns:
+        ftr = pd.to_numeric(race_df[col_ftr], errors="coerce")
+        result["phase36_form_signal_dispersion"] = (
+            float(ftr.std()) if ftr.notna().sum() >= 2 else 0.0
+        )
+    else:
+        result["phase36_form_signal_dispersion"] = 0.0
+
+    if col_wrf in race_df.columns:
+        wrf = pd.to_numeric(race_df[col_wrf], errors="coerce")
+        result["phase36_weighted_form_mean"] = (
+            float(wrf.mean()) if wrf.notna().any() else 0.0
+        )
+    else:
+        result["phase36_weighted_form_mean"] = 0.0
+
+    return result
+
+
 class RacePredictor:
     """1レース分の特徴量→推論→ベット候補生成を担当する共通コンポーネント"""
 
@@ -658,6 +700,11 @@ class RacePredictor:
         features = self.build_race_features(race_df)
         return bool(self.models.quality_screener.should_bet(features))
 
+    def get_quality_score(self, race_df: pd.DataFrame) -> float:
+        """RaceQualityScreener の品質スコアを取得 (should_bet と同じ推論、bool 変換なし)"""
+        features = self.build_race_features(race_df)
+        return float(self.models.quality_screener.predict_score(features))
+
     def select_bets(
         self,
         race_df: pd.DataFrame,
@@ -964,4 +1011,21 @@ class RacePredictor:
             # v5.6: EMA平滑化市場指標
             "overround_ema": row.get("overround_ema", 0.20),
             "entropy_ema": row.get("entropy_ema", 2.0),
+            # rl_* columns (RLF-01~06, MCF-07)
+            "rl_log_odds_entropy": row.get("rl_log_odds_entropy", float("nan")),
+            "rl_odds_dispersion": row.get("rl_odds_dispersion", float("nan")),
+            "rl_top3_odds_gap": row.get("rl_top3_odds_gap", float("nan")),
+            "rl_top1_odds": row.get("rl_top1_odds", float("nan")),
+            "rl_favorite_rank_gap": row.get("rl_favorite_rank_gap", float("nan")),
+            "rl_n_horses": row.get("rl_n_horses", float("nan")),
+            "rl_favorite_in_wide_top1": row.get("rl_favorite_in_wide_top1", float("nan")),
+            "rl_trio_overlap": row.get("rl_trio_overlap", float("nan")),
+            "rl_market_consistency": row.get("rl_market_consistency", float("nan")),
+            "rl_trio_odds_ratio": row.get("rl_trio_odds_ratio", float("nan")),
+            "rl_wide_harville_ratio": row.get("rl_wide_harville_ratio", float("nan")),
+            # FLB slope (market_bias_features.py)
+            "implied_prob_hhi": row.get("implied_prob_hhi", float("nan")),
+            "odds_skewness": row.get("odds_skewness", float("nan")),
+            # Phase36 race-level aggregates (RTG-02/03)
+            **_compute_phase36_aggregates(race_df),
         }

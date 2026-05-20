@@ -1331,6 +1331,45 @@ class TrainingPipelineV5:
             race_feat["overround_ema"] = 0.0
             race_feat["entropy_ema"] = 0.0
 
+        # Phase36 race-level aggregates (RTG-02/03)
+        _col_csr = "closing_speed_ratio_avg"
+        if _col_csr in feat_df.columns:
+            _csr = feat_df.groupby("race_id", observed=True)[_col_csr]
+            race_feat["phase36_top1_strength"] = (
+                race_feat["race_id"].map(_csr.max()).fillna(0.0)
+            )
+            _top2_gap = _csr.apply(
+                lambda x: x.nlargest(2).diff().iloc[-1] if x.notna().sum() >= 2 else 0.0
+            )
+            race_feat["phase36_top1_top2_gap"] = (
+                race_feat["race_id"].map(_top2_gap).fillna(0.0)
+            )
+            race_feat["phase36_field_dispersion"] = (
+                race_feat["race_id"].map(_csr.std()).fillna(0.0)
+            )
+        else:
+            race_feat["phase36_top1_strength"] = 0.0
+            race_feat["phase36_top1_top2_gap"] = 0.0
+            race_feat["phase36_field_dispersion"] = 0.0
+
+        _col_ftr = "form_trend_race_rank"
+        if _col_ftr in feat_df.columns:
+            _ftr = feat_df.groupby("race_id", observed=True)[_col_ftr]
+            race_feat["phase36_form_signal_dispersion"] = (
+                race_feat["race_id"].map(_ftr.std()).fillna(0.0)
+            )
+        else:
+            race_feat["phase36_form_signal_dispersion"] = 0.0
+
+        _col_wrf = "weighted_recent_form_finish"
+        if _col_wrf in feat_df.columns:
+            _wrf = feat_df.groupby("race_id", observed=True)[_col_wrf]
+            race_feat["phase36_weighted_form_mean"] = (
+                race_feat["race_id"].map(_wrf.mean()).fillna(0.0)
+            )
+        else:
+            race_feat["phase36_weighted_form_mean"] = 0.0
+
         return race_feat
 
     def _build_regime_stats(

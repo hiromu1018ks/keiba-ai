@@ -48,6 +48,19 @@ def race_features_df() -> pd.DataFrame:
             "rl_market_consistency": [1, 1, 0, 1],
             "rl_trio_odds_ratio": [1.1, 0.9, 1.3, 0.8],
             "rl_wide_harville_ratio": [0.95, 1.05, 0.85, 1.10],
+            # RLF-01~06 (rl_* race-level aggregation)
+            "rl_log_odds_entropy": [1.5, 1.2, 1.8, 1.0],
+            "rl_odds_dispersion": [0.8, 0.6, 1.0, 0.5],
+            "rl_top3_odds_gap": [2.5, 1.8, 3.2, 1.5],
+            "rl_top1_odds": [3.0, 2.5, 4.0, 2.0],
+            "rl_favorite_rank_gap": [1.5, 1.0, 2.0, 0.8],
+            "rl_n_horses": [8.0, 12.0, 16.0, 10.0],
+            # Phase36 race-level aggregates (RTG-02/03)
+            "phase36_top1_strength": [0.9, 0.7, 1.0, 0.6],
+            "phase36_top1_top2_gap": [0.15, 0.10, 0.20, 0.08],
+            "phase36_field_dispersion": [0.12, 0.08, 0.18, 0.05],
+            "phase36_form_signal_dispersion": [0.20, 0.15, 0.25, 0.10],
+            "phase36_weighted_form_mean": [4.2, 3.8, 5.0, 3.5],
         }
     )
 
@@ -225,3 +238,186 @@ class TestRaceQualityScreenerFeatureRouting:
             assert feat in RaceQualityScreener.FEATURE_COLS, (
                 f"Required screener feature '{feat}' missing from RaceQualityScreener.FEATURE_COLS"
             )
+
+
+# Phase36 race-level aggregate features (RTG-02/03)
+_PHASE36_RACE_AGGREGATES = [
+    "phase36_top1_strength",
+    "phase36_top1_top2_gap",
+    "phase36_field_dispersion",
+    "phase36_form_signal_dispersion",
+    "phase36_weighted_form_mean",
+]
+
+# rl_* columns that build_race_features() must propagate (RTG-03)
+_RL_COLUMNS = [
+    "rl_log_odds_entropy",
+    "rl_odds_dispersion",
+    "rl_top3_odds_gap",
+    "rl_top1_odds",
+    "rl_favorite_rank_gap",
+    "rl_n_horses",
+    "rl_favorite_in_wide_top1",
+    "rl_trio_overlap",
+    "rl_market_consistency",
+    "rl_trio_odds_ratio",
+    "rl_wide_harville_ratio",
+    "implied_prob_hhi",
+    "odds_skewness",
+]
+
+
+class TestRaceQualityScreenerPhase36Aggregates:
+    """RTG-02/03: Race-level Phase36 aggregate features for screener."""
+
+    def test_feature_cols_contains_phase36_aggregates(self) -> None:
+        """RaceQualityScreener.FEATURE_COLS に5つの phase36_* race aggregate が含まれる"""
+        for feat in _PHASE36_RACE_AGGREGATES:
+            assert feat in RaceQualityScreener.FEATURE_COLS, (
+                f"Phase36 race aggregate '{feat}' missing from RaceQualityScreener.FEATURE_COLS"
+            )
+
+    def test_predict_score_returns_float(self) -> None:
+        """predict_score() が float を返す"""
+        screener = RaceQualityScreener()
+        mock_model = MagicMock()
+        mock_model.predict.return_value = np.array([0.65])
+        mock_model.best_iteration = 50
+        screener.model = mock_model
+        screener.threshold = 0.4
+
+        features = {
+            "market_log_error_max_abs": 0.5,
+            "market_entropy": 2.5,
+            "overround": 0.22,
+            "field_size": 12,
+            "surface": "turf",
+            "distance_bin": "mile",
+            "track_condition_code": 2,
+            "grade_code": "C",
+        }
+        score = screener.predict_score(features)
+        assert isinstance(score, float)
+        assert score == pytest.approx(0.65)
+
+    def test_should_bet_works_with_race_aggregates(
+        self,
+        race_features_df: pd.DataFrame,
+    ) -> None:
+        """should_bet() が race aggregate features と正しく動作する"""
+        screener = RaceQualityScreener()
+        mock_model = MagicMock()
+        mock_model.predict.return_value = np.array([0.8])
+        screener.model = mock_model
+        screener.threshold = 0.4
+
+        features = race_features_df.iloc[0].to_dict()
+        result = screener.should_bet(features)
+        assert isinstance(result, bool)
+        assert result is True
+
+
+class TestBuildRaceFeatures:
+    """build_race_features() must return rl_* columns and phase36 aggregates."""
+
+    @pytest.fixture
+    def race_df_with_rl_and_phase36(self) -> pd.DataFrame:
+        """rl_* columns and phase36 source columns を含むレース DataFrame"""
+        return pd.DataFrame(
+            {
+                "race_id": ["R001"] * 5,
+                "umaban": [1, 2, 3, 4, 5],
+                "surface": ["turf"] * 5,
+                "distance_bin": ["mile"] * 5,
+                "track_condition_code": [2] * 5,
+                "grade_code": ["C"] * 5,
+                "field_size": [5] * 5,
+                "difficulty_score": [0.5] * 5,
+                "market_entropy": [2.5] * 5,
+                "overround": [0.22] * 5,
+                "overround_ema": [0.21] * 5,
+                "entropy_ema": [2.4] * 5,
+                "signed_log_error_win": [0.1, -0.2, 0.3, -0.1, 0.05],
+                "abs_log_error_win": [0.1, 0.2, 0.3, 0.1, 0.05],
+                "hist_hit_rate_topk": [0.25] * 5,
+                "hist_roi_topk": [1.0] * 5,
+                "hist_positive_return_ratio": [0.3] * 5,
+                # rl_* columns
+                "rl_log_odds_entropy": [1.5] * 5,
+                "rl_odds_dispersion": [0.8] * 5,
+                "rl_top3_odds_gap": [2.5] * 5,
+                "rl_top1_odds": [3.0] * 5,
+                "rl_favorite_rank_gap": [1.5] * 5,
+                "rl_n_horses": [5.0] * 5,
+                "rl_favorite_in_wide_top1": [1.0] * 5,
+                "rl_trio_overlap": [2.0] * 5,
+                "rl_market_consistency": [1.0] * 5,
+                "rl_trio_odds_ratio": [1.1] * 5,
+                "rl_wide_harville_ratio": [0.95] * 5,
+                "implied_prob_hhi": [0.12] * 5,
+                "odds_skewness": [0.5] * 5,
+                # Phase36 source columns (horse-level)
+                "closing_speed_ratio_avg": [0.8, 0.6, 0.9, 0.5, 0.7],
+                "form_trend_race_rank": [0.3, 0.5, 0.1, 0.7, 0.4],
+                "weighted_recent_form_finish": [3.0, 5.0, 2.0, 7.0, 4.0],
+            }
+        )
+
+    def test_build_race_features_returns_phase36_aggregates(
+        self,
+        race_df_with_rl_and_phase36: pd.DataFrame,
+    ) -> None:
+        """build_race_features() が phase36_* aggregate を返す"""
+        from backtest.race_predictor import RacePredictor
+
+        features = RacePredictor.build_race_features(race_df_with_rl_and_phase36)
+        for feat in _PHASE36_RACE_AGGREGATES:
+            assert feat in features, (
+                f"phase36 aggregate '{feat}' missing from build_race_features() output"
+            )
+        # Verify specific values
+        assert features["phase36_top1_strength"] == pytest.approx(0.9)
+        assert features["phase36_weighted_form_mean"] == pytest.approx(4.2)
+
+    def test_build_race_features_returns_rl_columns(
+        self,
+        race_df_with_rl_and_phase36: pd.DataFrame,
+    ) -> None:
+        """build_race_features() が rl_* columns を返す"""
+        from backtest.race_predictor import RacePredictor
+
+        features = RacePredictor.build_race_features(race_df_with_rl_and_phase36)
+        for col in _RL_COLUMNS:
+            assert col in features, (
+                f"rl_* column '{col}' missing from build_race_features() output"
+            )
+
+    def test_build_race_features_phase36_defaults_when_missing(self) -> None:
+        """Phase36 source columns がない場合、デフォルト0.0を返す"""
+        from backtest.race_predictor import RacePredictor
+
+        race_df = pd.DataFrame(
+            {
+                "race_id": ["R001"] * 3,
+                "umaban": [1, 2, 3],
+                "surface": ["turf"] * 3,
+                "distance_bin": ["mile"] * 3,
+                "track_condition_code": [2] * 3,
+                "grade_code": ["C"] * 3,
+                "field_size": [3] * 3,
+                "difficulty_score": [0.5] * 3,
+                "market_entropy": [2.5] * 3,
+                "overround": [0.22] * 3,
+                "overround_ema": [0.21] * 3,
+                "entropy_ema": [2.4] * 3,
+                "signed_log_error_win": [0.1, -0.2, 0.3],
+                "abs_log_error_win": [0.1, 0.2, 0.3],
+                "hist_hit_rate_topk": [0.25] * 3,
+                "hist_roi_topk": [1.0] * 3,
+                "hist_positive_return_ratio": [0.3] * 3,
+            }
+        )
+        features = RacePredictor.build_race_features(race_df)
+        for feat in _PHASE36_RACE_AGGREGATES:
+            assert feat in features
+            assert features[feat] == 0.0
