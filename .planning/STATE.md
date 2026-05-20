@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.8
 milestone_name: Turf Precision Calibration
-status: planning
-last_updated: "2026-05-19T15:30:00Z"
-last_activity: 2026-05-19
+status: Ready for Phase 37
+last_updated: "2026-05-20T01:56:27.790Z"
+last_activity: 2026-05-20
 progress:
   total_phases: 4
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 4
-  completed_plans: 2
-  percent: 50
+  completed_plans: 4
+  percent: 100
 ---
 
 # Project State
@@ -20,25 +20,25 @@ progress:
 See: .planning/PROJECT.md (updated 2026-05-19)
 
 **Core value:** 単勝モデルのバックテストROIを100%超えにすること
-**Current focus:** Phase 36 — feature-computation
+**Current focus:** Phase 37 — EV Calibration Layers (next)
 
 ## Current Position
 
-Phase: 36
-Plan: 2 plans in 2 waves
-Status: Ready to execute
-Last activity: 2026-05-19
+Phase: 36 COMPLETE
+Plan: 2 plans in 2 waves — ALL DONE
+Status: Ready for Phase 37
+Last activity: 2026-05-20
 
-Progress: [▓▓▓░░░░░░░░░░░░░░░░░░] 15% (v1.8: 1/4 phases done, Phase 36 planned)
+Progress: [▓▓▓▓▓▓▓▓▓▓▓░░░░░░░░░░] 75% (v1.8: 2/4 phases done, Phase 36 executed)
 
 ## v1.8 Roadmap
 
-| Phase | Goal | Requirements |
-|-------|------|--------------|
-| 35. ETL Data Foundation | HaronTime/LapTime/Jyuni float64 in Parquet + POST_RACE safety | ETL-01~05 |
-| 36. Feature Computation | Turf relative + conditional interactions + Haron/Lap PIT-safe | TRF-01~03, INT-01~04, HLF-01~05 |
-| 37. EV Calibration Layers | Pop band calibration + regime-surface EV correction | CAL-01~05 |
-| 38. Integrated Validation | CI tests + IC positive + BT ROI 100%+ + Manifest freeze | VAL-01~06 |
+| Phase | Goal | Requirements | Status |
+|-------|------|--------------|--------|
+| 35. ETL Data Foundation | HaronTime/LapTime/Jyuni float64 in Parquet + POST_RACE safety | ETL-01~05 | DONE |
+| 36. Feature Computation | Turf relative + conditional interactions + Haron/Lap PIT-safe | TRF-01~03, INT-01~04, HLF-01~05 | DONE |
+| 37. EV Calibration Layers | Pop band calibration + regime-surface EV correction | CAL-01~05 | NEXT |
+| 38. Integrated Validation | CI tests + IC positive + BT ROI 100%+ + Manifest freeze | VAL-01~06 | Pending |
 
 ## Performance Metrics
 
@@ -60,6 +60,7 @@ Progress: [▓▓▓░░░░░░░░░░░░░░░░░░] 15% 
 Decisions are logged in PROJECT.md Key Decisions table.
 v1.8: Coarse granularity — 4 phases from 28 requirements (natural dependency ordering)
 v1.8: TRF/INT/HLF combined into single Feature Computation phase (all are feature work)
+v1.8 Phase 36: 22 new features across 3 categories (TRF=8, INT=3, HLF=14→12 unique + 2 race_rank)
 
 ### Deferred Items
 
@@ -82,5 +83,5 @@ v1.8: TRF/INT/HLF combined into single Feature Computation phase (all are featur
 
 ## Session Continuity
 
-Last session: 2026-05-19T13:36:59.665Z
-Status: PHASE 35 PLANNED — 2 plans, 1 wave, verification passed
+Last session: 2026-05-20T01:56:27.772Z
+Status: PHASE 36 COMPLETE — 2 plans, 2 waves, 275 tests passing
