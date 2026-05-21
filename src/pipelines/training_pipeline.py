@@ -975,10 +975,22 @@ class TrainingPipelineV5:
         if len(df_oof) >= 500 and "ev_win_calibrated" in df_oof.columns:
             with TimingContext(f"{surface}/conformal_ev"):
                 # actual_ev_win を計算 (Phase 19パターン)
-                df_oof["actual_ev_win"] = (
+                # BUGFIX: point-wise actual_ev_win = odds * I(winner) is 93% zeros,
+                # causing CQR quantile regression to collapse. Replace with decile-binned
+                # conditional expectation E[actual|predicted_decile] which properly averages
+                # the sparse payouts within each predicted-EV stratum.
+                point_ev = (
                     df_oof["confirmed_odds"]
                     * (df_oof["kakuteijyuni"] == 1).astype(float)
                 )
+                ev_cal = pd.to_numeric(df_oof["ev_win_calibrated"], errors="coerce")
+                # Decile-binned conditional expectation
+                try:
+                    decile = pd.qcut(ev_cal, q=10, labels=False, duplicates="drop")
+                except ValueError:
+                    decile = pd.Series(0, index=df_oof.index, dtype=int)
+                bin_mean = point_ev.groupby(decile, observed=True).transform("mean")
+                df_oof["actual_ev_win"] = bin_mean.fillna(0.0).values
 
                 # actual_ev_win 計算後、POST_RACE列を明示的に削除
                 # (下流モデルが誤ってconfirmed_oddsを使用するのを防止)
@@ -1069,12 +1081,14 @@ class TrainingPipelineV5:
         # --- D-01/D-02: Dynamic EV_lower threshold from OOF winners ---
         # D-03 fallback values: conservative defaults below 1.0
         # wsg_train_df contains EV_lower_win_corrected from confidence estimator
-        ev_threshold_turf = self._compute_ev_threshold(
-            wsg_train_df, surface="turf", fallback=0.8,
+        # BUGFIX: wsg_train_df is already filtered to a single surface, so we must
+        # compute the threshold for the *current* surface only. The other surface
+        # gets the same value since each SubmodelSet is surface-specific.
+        ev_threshold = self._compute_ev_threshold(
+            wsg_train_df, surface=surface, fallback=0.75,
         )
-        ev_threshold_dirt = self._compute_ev_threshold(
-            wsg_train_df, surface="dirt", fallback=0.7,
-        )
+        ev_threshold_turf = ev_threshold
+        ev_threshold_dirt = ev_threshold
 
         sub = SubmodelSet(
             market=market,
@@ -1172,6 +1186,9 @@ class TrainingPipelineV5:
         ev_calibrated[valid] = iso.transform(oof_ev[valid])
 
         # オッズバンド別残差スケーリング (D-10, Pattern 3 from RESEARCH)
+        # BUGFIX: point-wise ratio median is 0 because 93% of actual_ev_win = 0.
+        # Use aggregate ratio sum(actual)/sum(calibrated) instead, which correctly
+        # estimates E[actual|band] / E[predicted|band] and averages out the zeros.
         BANDS = OddsBandFilter.BANDS
         BAND_NAMES = OddsBandFilter.BAND_NAMES
         MIN_SAMPLES = 50
@@ -1180,8 +1197,9 @@ class TrainingPipelineV5:
         for band_name, (lo, hi) in zip(BAND_NAMES, BANDS):
             mask = (oof_odds >= lo) & (oof_odds < hi) & valid
             if mask.sum() >= MIN_SAMPLES:
-                residual_ratio = oof_actual[mask] / np.clip(ev_calibrated[mask], 1e-6, None)
-                band_scales[band_name] = float(np.median(residual_ratio))
+                actual_sum = float(np.sum(oof_actual[mask]))
+                calibrated_sum = float(np.sum(np.clip(ev_calibrated[mask], 1e-6, None)))
+                band_scales[band_name] = actual_sum / calibrated_sum if calibrated_sum > 0 else 1.0
             else:
                 band_scales[band_name] = 1.0
 

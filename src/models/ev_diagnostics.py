@@ -30,6 +30,7 @@ DATE_COLUMN = "race_date"
 N_BINS = 10
 MIN_SAMPLE_SIZE = 30
 N_BINS_RELIABILITY = 10
+MIN_TEMPORAL_SAMPLE_SIZE = 1000
 
 
 def _compute_ece(y_true: np.ndarray, y_prob: np.ndarray, n_bins: int = N_BINS) -> float:
@@ -127,7 +128,13 @@ def _temporal_drift(
         actual = pd.to_numeric(group[actual_col], errors="coerce").dropna()
         # 共通index
         common = pred.index.intersection(actual.index)
-        if len(common) < MIN_SAMPLE_SIZE:
+        if len(common) < MIN_TEMPORAL_SAMPLE_SIZE:
+            logger.warning(
+                "Temporal drift: year %d skipped -- insufficient samples (n=%d < %d)",
+                int(year),
+                len(common),
+                MIN_TEMPORAL_SAMPLE_SIZE,
+            )
             results.append(
                 {
                     "year": int(year),
