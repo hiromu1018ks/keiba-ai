@@ -111,6 +111,8 @@ Rule types iterate in `_apply_type_conversions()` (lines 134-176):
 | jyuni2c | entries | None (varchar) | Add `sentinel_float` with sentinels ["000"] |
 | jyuni3c | entries | None (varchar) | Add `sentinel_float` with sentinels ["000"] |
 | laptime1~25 | races | None (varchar) | Add `sentinel_float` with sentinels ["000"], divide by 10 |
+| harontimel3 | races (RA) | None (varchar) | Add `sentinel_float` with sentinels ["000", "999"] |
+| harontimel4 | races (RA) | None (varchar) | Add `sentinel_float` with sentinels ["000", "999"] |
 
 ### POST_RACE_COLS triplication (3 locations)
 
@@ -188,6 +190,19 @@ if isinstance(sentinel_float_rule, dict):
 ```
 
 The processing order matters: sentinel_float rules must run BEFORE any regular float rules for the same column. However, per the design, HaronTimeL3 should be REMOVED from the `float` list and moved entirely to `sentinel_float`. This avoids double-processing.
+
+For the races table, multiple sentinel_float rules are needed (HaronTime + LapTime with different sentinels/divisors). The implementation uses a list-of-dicts structure for `sentinel_float` in races:
+
+```python
+"races": {
+    "sentinel_float": [
+        {"columns": ["harontimel3", "harontimel4"], "sentinels": ["000", "999"]},
+        {"columns": [f"laptime{i}" for i in range(1, 26)], "sentinels": ["000"], "divisor": 10},
+    ],
+},
+```
+
+The `_apply_type_conversions` function handles both single-dict and list-of-dicts forms.
 
 ### 3. HaronTimeL3 migration from float to sentinel_float
 
@@ -333,16 +348,17 @@ if isinstance(sentinel_float_rule, dict):
 },
 ```
 
-### Updated _TABLE_TYPE_RULES for races
+### Updated _TABLE_TYPE_RULES for races (with RA HaronTime)
 
 ```python
 "races": {
     "int": ["trackcd", "kyori", "tenkocd", "syussotosu", "honsyokin"],
-    "sentinel_float": {
-        "columns": [f"laptime{i}" for i in range(1, 26)],
-        "sentinels": ["000"],
-        "divisor": 10,
-    },
+    "sentinel_float": [
+        # RA table HaronTimeL3/L4: race-level, sentinels 000/999, no divisor
+        {"columns": ["harontimel3", "harontimel4"], "sentinels": ["000", "999"]},
+        # RA table LapTime1~25: varchar(3), sentinels 000, divisor=10 (e.g., "345" = 34.5 sec)
+        {"columns": [f"laptime{i}" for i in range(1, 26)], "sentinels": ["000"], "divisor": 10},
+    ],
 },
 ```
 
@@ -420,10 +436,13 @@ _FLOAT_COLS: set[str] = {
 2. **test_etl_type_conversion.py migration test:**
    - `test_haron_timel3_migrated_from_float`: Verify harontimel3 NOT in regular float rules (it's in sentinel_float)
 
-3. **test_paper_trading_guards.py (after import consolidation):**
+3. **test_etl_type_conversion.py RA HaronTime test:**
+   - `test_races_harontime_sentinel`: RA table HaronTimeL3/L4 "000"/"999" -> NaN, valid values preserved
+
+4. **test_paper_trading_guards.py (after import consolidation):**
    - Existing tests should pass unchanged (they use POST_RACE_COLS for drop verification)
 
-4. **test_post_race_leakage.py:**
+5. **test_post_race_leakage.py:**
    - Should pass unchanged (laptime* not in build_all output, not in any FEATURE_COLS)
 
 ### Test execution commands
@@ -440,7 +459,7 @@ python -m pytest tests/test_etl.py -v
 Recommended task sequence for the planner:
 
 1. **Task 1: Add sentinel_float/sentinel_int rule handling to _apply_type_conversions** (src/db/etl.py)
-   - Extend function to process sentinel_float dict rules
+   - Extend function to process sentinel_float dict rules (single dict and list-of-dicts)
    - Add optional divisor support
    - Write unit tests for the new rule type
 
@@ -450,8 +469,8 @@ Recommended task sequence for the planner:
    - Write tests verifying sentinel NaN conversion for each column
 
 3. **Task 3: Update _TABLE_TYPE_RULES for races table** (src/db/etl.py)
-   - Add sentinel_float rule for laptime1~25 with divisor=10
-   - Write tests verifying LapTime conversion
+   - Add sentinel_float rules (list-of-dicts) for RA HaronTimeL3/L4 and LapTime1~25 with divisor=10
+   - Write tests verifying both HaronTime and LapTime conversion
 
 4. **Task 4: Update readers.py _INT_COLS/_FLOAT_COLS** (src/db/readers.py)
    - Add jyuni2c, jyuni3c to _INT_COLS
@@ -477,23 +496,15 @@ Recommended task sequence for the planner:
 | Jyuni2c/3c sentinel value is "00" not "000" | MEDIUM (2-char vs 3-char field) | LOW (both handled by string match) | Use set of sentinels: ["000", "00"] |
 | HaronTimeL4 and HaronTimeL3 both valid for same horse | MEDIUM (documented in schema) | INFO (expected per D-05, Phase 36 handles) | Document distribution in ETL-05 |
 | POST_RACE_COLS expansion breaks test_paper_trading_guards | LOW (import consolidation is clean) | LOW (test fix) | Verify import works before removing inline def |
+| RA HaronTimeL3/L4 remain unhandled in races | MEDIUM (SELECT * includes them) | MEDIUM (varchar in Parquet) | Add to races sentinel_float rules (Plan 35-01 Task 1) |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **Jyuni2c/3c actual sentinel values**
-   - What we know: Schema says varchar(2), initial value "0". D-08 says sentinels=["000"].
-   - What's unclear: Is the actual stored value "00" (2-char padded) or "0"?
-   - Recommendation: Use sentinels=["000", "00", "0"] to be safe, or verify via ETL quality check.
+1. **Jyuni2c/3c actual sentinel values** -- RESOLVED: Use sentinels=["000", "999", "00"] in the entries sentinel_float rule to cover all padding variants (Plan 35-01 Task 1). The ETL quality check (D-03) will verify actual sentinel patterns in the data.
 
-2. **HaronTimeL3/L4 in RA table vs SE table**
-   - What we know: Both tables have HaronTimeL3/L4 columns. RA has race-level (fields 96-97), SE has per-horse (fields 58-59).
-   - What's unclear: Are RA HaronTimeL3/L4 also in the races Parquet? They should be since SELECT * extracts all columns.
-   - Recommendation: The RA table HaronTimeL3/L4 should also get sentinel_float handling in the races rules. If needed, add them alongside LapTime rules.
+2. **HaronTimeL3/L4 in RA table vs SE table** -- RESOLVED: RA table HaronTimeL3/L4 ARE included in races Parquet (SELECT * extracts all columns). Plan 35-01 Task 1 adds them to the races sentinel_float rules alongside LapTime with sentinels=["000", "999"] and no divisor (race-level values are already in final units).
 
-3. **Existing Parquet data quality**
-   - What we know: HaronTimeL3 has been converted to float without sentinel handling for all historical ETL runs.
-   - What's unclear: How much data has sentinels as 0.0/999.0.
-   - Recommendation: Full ETL re-run (--mode full) required after code changes to fix historical data.
+3. **Existing Parquet data quality** -- RESOLVED: Full ETL re-run (`--mode full`) is required after code changes to fix historical data. Plan 35-02 Task 2 documents the ETL quality verification procedure (D-03) including specific Parquet inspection commands and expected dtypes/ranges.
 
 ## State of the Art
 
@@ -502,6 +513,7 @@ Recommended task sequence for the planner:
 | Inline float rules only | sentinel_float declarative rules | This phase | Sentinel values properly NaN-handled |
 | POST_RACE_COLS in 3 files | Single source in types.py | This phase | DRY, prevents future drift |
 | No LapTime in Parquet | LapTime1~25 as float64 | This phase | Phase 36 can compute pace features |
+| RA HaronTime as varchar | RA HaronTimeL3/L4 as float64 | This phase | Race-level harontime available for features |
 
 **Deprecated/outdated:**
 - HaronTimeL3 in `entries.float` rule: Will be replaced by `entries.sentinel_float` rule.
@@ -513,7 +525,7 @@ Recommended task sequence for the planner:
 - `src/db/readers.py` -- Full file read: _INT_COLS, _FLOAT_COLS, coerce_types
 - `src/domain/types.py` -- Full file read: POST_RACE_COLS definition
 - `docs/everydb2/04-UMA_RACE.md` -- SE table schema: HaronTimeL3/L4 sentinels documented
-- `docs/everydb2/03-RACE.md` -- RA table schema: LapTime1~25 format (varchar(3), "345"=34.5sec)
+- `docs/everydb2/03-RACE.md` -- RA table schema: LapTime1~25 format (varchar(3), "345"=34.5sec), HaronTimeL3/L4 (fields 96-97)
 - `tests/test_etl_type_conversion.py` -- Existing test patterns
 - `tests/test_post_race_leakage.py` -- 3-layer leakage test structure
 - `tests/test_paper_trading_guards.py` -- POST_RACE_COLS duplicate definition

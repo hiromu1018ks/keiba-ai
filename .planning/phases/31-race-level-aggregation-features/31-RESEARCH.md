@@ -341,17 +341,15 @@ def test_build_all_output_no_post_race_cols(self) -> None:
 | A3 | build_features()はサブモジュールを一切呼び出さず、_map_basic_features()のみ | RLF-07 | 低 — feature_engine.py line 453-455で確認済み |
 | A4 | MarketModel.FEATURE_COLSにはimplied_prob_hhi/odds_skewnessが含まれない | EFP-01 | 低 — market_model.py line 21-31で確認、7列のみ |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **AbilityModelはオッズ特徴量を一切使用しない(Rule 1) — implied_prob_hhi/odds_skewnessの追加は矛盾しないか?**
    - What we know: AbilityModel.FEATURE_COLSのdocstringに「オッズ特徴量は一切使用しない (Rule 1)」とある。implied_prob_hhiとodds_skewnessはtanoddsから計算されるため、厳密にはオッズ由来特徴量
-   - What's unclear: D-06で「全12モデル」への追加が決定されているが、Rule 1との整合性
-   - Recommendation: CONTEXT.mdでユーザーが「全12モデル」を明示的に決定しているため、この決定に従う。ただしAbilityModelのdocstring更新が必要
+   - RESOLVED: CONTEXT.md D-06でユーザーが「全12モデル」への追加を明示的に決定済み。この決定に従い、AbilityModelのdocstringを「Rule 1: オッズ特徴量(implied_prob_hhi, odds_skewness)は市場構造指標として含む (D-06)」に更新する
 
 2. **rl_n_horses と 既存 field_size の関係性**
    - What we know: field_sizeは_map_basic_features()でsyussotosuから計算済み。rl_n_horsesは同一情報の可能性
-   - What's unclear: field_sizeと完全に同じ値になるなら重複特徴量
-   - Recommendation: D-02で「field_sizeまたはumabanのユニーク数」と定義されている。field_sizeはすでに多くのモデルで使用中。rl_n_horsesとして別名で追加する意味は、field_sizeのフォールバック(0の場合の補完)が含まれること。実装ではfield_sizeをそのまま使用し、0の場合にgroupby("race_id").size()で補完する設計が適切
+   - RESOLVED: D-02で「field_sizeまたはumabanのユニーク数」と定義済み。実装ではfield_sizeをそのまま使用し、0の場合にgroupby("race_id").size()で補完する設計を採用
 
 ## Environment Availability
 

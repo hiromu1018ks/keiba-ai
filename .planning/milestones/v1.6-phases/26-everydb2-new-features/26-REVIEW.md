@@ -22,7 +22,8 @@ findings:
   warning: 2
   info: 0
   total: 4
-status: issues_found
+  fixed: 4
+status: all_fixed
 ---
 
 # Phase 26: Code Review Report
@@ -30,7 +31,7 @@ status: issues_found
 **Reviewed:** 2026-05-15
 **Depth:** quick
 **Files Reviewed:** 13
-**Status:** issues_found
+**Status:** all_fixed (4/4 findings resolved)
 
 ## Summary
 
@@ -40,7 +41,7 @@ The most severe finding is a copy-paste error in `sire_features.py` line 158 whe
 
 ## Critical Issues
 
-### CR-01: Copy-paste bug -- sire_long_starts column never populated in compute_batch()
+### CR-01: Copy-paste bug -- sire_long_starts column never populated in compute_batch() [FIXED: a12e57b]
 
 **File:** `src/features/sire_features.py:158`
 **Issue:** In the `compute_batch()` method, the column list on line 158 contains `"sire_long_wins"` twice (lines 157-158), and `"sire_long_starts"` is missing entirely. This means `result["sire_long_starts"]` remains NaN for all rows. When computing `sire_distance_wr` for long-distance races (kyori > 1600), the `_beta_smooth_vec` call on line 180 divides by `sire_long_starts` which is NaN-filled, producing incorrect NaN output instead of valid Beta-smoothed win rates. This affects the `sire_distance_wr` feature for every horse in long-distance (steep+) races.
@@ -56,7 +57,7 @@ for col in ["sire_wins", "sire_starts", "sire_places",
             "sire_prize_total"]:
 ```
 
-### CR-02: PIT safety violation -- DamPedigreeFeatures uses career stats without race-date filtering
+### CR-02: PIT safety violation -- DamPedigreeFeatures uses career stats without race-date filtering [FIXED: 4e68372]
 
 **File:** `src/features/dam_pedigree_features.py:129-132`
 **Issue:** The `compute()` method retrieves career stats via `career.sort_values("race_date").groupby("kettonum", observed=True).last()`, which always picks the chronologically latest row for each horse across all of history. When computing features for a past race, this uses cumulative statistics from races that occurred *after* the target race, constituting a look-ahead bias (post-race data leakage). The correct approach is to filter career stats to only include rows where `race_date < target_race_date`, or use the pre-computed PIT `horse_career_stats` rows that correspond to the specific `(kettonum, race_id)` being predicted.
@@ -75,7 +76,7 @@ Note: This requires restructuring the lookup logic to join career stats per `(ke
 
 ## Warnings
 
-### WR-01: race-level merge on ["race_id"] may explode if record_df has duplicate race_ids
+### WR-01: race-level merge on ["race_id"] may explode if record_df has duplicate race_ids [FIXED: caa979c]
 
 **File:** `src/pipelines/training_pipeline.py:485`
 **Issue:** `df.merge(record_df, on=["race_id"], how="left")` merges `record_df` (which has one row per race_id from `RecordFeatures.compute()`) onto `df` (which has one row per horse). While `RecordFeatures.compute()` does apply `drop_duplicates(subset=keys)`, if the source data has any inconsistency where multiple `course_record_time` values exist for the same `(jyocd, trackcd, kyori)` after the dedup step, this merge would produce a Cartesian product. The risk is mitigated by the dedup in `RecordFeatures`, but the merge key should include a uniqueness assertion or at minimum a comment documenting the assumption.
@@ -89,7 +90,7 @@ assert record_df["race_id"].is_unique, (
 )
 ```
 
-### WR-02: DamPedigreeFeatures.compute() silently drops rows when entry_df has duplicate (race_id, umaban)
+### WR-02: DamPedigreeFeatures.compute() silently drops rows when entry_df has duplicate (race_id, umaban) [FIXED: caa979c]
 
 **File:** `src/features/dam_pedigree_features.py:85`
 **Issue:** Line 85 does `entry_df.drop_duplicates(subset=["race_id", "umaban"], keep="first")` which modifies the row count of the input DataFrame. The returned DataFrame then has fewer rows than the caller expects. While the docstring does mention "Returns race_id, umaban + FEATURE_COLS", callers (like `training_pipeline.py:469`) merge on `["race_id", "umaban"]` and would silently lose rows. The mining_features module has the same pattern at `compute()` line 143 where it copies `entry_df[["race_id", "umaban"]]` without deduplication, making the two modules inconsistent in how they handle duplicate keys.

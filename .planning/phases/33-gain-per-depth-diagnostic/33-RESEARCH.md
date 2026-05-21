@@ -494,7 +494,7 @@ Complete map of every LightGBM Booster accessible from TrainedModelsV5, organize
 
 Per D-03 boundary criteria, the 179 unique features are classified as follows. The planner should use this as the authoritative source for FEATURE_CATEGORY_MAP construction.
 
-#### Market (37 features)
+#### Market (41 features)
 Odds-derived, market structure, market cross-consistency, FLB/overround:
 
 ```
@@ -513,7 +513,7 @@ rl_wide_harville_ratio, signed_log_error_win, tanninki, tanodds
 
 Note: Some features like `dm_time_*` and `deviation_*` straddle the Market/Fundamental boundary. They are classified as Market because they are derived from odds-based rankings and market signals.
 
-#### Fundamental (126 features)
+#### Fundamental (125 features)
 Past performance, bloodline, physical condition, form, pace, course aptitude, EMA:
 
 ```
@@ -536,7 +536,7 @@ jockey_wr_distance, jockey_wr_overall, jockey_wr_venue,
 jt_combo_place_rate, jt_combo_prize_log, jt_combo_starts,
 jt_combo_wr, jyuni1c_avg, jyuni1c_avg_race_rank, jyuni4c_avg,
 nar_recent_ratio, norm_finish_logit_avg, norm_finish_logit_avg_race_rank,
-odds, pace_aptitude, pace_closing_power, pace_corner_stability,
+pace_aptitude, pace_closing_power, pace_corner_stability,
 pace_position_consistency, pace_pressure, pace_pressure_x_closing_index,
 pace_scenario_fit, p_ability_place, p_ability_win,
 position_improvement_rate, rel_blood_quality_rank, rel_closing_index_rank,
@@ -557,7 +557,7 @@ win_dominance, zogen_sa
 
 Note: `jockey_*`, `trainer_*`, and `jt_combo_*` features are classified as Fundamental because they represent individual performance metrics rather than categorical identity.
 
-#### Categorical (16 features)
+#### Categorical (19 features)
 Race conditions, categorical IDs, target encoding:
 
 ```
@@ -609,17 +609,17 @@ FAD = min(depth D where Fundamental_gain_share(D) > Market_gain_share(D))
 
 **Claims needing user confirmation:** A1 (dm_time/deviation classification) and A2 (jockey/trainer classification) are judgment calls where reasonable people may disagree. The impact is low since the FEATURE_CATEGORY_MAP is explicitly defined and can be adjusted.
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **Feature classification edge cases**
+1. **Feature classification edge cases** (RESOLVED: Classify `dm_time_*` as Market per D-03 ("market-derived"). The explicit FEATURE_CATEGORY_MAP is auditable and can be adjusted if analysis shows unexpected behavior.)
    - What we know: 179 features need classification. Most are unambiguous.
-   - What's unclear: Whether `dm_time_*` features should be Market (odds-rank-derived) or Fundamental (data-mining predictions).
-   - Recommendation: Classify as Market per D-03 ("market-derived"). Can adjust if analysis shows they behave differently.
+   - What was unclear: Whether `dm_time_*` features should be Market (odds-rank-derived) or Fundamental (data-mining predictions).
+   - Resolution: Market per D-03 boundary criteria. Can adjust if analysis shows they behave differently.
 
-2. **Model availability in test environment**
+2. **Model availability in test environment** (RESOLVED: Tests mock Booster objects via unittest.mock. CLI requires pre-trained models in `data/models/` — documented in `--help` text and README.)
    - What we know: CLI script needs trained models. Tests use mocks.
-   - What's unclear: Whether `data/models/` has current models with Phase 31/32 features (rl_*, Harville ratios).
-   - Recommendation: Tests mock the Booster. CLI requires pre-trained models. Document this clearly in CLI help text.
+   - What was unclear: Whether `data/models/` has current models with Phase 31/32 features (rl_*, Harville ratios).
+   - Resolution: Tests mock the Booster. CLI requires pre-trained models. Documented clearly in CLI help text.
 
 ## Environment Availability
 
