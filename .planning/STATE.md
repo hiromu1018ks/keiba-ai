@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.8
 milestone_name: Turf Precision Calibration
-status: ready_to_plan
-last_updated: "2026-05-20T08:52:17.143Z"
-last_activity: 2026-05-20 -- Phase 36.1.1 execution started
+status: planning
+last_updated: "2026-05-21T05:37:40.408Z"
+last_activity: 2026-05-21
 progress:
-  total_phases: 6
+  total_phases: 7
   completed_phases: 4
   total_plans: 10
-  completed_plans: 6
-  percent: 67
+  completed_plans: 10
+  percent: 100
 ---
 
 # Project State
@@ -20,16 +20,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-05-19)
 
 **Core value:** 単勝モデルのバックテストROIを100%超えにすること
-**Current focus:** Phase 36.1.1 — marketmodel-racequality-phase36-ev-tail-calibration
+**Current focus:** Phase 36.1.1.1 - ROI Diagnostic Fixes and Feature Sanity Optimization
 
 ## Current Position
 
-Phase: 37
+Phase: 36.1.1.1
 Plan: Not started
 Status: Ready to plan
 Last activity: 2026-05-21
 
-Progress: [▓▓▓▓▓▓▓▓▓▓▓▓▓▓░░░░░░░] 67% (v1.8: 4/6 phases done, Phase 36.1.1 next)
+Progress: [▓▓▓▓▓▓▓▓▓▓▓░░░░░░░░░] 57% (v1.8: 4/7 phases done, Phase 36.1.1.1 next)
 
 ## v1.8 Roadmap
 
@@ -61,6 +61,7 @@ Progress: [▓▓▓▓▓▓▓▓▓▓▓▓▓▓░░░░░░░] 67% 
 
 - Phase 36.1 inserted after Phase 36: HaronTime L4/LapTime Feature Redesign - クロスレベル派生特徴量への再設計 + backtest engine hist_features欠落修正 (URGENT)
 - Phase 36.1.1 inserted after Phase 36.1: MarketModel & RaceQuality配線修正 — Phase36強力fundamental特徴量の全モデル一律登録でMarketModel・RaceQualityScreenerの役割崩壊を修復 (URGENT)
+- Phase 36.1.1.1 inserted after Phase 36.1.1: ROI diagnostics and feature sanity optimization before Phase 37, based on ANALYSIS-bt2024-features.md and ROI_ANALYSIS_REPORT_20260521.md (URGENT)
 
 ### Decisions
 
@@ -98,5 +99,5 @@ v1.8 Phase 36: 22 new features across 3 categories (TRF=8, INT=3, HLF=14→12 un
 
 ## Session Continuity
 
-Last session: 2026-05-20T01:56:27.772Z
+Last session: 2026-05-21T05:37:40.398Z
 Status: PHASE 36 COMPLETE — 2 plans, 2 waves, 275 tests passing
