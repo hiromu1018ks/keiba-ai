@@ -366,8 +366,9 @@ class FeatureEngine:
                     rd = pd.to_datetime(result_df["race_date"], errors="coerce")
                     rd_valid = rd.dropna()
                     if len(rd_valid) > 0:
-                        start_str = str(rd_valid.min().date())
-                        end_str = str(rd_valid.max().date())
+                        # DataRepository date filters expect YYYYMMDD, not ISO YYYY-MM-DD.
+                        start_str = rd_valid.min().strftime("%Y%m%d")
+                        end_str = rd_valid.max().strftime("%Y%m%d")
                         wide_df_mcf = repo.load_wide_odds(start_str, end_str)
                         trio_df_mcf = repo.load_trio_odds(start_str, end_str)
                 except Exception:
@@ -395,7 +396,9 @@ class FeatureEngine:
 
         # ★ SAFE-01: POST_RACE列を確実に除外 (leakage prevention)
         _preserve = set(preserve_columns) if preserve_columns else set()
-        post_race_present = [c for c in result_df.columns if c in POST_RACE_COLS and c not in _preserve]
+        post_race_present = [
+            c for c in result_df.columns if c in POST_RACE_COLS and c not in _preserve
+        ]
         if post_race_present:
             logger.info(
                 "SAFE-01: dropping %d POST_RACE cols from build_all() output: %s",

@@ -202,6 +202,58 @@ class TestFeatureEngineBuildAll:
         result = engine.build_all(sample_race_df, sample_entry_df, sample_odds_df)
         assert "popularity_rank" in result.columns
 
+    def test_mcf_odds_load_uses_yyyymmdd_dates(
+        self, sample_race_df, sample_entry_df, sample_odds_df, monkeypatch
+    ):
+        """MCF用のワイド/三連複ロードにはDataRepository互換のYYYYMMDDを渡す"""
+        calls = []
+
+        class FakeRepository:
+            def __init__(self, store):
+                self.store = store
+
+            def load_wide_odds(self, start, end):
+                calls.append(("wide", start, end))
+                return pd.DataFrame(
+                    {
+                        "race_id": ["2024032405030208"],
+                        "kumi": ["0102"],
+                        "oddslow": [2.0],
+                        "oddshigh": [3.0],
+                        "ninki": [1],
+                    }
+                )
+
+            def load_trio_odds(self, start, end):
+                calls.append(("trio", start, end))
+                return pd.DataFrame(
+                    {
+                        "race_id": ["2024032405030208"],
+                        "kumi": ["010203"],
+                        "odds": [8.0],
+                        "ninki": [1],
+                    }
+                )
+
+        class FakeBloodlineFeatures:
+            def __init__(self, store):
+                self.store = store
+
+            def compute(self, df):
+                return df[["race_id", "umaban"]].drop_duplicates()
+
+        monkeypatch.setattr("db.repository.DataRepository", FakeRepository)
+        monkeypatch.setattr("features.bloodline_features.BloodlineFeatures", FakeBloodlineFeatures)
+
+        engine = FeatureEngine(use_cache=False)
+        result = engine.build_all(sample_race_df, sample_entry_df, sample_odds_df, store=object())
+
+        assert calls == [
+            ("wide", "20240324", "20240324"),
+            ("trio", "20240324", "20240324"),
+        ]
+        assert result["rl_favorite_in_wide_top1"].notna().all()
+
     def test_exclude_steeple(self, sample_race_df, sample_entry_df, sample_odds_df):
         """障害レース(trackcd >= 51)を除外"""
         steeple_race = sample_race_df.copy()
@@ -462,7 +514,7 @@ class TestLeakPrevention:
         assert result["popularity_rank"].tolist() == [3.0, 1.0, 2.0]
 
     def test_popularity_rank_fallback_when_tanninki_zero(self) -> None:
-        """tanodds/tanninki が使えない場合、popularity_rank は NaN になる (ninkiフォールバック廃止)"""
+        """tanodds/tanninki が使えない場合、popularity_rank は NaN になる"""
         engine = FeatureEngine()
         race_df = self._make_race_df()
         entry_df = self._make_entry_df(odds=[3.0, 5.0, 8.0], ninki=[1, 2, 3])
