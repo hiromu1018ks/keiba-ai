@@ -10,7 +10,6 @@ import json
 import logging
 import os
 import tempfile
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -18,6 +17,7 @@ import joblib
 import mlflow
 import numpy as np
 import pandas as pd
+from sklearn.isotonic import IsotonicRegression
 
 from db.parquet_store import ParquetStore
 from db.readers import (
@@ -53,6 +53,13 @@ logger = logging.getLogger(__name__)
 
 # MLflow pip高速化: pip freeze子プロセス起動を回避 (57.6x高速化, Spike 005 VALIDATED)
 _MLFLOW_PIP_REQS: list[str] = ["lightgbm", "scikit-learn", "pandas", "numpy", "joblib"]
+
+
+def _valid_ev_band_scales(scales: dict[str, float] | None) -> bool:
+    if not scales:
+        return False
+    values = np.array([float(v) for v in scales.values()], dtype=float)
+    return bool(np.isfinite(values).all() and not np.allclose(values, 0.0))
 
 
 def _get_num_threads(parallel_workers: int = 1) -> int:
@@ -445,7 +452,12 @@ class TrainingPipelineV5:
                 # entry_df に sire_id / bms_id 列を追加
                 sire_map = horses_df.set_index("kettonum")["ketto3infohansyokunum1"]
                 df["sire_id"] = df["kettonum"].map(sire_map)
-                bms_map = horses_df.set_index("kettonum")["ketto3infohansyokunum3"]
+                bms_source_col = (
+                    "ketto3infohansyokunum5"
+                    if "ketto3infohansyokunum5" in horses_df.columns
+                    else "ketto3infohansyokunum3"
+                )
+                bms_map = horses_df.set_index("kettonum")[bms_source_col]
                 df["bms_id"] = df["kettonum"].map(bms_map)
                 # ベクトル化一括計算
                 sire_result = sire_feat.compute_batch(df)
@@ -458,6 +470,10 @@ class TrainingPipelineV5:
                     "bms_wr",
                     "bms_distance_wr",
                     "bms_surface_wr",
+                    "bms_has_history",
+                    "bms_starts_log",
+                    "bms_surface_starts_log",
+                    "bms_distance_starts_log",
                 }
                 for col in _sire_cols_needed:
                     if col in sire_result.columns:
@@ -1144,10 +1160,11 @@ class TrainingPipelineV5:
             fold_win = WinTwoStageModel()
             fold_win.train_hit_model(df.iloc[train_idx], num_threads=num_threads)
             fold_win.train_return_model(df.iloc[train_idx], num_threads=num_threads)
-            fold_val = fold_win.predict_ev(df.iloc[val_idx].copy())
 
             fold_ev_corr = EVCorrectionModel()
-            fold_ev_corr.train(fold_val, num_threads=num_threads)
+            fold_train = fold_win.predict_ev(df.iloc[train_idx].copy())
+            fold_ev_corr.train(fold_train, num_threads=num_threads)
+            fold_val = fold_win.predict_ev(df.iloc[val_idx].copy())
             fold_val = fold_ev_corr.correct_ev(fold_val)
 
             oof_ev_corrected[val_idx] = fold_val["ev_win_corrected"].values
@@ -1177,10 +1194,44 @@ class TrainingPipelineV5:
         from betting.odds_band_filter import OddsBandFilter
 
         valid = np.isfinite(oof_ev) & np.isfinite(oof_actual) & (oof_ev > 0)
+        if valid.sum() < 10:
+            iso = IsotonicRegression(y_min=0, out_of_bounds="clip")
+            iso.fit(np.array([0.0, 1.0]), np.array([0.0, 1.0]))
+            return iso, {name: 1.0 for name in OddsBandFilter.BAND_NAMES}
 
-        # Isotonic fit (D-01/D-03/D-04)
+        # Isotonic fit on EV buckets to avoid sparse point EV collapsing to zero.
+        ev_valid = oof_ev[valid].astype(float)
+        actual_valid = oof_actual[valid].astype(float)
+        try:
+            bin_id = pd.qcut(
+                ev_valid,
+                q=min(20, max(2, valid.sum() // 100)),
+                labels=False,
+                duplicates="drop",
+            )
+        except ValueError:
+            bin_id = pd.Series(np.zeros(len(ev_valid), dtype=int))
+        bucket_df = pd.DataFrame(
+            {"ev": ev_valid, "actual": actual_valid, "bin": np.asarray(bin_id)}
+        )
+        grouped = (
+            bucket_df.groupby("bin", observed=True)
+            .agg(ev_mean=("ev", "mean"), actual_mean=("actual", "mean"), n=("actual", "size"))
+            .sort_values("ev_mean")
+        )
+        if len(grouped) < 2:
+            grouped = pd.DataFrame(
+                {
+                    "ev_mean": [float(np.nanmin(ev_valid)), float(np.nanmax(ev_valid))],
+                    "actual_mean": [
+                        float(np.nanmean(actual_valid)),
+                        float(np.nanmean(actual_valid)),
+                    ],
+                }
+            )
+
         iso = IsotonicRegression(y_min=0, out_of_bounds="clip")
-        iso.fit(oof_ev[valid], oof_actual[valid])
+        iso.fit(grouped["ev_mean"].to_numpy(), grouped["actual_mean"].to_numpy())
 
         ev_calibrated = np.copy(oof_ev)
         ev_calibrated[valid] = iso.transform(oof_ev[valid])
@@ -1189,17 +1240,22 @@ class TrainingPipelineV5:
         # BUGFIX: point-wise ratio median is 0 because 93% of actual_ev_win = 0.
         # Use aggregate ratio sum(actual)/sum(calibrated) instead, which correctly
         # estimates E[actual|band] / E[predicted|band] and averages out the zeros.
-        BANDS = OddsBandFilter.BANDS
-        BAND_NAMES = OddsBandFilter.BAND_NAMES
-        MIN_SAMPLES = 50
+        bands = OddsBandFilter.BANDS
+        band_names = OddsBandFilter.BAND_NAMES
+        min_samples = 50
 
         band_scales: dict[str, float] = {}
-        for band_name, (lo, hi) in zip(BAND_NAMES, BANDS):
+        for band_name, (lo, hi) in zip(band_names, bands):
             mask = (oof_odds >= lo) & (oof_odds < hi) & valid
-            if mask.sum() >= MIN_SAMPLES:
+            if mask.sum() >= min_samples:
                 actual_sum = float(np.sum(oof_actual[mask]))
                 calibrated_sum = float(np.sum(np.clip(ev_calibrated[mask], 1e-6, None)))
-                band_scales[band_name] = actual_sum / calibrated_sum if calibrated_sum > 0 else 1.0
+                if actual_sum <= 0 or calibrated_sum <= 0:
+                    band_scales[band_name] = 1.0
+                else:
+                    band_scales[band_name] = float(
+                        np.clip(actual_sum / calibrated_sum, 0.25, 3.0)
+                    )
             else:
                 band_scales[band_name] = 1.0
 
@@ -1757,9 +1813,11 @@ class TrainingPipelineV5:
                 )
 
             # Phase 19: EV Odds Band Scales (JSON)
-            if sub.ev_odds_band_scales is not None:
+            if _valid_ev_band_scales(sub.ev_odds_band_scales):
                 with open(models_dir / f"ev_odds_band_scales_{surface}.json", "w") as f:
                     json.dump(sub.ev_odds_band_scales, f, indent=2)
+            elif sub.ev_odds_band_scales is not None:
+                logger.warning("Skipping degenerate EV odds band scales for %s", surface)
 
         saved["race_quality"] = quality_screen.model
         saved["regime_detector"] = regime_det.model

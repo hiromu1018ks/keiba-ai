@@ -17,6 +17,8 @@ RELATIVE_FEATURE_COLS: list[str] = [
     "rel_timediff_rank",         # rank of timediff_avg within race (ascending)
     "rel_blood_quality_rank",    # rank of blood_total_wr within race (descending)
     "rel_sire_quality_rank",     # rank of sire_wr within race (descending)
+    "rel_bms_quality_rank",      # rank of bms_wr within race (descending)
+    "rel_bms_surface_quality_rank",
     "rel_weight_zscore",         # z-score of weight_zscore within race
     "rel_closing_index_rank",    # rank of closing_index_avg within race (ascending)
     "rel_fuku_odds_zscore",      # z-score of fukuoddslow within race
@@ -35,6 +37,8 @@ _BASE_FEATURES: list[dict[str, str]] = [
     {"base": "timediff_avg", "output": "rel_timediff_rank", "transform": "rank_asc"},
     {"base": "blood_total_wr", "output": "rel_blood_quality_rank", "transform": "rank_desc"},
     {"base": "sire_wr", "output": "rel_sire_quality_rank", "transform": "rank_desc"},
+    {"base": "bms_wr", "output": "rel_bms_quality_rank", "transform": "rank_desc"},
+    {"base": "bms_surface_wr", "output": "rel_bms_surface_quality_rank", "transform": "rank_desc"},
     {"base": "weight_zscore", "output": "rel_weight_zscore", "transform": "zscore"},
     {"base": "closing_index_avg", "output": "rel_closing_index_rank", "transform": "rank_asc"},
     {"base": "fukuoddslow", "output": "rel_fuku_odds_zscore", "transform": "zscore"},

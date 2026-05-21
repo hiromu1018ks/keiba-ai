@@ -191,7 +191,11 @@ class TestRemoveNoiseFeatures:
             "surface", "distance_bin", "track_condition_code",
             "grade_code", "field_size",
             "odds_skewness",
-            "draw_ratio", "class_move", "blinker_change",
+            "draw_ratio",
+            "class_level_current",
+            "class_level_source_flag",
+            "class_regime_after_202406",
+            "class_move", "blinker_change",
             "is_nar_transfer", "nar_recent_ratio",
             "track_condition_delta",
             "pace_pressure", "pace_scenario_fit",
@@ -234,6 +238,9 @@ class TestRemoveNoiseFeatures:
             "breeder_strength",
             # BMS拡張特徴量 (DATA-01)
             "bms_distance_wr",
+            "bms_has_history",
+            "bms_starts_log",
+            "bms_distance_starts_log",
             # コースレコード特徴量 (DATA-02)
             "course_record_time",
             # レース内相対比較特徴量 (DATA-03)

@@ -168,7 +168,7 @@ def _load_models(
     config: "PaperTradingConfig", *, use_ensemble: bool = False
 ) -> tuple["TrainedModelsV5", object]:
     """MLflowから学習済みモデルをロード"""
-    from db.model_loader import ModelInfo, ModelLoader
+    from db.model_loader import ModelLoader
 
     t0 = time.time()
     loader = ModelLoader(tracking_uri=config.mlflow_tracking_uri)
@@ -389,25 +389,35 @@ def _run_predict(
     )
 
     # 種牡馬特徴量 (SireFeatures)
+    from db.readers import load_horses, load_sire_stats
     from features.sire_features import SireFeatures
-    from db.readers import load_sire_stats, load_horses
+
     sire_stats_pt = load_sire_stats(store)
     if not sire_stats_pt.empty:
         horses_pt = load_horses(store)
         sire_feat_pt = SireFeatures(sire_stats_pt)
         sire_map_pt = horses_pt.set_index("kettonum")["ketto3infohansyokunum1"]
-        bms_map_pt = horses_pt.set_index("kettonum")["ketto3infohansyokunum3"]
+        bms_source_col_pt = (
+            "ketto3infohansyokunum5"
+            if "ketto3infohansyokunum5" in horses_pt.columns
+            else "ketto3infohansyokunum3"
+        )
+        bms_map_pt = horses_pt.set_index("kettonum")[bms_source_col_pt]
         feat_df["sire_id"] = feat_df["kettonum"].map(sire_map_pt)
         feat_df["bms_id"] = feat_df["kettonum"].map(bms_map_pt)
         sire_result_pt = sire_feat_pt.compute_batch(feat_df)
-        _sire_cols = {"sire_wr", "sire_surface_wr", "sire_distance_wr", "sire_prize_avg", "bms_wr"}
+        _sire_cols = {
+            "sire_wr", "sire_surface_wr", "sire_distance_wr", "sire_prize_avg",
+            "bms_wr", "bms_distance_wr", "bms_surface_wr", "bms_has_history",
+            "bms_starts_log", "bms_surface_starts_log", "bms_distance_starts_log",
+        }
         for sc in _sire_cols:
             if sc in sire_result_pt.columns:
                 feat_df[sc] = sire_result_pt[sc].values
 
     # ペース適性 + コース別適性特徴量
-    from features.pace_aptitude_features import PaceAptitudeFeatures
     from features.course_features import CourseFeatures
+    from features.pace_aptitude_features import PaceAptitudeFeatures
 
     pace_feat = PaceAptitudeFeatures(store=store)
     pace_df = pace_feat.compute_batch(feat_df)
@@ -744,8 +754,10 @@ def _run_diagnose(
     jt_all = JockeyTrainerComboFeatures(store).compute(entry_df)
 
     # ペース適性 + コース別適性 + 種牡馬特徴量 (予測パスで必要)
-    from features.pace_aptitude_features import PaceAptitudeFeatures
+    from db.readers import load_horses, load_sire_stats
     from features.course_features import CourseFeatures
+    from features.pace_aptitude_features import PaceAptitudeFeatures
+    from features.sire_features import SireFeatures
 
     pace_feat2 = PaceAptitudeFeatures(store=store)
     pace_df2 = pace_feat2.compute_batch(feat_df)
@@ -766,14 +778,22 @@ def _run_diagnose(
     sire_stats_pt2 = load_sire_stats(store)
     if not sire_stats_pt2.empty:
         horses_pt2 = load_horses(store)
-        from features.sire_features import SireFeatures
         sire_feat2 = SireFeatures(sire_stats_pt2)
         sire_map2 = horses_pt2.set_index("kettonum")["ketto3infohansyokunum1"]
-        bms_map2 = horses_pt2.set_index("kettonum")["ketto3infohansyokunum3"]
+        bms_source_col2 = (
+            "ketto3infohansyokunum5"
+            if "ketto3infohansyokunum5" in horses_pt2.columns
+            else "ketto3infohansyokunum3"
+        )
+        bms_map2 = horses_pt2.set_index("kettonum")[bms_source_col2]
         feat_df["sire_id"] = feat_df["kettonum"].map(sire_map2)
         feat_df["bms_id"] = feat_df["kettonum"].map(bms_map2)
         sire_result2 = sire_feat2.compute_batch(feat_df)
-        for sc2 in {"sire_wr", "sire_surface_wr", "sire_distance_wr", "sire_prize_avg", "bms_wr"}:
+        for sc2 in {
+            "sire_wr", "sire_surface_wr", "sire_distance_wr", "sire_prize_avg",
+            "bms_wr", "bms_distance_wr", "bms_surface_wr", "bms_has_history",
+            "bms_starts_log", "bms_surface_starts_log", "bms_distance_starts_log",
+        }:
             if sc2 in sire_result2.columns:
                 feat_df[sc2] = sire_result2[sc2].values
 
@@ -1200,24 +1220,34 @@ def _run_dry_run(
     )
 
     # 種牡馬特徴量 (SireFeatures)
+    from db.readers import load_horses, load_sire_stats
     from features.sire_features import SireFeatures
-    from db.readers import load_sire_stats, load_horses
+
     sire_stats_pt3 = load_sire_stats(store)
     if not sire_stats_pt3.empty:
         horses_pt3 = load_horses(store)
         sire_feat3 = SireFeatures(sire_stats_pt3)
         sire_map3 = horses_pt3.set_index("kettonum")["ketto3infohansyokunum1"]
-        bms_map3 = horses_pt3.set_index("kettonum")["ketto3infohansyokunum3"]
+        bms_source_col3 = (
+            "ketto3infohansyokunum5"
+            if "ketto3infohansyokunum5" in horses_pt3.columns
+            else "ketto3infohansyokunum3"
+        )
+        bms_map3 = horses_pt3.set_index("kettonum")[bms_source_col3]
         feat_df["sire_id"] = feat_df["kettonum"].map(sire_map3)
         feat_df["bms_id"] = feat_df["kettonum"].map(bms_map3)
         sire_result3 = sire_feat3.compute_batch(feat_df)
-        for sc3 in {"sire_wr", "sire_surface_wr", "sire_distance_wr", "sire_prize_avg", "bms_wr"}:
+        for sc3 in {
+            "sire_wr", "sire_surface_wr", "sire_distance_wr", "sire_prize_avg",
+            "bms_wr", "bms_distance_wr", "bms_surface_wr", "bms_has_history",
+            "bms_starts_log", "bms_surface_starts_log", "bms_distance_starts_log",
+        }:
             if sc3 in sire_result3.columns:
                 feat_df[sc3] = sire_result3[sc3].values
 
     # ペース適性 + コース別適性特徴量
-    from features.pace_aptitude_features import PaceAptitudeFeatures
     from features.course_features import CourseFeatures
+    from features.pace_aptitude_features import PaceAptitudeFeatures
 
     pace_feat3 = PaceAptitudeFeatures(store=store)
     pace_df3 = pace_feat3.compute_batch(feat_df)

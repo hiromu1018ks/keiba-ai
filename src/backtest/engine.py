@@ -793,7 +793,12 @@ class BacktestEngine:
             sire_feat_bt = SireFeatures(sire_stats_bt)
             sire_map_bt = horses_bt.set_index("kettonum")["ketto3infohansyokunum1"]
             feat_df["sire_id"] = feat_df["kettonum"].map(sire_map_bt)
-            bms_map_bt = horses_bt.set_index("kettonum")["ketto3infohansyokunum3"]
+            bms_source_col_bt = (
+                "ketto3infohansyokunum5"
+                if "ketto3infohansyokunum5" in horses_bt.columns
+                else "ketto3infohansyokunum3"
+            )
+            bms_map_bt = horses_bt.set_index("kettonum")[bms_source_col_bt]
             feat_df["bms_id"] = feat_df["kettonum"].map(bms_map_bt)
             sire_result_bt = sire_feat_bt.compute_batch(feat_df)
             _sire_cols_needed = {
@@ -804,6 +809,10 @@ class BacktestEngine:
                 "bms_wr",
                 "bms_distance_wr",
                 "bms_surface_wr",
+                "bms_has_history",
+                "bms_starts_log",
+                "bms_surface_starts_log",
+                "bms_distance_starts_log",
             }
             for col in _sire_cols_needed:
                 if col in sire_result_bt.columns:

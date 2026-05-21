@@ -54,6 +54,9 @@ def _make_train_df(n_races: int = 20, field_size: int = 8):
                     "weight_absolute": np.random.uniform(400, 550),
                     "weight_zscore": np.random.uniform(-2, 2),
                     "weight_change_zone": float(np.random.choice([-1, 0, 1, 2])),
+                    "weight_change_known": 1.0,
+                    "weight_change_abs_capped": np.random.uniform(0, 20),
+                    "weight_change_missing_flag": 0.0,
                     # 休養期間 (2)
                     "days_since_last_race": np.random.uniform(1, 200),
                     "rest_category": float(np.random.choice([1, 2, 3, 4, 5])),
@@ -68,6 +71,12 @@ def _make_train_df(n_races: int = 20, field_size: int = 8):
                     "sire_distance_wr": np.random.uniform(0.03, 0.15),
                     "sire_prize_avg": np.random.uniform(10, 15),
                     "bms_wr": np.random.uniform(0.02, 0.10),
+                    "bms_distance_wr": np.random.uniform(0.02, 0.10),
+                    "bms_surface_wr": np.random.uniform(0.02, 0.10),
+                    "bms_has_history": 1.0,
+                    "bms_starts_log": np.random.uniform(0.0, 5.0),
+                    "bms_surface_starts_log": np.random.uniform(0.0, 5.0),
+                    "bms_distance_starts_log": np.random.uniform(0.0, 5.0),
                     # ペース適性 (3)
                     "pace_aptitude": np.random.uniform(-0.5, 0.5),
                     "front_pace_wr": np.random.uniform(0.05, 0.3),
@@ -77,6 +86,9 @@ def _make_train_df(n_races: int = 20, field_size: int = 8):
                     "course_distance_wr": np.random.uniform(0.05, 0.3),
                     # 追加改善特徴量
                     "draw_ratio": np.random.uniform(0.0, 1.0),
+                    "class_level_current": np.random.uniform(1.0, 5.0),
+                    "class_level_source_flag": 1.0,
+                    "class_regime_after_202406": 0.0,
                     "class_move": np.random.uniform(-5.0, 5.0),
                     "blinker_change": float(np.random.choice([-1, 0, 1])),
                     "is_nar_transfer": float(np.random.choice([0, 1])),

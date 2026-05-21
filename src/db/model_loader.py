@@ -11,11 +11,19 @@ from typing import TYPE_CHECKING
 
 import joblib
 import mlflow
+import numpy as np
 
 if TYPE_CHECKING:
     from domain.models import TrainedModelsV5
 
 logger = logging.getLogger(__name__)
+
+
+def _valid_ev_band_scales(scales: dict[str, float] | None) -> bool:
+    if not scales:
+        return False
+    values = np.array([float(v) for v in scales.values()], dtype=float)
+    return bool(np.isfinite(values).all() and not np.allclose(values, 0.0))
 
 
 @dataclass
@@ -309,6 +317,9 @@ class ModelLoader:
                 )
                 with open(band_path) as f:
                     ev_odds_band_scales = json.load(f)
+                if not _valid_ev_band_scales(ev_odds_band_scales):
+                    logger.warning("Ignoring degenerate EV odds band scales for %s", surface)
+                    ev_odds_band_scales = None
             except Exception:
                 pass
 
@@ -749,6 +760,9 @@ class ModelLoader:
                 try:
                     with open(band_file) as f:
                         ev_odds_band_scales = json.load(f)
+                    if not _valid_ev_band_scales(ev_odds_band_scales):
+                        logger.warning("Ignoring degenerate EV odds band scales from %s", band_file)
+                        ev_odds_band_scales = None
                 except Exception:
                     logger.warning("Failed to load %s, skipping", band_file)
 

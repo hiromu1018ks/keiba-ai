@@ -22,12 +22,14 @@ def _numeric_or_nan(df: pd.DataFrame, col: str) -> pd.Series:
 
 def build_win_selection_ev(df: pd.DataFrame) -> pd.Series:
     lower_ev = _numeric_or_nan(df, "EV_lower_win_corrected")
+    calibrated_ev = _numeric_or_nan(df, "ev_win_calibrated")
     corrected_ev = _numeric_or_nan(df, "ev_win_corrected")
     direct_ev = _numeric_or_nan(df, "ev_win")
 
-    if corrected_ev.notna().any():
-        selection_ev = lower_ev.where(lower_ev.notna(), corrected_ev)
-        safety_floor = corrected_ev * 0.85
+    if calibrated_ev.notna().any() or corrected_ev.notna().any():
+        base_ev = calibrated_ev.where(calibrated_ev.notna(), corrected_ev)
+        selection_ev = lower_ev.where(lower_ev.notna(), base_ev)
+        safety_floor = base_ev * 0.85
         return pd.concat([selection_ev, safety_floor], axis=1).max(axis=1).astype(float)
     if lower_ev.notna().any():
         return lower_ev.astype(float)

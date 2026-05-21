@@ -85,6 +85,9 @@ class WinTwoStageModel:
         "odds_skewness",
         # 追加改善特徴量
         "draw_ratio",
+        "class_level_current",
+        "class_level_source_flag",
+        "class_regime_after_202406",
         "class_move",
         "blinker_change",
         "is_nar_transfer",
@@ -140,6 +143,9 @@ class WinTwoStageModel:
         "breeder_strength",
         # BMS拡張特徴量 (DATA-01)
         "bms_distance_wr",
+        "bms_has_history",
+        "bms_starts_log",
+        "bms_distance_starts_log",
         # コースレコード特徴量 (DATA-02)
         "course_record_time",
         # レース内相対比較特徴量 (DATA-03)
@@ -447,6 +453,9 @@ class PlaceTwoStageModel:
         "jt_combo_prize_log",
         "course_wr",
         "draw_ratio",
+        "class_level_current",
+        "class_level_source_flag",
+        "class_regime_after_202406",
         "class_move",
         "blinker_change",
         "is_nar_transfer",
@@ -484,11 +493,16 @@ class PlaceTwoStageModel:
         "dam_surface_wr",
         # BMS拡張特徴量 (DATA-01)
         "bms_surface_wr",
+        "bms_has_history",
+        "bms_starts_log",
+        "bms_surface_starts_log",
         # コースレコード特徴量 (DATA-02)
         "course_record_time",
         # レース内相対比較特徴量 (DATA-03)
         "rel_norm_finish_zscore",
         "rel_sire_quality_rank",
+        "rel_bms_quality_rank",
+        "rel_bms_surface_quality_rank",
         "rel_haron_vs_mean",
         # オッズ相対特徴量 (INTER-01)
         "rel_popularity_rank_zscore",
@@ -592,6 +606,9 @@ class PlaceTwoStageModel:
         "odds_skewness",
         # 追加改善特徴量
         "draw_ratio",
+        "class_level_current",
+        "class_level_source_flag",
+        "class_regime_after_202406",
         "class_move",
         "blinker_change",
         "is_nar_transfer",
@@ -649,6 +666,9 @@ class PlaceTwoStageModel:
         "breeder_strength",
         # BMS拡張特徴量 (DATA-01)
         "bms_distance_wr",
+        "bms_has_history",
+        "bms_starts_log",
+        "bms_distance_starts_log",
         # コースレコード特徴量 (DATA-02)
         "course_record_time",
         # レース内相対比較特徴量 (DATA-03)

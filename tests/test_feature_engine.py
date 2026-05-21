@@ -146,7 +146,7 @@ class TestFeatureEngineBuildAll:
         """race_df + entry_df + odds_df をマージして18行のDataFrameを返す"""
         engine = FeatureEngine()
         result = engine.build_all(sample_race_df, sample_entry_df, sample_odds_df)
-        assert result.shape[0] == 18
+        assert result.shape[0] == 15
         assert "race_id" in result.columns
         assert "umaban" in result.columns
 
@@ -271,7 +271,7 @@ class TestFeatureEngineBuildAll:
 
         engine = FeatureEngine(exclude_steeple=True)
         result = engine.build_all(combined_races, combined_entries, combined_odds)
-        assert result.shape[0] == 18  # 障害レースの18頭は除外
+        assert result.shape[0] == 15  # 障害レースと取消/除外馬は除外
 
     def test_no_exclude_steeple(self, sample_race_df, sample_entry_df, sample_odds_df):
         """exclude_steeple=False では障害レースも含む"""
@@ -290,7 +290,7 @@ class TestFeatureEngineBuildAll:
 
         engine = FeatureEngine(exclude_steeple=False)
         result = engine.build_all(combined_races, combined_entries, combined_odds)
-        assert result.shape[0] == 36
+        assert result.shape[0] == 30
 
 
 @pytest.fixture
@@ -441,6 +441,17 @@ class TestWeightChangeZone:
         result = fe._map_basic_features(df)
         assert "weight_change_zone" in result.columns
         assert result["weight_change_zone"].isna().all()
+
+    def test_zogensa_999_is_unknown_not_extreme_gain(self) -> None:
+        from features.feature_engine import FeatureEngine
+
+        fe = FeatureEngine()
+        df = self._make_df_with_zogen([999.0])
+        result = fe._map_basic_features(df)
+        assert result["weight_change_zone"].isna().all()
+        assert result["weight_change_known"].iloc[0] == 0.0
+        assert result["weight_change_missing_flag"].iloc[0] == 1.0
+        assert result["weight_change_abs_capped"].isna().all()
 
     def test_boundary_values(self) -> None:
         """境界値テスト: zogen=4 は golden, zogen=-4 は stable"""
@@ -786,8 +797,8 @@ class TestFeatureCache:
 
         # store.write() should have been called for cache save
         assert mock_store.write.called
-        # The result should be a real computation result (18 rows)
-        assert len(result) == 18
+        # The result should be a real computation result (取消/除外馬を除いた15 rows)
+        assert len(result) == 15
         # Check the cache_dir argument
         call_args = mock_store.write.call_args
         assert call_args[0][0] == "features/cache"
@@ -798,7 +809,7 @@ class TestFeatureCache:
         """store=Noneのときキャッシュ処理をスキップして正常動作する"""
         engine = FeatureEngine(exclude_steeple=False, use_cache=True)
         result = engine.build_all(sample_race_df, sample_entry_df, sample_odds_df)
-        assert len(result) == 18
+        assert len(result) == 15
 
     def test_build_all_disabled_cache(
         self, sample_race_df, sample_entry_df, sample_odds_df
@@ -813,7 +824,7 @@ class TestFeatureCache:
         result = engine.build_all(
             sample_race_df, sample_entry_df, sample_odds_df, store=mock_store
         )
-        assert len(result) == 18
+        assert len(result) == 15
         # store.write() should not be called for cache save when cache is disabled
         mock_store.write.assert_not_called()
 

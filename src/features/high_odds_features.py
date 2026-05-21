@@ -19,6 +19,8 @@ from __future__ import annotations
 
 import numpy as np
 
+from features.race_class import class_level_from_values
+
 FEATURE_COLS: list[str] = [
     # HODDS-02: クラストラジェクトリ (D-05, D-06, D-07)
     "class_promotions",        # 直近5走の昇級回数
@@ -59,12 +61,7 @@ def _class_level_from_values(grade_code: object, jyoken_code: object) -> float:
     horse_history_features.py の同名関数と同じロジック。
     循環参照回避のためインライン化。
     """
-    grade = str(grade_code).strip() if not _is_nan(grade_code) else ""
-    if grade in _CLASS_LEVEL_MAP:
-        return _CLASS_LEVEL_MAP[grade]
-    # フォールバック: jyoken_code の数値
-    val = _to_float(jyoken_code)
-    return val
+    return class_level_from_values(grade_code, jyoken_code)
 
 
 def _is_nan(value: object) -> bool:
@@ -109,13 +106,20 @@ def compute_class_trajectory(
          class_max_level, class_level_std, v_recovery_flag, v_recovery_duration)
         データ不足時は全て NaN。
     """
-    # 各要素のクラスレベルを計算
     levels = np.array([
         _class_level_from_values(gradecd_arr[i], jyokencd1_arr[i])
         for i in range(len(gradecd_arr))
     ])
+    return compute_class_trajectory_from_levels(levels)
+
+
+def compute_class_trajectory_from_levels(
+    levels: np.ndarray,
+) -> tuple[float, float, float, float, float, float, float]:
+    """クラストラジェクトリ特徴量を正規化済みクラスレベルから計算する。"""
 
     # NaN除外
+    levels = levels.astype(float)
     valid_mask = ~np.isnan(levels)
     levels_valid = levels[valid_mask]
 

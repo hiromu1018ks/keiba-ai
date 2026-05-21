@@ -61,6 +61,17 @@ class WideTwoStageModel:
         "track_condition_code",
         "grade_code",
         "field_size",
+        # Pair-specific market and model features
+        "wide_odds",
+        "wide_rank_pct",
+        "popularity_sum",
+        "popularity_gap",
+        "kyakusitukubun_cd_combo",
+        "p_ability_pair_product",
+        "p_ability_pair_min",
+        "p_ability_pair_gap",
+        "tanodds_ratio",
+        "draw_gap",
         # 市場構造 (D-06: 市場集中度・歪度)
         "implied_prob_hhi",
         "odds_skewness",

@@ -33,6 +33,8 @@ def race_df() -> pd.DataFrame:
       timediff_avg:          [0.2, 0.5, 0.8, 1.2]
       blood_total_wr:        [0.20, 0.15, 0.10, 0.05]
       sire_wr:               [0.18, 0.12, 0.08, 0.04]
+      bms_wr:                [0.16, 0.11, 0.07, 0.03]
+      bms_surface_wr:        [0.15, 0.10, 0.06, 0.02]
       weight_zscore:         [0.5, -0.3, 1.2, -0.4]
       closing_index_avg:     [0.1, 0.3, 0.5, 0.8]
       fukuoddslow:           [1.3, 2.5, 5.0, 12.0]
@@ -44,6 +46,8 @@ def race_df() -> pd.DataFrame:
       timediff_avg:          [0.5, 0.5, 0.5, 0.5]
       blood_total_wr:        [0.10, 0.10, 0.10, 0.10]
       sire_wr:               [0.10, 0.10, 0.10, 0.10]
+      bms_wr:                [0.09, 0.09, 0.09, 0.09]
+      bms_surface_wr:        [0.08, 0.08, 0.08, 0.08]
       weight_zscore:         [0.0, 0.0, 0.0, 0.0]
       closing_index_avg:     [0.4, 0.4, 0.4, 0.4]
       fukuoddslow:           [2.0, 2.0, 2.0, 2.0]
@@ -58,6 +62,8 @@ def race_df() -> pd.DataFrame:
             "timediff_avg": [0.2, 0.5, 0.8, 1.2, 0.5, 0.5, 0.5, 0.5],
             "blood_total_wr": [0.20, 0.15, 0.10, 0.05, 0.10, 0.10, 0.10, 0.10],
             "sire_wr": [0.18, 0.12, 0.08, 0.04, 0.10, 0.10, 0.10, 0.10],
+            "bms_wr": [0.16, 0.11, 0.07, 0.03, 0.09, 0.09, 0.09, 0.09],
+            "bms_surface_wr": [0.15, 0.10, 0.06, 0.02, 0.08, 0.08, 0.08, 0.08],
             "weight_zscore": [0.5, -0.3, 1.2, -0.4, 0.0, 0.0, 0.0, 0.0],
             "closing_index_avg": [0.1, 0.3, 0.5, 0.8, 0.4, 0.4, 0.4, 0.4],
             "fukuoddslow": [1.3, 2.5, 5.0, 12.0, 2.0, 2.0, 2.0, 2.0],
@@ -74,16 +80,16 @@ def race_df() -> pd.DataFrame:
 class TestRelativeFeatureCols:
     """RELATIVE_FEATURE_COLS and column production tests."""
 
-    def test_relative_feature_cols_has_9_entries(self) -> None:
-        """RELATIVE_FEATURE_COLS has exactly 9 entries."""
-        assert len(RELATIVE_FEATURE_COLS) == 9
+    def test_relative_feature_cols_has_11_entries(self) -> None:
+        """RELATIVE_FEATURE_COLS has exactly 11 entries."""
+        assert len(RELATIVE_FEATURE_COLS) == 11
 
     def test_relative_feature_cols_no_duplicates(self) -> None:
         """RELATIVE_FEATURE_COLS has no duplicate entries."""
         assert len(RELATIVE_FEATURE_COLS) == len(set(RELATIVE_FEATURE_COLS))
 
-    def test_all_9_columns_produced(self, race_df: pd.DataFrame) -> None:
-        """compute_relative_features() produces all 9 RELATIVE_FEATURE_COLS columns."""
+    def test_all_11_columns_produced(self, race_df: pd.DataFrame) -> None:
+        """compute_relative_features() produces all 11 RELATIVE_FEATURE_COLS columns."""
         result = compute_relative_features(race_df)
         for col in RELATIVE_FEATURE_COLS:
             assert col in result.columns, f"Missing column: {col}"
@@ -323,9 +329,9 @@ class TestNaNPropagation:
 class TestRelativeFeatureColsIntegrity:
     """RELATIVE_FEATURE_COLS list integrity tests."""
 
-    def test_exactly_9_entries(self) -> None:
-        """RELATIVE_FEATURE_COLS has exactly 9 entries."""
-        assert len(RELATIVE_FEATURE_COLS) == 9
+    def test_exactly_11_entries(self) -> None:
+        """RELATIVE_FEATURE_COLS has exactly 11 entries."""
+        assert len(RELATIVE_FEATURE_COLS) == 11
 
     def test_no_duplicates(self) -> None:
         """RELATIVE_FEATURE_COLS has no duplicate entries."""
@@ -339,6 +345,8 @@ class TestRelativeFeatureColsIntegrity:
             "rel_timediff_rank",
             "rel_blood_quality_rank",
             "rel_sire_quality_rank",
+            "rel_bms_quality_rank",
+            "rel_bms_surface_quality_rank",
             "rel_weight_zscore",
             "rel_closing_index_rank",
             "rel_fuku_odds_zscore",

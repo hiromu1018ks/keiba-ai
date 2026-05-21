@@ -21,18 +21,10 @@ import pandas as pd
 
 from domain.models import Entry, Race
 from domain.types import POST_RACE_COLS
+from features.race_class import compute_race_class_features
 from utils.timing import TimingContext
 
 logger = logging.getLogger(__name__)
-
-_GRADE_LEVEL_MAP: dict[str, float] = {
-    "A": 8.0,
-    "B": 7.0,
-    "C": 6.0,
-    "D": 5.0,
-    "E": 4.0,
-}
-
 
 def compute_code_hash(features_dir: str | Path = "src/features") -> str:
     """src/features/ 配下の全 .py ファイルの内容ハッシュを計算する。
@@ -112,22 +104,19 @@ def _compute_class_level(
     grade_code: pd.Series | None,
     jyoken_code: pd.Series | None,
 ) -> pd.Series:
-    if grade_code is None and jyoken_code is None:
-        return pd.Series(dtype=float)
-
+    index = None
     if grade_code is not None:
-        grade_series = grade_code.fillna("").astype(str).str.strip()
-        grade_level = grade_series.map(_GRADE_LEVEL_MAP)
-    else:
-        index = jyoken_code.index if jyoken_code is not None else None
-        grade_level = pd.Series(np.nan, index=index)
-
+        index = grade_code.index
+    elif jyoken_code is not None:
+        index = jyoken_code.index
+    if index is None:
+        return pd.Series(dtype=float)
+    temp = pd.DataFrame(index=index)
+    if grade_code is not None:
+        temp["grade_code"] = grade_code
     if jyoken_code is not None:
-        jyoken_level = pd.to_numeric(jyoken_code, errors="coerce")
-    else:
-        jyoken_level = pd.Series(np.nan, index=grade_level.index)
-
-    return grade_level.fillna(jyoken_level)
+        temp["jyokencd1"] = jyoken_code
+    return compute_race_class_features(temp)["class_level_current"]
 
 
 def _compute_popularity_rank_from_tanodds(df: pd.DataFrame) -> pd.Series:
@@ -533,11 +522,7 @@ class FeatureEngine:
         # grade_code: gradecd → grade_code コピー
         if "gradecd" in df.columns and "grade_code" not in df.columns:
             df["grade_code"] = df["gradecd"].replace("", "X")  # X=未格付け
-        if "class_level_current" not in df.columns:
-            df["class_level_current"] = _compute_class_level(
-                df["grade_code"] if "grade_code" in df.columns else df.get("gradecd"),
-                df["jyokencd1"] if "jyokencd1" in df.columns else None,
-            )
+        df = compute_race_class_features(df)
 
         # field_size: syussotosu → field_size コピー
         # 未発走レースでは syussotosu=0 のため、race_id ごとの行数で補完
@@ -607,22 +592,32 @@ class FeatureEngine:
         #   zone=2 (golden): 4 <= zogen <= 12 (stableを上書き)
         #   zone=0 (caution): -14 <= zogen <= -4 または 12 < zogen <= 14
         #   zone=-1 (danger): zogen < -14 または zogen > 14
-        # 注: zogen=4.0はgolden(2)、zogen=-4.0はcaution(0)、zogen=14.0はcaution(0)
+        # 注: zogen=4.0はgolden(2)、zogen=-4.0はstable(1)、zogen=14.0はcaution(0)
         if "zogensa" in df.columns:
-            zogen = df["zogensa"].astype(float)
+            zogen_raw = pd.to_numeric(df["zogensa"], errors="coerce")
+            zogen_unknown = zogen_raw == 999
+            zogen = zogen_raw.mask(zogen_unknown)
+            df["weight_change_known"] = (~zogen.isna()).astype(float)
+            df["weight_change_missing_flag"] = zogen_unknown.astype(float)
+            df["weight_change_abs_capped"] = zogen.abs().clip(upper=30)
             zone = pd.Series(1, index=df.index)  # default: stable (-4 < zogen < 4)
             zone[(zogen >= 4) & (zogen <= 12)] = 2  # golden (stableを上書き)
             zone[(zogen >= -14) & (zogen < -4)] = 0  # caution (下側)
             zone[(zogen > 12) & (zogen <= 14)] = 0  # caution (上側)
             zone[(zogen < -14) | (zogen > 14)] = -1  # danger
+            zone[zogen.isna()] = np.nan
             df["weight_change_zone"] = zone.astype(float)
         else:
             df["weight_change_zone"] = float("nan")
+            df["weight_change_known"] = 0.0
+            df["weight_change_missing_flag"] = 0.0
+            df["weight_change_abs_capped"] = float("nan")
 
         # A3: weight_change_ratio — 体重変化率 (zogen_sa / bataijyu)
         if "zogensa" in df.columns and "bataijyu" in df.columns:
-            weight = df["bataijyu"].astype(float)
-            zogen = df["zogensa"].astype(float)
+            weight = pd.to_numeric(df["bataijyu"], errors="coerce")
+            zogen_raw = pd.to_numeric(df["zogensa"], errors="coerce")
+            zogen = zogen_raw.mask(zogen_raw == 999)
             # 変化率 = 増減差 / 馬体重（パーセンテージ）
             # 馬体重が0またはNaNの場合はNaNにする
             df["weight_change_ratio"] = np.where(

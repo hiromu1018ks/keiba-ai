@@ -543,6 +543,7 @@ class RacePredictor:
         raw_ev_col = "win_selection_ev"
         edge_col = "win_selection_edge"
         odds_col = "tanodds"
+        has_raw_ev_col = raw_ev_col in race_df.columns
 
         if edge_col not in race_df.columns or odds_col not in race_df.columns:
             return race_df.iloc[0:0].copy()
@@ -559,12 +560,18 @@ class RacePredictor:
         prepared["win_selection_edge_raw"] = selection_edge_raw
 
         tail_ev = selection_ev_raw.copy()
-        high_ev_mask = selection_ev_raw.ge(1.5) & selection_ev_raw.lt(5.0)
+        if has_raw_ev_col:
+            high_ev_mask = selection_ev_raw.ge(1.5) & selection_ev_raw.lt(5.0)
+        else:
+            high_ev_mask = selection_edge_raw.ge(1.5) & selection_ev_raw.lt(5.0)
+        tail_calibrator = getattr(self, "_win_tail_calibrator", None)
+        if tail_calibrator is None:
+            tail_calibrator = EVTtailCalibrator()
         for idx in prepared.index[high_ev_mask.fillna(False)]:
             ev_value = selection_ev_raw.loc[idx]
             if pd.isna(ev_value):
                 continue
-            tail_ev.loc[idx] = self._win_tail_calibrator.calibrate(
+            tail_ev.loc[idx] = tail_calibrator.calibrate(
                 prepared.loc[idx],
                 prepared,
                 float(ev_value),
@@ -574,7 +581,10 @@ class RacePredictor:
         calibrated_edge.loc[high_ev_mask.fillna(False)] = (
             tail_ev.loc[high_ev_mask.fillna(False)] - 1.0
         )
-        prepared[edge_col] = calibrated_edge
+        if has_raw_ev_col:
+            prepared[edge_col] = calibrated_edge
+        else:
+            prepared["_calibrated_edge"] = calibrated_edge
 
         # D-06: Basic filter — edge > 0 AND odds >= 1.0
         positive_edge = selection_edge_raw.fillna(0.0) > 0.0
@@ -584,6 +594,9 @@ class RacePredictor:
         high_odds_tail = odds.ge(100.0)
         high_ev_tail = selection_ev_raw.ge(5.0)
 
+        has_probability_source = (
+            "p_win_final" in prepared.columns or "win_selection_prob" in prepared.columns
+        )
         if "p_win_final" in prepared.columns:
             prob_source = pd.to_numeric(prepared["p_win_final"], errors="coerce")
         else:
@@ -602,8 +615,12 @@ class RacePredictor:
         prepared["selected_rank_by_p_win_final"] = prob_rank
         prepared["selected_rank_by_win_selection_ev"] = ev_rank
 
-        prob_rank_pass = prob_rank.le(8.0)
-        prob_floor_pass = prob_source.ge(0.03)
+        if has_probability_source:
+            prob_rank_pass = prob_rank.le(8.0)
+            prob_floor_pass = prob_source.ge(0.03)
+        else:
+            prob_rank_pass = pd.Series(True, index=prepared.index)
+            prob_floor_pass = pd.Series(True, index=prepared.index)
         defensive_mask = (
             base_mask
             & ~high_odds_tail.fillna(False)
@@ -657,7 +674,7 @@ class RacePredictor:
         if candidates.empty:
             return candidates
 
-        sort_edge_col = edge_col
+        sort_edge_col = edge_col if has_raw_ev_col else "_calibrated_edge"
 
         # D-08: Log gate pass status for debugging (not used as filter)
         if "win_gate_pass" in candidates.columns:
@@ -691,7 +708,7 @@ class RacePredictor:
             candidates = candidates.sort_values([sort_edge_col], ascending=[False])
 
         # D-09: Max 2 candidates per race
-        return candidates.head(2)
+        return candidates.head(2).drop(columns=["_calibrated_edge"], errors="ignore")
 
     def get_place_candidates(
         self,
@@ -1029,6 +1046,49 @@ class RacePredictor:
         pair_candidates = candidate_umabans
         if len(pair_candidates) < 2:
             return []
+
+        surface_key = race_df["surface"].iloc[0] if "surface" in race_df.columns else None
+        submodel = self.models.submodels.get(surface_key) if surface_key is not None else None
+        wide_model = getattr(submodel, "wide", None)
+        if (
+            wide_model is not None
+            and getattr(wide_model, "hit_model", None) is not None
+            and getattr(wide_model, "return_model", None) is not None
+        ):
+            try:
+                from models.wide_pair_builder import WideJointPairBuilder
+
+                pair_df = WideJointPairBuilder().build(race_df)
+                if not pair_df.empty:
+                    scored = wide_model.predict_score(pair_df)
+                    mask = (
+                        scored["umaban_a"].isin(pair_candidates)
+                        & scored["umaban_b"].isin(pair_candidates)
+                        & (
+                            scored["umaban_a"].isin(place_umabans)
+                            | scored["umaban_b"].isin(place_umabans)
+                        )
+                        & (pd.to_numeric(scored["wide_odds"], errors="coerce") > 0)
+                        & (pd.to_numeric(scored["ev_wide"], errors="coerce") >= 1.0)
+                    )
+                    top = scored.loc[mask].sort_values(
+                        ["wide_score_adj", "ev_wide"], ascending=False
+                    ).head(3)
+                    return [
+                        Bet(
+                            race_id=str(row["race_id"]),
+                            umaban=int(row["umaban_a"]),
+                            bet_type=BetType.WIDE,
+                            odds=_safe_float(row.get("wide_odds", 0)),
+                            ev_lower_corrected=_safe_float(row.get("ev_wide", 0)),
+                            stake=200.0,
+                            edge=_safe_float(row.get("ev_wide", 0)) - 1.0,
+                            umaban_b=int(row["umaban_b"]),
+                        )
+                        for _, row in top.iterrows()
+                    ]
+            except Exception:
+                logger.warning("WideTwoStageModel scoring failed; falling back to place-edge wide")
 
         # 行データを収集
         rows_map: dict[int, pd.Series] = {}

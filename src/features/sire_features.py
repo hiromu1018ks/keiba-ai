@@ -9,6 +9,25 @@ import pandas as pd
 logger = logging.getLogger(__name__)
 
 
+def normalize_bloodline_id(value: object) -> str | None:
+    """Normalize JV bloodline IDs to 10-digit strings."""
+    if pd.isna(value):
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    try:
+        numeric = float(text)
+        if np.isfinite(numeric) and numeric.is_integer():
+            text = str(int(numeric))
+    except ValueError:
+        pass
+    digits = "".join(ch for ch in text if ch.isdigit())
+    if not digits:
+        return text
+    return digits[-10:].zfill(10)
+
+
 def _beta_smooth(wins: int, starts: int, alpha: int = 1, beta: int = 10) -> float:
     """Beta 平滑化勝率: (alpha + wins) / (alpha + beta + starts)"""
     return (alpha + wins) / (alpha + beta + starts)
@@ -26,9 +45,34 @@ def _beta_smooth_vec(
 class SireFeatures:
     """種牡馬産駒特徴量の計算 (PIT安全)"""
 
+    FEATURE_COLUMNS: tuple[str, ...] = (
+        "sire_wr",
+        "sire_place_rate",
+        "sire_surface_wr",
+        "sire_distance_wr",
+        "sire_prize_avg",
+        "bms_wr",
+        "bms_surface_wr",
+        "bms_distance_wr",
+        "bms_has_history",
+        "bms_starts_log",
+        "bms_surface_starts_log",
+        "bms_distance_starts_log",
+    )
+    SIRE_FEATURE_COLUMNS: tuple[str, ...] = (
+        "sire_wr",
+        "sire_place_rate",
+        "sire_surface_wr",
+        "sire_distance_wr",
+        "sire_prize_avg",
+    )
+
     def __init__(self, sire_stats_df: pd.DataFrame) -> None:
         self._stats = sire_stats_df
         if not self._stats.empty:
+            self._stats = self._stats.copy()
+            self._stats["sire_id"] = self._stats["sire_id"].map(normalize_bloodline_id)
+            self._stats = self._stats[self._stats["sire_id"].notna()]
             self._stats = self._stats.sort_values(["sire_id", "race_date"])
 
     def compute(
@@ -40,19 +84,18 @@ class SireFeatures:
     ) -> dict[str, float]:
         """1頭分の種牡馬特徴量を計算"""
         result: dict[str, float] = {}
+        normalized_sire_id = normalize_bloodline_id(sire_id)
 
-        if sire_id is None or pd.isna(sire_id) or self._stats.empty:
-            for col in ["sire_wr", "sire_place_rate", "sire_surface_wr",
-                        "sire_distance_wr", "sire_prize_avg"]:
+        if normalized_sire_id is None or self._stats.empty:
+            for col in self.SIRE_FEATURE_COLUMNS:
                 result[col] = np.nan
             return result
 
         # searchsorted で該当日以前の最新行を取得
-        mask = self._stats["sire_id"] == sire_id
+        mask = self._stats["sire_id"] == normalized_sire_id
         subset = self._stats[mask]
         if subset.empty:
-            for col in ["sire_wr", "sire_place_rate", "sire_surface_wr",
-                        "sire_distance_wr", "sire_prize_avg"]:
+            for col in self.SIRE_FEATURE_COLUMNS:
                 result[col] = np.nan
             return result
 
@@ -116,14 +159,14 @@ class SireFeatures:
         """
         if self._stats.empty or df.empty:
             result = pd.DataFrame(index=df.index)
-            for col in ["sire_wr", "sire_surface_wr", "sire_distance_wr", "sire_prize_avg",
-                        "bms_wr", "bms_surface_wr", "bms_distance_wr"]:
+            for col in self.FEATURE_COLUMNS:
                 result[col] = np.nan
             return result
 
-        # sire_id を文字列に統一
+        # sire_id を10桁文字列に統一
         stats = self._stats.copy()
-        stats["sire_id"] = stats["sire_id"].astype(str)
+        stats["sire_id"] = stats["sire_id"].map(normalize_bloodline_id)
+        stats = stats[stats["sire_id"].notna()]
 
         result = pd.DataFrame(index=df.index)
         n = len(df)
@@ -138,9 +181,9 @@ class SireFeatures:
             result[col] = np.nan
 
         # sire_id ごとに groupby で lookup (merge_asof のソート要件を回避)
-        sire_ids = df["sire_id"].astype(str).values
+        sire_ids = df["sire_id"].map(normalize_bloodline_id).values
         race_dates = pd.to_datetime(df["race_date"]).values
-        sire_ids_unique = np.unique(sire_ids[~pd.isna(sire_ids)])
+        sire_ids_unique = np.array([sid for sid in pd.unique(sire_ids) if sid is not None])
 
         for sid in sire_ids_unique:
             mask = sire_ids == sid
@@ -204,7 +247,7 @@ class SireFeatures:
         result["sire_prize_avg"] = np.log1p(result["sire_prize_total"].fillna(0) / starts_safe)
 
         # bms_wr + BMS拡張: 母父の産駒勝率 + surface/distance 別 — 同じロジックで bms_id を lookup
-        bms_ids = df["bms_id"].astype(str).values
+        bms_ids = df["bms_id"].map(normalize_bloodline_id).values
         bms_wins = np.full(n, np.nan)
         bms_starts = np.full(n, np.nan)
         bms_turf_wins = np.full(n, np.nan)
@@ -216,7 +259,7 @@ class SireFeatures:
         bms_long_wins = np.full(n, np.nan)
         bms_long_starts = np.full(n, np.nan)
 
-        bms_unique = np.unique(bms_ids[~pd.isna(bms_ids)])
+        bms_unique = np.array([bid for bid in pd.unique(bms_ids) if bid is not None])
         for bid in bms_unique:
             mask = bms_ids == bid
             subset = stats[stats["sire_id"] == bid]
@@ -246,7 +289,9 @@ class SireFeatures:
                     if col_name in subset.columns:
                         arr[valid_positions] = subset[col_name].values[idx_arr[valid]]
 
-        result["bms_wr"] = _beta_smooth_vec(pd.Series(bms_wins), pd.Series(bms_starts))
+        result["bms_wr"] = _beta_smooth_vec(pd.Series(bms_wins), pd.Series(bms_starts)).values
+        result["bms_has_history"] = pd.Series(bms_starts).notna().astype(float).values
+        result["bms_starts_log"] = np.log1p(pd.Series(bms_starts).fillna(0).astype(float)).values
 
         # BMS拡張: surface/distance 別勝率
         result["bms_surface_wr"] = np.where(
@@ -259,6 +304,14 @@ class SireFeatures:
             _beta_smooth_vec(pd.Series(bms_short_wins), pd.Series(bms_short_starts)),
             _beta_smooth_vec(pd.Series(bms_long_wins), pd.Series(bms_long_starts)),
         )
+        bms_surface_starts = np.where(is_turf, bms_turf_starts, bms_dirt_starts)
+        bms_distance_starts = np.where(is_short, bms_short_starts, bms_long_starts)
+        result["bms_surface_starts_log"] = np.log1p(
+            pd.Series(bms_surface_starts).fillna(0).astype(float)
+        ).values
+        result["bms_distance_starts_log"] = np.log1p(
+            pd.Series(bms_distance_starts).fillna(0).astype(float)
+        ).values
 
         # BMS 勝率値の範囲検証
         for wr_col in ["bms_wr", "bms_surface_wr", "bms_distance_wr"]:

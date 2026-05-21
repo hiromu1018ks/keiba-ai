@@ -69,6 +69,9 @@ class AbilityModel:
         "weight_absolute",
         "weight_zscore",
         "weight_change_zone",
+        "weight_change_known",
+        "weight_change_abs_capped",
+        "weight_change_missing_flag",
         # 休養期間 (2)
         "days_since_last_race",
         "rest_category",
@@ -92,6 +95,9 @@ class AbilityModel:
         "course_distance_wr",
         # 追加改善特徴量
         "draw_ratio",
+        "class_level_current",
+        "class_level_source_flag",
+        "class_regime_after_202406",
         "class_move",
         "blinker_change",
         "is_nar_transfer",
@@ -145,6 +151,10 @@ class AbilityModel:
         # BMS拡張特徴量 (DATA-01)
         "bms_distance_wr",
         "bms_surface_wr",
+        "bms_has_history",
+        "bms_starts_log",
+        "bms_surface_starts_log",
+        "bms_distance_starts_log",
         # コースレコード特徴量 (DATA-02)
         "course_record_time",
         # レース内相対比較特徴量 (DATA-03)
@@ -152,6 +162,8 @@ class AbilityModel:
         "rel_haron_vs_mean",
         "rel_blood_quality_rank",
         "rel_sire_quality_rank",
+        "rel_bms_quality_rank",
+        "rel_bms_surface_quality_rank",
         "rel_weight_zscore",
         # INT-01/02/03: Phase 36 交互作用特徴量
         "grade_x_form_trend",

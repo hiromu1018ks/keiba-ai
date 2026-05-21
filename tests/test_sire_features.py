@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
+import pytest
 
 from features.sire_features import SireFeatures, _beta_smooth
 
@@ -320,6 +321,48 @@ def _make_sire_stats() -> pd.DataFrame:
     })
 
 
+def test_compute_batch_normalizes_numeric_bms_id() -> None:
+    stats_extra = pd.concat(
+        [
+            _make_sire_stats(),
+            pd.DataFrame(
+                {
+                    "sire_id": ["1120002086"],
+                    "race_date": pd.to_datetime(["2024-06-01"]),
+                    "sire_starts": [100],
+                    "sire_wins": [20],
+                    "sire_places": [30],
+                    "sire_turf_starts": [80],
+                    "sire_turf_wins": [16],
+                    "sire_dirt_starts": [20],
+                    "sire_dirt_wins": [4],
+                    "sire_short_starts": [70],
+                    "sire_short_wins": [14],
+                    "sire_long_starts": [30],
+                    "sire_long_wins": [6],
+                    "sire_prize_total": [100000.0],
+                }
+            ),
+        ],
+        ignore_index=True,
+    )
+    feat = SireFeatures(stats_extra)
+    df = pd.DataFrame(
+        {
+            "sire_id": ["SIRE_A"],
+            "bms_id": [1120002086.0],
+            "race_date": pd.to_datetime(["2024-09-01"]),
+            "surface": ["turf"],
+            "kyori": [1600],
+        }
+    )
+
+    result = feat.compute_batch(df)
+
+    assert result["bms_wr"].iloc[0] != pytest.approx(1 / 11)
+    assert result["bms_has_history"].iloc[0] == 1.0
+
+
 class TestComputeBatch:
     """compute_batch の per-entry ルックアップ検証"""
 
@@ -385,8 +428,9 @@ class TestComputeBatch:
         for col in ["sire_wr", "sire_surface_wr", "sire_distance_wr",
                      "sire_place_rate", "bms_wr", "bms_surface_wr", "bms_distance_wr"]:
             valid_vals = result[col].dropna()
+            out_of_range = valid_vals[~((valid_vals >= 0) & (valid_vals <= 1.5))]
             assert (valid_vals >= 0).all() and (valid_vals <= 1.5).all(), (
-                f"{col} has out-of-range values: {valid_vals[~((valid_vals >= 0) & (valid_vals <= 1.5))]}"
+                f"{col} has out-of-range values: {out_of_range}"
             )
 
     def test_empty_df_returns_empty_result(self) -> None:

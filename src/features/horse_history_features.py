@@ -26,9 +26,11 @@ import pandas as pd
 from features.form_cycle_features import compute_form_features
 from features.high_odds_features import (
     compute_class_trajectory,
+    compute_class_trajectory_from_levels,
     compute_env_adaptability,
     compute_form_improvement_rate,
 )
+from features.race_class import class_level_from_values, compute_race_class_features
 
 logger = logging.getLogger(__name__)
 
@@ -62,10 +64,7 @@ def _coerce_float(value: object) -> float:
 
 
 def _class_level_from_values(grade_code: object, jyoken_code: object) -> float:
-    grade = str(grade_code).strip() if pd.notna(grade_code) else ""
-    if grade in _CLASS_LEVEL_MAP:
-        return _CLASS_LEVEL_MAP[grade]
-    return _coerce_float(jyoken_code)
+    return class_level_from_values(grade_code, jyoken_code)
 
 
 def _blinker_flag(value: object) -> float:
@@ -429,6 +428,11 @@ class HorseHistoryFeatures:
                 "track_condition_code",
                 "gradecd",
                 "jyokencd1",
+                "jyokencd2",
+                "jyokencd3",
+                "jyokencd4",
+                "jyokencd5",
+                "honsyokin1",
                 "distance_bin",
                 "kyori",
             ]
@@ -437,6 +441,7 @@ class HorseHistoryFeatures:
         if race_context_cols:
             race_context = race_df[race_context_cols].drop_duplicates(subset=["race_id"])
             horses = horses.merge(race_context, on="race_id", how="left")
+            horses = compute_race_class_features(horses)
 
         unique_ketto = horses["kettonum"].unique().tolist()
         unique_kisyu = horses["kisyucode"].unique().tolist()
@@ -469,6 +474,11 @@ class HorseHistoryFeatures:
             "track_condition_code",
             "gradecd",
             "jyokencd1",
+            "jyokencd2",
+            "jyokencd3",
+            "jyokencd4",
+            "jyokencd5",
+            "honsyokin1",
             "harontimel4",  # D-09: race-level L4 from races_hist (not entries)
         ]
         races_subset = races_hist[races_hist["race_id"].isin(entries_filtered["race_id"].unique())]
@@ -481,6 +491,8 @@ class HorseHistoryFeatures:
             on="race_id",
             how="left",
         )
+
+        past_df = compute_race_class_features(past_df)
 
         # Add distance_bin (surface is computed by ETL from trackcd)
         if (
@@ -551,6 +563,8 @@ class HorseHistoryFeatures:
             "track_condition_code",
             "gradecd",
             "jyokencd1",
+            "class_level_current",
+            "effective_jyokencd",
             "blinker",
             "jyocd",
         ]
@@ -981,15 +995,9 @@ class HorseHistoryFeatures:
                 _ca_valid_ss = _ca_ss > 1
                 if _ca_valid_ss.any():
                     _ca_norm_finish = (_ca_kj[_ca_valid_ss] - 1) / (_ca_ss[_ca_valid_ss] - 1)
-                    _ca_grade = horse_arrs.get("gradecd", np.array([], dtype=object))
-                    _ca_jyoken = horse_arrs.get("jyokencd1", np.array([], dtype=object))
-                    if len(_ca_grade) > 0 and len(_ca_jyoken) > 0:
-                        _ca_grade_v = _ca_grade[valid_mask][start:idx][_ca_valid_ss]
-                        _ca_jyoken_v = _ca_jyoken[valid_mask][start:idx][_ca_valid_ss]
-                        _ca_levels = np.array([
-                            _class_level_from_values(g, j)
-                            for g, j in zip(_ca_grade_v, _ca_jyoken_v)
-                        ])
+                    _ca_level = horse_arrs.get("class_level_current", np.array([], dtype=float))
+                    if len(_ca_level) > 0:
+                        _ca_levels = _ca_level[valid_mask][start:idx][_ca_valid_ss].astype(float)
                         _ca_valid = ~np.isnan(_ca_levels) & ~np.isnan(_ca_norm_finish)
                         if _ca_valid.any():
                             cl = _ca_levels[_ca_valid]
@@ -1451,7 +1459,14 @@ class HorseHistoryFeatures:
                 form_peak_flag = float("nan")
 
             # HODDS-02: クラストラジェクトリ (D-05, D-06, D-07)
-            if n_past >= 2 and "gradecd" in horse_arrs and "jyokencd1" in horse_arrs:
+            if n_past >= 2 and "class_level_current" in horse_arrs:
+                _ct_levels = horse_arrs["class_level_current"][valid_mask][start:idx].astype(float)
+                (
+                    class_promotions, class_demotions, class_net_change,
+                    class_max_level, class_level_std,
+                    v_recovery_flag, v_recovery_duration,
+                ) = compute_class_trajectory_from_levels(_ct_levels)
+            elif n_past >= 2 and "gradecd" in horse_arrs and "jyokencd1" in horse_arrs:
                 _ct_grade = horse_arrs["gradecd"][valid_mask][start:idx]
                 _ct_jyoken = horse_arrs["jyokencd1"][valid_mask][start:idx]
                 (
@@ -1481,22 +1496,29 @@ class HorseHistoryFeatures:
                 position_improvement_rate = float("nan")
 
             # class_move: 現在クラス - 前走クラス (正=昇級, 負=降級)
-            current_class_level = _class_level_from_values(
-                getattr(row, "gradecd", float("nan")),
-                getattr(row, "jyokencd1", float("nan")),
-            )
+            current_class_level = _coerce_float(getattr(row, "class_level_current", float("nan")))
+            if np.isnan(current_class_level):
+                current_class_level = _class_level_from_values(
+                    getattr(row, "gradecd", float("nan")),
+                    getattr(row, "jyokencd1", float("nan")),
+                )
             if hist_idx > 0 and horse_arrs is not None:
-                last_grade = (
-                    horse_arrs["gradecd"][history_mask][hist_start:hist_idx][-1]
-                    if "gradecd" in horse_arrs
-                    else float("nan")
-                )
-                last_jyoken = (
-                    horse_arrs["jyokencd1"][history_mask][hist_start:hist_idx][-1]
-                    if "jyokencd1" in horse_arrs
-                    else float("nan")
-                )
-                last_class_level = _class_level_from_values(last_grade, last_jyoken)
+                if "class_level_current" in horse_arrs:
+                    last_class_level = float(
+                        horse_arrs["class_level_current"][history_mask][hist_start:hist_idx][-1]
+                    )
+                else:
+                    last_grade = (
+                        horse_arrs["gradecd"][history_mask][hist_start:hist_idx][-1]
+                        if "gradecd" in horse_arrs
+                        else float("nan")
+                    )
+                    last_jyoken = (
+                        horse_arrs["jyokencd1"][history_mask][hist_start:hist_idx][-1]
+                        if "jyokencd1" in horse_arrs
+                        else float("nan")
+                    )
+                    last_class_level = _class_level_from_values(last_grade, last_jyoken)
                 class_move = (
                     current_class_level - last_class_level
                     if not np.isnan(current_class_level) and not np.isnan(last_class_level)

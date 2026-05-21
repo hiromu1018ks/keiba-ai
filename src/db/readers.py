@@ -81,6 +81,19 @@ _STRING_COLUMNS: set[str] = {
     "gradecd",  # レースグレードコード (A=G1, B=G2, C=G3, D=Listed, E=OP等)
     "gradecdbefore",  # 前回レースグレードコード
     "ketto3infohansyokunum1",  # 種牡馬血統番号 (horses)
+    "ketto3infohansyokunum2",
+    "ketto3infohansyokunum3",
+    "ketto3infohansyokunum4",
+    "ketto3infohansyokunum5",  # 母父馬
+    "ketto3infohansyokunum6",
+    "ketto3infohansyokunum7",
+    "ketto3infohansyokunum8",
+    "ketto3infohansyokunum9",
+    "ketto3infohansyokunum10",
+    "ketto3infohansyokunum11",
+    "ketto3infohansyokunum12",
+    "ketto3infohansyokunum13",
+    "ketto3infohansyokunum14",
     "keitoucode",  # 血統番号 (keito)
     "keitousystemcd",  # 系統コード (keito, e.g. "SS"=サンデーサイレンス系)
 }

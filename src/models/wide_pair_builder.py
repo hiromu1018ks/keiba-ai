@@ -39,8 +39,30 @@ class WideJointPairBuilder:
 
             # Pre-extract as numpy arrays for fast access
             umabans = horses["umaban"].values.astype(int)
-            finish_positions = horses["kakuteijyuni"].values.astype(int)
-            popularity_ranks = horses["popularity_rank"].values.astype(int)
+            finish_positions = (
+                pd.to_numeric(horses["kakuteijyuni"], errors="coerce")
+                .fillna(99)
+                .values
+                .astype(int)
+                if "kakuteijyuni" in horses.columns
+                else np.full(n, 99, dtype=int)
+            )
+            popularity = (
+                pd.to_numeric(horses["popularity_rank"], errors="coerce")
+                if "popularity_rank" in horses.columns
+                else pd.Series(99, index=horses.index, dtype=float)
+            )
+            popularity_ranks = popularity.fillna(99).values.astype(int)
+            p_ability = (
+                pd.to_numeric(horses["p_ability_win"], errors="coerce").fillna(0.0).values
+                if "p_ability_win" in horses.columns
+                else np.zeros(n, dtype=float)
+            )
+            tanodds = (
+                pd.to_numeric(horses["tanodds"], errors="coerce").fillna(0.0).values
+                if "tanodds" in horses.columns
+                else np.zeros(n, dtype=float)
+            )
             running_styles = (
                 horses["kyakusitukubun_cd"].fillna(0).values.astype(int)
                 if "kyakusitukubun_cd" in horses.columns
@@ -64,10 +86,18 @@ class WideJointPairBuilder:
                 if col.startswith("wide_odds_"):
                     val = horses[col].iloc[0]
                     wide_odds_cache[col] = float(val) if not pd.isna(val) else 0.0
+            positive_wide_odds = [v for v in wide_odds_cache.values() if v > 0]
 
             for i, j in combinations(range(n), 2):
                 lo, hi = min(umabans[i], umabans[j]), max(umabans[i], umabans[j])
                 odds_col = f"wide_odds_{lo}_{hi}"
+                wide_odds = wide_odds_cache.get(odds_col, 0.0)
+                wide_rank_pct = float("nan")
+                if wide_odds > 0 and positive_wide_odds:
+                    wide_rank = 1 + sum(v < wide_odds for v in positive_wide_odds)
+                    wide_rank_pct = wide_rank / max(len(positive_wide_odds), 1)
+                odds_lo = max(float(tanodds[i]), 1e-6)
+                odds_hi = max(float(tanodds[j]), 1e-6)
 
                 all_pairs.append(
                     {
@@ -76,8 +106,15 @@ class WideJointPairBuilder:
                         "umaban_b": int(umabans[j]),
                         "joint_hit": int(finish_positions[i] <= 3 and finish_positions[j] <= 3),
                         "popularity_sum": int(popularity_ranks[i] + popularity_ranks[j]),
+                        "popularity_gap": int(abs(popularity_ranks[i] - popularity_ranks[j])),
                         "kyakusitukubun_cd_combo": int(running_styles[i] + running_styles[j]),
-                        "wide_odds": wide_odds_cache.get(odds_col, 0.0),
+                        "wide_odds": wide_odds,
+                        "wide_rank_pct": wide_rank_pct,
+                        "p_ability_pair_product": float(p_ability[i] * p_ability[j]),
+                        "p_ability_pair_min": float(min(p_ability[i], p_ability[j])),
+                        "p_ability_pair_gap": float(abs(p_ability[i] - p_ability[j])),
+                        "tanodds_ratio": float(max(odds_lo, odds_hi) / min(odds_lo, odds_hi)),
+                        "draw_gap": int(abs(umabans[i] - umabans[j])),
                     }
                 )
 

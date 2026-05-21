@@ -129,14 +129,32 @@ def compute_interaction_features(df: pd.DataFrame) -> pd.DataFrame:
             other=float("nan"),
         )
 
-    # 馬体×クラス (体重 * grade_code数値マッピング)
-    _GRADE_MAP = {"G1": 5, "G2": 4, "G3": 3, "OP": 2, "J.G1": 5, "J.G2": 4, "J.G3": 3}
-    grade_num = pd.Series(dtype=float)
-    if "grade_code" in df.columns:
-        grade_num = df["grade_code"].map(_GRADE_MAP).fillna(1.0)
-    if weight_col in df.columns and "grade_code" in df.columns:
+    # 馬体×クラス (正規化済みclass_levelを優先)
+    grade_num = pd.Series(np.nan, index=df.index, dtype=float)
+    if "class_level_current" in df.columns:
+        grade_num = pd.to_numeric(df["class_level_current"], errors="coerce")
+    elif "grade_code" in df.columns:
+        grade_map = {
+            "A": 8,
+            "B": 7,
+            "C": 6,
+            "D": 5.5,
+            "L": 5.5,
+            "E": 5,
+            "G": 5.5,
+            "H": 5,
+            "G1": 5,
+            "G2": 4,
+            "G3": 3,
+            "J.G1": 5,
+            "J.G2": 4,
+            "J.G3": 3,
+            "OP": 2,
+        }
+        grade_num = df["grade_code"].map(grade_map).astype(float)
+    if weight_col in df.columns and grade_num.notna().any():
         df["weight_x_class"] = (df[weight_col] * grade_num).where(
-            df[weight_col].notna() & df["grade_code"].notna(),
+            df[weight_col].notna() & grade_num.notna(),
             other=float("nan"),
         )
 
