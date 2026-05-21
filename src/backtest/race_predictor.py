@@ -53,9 +53,7 @@ def _compute_phase36_aggregates(race_df: pd.DataFrame) -> dict[str, float]:
             result["phase36_top1_top2_gap"] = float(top2.iloc[0] - top2.iloc[1])
         else:
             result["phase36_top1_top2_gap"] = 0.0
-        result["phase36_field_dispersion"] = (
-            float(csr.std()) if csr.notna().sum() >= 2 else 0.0
-        )
+        result["phase36_field_dispersion"] = float(csr.std()) if csr.notna().sum() >= 2 else 0.0
     else:
         result["phase36_top1_strength"] = 0.0
         result["phase36_top1_top2_gap"] = 0.0
@@ -71,9 +69,7 @@ def _compute_phase36_aggregates(race_df: pd.DataFrame) -> dict[str, float]:
 
     if col_wrf in race_df.columns:
         wrf = pd.to_numeric(race_df[col_wrf], errors="coerce")
-        result["phase36_weighted_form_mean"] = (
-            float(wrf.mean()) if wrf.notna().any() else 0.0
-        )
+        result["phase36_weighted_form_mean"] = float(wrf.mean()) if wrf.notna().any() else 0.0
     else:
         result["phase36_weighted_form_mean"] = 0.0
 
@@ -163,6 +159,7 @@ class RacePredictor:
 
         # 3b. レース内相対比較特徴量 (HorseHistoryFeatures の base 列が必要なためここで計算)
         from features.relative_features import compute_relative_features
+
         df = compute_relative_features(df)
 
         # 4. 推論チェーン
@@ -189,6 +186,7 @@ class RacePredictor:
             df["odds_to_ability_ratio"] = (p_market / p_ability).clip(0.1, 10.0)
 
         from features.relative_features import compute_stage2_relative_features
+
         df = compute_stage2_relative_features(df)
 
         # INTER-03: Target Encoding (inference-time application)
@@ -197,6 +195,7 @@ class RacePredictor:
 
         # ODDS-01: deviation features (after AbilityModel, before WinTwoStageModel)
         from features.odds_deviation_features import compute_odds_deviation_features
+
         df = compute_odds_deviation_features(df)
         df = submodel.win.predict_ev(df)
 
@@ -258,9 +257,7 @@ class RacePredictor:
             # フォールバック: ConformalEVModelがない場合はEVをそのまま使用
             win_df = df.copy()
             ev_col = (
-                "ev_win_calibrated"
-                if "ev_win_calibrated" in df.columns
-                else "ev_win_corrected"
+                "ev_win_calibrated" if "ev_win_calibrated" in df.columns else "ev_win_corrected"
             )
             win_df["EV_lower_win_corrected"] = pd.to_numeric(
                 df[ev_col],
@@ -449,15 +446,11 @@ class RacePredictor:
         ):
             rerank_min_edge = float(regime_params.get("runner_up_rerank_min_edge", 0.0))
             rerank_min_prob = float(regime_params.get("runner_up_rerank_min_prob", 0.0))
-            rerank_max_odds = float(
-                regime_params.get("runner_up_rerank_max_odds", max_place_odds)
-            )
+            rerank_max_odds = float(regime_params.get("runner_up_rerank_max_odds", max_place_odds))
             market_condition_score = RacePredictor._market_condition_score(race_df)
             market_entropy = RacePredictor._race_first_numeric(race_df, "market_entropy")
             rerank_valid_odds = (
-                odds.notna()
-                & odds.gt(0.0)
-                & odds.le(min(max_place_odds, rerank_max_odds))
+                odds.notna() & odds.gt(0.0) & odds.le(min(max_place_odds, rerank_max_odds))
             )
             extra_mask |= (
                 ~selected_races
@@ -680,7 +673,9 @@ class RacePredictor:
         if "win_gate_pass" in candidates.columns:
             n_gate_pass = int(candidates["win_gate_pass"].fillna(False).astype(bool).sum())
             logger.debug(
-                "Win candidates: %d total, %d gate pass", len(candidates), n_gate_pass,
+                "Win candidates: %d total, %d gate pass",
+                len(candidates),
+                n_gate_pass,
             )
 
         # D-07: Rank by win_gate_score DESC, fallback to calibrated_edge DESC
@@ -717,10 +712,14 @@ class RacePredictor:
         regime_params: dict[str, Any] | None = None,
     ) -> pd.DataFrame:
         if regime_params is None:
-            regime = self.models.regime_detector.current_regime
+            # TODO: Regime動的に戻す場合はコメントアウト解除
+            # regime = self.models.regime_detector.current_regime
+            regime = RegimeState.AGGRESSIVE
             regime_params = self.models.regime_detector.get_strategy_params(regime)
         else:
-            regime = self.models.regime_detector.current_regime
+            # TODO: Regime動的に戻す場合はコメントアウト解除
+            # regime = self.models.regime_detector.current_regime
+            regime = RegimeState.AGGRESSIVE
 
         prepared = self._ensure_place_selection_columns(race_df)
         edge_col = "place_selection_edge"
@@ -854,7 +853,9 @@ class RacePredictor:
         Win: win_selection_edge > 0 AND tanodds >= 1.0
         Wide: WideTwoStageModel でスコアリング
         """
-        regime = self.models.regime_detector.current_regime
+        # TODO: Regime動的に戻す場合はコメントアウト解除
+        # regime = self.models.regime_detector.current_regime
+        regime = RegimeState.AGGRESSIVE
         regime_params = self.models.regime_detector.get_strategy_params(regime)
 
         bets: list[Bet] = []
@@ -1071,9 +1072,11 @@ class RacePredictor:
                         & (pd.to_numeric(scored["wide_odds"], errors="coerce") > 0)
                         & (pd.to_numeric(scored["ev_wide"], errors="coerce") >= 1.0)
                     )
-                    top = scored.loc[mask].sort_values(
-                        ["wide_score_adj", "ev_wide"], ascending=False
-                    ).head(3)
+                    top = (
+                        scored.loc[mask]
+                        .sort_values(["wide_score_adj", "ev_wide"], ascending=False)
+                        .head(3)
+                    )
                     return [
                         Bet(
                             race_id=str(row["race_id"]),

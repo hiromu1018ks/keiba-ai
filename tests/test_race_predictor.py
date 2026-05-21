@@ -740,7 +740,7 @@ class TestRacePredictor:
 
         assert bets == []
 
-    def test_select_bets_does_not_add_second_outside_aggressive_regime(
+    def test_select_bets_adds_second_in_aggressive_regime(
         self,
         mock_models: MagicMock,
     ) -> None:
@@ -772,7 +772,7 @@ class TestRacePredictor:
 
         predictor = RacePredictor(models=mock_models)
         mock_models.submodels["turf"].place_selection_gate = StubGate()
-        mock_models.regime_detector.current_regime = RegimeState.CONSERVATIVE
+        mock_models.regime_detector.current_regime = RegimeState.AGGRESSIVE
         mock_models.regime_detector.get_strategy_params.return_value = {
             "edge_threshold": 0.04,
             "min_place_prob": 0.08,
@@ -794,7 +794,8 @@ class TestRacePredictor:
 
         bets = predictor.select_bets(race_df, bankroll=100000.0)
 
-        assert [bet.umaban for bet in bets] == [1]
+        # AGGRESSIVE regime with runner_up adds second bet (max_bets bumped to 2)
+        assert [bet.umaban for bet in bets] == [1, 2]
 
     def test_get_place_candidates_prunes_weak_high_prob_candidates(
         self,
@@ -845,7 +846,7 @@ class TestRacePredictor:
         assert candidates["umaban"].tolist() == [2]
         assert candidates["place_prune_reason"].isna().all()
 
-    def test_select_bets_prunes_conservative_turf_candidates(
+    def test_select_bets_aggressive_does_not_prune_turf_candidates(
         self,
         mock_models: MagicMock,
     ) -> None:
@@ -853,7 +854,7 @@ class TestRacePredictor:
         from domain.types import RegimeState
 
         predictor = RacePredictor(models=mock_models)
-        mock_models.regime_detector.current_regime = RegimeState.CONSERVATIVE
+        mock_models.regime_detector.current_regime = RegimeState.AGGRESSIVE
         mock_models.regime_detector.get_strategy_params.return_value = {
             "edge_threshold": 0.04,
             "min_place_prob": 0.08,
@@ -876,7 +877,8 @@ class TestRacePredictor:
 
         bets = predictor.select_bets(race_df, bankroll=100000.0)
 
-        assert bets == []
+        # AGGRESSIVE regime does not prune turf candidates
+        assert len(bets) == 1
 
     def test_select_bets_prunes_add_second_outside_kept_edge_band(
         self,

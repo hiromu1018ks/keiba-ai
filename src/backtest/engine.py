@@ -30,7 +30,7 @@ from db.readers import (
     load_wide_odds,
 )
 from domain.models import Bet, BetType
-from domain.types import POST_RACE_COLS
+from domain.types import POST_RACE_COLS, RegimeState
 from models.regime_detector import calc_favorite_implied_prob, calc_odds_skewness
 
 if TYPE_CHECKING:
@@ -51,15 +51,15 @@ class BacktestResult:
     max_drawdown: float = 0.0
     final_bankroll: float = 0.0
     bet_history: list[dict[str, Any]] = field(default_factory=list)
-    n_pre_post_odds_bets: int = 0   # 発走前オッズでベットした件数
-    n_fallback_odds_bets: int = 0   # フォールバック（確定オッズ）でベットした件数
-    avg_edge: float = 0.0           # Value Betting 平均 edge
-    min_edge: float = 0.0           # Value Betting 最小 edge
-    max_edge: float = 0.0           # Value Betting 最大 edge
+    n_pre_post_odds_bets: int = 0  # 発走前オッズでベットした件数
+    n_fallback_odds_bets: int = 0  # フォールバック（確定オッズ）でベットした件数
+    avg_edge: float = 0.0  # Value Betting 平均 edge
+    min_edge: float = 0.0  # Value Betting 最小 edge
+    max_edge: float = 0.0  # Value Betting 最大 edge
     # Phase 11: Bet selection filter exclusion stats
-    n_collapsed_skipped: int = 0          # D-11: COLLAPSED regime skip count
-    n_ev_excluded: int = 0                # D-01: EV filter exclusion count
-    n_odds_band_excluded: int = 0         # D-06: OddsBandFilter exclusion count
+    n_collapsed_skipped: int = 0  # D-11: COLLAPSED regime skip count
+    n_ev_excluded: int = 0  # D-01: EV filter exclusion count
+    n_odds_band_excluded: int = 0  # D-06: OddsBandFilter exclusion count
     exclusion_stats: dict[str, Any] = field(default_factory=dict)  # Full exclusion breakdown
 
     @property
@@ -83,10 +83,7 @@ class BacktestResult:
             result_val = b.get("result", 0)
             if result_val > 0:
                 monthly[month_key][1] += result_val
-        return {
-            k: (ret / stk if stk > 0 else 0.0)
-            for k, (stk, ret) in monthly.items()
-        }
+        return {k: (ret / stk if stk > 0 else 0.0) for k, (stk, ret) in monthly.items()}
 
     def summary(self) -> str:
         lines = [
@@ -106,8 +103,7 @@ class BacktestResult:
             )
         if self.avg_edge > 0:
             lines.append(
-                f"  Edge: avg={self.avg_edge:.4f}, "
-                f"min={self.min_edge:.4f}, max={self.max_edge:.4f}"
+                f"  Edge: avg={self.avg_edge:.4f}, min={self.min_edge:.4f}, max={self.max_edge:.4f}"
             )
         return "\n".join(lines)
 
@@ -127,17 +123,23 @@ def build_payout_map(
     pay_cols = [f"payfukusyopay{i}" for i in range(1, 6)]
 
     maban_melted = payouts_df[id_vars + maban_cols].melt(
-        id_vars=id_vars, value_vars=maban_cols, value_name="umaban",
+        id_vars=id_vars,
+        value_vars=maban_cols,
+        value_name="umaban",
     )
     pay_melted = payouts_df[id_vars + pay_cols].melt(
-        id_vars=id_vars, value_vars=pay_cols, value_name="pay",
+        id_vars=id_vars,
+        value_vars=pay_cols,
+        value_name="pay",
     )
 
-    combined = pd.DataFrame({
-        "race_id": maban_melted["race_id"].values,
-        "umaban": maban_melted["umaban"].values,
-        "pay": pay_melted["pay"].values,
-    })
+    combined = pd.DataFrame(
+        {
+            "race_id": maban_melted["race_id"].values,
+            "umaban": maban_melted["umaban"].values,
+            "pay": pay_melted["pay"].values,
+        }
+    )
     combined = combined.dropna(subset=["umaban", "pay"])
     combined["umaban"] = combined["umaban"].astype(int)
     combined["pay_100"] = combined["pay"] / 100.0
@@ -171,9 +173,7 @@ def build_win_payout_map(
     df["pay_100"] = df["paytansyopay1"] / 100.0
     return {
         (str(race_id), int(umaban)): float(pay_100)
-        for (race_id, umaban), pay_100 in df.set_index(["race_id", "umaban"])[
-            "pay_100"
-        ].items()
+        for (race_id, umaban), pay_100 in df.set_index(["race_id", "umaban"])["pay_100"].items()
     }
 
 
@@ -194,17 +194,23 @@ def build_wide_payout_map(
     pay_cols = [f"paywidepay{i}" for i in range(1, 8)]
 
     kumi_melted = payouts_df[id_vars + kumi_cols].melt(
-        id_vars=id_vars, value_vars=kumi_cols, value_name="kumi",
+        id_vars=id_vars,
+        value_vars=kumi_cols,
+        value_name="kumi",
     )
     pay_melted = payouts_df[id_vars + pay_cols].melt(
-        id_vars=id_vars, value_vars=pay_cols, value_name="pay",
+        id_vars=id_vars,
+        value_vars=pay_cols,
+        value_name="pay",
     )
 
-    combined = pd.DataFrame({
-        "race_id": kumi_melted["race_id"].values,
-        "kumi": kumi_melted["kumi"].values,
-        "pay": pay_melted["pay"].values,
-    })
+    combined = pd.DataFrame(
+        {
+            "race_id": kumi_melted["race_id"].values,
+            "kumi": kumi_melted["kumi"].values,
+            "pay": pay_melted["pay"].values,
+        }
+    )
     combined = combined.dropna(subset=["kumi", "pay"])
     # BUG-FIX: Parquet may store kumi as float64 (e.g. 513.0).
     # Convert to str and strip trailing ".0" from float-as-string, preserving zero-padded strings.
@@ -264,17 +270,11 @@ def build_wide_payout_map(
         split_at_2 = idx5[use_first_two]
         if len(split_at_2) > 0:
             lo.loc[split_at_2] = combined.loc[split_at_2, "kumi"].str.slice(0, 2).astype(int)
-            hi.loc[split_at_2] = (
-                combined.loc[split_at_2, "kumi"]
-                .str.slice(2).astype(int)
-            )
+            hi.loc[split_at_2] = combined.loc[split_at_2, "kumi"].str.slice(2).astype(int)
 
         split_at_3 = idx5[~use_first_two]
         if len(split_at_3) > 0:
-            lo.loc[split_at_3] = (
-                combined.loc[split_at_3, "kumi"]
-                .str.slice(0, -2).astype(int)
-            )
+            lo.loc[split_at_3] = combined.loc[split_at_3, "kumi"].str.slice(0, -2).astype(int)
             hi.loc[split_at_3] = combined.loc[split_at_3, "kumi"].str.slice(-2).astype(int)
 
     combined["lo"] = lo
@@ -379,9 +379,7 @@ def _horse_win_diagnostic_kwargs(row: Any) -> dict[str, Any]:
         "p_win_corrected": _optional_float(getattr(row, "p_win_corrected", None)),
         "p_win_final": _optional_float(getattr(row, "p_win_final", None)),
         "e_return_win_pred": _optional_float(getattr(row, "e_return_win_pred", None)),
-        "e_return_win_corrected": _optional_float(
-            getattr(row, "e_return_win_corrected", None)
-        ),
+        "e_return_win_corrected": _optional_float(getattr(row, "e_return_win_corrected", None)),
         "win_selection_ev": _optional_float(getattr(row, "win_selection_ev_raw", None)),
         "win_selection_ev_tail_calibrated": _optional_float(
             getattr(row, "win_selection_ev_tail_calibrated", None)
@@ -544,13 +542,13 @@ class BacktestEngine:
                 "自動training_bet_history生成完了: %d bets, ROI=%.1f%% (%s ~ %s)",
                 train_result.total_bets,
                 train_result.total_roi * 100,
-                train_start, train_end,
+                train_start,
+                train_end,
             )
             return train_result.bet_history
         except Exception as e:
             logger.warning(
-                "自動training_bet_history生成失敗: %s — "
-                "OddsBandFilterキャリブレーションスキップ",
+                "自動training_bet_history生成失敗: %s — OddsBandFilterキャリブレーションスキップ",
                 e,
             )
             return None
@@ -654,7 +652,10 @@ class BacktestEngine:
                 mask = (odds_ts_df["race_date"] >= s_dt) & (odds_ts_df["race_date"] <= e_dt)
                 odds_ts_df = odds_ts_df[mask]
             logger.debug(
-                "Using preloaded odds_ts (%d rows for %s ~ %s)", len(odds_ts_df), start, end,
+                "Using preloaded odds_ts (%d rows for %s ~ %s)",
+                len(odds_ts_df),
+                start,
+                end,
             )
         else:
             odds_ts_df = load_odds_time_series_range(self.store, start, end)
@@ -691,9 +692,9 @@ class BacktestEngine:
         if not final_odds_df.empty:
             _odds = final_odds_df.dropna(subset=["fukuoddslow"])
             if not _odds.empty:
-                for (race_id, umaban), odds in (
-                    _odds.set_index(["race_id", "umaban"])["fukuoddslow"].items()
-                ):
+                for (race_id, umaban), odds in _odds.set_index(["race_id", "umaban"])[
+                    "fukuoddslow"
+                ].items():
                     final_odds_map[(str(race_id), int(umaban))] = float(odds)
 
         # 確定配当マップを構築（精算用。実際の払戻金額を使用）
@@ -723,7 +724,11 @@ class BacktestEngine:
             self.wide_payout_map = {}
 
         feat_df = feat_engine.build_all(
-            race_df, entry_df, pre_post_odds, odds_ts_df=odds_ts_df, store=self.store,
+            race_df,
+            entry_df,
+            pre_post_odds,
+            odds_ts_df=odds_ts_df,
+            store=self.store,
             preserve_columns=["kakuteijyuni", "confirmed_odds"],
         )
         feat_df = submodel_mgr.add_distance_band_features(feat_df)
@@ -829,8 +834,12 @@ class BacktestEngine:
         _pace_cols = [
             c
             for c in [
-                "pace_aptitude", "front_pace_wr", "closing_pace_wr",
-                "pace_corner_stability", "pace_closing_power", "pace_position_consistency",
+                "pace_aptitude",
+                "front_pace_wr",
+                "closing_pace_wr",
+                "pace_corner_stability",
+                "pace_closing_power",
+                "pace_position_consistency",
             ]
             if c in pace_df.columns
         ]
@@ -982,9 +991,7 @@ class BacktestEngine:
                         "umaban": int(r.umaban),
                         "bamei": str(r.bamei) if pd.notna(r.bamei) else "",
                         "kisyuryakusyo": (
-                            str(r.kisyuryakusyo)
-                            if pd.notna(r.kisyuryakusyo)
-                            else ""
+                            str(r.kisyuryakusyo) if pd.notna(r.kisyuryakusyo) else ""
                         ),
                         "kakuteijyuni": int(r.kakuteijyuni),
                     }
@@ -1022,11 +1029,13 @@ class BacktestEngine:
                     )
 
             # Quality screening — RegimeDetector.detect() でレジーム更新
-            recent_stats_df = pd.DataFrame(recent_stats_list[-200:])
-            if len(recent_stats_df) >= self.models.regime_detector.cfg.min_samples:
-                regime = self.models.regime_detector.detect(recent_stats_df)
-            else:
-                regime = self.models.regime_detector.current_regime
+            # TODO: Regime動的に戻す場合はコメントアウト解除
+            # recent_stats_df = pd.DataFrame(recent_stats_list[-200:])
+            # if len(recent_stats_df) >= self.models.regime_detector.cfg.min_samples:
+            #     regime = self.models.regime_detector.detect(recent_stats_df)
+            # else:
+            #     regime = self.models.regime_detector.current_regime
+            regime = RegimeState.AGGRESSIVE  # TODO: Regime動的に戻す場合はコメントアウト解除
             regime_params = self.models.regime_detector.get_strategy_params(regime)
             # D-11: レジーム別 fractional_kelly を StakeCalculator に注入
             if self._race_predictor.stake_calc is not None:
@@ -1036,43 +1045,51 @@ class BacktestEngine:
 
             # D-11: 統計を蓄積 (COLLAPSEDスキップ前 — レジーム遷移に必要, Pitfall 3)
             row_data = result_df.iloc[0] if not result_df.empty else {}
-            recent_stats_list.append({
-                "market_error_std": (
-                    float(result_df["signed_log_error_win"].std())
-                    if "signed_log_error_win" in result_df.columns and len(result_df) > 1
-                    else 0.2
-                ),
-                "market_error_mean": (
-                    float(result_df["signed_log_error_win"].mean())
-                    if "signed_log_error_win" in result_df.columns
-                    else 0.0
-                ),
-                "overround_rolling": (
-                    float(row_data["overround"])
-                    if "overround" in row_data.index and pd.notna(row_data.get("overround"))
-                    else 0.20
-                ) if not result_df.empty else 0.20,
-                "entropy_rolling": (
-                    float(row_data["market_entropy"])
-                    if (
-                        "market_entropy" in row_data.index
-                        and pd.notna(row_data.get("market_entropy"))
+            recent_stats_list.append(
+                {
+                    "market_error_std": (
+                        float(result_df["signed_log_error_win"].std())
+                        if "signed_log_error_win" in result_df.columns and len(result_df) > 1
+                        else 0.2
+                    ),
+                    "market_error_mean": (
+                        float(result_df["signed_log_error_win"].mean())
+                        if "signed_log_error_win" in result_df.columns
+                        else 0.0
+                    ),
+                    "overround_rolling": (
+                        float(row_data["overround"])
+                        if "overround" in row_data.index and pd.notna(row_data.get("overround"))
+                        else 0.20
                     )
-                    else 2.0
-                ) if not result_df.empty else 2.0,
-                "odds_skewness_rolling": calc_odds_skewness(result_df),
-                "favorite_implied_prob_rolling": calc_favorite_implied_prob(result_df),
-                "odds_volatility_mean": (
-                    float(result_df["odds_volatility"].mean())
-                    if "odds_volatility" in result_df.columns and not result_df.empty
-                    else 0.1
-                ),
-                "field_size_mean": (
-                    float(row_data["field_size"])
-                    if "field_size" in row_data.index and pd.notna(row_data.get("field_size"))
-                    else 14.0
-                ) if not result_df.empty else 14.0,
-            })
+                    if not result_df.empty
+                    else 0.20,
+                    "entropy_rolling": (
+                        float(row_data["market_entropy"])
+                        if (
+                            "market_entropy" in row_data.index
+                            and pd.notna(row_data.get("market_entropy"))
+                        )
+                        else 2.0
+                    )
+                    if not result_df.empty
+                    else 2.0,
+                    "odds_skewness_rolling": calc_odds_skewness(result_df),
+                    "favorite_implied_prob_rolling": calc_favorite_implied_prob(result_df),
+                    "odds_volatility_mean": (
+                        float(result_df["odds_volatility"].mean())
+                        if "odds_volatility" in result_df.columns and not result_df.empty
+                        else 0.1
+                    ),
+                    "field_size_mean": (
+                        float(row_data["field_size"])
+                        if "field_size" in row_data.index and pd.notna(row_data.get("field_size"))
+                        else 14.0
+                    )
+                    if not result_df.empty
+                    else 14.0,
+                }
+            )
 
             # D-11: COLLAPSED regime skip (race-level, D-09: filter order #1)
             if regime_params.get("skip", False):
@@ -1093,10 +1110,7 @@ class BacktestEngine:
 
             # D-09: OddsBandFilter (candidate-level, filter order #3)
             n_candidates_before_band = n_candidates
-            if (
-                self._odds_band_filter is not None
-                and not candidate_df.empty
-            ):
+            if self._odds_band_filter is not None and not candidate_df.empty:
                 candidate_df = self._odds_band_filter.filter(candidate_df)
                 n_odds_band_excluded += n_candidates_before_band - len(candidate_df)
             n_total_candidates += n_candidates_before_band
@@ -1208,7 +1222,9 @@ class BacktestEngine:
             # Bet generation
             surface_key = result_df["surface"].iloc[0]
             bets = self._race_predictor.select_bets(
-                result_df, bankroll, candidates=candidate_df,
+                result_df,
+                bankroll,
+                candidates=candidate_df,
                 betting_target=self.betting_target,
             )
 
@@ -1264,13 +1280,9 @@ class BacktestEngine:
                         e_return_place_corrected=float(
                             getattr(hr, "e_return_place_corrected", float("nan"))
                         ),
-                        ev_place_corrected=float(
-                            getattr(hr, "ev_place_corrected", float("nan"))
-                        ),
+                        ev_place_corrected=float(getattr(hr, "ev_place_corrected", float("nan"))),
                         ev_lower_place=float(getattr(hr, "EV_lower_place", float("nan"))),
-                        place_selection_ev=float(
-                            getattr(hr, "place_selection_ev", float("nan"))
-                        ),
+                        place_selection_ev=float(getattr(hr, "place_selection_ev", float("nan"))),
                         place_selection_edge=float(
                             getattr(hr, "place_selection_edge", float("nan"))
                         ),
@@ -1289,9 +1301,7 @@ class BacktestEngine:
                         market_condition_score=float(
                             getattr(hr, "market_condition_score", float("nan"))
                         ),
-                        aggressive_strength=float(
-                            getattr(hr, "aggressive_strength", float("nan"))
-                        ),
+                        aggressive_strength=float(getattr(hr, "aggressive_strength", float("nan"))),
                         aggressive_tier=(
                             str(getattr(hr, "aggressive_tier"))
                             if pd.notna(getattr(hr, "aggressive_tier", None))
@@ -1322,11 +1332,7 @@ class BacktestEngine:
                     if not horse_rows.empty and "popularity_rank" in horse_rows.columns
                     else 0
                 )
-                horse_row = (
-                    horse_rows.iloc[0]
-                    if not horse_rows.empty
-                    else pd.Series(dtype=object)
-                )
+                horse_row = horse_rows.iloc[0] if not horse_rows.empty else pd.Series(dtype=object)
 
                 bet_history.append(
                     {
@@ -1388,9 +1394,7 @@ class BacktestEngine:
                             else 0.0
                         ),
                         "p_win_pred": _optional_float(horse_row.get("p_win_pred", None)),
-                        "p_win_corrected": _optional_float(
-                            horse_row.get("p_win_corrected", None)
-                        ),
+                        "p_win_corrected": _optional_float(horse_row.get("p_win_corrected", None)),
                         "p_win_final": _optional_float(horse_row.get("p_win_final", None)),
                         "e_return_win_pred": _optional_float(
                             horse_row.get("e_return_win_pred", None)
@@ -1477,6 +1481,7 @@ class BacktestEngine:
         if total_bets > 0:
             try:
                 from datetime import datetime as dt
+
                 t_start = dt.strptime(test_start, "%Y-%m-%d")
                 t_end = dt.strptime(test_end, "%Y-%m-%d")
                 n_years = max(1, (t_end - t_start).days / 365.25)
@@ -1525,9 +1530,7 @@ class BacktestEngine:
                 "odds_band_excluded": n_odds_band_excluded,
                 "total_candidates_evaluated": n_total_candidates,
                 "odds_band_filter_excluded": (
-                    self._odds_band_filter.excluded_bands
-                    if self._odds_band_filter
-                    else {}
+                    self._odds_band_filter.excluded_bands if self._odds_band_filter else {}
                 ),
             },
         )
@@ -1566,6 +1569,7 @@ class BacktestEngine:
 
         # P3: HorseHistoryFeaturesクラスキャッシュをクリア (メモリリーク防止)
         from features.horse_history_features import HorseHistoryFeatures
+
         HorseHistoryFeatures.clear_class_cache()
 
         return backtest_result
@@ -1606,7 +1610,9 @@ class BacktestEngine:
             # WIN fallback: tanodds を使用 (fukuoddslow は単勝精算に不適切)
             logger.warning(
                 "Win payout missing for %s umaban=%d, using tanodds fallback=%.1f",
-                bet.race_id, bet.umaban, bet.odds,
+                bet.race_id,
+                bet.umaban,
+                bet.odds,
             )
             return float(bet.stake * bet.odds)
 
