@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.8
 milestone_name: Turf Precision Calibration
 status: planning
-last_updated: "2026-05-21T05:37:40.408Z"
+last_updated: "2026-05-21T05:42:49.162Z"
 last_activity: 2026-05-21
 progress:
-  total_phases: 7
+  total_phases: 6
   completed_phases: 4
   total_plans: 10
   completed_plans: 10
-  percent: 100
+  percent: 67
 ---
 
 # Project State
@@ -20,16 +20,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-05-19)
 
 **Core value:** 単勝モデルのバックテストROIを100%超えにすること
-**Current focus:** Phase 36.1.1.1 - ROI Diagnostic Fixes and Feature Sanity Optimization
+**Current focus:** Phase 37 - EV Calibration Layers
 
 ## Current Position
 
-Phase: 36.1.1.1
+Phase: 37
 Plan: Not started
 Status: Ready to plan
 Last activity: 2026-05-21
 
-Progress: [▓▓▓▓▓▓▓▓▓▓▓░░░░░░░░░] 57% (v1.8: 4/7 phases done, Phase 36.1.1.1 next)
+Progress: [▓▓▓▓▓▓▓▓▓▓▓▓▓░░░░░░░] 67% (v1.8: 4/6 phases done, Phase 37 next)
 
 ## v1.8 Roadmap
 
@@ -61,7 +61,6 @@ Progress: [▓▓▓▓▓▓▓▓▓▓▓░░░░░░░░░] 57% (v1
 
 - Phase 36.1 inserted after Phase 36: HaronTime L4/LapTime Feature Redesign - クロスレベル派生特徴量への再設計 + backtest engine hist_features欠落修正 (URGENT)
 - Phase 36.1.1 inserted after Phase 36.1: MarketModel & RaceQuality配線修正 — Phase36強力fundamental特徴量の全モデル一律登録でMarketModel・RaceQualityScreenerの役割崩壊を修復 (URGENT)
-- Phase 36.1.1.1 inserted after Phase 36.1.1: ROI diagnostics and feature sanity optimization before Phase 37, based on ANALYSIS-bt2024-features.md and ROI_ANALYSIS_REPORT_20260521.md (URGENT)
 
 ### Decisions
 

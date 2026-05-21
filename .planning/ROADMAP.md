@@ -5,11 +5,11 @@ milestone_name: Turf Precision Calibration
 status: planning
 last_updated: "2026-05-20T17:30:00Z"
 progress:
-  total_phases: 39
+  total_phases: 40
   completed_phases: 34
   total_plans: 84
   completed_plans: 80
-  percent: 87
+  percent: 85
 ---
 
 # Roadmap: keiba-ai Win Model Improvement
@@ -204,7 +204,7 @@ Plans:
 
 ### Phase 38: Integrated Validation
 **Goal**: All v1.8 features and calibration layers are validated safe, turf IC is positive, and BT ROI exceeds 100%
-**Depends on**: Phase 36.1.1, Phase 37
+**Depends on**: Phase 37
 **Requirements**: VAL-01, VAL-02, VAL-03, VAL-04, VAL-05, VAL-06
 **Success Criteria** (what must be TRUE):
   1. 3-layer CI leakage tests cover all new HLF/TRF/INT feature columns and all pass
