@@ -959,14 +959,22 @@ def _run_reconcile(
     # 確定した予測を書き戻し
     pred_df.to_parquet(pred_path, index=False)
 
-    # bets.parquet に追記
-    bets_path = config.paper_trading_dir / "bets.parquet"
-    if bets_path.exists():
-        existing = pd.read_parquet(bets_path)
-        combined = pd.concat([existing, pred_df], ignore_index=True)
+    # bets.parquet に追記 (確定行のみ、重複除去)
+    settled_rows = pred_df[pred_df["result"] != 0.0]
+    if not settled_rows.empty:
+        bets_path = config.paper_trading_dir / "bets.parquet"
+        if bets_path.exists():
+            existing = pd.read_parquet(bets_path)
+            combined = pd.concat([existing, settled_rows], ignore_index=True)
+            combined = combined.drop_duplicates(
+                subset=["race_id", "umaban", "race_date", "bet_type"], keep="last"
+            )
+        else:
+            combined = settled_rows
+        combined.to_parquet(bets_path, index=False)
     else:
-        combined = pred_df
-    combined.to_parquet(bets_path, index=False)
+        bets_path = config.paper_trading_dir / "bets.parquet"
+        combined = pd.read_parquet(bets_path) if bets_path.exists() else pred_df
 
     # 累積統計を計算
     total_stake = combined["stake"].sum()
@@ -1121,8 +1129,8 @@ def _run_dry_run(
     if args.date:
         dates: list[date] = [date.fromisoformat(args.date)]
     elif args.start and args.end:
-        start = date(int(args.start[:4]), int(args.start[4:6]), int(args.start[6:8]))
-        end = date(int(args.end[:4]), int(args.end[4:6]), int(args.end[6:8]))
+        start = date.fromisoformat(args.start.replace("-", ""))
+        end = date.fromisoformat(args.end.replace("-", ""))
         dates = []
         d = start
         while d <= end:
@@ -1245,14 +1253,14 @@ def _run_dry_run(
 
         day_bets: list[dict[str, object]] = []
         for race_id in day_races:
-            race_df_single = feat_df[feat_df["race_id"] == race_id].copy()
+            race_df_full = feat_df[feat_df["race_id"] == race_id].copy()
             hist_race = hist_all[hist_all["race_id"] == race_id]
             jockey_race = jockey_all[jockey_all["race_id"] == race_id]
             trainer_race = trainer_all[trainer_all["race_id"] == race_id]
             jt_race = jt_all[jt_all["race_id"] == race_id]
 
             # POST_RACE 列を除外 (BT engine.py と同じ処理)
-            race_df_single = _drop_post_race_cols(race_df_single)
+            race_df_single = _drop_post_race_cols(race_df_full.copy())
 
             result_df = race_predictor.predict(
                 race_df_single, hist_race, jockey_race, trainer_race, jt_combo_features=jt_race
@@ -1265,9 +1273,9 @@ def _run_dry_run(
 
             bets = race_predictor.select_bets(result_df, bankroll)
             for bet in bets:
-                horse = result_df[result_df["umaban"] == bet.umaban]
-                if not horse.empty:
-                    finish_pos = int(horse.iloc[0]["kakuteijyuni"])
+                horse_full = race_df_full[race_df_full["umaban"] == bet.umaban]
+                if not horse_full.empty and "kakuteijyuni" in horse_full.columns:
+                    finish_pos = int(horse_full.iloc[0]["kakuteijyuni"])
                     payout = 0.0
                     if bet.bet_type.value == "place" and 1 <= finish_pos <= 3:
                         payout = bet.stake * bet.odds

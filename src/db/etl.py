@@ -229,8 +229,13 @@ def _apply_type_conversions(df: pd.DataFrame, table_key: str) -> pd.DataFrame:
 def _compute_surface(df: pd.DataFrame) -> pd.DataFrame:
     """trackcd -> surface (turf/dirt/other)."""
     if "trackcd" in df.columns:
-        df["surface"] = df["trackcd"].apply(
-            lambda x: "turf" if 10 <= x <= 22 else "dirt" if 23 <= x <= 29 else "other"
+        import numpy as np
+
+        trackcd = df["trackcd"]
+        df["surface"] = np.where(
+            trackcd.isna(), "other",
+            np.where(trackcd.between(10, 22), "turf",
+                     np.where(trackcd.between(23, 29), "dirt", "other"))
         )
     return df
 

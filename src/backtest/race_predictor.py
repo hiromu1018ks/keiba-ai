@@ -12,10 +12,11 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 import pandas as pd
 
+from betting.ev_tail_calibration import EVTtailCalibrator
 from domain.models import Bet, BetType
 from domain.types import RegimeState
 from models.place_selection_gate import build_place_selection_ev, ensure_place_selection_columns
-from models.win_selection_gate import build_win_selection_ev, ensure_win_selection_columns
+from models.win_selection_gate import ensure_win_selection_columns
 
 if TYPE_CHECKING:
     from betting.drawdown_controller import DrawdownController
@@ -97,6 +98,7 @@ class RacePredictor:
         if not 0.0 <= alpha <= 1.0:
             raise ValueError(f"alpha must be in [0, 1], got {alpha}")
         self.alpha = alpha  # kept for backwards compatibility / fallback
+        self._win_tail_calibrator = EVTtailCalibrator()
 
     @staticmethod
     def _build_place_selection_ev(df: pd.DataFrame) -> pd.Series:
@@ -255,8 +257,15 @@ class RacePredictor:
         else:
             # フォールバック: ConformalEVModelがない場合はEVをそのまま使用
             win_df = df.copy()
-            ev_col = "ev_win_calibrated" if "ev_win_calibrated" in df.columns else "ev_win_corrected"
-            win_df["EV_lower_win_corrected"] = pd.to_numeric(df[ev_col], errors="coerce").fillna(0.0)
+            ev_col = (
+                "ev_win_calibrated"
+                if "ev_win_calibrated" in df.columns
+                else "ev_win_corrected"
+            )
+            win_df["EV_lower_win_corrected"] = pd.to_numeric(
+                df[ev_col],
+                errors="coerce",
+            ).fillna(0.0)
             win_df["EV_upper_win_corrected"] = win_df["EV_lower_win_corrected"]
             win_df["conformal_confidence_score"] = 0.0
             place_df = df.copy()
@@ -524,38 +533,130 @@ class RacePredictor:
     ) -> pd.DataFrame:
         """単勝ベット候補を選択。
 
-        フィルタ: win_selection_edge > 0 AND tanodds >= 1.0 (D-06)
+        フィルタ: win_selection_edge > 0 AND tanodds >= 1.0 (D-06) に加え、
+        高オッズ/高EV尾部と低確率順位を保守的に除外する。
         ソート: win_gate_score DESC (D-07), fallback win_selection_edge DESC
         上限: 2頭 (D-09)
         win_gate_pass はログ表示のみ、フィルタに使用しない (D-08)
         conformal_confidence_score はランキングのタイブレークにのみ使用 (soft signal)
         """
+        raw_ev_col = "win_selection_ev"
         edge_col = "win_selection_edge"
         odds_col = "tanodds"
 
         if edge_col not in race_df.columns or odds_col not in race_df.columns:
             return race_df.iloc[0:0].copy()
 
-        selection_edge = pd.to_numeric(race_df[edge_col], errors="coerce")
-        odds = pd.to_numeric(race_df[odds_col], errors="coerce")
+        prepared = race_df.copy()
+        selection_edge_raw = pd.to_numeric(prepared[edge_col], errors="coerce")
+        selection_ev_raw = pd.to_numeric(
+            prepared.get(raw_ev_col, selection_edge_raw + 1.0),
+            errors="coerce",
+        )
+        odds = pd.to_numeric(prepared[odds_col], errors="coerce")
+
+        prepared["win_selection_ev_raw"] = selection_ev_raw
+        prepared["win_selection_edge_raw"] = selection_edge_raw
+
+        tail_ev = selection_ev_raw.copy()
+        high_ev_mask = selection_ev_raw.ge(1.5) & selection_ev_raw.lt(5.0)
+        for idx in prepared.index[high_ev_mask.fillna(False)]:
+            ev_value = selection_ev_raw.loc[idx]
+            if pd.isna(ev_value):
+                continue
+            tail_ev.loc[idx] = self._win_tail_calibrator.calibrate(
+                prepared.loc[idx],
+                prepared,
+                float(ev_value),
+            )
+        prepared["win_selection_ev_tail_calibrated"] = tail_ev
+        calibrated_edge = selection_edge_raw.copy()
+        calibrated_edge.loc[high_ev_mask.fillna(False)] = (
+            tail_ev.loc[high_ev_mask.fillna(False)] - 1.0
+        )
+        prepared[edge_col] = calibrated_edge
 
         # D-06: Basic filter — edge > 0 AND odds >= 1.0
-        mask = selection_edge.fillna(0.0) > 0.0
-        mask &= odds.fillna(0.0) >= 1.0
+        positive_edge = selection_edge_raw.fillna(0.0) > 0.0
+        valid_odds = odds.fillna(0.0) >= 1.0
+        base_mask = positive_edge & valid_odds
+
+        high_odds_tail = odds.ge(100.0)
+        high_ev_tail = selection_ev_raw.ge(5.0)
+
+        if "p_win_final" in prepared.columns:
+            prob_source = pd.to_numeric(prepared["p_win_final"], errors="coerce")
+        else:
+            prob_source = pd.to_numeric(
+                prepared.get("win_selection_prob", pd.Series(np.nan, index=prepared.index)),
+                errors="coerce",
+            )
+        prob_rank = prob_source.groupby(prepared["race_id"], observed=True).rank(
+            method="first",
+            ascending=False,
+        )
+        ev_rank = selection_ev_raw.groupby(prepared["race_id"], observed=True).rank(
+            method="first",
+            ascending=False,
+        )
+        prepared["selected_rank_by_p_win_final"] = prob_rank
+        prepared["selected_rank_by_win_selection_ev"] = ev_rank
+
+        prob_rank_pass = prob_rank.le(8.0)
+        prob_floor_pass = prob_source.ge(0.03)
+        defensive_mask = (
+            base_mask
+            & ~high_odds_tail.fillna(False)
+            & ~high_ev_tail.fillna(False)
+            & prob_rank_pass.fillna(False)
+            & prob_floor_pass.fillna(False)
+        )
+
+        reasons = pd.Series("", index=prepared.index, dtype=object)
+        reason_masks = [
+            ("negative_or_zero_edge", ~positive_edge),
+            ("invalid_odds", ~valid_odds),
+            ("high_odds_tail", high_odds_tail.fillna(False)),
+            ("high_ev_tail", high_ev_tail.fillna(False)),
+            ("low_probability_rank", ~prob_rank_pass.fillna(False)),
+            ("low_probability", ~prob_floor_pass.fillna(False)),
+        ]
+        for reason, reason_mask in reason_masks:
+            add_mask = reason_mask.reindex(prepared.index, fill_value=False)
+            reasons.loc[add_mask] = np.where(
+                reasons.loc[add_mask].eq(""),
+                reason,
+                reasons.loc[add_mask] + "|" + reason,
+            )
+
+        prepared["excluded_reason"] = reasons.replace("", pd.NA)
+        prepared.loc[defensive_mask, "excluded_reason"] = pd.NA
+        prepared["filter_pass_flags"] = [
+            (
+                f"edge={bool(positive_edge.loc[idx])};"
+                f"odds={bool(valid_odds.loc[idx])};"
+                f"odds_tail={not bool(high_odds_tail.fillna(False).loc[idx])};"
+                f"ev_tail={not bool(high_ev_tail.fillna(False).loc[idx])};"
+                f"prob_rank={bool(prob_rank_pass.fillna(False).loc[idx])};"
+                f"prob_floor={bool(prob_floor_pass.fillna(False).loc[idx])}"
+            )
+            for idx in prepared.index
+        ]
+        prepared["candidate_count_before_filter"] = int(base_mask.sum())
+        prepared["candidate_count_after_filter"] = int(defensive_mask.sum())
 
         # NOTE: EV_lower_win_corrected フィルタは CQR 過学習による選択バイアスの原因
         # だったため削除。CQR出力は診断用に残すがベット判定には使わない。
-        _n_ev_excluded = 0
+        _n_ev_excluded = int((base_mask & high_ev_tail.fillna(False)).sum())
 
-        candidates = race_df.loc[mask].copy()
+        candidates = prepared.loc[defensive_mask].copy()
         # Propagate EV exclusion count to caller via DataFrame attrs
         candidates.attrs["n_ev_excluded"] = _n_ev_excluded
+        candidates.attrs["win_diagnostic_df"] = prepared
 
         if candidates.empty:
             return candidates
 
-        # EV tail calibration disabled — was producing NaN on high-EV candidates,
-        # suppressing top-value bets.  Sort by raw edge instead.
         sort_edge_col = edge_col
 
         # D-08: Log gate pass status for debugging (not used as filter)
@@ -744,10 +845,19 @@ class RacePredictor:
 
         # --- Win bets ---
         if betting_target == "win":
-            ev_col = "win_selection_ev"
+            ev_col = (
+                "win_selection_ev_tail_calibrated"
+                if (
+                    candidates is not None
+                    and "win_selection_ev_tail_calibrated" in candidates.columns
+                )
+                else "win_selection_ev"
+            )
             edge_col = "win_selection_edge"
             if candidates is None:
                 candidates = self.get_win_candidates(race_df)
+                if "win_selection_ev_tail_calibrated" in candidates.columns:
+                    ev_col = "win_selection_ev_tail_calibrated"
             if candidates.empty:
                 return bets
             candidates = candidates.head(max_bets)
@@ -872,7 +982,9 @@ class RacePredictor:
                     umaban=int(row["umaban"]),
                     bet_type=BetType.PLACE,
                     odds=odds_val,
-                    ev_lower_corrected=_safe_float(row.get(ev_col, row.get("ev_place_corrected", 0))),
+                    ev_lower_corrected=_safe_float(
+                        row.get(ev_col, row.get("ev_place_corrected", 0))
+                    ),
                     stake=stake,
                     edge=edge_val,
                 )

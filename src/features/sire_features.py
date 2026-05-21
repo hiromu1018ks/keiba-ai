@@ -1,8 +1,12 @@
 """種牡馬産駒特徴量 — PIT安全な累積統計ベース"""
 from __future__ import annotations
 
+import logging
+
 import numpy as np
 import pandas as pd
+
+logger = logging.getLogger(__name__)
 
 
 def _beta_smooth(wins: int, starts: int, alpha: int = 1, beta: int = 10) -> float:
@@ -150,14 +154,18 @@ class SireFeatures:
             valid = idx_arr >= 0
             if not valid.any():
                 continue
-            row = subset.iloc[idx_arr[valid]].iloc[0]  # 全行同じ値 (cumulative)
+            # Per-entry lookup: 各エントリが自身のrace_dateに対応する累積行を取得
+            positions = np.where(mask)[0]
             for col in ["sire_wins", "sire_starts", "sire_places",
                         "sire_turf_wins", "sire_turf_starts",
                         "sire_dirt_wins", "sire_dirt_starts",
                         "sire_short_wins", "sire_short_starts",
                         "sire_long_wins", "sire_long_starts",
                         "sire_prize_total"]:
-                result.loc[mask, col] = row[col]
+                if col not in subset.columns:
+                    continue
+                vals = subset[col].values
+                result.iloc[positions[valid], result.columns.get_loc(col)] = vals[idx_arr[valid]]
 
         # Beta 平滑化
         result["sire_wr"] = _beta_smooth_vec(result["sire_wins"], result["sire_starts"])
@@ -179,6 +187,17 @@ class SireFeatures:
             _beta_smooth_vec(result["sire_short_wins"], result["sire_short_starts"]),
             _beta_smooth_vec(result["sire_long_wins"], result["sire_long_starts"]),
         )
+
+        # 勝率値の範囲検証
+        for wr_col in ["sire_wr", "sire_surface_wr", "sire_distance_wr", "sire_place_rate"]:
+            if wr_col in result.columns:
+                out_of_range = (result[wr_col] > 1.5) | (result[wr_col] < 0)
+                if out_of_range.any():
+                    logger.warning(
+                        "sire_features: %d values out of [0, 1.5] for %s, clamping",
+                        out_of_range.sum(), wr_col,
+                    )
+                    result.loc[out_of_range, wr_col] = result.loc[out_of_range, wr_col].clip(0, 1.5)
 
         # 平均賞金
         starts_safe = result["sire_starts"].fillna(0).clip(lower=1).astype(float)
@@ -208,17 +227,24 @@ class SireFeatures:
             ) - 1
             valid = idx_arr >= 0
             if valid.any():
-                row = subset.iloc[idx_arr[valid]].iloc[0]
-                bms_wins[mask] = row["sire_wins"]
-                bms_starts[mask] = row["sire_starts"]
-                bms_turf_wins[mask] = row.get("sire_turf_wins", np.nan)
-                bms_turf_starts[mask] = row.get("sire_turf_starts", np.nan)
-                bms_dirt_wins[mask] = row.get("sire_dirt_wins", np.nan)
-                bms_dirt_starts[mask] = row.get("sire_dirt_starts", np.nan)
-                bms_short_wins[mask] = row.get("sire_short_wins", np.nan)
-                bms_short_starts[mask] = row.get("sire_short_starts", np.nan)
-                bms_long_wins[mask] = row.get("sire_long_wins", np.nan)
-                bms_long_starts[mask] = row.get("sire_long_starts", np.nan)
+                positions = np.where(mask)[0]
+                valid_positions = positions[valid]
+                vals = subset["sire_wins"].values
+                bms_wins[valid_positions] = vals[idx_arr[valid]]
+                vals = subset["sire_starts"].values
+                bms_starts[valid_positions] = vals[idx_arr[valid]]
+                for arr, col_name in [
+                    (bms_turf_wins, "sire_turf_wins"),
+                    (bms_turf_starts, "sire_turf_starts"),
+                    (bms_dirt_wins, "sire_dirt_wins"),
+                    (bms_dirt_starts, "sire_dirt_starts"),
+                    (bms_short_wins, "sire_short_wins"),
+                    (bms_short_starts, "sire_short_starts"),
+                    (bms_long_wins, "sire_long_wins"),
+                    (bms_long_starts, "sire_long_starts"),
+                ]:
+                    if col_name in subset.columns:
+                        arr[valid_positions] = subset[col_name].values[idx_arr[valid]]
 
         result["bms_wr"] = _beta_smooth_vec(pd.Series(bms_wins), pd.Series(bms_starts))
 
@@ -233,5 +259,16 @@ class SireFeatures:
             _beta_smooth_vec(pd.Series(bms_short_wins), pd.Series(bms_short_starts)),
             _beta_smooth_vec(pd.Series(bms_long_wins), pd.Series(bms_long_starts)),
         )
+
+        # BMS 勝率値の範囲検証
+        for wr_col in ["bms_wr", "bms_surface_wr", "bms_distance_wr"]:
+            if wr_col in result.columns:
+                out_of_range = (result[wr_col] > 1.5) | (result[wr_col] < 0)
+                if out_of_range.any():
+                    logger.warning(
+                        "sire_features: %d values out of [0, 1.5] for %s, clamping",
+                        out_of_range.sum(), wr_col,
+                    )
+                    result.loc[out_of_range, wr_col] = result.loc[out_of_range, wr_col].clip(0, 1.5)
 
         return result

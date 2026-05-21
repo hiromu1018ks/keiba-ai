@@ -280,6 +280,7 @@ class WinTwoStageModel:
             if pd.api.types.is_integer_dtype(features[col]):
                 features[col] = features[col].astype(float)
         for col in ["surface", "distance_bin", "grade_code",
+                     "track_condition_code",
                      "kyakusitu_x_distance", "kyakusitu_x_surface",
                      "surface_x_distance_bin", "blood_keito_x_surface",
                      "grade_code_x_distance_bin"]:
@@ -404,6 +405,7 @@ class PlaceTwoStageModel:
         "weight_zscore",
         "days_since_last_race",
         "rest_category",
+        "is_debut",
         "form_trend",
         "form_consistency",
         "blood_surface_wr",
@@ -733,6 +735,7 @@ class PlaceTwoStageModel:
             if pd.api.types.is_integer_dtype(features[col]):
                 features[col] = features[col].astype(float)
         for col in ["surface", "distance_bin", "grade_code",
+                     "track_condition_code",
                      "kyakusitu_x_distance", "kyakusitu_x_surface",
                      "surface_x_distance_bin", "blood_keito_x_surface",
                      "grade_code_x_distance_bin"]:

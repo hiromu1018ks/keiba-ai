@@ -54,4 +54,14 @@ POST_RACE_COLS: list[str] = [
     "dmtime",
     # ETL-02: LapTime1~25 (RA table, race-level POST_RACE)
     *[f"laptime{i}" for i in range(1, 26)],
+    # 追加 POST_RACE 列 (ANALYSIS-bt2024-features.md で特定)
+    "nyusenjyuni",
+    "fukasyokin",
+    "dochakukubun",
+    "dochakutosu",
+    "nyusentosu",
+    "recordupkubun",
+    "harontimes3",
+    "harontimes4",
+    "ijyocd",
 ]

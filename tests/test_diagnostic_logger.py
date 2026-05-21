@@ -54,6 +54,46 @@ class TestDiagnosticLogger:
         assert rec.p_place_corrected == pytest.approx(0.31)
         assert rec.ev_lower_place == pytest.approx(1.18)
 
+    def test_log_horse_records_win_diagnostics(self):
+        logger = DiagnosticLogger()
+        logger.log_horse(
+            race_id="20240101010111",
+            umaban=5,
+            p_place_pred=0.0,
+            e_return_place_pred=0.0,
+            ev_place=0.0,
+            fukuoddslow=0.0,
+            is_bet=True,
+            is_actual_bet=True,
+            p_win_pred=0.12,
+            p_win_corrected=0.10,
+            p_win_final=0.09,
+            e_return_win_pred=12.0,
+            e_return_win_corrected=10.0,
+            win_selection_ev=1.8,
+            win_selection_ev_tail_calibrated=1.26,
+            win_selection_edge=0.26,
+            win_selection_prob=0.09,
+            win_gate_score=1.2,
+            win_gate_pass=True,
+            tanodds=14.0,
+            final_odds=13.8,
+            stake=100.0,
+            result=0.0,
+            excluded_reason=None,
+            filter_pass_flags="edge=True;odds=True",
+            candidate_count_before_filter=3,
+            candidate_count_after_filter=1,
+            selected_rank_by_p_win_final=2.0,
+            selected_rank_by_win_selection_ev=1.0,
+        )
+
+        rec = logger.horse_records[0]
+        assert rec.is_actual_bet is True
+        assert rec.p_win_final == pytest.approx(0.09)
+        assert rec.win_selection_ev_tail_calibrated == pytest.approx(1.26)
+        assert rec.stake == pytest.approx(100.0)
+
     def test_save_creates_two_csv_files(self):
         logger = DiagnosticLogger()
         logger.log_race("20240101010111", "CONSERVATIVE", 1.30, True, 0.5, 2, 1)

@@ -273,11 +273,14 @@ def compare_calibrations(
     has_beta = False
     beta_cal: object = None
     try:
-        from betacal import BetaCalibration
+        from betacal import BetaCalibration as _BetaCal
 
-        beta_cal = BetaCalibration(parameters="abm")
+        _raw = _BetaCal(parameters="abm")
+        _raw.fit(p_train, y_train)
+        p_beta = np.asarray(_raw.predict(p_val), dtype=float)
+        # Wrap predict() as transform() for calibrate() compatibility
+        beta_cal = BetaCalibrationManual()
         beta_cal.fit(p_train, y_train)
-        p_beta = np.asarray(beta_cal.predict(p_val), dtype=float)
         has_beta = True
     except (ImportError, Exception) as e:
         logger.warning("betacal unavailable or failed (%s), using manual fallback", e)

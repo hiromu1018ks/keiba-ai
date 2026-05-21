@@ -1389,6 +1389,85 @@ class TestGetWinCandidates:
         result = predictor.get_win_candidates(race_df)
         assert len(result) == 0
 
+    def test_high_win_odds_tail_excluded(self, mock_models: MagicMock) -> None:
+        """tanodds >= 100 は単勝候補から除外される"""
+        from backtest.race_predictor import RacePredictor
+
+        predictor = RacePredictor(models=mock_models)
+        race_df = self._make_win_race_df(n=2, tanodds=[99.9, 100.0])
+        result = predictor.get_win_candidates(race_df)
+        diag_df = result.attrs["win_diagnostic_df"]
+
+        assert result["umaban"].tolist() == [1]
+        reason = diag_df.loc[diag_df["umaban"].eq(2), "excluded_reason"].iloc[0]
+        assert "high_odds_tail" in reason
+
+    def test_high_win_ev_tail_excluded(self, mock_models: MagicMock) -> None:
+        """win_selection_ev >= 5.0 は単勝候補から除外される"""
+        from backtest.race_predictor import RacePredictor
+
+        predictor = RacePredictor(models=mock_models)
+        race_df = self._make_win_race_df(
+            n=2,
+            win_selection_ev=[4.9, 5.0],
+            win_selection_edge=[3.9, 4.0],
+        )
+        result = predictor.get_win_candidates(race_df)
+        diag_df = result.attrs["win_diagnostic_df"]
+
+        assert result["umaban"].tolist() == [1]
+        reason = diag_df.loc[diag_df["umaban"].eq(2), "excluded_reason"].iloc[0]
+        assert "high_ev_tail" in reason
+
+    def test_low_win_probability_rank_excluded(self, mock_models: MagicMock) -> None:
+        """p_win_final のレース内順位が9位以下なら除外される"""
+        from backtest.race_predictor import RacePredictor
+
+        predictor = RacePredictor(models=mock_models)
+        race_df = self._make_win_race_df(
+            n=10,
+            p_win_final=[0.12, 0.11, 0.10, 0.09, 0.08, 0.07, 0.06, 0.05, 0.04, 0.03],
+        )
+        result = predictor.get_win_candidates(race_df)
+        diag_df = result.attrs["win_diagnostic_df"]
+
+        assert 9 not in result["umaban"].tolist()
+        assert diag_df.loc[diag_df["umaban"].eq(9), "selected_rank_by_p_win_final"].iloc[0] == 9
+        reason = diag_df.loc[diag_df["umaban"].eq(9), "excluded_reason"].iloc[0]
+        assert "low_probability_rank" in reason
+
+    def test_low_win_probability_floor_excluded(self, mock_models: MagicMock) -> None:
+        """p_win_final < 0.03 は除外される"""
+        from backtest.race_predictor import RacePredictor
+
+        predictor = RacePredictor(models=mock_models)
+        race_df = self._make_win_race_df(n=1, p_win_final=[0.029])
+        result = predictor.get_win_candidates(race_df)
+        diag_df = result.attrs["win_diagnostic_df"]
+
+        assert result.empty
+        reason = diag_df.loc[diag_df["umaban"].eq(1), "excluded_reason"].iloc[0]
+        assert "low_probability" in reason
+
+    def test_tail_calibrated_ev_is_used_for_valid_candidates(
+        self, mock_models: MagicMock
+    ) -> None:
+        """EV tail calibration 後の値から win_selection_edge が再計算される"""
+        from backtest.race_predictor import RacePredictor
+
+        predictor = RacePredictor(models=mock_models)
+        race_df = self._make_win_race_df(
+            n=1,
+            win_selection_ev=[2.0],
+            win_selection_edge=[1.0],
+            p_win_final=[0.50],
+        )
+        result = predictor.get_win_candidates(race_df)
+
+        assert len(result) == 1
+        assert result.iloc[0]["win_selection_ev_tail_calibrated"] == pytest.approx(1.4)
+        assert result.iloc[0]["win_selection_edge"] == pytest.approx(0.4)
+
     def test_max_two_candidates(self, mock_models: MagicMock) -> None:
         """Test 4: 5候補いても上位2頭のみ返す"""
         from backtest.race_predictor import RacePredictor

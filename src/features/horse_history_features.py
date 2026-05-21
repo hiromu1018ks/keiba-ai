@@ -177,10 +177,12 @@ def _lookup_expanding_stats(
     surf_val: str,
     baba_val: str,
     expanding_stats: dict[tuple, np.ndarray],
+    key_prefix: str | None = None,
 ) -> tuple[float, float]:
     """expanding_stats から target_date 以前の最新の mean/std を取得。
 
     Returns (mean, std). 見つからない場合は (nan, nan).
+    key_prefix: if set, prepended to key tuple (for CSR/HRG stats dicts).
     """
     for cols, _min_n in FALLBACK_LEVELS:
         if cols:
@@ -188,6 +190,9 @@ def _lookup_expanding_stats(
             key = tuple(col_map[c] for c in cols)
         else:
             key = ("all",)
+
+        if key_prefix is not None:
+            key = (key_prefix,) + key
 
         arr = expanding_stats.get(key)
         if arr is None or len(arr) == 0:
@@ -295,6 +300,7 @@ class HorseHistoryFeatures:
         "weight_zscore",  # A2: 馬個体の体重分布に対する正規化
         "days_since_last_race",  # A3: 前走からの日数
         "rest_category",  # A3: 休養期間カテゴリ (1-5)
+        "is_debut",  # A3: 初出走フラグ (1=初出走, 0=過去出走あり)
         # B3: フォームサイクル
         "form_trend",
         "form_consistency",
@@ -354,6 +360,12 @@ class HorseHistoryFeatures:
         "pace_early_avg",
         "pace_mid_avg",
         "pace_late_avg",
+        # D-02: haron_race_gap = L3 - L4*0.75 (3F/4F scale conversion)
+        "haron_race_gap_avg",
+        "haron_race_gap_zscore",
+        "haron_race_gap_trend",
+        # D-03: pace_adj_finish = norm_finish * pace_ratio past average
+        "pace_adj_finish_avg",
     ]
 
     def __init__(self, store: ParquetStore, *, n_past: int = 5) -> None:
@@ -461,7 +473,9 @@ class HorseHistoryFeatures:
         ]
         races_subset = races_hist[races_hist["race_id"].isin(entries_filtered["race_id"].unique())]
         race_cols = [c for c in race_cols_all if c in races_subset.columns]
-        entries_no_date = entries_filtered.drop(columns=["race_date"], errors="ignore")
+        # Drop columns that come from races_hist to avoid merge suffix conflicts
+        _race_only_cols = [c for c in ["race_date", "harontimel4"] if c in entries_filtered.columns]
+        entries_no_date = entries_filtered.drop(columns=_race_only_cols, errors="ignore")
         past_df = entries_no_date.merge(
             races_subset[race_cols].drop_duplicates("race_id"),
             on="race_id",
@@ -666,12 +680,102 @@ class HorseHistoryFeatures:
                     expanding_stats[("all",)] = arr
 
         # -------------------------------------------------------------------
-        # D-08: Pre-compute EXPANDING stats for closing_speed_ratio z-score
+        # D-01: Pre-compute EXPANDING stats for closing_speed_ratio z-score
         # closing_speed_ratio = L3 / L4 (both must be valid).
-        # Same FALLBACK_LEVELS structure, separate dict to avoid key collision.
-        # Will be populated in Task 2 with actual CSR values.
+        # Also for haron_race_gap = L3 - L4*0.75 z-score.
+        # Same FALLBACK_LEVELS structure, separate dicts to avoid key collision.
         # -------------------------------------------------------------------
         expanding_stats_csr: dict[tuple, np.ndarray] = {}
+        expanding_stats_hrg: dict[tuple, np.ndarray] = {}
+
+        if _has_harontimel3 and _has_harontimel4 and _has_distance_bin:
+            # CSR requires both L3 and L4 valid
+            valid_csr_all = past_df_sorted[
+                past_df_sorted["harontimel3"].notna()
+                & past_df_sorted["harontimel4"].notna()
+                & past_df_sorted["distance_bin"].notna()
+            ].copy()
+            if len(valid_csr_all) > 0:
+                if _has_surface:
+                    valid_csr_all["_surf"] = valid_csr_all["surface"].fillna("")
+                else:
+                    valid_csr_all["_surf"] = ""
+                if _has_baba_cd:
+                    valid_csr_all["_baba"] = valid_csr_all["baba_cd"].fillna("")
+                else:
+                    valid_csr_all["_baba"] = ""
+                valid_csr_all["_db"] = valid_csr_all["distance_bin"]
+                valid_csr_all["_l3"] = valid_csr_all["harontimel3"].astype(float)
+                valid_csr_all["_l4"] = valid_csr_all["harontimel4"].astype(float)
+                valid_csr_all["_csr"] = valid_csr_all["_l3"] / valid_csr_all["_l4"]
+                valid_csr_all["_hrg"] = valid_csr_all["_l3"] - valid_csr_all["_l4"] * 0.75
+                valid_csr_all["_rd"] = valid_csr_all["race_date"]
+
+                # Filter out inf/nan from division
+                csr_mask = np.isfinite(valid_csr_all["_csr"].values)
+                hrg_mask = np.isfinite(valid_csr_all["_hrg"].values)
+                valid_csr_all = valid_csr_all[csr_mask & hrg_mask].sort_values("_rd").reset_index(drop=True)
+
+                if len(valid_csr_all) > 0:
+                    for cols, min_n in FALLBACK_LEVELS:
+                        if cols:
+                            col_map = {"distance_bin": "_db", "surface": "_surf", "baba_cd": "_baba"}
+                            group_cols = [col_map[c] for c in cols]
+                            grouped = valid_csr_all.groupby(group_cols, observed=True)
+                            for key, grp_df in grouped:
+                                if not isinstance(key, tuple):
+                                    key = (key,)
+                                if len(grp_df) < min_n:
+                                    continue
+                                csr_vals = grp_df["_csr"].values
+                                hrg_vals = grp_df["_hrg"].values
+                                dates_vals = grp_df["_rd"].values
+
+                                # CSR expanding stats
+                                cum_count = np.arange(1, len(csr_vals) + 1)
+                                cum_mean = np.cumsum(csr_vals) / cum_count
+                                cum_x2 = np.cumsum(csr_vals**2) / cum_count
+                                cum_var = cum_x2 - cum_mean**2
+                                cum_var[1:] = cum_var[1:] * cum_count[1:] / (cum_count[1:] - 1)
+                                cum_var[0] = 0.0
+                                cum_std = np.sqrt(np.maximum(cum_var, 0.0))
+                                arr = np.column_stack([dates_vals.astype(float), cum_mean, cum_std])
+                                expanding_stats_csr[("csr",) + key] = arr
+
+                                # HRG expanding stats
+                                cum_mean_h = np.cumsum(hrg_vals) / cum_count
+                                cum_x2_h = np.cumsum(hrg_vals**2) / cum_count
+                                cum_var_h = cum_x2_h - cum_mean_h**2
+                                cum_var_h[1:] = cum_var_h[1:] * cum_count[1:] / (cum_count[1:] - 1)
+                                cum_var_h[0] = 0.0
+                                cum_std_h = np.sqrt(np.maximum(cum_var_h, 0.0))
+                                arr_h = np.column_stack([dates_vals.astype(float), cum_mean_h, cum_std_h])
+                                expanding_stats_hrg[("hrg",) + key] = arr_h
+
+                    # Global fallback (L4)
+                    csr_all_vals = valid_csr_all["_csr"].values
+                    hrg_all_vals = valid_csr_all["_hrg"].values
+                    dates_all_vals_csr = valid_csr_all["_rd"].values
+                    if len(csr_all_vals) > 0:
+                        cum_count = np.arange(1, len(csr_all_vals) + 1)
+                        cum_mean = np.cumsum(csr_all_vals) / cum_count
+                        cum_x2 = np.cumsum(csr_all_vals**2) / cum_count
+                        cum_var = cum_x2 - cum_mean**2
+                        cum_var[1:] = cum_var[1:] * cum_count[1:] / (cum_count[1:] - 1)
+                        cum_var[0] = 0.0
+                        cum_std = np.sqrt(np.maximum(cum_var, 0.0))
+                        expanding_stats_csr[("csr", "all")] = np.column_stack(
+                            [dates_all_vals_csr.astype(float), cum_mean, cum_std]
+                        )
+                        cum_mean_h = np.cumsum(hrg_all_vals) / cum_count
+                        cum_x2_h = np.cumsum(hrg_all_vals**2) / cum_count
+                        cum_var_h = cum_x2_h - cum_mean_h**2
+                        cum_var_h[1:] = cum_var_h[1:] * cum_count[1:] / (cum_count[1:] - 1)
+                        cum_var_h[0] = 0.0
+                        cum_std_h = np.sqrt(np.maximum(cum_var_h, 0.0))
+                        expanding_stats_hrg[("hrg", "all")] = np.column_stack(
+                            [dates_all_vals_csr.astype(float), cum_mean_h, cum_std_h]
+                        )
 
         # -------------------------------------------------------------------
         # HLF-03: Pre-compute LapTime pace_ratio per past race (PIT-safe)
@@ -834,9 +938,11 @@ class HorseHistoryFeatures:
                     rest_cat = 4.0  # long
                 else:
                     rest_cat = 5.0  # return
+                is_debut = 0.0
             else:
                 days_since = float("nan")
                 rest_cat = float("nan")
+                is_debut: float = 1.0
 
             # norm_finish_logit_avg
             if n_past > 0:
@@ -958,13 +1064,135 @@ class HorseHistoryFeatures:
                 harontimel5_zscore = float("nan")
 
             # -----------------------------------------------------------------
-            # D-08: closing_speed_ratio (replaces harontimel4 direct stats)
-            # closing_speed_ratio = harontimel3_horse / harontimel4_race
-            # Placeholder: actual computation in Task 2, NaN for now.
+            # D-01: closing_speed_ratio = harontimel3_horse / harontimel4_race
+            # D-02: haron_race_gap = harontimel3 - harontimel4 * 0.75
             # -----------------------------------------------------------------
             closing_speed_ratio_avg: float = float("nan")
             closing_speed_ratio_zscore: float = float("nan")
             closing_speed_ratio_trend: float = float("nan")
+            haron_race_gap_avg: float = float("nan")
+            haron_race_gap_zscore: float = float("nan")
+            haron_race_gap_trend: float = float("nan")
+
+            if n_past > 0 and _has_harontimel3 and _has_harontimel4:
+                _csr_l3 = horse_arrs["harontimel3"][valid_mask][start:idx].astype(float)
+                _csr_l4 = horse_arrs.get("harontimel4", np.array([], dtype=float))
+                if len(_csr_l4) > 0:
+                    _csr_l4 = _csr_l4[valid_mask][start:idx].astype(float)
+                else:
+                    _csr_l4 = np.full(len(_csr_l3), np.nan)
+
+                # Per-race CSR and HRG computation
+                _valid_both = ~np.isnan(_csr_l3) & ~np.isnan(_csr_l4) & (_csr_l4 > 0)
+                if _valid_both.any():
+                    _csr_raw = _csr_l3[_valid_both] / _csr_l4[_valid_both]
+                    _hrg_raw = _csr_l3[_valid_both] - _csr_l4[_valid_both] * 0.75
+
+                    # Filter inf
+                    _csr_finite = _csr_raw[np.isfinite(_csr_raw)]
+                    _hrg_finite = _hrg_raw[np.isfinite(_hrg_raw)]
+
+                    if len(_csr_finite) > 0:
+                        # CSR avg: EMA(halflife=3)
+                        halflife_csr = 3
+                        decay_csr = np.log(2) / halflife_csr
+                        n_csr = len(_csr_finite)
+                        weights_csr = (1 - decay_csr) ** np.arange(n_csr)
+                        weights_csr = weights_csr[::-1]
+                        weights_csr = weights_csr / weights_csr.sum()
+                        closing_speed_ratio_avg = float(np.sum(_csr_finite * weights_csr))
+
+                        # CSR trend: linear regression of last 3
+                        _csr_trend_vals = _csr_finite[-3:] if len(_csr_finite) >= 3 else _csr_finite
+                        if len(_csr_trend_vals) >= 2:
+                            x_csr = np.arange(len(_csr_trend_vals), dtype=float)
+                            closing_speed_ratio_trend = float(np.polyfit(x_csr, _csr_trend_vals, 1)[0])
+
+                    if len(_hrg_finite) > 0:
+                        # HRG avg: EMA(halflife=3)
+                        halflife_hrg = 3
+                        decay_hrg = np.log(2) / halflife_hrg
+                        n_hrg = len(_hrg_finite)
+                        weights_hrg = (1 - decay_hrg) ** np.arange(n_hrg)
+                        weights_hrg = weights_hrg[::-1]
+                        weights_hrg = weights_hrg / weights_hrg.sum()
+                        haron_race_gap_avg = float(np.sum(_hrg_finite * weights_hrg))
+
+                        # HRG trend: linear regression of last 3
+                        _hrg_trend_vals = _hrg_finite[-3:] if len(_hrg_finite) >= 3 else _hrg_finite
+                        if len(_hrg_trend_vals) >= 2:
+                            x_hrg = np.arange(len(_hrg_trend_vals), dtype=float)
+                            haron_race_gap_trend = float(np.polyfit(x_hrg, _hrg_trend_vals, 1)[0])
+
+                    # CSR zscore: PIT-safe expanding stats lookup
+                    if _has_distance_bin and expanding_stats_csr:
+                        _db_csr = horse_arrs["distance_bin"][valid_mask][start:idx][_valid_both]
+                        _surf_csr = horse_arrs.get("surface", np.array([], dtype=object))
+                        if len(_surf_csr) > 0:
+                            _surf_csr = _surf_csr[valid_mask][start:idx][_valid_both]
+                        else:
+                            _surf_csr = np.array([""] * int(_valid_both.sum()))
+                        _baba_csr = horse_arrs.get("baba_cd", np.array([], dtype=object))
+                        if len(_baba_csr) > 0:
+                            _baba_csr = _baba_csr[valid_mask][start:idx][_valid_both]
+                        else:
+                            _baba_csr = np.array([""] * int(_valid_both.sum()))
+                        _dates_csr = horse_arrs["race_date"][valid_mask][start:idx][_valid_both]
+                        _dates_csr = _dates_csr.astype("datetime64[ns]")
+
+                        _zscores_csr: list[float] = []
+                        for j in range(len(_csr_finite)):
+                            _mean_c, _std_c = _lookup_expanding_stats(
+                                _dates_csr[j],
+                                str(_db_csr.iloc[j] if hasattr(_db_csr, "iloc") else _db_csr[j]),
+                                str(_surf_csr.iloc[j] if hasattr(_surf_csr, "iloc") else _surf_csr[j]),
+                                str(_baba_csr.iloc[j] if hasattr(_baba_csr, "iloc") else _baba_csr[j]),
+                                expanding_stats_csr,
+                                key_prefix="csr",
+                            )
+                            if _std_c > 0:
+                                _zscores_csr.append((_csr_finite[j] - _mean_c) / _std_c)
+                            else:
+                                _zscores_csr.append(float("nan"))
+                        if _zscores_csr:
+                            closing_speed_ratio_zscore = float(
+                                pd.Series(_zscores_csr).tail(self._n_past).mean()
+                            )
+
+                    # HRG zscore: PIT-safe expanding stats lookup
+                    if _has_distance_bin and expanding_stats_hrg:
+                        _db_hrg = horse_arrs["distance_bin"][valid_mask][start:idx][_valid_both]
+                        _surf_hrg = horse_arrs.get("surface", np.array([], dtype=object))
+                        if len(_surf_hrg) > 0:
+                            _surf_hrg = _surf_hrg[valid_mask][start:idx][_valid_both]
+                        else:
+                            _surf_hrg = np.array([""] * int(_valid_both.sum()))
+                        _baba_hrg = horse_arrs.get("baba_cd", np.array([], dtype=object))
+                        if len(_baba_hrg) > 0:
+                            _baba_hrg = _baba_hrg[valid_mask][start:idx][_valid_both]
+                        else:
+                            _baba_hrg = np.array([""] * int(_valid_both.sum()))
+                        _dates_hrg = horse_arrs["race_date"][valid_mask][start:idx][_valid_both]
+                        _dates_hrg = _dates_hrg.astype("datetime64[ns]")
+
+                        _zscores_hrg: list[float] = []
+                        for j in range(len(_hrg_finite)):
+                            _mean_h, _std_h = _lookup_expanding_stats(
+                                _dates_hrg[j],
+                                str(_db_hrg.iloc[j] if hasattr(_db_hrg, "iloc") else _db_hrg[j]),
+                                str(_surf_hrg.iloc[j] if hasattr(_surf_hrg, "iloc") else _surf_hrg[j]),
+                                str(_baba_hrg.iloc[j] if hasattr(_baba_hrg, "iloc") else _baba_hrg[j]),
+                                expanding_stats_hrg,
+                                key_prefix="hrg",
+                            )
+                            if _std_h > 0:
+                                _zscores_hrg.append((_hrg_finite[j] - _mean_h) / _std_h)
+                            else:
+                                _zscores_hrg.append(float("nan"))
+                        if _zscores_hrg:
+                            haron_race_gap_zscore = float(
+                                pd.Series(_zscores_hrg).tail(self._n_past).mean()
+                            )
 
             # -----------------------------------------------------------------
             # D-07: harontime_last3f — L3-only (distance-based L4/L3 split removed)
@@ -1338,9 +1566,9 @@ class HorseHistoryFeatures:
                     else float("nan")
                 )
             else:
-                blinker_change = float("nan")
-                is_nar_transfer = float("nan")
-                nar_recent_ratio = float("nan")
+                blinker_change = 0.0
+                is_nar_transfer = 0.0
+                nar_recent_ratio = 0.0
                 track_condition_delta = float("nan")
 
             # -----------------------------------------------------------------
@@ -1567,6 +1795,39 @@ class HorseHistoryFeatures:
                             if len(la_valid) > 0:
                                 pace_late_avg = float(np.mean(la_valid))
 
+            # -----------------------------------------------------------------
+            # D-03: pace_adj_finish_avg = norm_finish * pace_ratio past average
+            # For each past race where both norm_finish and pace_ratio exist,
+            # multiply them, then take simple mean.
+            # -----------------------------------------------------------------
+            pace_adj_finish_avg: float = float("nan")
+            if n_past > 0 and _has_laptime:
+                _paf_kj = hp_kakuteijyuni.astype(float)
+                _paf_ss = hp_syussotosu.astype(float)
+                _paf_valid_ss = _paf_ss > 1
+                if _paf_valid_ss.any():
+                    _paf_norm_finish = (_paf_kj[_paf_valid_ss] - 1) / (_paf_ss[_paf_valid_ss] - 1)
+                    # Get pace_ratio for each past race from _pace_lookup
+                    _paf_pace_data = _pace_lookup.get(ketto)
+                    if _paf_pace_data is not None and len(_paf_pace_data["pace_ratios"]) > 0:
+                        # Get dates for past races used in norm_finish
+                        _paf_dates = horse_arrs["race_date"][valid_mask][start:idx].astype("datetime64[ns]")
+                        _paf_dates_valid = _paf_dates[_paf_valid_ss]
+                        pace_dates_arr = _paf_pace_data["race_dates"].astype("datetime64[ns]")
+                        _paf_products: list[float] = []
+                        for k in range(len(_paf_norm_finish)):
+                            if np.isnan(_paf_norm_finish[k]):
+                                continue
+                            # Find pace_ratio for this race by matching date
+                            _paf_rd = _paf_dates_valid[k]
+                            _paf_match = pace_dates_arr == _paf_rd
+                            if _paf_match.any():
+                                _paf_pr = _paf_pace_data["pace_ratios"][_paf_match][0]
+                                if np.isfinite(_paf_pr) and not np.isnan(_paf_norm_finish[k]):
+                                    _paf_products.append(_paf_norm_finish[k] * _paf_pr)
+                        if _paf_products:
+                            pace_adj_finish_avg = float(np.mean(_paf_products))
+
             results.append(
                 {
                     "race_id": row.race_id,
@@ -1586,6 +1847,7 @@ class HorseHistoryFeatures:
                     "weight_zscore": weight_zscore,
                     "days_since_last_race": days_since,
                     "rest_category": rest_cat,
+                    "is_debut": is_debut,
                     "form_trend": form_trend,
                     "form_consistency": form_consistency,
                     "form_peak_flag": form_peak_flag,
@@ -1643,6 +1905,12 @@ class HorseHistoryFeatures:
                     "pace_early_avg": pace_early_avg,
                     "pace_mid_avg": pace_mid_avg,
                     "pace_late_avg": pace_late_avg,
+                    # D-02: haron_race_gap = L3 - L4*0.75
+                    "haron_race_gap_avg": haron_race_gap_avg,
+                    "haron_race_gap_zscore": haron_race_gap_zscore,
+                    "haron_race_gap_trend": haron_race_gap_trend,
+                    # D-03: pace_adj_finish_avg = norm_finish * pace_ratio
+                    "pace_adj_finish_avg": pace_adj_finish_avg,
                 }
             )
 

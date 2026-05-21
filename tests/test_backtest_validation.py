@@ -6,14 +6,11 @@ TestValidationReport: evaluate_validation / generate_validation_report / generat
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
-from unittest.mock import MagicMock
 
 import pytest
 
 from backtest.engine import BacktestResult
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -278,3 +275,42 @@ class TestValidationReport:
         assert "surface_roi" in analysis
         assert "ev_diagnosis" in analysis
         assert "bet_count_sufficiency" in analysis
+
+    def test_generate_cause_analysis_tail_segments_use_actual_stakes(self) -> None:
+        """EV帯/単勝オッズ尾部/人気帯は実ベット行だけで集計する"""
+        from backtest.validation_report import generate_cause_analysis
+
+        history: list[dict[str, Any]] = [
+            {
+                "race_id": "R1",
+                "stake": 100,
+                "result": 0,
+                "final_odds": 55.0,
+                "win_selection_ev_tail_calibrated": 3.2,
+                "popularity": 9,
+                "race_date": "2024-01-01",
+                "is_actual_bet": True,
+            },
+            {
+                "race_id": "R1",
+                "stake": None,
+                "result": 9999,
+                "final_odds": 120.0,
+                "win_selection_ev_tail_calibrated": 6.0,
+                "popularity": 12,
+                "race_date": "2024-01-01",
+                "is_actual_bet": False,
+            },
+        ]
+
+        analysis = generate_cause_analysis(history)
+
+        assert "ev_band_roi" in analysis
+        assert "win_odds_band_roi" in analysis
+        assert "popularity_band_roi" in analysis
+        assert "tail_flag_roi" in analysis
+        assert analysis["tail_flag_roi"]["ev>=3"]["bets"] == 1
+        assert analysis["tail_flag_roi"]["ev>=5"]["bets"] == 0
+        assert analysis["tail_flag_roi"]["odds>=50"]["bets"] == 1
+        assert analysis["tail_flag_roi"]["odds>=100"]["bets"] == 0
+        assert analysis["popularity_band_roi"]["9-12"]["bets"] == 1

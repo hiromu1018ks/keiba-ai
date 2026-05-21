@@ -188,6 +188,7 @@ FEATURE_CATEGORY_MAP: dict[str, str] = {
     "rel_timediff_rank": "fundamental",
     "rel_weight_zscore": "fundamental",
     "rest_category": "fundamental",
+    "is_debut": "fundamental",
     "sire_distance_wr": "fundamental",
     "sire_prize_avg": "fundamental",
     "sire_surface_wr": "fundamental",

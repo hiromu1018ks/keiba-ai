@@ -198,6 +198,7 @@ def _make_feature_df(n: int = 8000, n_races: int = 800) -> pd.DataFrame:
                     # 休養期間 (2)
                     "days_since_last_race": np.random.uniform(1, 200),
                     "rest_category": float(np.random.choice([1, 2, 3, 4, 5])),
+                    "is_debut": 0.0,
                     # フォームサイクル (3)
                     "form_trend": np.random.uniform(-1, 1),
                     "form_consistency": np.random.uniform(0, 1),

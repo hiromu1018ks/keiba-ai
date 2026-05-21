@@ -206,6 +206,28 @@ class TestBacktestEngine:
         payout = engine._settle_bet(bet, race_df)
         assert payout == 200.0  # 100 * 2.0 (odds, not final_odds)
 
+    def test_actual_bet_annotation_matches_positive_stake(self) -> None:
+        """is_actual_bet は実際に stake > 0 のベットだけ True になる"""
+        from backtest.engine import _annotate_actual_bets
+        from domain.models import Bet, BetType
+
+        race_df = pd.DataFrame({"race_id": ["R1", "R1"], "umaban": [1, 2]})
+        bet = Bet(
+            race_id="R1",
+            umaban=2,
+            bet_type=BetType.WIN,
+            odds=4.0,
+            final_odds=3.8,
+            ev_lower_corrected=1.2,
+            stake=100.0,
+        )
+
+        annotated = _annotate_actual_bets(race_df, [(bet, 0.0)])
+
+        assert bool(annotated.loc[annotated["umaban"].eq(1), "is_actual_bet"].iloc[0]) is False
+        assert bool(annotated.loc[annotated["umaban"].eq(2), "is_actual_bet"].iloc[0]) is True
+        assert annotated.loc[annotated["umaban"].eq(2), "stake"].iloc[0] == pytest.approx(100.0)
+
     @patch("backtest.engine.load_odds_snapshots")
     @patch("backtest.engine.load_entries")
     @patch("backtest.engine.load_races")
@@ -2567,7 +2589,11 @@ class TestHistFeaturesPreMerge:
 
         # Test 3: No _x/_y suffix columns in result (no double merge)
         if "cols" in captured_result_cols:
-            suffix_cols = [c for c in captured_result_cols["cols"] if c.endswith("_x") or c.endswith("_y")]
+            suffix_cols = [
+                c
+                for c in captured_result_cols["cols"]
+                if c.endswith("_x") or c.endswith("_y")
+            ]
             assert len(suffix_cols) == 0, (
                 f"No _x/_y suffix columns expected (double merge), found: {suffix_cols}"
             )

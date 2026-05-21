@@ -455,8 +455,8 @@ class ConformalEVModel:
                 "ConformalEV: %d/%d feature_cols missing, filling with 0: %s",
                 len(missing), len(feature_cols), missing[:5],
             )
-            for c in missing:
-                win_df[c] = 0.0
+            missing_df = pd.DataFrame(0.0, index=win_df.index, columns=missing)
+            win_df = pd.concat([win_df, missing_df], axis=1)
 
         X_win = win_df[feature_cols].copy()
         # object型列を数値に変換（学習時と推論時でdtypeが異なる場合）

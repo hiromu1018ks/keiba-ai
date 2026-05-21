@@ -250,7 +250,7 @@ class EVCorrectionModel:
         for col in features.columns:
             if pd.api.types.is_integer_dtype(features[col]):
                 features[col] = features[col].astype(float)
-        for col in ["surface", "distance_bin"]:
+        for col in ["surface", "distance_bin", "track_condition_code"]:
             if col in features.columns:
                 features[col] = features[col].astype("category")
         return features
@@ -559,7 +559,7 @@ class PlaceEVCorrectionModel:
         for col in features.columns:
             if pd.api.types.is_integer_dtype(features[col]):
                 features[col] = features[col].astype(float)
-        for col in ["surface", "distance_bin"]:
+        for col in ["surface", "distance_bin", "track_condition_code"]:
             if col in features.columns:
                 features[col] = features[col].astype("category")
         return features

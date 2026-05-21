@@ -299,3 +299,113 @@ class TestPitSafety:
         row2 = feat.compute(sire_id="SIRE_A", race_date="2024-09-01",
                             surface="turf", kyori=1400)
         assert abs(row2["sire_wr"] - (1 + 1) / (11 + 10)) < 0.001
+
+
+def _make_sire_stats() -> pd.DataFrame:
+    return pd.DataFrame({
+        "sire_id": ["SIRE_A", "SIRE_A", "SIRE_A"],
+        "race_date": pd.to_datetime(["2024-01-01", "2024-06-01", "2024-12-01"]),
+        "sire_starts": [10, 50, 100],
+        "sire_wins": [1, 6, 15],
+        "sire_places": [3, 15, 35],
+        "sire_turf_starts": [6, 30, 60],
+        "sire_turf_wins": [1, 4, 10],
+        "sire_dirt_starts": [4, 20, 40],
+        "sire_dirt_wins": [0, 2, 5],
+        "sire_short_starts": [5, 25, 50],
+        "sire_short_wins": [1, 4, 8],
+        "sire_long_starts": [5, 25, 50],
+        "sire_long_wins": [0, 2, 7],
+        "sire_prize_total": [10000.0, 500000.0, 1200000.0],
+    })
+
+
+class TestComputeBatch:
+    """compute_batch の per-entry ルックアップ検証"""
+
+    def test_different_race_dates_get_different_stats(self) -> None:
+        """同一 sire_id で race_date が異なるエントリが異なる累積統計を得る"""
+        feat = SireFeatures(_make_sire_stats())
+        df = pd.DataFrame({
+            "sire_id": ["SIRE_A", "SIRE_A"],
+            "bms_id": ["BMS_X", "BMS_X"],
+            "race_date": pd.to_datetime(["2024-03-01", "2024-09-01"]),
+            "surface": ["turf", "turf"],
+            "kyori": [1600, 1600],
+        })
+        result = feat.compute_batch(df)
+        # 2024-03-01: 2024-01-01 row (starts=10, wins=1)
+        # 2024-09-01: 2024-06-01 row (starts=50, wins=6)
+        wr_early = result.iloc[0]["sire_wr"]
+        wr_late = result.iloc[1]["sire_wr"]
+        assert wr_early != wr_late, (
+            f"Expected different sire_wr values, got {wr_early} for both"
+        )
+        assert abs(wr_early - (1 + 1) / (11 + 10)) < 0.001
+        assert abs(wr_late - (1 + 6) / (11 + 50)) < 0.001
+
+    def test_entries_before_all_stats_get_prior(self) -> None:
+        """統計データより前の race_date は事前分布 (1/11) を得る"""
+        feat = SireFeatures(_make_sire_stats())
+        df = pd.DataFrame({
+            "sire_id": ["SIRE_A"],
+            "bms_id": ["BMS_X"],
+            "race_date": pd.to_datetime(["2023-06-01"]),
+            "surface": ["turf"],
+            "kyori": [1600],
+        })
+        result = feat.compute_batch(df)
+        # No data before 2023-06-01 -> sire_wins=NaN -> _beta_smooth_vec fills 0 -> 1/11
+        assert abs(result.iloc[0]["sire_wr"] - 1 / 11) < 0.001
+
+    def test_same_race_date_gets_same_stats(self) -> None:
+        """同一 race_date の複数エントリは同じ累積統計を得る"""
+        feat = SireFeatures(_make_sire_stats())
+        df = pd.DataFrame({
+            "sire_id": ["SIRE_A", "SIRE_A"],
+            "bms_id": ["BMS_X", "BMS_X"],
+            "race_date": pd.to_datetime(["2024-09-01", "2024-09-01"]),
+            "surface": ["turf", "dirt"],
+            "kyori": [1600, 2000],
+        })
+        result = feat.compute_batch(df)
+        assert result.iloc[0]["sire_wr"] == result.iloc[1]["sire_wr"]
+
+    def test_win_rate_values_in_valid_range(self) -> None:
+        """勝率値が [0, 1.5] の範囲内である"""
+        feat = SireFeatures(_make_sire_stats())
+        df = pd.DataFrame({
+            "sire_id": ["SIRE_A", "SIRE_A"],
+            "bms_id": ["BMS_X", "BMS_X"],
+            "race_date": pd.to_datetime(["2024-03-01", "2024-09-01"]),
+            "surface": ["turf", "dirt"],
+            "kyori": [1400, 2000],
+        })
+        result = feat.compute_batch(df)
+        for col in ["sire_wr", "sire_surface_wr", "sire_distance_wr",
+                     "sire_place_rate", "bms_wr", "bms_surface_wr", "bms_distance_wr"]:
+            valid_vals = result[col].dropna()
+            assert (valid_vals >= 0).all() and (valid_vals <= 1.5).all(), (
+                f"{col} has out-of-range values: {valid_vals[~((valid_vals >= 0) & (valid_vals <= 1.5))]}"
+            )
+
+    def test_empty_df_returns_empty_result(self) -> None:
+        """空 DataFrame は空結果を返す"""
+        feat = SireFeatures(_make_sire_stats())
+        df = pd.DataFrame(columns=["sire_id", "bms_id", "race_date", "surface", "kyori"])
+        result = feat.compute_batch(df)
+        assert len(result) == 0
+
+    def test_unknown_sire_gets_prior(self) -> None:
+        """未知の sire_id は事前分布 (1/11) を得る"""
+        feat = SireFeatures(_make_sire_stats())
+        df = pd.DataFrame({
+            "sire_id": ["UNKNOWN"],
+            "bms_id": ["UNKNOWN"],
+            "race_date": pd.to_datetime(["2024-06-01"]),
+            "surface": ["turf"],
+            "kyori": [1600],
+        })
+        result = feat.compute_batch(df)
+        # Unknown sire -> sire_wins=NaN -> _beta_smooth_vec fills 0 -> 1/11
+        assert abs(result.iloc[0]["sire_wr"] - 1 / 11) < 0.001

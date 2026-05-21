@@ -19,6 +19,50 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 
+def _to_float(value: Any, default: float = 0.0) -> float:
+    try:
+        if value is None:
+            return default
+        result = float(value)
+        if result != result:
+            return default
+        return result
+    except (TypeError, ValueError):
+        return default
+
+
+def _actual_bet_rows(bet_history: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    actual_rows: list[dict[str, Any]] = []
+    for row in bet_history:
+        if "is_actual_bet" in row and not bool(row.get("is_actual_bet")):
+            continue
+        stake = _to_float(row.get("stake"), 0.0)
+        if stake <= 0:
+            continue
+        actual_rows.append(row)
+    return actual_rows
+
+
+def _roi_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    total_stake = sum(_to_float(row.get("stake"), 0.0) for row in rows)
+    total_return = sum(_to_float(row.get("result"), 0.0) for row in rows)
+    return {
+        "roi": total_return / total_stake if total_stake > 0 else 0.0,
+        "bets": len(rows),
+        "stake": total_stake,
+        "return": total_return,
+    }
+
+
+def _pick_win_odds(row: dict[str, Any]) -> float:
+    for col in ("final_odds", "tanodds", "odds", "fuku_odds_low"):
+        if col in row:
+            odds = _to_float(row.get(col), 0.0)
+            if odds > 0:
+                return odds
+    return 0.0
+
+
 def evaluate_validation(roi: float, total_bets: int) -> str:
     """D-06判定ロジック。ROI>1.0 and total_bets>=100 の場合 "PASS"。
 
@@ -107,6 +151,10 @@ def generate_validation_report(
         },
         "yearly_breakdown": yearly_breakdown,
         "validation_result": validation_result,
+        "oof_warning": (
+            "OOF artifacts are not used as evidence in this validation report; "
+            "OOF regeneration is tracked separately."
+        ),
         "cause_analysis": cause_analysis,
     }
 
@@ -132,17 +180,21 @@ def generate_cause_analysis(bet_history: list[dict[str, Any]]) -> dict[str, Any]
     if not bet_history:
         return {"error": "No bet_history available"}
 
+    actual_bets = _actual_bet_rows(bet_history)
+    if not actual_bets:
+        return {"error": "No actual bets available"}
+
     # オッズバンド別ROI
-    band_buckets: dict[str, list[dict[str, float]]] = {
+    band_buckets: dict[str, list[dict[str, Any]]] = {
         "1.0-2.0": [],
         "2.0-5.0": [],
         "5.0-10.0": [],
         "10.0+": [],
     }
-    for b in bet_history:
-        odds = b.get("fuku_odds_low", b.get("odds", 0))
-        stake = float(b.get("stake", 0))
-        result_val = float(b.get("result", 0))
+    for b in actual_bets:
+        odds = _pick_win_odds(b)
+        stake = _to_float(b.get("stake"), 0.0)
+        result_val = _to_float(b.get("result"), 0.0)
         if odds <= 2.0:
             band = "1.0-2.0"
         elif odds <= 5.0:
@@ -155,23 +207,133 @@ def generate_cause_analysis(bet_history: list[dict[str, Any]]) -> dict[str, Any]
 
     odds_band_roi: dict[str, dict[str, Any]] = {}
     for name, bets in band_buckets.items():
-        total_s = sum(x["stake"] for x in bets)
-        total_r = sum(x["result"] for x in bets)
-        odds_band_roi[name] = {
-            "roi": total_r / total_s if total_s > 0 else 0.0,
-            "bets": len(bets),
-            "stake": total_s,
-            "return": total_r,
-        }
+        odds_band_roi[name] = _roi_summary(bets)
+
+    win_odds_band_buckets: dict[str, list[dict[str, Any]]] = {
+        "1.0-2.0": [],
+        "2.0-5.0": [],
+        "5.0-10.0": [],
+        "10.0-30.0": [],
+        "30.0-50.0": [],
+        "50.0-100.0": [],
+        "100.0+": [],
+    }
+    for b in actual_bets:
+        odds = _pick_win_odds(b)
+        if odds <= 2.0:
+            band = "1.0-2.0"
+        elif odds <= 5.0:
+            band = "2.0-5.0"
+        elif odds <= 10.0:
+            band = "5.0-10.0"
+        elif odds <= 30.0:
+            band = "10.0-30.0"
+        elif odds <= 50.0:
+            band = "30.0-50.0"
+        elif odds < 100.0:
+            band = "50.0-100.0"
+        else:
+            band = "100.0+"
+        win_odds_band_buckets[band].append(b)
+    win_odds_band_roi = {
+        name: _roi_summary(rows) for name, rows in win_odds_band_buckets.items()
+    }
+
+    ev_band_buckets: dict[str, list[dict[str, Any]]] = {
+        "<1.0": [],
+        "1.0-1.2": [],
+        "1.2-1.5": [],
+        "1.5-2.0": [],
+        "2.0-3.0": [],
+        "3.0-5.0": [],
+        "5.0+": [],
+    }
+    for b in actual_bets:
+        ev = _to_float(
+            b.get("win_selection_ev_tail_calibrated", b.get("win_selection_ev", b.get("ev"))),
+            0.0,
+        )
+        if ev < 1.0:
+            band = "<1.0"
+        elif ev < 1.2:
+            band = "1.0-1.2"
+        elif ev < 1.5:
+            band = "1.2-1.5"
+        elif ev < 2.0:
+            band = "1.5-2.0"
+        elif ev < 3.0:
+            band = "2.0-3.0"
+        elif ev < 5.0:
+            band = "3.0-5.0"
+        else:
+            band = "5.0+"
+        ev_band_buckets[band].append(b)
+    ev_band_roi = {name: _roi_summary(rows) for name, rows in ev_band_buckets.items()}
+
+    popularity_band_buckets: dict[str, list[dict[str, Any]]] = {
+        "1-3": [],
+        "4-6": [],
+        "7-8": [],
+        "9-12": [],
+        "13+": [],
+        "unknown": [],
+    }
+    for b in actual_bets:
+        popularity = int(_to_float(b.get("popularity", b.get("popularity_rank")), 0.0))
+        if 1 <= popularity <= 3:
+            band = "1-3"
+        elif 4 <= popularity <= 6:
+            band = "4-6"
+        elif 7 <= popularity <= 8:
+            band = "7-8"
+        elif 9 <= popularity <= 12:
+            band = "9-12"
+        elif popularity >= 13:
+            band = "13+"
+        else:
+            band = "unknown"
+        popularity_band_buckets[band].append(b)
+    popularity_band_roi = {
+        name: _roi_summary(rows) for name, rows in popularity_band_buckets.items()
+    }
+
+    tail_flag_roi = {
+        "ev>=3": _roi_summary(
+            [
+                b for b in actual_bets
+                if _to_float(
+                    b.get(
+                        "win_selection_ev_tail_calibrated",
+                        b.get("win_selection_ev", b.get("ev")),
+                    ),
+                    0.0,
+                ) >= 3.0
+            ]
+        ),
+        "ev>=5": _roi_summary(
+            [
+                b for b in actual_bets
+                if _to_float(
+                    b.get(
+                        "win_selection_ev_tail_calibrated",
+                        b.get("win_selection_ev", b.get("ev")),
+                    ),
+                    0.0,
+                ) >= 5.0
+            ]
+        ),
+        "odds>=50": _roi_summary([b for b in actual_bets if _pick_win_odds(b) >= 50.0]),
+        "odds>=100": _roi_summary([b for b in actual_bets if _pick_win_odds(b) >= 100.0]),
+    }
 
     # レジーム別ROI
     regime_stats: dict[str, dict[str, float]] = {}
-    for b in bet_history:
+    for b in actual_bets:
         regime = b.get("regime", "UNKNOWN")
         if regime not in regime_stats:
             regime_stats[regime] = {"stake": 0.0, "result": 0.0, "bets": 0}
-        regime_stats[regime]["stake"] += float(b.get("stake", 0))
-        regime_stats[regime]["result"] += float(b.get("result", 0))
+        regime_stats[regime]["stake"] += _to_float(b.get("stake"), 0.0)
+        regime_stats[regime]["result"] += _to_float(b.get("result"), 0.0)
         regime_stats[regime]["bets"] += 1
 
     regime_roi: dict[str, dict[str, Any]] = {}
@@ -186,10 +348,13 @@ def generate_cause_analysis(bet_history: list[dict[str, Any]]) -> dict[str, Any]
     # EV診断 (過大/過小評価分析)
     overestimated: list[dict[str, float]] = []
     underestimated: list[dict[str, float]] = []
-    for b in bet_history:
-        ev = float(b.get("ev", 0))
-        stake = float(b.get("stake", 0))
-        result_val = float(b.get("result", 0))
+    for b in actual_bets:
+        ev = _to_float(
+            b.get("win_selection_ev_tail_calibrated", b.get("win_selection_ev", b.get("ev"))),
+            0.0,
+        )
+        stake = _to_float(b.get("stake"), 0.0)
+        result_val = _to_float(b.get("result"), 0.0)
         entry = {"ev": ev, "stake": stake, "result": result_val}
         if ev >= 1.0:
             overestimated.append(entry)
@@ -213,7 +378,7 @@ def generate_cause_analysis(bet_history: list[dict[str, Any]]) -> dict[str, Any]
     }
 
     # ベット数十分性
-    total_bets = len(bet_history)
+    total_bets = len(actual_bets)
     bet_count_sufficiency = {
         "total": total_bets,
         "target": 100,
@@ -222,12 +387,12 @@ def generate_cause_analysis(bet_history: list[dict[str, Any]]) -> dict[str, Any]
 
     # 芝/ダート別ROI
     surface_stats: dict[str, dict[str, float]] = {}
-    for b in bet_history:
+    for b in actual_bets:
         surface = b.get("surface", "unknown")
         if surface not in surface_stats:
             surface_stats[surface] = {"stake": 0.0, "result": 0.0, "bets": 0}
-        surface_stats[surface]["stake"] += float(b.get("stake", 0))
-        surface_stats[surface]["result"] += float(b.get("result", 0))
+        surface_stats[surface]["stake"] += _to_float(b.get("stake"), 0.0)
+        surface_stats[surface]["result"] += _to_float(b.get("result"), 0.0)
         surface_stats[surface]["bets"] += 1
 
     surface_roi: dict[str, dict[str, Any]] = {}
@@ -241,6 +406,10 @@ def generate_cause_analysis(bet_history: list[dict[str, Any]]) -> dict[str, Any]
 
     return {
         "odds_band_roi": odds_band_roi,
+        "win_odds_band_roi": win_odds_band_roi,
+        "ev_band_roi": ev_band_roi,
+        "popularity_band_roi": popularity_band_roi,
+        "tail_flag_roi": tail_flag_roi,
         "regime_roi": regime_roi,
         "ev_diagnosis": ev_diagnosis,
         "bet_count_sufficiency": bet_count_sufficiency,
@@ -259,14 +428,15 @@ def _compute_yearly_breakdown(
     Returns:
         {"2024": {"roi": ..., "bets": ..., "stake": ..., "return": ...}, ...}
     """
+    bet_history = _actual_bet_rows(bet_history)
     yearly: dict[str, dict[str, float]] = {}
     for b in bet_history:
         date_str = b.get("race_date", "")
         year = date_str[:4] if len(date_str) >= 4 else "unknown"
         if year not in yearly:
             yearly[year] = {"stake": 0.0, "return": 0.0, "bets": 0}
-        yearly[year]["stake"] += float(b.get("stake", 0))
-        result_val = float(b.get("result", 0))
+        yearly[year]["stake"] += _to_float(b.get("stake"), 0.0)
+        result_val = _to_float(b.get("result"), 0.0)
         if result_val > 0:
             yearly[year]["return"] += result_val
         yearly[year]["bets"] += 1

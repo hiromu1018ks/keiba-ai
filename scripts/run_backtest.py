@@ -310,8 +310,10 @@ def save_year_parquet(year: int, result: BacktestResult) -> None:
             "bet_type",
             "stake",
             "odds",
+            "tanodds",
             "final_odds",
             "result",
+            "is_actual_bet",
             "ev",
             "popularity",
             "bankroll_after",
@@ -324,19 +326,46 @@ def save_year_parquet(year: int, result: BacktestResult) -> None:
             "kisyu",
             "kakuteijyuni",
             "track_condition_code",
+            "p_win_pred",
+            "p_win_corrected",
+            "p_win_final",
+            "e_return_win_pred",
+            "e_return_win_corrected",
+            "win_selection_ev",
+            "win_selection_ev_tail_calibrated",
+            "win_selection_edge",
+            "win_selection_prob",
+            "win_gate_score",
+            "win_gate_pass",
+            "excluded_reason",
+            "filter_pass_flags",
+            "candidate_count_before_filter",
+            "candidate_count_after_filter",
+            "selected_rank_by_p_win_final",
+            "selected_rank_by_win_selection_ev",
         ]
         # 存在する列のみ選択
-        available_cols = ["race_id", "umaban"] + [c for c in bet_only_cols if c in bet_df.columns]
-        bet_subset = bet_df[available_cols].copy()
-        # merge key の型不一致を解消 (CSV は string, bet_history は int64)
-        bet_subset["race_id"] = bet_subset["race_id"].astype(str)
-        bet_subset["umaban"] = bet_subset["umaban"].astype(str)
         diag_df_merge = diag_df.copy()
         diag_df_merge["race_id"] = diag_df_merge["race_id"].astype(str)
         diag_df_merge["umaban"] = diag_df_merge["umaban"].astype(str)
-        merged = diag_df_merge.merge(
-            bet_subset, on=["race_id", "umaban"], how="left", suffixes=("", "_bet")
-        )
+        available_cols = ["race_id", "umaban"] + [
+            c for c in bet_only_cols if c in bet_df.columns and c not in diag_df_merge.columns
+        ]
+        if len(available_cols) > 2:
+            bet_subset = bet_df[available_cols].copy()
+            # merge key の型不一致を解消 (CSV は string, bet_history は int64)
+            bet_subset["race_id"] = bet_subset["race_id"].astype(str)
+            bet_subset["umaban"] = bet_subset["umaban"].astype(str)
+            merged = diag_df_merge.merge(bet_subset, on=["race_id", "umaban"], how="left")
+        else:
+            merged = diag_df_merge
+
+    if "stake" in merged.columns:
+        stake_actual = pd.to_numeric(merged["stake"], errors="coerce").notna()
+    else:
+        stake_actual = pd.Series(False, index=merged.index)
+    merged["is_actual_bet"] = stake_actual
+    merged["is_bet"] = stake_actual
 
     out_path = pred_dir / f"{year}.parquet"
     merged.to_parquet(out_path, index=False)
@@ -490,10 +519,19 @@ def _run_single_year(args: argparse.Namespace) -> None:
     from db.readers import load_odds_time_series_range
 
     # P1: Test BT用にodds_tsを事前ロードして重複ロードを回避
-    preloaded_odds = load_odds_time_series_range(store, test_start.replace("-", ""), test_end.replace("-", ""))
+    preloaded_odds = load_odds_time_series_range(
+        store,
+        test_start.replace("-", ""),
+        test_end.replace("-", ""),
+    )
     logger.info("odds時系列データ事前ロード完了: %d行", len(preloaded_odds))
 
     test_year = int(test_start[:4])
+    manifest_path = (
+        Path(args.strategy_manifest)
+        if args.strategy_manifest and Path(args.strategy_manifest).exists()
+        else None
+    )
     engine = BacktestEngine(
         models=models,
         store=store,
@@ -501,7 +539,7 @@ def _run_single_year(args: argparse.Namespace) -> None:
         diag_prefix=f"bt_{test_year}",
         betting_target=args.betting_target,
         strategy_params=strategy_params,
-        manifest_path=Path(args.strategy_manifest) if args.strategy_manifest and Path(args.strategy_manifest).exists() else None,
+        manifest_path=manifest_path,
         preloaded_odds_ts=preloaded_odds,
     )
     result = engine.run(test_start, test_end, training_bet_history=training_bet_history)
@@ -639,6 +677,11 @@ def _run_multi_year(args: argparse.Namespace) -> None:
         try:
             from backtest.engine import BacktestEngine
 
+            manifest_path = (
+                Path(args.strategy_manifest)
+                if args.strategy_manifest and Path(args.strategy_manifest).exists()
+                else None
+            )
             engine = BacktestEngine(
                 models=models,
                 store=store,
@@ -646,7 +689,7 @@ def _run_multi_year(args: argparse.Namespace) -> None:
                 diag_prefix=f"bt_{test_year}",
                 betting_target=args.betting_target,
                 strategy_params=strategy_params,
-                manifest_path=Path(args.strategy_manifest) if args.strategy_manifest and Path(args.strategy_manifest).exists() else None,
+                manifest_path=manifest_path,
             )
             result = engine.run(test_start, test_end, training_bet_history=training_bet_history)
         except Exception as e:
@@ -754,15 +797,20 @@ def _run_multi_year(args: argparse.Namespace) -> None:
 
     # D-08: マルチ年度検証レポート (reportの有無に関わらず出力)
     try:
-        from backtest.engine import BacktestResult as _BR
+        from backtest.engine import BacktestResult
         from backtest.validation_report import generate_validation_report
 
         all_bet_history: list[dict[str, Any]] = []
         for year, r in all_results.items():
             all_bet_history.extend(r.bet_history)
 
+        manifest_path = (
+            Path(args.strategy_manifest)
+            if args.strategy_manifest and Path(args.strategy_manifest).exists()
+            else None
+        )
         multi_report = generate_validation_report(
-            result=_BR(
+            result=BacktestResult(
                 total_bets=total_bets,
                 total_stake=total_stake,
                 total_return=total_return,
@@ -779,7 +827,7 @@ def _run_multi_year(args: argparse.Namespace) -> None:
             test_end=f"{max(args.years)}-12-31",
             train_start="",  # マルチ年度では年度別に異なる
             train_end="",
-            manifest_path=Path(args.strategy_manifest) if args.strategy_manifest and Path(args.strategy_manifest).exists() else None,
+            manifest_path=manifest_path,
         )
 
         validation_dir = Path(ROOT) / "data" / "validation"

@@ -605,8 +605,8 @@ class FeatureEngine:
         #   zone=0 (caution): -14 <= zogen <= -4 または 12 < zogen <= 14
         #   zone=-1 (danger): zogen < -14 または zogen > 14
         # 注: zogen=4.0はgolden(2)、zogen=-4.0はcaution(0)、zogen=14.0はcaution(0)
-        if "zogen_sa" in df.columns:
-            zogen = df["zogen_sa"].astype(float)
+        if "zogensa" in df.columns:
+            zogen = df["zogensa"].astype(float)
             zone = pd.Series(1, index=df.index)  # default: stable (-4 < zogen < 4)
             zone[(zogen >= 4) & (zogen <= 12)] = 2  # golden (stableを上書き)
             zone[(zogen >= -14) & (zogen < -4)] = 0  # caution (下側)
@@ -617,9 +617,9 @@ class FeatureEngine:
             df["weight_change_zone"] = float("nan")
 
         # A3: weight_change_ratio — 体重変化率 (zogen_sa / bataijyu)
-        if "zogen_sa" in df.columns and "bataijyu" in df.columns:
+        if "zogensa" in df.columns and "bataijyu" in df.columns:
             weight = df["bataijyu"].astype(float)
-            zogen = df["zogen_sa"].astype(float)
+            zogen = df["zogensa"].astype(float)
             # 変化率 = 増減差 / 馬体重（パーセンテージ）
             # 馬体重が0またはNaNの場合はNaNにする
             df["weight_change_ratio"] = np.where(

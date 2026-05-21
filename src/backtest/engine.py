@@ -260,8 +260,6 @@ def build_wide_payout_map(
         first_two = combined.loc[mask5, "kumi"].str.slice(0, 2).astype(int)
         use_first_two = first_two <= 18
         idx5 = combined.index[mask5]
-        kumi5 = combined.loc[mask5, "kumi"]
-        kumi5_len = lengths[mask5]
 
         split_at_2 = idx5[use_first_two]
         if len(split_at_2) > 0:
@@ -331,6 +329,112 @@ def build_race_groups(
     return groups
 
 
+def _optional_float(value: Any) -> float | None:
+    if value is pd.NA:
+        return None
+    try:
+        if pd.isna(value):
+            return None
+    except (TypeError, ValueError):
+        pass
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _optional_int(value: Any) -> int | None:
+    float_value = _optional_float(value)
+    if float_value is None:
+        return None
+    return int(float_value)
+
+
+def _optional_bool(value: Any) -> bool | None:
+    if value is pd.NA:
+        return None
+    try:
+        if pd.isna(value):
+            return None
+    except (TypeError, ValueError):
+        pass
+    return bool(value)
+
+
+def _optional_str(value: Any) -> str | None:
+    if value is pd.NA:
+        return None
+    try:
+        if pd.isna(value):
+            return None
+    except (TypeError, ValueError):
+        pass
+    return str(value)
+
+
+def _horse_win_diagnostic_kwargs(row: Any) -> dict[str, Any]:
+    return {
+        "is_actual_bet": bool(getattr(row, "is_actual_bet", False)),
+        "p_win_pred": _optional_float(getattr(row, "p_win_pred", None)),
+        "p_win_corrected": _optional_float(getattr(row, "p_win_corrected", None)),
+        "p_win_final": _optional_float(getattr(row, "p_win_final", None)),
+        "e_return_win_pred": _optional_float(getattr(row, "e_return_win_pred", None)),
+        "e_return_win_corrected": _optional_float(
+            getattr(row, "e_return_win_corrected", None)
+        ),
+        "win_selection_ev": _optional_float(getattr(row, "win_selection_ev_raw", None)),
+        "win_selection_ev_tail_calibrated": _optional_float(
+            getattr(row, "win_selection_ev_tail_calibrated", None)
+        ),
+        "win_selection_edge": _optional_float(getattr(row, "win_selection_edge", None)),
+        "win_selection_prob": _optional_float(getattr(row, "win_selection_prob", None)),
+        "win_gate_score": _optional_float(getattr(row, "win_gate_score", None)),
+        "win_gate_pass": _optional_bool(getattr(row, "win_gate_pass", None)),
+        "tanodds": _optional_float(getattr(row, "tanodds", None)),
+        "final_odds": _optional_float(getattr(row, "final_odds", None)),
+        "stake": _optional_float(getattr(row, "stake", None)),
+        "result": _optional_float(getattr(row, "result", None)),
+        "excluded_reason": _optional_str(getattr(row, "excluded_reason", None)),
+        "filter_pass_flags": _optional_str(getattr(row, "filter_pass_flags", None)),
+        "candidate_count_before_filter": _optional_int(
+            getattr(row, "candidate_count_before_filter", None)
+        ),
+        "candidate_count_after_filter": _optional_int(
+            getattr(row, "candidate_count_after_filter", None)
+        ),
+        "selected_rank_by_p_win_final": _optional_float(
+            getattr(row, "selected_rank_by_p_win_final", None)
+        ),
+        "selected_rank_by_win_selection_ev": _optional_float(
+            getattr(row, "selected_rank_by_win_selection_ev", None)
+        ),
+    }
+
+
+def _annotate_actual_bets(
+    result_df: pd.DataFrame,
+    settlements: list[tuple[Bet, float]],
+) -> pd.DataFrame:
+    annotated = result_df.copy()
+    annotated["is_actual_bet"] = False
+    annotated["stake"] = np.nan
+    annotated["result"] = np.nan
+    annotated["final_odds"] = np.nan
+
+    for bet, bet_result in settlements:
+        if bet.stake <= 0:
+            continue
+        mask = pd.to_numeric(annotated["umaban"], errors="coerce").eq(int(bet.umaban))
+        annotated.loc[mask, "is_actual_bet"] = True
+        annotated.loc[mask, "stake"] = float(bet.stake)
+        annotated.loc[mask, "result"] = float(bet_result)
+        annotated.loc[mask, "final_odds"] = float(
+            bet.final_odds if bet.final_odds > 0 else bet.odds
+        )
+
+    return annotated
+
+
 class BacktestEngine:
     """バックテストエンジン
 
@@ -358,7 +462,9 @@ class BacktestEngine:
         if betting_mode not in ("flat", "kelly"):
             raise ValueError(f"betting_mode must be 'flat' or 'kelly', got '{betting_mode}'")
         if betting_target not in ("win", "place", "wide"):
-            raise ValueError(f"betting_target must be 'win', 'place', or 'wide', got '{betting_target}'")
+            raise ValueError(
+                f"betting_target must be 'win', 'place', or 'wide', got '{betting_target}'"
+            )
         self.models = models
         self.initial_bankroll = initial_bankroll
         self.store = store or ParquetStore()
@@ -443,7 +549,9 @@ class BacktestEngine:
             return train_result.bet_history
         except Exception as e:
             logger.warning(
-                "自動training_bet_history生成失敗: %s — OddsBandFilterキャリブレーションスキップ", e,
+                "自動training_bet_history生成失敗: %s — "
+                "OddsBandFilterキャリブレーションスキップ",
+                e,
             )
             return None
 
@@ -786,7 +894,11 @@ class BacktestEngine:
         # backtest parquet に hist 特徴量が含まれるようにする (二重マージ回避)
         if not hist_df_all.empty:
             # Drop merge keys from hist_df_all for the merge
-            hist_merge_cols = [c for c in hist_df_all.columns if c not in feat_df.columns or c in ("race_id", "umaban")]
+            hist_merge_cols = [
+                c
+                for c in hist_df_all.columns
+                if c not in feat_df.columns or c in ("race_id", "umaban")
+            ]
             feat_df = feat_df.merge(
                 hist_df_all[hist_merge_cols],
                 on=["race_id", "umaban"],
@@ -797,7 +909,6 @@ class BacktestEngine:
         # 5. レースごとにシミュレーション (推論は RacePredictor に委譲)
         # Groupby dict preprocessing — O(1) race lookups per D-07
         feat_groups = build_race_groups(feat_df, name="features")
-        hist_groups = build_race_groups(hist_df_all, name="history")  # 互換性のため維持
         jockey_groups = build_race_groups(jockey_df_all, name="jockey")
         trainer_groups = build_race_groups(trainer_df_all, name="trainer")
         jt_groups = build_race_groups(jt_df_all, name="jockey_trainer")
@@ -871,7 +982,6 @@ class BacktestEngine:
                 )
 
             # 事前計算済み特徴量をマージ (groupby dict O(1) lookup)
-            hist_df_race = hist_groups.get(race_id)  # D-11: 互換性のため残す
             jockey_df_race = jockey_groups.get(race_id)
             trainer_df_race = trainer_groups.get(race_id)
             jt_df_race = jt_groups.get(race_id)
@@ -935,7 +1045,10 @@ class BacktestEngine:
                 ) if not result_df.empty else 0.20,
                 "entropy_rolling": (
                     float(row_data["market_entropy"])
-                    if "market_entropy" in row_data.index and pd.notna(row_data.get("market_entropy"))
+                    if (
+                        "market_entropy" in row_data.index
+                        and pd.notna(row_data.get("market_entropy"))
+                    )
                     else 2.0
                 ) if not result_df.empty else 2.0,
                 "odds_skewness_rolling": calc_odds_skewness(result_df),
@@ -958,6 +1071,9 @@ class BacktestEngine:
                 continue
             if self.betting_target == "win":
                 candidate_df = self._race_predictor.get_win_candidates(result_df)
+                win_diag_df = candidate_df.attrs.get("win_diagnostic_df")
+                if isinstance(win_diag_df, pd.DataFrame):
+                    result_df = win_diag_df
                 n_ev_excluded += int(candidate_df.attrs.get("n_ev_excluded", 0))
             else:
                 candidate_df = self._race_predictor.get_place_candidates(
@@ -1007,6 +1123,7 @@ class BacktestEngine:
             _quality_passed = self._race_predictor.should_bet(result_df)
 
             if not _quality_passed:
+                result_df = _annotate_actual_bets(result_df, [])
                 diag_logger.log_race(
                     race_id=race_id,
                     regime=str(regime),
@@ -1022,7 +1139,7 @@ class BacktestEngine:
                     ),
                     market_condition_score=race_market_condition,
                 )
-                if "ev_place" in result_df.columns:
+                if "ev_place" in result_df.columns or self.betting_target == "win":
                     for hr in result_df.itertuples(index=False):
                         diag_logger.log_horse(
                             race_id=race_id,
@@ -1036,9 +1153,13 @@ class BacktestEngine:
                             e_return_place_corrected=float(
                                 getattr(hr, "e_return_place_corrected", float("nan"))
                             ),
-                            ev_place_corrected=float(getattr(hr, "ev_place_corrected", float("nan"))),
+                            ev_place_corrected=float(
+                                getattr(hr, "ev_place_corrected", float("nan"))
+                            ),
                             ev_lower_place=float(getattr(hr, "EV_lower_place", float("nan"))),
-                            place_selection_ev=float(getattr(hr, "place_selection_ev", float("nan"))),
+                            place_selection_ev=float(
+                                getattr(hr, "place_selection_ev", float("nan"))
+                            ),
                             place_selection_edge=float(
                                 getattr(hr, "place_selection_edge", float("nan"))
                             ),
@@ -1070,6 +1191,7 @@ class BacktestEngine:
                                 if pd.notna(getattr(hr, "place_selection_reason", None))
                                 else None
                             ),
+                            **_horse_win_diagnostic_kwargs(hr),
                         )
                         diag_logger.log_horse_features(hr._asdict())
                 continue
@@ -1089,10 +1211,15 @@ class BacktestEngine:
             for bet in bets:
                 if bet.bet_type == BetType.WIDE:
                     updated_bets.append(bet)
+                elif bet.bet_type == BetType.WIN:
+                    fo = self.win_payout_map.get((bet.race_id, bet.umaban), bet.odds)
+                    updated_bets.append(replace(bet, final_odds=fo))
                 else:
                     fo = final_odds_map.get((bet.race_id, bet.umaban), bet.odds)
                     updated_bets.append(replace(bet, final_odds=fo))
             bets = updated_bets
+            settlements = [(bet, self._settle_bet(bet, result_df)) for bet in bets]
+            result_df = _annotate_actual_bets(result_df, settlements)
 
             # メトリクス集計 (全ベットが発走前オッズ)
             n_pre_post_odds_bets += len(bets)
@@ -1113,9 +1240,9 @@ class BacktestEngine:
                 ),
                 market_condition_score=race_market_condition,
             )
-            if "ev_place" in result_df.columns:
-                bet_umabans = {b.umaban for b in bets}
+            if "ev_place" in result_df.columns or self.betting_target == "win":
                 for hr in result_df.itertuples(index=False):
+                    is_actual_bet = bool(getattr(hr, "is_actual_bet", False))
                     diag_logger.log_horse(
                         race_id=race_id,
                         umaban=int(hr.umaban),
@@ -1123,14 +1250,18 @@ class BacktestEngine:
                         e_return_place_pred=float(getattr(hr, "e_return_place_pred", 0)),
                         ev_place=float(getattr(hr, "ev_place", 0)),
                         fukuoddslow=float(getattr(hr, "fukuoddslow", 0)),
-                        is_bet=int(hr.umaban) in bet_umabans,
+                        is_bet=is_actual_bet,
                         p_place_corrected=float(getattr(hr, "p_place_corrected", float("nan"))),
                         e_return_place_corrected=float(
                             getattr(hr, "e_return_place_corrected", float("nan"))
                         ),
-                        ev_place_corrected=float(getattr(hr, "ev_place_corrected", float("nan"))),
+                        ev_place_corrected=float(
+                            getattr(hr, "ev_place_corrected", float("nan"))
+                        ),
                         ev_lower_place=float(getattr(hr, "EV_lower_place", float("nan"))),
-                        place_selection_ev=float(getattr(hr, "place_selection_ev", float("nan"))),
+                        place_selection_ev=float(
+                            getattr(hr, "place_selection_ev", float("nan"))
+                        ),
                         place_selection_edge=float(
                             getattr(hr, "place_selection_edge", float("nan"))
                         ),
@@ -1162,12 +1293,12 @@ class BacktestEngine:
                             if pd.notna(getattr(hr, "place_selection_reason", None))
                             else None
                         ),
+                        **_horse_win_diagnostic_kwargs(hr),
                     )
                     diag_logger.log_horse_features(hr._asdict())
 
             # Settlement (BacktestEngine 固有)
-            for bet in bets:
-                bet_result = self._settle_bet(bet, result_df)
+            for bet, bet_result in settlements:
                 bankroll -= bet.stake
                 if bet_result > 0:
                     bankroll += bet_result
@@ -1182,6 +1313,11 @@ class BacktestEngine:
                     if not horse_rows.empty and "popularity_rank" in horse_rows.columns
                     else 0
                 )
+                horse_row = (
+                    horse_rows.iloc[0]
+                    if not horse_rows.empty
+                    else pd.Series(dtype=object)
+                )
 
                 bet_history.append(
                     {
@@ -1190,8 +1326,11 @@ class BacktestEngine:
                         "umaban": bet.umaban,
                         "stake": bet.stake,
                         "odds": bet.odds,
+                        "tanodds": _optional_float(horse_row.get("tanodds", bet.odds)),
+                        "final_odds": bet.final_odds,
                         "fuku_odds_low": bet.final_odds,
                         "result": bet_result,
+                        "is_actual_bet": bet.stake > 0,
                         "surface": surface_key,
                         "kyori": (
                             int(result_df["kyori"].iloc[0]) if "kyori" in result_df.columns else 0
@@ -1238,6 +1377,50 @@ class BacktestEngine:
                             and horse_rows.iloc[0].get("e_return_place_pred", 0) is not pd.NA
                             and not pd.isna(horse_rows.iloc[0].get("e_return_place_pred", 0))
                             else 0.0
+                        ),
+                        "p_win_pred": _optional_float(horse_row.get("p_win_pred", None)),
+                        "p_win_corrected": _optional_float(
+                            horse_row.get("p_win_corrected", None)
+                        ),
+                        "p_win_final": _optional_float(horse_row.get("p_win_final", None)),
+                        "e_return_win_pred": _optional_float(
+                            horse_row.get("e_return_win_pred", None)
+                        ),
+                        "e_return_win_corrected": _optional_float(
+                            horse_row.get("e_return_win_corrected", None)
+                        ),
+                        "win_selection_ev": _optional_float(
+                            horse_row.get(
+                                "win_selection_ev_raw",
+                                horse_row.get("win_selection_ev", None),
+                            )
+                        ),
+                        "win_selection_ev_tail_calibrated": _optional_float(
+                            horse_row.get("win_selection_ev_tail_calibrated", None)
+                        ),
+                        "win_selection_edge": _optional_float(
+                            horse_row.get("win_selection_edge", None)
+                        ),
+                        "win_selection_prob": _optional_float(
+                            horse_row.get("win_selection_prob", None)
+                        ),
+                        "win_gate_score": _optional_float(horse_row.get("win_gate_score", None)),
+                        "win_gate_pass": _optional_bool(horse_row.get("win_gate_pass", None)),
+                        "excluded_reason": _optional_str(horse_row.get("excluded_reason", None)),
+                        "filter_pass_flags": _optional_str(
+                            horse_row.get("filter_pass_flags", None)
+                        ),
+                        "candidate_count_before_filter": _optional_int(
+                            horse_row.get("candidate_count_before_filter", None)
+                        ),
+                        "candidate_count_after_filter": _optional_int(
+                            horse_row.get("candidate_count_after_filter", None)
+                        ),
+                        "selected_rank_by_p_win_final": _optional_float(
+                            horse_row.get("selected_rank_by_p_win_final", None)
+                        ),
+                        "selected_rank_by_win_selection_ev": _optional_float(
+                            horse_row.get("selected_rank_by_win_selection_ev", None)
                         ),
                         "top3_finishers": _top3,
                         "umaban_b": getattr(bet, "umaban_b", None),

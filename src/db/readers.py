@@ -173,8 +173,13 @@ def coerce_types(df: pd.DataFrame) -> pd.DataFrame:
 
     # ETL派生列のフォールバック（旧Parquet互換）
     if "surface" not in df.columns and "trackcd" in df.columns:
-        df["surface"] = df["trackcd"].apply(
-            lambda x: "turf" if 10 <= x <= 22 else "dirt" if 23 <= x <= 29 else "other"
+        import numpy as np
+
+        trackcd = df["trackcd"]
+        df["surface"] = np.where(
+            trackcd.isna(), "other",
+            np.where(trackcd.between(10, 22), "turf",
+                     np.where(trackcd.between(23, 29), "dirt", "other"))
         )
 
     if (

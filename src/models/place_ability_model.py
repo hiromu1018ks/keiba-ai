@@ -66,6 +66,7 @@ class PlaceAbilityModel:
         # 休養期間 (2)
         "days_since_last_race",
         "rest_category",
+        "is_debut",
         # フォームサイクル (3) — B3
         "form_trend",
         "form_consistency",
@@ -165,6 +166,7 @@ class PlaceAbilityModel:
             "surface",
             "distance_bin",
             "grade_code",
+            "track_condition_code",
             "kyakusitukubun_cd",
             "blood_keito_cd",
             "kyakusitu_x_distance",
@@ -223,6 +225,7 @@ class PlaceAbilityModel:
             "surface",
             "distance_bin",
             "grade_code",
+            "track_condition_code",
             "kyakusitukubun_cd",
             "blood_keito_cd",
             "kyakusitu_x_distance",

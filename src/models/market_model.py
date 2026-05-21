@@ -83,7 +83,7 @@ class MarketModel:
             if pd.api.types.is_integer_dtype(features[col]):
                 features[col] = features[col].astype(float)
         # カテゴリカル特徴量の処理
-        for col in ["surface", "distance_bin", "grade_code"]:
+        for col in ["surface", "distance_bin", "grade_code", "track_condition_code"]:
             if col in features.columns:
                 features[col] = features[col].astype("category")
 
@@ -123,7 +123,7 @@ class MarketModel:
 
         df = df.copy()
         features = _safe_feature_select(df, self.FEATURE_COLS)
-        for col in ["surface", "distance_bin", "grade_code"]:
+        for col in ["surface", "distance_bin", "grade_code", "track_condition_code"]:
             if col in features.columns:
                 features[col] = features[col].astype("category")
 
@@ -184,7 +184,7 @@ class MarketModel:
         for col in features.columns:
             if pd.api.types.is_integer_dtype(features[col]):
                 features[col] = features[col].astype(float)
-        for col in ["surface", "distance_bin", "grade_code"]:
+        for col in ["surface", "distance_bin", "grade_code", "track_condition_code"]:
             if col in features.columns:
                 features[col] = features[col].astype("category")
 

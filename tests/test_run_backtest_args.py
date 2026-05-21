@@ -6,6 +6,8 @@ import os
 import subprocess
 import sys
 
+import pandas as pd
+
 
 def _import_build_parser():
     """build_parser をインポートするヘルパー"""
@@ -229,3 +231,44 @@ class TestBettingTargetArg:
                     "--betting-target", "invalid",
                 ]
             )
+
+
+class TestYearParquetOutput:
+    """年度別 predictions parquet 出力のテスト"""
+
+    def test_save_year_parquet_marks_actual_bets_from_stake(self, tmp_path, monkeypatch) -> None:
+        """is_bet 互換列は is_actual_bet == stake.notna() と一致する"""
+        import scripts.run_backtest as run_backtest
+        from backtest.engine import BacktestResult
+
+        monkeypatch.setattr(run_backtest, "ROOT", str(tmp_path))
+        diag_dir = tmp_path / "data" / "backtest"
+        diag_dir.mkdir(parents=True)
+        pd.DataFrame(
+            {
+                "race_id": ["R1", "R1"],
+                "umaban": [1, 2],
+                "is_bet": [True, True],
+            }
+        ).to_csv(diag_dir / "bt_2024_horse_diagnostics.csv", index=False)
+
+        result = BacktestResult(
+            bet_history=[
+                {
+                    "race_id": "R1",
+                    "umaban": 2,
+                    "stake": 100.0,
+                    "result": 0.0,
+                    "odds": 5.0,
+                    "final_odds": 5.0,
+                }
+            ]
+        )
+
+        run_backtest.save_year_parquet(2024, result)
+
+        df = pd.read_parquet(diag_dir / "predictions" / "2024.parquet")
+        actual = df.sort_values("umaban")["is_actual_bet"].tolist()
+        compat = df.sort_values("umaban")["is_bet"].tolist()
+        assert actual == [False, True]
+        assert compat == actual

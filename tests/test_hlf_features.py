@@ -928,8 +928,8 @@ class TestBaseColsCount:
     """BASE_COLS total count after Task 2 additions."""
 
     def test_base_cols_count_after_task2(self):
-        """BASE_COLS should be 62 (3 high-NaN features removed from models but still computed)."""
+        """BASE_COLS数の妥当性確認"""
         from features.horse_history_features import HorseHistoryFeatures
-        assert len(HorseHistoryFeatures.BASE_COLS) == 62, (
-            f"BASE_COLS should be 62, got {len(HorseHistoryFeatures.BASE_COLS)}"
+        assert len(HorseHistoryFeatures.BASE_COLS) == 67, (
+            f"BASE_COLS should be 67, got {len(HorseHistoryFeatures.BASE_COLS)}"
         )

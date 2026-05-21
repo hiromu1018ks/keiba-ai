@@ -80,7 +80,7 @@ def sample_entry_df() -> pd.DataFrame:
                 454,
             ],
             "zogen_fugo": [2, 1, 3, 2, 1, 3, 2, 1, 3, 2, 1, 3, 2, 1, 3, 2, 1, 3],
-            "zogen_sa": [-4, 2, 0, -6, 4, 0, -2, 6, 0, -8, 2, 0, -4, 8, 0, -2, 4, 0],
+            "zogensa": [-4, 2, 0, -6, 4, 0, -2, 6, 0, -8, 2, 0, -4, 8, 0, -2, 4, 0],
             "kisyucode": [f"010{i:02d}" for i in range(1, 19)],
             "chokyosicode": [f"010{i:02d}" for i in range(1, 19)],
         }
@@ -331,7 +331,7 @@ class TestWeightChangeZone:
                 "syussotosu": [10] * len(zogen_values),
                 "ninki": list(range(1, len(zogen_values) + 1)),
                 "kyakusitukubun": [1] * len(zogen_values),
-                "zogen_sa": zogen_values,
+                "zogensa": zogen_values,
             }
         )
 

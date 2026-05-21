@@ -40,6 +40,7 @@ class HorseDiagnostic:
     ev_place: float
     fukuoddslow: float
     is_bet: bool
+    is_actual_bet: bool = False
     p_place_corrected: float | None = None
     e_return_place_corrected: float | None = None
     ev_place_corrected: float | None = None
@@ -56,6 +57,27 @@ class HorseDiagnostic:
     aggressive_strength: float | None = None
     aggressive_tier: str | None = None
     place_selection_reason: str | None = None
+    p_win_pred: float | None = None
+    p_win_corrected: float | None = None
+    p_win_final: float | None = None
+    e_return_win_pred: float | None = None
+    e_return_win_corrected: float | None = None
+    win_selection_ev: float | None = None
+    win_selection_ev_tail_calibrated: float | None = None
+    win_selection_edge: float | None = None
+    win_selection_prob: float | None = None
+    win_gate_score: float | None = None
+    win_gate_pass: bool | None = None
+    tanodds: float | None = None
+    final_odds: float | None = None
+    stake: float | None = None
+    result: float | None = None
+    excluded_reason: str | None = None
+    filter_pass_flags: str | None = None
+    candidate_count_before_filter: int | None = None
+    candidate_count_after_filter: int | None = None
+    selected_rank_by_p_win_final: float | None = None
+    selected_rank_by_win_selection_ev: float | None = None
 
 
 class DiagnosticLogger:
@@ -105,6 +127,7 @@ class DiagnosticLogger:
         ev_place: float,
         fukuoddslow: float,
         is_bet: bool,
+        is_actual_bet: bool | None = None,
         p_place_corrected: float | None = None,
         e_return_place_corrected: float | None = None,
         ev_place_corrected: float | None = None,
@@ -121,6 +144,27 @@ class DiagnosticLogger:
         aggressive_strength: float | None = None,
         aggressive_tier: str | None = None,
         place_selection_reason: str | None = None,
+        p_win_pred: float | None = None,
+        p_win_corrected: float | None = None,
+        p_win_final: float | None = None,
+        e_return_win_pred: float | None = None,
+        e_return_win_corrected: float | None = None,
+        win_selection_ev: float | None = None,
+        win_selection_ev_tail_calibrated: float | None = None,
+        win_selection_edge: float | None = None,
+        win_selection_prob: float | None = None,
+        win_gate_score: float | None = None,
+        win_gate_pass: bool | None = None,
+        tanodds: float | None = None,
+        final_odds: float | None = None,
+        stake: float | None = None,
+        result: float | None = None,
+        excluded_reason: str | None = None,
+        filter_pass_flags: str | None = None,
+        candidate_count_before_filter: int | None = None,
+        candidate_count_after_filter: int | None = None,
+        selected_rank_by_p_win_final: float | None = None,
+        selected_rank_by_win_selection_ev: float | None = None,
     ) -> None:
         self.horse_records.append(
             HorseDiagnostic(
@@ -131,6 +175,7 @@ class DiagnosticLogger:
                 ev_place=ev_place,
                 fukuoddslow=fukuoddslow,
                 is_bet=is_bet,
+                is_actual_bet=is_bet if is_actual_bet is None else is_actual_bet,
                 p_place_corrected=p_place_corrected,
                 e_return_place_corrected=e_return_place_corrected,
                 ev_place_corrected=ev_place_corrected,
@@ -147,6 +192,27 @@ class DiagnosticLogger:
                 aggressive_strength=aggressive_strength,
                 aggressive_tier=aggressive_tier,
                 place_selection_reason=place_selection_reason,
+                p_win_pred=p_win_pred,
+                p_win_corrected=p_win_corrected,
+                p_win_final=p_win_final,
+                e_return_win_pred=e_return_win_pred,
+                e_return_win_corrected=e_return_win_corrected,
+                win_selection_ev=win_selection_ev,
+                win_selection_ev_tail_calibrated=win_selection_ev_tail_calibrated,
+                win_selection_edge=win_selection_edge,
+                win_selection_prob=win_selection_prob,
+                win_gate_score=win_gate_score,
+                win_gate_pass=win_gate_pass,
+                tanodds=tanodds,
+                final_odds=final_odds,
+                stake=stake,
+                result=result,
+                excluded_reason=excluded_reason,
+                filter_pass_flags=filter_pass_flags,
+                candidate_count_before_filter=candidate_count_before_filter,
+                candidate_count_after_filter=candidate_count_after_filter,
+                selected_rank_by_p_win_final=selected_rank_by_p_win_final,
+                selected_rank_by_win_selection_ev=selected_rank_by_win_selection_ev,
             )
         )
 
