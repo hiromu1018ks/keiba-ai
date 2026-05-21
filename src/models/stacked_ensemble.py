@@ -39,7 +39,7 @@ class StackedEnsemble:
         cat_cols: list[str] | None = None,
         n_folds: int = 3,
         n_trials: int = 30,
-        corr_penalty_weight: float = 0.5,
+        corr_penalty_weight: float = 0.0,
         corr_threshold: float = 0.85,
     ) -> None:
         self.cat_cols = cat_cols or []
