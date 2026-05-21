@@ -276,6 +276,10 @@ class EVCorrectionModel:
         p_pred_clipped = np.clip(df["p_win_pred"], 1e-4, 1 - 1e-4)
         init_score = np.log(p_pred_clipped / (1 - p_pred_clipped))
 
+        pos_rate = y_p.mean()
+        neg_pos_ratio = (1 - pos_rate) / max(pos_rate, 1e-6)
+        scale_pos = max(1.0, neg_pos_ratio ** 0.5)
+
         # P correction: train/valid split (80/20) with init_score (時系列分割)
         n_p = len(features)
         split_p = int(n_p * 0.8)
@@ -300,7 +304,7 @@ class EVCorrectionModel:
                 "metric": "auc",
                 "learning_rate": 0.03,
                 "num_leaves": 15,
-                "is_unbalance": True,
+                "scale_pos_weight": scale_pos,
                 "feature_fraction": 0.7,
                 "num_threads": num_threads,
                 "verbose": -1,
@@ -585,6 +589,10 @@ class PlaceEVCorrectionModel:
         p_pred_clipped = np.clip(df["p_place_pred"], 1e-4, 1 - 1e-4)
         init_score = np.log(p_pred_clipped / (1 - p_pred_clipped))
 
+        pos_rate = y_p.mean()
+        neg_pos_ratio = (1 - pos_rate) / max(pos_rate, 1e-6)
+        scale_pos = max(1.0, neg_pos_ratio ** 0.5)
+
         # P correction: train/valid split (80/20) with init_score (時系列分割)
         n_p = len(features)
         split_p = int(n_p * 0.8)
@@ -609,7 +617,7 @@ class PlaceEVCorrectionModel:
                 "metric": "auc",
                 "learning_rate": 0.03,
                 "num_leaves": 15,
-                "is_unbalance": True,
+                "scale_pos_weight": scale_pos,
                 "feature_fraction": 0.7,
                 "num_threads": num_threads,
                 "verbose": -1,

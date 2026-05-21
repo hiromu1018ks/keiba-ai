@@ -103,6 +103,7 @@ class ModelLoader:
             ev_corr = EVCorrectionModel()
             ev_corr.p_correction_model = self._load_lgbm(f"{artifact_uri}/ev_corrector_p_{surface}")
             ev_corr.e_correction_model = self._load_lgbm(f"{artifact_uri}/ev_corrector_e_{surface}")
+            ev_corr._trained = True
 
             # PlaceEVCorrectionModel (backward compatible with old MLflow runs)
             try:
@@ -575,6 +576,7 @@ class ModelLoader:
             ev_corr.e_correction_model = self._load_lgbm(
                 str(models_dir / f"ev_corrector_e_{surface}.lgb")
             )
+            ev_corr._trained = True
 
             # PlaceEVCorrectionModel (backward compatible)
             place_ev_corr_file = models_dir / f"place_ev_corrector_p_{surface}.lgb"

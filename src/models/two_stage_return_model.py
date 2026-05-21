@@ -7,6 +7,7 @@ import os
 import warnings
 
 import lightgbm as lgb
+import numpy as np
 import pandas as pd
 
 from domain.models import TwoStageConfig
@@ -19,6 +20,7 @@ def _train_valid_split(
     label: pd.Series,
     valid_ratio: float = 0.2,
     seed: int = 42,  # noqa: ARG001 — kept for API compat
+    sample_weight: np.ndarray | None = None,
 ) -> tuple[lgb.Dataset, lgb.Dataset]:
     """学習データを時系列順に train/valid に分割。
 
@@ -29,8 +31,16 @@ def _train_valid_split(
     n = len(features)
     split = int(n * (1 - valid_ratio))
 
-    train_data = lgb.Dataset(features.iloc[:split], label=label.iloc[:split])
-    valid_data = lgb.Dataset(features.iloc[split:], label=label.iloc[split:], reference=train_data)
+    train_weight = sample_weight[:split] if sample_weight is not None else None
+    valid_weight = sample_weight[split:] if sample_weight is not None else None
+
+    train_data = lgb.Dataset(
+        features.iloc[:split], label=label.iloc[:split], weight=train_weight,
+    )
+    valid_data = lgb.Dataset(
+        features.iloc[split:], label=label.iloc[split:], weight=valid_weight,
+        reference=train_data,
+    )
     return train_data, valid_data
 
 
@@ -296,13 +306,19 @@ class WinTwoStageModel:
         y = (df["kakuteijyuni"] == 1).astype(int)
 
         train_data, valid_data = _train_valid_split(features, y)
+        pos_rate = y.mean()
+        neg_pos_ratio = (1 - pos_rate) / max(pos_rate, 1e-6)
+        # sqrt scaling: full neg/pos ratio causes overconfidence (esp. ~11x for 8% win rate)
+        # sqrt compresses the ratio while keeping positive-class boost
+        scale_pos = max(1.0, neg_pos_ratio ** 0.5)
+
         self.hit_model = lgb.train(
             {
                 "objective": "binary",
                 "metric": self.cfg.hit_metric,
                 "learning_rate": self.cfg.hit_lr,
                 "num_leaves": self.cfg.hit_leaves,
-                "is_unbalance": True,
+                "scale_pos_weight": scale_pos,
                 "feature_fraction": 0.7,
                 "num_threads": num_threads,
                 "verbose": -1,
@@ -317,6 +333,7 @@ class WinTwoStageModel:
         """
         E(win_odds | win) の学習 (1着馬のみ)。
         ゼロ偏重を完全に排除 -- 学習データにゼロが含まれない。
+        ターゲットを log(odds) に変換し、高オッズ域の過大評価を抑制。
 
         Args:
             df: "confirmed_odds" 列が必須 (的中時払戻額のターゲット)
@@ -331,7 +348,13 @@ class WinTwoStageModel:
             )
 
         features = self._prepare_features(hit_df)
-        y = hit_df["confirmed_odds"]
+        y = np.log1p(hit_df["confirmed_odds"].clip(lower=1.0))
+
+        # 低確率(高オッズ)サンプルの重みを抑制: 1/√p で高オッズ域の過大評価を防ぐ
+        p_win = hit_df.get("p_win_pred")
+        sample_weight = None
+        if p_win is not None:
+            sample_weight = (1.0 / np.sqrt(np.clip(p_win, 0.01, None))).values
 
         params = {
             "objective": "regression_l1",
@@ -345,14 +368,13 @@ class WinTwoStageModel:
         callbacks = [lgb.early_stopping(stopping_rounds=100, verbose=False)]
 
         if len(features) < 10:
-            # サンプル数が少なすぎる場合は early stopping なし
             self.return_model = lgb.train(
                 params,
-                lgb.Dataset(features, label=y),
+                lgb.Dataset(features, label=y, weight=sample_weight),
                 num_boost_round=self.cfg.return_rounds,
             )
         else:
-            train_data, valid_data = _train_valid_split(features, y)
+            train_data, valid_data = _train_valid_split(features, y, sample_weight=sample_weight)
             self.return_model = lgb.train(
                 params,
                 train_data,
@@ -373,7 +395,8 @@ class WinTwoStageModel:
             self.return_model.best_iteration if self.return_model.best_iteration > 0 else None
         )
         df["p_win_pred"] = self.hit_model.predict(features, num_iteration=hit_iter)
-        df["e_return_win_pred"] = self.return_model.predict(features, num_iteration=ret_iter)
+        log_return = self.return_model.predict(features, num_iteration=ret_iter)
+        df["e_return_win_pred"] = np.clip(np.expm1(log_return), 1.0, None)
         df["ev_win"] = df["p_win_pred"] * df["e_return_win_pred"]
         return df
 
