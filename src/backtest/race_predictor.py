@@ -554,21 +554,9 @@ class RacePredictor:
         if candidates.empty:
             return candidates
 
-        # --- EV tail calibration (RTG-04): scale high-EV candidates by family agreement ---
-        from betting.ev_tail_calibration import EVTtailCalibrator
-
-        _calibrator = EVTtailCalibrator()
-        calibrated_edges: list[float] = []
-        masked_race = race_df.loc[mask]
-        for idx, row in candidates.iterrows():
-            raw_edge = _safe_float(row.get(edge_col, 0.0))
-            if raw_edge >= 1.5:
-                cal_edge = _calibrator.calibrate(row, masked_race, raw_edge)
-                calibrated_edges.append(cal_edge)
-            else:
-                calibrated_edges.append(raw_edge)
-        candidates["_calibrated_edge"] = calibrated_edges
-        sort_edge_col = "_calibrated_edge"
+        # EV tail calibration disabled — was producing NaN on high-EV candidates,
+        # suppressing top-value bets.  Sort by raw edge instead.
+        sort_edge_col = edge_col
 
         # D-08: Log gate pass status for debugging (not used as filter)
         if "win_gate_pass" in candidates.columns:
@@ -600,9 +588,6 @@ class RacePredictor:
             candidates = candidates.drop(columns=["_win_gate_score_num"])
         else:
             candidates = candidates.sort_values([sort_edge_col], ascending=[False])
-
-        # Drop internal calibration column; original edge_col preserved for diagnostics
-        candidates = candidates.drop(columns=[sort_edge_col])
 
         # D-09: Max 2 candidates per race
         return candidates.head(2)
