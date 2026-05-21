@@ -27,7 +27,7 @@ See: .planning/PROJECT.md (updated 2026-05-19)
 Phase: 37
 Plan: Not started
 Status: Ready to plan
-Last activity: 2026-05-20
+Last activity: 2026-05-21
 
 Progress: [▓▓▓▓▓▓▓▓▓▓▓▓▓▓░░░░░░░] 67% (v1.8: 4/6 phases done, Phase 36.1.1 next)
 
@@ -89,6 +89,12 @@ v1.8 Phase 36: 22 new features across 3 categories (TRF=8, INT=3, HLF=14→12 un
 4. RaceQualityScreenerが利益源レースを71.9%除外 → Phase 36.1.1で再設計
 5. training_pipeline _build_race_level_features() rl_*列処理未追加
 4. LapTime column names in EveryDB2 not yet verified against live schema
+
+### Quick Tasks Completed
+
+| # | Description | Date | Commit | Directory |
+|---|-------------|------|--------|-----------|
+| 260521-gks | ROI劣化修正: EV Tail Calibration無効化 + 相関ペナルティ無効化 + 高NaN特徴量削除 | 2026-05-21 | 464e0bf | [260521-gks-roi-ev-tail-calibration-nan](./quick/260521-gks-roi-ev-tail-calibration-nan/) |
 
 ## Session Continuity
 
