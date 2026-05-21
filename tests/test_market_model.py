@@ -274,13 +274,13 @@ _PHASE36_FEATURES = [
 
 
 class TestMarketModelFeatureRouting:
-    """Phase36 特徴量が MarketModel に復元されていることを検証"""
+    """MarketModel は市場構造のみの特徴量を持ち、馬能力特徴量を含まないことを検証"""
 
-    def test_phase36_features_in_feature_cols(self) -> None:
-        """MarketModel.FEATURE_COLS に Phase36 特徴量が含まれる"""
+    def test_phase36_features_not_in_feature_cols(self) -> None:
+        """MarketModel.FEATURE_COLS に Phase36 馬能力特徴量が含まれない"""
         for feat in _PHASE36_FEATURES:
-            assert feat in MarketModel.FEATURE_COLS, (
-                f"Phase36 feature '{feat}' missing from MarketModel.FEATURE_COLS"
+            assert feat not in MarketModel.FEATURE_COLS, (
+                f"Phase36 feature '{feat}' should not be in MarketModel.FEATURE_COLS"
             )
 
     def test_market_features_still_present(self) -> None:

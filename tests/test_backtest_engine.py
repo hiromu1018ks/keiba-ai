@@ -803,7 +803,7 @@ class TestLeakIntegration:
             "grade_x_blood_prize_log",
             "distance_x_closing_index",
         }
-        expected_cols = expected_core | expected_rl | expected_market
+        expected_cols = expected_core | expected_rl | expected_market | expected_hlf_trf
         actual_cols = set(RegimeDetector.FEATURE_COLS)
         assert actual_cols == expected_cols, (
             f"FEATURE_COLS mismatch: expected {expected_cols}, got {actual_cols}"
