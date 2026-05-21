@@ -203,6 +203,11 @@ class ConformalEVModel:
         # CQR calibration quantiles (2-alpha構成)
         self._calibration_quantile_90: float = 0.0  # alpha=0.1用
         self._calibration_quantile_80: float = 0.0  # alpha=0.2用
+        # Center residual floors. Pure CQR scores can be exactly zero when the
+        # quantile models already cover a smoothed target; horse-race EV still
+        # needs irreducible uncertainty for lower-bound ranking.
+        self._residual_quantile_90: float = 0.0
+        self._residual_quantile_80: float = 0.0
 
     def calibrate(
         self,
@@ -360,22 +365,42 @@ class ConformalEVModel:
         q_high_pred = self.q_high_model.predict(X_val)
 
         # CQR非適合スコア: max(q_low - y, y - q_high)
-        nonconformity_scores = np.maximum(q_low_pred - y_val.values, y_val.values - q_high_pred)
+        # 標準CQRでは負値も許容されるが、ここではEV下限を選別シグナルにも使うため
+        # 0未満を切り上げ、さらに中心残差から不確実性の下限を付与する。
+        nonconformity_scores = np.maximum(
+            np.maximum(q_low_pred - y_val.values, y_val.values - q_high_pred),
+            0.0,
+        )
+        center_pred = 0.5 * (q_low_pred + q_high_pred)
+        center_residual = np.abs(y_val.values - center_pred)
 
         # 有限サンプル補正付き補正量子 (Romano et al., 2019)
         n = len(nonconformity_scores)
         # 90%区間用 (alpha=0.1)
         q_90_level = min((1 - 0.1) * (1 + 1 / n), 1.0)
-        self._calibration_quantile_90 = float(np.quantile(nonconformity_scores, q_90_level))
+        q_90 = float(np.quantile(nonconformity_scores, q_90_level))
         # 80%区間用 (alpha=0.2)
         q_80_level = min((1 - 0.2) * (1 + 1 / n), 1.0)
-        self._calibration_quantile_80 = float(np.quantile(nonconformity_scores, q_80_level))
+        q_80 = float(np.quantile(nonconformity_scores, q_80_level))
+
+        target_scale = max(float(np.nanmedian(np.abs(y_val.values))), 1e-6)
+        residual_90 = float(np.quantile(center_residual, q_90_level))
+        residual_80 = float(np.quantile(center_residual, q_80_level))
+        floor_90 = max(residual_90 * 0.10, target_scale * 0.01)
+        floor_80 = max(residual_80 * 0.10, target_scale * 0.01)
+        self._residual_quantile_90 = floor_90
+        self._residual_quantile_80 = floor_80
+        self._calibration_quantile_90 = max(q_90, floor_90)
+        self._calibration_quantile_80 = max(q_80, floor_80)
 
         self._calibrated = True
         logger.info(
-            "CQR calibrated: Q_90=%.4f, Q_80=%.4f, n_calib=%d",
+            "CQR calibrated: Q_90=%.4f, Q_80=%.4f, residual_floor_90=%.4f, "
+            "residual_floor_80=%.4f, n_calib=%d",
             self._calibration_quantile_90,
             self._calibration_quantile_80,
+            self._residual_quantile_90,
+            self._residual_quantile_80,
             n,
         )
 
@@ -473,6 +498,13 @@ class ConformalEVModel:
         # 90%区間 (第一alpha, 通常alpha=0.1)
         lower_90 = np.maximum(q_low - self._calibration_quantile_90, 0.0)
         upper_90 = q_high + self._calibration_quantile_90
+        if self._residual_quantile_90 > 0:
+            base_lower_90 = np.maximum(
+                win_ev.to_numpy(dtype=float) - self._residual_quantile_90,
+                0.0,
+            )
+            lower_90 = (0.70 * lower_90) + (0.30 * base_lower_90)
+            lower_90 = np.minimum(lower_90, upper_90)
 
         # 出力
         win_df["EV_lower_win_corrected"] = lower_90
@@ -481,6 +513,13 @@ class ConformalEVModel:
         # 80%区間 (第二alpha, 通常alpha=0.2) - confidence_score用
         if len(alphas) > 1:
             lower_80 = np.maximum(q_low - self._calibration_quantile_80, 0.0)
+            if self._residual_quantile_80 > 0:
+                base_lower_80 = np.maximum(
+                    win_ev.to_numpy(dtype=float) - self._residual_quantile_80,
+                    0.0,
+                )
+                lower_80 = (0.70 * lower_80) + (0.30 * base_lower_80)
+                lower_80 = np.minimum(lower_80, upper_90)
         else:
             lower_80 = lower_90
 
@@ -534,6 +573,8 @@ class ConformalEVModel:
             "alpha": self.alpha,
             "calibration_quantile_90": self._calibration_quantile_90,
             "calibration_quantile_80": self._calibration_quantile_80,
+            "residual_quantile_90": self._residual_quantile_90,
+            "residual_quantile_80": self._residual_quantile_80,
             "feature_cols": self.feature_cols,
             "_calibrated": self._calibrated,
         }
@@ -568,6 +609,8 @@ class ConformalEVModel:
         model.alpha = params["alpha"]
         model._calibration_quantile_90 = params["calibration_quantile_90"]
         model._calibration_quantile_80 = params["calibration_quantile_80"]
+        model._residual_quantile_90 = params.get("residual_quantile_90", 0.0)
+        model._residual_quantile_80 = params.get("residual_quantile_80", 0.0)
         model.feature_cols = params.get("feature_cols")
         model._calibrated = params.get("_calibrated", True)
 

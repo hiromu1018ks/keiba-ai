@@ -2,18 +2,15 @@
 
 from __future__ import annotations
 
-import json
 import logging
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
-import lightgbm as lgb
 import numpy as np
 import pandas as pd
 import pytest
 
 from models.conformal_ev_model import ConformalEVModel
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -280,8 +277,22 @@ class TestConformalEVModelSaveLoad:
         assert loaded is not None
         assert loaded._calibrated is True
         assert loaded.alpha == trained_model.alpha
-        assert abs(loaded._calibration_quantile_90 - trained_model._calibration_quantile_90) < 1e-10
-        assert abs(loaded._calibration_quantile_80 - trained_model._calibration_quantile_80) < 1e-10
+        assert (
+            abs(loaded._calibration_quantile_90 - trained_model._calibration_quantile_90)
+            < 1e-10
+        )
+        assert (
+            abs(loaded._calibration_quantile_80 - trained_model._calibration_quantile_80)
+            < 1e-10
+        )
+        assert (
+            abs(loaded._residual_quantile_90 - trained_model._residual_quantile_90)
+            < 1e-10
+        )
+        assert (
+            abs(loaded._residual_quantile_80 - trained_model._residual_quantile_80)
+            < 1e-10
+        )
         assert loaded.feature_cols == trained_model.feature_cols
 
     def test_load_missing_files_returns_none(self, tmp_path: Path) -> None:
@@ -289,7 +300,11 @@ class TestConformalEVModelSaveLoad:
         result = ConformalEVModel.load(tmp_path, "turf")
         assert result is None
 
-    def test_save_uncalibrated_skips(self, caplog: pytest.LogCaptureFixture, tmp_path: Path) -> None:
+    def test_save_uncalibrated_skips(
+        self,
+        caplog: pytest.LogCaptureFixture,
+        tmp_path: Path,
+    ) -> None:
         """未キャリブレーション時にsave()が警告を出してスキップ"""
         model = ConformalEVModel()
         with caplog.at_level(logging.WARNING):
@@ -323,6 +338,37 @@ class TestConformalEVModelBackwardCompat:
         assert "conformal_confidence_score" not in win_result.columns
         assert "EV_lower_place" in place_result.columns
         assert "EV_upper_place" not in place_result.columns
+
+    def test_residual_floor_adds_base_ev_variation(self) -> None:
+        """CQR下限が定数化した場合もbase EV由来の順位差を残す"""
+        model = ConformalEVModel(alpha=0.1)
+        model._calibrated = True
+        model.feature_cols = ["popularity_rank"]
+        model._calibration_quantile_90 = 0.2
+        model._calibration_quantile_80 = 0.1
+        model._residual_quantile_90 = 0.2
+        model._residual_quantile_80 = 0.1
+
+        mock_low = MagicMock()
+        mock_low.predict.return_value = np.array([1.0, 1.0, 1.0])
+        mock_high = MagicMock()
+        mock_high.predict.return_value = np.array([2.0, 2.0, 2.0])
+        model.q_low_model = mock_low
+        model.q_high_model = mock_high
+
+        win_df = pd.DataFrame(
+            {
+                "ev_win_calibrated": [0.6, 1.2, 2.0],
+                "popularity_rank": [1.0, 2.0, 3.0],
+            }
+        )
+        place_df = pd.DataFrame({"ev_place_corrected": [1.0, 1.0, 1.0]})
+
+        result, _ = model.predict_interval(win_df, place_df)
+        assert result["EV_lower_win_corrected"].nunique() > 1
+        assert (
+            result["EV_lower_win_corrected"] <= result["EV_upper_win_corrected"] + 1e-10
+        ).all()
 
 
 class TestCQRCoverageDiagnostics:

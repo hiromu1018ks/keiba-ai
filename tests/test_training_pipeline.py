@@ -755,3 +755,43 @@ class TestModelDir:
         """model_dir=None の場合はデフォルト値が使用される"""
         pipeline = TrainingPipelineV5(model_dir=None)
         assert pipeline.model_dir == Path("data/models")
+
+
+class TestCQRTargetAndThreshold:
+    """CQR教師信号とEV閾値の退化対策テスト"""
+
+    def test_build_cqr_actual_ev_target_keeps_within_bin_variation(self) -> None:
+        """decile内で完全定数にならず、実現払戻の情報も残る"""
+        n = 120
+        df = pd.DataFrame(
+            {
+                "ev_win_calibrated": np.repeat(np.linspace(0.5, 2.0, 10), n // 10),
+                "odds": np.tile([2.0, 5.0, 12.0, 35.0], n // 4),
+                "confirmed_odds": np.tile([2.0, 5.0, 12.0, 35.0], n // 4),
+                "kakuteijyuni": [1 if i % 17 == 0 else 5 for i in range(n)],
+            }
+        )
+
+        target = TrainingPipelineV5._build_cqr_actual_ev_target(df)
+
+        assert target.notna().all()
+        assert (target >= 0).all()
+        assert target.nunique() > 10
+
+    def test_compute_ev_threshold_blends_when_ev_lower_degenerate(self) -> None:
+        """EV_lowerが定数化した場合、calibrated EVを混ぜて閾値分布を復元する"""
+        n = 80
+        df = pd.DataFrame(
+            {
+                "surface": ["turf"] * n,
+                "kakuteijyuni": [1] * n,
+                "win_selection_edge": [0.1] * n,
+                "EV_lower_win_corrected": [0.235] * n,
+                "ev_win_calibrated": np.linspace(0.4, 2.0, n),
+            }
+        )
+
+        threshold = TrainingPipelineV5._compute_ev_threshold(df, "turf", fallback=0.75)
+
+        assert threshold > 0.235
+        assert threshold < 1.0

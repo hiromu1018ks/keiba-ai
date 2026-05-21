@@ -215,6 +215,8 @@ class ModelLoader:
                 obj.alpha = cqr_data["alpha"]
                 obj._calibration_quantile_90 = cqr_data["calibration_quantile_90"]
                 obj._calibration_quantile_80 = cqr_data["calibration_quantile_80"]
+                obj._residual_quantile_90 = cqr_data.get("residual_quantile_90", 0.0)
+                obj._residual_quantile_80 = cqr_data.get("residual_quantile_80", 0.0)
                 obj.feature_cols = cqr_data.get("feature_cols")
                 obj._calibrated = cqr_data.get("_calibrated", True)
                 conformal_ev = obj

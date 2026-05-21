@@ -440,3 +440,36 @@ class TestDiversityCheck:
         }
         # 全て異なる値であることを確認(3つのユニーク値)
         assert len(lrs) == 3
+
+
+class TestPredictionOrthogonalization:
+    """Level-1予測特徴量の直交化テスト"""
+
+    def test_fit_prediction_orthogonalizer_reduces_lgb_xgb_corr(self):
+        rng = np.random.RandomState(123)
+        lgb_pred = np.linspace(0.05, 0.95, 200)
+        xgb_pred = lgb_pred * 0.98 + rng.normal(0.0, 0.005, 200)
+        cat_pred = rng.uniform(0.05, 0.95, 200)
+        raw = np.column_stack([lgb_pred, xgb_pred, cat_pred])
+
+        ensemble = StackedEnsemble(cat_cols=[], orthogonalize_threshold=0.95)
+        transformed = ensemble._fit_prediction_orthogonalizer(raw)
+
+        raw_corr = np.corrcoef(raw[:, 0], raw[:, 1])[0, 1]
+        transformed_corr = np.corrcoef(transformed[:, 0], transformed[:, 1])[0, 1]
+        assert raw_corr > 0.95
+        assert abs(transformed_corr) < 0.05
+        assert ensemble._orthogonalization[1]["enabled"] is True
+
+    def test_apply_prediction_orthogonalizer_matches_fit_transform(self):
+        rng = np.random.RandomState(456)
+        lgb_pred = np.linspace(0.05, 0.95, 150)
+        xgb_pred = lgb_pred * 0.99 + rng.normal(0.0, 0.003, 150)
+        cat_pred = rng.uniform(0.05, 0.95, 150)
+        raw = np.column_stack([lgb_pred, xgb_pred, cat_pred])
+
+        ensemble = StackedEnsemble(cat_cols=[], orthogonalize_threshold=0.95)
+        transformed = ensemble._fit_prediction_orthogonalizer(raw)
+        reapplied = ensemble._apply_prediction_orthogonalizer(raw)
+
+        assert np.allclose(transformed, reapplied)

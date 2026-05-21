@@ -345,6 +345,33 @@ class TrainingPipelineV5:
                 fallback,
             )
             return fallback
+        if TrainingPipelineV5._ev_lower_distribution_degenerate(ev_lower_values):
+            calibrated = pd.to_numeric(
+                winners.get("ev_win_calibrated", pd.Series(np.nan, index=winners.index)),
+                errors="coerce",
+            )
+            blended_source = pd.DataFrame(
+                {
+                    "ev_lower": pd.to_numeric(
+                        winners["EV_lower_win_corrected"], errors="coerce",
+                    ),
+                    "ev_calibrated": calibrated,
+                }
+            ).dropna()
+            if (
+                len(blended_source) >= 30
+                and float(blended_source["ev_calibrated"].std()) > 1e-6
+            ):
+                calibrated_cap = float(blended_source["ev_calibrated"].quantile(0.90))
+                ev_lower_values = (
+                    0.70 * blended_source["ev_lower"]
+                    + 0.30 * blended_source["ev_calibrated"].clip(upper=calibrated_cap)
+                )
+                logger.info(
+                    "EV threshold for %s: EV_lower distribution degenerate; "
+                    "using blended CQR/calibrated EV distribution",
+                    surface,
+                )
         threshold = float(ev_lower_values.quantile(0.25))
         logger.info(
             "EV threshold for %s: %.4f (from %d positive-edge winners, "
@@ -357,6 +384,115 @@ class TrainingPipelineV5:
             float(ev_lower_values.quantile(0.75)),
         )
         return threshold
+
+    @staticmethod
+    def _ev_lower_distribution_degenerate(values: pd.Series) -> bool:
+        """EV_lower の分布が定数化しているか判定する."""
+        clean = pd.to_numeric(values, errors="coerce").dropna()
+        if len(clean) < 30:
+            return False
+        q25 = float(clean.quantile(0.25))
+        q50 = float(clean.quantile(0.50))
+        q75 = float(clean.quantile(0.75))
+        scale = max(abs(q50), 1.0)
+        unique_ratio = clean.round(6).nunique() / len(clean)
+        return bool((q75 - q25) <= scale * 1e-4 or unique_ratio < 0.02)
+
+    @staticmethod
+    def _shrunken_group_mean(
+        values: pd.Series,
+        groups: pd.Series,
+        *,
+        prior: float,
+        prior_weight: float,
+    ) -> pd.Series:
+        """グループ平均を全体平均へ縮約して少サンプル帯の過大振れを抑える."""
+        work = pd.DataFrame(
+            {
+                "value": pd.to_numeric(values, errors="coerce"),
+                "group": groups,
+            },
+            index=values.index,
+        )
+        valid = work["value"].notna() & work["group"].notna()
+        if int(valid.sum()) == 0:
+            return pd.Series(prior, index=values.index, dtype=float)
+
+        stats = (
+            work.loc[valid]
+            .groupby("group", observed=True)["value"]
+            .agg(["sum", "count"])
+        )
+        means = (stats["sum"] + prior_weight * prior) / (stats["count"] + prior_weight)
+        return work["group"].map(means).fillna(prior).astype(float)
+
+    @staticmethod
+    def _build_cqr_actual_ev_target(df: pd.DataFrame) -> pd.Series:
+        """CQR用の連続的な実現EV教師信号を作る.
+
+        point-wise の odds * I(win) はゼロが支配的で、単純なdecile平均は
+        逆に定数化しやすい。EV階層・オッズ帯の縮約平均に、winsorizeした
+        実現払戻を少量混ぜて、期待値の滑らかさと実現ノイズの両方を残す。
+        """
+        from betting.odds_band_filter import OddsBandFilter
+
+        if "confirmed_odds" not in df.columns or "kakuteijyuni" not in df.columns:
+            return pd.Series(0.0, index=df.index, dtype=float)
+
+        odds = pd.to_numeric(df["confirmed_odds"], errors="coerce").fillna(0.0)
+        point_ev = odds * (df["kakuteijyuni"] == 1).astype(float)
+        global_mean = float(point_ev.mean()) if len(point_ev) else 0.0
+        if not np.isfinite(global_mean):
+            global_mean = 0.0
+
+        ev_cal = pd.to_numeric(
+            df.get("ev_win_calibrated", pd.Series(np.nan, index=df.index)),
+            errors="coerce",
+        )
+        try:
+            ev_bins = pd.qcut(
+                ev_cal.rank(method="first"),
+                q=10,
+                labels=False,
+                duplicates="drop",
+            )
+        except ValueError:
+            ev_bins = pd.Series(0, index=df.index, dtype=int)
+        ev_bin_expected = TrainingPipelineV5._shrunken_group_mean(
+            point_ev,
+            pd.Series(ev_bins, index=df.index),
+            prior=global_mean,
+            prior_weight=50.0,
+        )
+
+        odds_for_band = pd.to_numeric(
+            df.get("odds", pd.Series(np.nan, index=df.index)),
+            errors="coerce",
+        )
+        odds_band = pd.Series("missing", index=df.index, dtype=object)
+        for (lo, hi), band_name in zip(OddsBandFilter.BANDS, OddsBandFilter.BAND_NAMES):
+            mask = (odds_for_band >= lo) & (odds_for_band < hi)
+            odds_band.loc[mask] = band_name
+        odds_band_expected = TrainingPipelineV5._shrunken_group_mean(
+            point_ev,
+            odds_band,
+            prior=global_mean,
+            prior_weight=75.0,
+        )
+
+        positive_point = point_ev[point_ev > 0]
+        if len(positive_point) > 0:
+            point_cap = max(float(positive_point.quantile(0.995)), global_mean)
+        else:
+            point_cap = global_mean
+        point_component = point_ev.clip(upper=point_cap)
+
+        target = (
+            (0.65 * ev_bin_expected)
+            + (0.25 * odds_band_expected)
+            + (0.10 * point_component)
+        )
+        return target.clip(lower=0.0).fillna(global_mean).astype(float)
 
     def _train_submodel(
         self,
@@ -990,23 +1126,7 @@ class TrainingPipelineV5:
         df_oof_for_save = df_oof.copy()
         if len(df_oof) >= 500 and "ev_win_calibrated" in df_oof.columns:
             with TimingContext(f"{surface}/conformal_ev"):
-                # actual_ev_win を計算 (Phase 19パターン)
-                # BUGFIX: point-wise actual_ev_win = odds * I(winner) is 93% zeros,
-                # causing CQR quantile regression to collapse. Replace with decile-binned
-                # conditional expectation E[actual|predicted_decile] which properly averages
-                # the sparse payouts within each predicted-EV stratum.
-                point_ev = (
-                    df_oof["confirmed_odds"]
-                    * (df_oof["kakuteijyuni"] == 1).astype(float)
-                )
-                ev_cal = pd.to_numeric(df_oof["ev_win_calibrated"], errors="coerce")
-                # Decile-binned conditional expectation
-                try:
-                    decile = pd.qcut(ev_cal, q=10, labels=False, duplicates="drop")
-                except ValueError:
-                    decile = pd.Series(0, index=df_oof.index, dtype=int)
-                bin_mean = point_ev.groupby(decile, observed=True).transform("mean")
-                df_oof["actual_ev_win"] = bin_mean.fillna(0.0).values
+                df_oof["actual_ev_win"] = self._build_cqr_actual_ev_target(df_oof).values
 
                 # actual_ev_win 計算後、POST_RACE列を明示的に削除
                 # (下流モデルが誤ってconfirmed_oddsを使用するのを防止)
@@ -1019,12 +1139,13 @@ class TrainingPipelineV5:
                 if not conformal_ev._calibrated:
                     logger.warning("Conformal EV training incomplete for %s", surface)
                     conformal_ev = None
-                logger.info(
-                    "Conformal EV fitted for %s: Q_90=%.4f, Q_80=%.4f",
-                    surface,
-                    conformal_ev._calibration_quantile_90,
-                    conformal_ev._calibration_quantile_80,
-                )
+                else:
+                    logger.info(
+                        "Conformal EV fitted for %s: Q_90=%.4f, Q_80=%.4f",
+                        surface,
+                        conformal_ev._calibration_quantile_90,
+                        conformal_ev._calibration_quantile_80,
+                    )
         else:
             logger.info(
                 "Skipping Conformal EV for %s: len=%d, has_ev_calibrated=%s",
@@ -1696,6 +1817,8 @@ class TrainingPipelineV5:
                         "alpha": sub.conformal_ev_model.alpha,
                         "calibration_quantile_90": sub.conformal_ev_model._calibration_quantile_90,
                         "calibration_quantile_80": sub.conformal_ev_model._calibration_quantile_80,
+                        "residual_quantile_90": sub.conformal_ev_model._residual_quantile_90,
+                        "residual_quantile_80": sub.conformal_ev_model._residual_quantile_80,
                         "_calibrated": sub.conformal_ev_model._calibrated,
                     }
                     if sub.conformal_ev_model.feature_cols is not None:

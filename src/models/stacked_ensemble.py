@@ -39,14 +39,16 @@ class StackedEnsemble:
         cat_cols: list[str] | None = None,
         n_folds: int = 3,
         n_trials: int = 30,
-        corr_penalty_weight: float = 0.0,
+        corr_penalty_weight: float = 0.10,
         corr_threshold: float = 0.85,
+        orthogonalize_threshold: float = 0.95,
     ) -> None:
         self.cat_cols = cat_cols or []
         self.n_folds = n_folds
         self.n_trials = n_trials
         self.corr_penalty_weight = corr_penalty_weight
         self.corr_threshold = corr_threshold
+        self.orthogonalize_threshold = orthogonalize_threshold
         self._cat_codes: dict[str, dict[str, int]] = {}
         self.lgbm_model: lgb.Booster | None = None
         self.xgb_model = None
@@ -54,6 +56,7 @@ class StackedEnsemble:
         self.meta_model: Ridge | None = None
         self.best_params: dict[str, dict[str, Any]] = {}
         self._train_feature_names: list[str] = []
+        self._orthogonalization: list[dict[str, Any]] = []
 
     def train(
         self,
@@ -99,8 +102,9 @@ class StackedEnsemble:
         # --- Level 2: Ridge メタラーナー ---
         # NaNが残る行 (OOF対象外) を除外して学習
         valid_mask = ~np.any(np.isnan(oof_preds), axis=1)
+        stack_features = self._fit_prediction_orthogonalizer(oof_preds[valid_mask])
         self.meta_model = Ridge(alpha=1.0)
-        self.meta_model.fit(oof_preds[valid_mask], y_train.values[valid_mask])
+        self.meta_model.fit(stack_features, y_train.values[valid_mask])
 
         # --- 最終ベースモデル: train+valid 全データで再学習 ---
         X_all = pd.concat([X_train, X_valid], ignore_index=True)
@@ -114,7 +118,7 @@ class StackedEnsemble:
         feature_names = list(X_train.columns)
         importances = self._compute_importance(feature_names)
         self._check_diversity(
-            oof_preds[valid_mask], y_train.iloc[valid_mask],
+            stack_features, y_train.iloc[valid_mask],
             importances, feature_names,
         )
 
@@ -138,7 +142,9 @@ class StackedEnsemble:
         # CatBoost: predict() はクラスラベル(0/1)を返すため predict_proba() を使用
         p_cat = self.cat_model.predict_proba(X_num)[:, 1]
 
-        stacked = np.column_stack([p_lgbm, p_xgb, p_cat])
+        stacked = self._apply_prediction_orthogonalizer(
+            np.column_stack([p_lgbm, p_xgb, p_cat])
+        )
         return np.clip(self.meta_model.predict(stacked), 0, 1)
 
     def feature_name(self) -> list[str]:
@@ -207,6 +213,94 @@ class StackedEnsemble:
         for col in X.columns:
             if X[col].dtype.name == "category":
                 self._cat_codes[col] = {cat: code for code, cat in enumerate(X[col].cat.categories)}
+
+    @staticmethod
+    def _safe_corr(a: np.ndarray, b: np.ndarray) -> float:
+        """有限値かつ分散がある場合のみ相関を返す."""
+        valid = np.isfinite(a) & np.isfinite(b)
+        if int(valid.sum()) < 2:
+            return float("nan")
+        a_valid = a[valid]
+        b_valid = b[valid]
+        if float(np.std(a_valid)) <= 1e-12 or float(np.std(b_valid)) <= 1e-12:
+            return float("nan")
+        return float(np.corrcoef(a_valid, b_valid)[0, 1])
+
+    def _fit_prediction_orthogonalizer(self, preds: np.ndarray) -> np.ndarray:
+        """高相関のベース予測をメタ特徴量として直交化する.
+
+        ベースモデル自体は残し、Ridgeに渡すLevel-1特徴量だけを残差化する。
+        これによりLGB-XGBのような重複シグナルを圧縮し、相補的な誤差成分を
+        メタラーナーへ渡す。
+        """
+        transformed = preds.astype(float).copy()
+        self._orthogonalization = []
+        model_names = ["LGB", "XGB", "CAT"]
+
+        for i in range(preds.shape[1]):
+            if i == 0:
+                self._orthogonalization.append({"enabled": False})
+                continue
+
+            raw = preds[:, i].astype(float)
+            refs = transformed[:, :i]
+            corrs = [abs(self._safe_corr(raw, refs[:, j])) for j in range(refs.shape[1])]
+            finite_corrs = [c for c in corrs if np.isfinite(c)]
+            max_corr = max(finite_corrs) if finite_corrs else 0.0
+            if max_corr < self.orthogonalize_threshold:
+                self._orthogonalization.append({"enabled": False})
+                continue
+
+            design = np.column_stack([np.ones(len(raw)), refs])
+            coef, *_ = np.linalg.lstsq(design, raw, rcond=None)
+            resid = raw - design @ coef
+            raw_mean = float(np.mean(raw))
+            raw_std = float(np.std(raw))
+            resid_mean = float(np.mean(resid))
+            resid_std = float(np.std(resid))
+            if raw_std <= 1e-12 or resid_std <= 1e-12:
+                self._orthogonalization.append({"enabled": False})
+                continue
+
+            transformed[:, i] = ((resid - resid_mean) / resid_std) * raw_std + raw_mean
+            self._orthogonalization.append(
+                {
+                    "enabled": True,
+                    "coef": coef.tolist(),
+                    "raw_mean": raw_mean,
+                    "raw_std": raw_std,
+                    "resid_mean": resid_mean,
+                    "resid_std": resid_std,
+                }
+            )
+            logger.info(
+                "Orthogonalized %s stack feature: max_corr=%.4f >= threshold=%.4f",
+                model_names[i] if i < len(model_names) else f"model_{i}",
+                max_corr,
+                self.orthogonalize_threshold,
+            )
+
+        return transformed
+
+    def _apply_prediction_orthogonalizer(self, preds: np.ndarray) -> np.ndarray:
+        """学習時に保存した直交化を推論時のLevel-1特徴量へ適用する."""
+        orthogonalization = getattr(self, "_orthogonalization", [])
+        if not orthogonalization:
+            return preds
+
+        transformed = preds.astype(float).copy()
+        for i, params in enumerate(orthogonalization):
+            if i == 0 or not params.get("enabled", False):
+                continue
+            coef = np.asarray(params["coef"], dtype=float)
+            design = np.column_stack([np.ones(len(preds)), transformed[:, :i]])
+            resid = preds[:, i].astype(float) - design @ coef
+            transformed[:, i] = (
+                ((resid - float(params["resid_mean"])) / float(params["resid_std"]))
+                * float(params["raw_std"])
+                + float(params["raw_mean"])
+            )
+        return transformed
 
     # --- Optuna suggest functions (exploration space separation) ---
 
