@@ -1,5 +1,5 @@
 ---
-status: awaiting_human_verify
+status: resolved
 trigger: "LightGBMError: 92 vs 95 features in BacktestEngine inference after previous 80-vs-95 fix"
 created: 2026-05-16T14:00:00+09:00
 updated: 2026-05-16T14:45:00+09:00

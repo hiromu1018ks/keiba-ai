@@ -1,3 +1,7 @@
+---
+status: resolved
+---
+
 # Debug: backtest-final-odds-mislabel
 
 ## Status: RESOLVED

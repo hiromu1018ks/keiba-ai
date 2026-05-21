@@ -1,5 +1,5 @@
 ---
-status: root_cause_found
+status: resolved
 trigger: "BacktestEngine test prediction: LightGBM expects 95 features but gets 80 (15 missing)"
 created: "2026-05-16T12:15:00+09:00"
 updated: "2026-05-16T12:45:00+09:00"

@@ -1,5 +1,5 @@
 ---
-status: verifying
+status: resolved
 trigger: "analyze_feature_importance.py fails: only 34/122 model features found in horse_features.parquet"
 created: 2026-05-12T00:00:00
 updated: 2026-05-12T00:10:00

@@ -1,5 +1,5 @@
 ---
-status: awaiting_human_verify
+status: resolved
 trigger: "compute_permutation_importance passes predict_fn to sklearn permutation_importance instead of estimator object with fit method"
 created: 2026-05-12T00:00:00Z
 updated: 2026-05-12T00:01:00Z

@@ -1,5 +1,5 @@
 ---
-status: awaiting_human_verify
+status: resolved
 trigger: "train and valid dataset categorical_feature do not match — LightGBM error during turf training after surface constant column removal"
 created: 2026-05-20
 updated: 2026-05-21

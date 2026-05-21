@@ -1,5 +1,5 @@
 ---
-status: diagnosed
+status: resolved
 trigger: "Phase 20-22 のバックテスト結果でデータリークが疑われる異常値 (ROI 1075%, 勝率 99.63%) の原因調査"
 created: 2026-05-10T00:00:00
 updated: 2026-05-10T00:01:00

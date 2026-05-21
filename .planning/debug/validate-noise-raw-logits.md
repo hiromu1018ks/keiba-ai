@@ -1,5 +1,5 @@
 ---
-status: awaiting_human_verify
+status: resolved
 trigger: "validate_noise_removal() fails for stage1 models with y_prob values outside [0,1]"
 created: 2026-05-12T00:00:00Z
 updated: 2026-05-12T00:00:01Z
