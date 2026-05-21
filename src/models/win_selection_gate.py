@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
+from logging import getLogger
 from pathlib import Path
 from typing import Any
 
 import joblib
 import numpy as np
 import pandas as pd
-
-from logging import getLogger
 
 logger = getLogger(__name__)
 
@@ -26,8 +25,11 @@ def build_win_selection_ev(df: pd.DataFrame) -> pd.Series:
     corrected_ev = _numeric_or_nan(df, "ev_win_corrected")
     direct_ev = _numeric_or_nan(df, "ev_win")
 
-    if calibrated_ev.notna().any() or corrected_ev.notna().any():
-        base_ev = calibrated_ev.where(calibrated_ev.notna(), corrected_ev)
+    if corrected_ev.notna().any() or calibrated_ev.notna().any():
+        # Candidate generation needs coverage. Calibrated EV can be intentionally
+        # compressed below 1.0, so use it only as a fallback when raw corrected EV
+        # is unavailable.
+        base_ev = corrected_ev.where(corrected_ev.notna(), calibrated_ev)
         selection_ev = lower_ev.where(lower_ev.notna(), base_ev)
         safety_floor = base_ev * 0.85
         return pd.concat([selection_ev, safety_floor], axis=1).max(axis=1).astype(float)
@@ -114,7 +116,8 @@ class WinSelectionGateModel:
     RUNNER_UP_GAP_COL = "runner_up_gate_score_gap"
     RUNNER_UP_PROB_COL = "runner_up_win_selection_prob"
     RUNNER_UP_EDGE_COL = "runner_up_win_selection_edge"
-    RUNNER_UP_ODDS_COL = "runner_up_tanodds"  # was runner_up_tanoddslow, renamed to match actual column
+    # was runner_up_tanoddslow, renamed to match actual column
+    RUNNER_UP_ODDS_COL = "runner_up_tanodds"
     SOFT_PROB_BUFFER = 0.01
     SOFT_EDGE_BUFFER = 0.02
     SOFT_ODDS_BUFFER = 1.0

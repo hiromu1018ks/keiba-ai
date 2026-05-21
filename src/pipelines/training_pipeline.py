@@ -36,18 +36,20 @@ if TYPE_CHECKING:
 
 from features.feature_engine import FeatureEngine
 from features.odds_dynamics_features import compute_roi_ema
+from models.conformal_ev_model import (
+    ConformalEVModel,  # Phase 21: CQR-based EV prediction intervals
+)
 from models.ev_correction_model import EVCorrectionModel, PlaceEVCorrectionModel
 from models.market_model import MarketModel
 from models.place_selection_gate import PlaceSelectionGateModel, ensure_place_selection_columns
 from models.race_quality_screener import RaceQualityScreener
-from models.win_selection_gate import WinSelectionGateModel, ensure_win_selection_columns
 from models.regime_detector import RegimeDetector
-from models.conformal_ev_model import ConformalEVModel  # Phase 21: CQR-based EV prediction intervals
 from models.stage1_ability_model import AbilityModel
 from models.submodel_manager import SubModelManager
 from models.two_stage_return_model import PlaceTwoStageModel, WinTwoStageModel
 from models.wide_pair_builder import WideJointPairBuilder
 from models.wide_two_stage_model import WideTwoStageModel
+from models.win_selection_gate import WinSelectionGateModel, ensure_win_selection_columns
 
 logger = logging.getLogger(__name__)
 
@@ -770,8 +772,12 @@ class TrainingPipelineV5:
             with TimingContext(f"{surface}/win_hit_ensemble"):
                 features = win_2s._prepare_features(df_oof)
                 # Per-surface: drop constant columns that carry no information
-                _const_cols = ["surface"] + [c for c in features.columns if c.startswith("surface_x_")]
-                features = features.drop(columns=[c for c in _const_cols if c in features.columns])
+                _const_cols = ["surface"] + [
+                    c for c in features.columns if c.startswith("surface_x_")
+                ]
+                features = features.drop(
+                    columns=[c for c in _const_cols if c in features.columns]
+                )
                 y = (df_oof["kakuteijyuni"] == 1).astype(int)
                 split = int(len(features) * 0.8)
                 _cat_cols = [c for c in ["distance_bin", "grade_code"] if c in features.columns]
@@ -837,6 +843,12 @@ class TrainingPipelineV5:
                     ev_isotonic_calibrator, ev_odds_band_scales = self.fit_ev_calibration(
                         oof_ev, oof_actual, oof_odds,
                     )
+                if not _valid_ev_band_scales(ev_odds_band_scales):
+                    logger.warning("Ignoring degenerate EV odds band scales for %s", surface)
+                    ev_odds_band_scales = None
+                ev_corrector.ev_isotonic_calibrator = ev_isotonic_calibrator
+                ev_corrector.ev_odds_band_scales = ev_odds_band_scales
+                df_oof = ev_corrector.correct_ev(df_oof)
                 logger.info(
                     "EV Isotonic fitted for %s: %d OOF samples, band_scales=%s",
                     surface, int(np.isfinite(oof_ev).sum()), ev_odds_band_scales,
@@ -860,13 +872,22 @@ class TrainingPipelineV5:
                 from models.stacked_ensemble import StackedEnsemble
 
                 with TimingContext(f"{surface}/place_hit_ensemble"):
-                    features = place_2s._prepare_features(df_oof, use_cols=place_2s.HIT_FEATURE_COLS)
+                    features = place_2s._prepare_features(
+                        df_oof,
+                        use_cols=place_2s.HIT_FEATURE_COLS,
+                    )
                     # Per-surface: drop constant columns that carry no information
-                    _const_cols = ["surface"] + [c for c in features.columns if c.startswith("surface_x_")]
-                    features = features.drop(columns=[c for c in _const_cols if c in features.columns])
+                    _const_cols = ["surface"] + [
+                        c for c in features.columns if c.startswith("surface_x_")
+                    ]
+                    features = features.drop(
+                        columns=[c for c in _const_cols if c in features.columns]
+                    )
                     y = (df_oof["kakuteijyuni"] <= 3).astype(int)
                     split = int(len(features) * 0.8)
-                    _place_cat_cols = [c for c in ["distance_bin", "grade_code"] if c in features.columns]
+                    _place_cat_cols = [
+                        c for c in ["distance_bin", "grade_code"] if c in features.columns
+                    ]
                     ensemble_place = StackedEnsemble(cat_cols=_place_cat_cols)
                     ensemble_place.train(
                         features.iloc[:split],
@@ -1173,7 +1194,9 @@ class TrainingPipelineV5:
             if conformal_ev is not None:
                 wsg_win_df, _ = conformal_ev.predict_interval(df_oof.copy(), wsg_place_df)
                 if "EV_lower_win_corrected" in wsg_win_df.columns:
-                    wsg_train_df["EV_lower_win_corrected"] = wsg_win_df["EV_lower_win_corrected"].values
+                    wsg_train_df["EV_lower_win_corrected"] = wsg_win_df[
+                        "EV_lower_win_corrected"
+                    ].values
             wsg_train_df = ensure_win_selection_columns(wsg_train_df)
 
         # --- Drift diagnostics (GATE-02, D-01/D-02/D-03) ---
@@ -1211,7 +1234,8 @@ class TrainingPipelineV5:
         if use_ensemble and not win_selection_gate.is_trained:
             logger.warning(
                 "WinSelectionGate did not train for surface=%s "
-                "(check debug logs for reason: empty data / insufficient races / no profitable threshold)",
+                "(check debug logs for reason: empty data / insufficient races / "
+                "no profitable threshold)",
                 surface,
             )
 
@@ -1306,7 +1330,7 @@ class TrainingPipelineV5:
         oof_actual: np.ndarray,
         oof_odds: np.ndarray,
     ) -> tuple[IsotonicRegression, dict[str, float]]:
-        """EVC-01/EVC-02: OOF EV→actual_returnのIsotonicキャリブレーション + オッズバンド別残差スケーリング.
+        """OOF EVをactual_returnへ校正し、オッズ帯別残差スケールを推定する.
 
         Returns: (isotonic_model, odds_band_scales)
         """
@@ -1728,7 +1752,10 @@ class TrainingPipelineV5:
                 ):
                     wsg_tmp: str | None = None
                     try:
-                        with tempfile.NamedTemporaryFile(suffix=".joblib", delete=False) as wsg_file:
+                        with tempfile.NamedTemporaryFile(
+                            suffix=".joblib",
+                            delete=False,
+                        ) as wsg_file:
                             wsg_tmp = wsg_file.name
                         sub.win_selection_gate.save(Path(wsg_tmp))
                         mlflow.log_artifact(wsg_tmp, f"win_selection_gate_{surface}")

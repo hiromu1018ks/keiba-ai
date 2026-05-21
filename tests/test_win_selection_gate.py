@@ -114,6 +114,25 @@ def test_build_win_selection_ev() -> None:
     assert ev.iloc[1] == pytest.approx(1.50)
 
 
+def test_build_win_selection_ev_prefers_corrected_over_calibrated_for_coverage() -> None:
+    """calibrated EV が圧縮されても candidate coverage を失わない."""
+    from models.win_selection_gate import build_win_selection_ev
+
+    df = pd.DataFrame(
+        {
+            "ev_win_corrected": [1.40, 1.20],
+            "ev_win_calibrated": [0.92, 0.88],
+            "ev_win": [1.10, 1.05],
+        }
+    )
+
+    ev = build_win_selection_ev(df)
+
+    assert ev.iloc[0] == pytest.approx(1.40)
+    assert ev.iloc[1] == pytest.approx(1.20)
+    assert (ev > 1.0).all()
+
+
 def test_win_selection_gate_hit_condition() -> None:
     """Test 6: realized_win_roi is positive only when kakuteijyuni==1."""
     from models.win_selection_gate import WinSelectionGateModel
