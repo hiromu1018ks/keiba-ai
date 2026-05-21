@@ -217,10 +217,7 @@ class EVCorrectionModel:
         "haron_race_gap_zscore",
         "haron_race_gap_trend",
         # D-03: pace_adj_finish (Phase 36.1 new)
-        "pace_adj_finish_avg",
         "pace_ratio_avg",
-        "pace_ratio_zscore",
-        "pace_ratio_trend",
         "pace_early_avg",
         "pace_mid_avg",
         "pace_late_avg",
@@ -526,10 +523,7 @@ class PlaceEVCorrectionModel:
         "haron_race_gap_zscore",
         "haron_race_gap_trend",
         # D-03: pace_adj_finish (Phase 36.1 new)
-        "pace_adj_finish_avg",
         "pace_ratio_avg",
-        "pace_ratio_zscore",
-        "pace_ratio_trend",
         "pace_early_avg",
         "pace_mid_avg",
         "pace_late_avg",

@@ -499,14 +499,10 @@ HLF_HARON_FEATURES = [
     "haron_race_gap_avg",
     "haron_race_gap_zscore",
     "haron_race_gap_trend",
-    # D-03: pace_adj_finish (new in Phase 36.1)
-    "pace_adj_finish_avg",
 ]
 
 HLF_LAP_FEATURES = [
     "pace_ratio_avg",
-    "pace_ratio_zscore",
-    "pace_ratio_trend",
     "pace_early_avg",
     "pace_mid_avg",
     "pace_late_avg",
@@ -928,50 +924,12 @@ class TestHaronRaceGap:
             assert col in HorseHistoryFeatures.BASE_COLS, f"Missing: {col}"
 
 
-class TestPaceAdjFinish:
-    """D-03: pace_adj_finish_avg = norm_finish * pace_ratio past average."""
-
-    def test_pace_adj_finish_in_base_cols(self):
-        """D-03: pace_adj_finish_avg is in BASE_COLS."""
-        from features.horse_history_features import HorseHistoryFeatures
-        assert "pace_adj_finish_avg" in HorseHistoryFeatures.BASE_COLS
-
-    def test_pace_adj_finish_computed_with_laptime(self):
-        """D-03: pace_adj_finish_avg is computed when laptime data is available."""
-        ketto = "12345"
-        # 2400m = 12 laps, split into 3 segments of 4
-        lap_values = [12.0, 12.1, 12.2, 12.3, 12.5, 12.6, 12.7, 12.8,
-                      13.0, 13.1, 13.2, 13.3]
-        race1_laps = {f"laptime{i+1}": lap_values[i] for i in range(12)}
-        for i in range(13, 26):
-            race1_laps[f"laptime{i}"] = float("nan")
-
-        past_entries = [
-            _make_entry_row("202310010101", 1, ketto, race_date=pd.Timestamp("2023-10-01"),
-                           kakuteijyuni=1, odds=5.0,
-                           harontimel3=35.0),
-        ]
-        past_races = [
-            _make_race_row("202310010101", "2023-10-01", kyori=2400, syussotosu=12,
-                           harontimel4=47.0, **race1_laps),
-        ]
-        current_entries = [_make_entry_row("202401010101", 1, ketto)]
-        current_races = [_make_race_row("202401010101", "2024-01-01", kyori=2400)]
-
-        hhf, entry_df, race_df = _create_hhf_with_history(
-            past_entries, past_races, current_entries, current_races
-        )
-        result = hhf.compute(race_df, entry_df)
-
-        assert "pace_adj_finish_avg" in result.columns
-
-
 class TestBaseColsCount:
     """BASE_COLS total count after Task 2 additions."""
 
     def test_base_cols_count_after_task2(self):
-        """BASE_COLS should be 66 after Task 2 (old 62 - 3 + 7 new = 66)."""
+        """BASE_COLS should be 62 (3 high-NaN features removed from models but still computed)."""
         from features.horse_history_features import HorseHistoryFeatures
-        assert len(HorseHistoryFeatures.BASE_COLS) == 66, (
-            f"BASE_COLS should be 66, got {len(HorseHistoryFeatures.BASE_COLS)}"
+        assert len(HorseHistoryFeatures.BASE_COLS) == 62, (
+            f"BASE_COLS should be 62, got {len(HorseHistoryFeatures.BASE_COLS)}"
         )

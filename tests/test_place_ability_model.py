@@ -138,12 +138,12 @@ class TestPlaceAbilityModel:
                            "closing_speed_ratio_trend", "closing_speed_ratio_avg_race_rank",
                            "harontime_last3f_avg", "harontime_last3f_zscore",
                            "harontime_last3f_trend", "harontime_last3f_avg_race_rank",
-                           "pace_ratio_avg", "pace_ratio_zscore", "pace_ratio_trend",
+                           "pace_ratio_avg",
                            "pace_early_avg", "pace_mid_avg", "pace_late_avg",
                            "weighted_recent_form_finish", "weighted_recent_form_time",
                            # Phase 36.1 horse-level features
                            "haron_race_gap_avg", "haron_race_gap_zscore",
-                           "haron_race_gap_trend", "pace_adj_finish_avg"}
+                           "haron_race_gap_trend"}
         for col in model.FEATURE_COLS:
             if col in v5_context_cols:
                 continue
