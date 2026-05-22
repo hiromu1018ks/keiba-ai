@@ -190,6 +190,7 @@ class TestRemoveNoiseFeatures:
             "market_entropy", "popularity_rank", "overround",
             "surface", "distance_bin", "track_condition_code",
             "grade_code", "field_size",
+            "jyocd", "class_bucket",
             "odds_skewness",
             "draw_ratio",
             "class_level_current",
@@ -228,6 +229,7 @@ class TestRemoveNoiseFeatures:
             "jt_combo_place_rate",
             "jt_combo_starts",
             "jt_combo_prize_log",
+            "jt_combo_missing",
             # n_mining予想特徴量 (DATA-04)
             "dm_time_rank",
             "dm_time_zscore",
@@ -257,6 +259,7 @@ class TestRemoveNoiseFeatures:
             # INTER-02: 交互作用特徴量 (12)
             "kyakusitu_x_distance",
             "kyakusitu_x_surface",
+            "kyakusitukubun_cd_missing",
             "weight_x_distance",
             "surface_x_distance_bin",
             "blood_keito_x_surface",

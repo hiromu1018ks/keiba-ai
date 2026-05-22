@@ -129,7 +129,7 @@ class ConformalEVModel:
         "overround_ema", "entropy_ema",
         # --- Distance change / surface change / win dominance ---
         "distance_change", "surface_change",
-        "class_drop_bounce", "win_dominance", "freshness_score",
+        "class_drop_bounce", "freshness_score",
         # --- Jockey context ---
         "jockey_wr_overall", "jockey_wr_distance",
         "jockey_wr_venue", "jockey_prize_log",

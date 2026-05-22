@@ -15,7 +15,7 @@ def test_kyakusitu_x_distance():
     )
     result = compute_interaction_features(df)
     assert "kyakusitu_x_distance" in result.columns
-    assert result["kyakusitu_x_distance"].tolist() == ["1.0_sprint", "2.0_mile", "3.0_intermediate"]
+    assert result["kyakusitu_x_distance"].tolist() == ["1_sprint", "2_mile", "3_intermediate"]
 
 
 def test_kyakusitu_x_surface():
@@ -28,7 +28,7 @@ def test_kyakusitu_x_surface():
     )
     result = compute_interaction_features(df)
     assert "kyakusitu_x_surface" in result.columns
-    assert result["kyakusitu_x_surface"].tolist() == ["1.0_turf", "2.0_dirt"]
+    assert result["kyakusitu_x_surface"].tolist() == ["1_turf", "2_dirt"]
 
 
 def test_weight_x_distance():

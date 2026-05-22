@@ -20,6 +20,7 @@ FEATURE_COLS: list[str] = [
     "jt_combo_place_rate",
     "jt_combo_starts",
     "jt_combo_prize_log",
+    "jt_combo_missing",
 ]
 
 
@@ -113,5 +114,6 @@ class JockeyTrainerComboFeatures:
         result["jt_combo_place_rate"] = jt_combo_place_rate
         result["jt_combo_starts"] = jt_combo_starts
         result["jt_combo_prize_log"] = jt_combo_prize_log
+        result["jt_combo_missing"] = np.isnan(jt_combo_wr).astype(float)
 
         return result[["race_id", "umaban"] + FEATURE_COLS]

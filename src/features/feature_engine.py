@@ -441,6 +441,7 @@ class FeatureEngine:
             "syubetucd": race.syubetu_cd,
             "jyokencd1": race.jyoken_cd,
             "track_condition_code": race.baba_cd,
+            "jyocd": int(race.jyo_cd),
         }
         race_row = pd.DataFrame([race_data])
 

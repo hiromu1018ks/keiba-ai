@@ -78,6 +78,7 @@ class TestJockeyTrainerCombo:
             "jt_combo_place_rate",
             "jt_combo_starts",
             "jt_combo_prize_log",
+            "jt_combo_missing",
         ]
 
     def test_no_future_leak_per_row(self):
