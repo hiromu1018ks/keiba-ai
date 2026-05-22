@@ -42,6 +42,7 @@ class StackedEnsemble:
         corr_penalty_weight: float = 0.10,
         corr_threshold: float = 0.85,
         orthogonalize_threshold: float = 0.95,
+        orthogonalize_strength: float = 0.5,
     ) -> None:
         self.cat_cols = cat_cols or []
         self.n_folds = n_folds
@@ -49,6 +50,7 @@ class StackedEnsemble:
         self.corr_penalty_weight = corr_penalty_weight
         self.corr_threshold = corr_threshold
         self.orthogonalize_threshold = orthogonalize_threshold
+        self.orthogonalize_strength = orthogonalize_strength
         self._cat_codes: dict[str, dict[str, int]] = {}
         self.lgbm_model: lgb.Booster | None = None
         self.xgb_model = None
@@ -90,13 +92,25 @@ class StackedEnsemble:
             X_va = X_train.iloc[val_start:val_end]
 
             oof_preds[val_start:val_end, 0] = self._train_lgbm_fold(
-                X_tr, y_tr, X_va, num_threads, self.best_params["lgbm"],
+                X_tr,
+                y_tr,
+                X_va,
+                num_threads,
+                self.best_params["lgbm"],
             )
             oof_preds[val_start:val_end, 1] = self._train_xgb_fold(
-                X_tr, y_tr, X_va, num_threads, self.best_params["xgb"],
+                X_tr,
+                y_tr,
+                X_va,
+                num_threads,
+                self.best_params["xgb"],
             )
             oof_preds[val_start:val_end, 2] = self._train_cat_fold(
-                X_tr, y_tr, X_va, num_threads, self.best_params["cat"],
+                X_tr,
+                y_tr,
+                X_va,
+                num_threads,
+                self.best_params["cat"],
             )
 
         # --- Level 2: Ridge メタラーナー ---
@@ -118,8 +132,10 @@ class StackedEnsemble:
         feature_names = list(X_train.columns)
         importances = self._compute_importance(feature_names)
         self._check_diversity(
-            stack_features, y_train.iloc[valid_mask],
-            importances, feature_names,
+            stack_features,
+            y_train.iloc[valid_mask],
+            importances,
+            feature_names,
         )
 
     def predict(self, X: pd.DataFrame, num_iteration: int | None = None) -> np.ndarray:
@@ -136,15 +152,14 @@ class StackedEnsemble:
         p_lgbm = self.lgbm_model.predict(X)
 
         import xgboost as xgb
+
         X_num = self._encode_cats(X)
         p_xgb = self.xgb_model.predict(xgb.DMatrix(X_num))
 
         # CatBoost: predict() はクラスラベル(0/1)を返すため predict_proba() を使用
         p_cat = self.cat_model.predict_proba(X_num)[:, 1]
 
-        stacked = self._apply_prediction_orthogonalizer(
-            np.column_stack([p_lgbm, p_xgb, p_cat])
-        )
+        stacked = self._apply_prediction_orthogonalizer(np.column_stack([p_lgbm, p_xgb, p_cat]))
         return np.clip(self.meta_model.predict(stacked), 0, 1)
 
     def feature_name(self) -> list[str]:
@@ -196,10 +211,7 @@ class StackedEnsemble:
         未知カテゴリを-1として扱う。そうでなければcat.codesにフォールバック。
         """
         X_out = X.copy()
-        all_cat_cols = [
-            c for c in X_out.columns
-            if X_out[c].dtype.name == "category"
-        ]
+        all_cat_cols = [c for c in X_out.columns if X_out[c].dtype.name == "category"]
         for col in all_cat_cols:
             if col in self._cat_codes:
                 codes = self._cat_codes[col]
@@ -263,6 +275,10 @@ class StackedEnsemble:
                 continue
 
             transformed[:, i] = ((resid - resid_mean) / resid_std) * raw_std + raw_mean
+            # partial orthogonalization: blend raw and residual
+            transformed[:, i] = (
+                1 - self.orthogonalize_strength
+            ) * raw + self.orthogonalize_strength * transformed[:, i]
             self._orthogonalization.append(
                 {
                     "enabled": True,
@@ -296,10 +312,12 @@ class StackedEnsemble:
             design = np.column_stack([np.ones(len(preds)), transformed[:, :i]])
             resid = preds[:, i].astype(float) - design @ coef
             transformed[:, i] = (
-                ((resid - float(params["resid_mean"])) / float(params["resid_std"]))
-                * float(params["raw_std"])
-                + float(params["raw_mean"])
-            )
+                (resid - float(params["resid_mean"])) / float(params["resid_std"])
+            ) * float(params["raw_std"]) + float(params["raw_mean"])
+            raw_col = preds[:, i].astype(float)
+            transformed[:, i] = (
+                1 - self.orthogonalize_strength
+            ) * raw_col + self.orthogonalize_strength * transformed[:, i]
         return transformed
 
     # --- Optuna suggest functions (exploration space separation) ---
@@ -331,10 +349,14 @@ class StackedEnsemble:
     # --- Optuna tuning ---
 
     def _tune_hyperparams(
-        self, X_train: pd.DataFrame, y_train: pd.Series, num_threads: int,
+        self,
+        X_train: pd.DataFrame,
+        y_train: pd.Series,
+        num_threads: int,
     ) -> dict[str, dict[str, Any]]:
         """Optunaで各モデルのHPを個別最適化（相関ペナルティ付き）"""
         import optuna
+
         optuna.logging.set_verbosity(optuna.logging.WARNING)
 
         n = len(X_train)
@@ -356,7 +378,13 @@ class StackedEnsemble:
             study = optuna.create_study(direction="maximize")
             study.optimize(
                 lambda trial, fn=suggest_fn, tf=eval_fn: tf(
-                    trial, fn, X_t, y_t, X_v, y_v, num_threads,
+                    trial,
+                    fn,
+                    X_t,
+                    y_t,
+                    X_v,
+                    y_v,
+                    num_threads,
                     ref_preds_list=ref_preds_list,
                     corr_penalty_weight=self.corr_penalty_weight,
                     corr_threshold=self.corr_threshold,
@@ -371,16 +399,15 @@ class StackedEnsemble:
 
             # Log correlation penalty info
             if ref_preds_list and self.corr_penalty_weight > 0:
-                corrs = [
-                    np.corrcoef(ref_preds, rp)[0, 1]
-                    for rp in ref_preds_list[:-1]
-                ]
+                corrs = [np.corrcoef(ref_preds, rp)[0, 1] for rp in ref_preds_list[:-1]]
                 if corrs:
                     mean_corr = float(np.mean(corrs))
                     if mean_corr > self.corr_threshold:
                         logger.info(
                             "%s correlation penalty applied: mean_corr=%.4f > threshold=%.4f",
-                            model_name.upper(), mean_corr, self.corr_threshold,
+                            model_name.upper(),
+                            mean_corr,
+                            self.corr_threshold,
                         )
 
         return best_params
@@ -388,47 +415,61 @@ class StackedEnsemble:
     # --- Reference model training for correlation penalty ---
 
     def _train_ref_lgbm(
-        self, X_t: pd.DataFrame, y_t: pd.Series,
-        X_v: pd.DataFrame, y_v: pd.Series,
-        num_threads: int, best_params: dict[str, Any],
+        self,
+        X_t: pd.DataFrame,
+        y_t: pd.Series,
+        X_v: pd.DataFrame,
+        y_v: pd.Series,
+        num_threads: int,
+        best_params: dict[str, Any],
     ) -> np.ndarray:
         """Train reference LGB model with best params for correlation computation."""
         train_data = lgb.Dataset(X_t, label=y_t)
         valid_data = lgb.Dataset(X_v, label=y_v, reference=train_data)
         m = lgb.train(
             {
-                "objective": "binary", "metric": "auc",
+                "objective": "binary",
+                "metric": "auc",
                 "num_leaves": best_params["lgb_num_leaves"],
                 "learning_rate": best_params["lgb_lr"],
                 "feature_fraction": best_params["lgb_feat_frac"],
-                "verbose": -1, "num_threads": num_threads,
+                "verbose": -1,
+                "num_threads": num_threads,
             },
-            train_data, num_boost_round=500,
+            train_data,
+            num_boost_round=500,
             valid_sets=[valid_data],
             callbacks=[lgb.early_stopping(stopping_rounds=100, verbose=False)],
         )
         return m.predict(X_v)
 
     def _train_ref_xgb(
-        self, X_t: pd.DataFrame, y_t: pd.Series,
-        X_v: pd.DataFrame, y_v: pd.Series,
-        num_threads: int, best_params: dict[str, Any],
+        self,
+        X_t: pd.DataFrame,
+        y_t: pd.Series,
+        X_v: pd.DataFrame,
+        y_v: pd.Series,
+        num_threads: int,
+        best_params: dict[str, Any],
     ) -> np.ndarray:
         """Train reference XGB model with best params for correlation computation."""
         import xgboost as xgb
+
         X_t_num = self._encode_cats(X_t)
         X_v_num = self._encode_cats(X_v)
         dtrain = xgb.DMatrix(X_t_num, label=y_t)
         dvalid = xgb.DMatrix(X_v_num, label=y_v)
         m = xgb.train(
             {
-                "objective": "binary:logistic", "eval_metric": "auc",
+                "objective": "binary:logistic",
+                "eval_metric": "auc",
                 "max_depth": best_params["xgb_max_depth"],
                 "learning_rate": best_params["xgb_lr"],
                 "colsample_bytree": best_params["xgb_col_sample"],
                 "nthread": num_threads,
             },
-            dtrain, num_boost_round=500,
+            dtrain,
+            num_boost_round=500,
             evals=[(dvalid, "valid")],
             early_stopping_rounds=100,
             verbose_eval=False,
@@ -436,12 +477,17 @@ class StackedEnsemble:
         return m.predict(dvalid)
 
     def _train_ref_cat(
-        self, X_t: pd.DataFrame, y_t: pd.Series,
-        X_v: pd.DataFrame, y_v: pd.Series,
-        num_threads: int, best_params: dict[str, Any],
+        self,
+        X_t: pd.DataFrame,
+        y_t: pd.Series,
+        X_v: pd.DataFrame,
+        y_v: pd.Series,
+        num_threads: int,
+        best_params: dict[str, Any],
     ) -> np.ndarray:
         """Train reference CAT model with best params for correlation computation."""
         from catboost import CatBoostClassifier
+
         X_t_num = self._encode_cats(X_t)
         X_v_num = self._encode_cats(X_v)
         m = CatBoostClassifier(
@@ -492,13 +538,16 @@ class StackedEnsemble:
         valid_data = lgb.Dataset(X_v, label=y_v, reference=train_data)
         m = lgb.train(
             {
-                "objective": "binary", "metric": "auc",
+                "objective": "binary",
+                "metric": "auc",
                 "num_leaves": params["lgb_num_leaves"],
                 "learning_rate": params["lgb_lr"],
                 "feature_fraction": params["lgb_feat_frac"],
-                "verbose": -1, "num_threads": num_threads,
+                "verbose": -1,
+                "num_threads": num_threads,
             },
-            train_data, num_boost_round=500,
+            train_data,
+            num_boost_round=500,
             valid_sets=[valid_data],
             callbacks=[lgb.early_stopping(stopping_rounds=100, verbose=False)],
         )
@@ -507,7 +556,10 @@ class StackedEnsemble:
 
         # Correlation penalty (LGB is first model, ref_preds_list is empty)
         penalty = self._compute_corr_penalty(
-            preds, ref_preds_list, corr_penalty_weight, corr_threshold,
+            preds,
+            ref_preds_list,
+            corr_penalty_weight,
+            corr_threshold,
         )
         return auc - penalty
 
@@ -535,13 +587,15 @@ class StackedEnsemble:
         dvalid = xgb.DMatrix(X_v_num, label=y_v)
         m = xgb.train(
             {
-                "objective": "binary:logistic", "eval_metric": "auc",
+                "objective": "binary:logistic",
+                "eval_metric": "auc",
                 "max_depth": params["xgb_max_depth"],
                 "learning_rate": params["xgb_lr"],
                 "colsample_bytree": params["xgb_col_sample"],
                 "nthread": num_threads,
             },
-            dtrain, num_boost_round=500,
+            dtrain,
+            num_boost_round=500,
             evals=[(dvalid, "valid")],
             early_stopping_rounds=100,
             verbose_eval=False,
@@ -550,7 +604,10 @@ class StackedEnsemble:
         auc = float(roc_auc_score(y_v, preds))
 
         penalty = self._compute_corr_penalty(
-            preds, ref_preds_list, corr_penalty_weight, corr_threshold,
+            preds,
+            ref_preds_list,
+            corr_penalty_weight,
+            corr_threshold,
         )
         return auc - penalty
 
@@ -589,7 +646,10 @@ class StackedEnsemble:
         auc = float(roc_auc_score(y_v, preds))
 
         penalty = self._compute_corr_penalty(
-            preds, ref_preds_list, corr_penalty_weight, corr_threshold,
+            preds,
+            ref_preds_list,
+            corr_penalty_weight,
+            corr_threshold,
         )
         return auc - penalty
 
@@ -618,12 +678,16 @@ class StackedEnsemble:
 
         m = lgb.train(
             {
-                "objective": "binary", "metric": "auc",
-                "learning_rate": lr, "num_leaves": num_leaves,
+                "objective": "binary",
+                "metric": "auc",
+                "learning_rate": lr,
+                "num_leaves": num_leaves,
                 "feature_fraction": feat_frac,
-                "verbose": -1, "num_threads": nt,
+                "verbose": -1,
+                "num_threads": nt,
             },
-            train_data, num_boost_round=500,
+            train_data,
+            num_boost_round=500,
             valid_sets=[valid_data],
             callbacks=[lgb.early_stopping(stopping_rounds=100, verbose=False)],
         )
@@ -651,12 +715,16 @@ class StackedEnsemble:
 
         return lgb.train(
             {
-                "objective": "binary", "metric": "auc",
-                "learning_rate": lr, "num_leaves": num_leaves,
+                "objective": "binary",
+                "metric": "auc",
+                "learning_rate": lr,
+                "num_leaves": num_leaves,
                 "feature_fraction": feat_frac,
-                "verbose": -1, "num_threads": nt,
+                "verbose": -1,
+                "num_threads": nt,
             },
-            train_data, num_boost_round=500,
+            train_data,
+            num_boost_round=500,
             valid_sets=[valid_data],
             callbacks=[lgb.early_stopping(stopping_rounds=100, verbose=False)],
         )
@@ -672,6 +740,7 @@ class StackedEnsemble:
         params: dict[str, Any] | None = None,
     ) -> np.ndarray:
         import xgboost as xgb
+
         X_tr_num = self._encode_cats(X_tr)
         X_va_num = self._encode_cats(X_va)
 
@@ -687,11 +756,15 @@ class StackedEnsemble:
 
         m = xgb.train(
             {
-                "objective": "binary:logistic", "eval_metric": "auc",
-                "max_depth": max_depth, "learning_rate": lr,
-                "colsample_bytree": col_sample, "nthread": nt,
+                "objective": "binary:logistic",
+                "eval_metric": "auc",
+                "max_depth": max_depth,
+                "learning_rate": lr,
+                "colsample_bytree": col_sample,
+                "nthread": nt,
             },
-            dtrain, num_boost_round=500,
+            dtrain,
+            num_boost_round=500,
             evals=[(dvalid, "valid")],
             early_stopping_rounds=100,
             verbose_eval=False,
@@ -706,6 +779,7 @@ class StackedEnsemble:
         params: dict[str, Any] | None = None,
     ) -> Any:
         import xgboost as xgb
+
         X_num = self._encode_cats(X)
 
         max_depth = params["xgb_max_depth"] if params else 6
@@ -720,11 +794,15 @@ class StackedEnsemble:
 
         return xgb.train(
             {
-                "objective": "binary:logistic", "eval_metric": "auc",
-                "max_depth": max_depth, "learning_rate": lr,
-                "colsample_bytree": col_sample, "nthread": nt,
+                "objective": "binary:logistic",
+                "eval_metric": "auc",
+                "max_depth": max_depth,
+                "learning_rate": lr,
+                "colsample_bytree": col_sample,
+                "nthread": nt,
             },
-            dtrain, num_boost_round=500,
+            dtrain,
+            num_boost_round=500,
             evals=[(dvalid, "valid")],
             early_stopping_rounds=100,
             verbose_eval=False,
@@ -741,6 +819,7 @@ class StackedEnsemble:
         params: dict[str, Any] | None = None,
     ) -> np.ndarray:
         from catboost import CatBoostClassifier
+
         X_tr_num = self._encode_cats(X_tr)
         X_va_num = self._encode_cats(X_va)
 
@@ -763,7 +842,8 @@ class StackedEnsemble:
             eval_metric="AUC",
         )
         m.fit(
-            X_tr_num.iloc[:es_split], y_tr.iloc[:es_split],
+            X_tr_num.iloc[:es_split],
+            y_tr.iloc[:es_split],
             eval_set=(X_tr_num.iloc[es_split:], y_tr.iloc[es_split:]),
         )
         return m.predict_proba(X_va_num)[:, 1]
@@ -776,6 +856,7 @@ class StackedEnsemble:
         params: dict[str, Any] | None = None,
     ) -> Any:
         from catboost import CatBoostClassifier
+
         X_num = self._encode_cats(X)
 
         depth = params["cat_depth"] if params else 6
@@ -797,7 +878,8 @@ class StackedEnsemble:
             eval_metric="AUC",
         )
         m.fit(
-            X_num.iloc[:es_split], y.iloc[:es_split],
+            X_num.iloc[:es_split],
+            y.iloc[:es_split],
             eval_set=(X_num.iloc[es_split:], y.iloc[es_split:]),
         )
         return m
@@ -837,9 +919,9 @@ class StackedEnsemble:
             logger.info("OOF prediction correlation %s: %.4f", name, c)
             if c >= 0.95:
                 logger.warning(
-                    "High prediction correlation %s: %.4f >= 0.95"
-                    " — diversity may be insufficient",
-                    name, c,
+                    "High prediction correlation %s: %.4f >= 0.95 — diversity may be insufficient",
+                    name,
+                    c,
                 )
 
         # Feature importance Spearman順位相関 (D-10)
@@ -848,7 +930,7 @@ class StackedEnsemble:
             logger.info("Feature importance rank correlation %s: %.4f", name, rho)
             if rho > 0.8:
                 logger.warning(
-                    "High importance correlation %s: %.4f > 0.8"
-                    " — models rely on similar features",
-                    name, rho,
+                    "High importance correlation %s: %.4f > 0.8 — models rely on similar features",
+                    name,
+                    rho,
                 )

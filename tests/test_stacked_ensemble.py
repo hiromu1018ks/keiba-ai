@@ -452,14 +452,23 @@ class TestPredictionOrthogonalization:
         cat_pred = rng.uniform(0.05, 0.95, 200)
         raw = np.column_stack([lgb_pred, xgb_pred, cat_pred])
 
+        # Default: partial orthogonalization (strength=0.5)
         ensemble = StackedEnsemble(cat_cols=[], orthogonalize_threshold=0.95)
         transformed = ensemble._fit_prediction_orthogonalizer(raw)
 
         raw_corr = np.corrcoef(raw[:, 0], raw[:, 1])[0, 1]
         transformed_corr = np.corrcoef(transformed[:, 0], transformed[:, 1])[0, 1]
         assert raw_corr > 0.95
-        assert abs(transformed_corr) < 0.05
+        assert transformed_corr < raw_corr  # reduced but not zero
         assert ensemble._orthogonalization[1]["enabled"] is True
+
+        # Full orthogonalization (strength=1.0): near-zero correlation
+        ensemble_full = StackedEnsemble(
+            cat_cols=[], orthogonalize_threshold=0.95, orthogonalize_strength=1.0
+        )
+        transformed_full = ensemble_full._fit_prediction_orthogonalizer(raw)
+        full_corr = np.corrcoef(transformed_full[:, 0], transformed_full[:, 1])[0, 1]
+        assert abs(full_corr) < 0.05
 
     def test_apply_prediction_orthogonalizer_matches_fit_transform(self):
         rng = np.random.RandomState(456)
