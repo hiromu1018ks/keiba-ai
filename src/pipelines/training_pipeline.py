@@ -176,7 +176,11 @@ class TrainingPipelineV5:
         # を保持する。build_all() の SAFE-01 はこれらを除外してドロップする。
         logger.info("Building features")
         feat_df = self.feature_engine.build_all(
-            race_df, entry_df, odds_df, odds_ts_df=odds_ts_df, store=self.store,
+            race_df,
+            entry_df,
+            odds_df,
+            odds_ts_df=odds_ts_df,
+            store=self.store,
             preserve_columns=["kakuteijyuni", "confirmed_odds"],
         )
         feat_df = self.submodel_mgr.add_distance_band_features(feat_df)
@@ -224,7 +228,8 @@ class TrainingPipelineV5:
             # Single surface — no parallelism needed
             surface, subset_df = surfaces_to_train[0]
             sub, sub_oof = self._train_submodel(
-                subset_df, num_threads=_get_num_threads(1),
+                subset_df,
+                num_threads=_get_num_threads(1),
                 use_ensemble=self.use_ensemble,
                 betting_target=self._betting_target,
             )
@@ -238,7 +243,8 @@ class TrainingPipelineV5:
             num_threads = _get_num_threads(2)
             for surface, subset_df in surfaces_to_train:
                 sub, sub_oof = self._train_submodel(
-                    subset_df, num_threads=num_threads,
+                    subset_df,
+                    num_threads=num_threads,
                     use_ensemble=self.use_ensemble,
                     betting_target=self._betting_target,
                 )
@@ -254,7 +260,8 @@ class TrainingPipelineV5:
             save_features(self.store, full_features_df)
             logger.info(
                 "Saved full feature set: %d rows, %d cols -> data/features/horse_features.parquet",
-                len(full_features_df), len(full_features_df.columns),
+                len(full_features_df),
+                len(full_features_df.columns),
             )
 
             # 3c. OOF予測Parquet保存 (IC評価用, Phase 30)
@@ -262,7 +269,9 @@ class TrainingPipelineV5:
             oof_path.parent.mkdir(parents=True, exist_ok=True)
             full_features_df.to_parquet(oof_path, index=False)
             logger.info(
-                "Saved OOF predictions: %d rows -> %s", len(full_features_df), oof_path,
+                "Saved OOF predictions: %d rows -> %s",
+                len(full_features_df),
+                oof_path,
             )
 
         # 4. feat_df の object 数値列を float64 に統一
@@ -332,13 +341,8 @@ class TrainingPipelineV5:
         surf_df = df_oof[df_oof["surface"] == surface]
         if "EV_lower_win_corrected" not in surf_df.columns:
             return fallback
-        winners = surf_df[
-            (surf_df["kakuteijyuni"] == 1)
-            & (surf_df["win_selection_edge"] > 0)
-        ]
-        ev_lower_values = pd.to_numeric(
-            winners["EV_lower_win_corrected"], errors="coerce"
-        ).dropna()
+        winners = surf_df[(surf_df["kakuteijyuni"] == 1) & (surf_df["win_selection_edge"] > 0)]
+        ev_lower_values = pd.to_numeric(winners["EV_lower_win_corrected"], errors="coerce").dropna()
         if len(ev_lower_values) < 30:
             logger.info(
                 "EV threshold for %s: too few positive-edge winners (%d), using fallback %.2f",
@@ -355,29 +359,38 @@ class TrainingPipelineV5:
             blended_source = pd.DataFrame(
                 {
                     "ev_lower": pd.to_numeric(
-                        winners["EV_lower_win_corrected"], errors="coerce",
+                        winners["EV_lower_win_corrected"],
+                        errors="coerce",
                     ),
                     "ev_calibrated": calibrated,
                 }
             ).dropna()
-            if (
-                len(blended_source) >= 30
-                and float(blended_source["ev_calibrated"].std()) > 1e-6
-            ):
+            if len(blended_source) >= 30 and float(blended_source["ev_calibrated"].std()) > 1e-6:
                 calibrated_cap = float(blended_source["ev_calibrated"].quantile(0.90))
-                ev_lower_values = (
-                    0.70 * blended_source["ev_lower"]
-                    + 0.30 * blended_source["ev_calibrated"].clip(upper=calibrated_cap)
-                )
+                ev_lower_values = 0.70 * blended_source["ev_lower"] + 0.30 * blended_source[
+                    "ev_calibrated"
+                ].clip(upper=calibrated_cap)
                 logger.info(
                     "EV threshold for %s: EV_lower distribution degenerate; "
                     "using blended CQR/calibrated EV distribution",
                     surface,
                 )
+            # Second fallback: use full OOF population if still degenerate
+            if TrainingPipelineV5._ev_lower_distribution_degenerate(ev_lower_values):
+                all_ev_lower = pd.to_numeric(
+                    surf_df["EV_lower_win_corrected"], errors="coerce"
+                ).dropna()
+                if len(all_ev_lower) >= 30:
+                    ev_lower_values = all_ev_lower
+                    logger.info(
+                        "EV threshold for %s: blended still degenerate; "
+                        "falling back to full OOF population (%d samples)",
+                        surface,
+                        len(ev_lower_values),
+                    )
         threshold = float(ev_lower_values.quantile(0.25))
         logger.info(
-            "EV threshold for %s: %.4f (from %d positive-edge winners, "
-            "q25=%.4f q50=%.4f q75=%.4f)",
+            "EV threshold for %s: %.4f (from %d positive-edge winners, q25=%.4f q50=%.4f q75=%.4f)",
             surface,
             threshold,
             len(ev_lower_values),
@@ -420,11 +433,7 @@ class TrainingPipelineV5:
         if int(valid.sum()) == 0:
             return pd.Series(prior, index=values.index, dtype=float)
 
-        stats = (
-            work.loc[valid]
-            .groupby("group", observed=True)["value"]
-            .agg(["sum", "count"])
-        )
+        stats = work.loc[valid].groupby("group", observed=True)["value"].agg(["sum", "count"])
         means = (stats["sum"] + prior_weight * prior) / (stats["count"] + prior_weight)
         return work["group"].map(means).fillna(prior).astype(float)
 
@@ -489,11 +498,7 @@ class TrainingPipelineV5:
             point_cap = global_mean
         point_component = point_ev.clip(upper=point_cap)
 
-        target = (
-            (0.65 * ev_bin_expected)
-            + (0.25 * odds_band_expected)
-            + (0.10 * point_component)
-        )
+        target = (0.65 * ev_bin_expected) + (0.25 * odds_band_expected) + (0.10 * point_component)
         return target.clip(lower=0.0).fillna(global_mean).astype(float)
 
     def _train_submodel(
@@ -531,16 +536,29 @@ class TrainingPipelineV5:
             pace_df = pace_feat.compute_batch(df)
             # df には既に特徴量列が含まれている可能性があるため削除
             _pace_drop_cols = [
-                "pace_aptitude", "front_pace_wr", "closing_pace_wr",
-                "pace_corner_stability", "pace_closing_power", "pace_position_consistency",
+                "pace_aptitude",
+                "front_pace_wr",
+                "closing_pace_wr",
+                "pace_corner_stability",
+                "pace_closing_power",
+                "pace_position_consistency",
             ]
             for col in _pace_drop_cols:
                 if col in df.columns:
                     df.drop(columns=[col], inplace=True)
             if not pace_df.empty:
-                pace_merge_cols = [c for c in
-                    ["kettonum", "race_id", "pace_aptitude", "front_pace_wr", "closing_pace_wr",
-                     "pace_corner_stability", "pace_closing_power", "pace_position_consistency"]
+                pace_merge_cols = [
+                    c
+                    for c in [
+                        "kettonum",
+                        "race_id",
+                        "pace_aptitude",
+                        "front_pace_wr",
+                        "closing_pace_wr",
+                        "pace_corner_stability",
+                        "pace_closing_power",
+                        "pace_position_consistency",
+                    ]
                     if c in pace_df.columns
                 ]
                 df = df.merge(
@@ -721,8 +739,7 @@ class TrainingPipelineV5:
             from features.target_encoding import TargetEncoder
 
             te_cat_cols = [
-                c for c in ["blood_keito_cd", "kisyucode", "chokyosicode"]
-                if c in df_oof.columns
+                c for c in ["blood_keito_cd", "kisyucode", "chokyosicode"] if c in df_oof.columns
             ]
             if te_cat_cols:
                 te_encoder = TargetEncoder(
@@ -746,10 +763,12 @@ class TrainingPipelineV5:
 
         # INTER-01: Stage2相対特徴量 (p_ability_win / odds_to_ability_ratio依存)
         from features.relative_features import compute_stage2_relative_features
+
         df_oof = compute_stage2_relative_features(df_oof)
 
         # ODDS-01: deviation features (after odds_to_ability_ratio computed)
         from features.odds_deviation_features import compute_odds_deviation_features
+
         df_oof = compute_odds_deviation_features(df_oof)
 
         # NEW: PlaceAbilityModel
@@ -775,9 +794,7 @@ class TrainingPipelineV5:
                 _const_cols = ["surface"] + [
                     c for c in features.columns if c.startswith("surface_x_")
                 ]
-                features = features.drop(
-                    columns=[c for c in _const_cols if c in features.columns]
-                )
+                features = features.drop(columns=[c for c in _const_cols if c in features.columns])
                 y = (df_oof["kakuteijyuni"] == 1).astype(int)
                 split = int(len(features) * 0.8)
                 _cat_cols = [c for c in ["distance_bin", "grade_code"] if c in features.columns]
@@ -836,12 +853,16 @@ class TrainingPipelineV5:
         if len(df_oof) >= 500 and "confirmed_odds" in df_oof.columns:
             with TimingContext(f"{surface}/ev_isotonic_oof"):
                 oof_ev, oof_actual, oof_odds = self.generate_ev_oof_predictions(
-                    df_oof, n_splits=5, num_threads=num_threads,
+                    df_oof,
+                    n_splits=5,
+                    num_threads=num_threads,
                 )
             if np.isfinite(oof_ev).sum() >= 200:
                 with TimingContext(f"{surface}/ev_isotonic_fit"):
                     ev_isotonic_calibrator, ev_odds_band_scales = self.fit_ev_calibration(
-                        oof_ev, oof_actual, oof_odds,
+                        oof_ev,
+                        oof_actual,
+                        oof_odds,
                     )
                 if not _valid_ev_band_scales(ev_odds_band_scales):
                     logger.warning("Ignoring degenerate EV odds band scales for %s", surface)
@@ -851,17 +872,22 @@ class TrainingPipelineV5:
                 df_oof = ev_corrector.correct_ev(df_oof)
                 logger.info(
                     "EV Isotonic fitted for %s: %d OOF samples, band_scales=%s",
-                    surface, int(np.isfinite(oof_ev).sum()), ev_odds_band_scales,
+                    surface,
+                    int(np.isfinite(oof_ev).sum()),
+                    ev_odds_band_scales,
                 )
             else:
                 logger.warning(
                     "EV Isotonic: insufficient valid OOF samples (%d) for %s",
-                    int(np.isfinite(oof_ev).sum()), surface,
+                    int(np.isfinite(oof_ev).sum()),
+                    surface,
                 )
         else:
             logger.info(
                 "Skipping EV Isotonic for %s: len=%d, has_confirmed_odds=%s",
-                surface, len(df_oof), "confirmed_odds" in df_oof.columns,
+                surface,
+                len(df_oof),
+                "confirmed_odds" in df_oof.columns,
             )
 
         # 5. 複勝 2段階モデル
@@ -940,7 +966,9 @@ class TrainingPipelineV5:
                 benter_combo = BenterCombination.fit(val_p, val_p_market, val_y)
                 logger.info(
                     "Benter params: alpha=%.3f, beta=%.3f, gamma=%.3f",
-                    benter_combo.alpha, benter_combo.beta, benter_combo.gamma,
+                    benter_combo.alpha,
+                    benter_combo.beta,
+                    benter_combo.gamma,
                 )
 
             with TimingContext(f"{surface}/isotonic"):
@@ -954,9 +982,7 @@ class TrainingPipelineV5:
             with TimingContext(f"{surface}/temperature"):
                 val_p_isotonic = isotonic_cal.transform(val_p_combined)
                 temp_scaler = TemperatureScaling.fit(val_p_isotonic, val_y)
-                logger.info(
-                    "Temperature Scaling: T=%.4f", temp_scaler.temperature
-                )
+                logger.info("Temperature Scaling: T=%.4f", temp_scaler.temperature)
 
         # 5c. Win Benter Combination (D-11, D-04, D-13)
         win_benter = None
@@ -999,10 +1025,7 @@ class TrainingPipelineV5:
                             p_c = 1.0 / (1.0 + np.exp(-logit_c))
                             p_c = np.clip(p_c, 1e-10, 1 - 1e-10)
                             return float(
-                                -np.sum(
-                                    y_arr * np.log(p_c)
-                                    + (1 - y_arr) * np.log(1 - p_c)
-                                )
+                                -np.sum(y_arr * np.log(p_c) + (1 - y_arr) * np.log(1 - p_c))
                             )
 
                         res = scipy_minimize(
@@ -1033,9 +1056,7 @@ class TrainingPipelineV5:
                 else:
                     # Fallback to standard fit
                     with TimingContext(f"{surface}/win_benter"):
-                        win_benter = BenterCombination.fit(
-                            oof_p_fund, oof_p_market, oof_y
-                        )
+                        win_benter = BenterCombination.fit(oof_p_fund, oof_p_market, oof_y)
                     logger.info(
                         "Win Benter (fallback): alpha=%.3f, beta=%.3f, gamma=%.3f",
                         win_benter.alpha,
@@ -1043,9 +1064,7 @@ class TrainingPipelineV5:
                         win_benter.gamma,
                     )
             else:
-                logger.warning(
-                    "Win OOF samples < 500 (%d), skipping Win Benter", len(oof_p_fund)
-                )
+                logger.warning("Win OOF samples < 500 (%d), skipping Win Benter", len(oof_p_fund))
         else:
             logger.info("tanodds not in df_oof or df too small, skipping Win Benter")
 
@@ -1170,7 +1189,9 @@ class TrainingPipelineV5:
         else:
             logger.info(
                 "Skipping Conformal EV for %s: len=%d, has_ev_calibrated=%s",
-                surface, len(df_oof), "ev_win_calibrated" in df_oof.columns,
+                surface,
+                len(df_oof),
+                "ev_win_calibrated" in df_oof.columns,
             )
 
         place_selection_gate: PlaceSelectionGateModel | None = None
@@ -1246,7 +1267,9 @@ class TrainingPipelineV5:
         # compute the threshold for the *current* surface only. The other surface
         # gets the same value since each SubmodelSet is surface-specific.
         ev_threshold = self._compute_ev_threshold(
-            wsg_train_df, surface=surface, fallback=0.75,
+            wsg_train_df,
+            surface=surface,
+            fallback=0.75,
         )
         ev_threshold_turf = ev_threshold
         ev_threshold_dirt = ev_threshold
@@ -1398,9 +1421,7 @@ class TrainingPipelineV5:
                 if actual_sum <= 0 or calibrated_sum <= 0:
                     band_scales[band_name] = 1.0
                 else:
-                    band_scales[band_name] = float(
-                        np.clip(actual_sum / calibrated_sum, 0.25, 3.0)
-                    )
+                    band_scales[band_name] = float(np.clip(actual_sum / calibrated_sum, 0.25, 3.0))
             else:
                 band_scales[band_name] = 1.0
 
@@ -1517,13 +1538,21 @@ class TrainingPipelineV5:
         # in build_all(), and are constant within each race, so "first" aggregation is correct.
         _rl_cols = [
             # RLF-01~06 (race_level_features.py)
-            "rl_log_odds_entropy", "rl_odds_dispersion", "rl_top3_odds_gap",
-            "rl_top1_odds", "rl_favorite_rank_gap", "rl_n_horses",
+            "rl_log_odds_entropy",
+            "rl_odds_dispersion",
+            "rl_top3_odds_gap",
+            "rl_top1_odds",
+            "rl_favorite_rank_gap",
+            "rl_n_horses",
             # MCF-07 (market_cross_features.py)
-            "rl_favorite_in_wide_top1", "rl_trio_overlap", "rl_market_consistency",
-            "rl_trio_odds_ratio", "rl_wide_harville_ratio",
+            "rl_favorite_in_wide_top1",
+            "rl_trio_overlap",
+            "rl_market_consistency",
+            "rl_trio_odds_ratio",
+            "rl_wide_harville_ratio",
             # FLB slope (market_bias_features.py)
-            "implied_prob_hhi", "odds_skewness",
+            "implied_prob_hhi",
+            "odds_skewness",
         ]
         for _col in _rl_cols:
             if _col in feat_df.columns:
@@ -1562,18 +1591,12 @@ class TrainingPipelineV5:
         _col_csr = "closing_speed_ratio_avg"
         if _col_csr in feat_df.columns:
             _csr = feat_df.groupby("race_id", observed=True)[_col_csr]
-            race_feat["phase36_top1_strength"] = (
-                race_feat["race_id"].map(_csr.max()).fillna(0.0)
-            )
+            race_feat["phase36_top1_strength"] = race_feat["race_id"].map(_csr.max()).fillna(0.0)
             _top2_gap = _csr.apply(
                 lambda x: x.nlargest(2).diff().iloc[-1] if x.notna().sum() >= 2 else 0.0
             )
-            race_feat["phase36_top1_top2_gap"] = (
-                race_feat["race_id"].map(_top2_gap).fillna(0.0)
-            )
-            race_feat["phase36_field_dispersion"] = (
-                race_feat["race_id"].map(_csr.std()).fillna(0.0)
-            )
+            race_feat["phase36_top1_top2_gap"] = race_feat["race_id"].map(_top2_gap).fillna(0.0)
+            race_feat["phase36_field_dispersion"] = race_feat["race_id"].map(_csr.std()).fillna(0.0)
         else:
             race_feat["phase36_top1_strength"] = 0.0
             race_feat["phase36_top1_top2_gap"] = 0.0
@@ -1672,12 +1695,16 @@ class TrainingPipelineV5:
                 stage1_model = sub.stage1.models.get(surface)
                 if stage1_model is not None:
                     mlflow.lightgbm.log_model(
-                        stage1_model, name=f"stage1_{surface}", pip_requirements=_MLFLOW_PIP_REQS,
+                        stage1_model,
+                        name=f"stage1_{surface}",
+                        pip_requirements=_MLFLOW_PIP_REQS,
                     )
 
                 # MarketModel
                 mlflow.lightgbm.log_model(
-                    sub.market.model, name=f"market_{surface}", pip_requirements=_MLFLOW_PIP_REQS,
+                    sub.market.model,
+                    name=f"market_{surface}",
+                    pip_requirements=_MLFLOW_PIP_REQS,
                 )
 
                 # WinTwoStageModel
@@ -1728,10 +1755,7 @@ class TrainingPipelineV5:
                         name=f"place_ev_corrector_e_{surface}",
                         pip_requirements=_MLFLOW_PIP_REQS,
                     )
-                if (
-                    sub.place_selection_gate is not None
-                    and sub.place_selection_gate.is_trained
-                ):
+                if sub.place_selection_gate is not None and sub.place_selection_gate.is_trained:
                     gate_tmp: str | None = None
                     try:
                         with tempfile.NamedTemporaryFile(
@@ -1746,10 +1770,7 @@ class TrainingPipelineV5:
                             os.unlink(gate_tmp)
 
                 # --- WinSelectionGate (MLflow) ---
-                if (
-                    sub.win_selection_gate is not None
-                    and sub.win_selection_gate.is_trained
-                ):
+                if sub.win_selection_gate is not None and sub.win_selection_gate.is_trained:
                     wsg_tmp: str | None = None
                     try:
                         with tempfile.NamedTemporaryFile(
@@ -1777,11 +1798,13 @@ class TrainingPipelineV5:
                                 os.unlink(_se_tmp2)
                     else:
                         mlflow.lightgbm.log_model(
-                            sub.place.hit_model, name=f"place_hit_{surface}",
+                            sub.place.hit_model,
+                            name=f"place_hit_{surface}",
                             pip_requirements=_MLFLOW_PIP_REQS,
                         )
                     mlflow.lightgbm.log_model(
-                        sub.place.return_model, name=f"place_ret_{surface}",
+                        sub.place.return_model,
+                        name=f"place_ret_{surface}",
                         pip_requirements=_MLFLOW_PIP_REQS,
                     )
 
@@ -1802,24 +1825,28 @@ class TrainingPipelineV5:
                 # WideTwoStageModel
                 if sub.wide is not None:
                     mlflow.lightgbm.log_model(
-                        sub.wide.hit_model, name=f"wide_hit_{surface}",
+                        sub.wide.hit_model,
+                        name=f"wide_hit_{surface}",
                         pip_requirements=_MLFLOW_PIP_REQS,
                     )
                     mlflow.lightgbm.log_model(
-                        sub.wide.return_model, name=f"wide_ret_{surface}",
+                        sub.wide.return_model,
+                        name=f"wide_ret_{surface}",
                         pip_requirements=_MLFLOW_PIP_REQS,
                     )
 
             # RaceQualityScreener
             mlflow.lightgbm.log_model(
-                quality_screen.model, name="race_quality",
+                quality_screen.model,
+                name="race_quality",
                 pip_requirements=_MLFLOW_PIP_REQS,
             )
             mlflow.log_param("quality_threshold", quality_screen.threshold)
 
             # RegimeDetector
             mlflow.lightgbm.log_model(
-                regime_det.model, name="regime_detector",
+                regime_det.model,
+                name="regime_detector",
                 pip_requirements=_MLFLOW_PIP_REQS,
             )
 
@@ -1913,15 +1940,11 @@ class TrainingPipelineV5:
                         models_dir / f"place_ability_{surface}.joblib",
                     )
             if sub.place_selection_gate is not None and sub.place_selection_gate.is_trained:
-                sub.place_selection_gate.save(
-                    models_dir / f"place_selection_gate_{surface}.joblib"
-                )
+                sub.place_selection_gate.save(models_dir / f"place_selection_gate_{surface}.joblib")
 
             # --- WinSelectionGate (local) ---
             if sub.win_selection_gate is not None and sub.win_selection_gate.is_trained:
-                sub.win_selection_gate.save(
-                    models_dir / f"win_selection_gate_{surface}.joblib"
-                )
+                sub.win_selection_gate.save(models_dir / f"win_selection_gate_{surface}.joblib")
 
             # Benter Combination (JSON)
             if sub.benter_combo is not None:
@@ -1951,9 +1974,7 @@ class TrainingPipelineV5:
 
             # Win Temperature Scaler (JSON)
             if sub.win_temperature_scaler is not None:
-                sub.win_temperature_scaler.save(
-                    models_dir / f"temp_scale_win_{surface}.json"
-                )
+                sub.win_temperature_scaler.save(models_dir / f"temp_scale_win_{surface}.json")
 
             # Phase 19: EV Isotonic Calibrator (joblib)
             if sub.ev_isotonic_calibrator is not None:
@@ -1996,6 +2017,7 @@ class TrainingPipelineV5:
                 cqr_params_path = models_dir / f"cqr_params_{surface}.json"
                 if cqr_params_path.is_file():
                     import hashlib
+
                     sha256 = hashlib.sha256(cqr_params_path.read_bytes()).hexdigest()
                     cqr_checksums[surface] = sha256
                     logger.info("CQR params SHA256 for %s: %s", surface, sha256[:16])
