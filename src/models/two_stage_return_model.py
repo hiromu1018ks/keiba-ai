@@ -81,9 +81,6 @@ class WinTwoStageModel:
         "track_condition_code",
         "grade_code",
         "field_size",
-        # CAT-01: 開催場・クラス カテゴリ特徴量 (監査レポート対応)
-        "jyocd",                    # 開催場コード (~10値, category)
-        "class_bucket",             # レースクラス (maiden~g1, category)
         # FLB slope (市場歪みの非対称性)
         "odds_skewness",
         # 追加改善特徴量
@@ -102,7 +99,7 @@ class WinTwoStageModel:
         "distance_change",
         "surface_change",
         "class_drop_bounce",
-        # win_dominance: 70.6% NaNのため除外 (監査レポート対応)
+        "win_dominance",
         "freshness_score",
         # FEAT-02: 市場確率/能力確率比 (値 > 1.0 = 過小評価, < 1.0 = 過大評価)
         "odds_to_ability_ratio",
@@ -136,15 +133,21 @@ class WinTwoStageModel:
         "jt_combo_place_rate",
         "jt_combo_starts",
         "jt_combo_prize_log",
-        "jt_combo_missing",
-        # n_mining予想特徴量 (DATA-04) — dm_time_*は100%NaNのため除外
-        # 繁殖牝馬産駒特徴量 (DATA-01) — dam_wr, breeder_strengthは100%NaNのため除外
+        # n_mining予想特徴量 (DATA-04)
+        "dm_time_rank",
+        "dm_time_zscore",
+        "dm_confidence_range",
+        "dm_time_margin_to_fav",
+        # 繁殖牝馬産駒特徴量 (DATA-01)
+        "dam_wr",
+        "breeder_strength",
         # BMS拡張特徴量 (DATA-01)
         "bms_distance_wr",
         "bms_has_history",
         "bms_starts_log",
         "bms_distance_starts_log",
-        # コースレコード特徴量 (DATA-02) — course_record_timeは100%NaNのため除外
+        # コースレコード特徴量 (DATA-02)
+        "course_record_time",
         # レース内相対比較特徴量 (DATA-03)
         "rel_norm_finish_zscore",
         "rel_timediff_rank",
@@ -158,7 +161,6 @@ class WinTwoStageModel:
         # 交互作用 (12): 既存3 + 新規9 (INTER-02)
         "kyakusitu_x_distance",       # category
         "kyakusitu_x_surface",        # category
-        "kyakusitukubun_cd_missing",  # 初出走フラグ (脚質不明)
         "weight_x_distance",
         "surface_x_distance_bin",     # category
         "blood_keito_x_surface",      # category
@@ -297,8 +299,7 @@ class WinTwoStageModel:
                      "track_condition_code",
                      "kyakusitu_x_distance", "kyakusitu_x_surface",
                      "surface_x_distance_bin", "blood_keito_x_surface",
-                     "grade_code_x_distance_bin",
-                     "jyocd", "class_bucket"]:
+                     "grade_code_x_distance_bin"]:
             if col in features.columns:
                 features[col] = features[col].astype("category")
         return features
@@ -477,23 +478,26 @@ class PlaceTwoStageModel:
         "grade_code",
         "field_size",
         "odds_skewness",
-        # CAT-01: 開催場・クラス カテゴリ特徴量 (監査レポート対応)
-        "jyocd",                    # 開催場コード (~10値, category)
-        "class_bucket",             # レースクラス (maiden~g1, category)
         # --- v5: レースコンテキスト特徴量 ---
         "race_mean_fuku_odds",
         "race_std_fuku_odds",
         "odds_gap_fav12",
         "odds_popularity_gap",
         "surface_track_interaction",
-        # n_mining予想特徴量 (DATA-04) — dm_time_*は100%NaNのため除外
-        # 繁殖牝馬産駒特徴量 (DATA-01) — dam_wr, dam_surface_wrは100%NaNのため除外
+        # n_mining予想特徴量 (DATA-04)
+        "dm_time_rank",
+        "dm_time_zscore",
+        "dm_confidence_range",
+        # 繁殖牝馬産駒特徴量 (DATA-01)
+        "dam_wr",
+        "dam_surface_wr",
         # BMS拡張特徴量 (DATA-01)
         "bms_surface_wr",
         "bms_has_history",
         "bms_starts_log",
         "bms_surface_starts_log",
-        # コースレコード特徴量 (DATA-02) — course_record_timeは100%NaNのため除外
+        # コースレコード特徴量 (DATA-02)
+        "course_record_time",
         # レース内相対比較特徴量 (DATA-03)
         "rel_norm_finish_zscore",
         "rel_sire_quality_rank",
@@ -510,7 +514,6 @@ class PlaceTwoStageModel:
         # 交互作用 (12): 既存3 + 新規9 (INTER-02)
         "kyakusitu_x_distance",       # category
         "kyakusitu_x_surface",        # category
-        "kyakusitukubun_cd_missing",  # 初出走フラグ (脚質不明)
         "weight_x_distance",
         "surface_x_distance_bin",     # category
         "blood_keito_x_surface",      # category
@@ -599,9 +602,6 @@ class PlaceTwoStageModel:
         "track_condition_code",
         "grade_code",
         "field_size",
-        # CAT-01: 開催場・クラス カテゴリ特徴量 (監査レポート対応)
-        "jyocd",                    # 開催場コード (~10値, category)
-        "class_bucket",             # レースクラス (maiden~g1, category)
         # FLB slope
         "odds_skewness",
         # 追加改善特徴量
@@ -620,7 +620,7 @@ class PlaceTwoStageModel:
         "distance_change",
         "surface_change",
         "class_drop_bounce",
-        # win_dominance: 70.6% NaNのため除外 (監査レポート対応)
+        "win_dominance",
         "freshness_score",
         "odds_to_ability_ratio",
         # Phase 5: Foundation Features
@@ -650,21 +650,27 @@ class PlaceTwoStageModel:
         "jt_combo_place_rate",
         "jt_combo_starts",
         "jt_combo_prize_log",
-        "jt_combo_missing",
-        # n_mining予想特徴量 (DATA-04) — dm_time_*は100%NaNのため除外
+        # n_mining予想特徴量 (DATA-04)
+        "dm_time_rank",
+        "dm_time_zscore",
+        "dm_confidence_range",
+        "dm_time_margin_to_fav",
         # TRF-01/02: Phase 36 race-rank + weighted_recent_form
         "form_trend_race_rank",
         "blood_total_wr_race_rank",
         "blood_surface_wr_race_rank",
         "weighted_recent_form_finish",
         "weighted_recent_form_time",
-        # 繁殖牝馬産駒特徴量 (DATA-01) — dam_wr, breeder_strengthは100%NaNのため除外
+        # 繁殖牝馬産駒特徴量 (DATA-01)
+        "dam_wr",
+        "breeder_strength",
         # BMS拡張特徴量 (DATA-01)
         "bms_distance_wr",
         "bms_has_history",
         "bms_starts_log",
         "bms_distance_starts_log",
-        # コースレコード特徴量 (DATA-02) — course_record_timeは100%NaNのため除外
+        # コースレコード特徴量 (DATA-02)
+        "course_record_time",
         # レース内相対比較特徴量 (DATA-03)
         "rel_norm_finish_zscore",
         "rel_timediff_rank",
@@ -679,7 +685,6 @@ class PlaceTwoStageModel:
         # 交互作用 (12): 既存3 + 新規9 (INTER-02)
         "kyakusitu_x_distance",       # category
         "kyakusitu_x_surface",        # category
-        "kyakusitukubun_cd_missing",  # 初出走フラグ (脚質不明)
         "weight_x_distance",
         "surface_x_distance_bin",     # category
         "blood_keito_x_surface",      # category
@@ -776,8 +781,7 @@ class PlaceTwoStageModel:
                      "track_condition_code",
                      "kyakusitu_x_distance", "kyakusitu_x_surface",
                      "surface_x_distance_bin", "blood_keito_x_surface",
-                     "grade_code_x_distance_bin",
-                     "jyocd", "class_bucket"]:
+                     "grade_code_x_distance_bin"]:
             if col in features.columns:
                 features[col] = features[col].astype("category")
         return features

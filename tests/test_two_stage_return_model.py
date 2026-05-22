@@ -611,7 +611,7 @@ class TestHistoryFeaturesInFeatureCols:
         """5つの履歴特徴量が全てFEATURE_COLSに含まれる"""
         expected = [
             "distance_change", "surface_change", "class_drop_bounce",
-            "freshness_score",
+            "win_dominance", "freshness_score",
         ]
         for name in expected:
             assert name in WinTwoStageModel.FEATURE_COLS, (

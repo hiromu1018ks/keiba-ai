@@ -32,11 +32,7 @@ def compute_market_bias(df: pd.DataFrame) -> pd.DataFrame:
     # 生の含み確率
     p_raw = 1.0 / df["tanodds"].replace(0, np.nan)
 
-    # Overround: 胴元控除率
-    # JRAプール方式では払戻率約70-80%のため、sum(1/tanodds) < 1.0 が正常。
-    # overround = sum(1/tanodds) - 1.0 ≈ -0.20 ~ -0.30 が典型的。
-    # 極端な負値(min=-0.476)は長距離・少頭数レース等で自然に発生。
-    # 固定オッズ方式(英国)の正値overroundとは意味が異なる点に注意。
+    # Overround: 胴元控除率 (正=控除あり, 負=非現実的)
     overround = p_raw.groupby(df["race_id"], observed=True).transform("sum") - 1.0
     df["overround"] = overround
 

@@ -139,8 +139,15 @@ class AbilityModel:
         # TRF-02: weighted_recent_form (D-07/D-08)
         "weighted_recent_form_finish",
         "weighted_recent_form_time",
-        # n_mining予想特徴量 (DATA-04) — dm_time_*は100%NaNのため除外
-        # 繁殖牝馬産駒特徴量 (DATA-01) — dam_*, breeder_strengthは100%NaNのため除外
+        # n_mining予想特徴量 (DATA-04)
+        "dm_time_rank",
+        "dm_time_zscore",
+        "dm_confidence_range",
+        # 繁殖牝馬産駒特徴量 (DATA-01)
+        "dam_wr",
+        "dam_surface_wr",
+        "dam_prize_log",
+        "breeder_strength",
         # BMS拡張特徴量 (DATA-01)
         "bms_distance_wr",
         "bms_surface_wr",
@@ -148,7 +155,8 @@ class AbilityModel:
         "bms_starts_log",
         "bms_surface_starts_log",
         "bms_distance_starts_log",
-        # コースレコード特徴量 (DATA-02) — course_record_timeは100%NaNのため除外
+        # コースレコード特徴量 (DATA-02)
+        "course_record_time",
         # レース内相対比較特徴量 (DATA-03)
         "rel_norm_finish_zscore",
         "rel_haron_vs_mean",
