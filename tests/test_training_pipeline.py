@@ -13,7 +13,7 @@ from domain.models import SubmodelSet, TrainedModelsV5
 from features.feature_engine import FeatureEngine
 from models.regime_detector import RegimeDetector
 from models.submodel_manager import SubModelManager
-from pipelines.training_pipeline import TrainingPipelineV5
+from pipelines.training_pipeline import TrainingPipelineV5, _prepare_oof_artifact
 
 
 def _make_mock_store() -> MagicMock:
@@ -245,6 +245,17 @@ def _make_feature_df(n: int = 8000, n_races: int = 800) -> pd.DataFrame:
 
 class TestTrainingPipelineV5:
     """TrainingPipelineV5 のテスト"""
+
+    def test_prepare_oof_artifact_adds_markers_without_mutating_source(self) -> None:
+        """OOF成果物はfeature cacheと区別できる識別列を持つ"""
+        df = pd.DataFrame({"race_id": ["R1", "R2"], "p_win_pred": [0.2, 0.3]})
+
+        result = _prepare_oof_artifact(df)
+
+        assert "is_oof" not in df.columns
+        assert result["is_oof"].tolist() == [True, True]
+        assert result["oof_artifact_version"].tolist() == [1, 1]
+        assert result["oof_row_id"].tolist() == [0, 1]
 
     @patch("pipelines.training_pipeline.mlflow")
     def test_run_returns_trained_models_v5(
@@ -688,7 +699,11 @@ class TestJRAFilterTraining:
                 "add_distance_band_features",
                 side_effect=lambda df: df.copy(),
             ),
-            patch.object(TrainingPipelineV5, "_train_submodel", return_value=(mock_sub, pd.DataFrame())),
+            patch.object(
+                TrainingPipelineV5,
+                "_train_submodel",
+                return_value=(mock_sub, pd.DataFrame()),
+            ),
             patch.object(
                 TrainingPipelineV5, "_build_race_level_features", return_value=pd.DataFrame()
             ),

@@ -1,0 +1,8 @@
+INFO __main__: Starting strategy optimization: n_trials=5
+[I 2026-05-23 18:38:06,530] A new study created in memory with name: no-name-e828e74e-2287-4ab1-8726-983fd7d91c7f
+INFO db.model_loader: Loading StackedEnsemble: data\models-backtest\win_hit_turf.joblib
+INFO db.model_loader: Place model files not found for turf, skipping (betting_target=win?)
+INFO db.model_loader: Wide model files not found for turf, skipping (betting_target=win?)
+INFO db.model_loader: Loading StackedEnsemble: data\models-backtest\win_hit_dirt.joblib
+INFO db.model_loader: Place model files not found for dirt, skipping (betting_target=win?)
+INFO db.model_loader: Wide model files not found for dirt, skipping (betting_target=win?)

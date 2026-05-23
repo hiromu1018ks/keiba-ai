@@ -70,6 +70,15 @@ def _get_num_threads(parallel_workers: int = 1) -> int:
     return max(1, cpu_count // (parallel_workers + 1))
 
 
+def _prepare_oof_artifact(df: pd.DataFrame) -> pd.DataFrame:
+    """OOF成果物をfeature cacheと区別できる形に整える。"""
+    oof_df = df.copy()
+    oof_df["is_oof"] = True
+    oof_df["oof_artifact_version"] = 1
+    oof_df["oof_row_id"] = np.arange(len(oof_df), dtype=np.int64)
+    return oof_df
+
+
 class TrainingPipelineV5:
     """学習パイプライン (§11)
 
@@ -267,10 +276,12 @@ class TrainingPipelineV5:
             # 3c. OOF予測Parquet保存 (IC評価用, Phase 30)
             oof_path = Path("data/oof/oof_predictions.parquet")
             oof_path.parent.mkdir(parents=True, exist_ok=True)
-            full_features_df.to_parquet(oof_path, index=False)
+            oof_predictions_df = _prepare_oof_artifact(full_features_df)
+            oof_predictions_df.to_parquet(oof_path, index=False)
             logger.info(
-                "Saved OOF predictions: %d rows -> %s",
-                len(full_features_df),
+                "Saved OOF predictions: %d rows, %d cols -> %s",
+                len(oof_predictions_df),
+                len(oof_predictions_df.columns),
                 oof_path,
             )
 

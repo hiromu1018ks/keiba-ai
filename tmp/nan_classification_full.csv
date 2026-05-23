@@ -1,0 +1,560 @@
+﻿column,dtype,missing_count,missing_rate,unique_count,sample_values,everyDB2_doc_meaning,inferred_nan_type,suggested_handling,reason,confidence
+recordspec,object,0,0.0,1,"RA, RA, RA",レコード種別ID,N,keep_nan_candidate,欠損なし - 完全データ,high
+datakubun,object,21829,48.04,2,"7, 7, 7",データ区分 (SE),B,investigate,48%欠損. 7=確定成績のみ? 要確認,medium
+makedate,object,0,0.0,52,"20240715, 20240715, 20240715",データ作成年月日,N,keep_nan_candidate,欠損なし - 完全データ,high
+year,int64,0,0.0,1,"2024, 2024, 2024",開催年,N,keep_nan_candidate,欠損なし - 完全データ,high
+monthday,int64,0,0.0,106,"713, 713, 713",開催月日,N,keep_nan_candidate,欠損なし - 完全データ,high
+jyocd,float64,0,0.0,10,"10.0, 10.0, 10.0",競馬場コード,N,keep_nan_candidate,欠損なし - 完全データ,high
+kaiji,int64,0,0.0,7,"3, 3, 3",開催回,N,keep_nan_candidate,欠損なし - 完全データ,high
+nichiji,int64,0,0.0,12,"5, 5, 5",開催日目,N,keep_nan_candidate,欠損なし - 完全データ,high
+racenum,int64,0,0.0,12,"1, 1, 1",レース番号,N,keep_nan_candidate,欠損なし - 完全データ,high
+youbicd,int64,0,0.0,3,"1, 1, 1",曜日コード,N,keep_nan_candidate,欠損なし - 完全データ,high
+tokunum,int64,0,0.0,130,"0, 0, 0",特別レース番号,N,keep_nan_candidate,欠損なし - 完全データ,high
+hondai,object,0,0.0,916,(all NaN),レース名(漢字),E,unknown_category_candidate,カテゴリ文字列 - 欠損なし,high
+fukudai,object,0,0.0,25,(all NaN),副題,E,unknown_category_candidate,カテゴリ文字列 - 欠損なし,high
+kakko,object,0,0.0,21,(all NaN),括弧題名,E,unknown_category_candidate,カテゴリ文字列 - 欠損なし,high
+hondaieng,object,0,0.0,914,(all NaN),レース名(英字),E,unknown_category_candidate,カテゴリ文字列 - 欠損なし,high
+fukudaieng,object,0,0.0,24,(all NaN),副題(英字),E,unknown_category_candidate,カテゴリ文字列 - 欠損なし,high
+kakkoeng,object,0,0.0,21,(all NaN),括弧題名(英字),E,unknown_category_candidate,カテゴリ文字列 - 欠損なし,high
+ryakusyo10,object,0,0.0,916,(all NaN),レース名略称10字,E,unknown_category_candidate,カテゴリ文字列 - 欠損なし,high
+ryakusyo6,object,0,0.0,916,(all NaN),レース名略称6字,E,unknown_category_candidate,カテゴリ文字列 - 欠損なし,high
+ryakusyo3,object,0,0.0,906,(all NaN),レース名略称3字,E,unknown_category_candidate,カテゴリ文字列 - 欠損なし,high
+kubun,int64,0,0.0,4,"0, 0, 0",レース区分,N,keep_nan_candidate,欠損なし - 完全データ,high
+nkai,int64,0,0.0,55,"0, 0, 0",回数,N,keep_nan_candidate,欠損なし - 完全データ,high
+gradecd,object,0,0.0,6,(all NaN),グレードコード,N,keep_nan_candidate,欠損なし - 完全データ,high
+gradecdbefore,object,0,0.0,1,(all NaN),グレード変更前,N,keep_nan_candidate,欠損なし - 完全データ,high
+syubetucd,int64,0,0.0,4,"11, 11, 11",種別コード(芝/ダ/障),N,keep_nan_candidate,欠損なし - 完全データ,high
+kigocd,float64,26112,57.47,8,"3.0, 3.0, 3.0",馬記号コード (SE),A,unknown_category_candidate,57%欠損. 多くの馬に記号なし→NaN自然,high
+jyuryocd,int64,0,0.0,4,"3, 3, 3",重量コード,N,keep_nan_candidate,欠損なし - 完全データ,high
+jyokencd1,int64,0,0.0,5,"703, 703, 703",条件コード1,N,keep_nan_candidate,欠損なし - 完全データ,high
+jyokencd2,int64,0,0.0,7,"0, 0, 0",条件コード2,N,keep_nan_candidate,欠損なし - 完全データ,high
+jyokencd3,int64,0,0.0,5,"0, 0, 0",条件コード3,N,keep_nan_candidate,欠損なし - 完全データ,high
+jyokencd4,int64,0,0.0,5,"0, 0, 0",条件コード4,N,keep_nan_candidate,欠損なし - 完全データ,high
+jyokencd5,int64,0,0.0,6,"703, 703, 703",条件コード5,N,keep_nan_candidate,欠損なし - 完全データ,high
+jyokenname,object,0,0.0,1,(all NaN),条件名,E,unknown_category_candidate,カテゴリ文字列 - 欠損なし,high
+kyori,int64,0,0.0,21,"1000, 1000, 1000",距離(m),N,keep_nan_candidate,欠損なし - 完全データ,high
+kyoribefore,int64,0,0.0,1,"0, 0, 0",距離変更前,N,keep_nan_candidate,欠損なし - 完全データ,high
+trackcd,int64,0,0.0,8,"24, 24, 24",トラックコード,N,keep_nan_candidate,欠損なし - 完全データ,high
+trackcdbefore,int64,0,0.0,1,"0, 0, 0",トラック変更前,N,keep_nan_candidate,欠損なし - 完全データ,high
+coursekubuncd,float64,45437,100.0,1,(all NaN),"コース区分コード (RA, 障害用)",G,leakage_or_drop_candidate,100% NaN. 削除推奨,high
+coursekubuncdbefore,float64,45437,100.0,1,(all NaN),コース区分変更前 (RA),G,leakage_or_drop_candidate,100% NaN. 削除推奨,high
+honsyokin1,int64,0,0.0,52,"55000, 55000, 55000",本賞金1着,N,keep_nan_candidate,欠損なし - 完全データ,high
+honsyokin2,int64,0,0.0,51,"22000, 22000, 22000",本賞金2着,N,keep_nan_candidate,欠損なし - 完全データ,high
+honsyokin3,int64,0,0.0,52,"14000, 14000, 14000",本賞金3着,N,keep_nan_candidate,欠損なし - 完全データ,high
+honsyokin4,int64,0,0.0,56,"8300, 8300, 8300",本賞金4着,N,keep_nan_candidate,欠損なし - 完全データ,high
+honsyokin5,int64,0,0.0,60,"5500, 5500, 5500",本賞金5着,N,keep_nan_candidate,欠損なし - 完全データ,high
+honsyokin6,int64,0,0.0,6,"0, 0, 0",本賞金6着,N,keep_nan_candidate,欠損なし - 完全データ,high
+honsyokin7,int64,0,0.0,1,"0, 0, 0",本賞金7着,N,keep_nan_candidate,欠損なし - 完全データ,high
+honsyokinbefore1,int64,0,0.0,4,"0, 0, 0",本賞金変更前1着,N,keep_nan_candidate,欠損なし - 完全データ,high
+honsyokinbefore2,int64,0,0.0,8,"0, 0, 0",本賞金変更前2着,N,keep_nan_candidate,欠損なし - 完全データ,high
+honsyokinbefore3,int64,0,0.0,10,"0, 0, 0",本賞金変更前3着,N,keep_nan_candidate,欠損なし - 完全データ,high
+honsyokinbefore4,int64,0,0.0,10,"0, 0, 0",本賞金変更前4着,N,keep_nan_candidate,欠損なし - 完全データ,high
+honsyokinbefore5,int64,0,0.0,9,"0, 0, 0",本賞金変更前5着,N,keep_nan_candidate,欠損なし - 完全データ,high
+fukasyokin1,int64,0,0.0,107,"0, 0, 0",付加賞金1着,N,keep_nan_candidate,欠損なし - 完全データ,high
+fukasyokin2,int64,0,0.0,109,"0, 0, 0",付加賞金2着,N,keep_nan_candidate,欠損なし - 完全データ,high
+fukasyokin3,int64,0,0.0,108,"0, 0, 0",付加賞金3着,N,keep_nan_candidate,欠損なし - 完全データ,high
+fukasyokin4,int64,0,0.0,3,"0, 0, 0",付加賞金4着,N,keep_nan_candidate,欠損なし - 完全データ,high
+fukasyokin5,int64,0,0.0,1,"0, 0, 0",付加賞金5着,N,keep_nan_candidate,欠損なし - 完全データ,high
+fukasyokinbefore1,int64,0,0.0,1,"0, 0, 0",付加賞金変更前1着,N,keep_nan_candidate,欠損なし - 完全データ,high
+fukasyokinbefore2,int64,0,0.0,4,"0, 0, 0",付加賞金変更前2着,N,keep_nan_candidate,欠損なし - 完全データ,high
+fukasyokinbefore3,int64,0,0.0,6,"0, 0, 0",付加賞金変更前3着,N,keep_nan_candidate,欠損なし - 完全データ,high
+hassotime,int64,0,0.0,99,"1001, 1001, 1001",発走時刻,N,keep_nan_candidate,欠損なし - 完全データ,high
+hassotimebefore,int64,0,0.0,33,"1000, 1000, 1000",発走時刻変更前,N,keep_nan_candidate,欠損なし - 完全データ,high
+torokutosu,int64,0,0.0,14,"7, 7, 7",登録頭数,N,keep_nan_candidate,欠損なし - 完全データ,high
+syussotosu,int64,0,0.0,14,"7, 7, 7",出走頭数,N,keep_nan_candidate,欠損なし - 完全データ,high
+tenkocd,int64,0,0.0,4,"2, 2, 2",天候コード,N,keep_nan_candidate,欠損なし - 完全データ,high
+sibababacd,int64,0,0.0,5,"0, 0, 0",芝馬場状態コード,N,keep_nan_candidate,欠損なし - 完全データ,high
+dirtbabacd,int64,0,0.0,5,"2, 2, 2",ダート馬場状態コード,N,keep_nan_candidate,欠損なし - 完全データ,high
+syogaimiletime,int64,0,0.0,1,"0, 0, 0",障害マイルタイム,N,keep_nan_candidate,欠損なし - 完全データ,high
+corner1,int64,0,0.0,4,"3, 3, 3",コーナー数1,N,keep_nan_candidate,欠損なし - 完全データ,high
+syukaisu1,int64,0,0.0,3,"1, 1, 1",周回数1,N,keep_nan_candidate,欠損なし - 完全データ,high
+jyuni1,float64,45437,100.0,1,(all NaN),"1コーナー通過順位 (RA, レース後)",D,leakage_or_drop_candidate,レース後情報. 実害ないが削除推奨,high
+corner2,int64,0,0.0,4,"4, 4, 4",コーナー数2,N,keep_nan_candidate,欠損なし - 完全データ,high
+syukaisu2,int64,0,0.0,3,"1, 1, 1",周回数2,N,keep_nan_candidate,欠損なし - 完全データ,high
+jyuni2,float64,45437,100.0,1,(all NaN),"2コーナー通過順位 (RA, レース後)",D,leakage_or_drop_candidate,レース後情報. 実害ないが削除推奨,high
+corner3,int64,0,0.0,3,"0, 0, 0",コーナー数3,N,keep_nan_candidate,欠損なし - 完全データ,high
+syukaisu3,int64,0,0.0,3,"0, 0, 0",周回数3,N,keep_nan_candidate,欠損なし - 完全データ,high
+jyuni3,float64,45437,100.0,1,(all NaN),"3コーナー通過順位 (RA, レース後)",D,leakage_or_drop_candidate,レース後情報. 実害ないが削除推奨,high
+corner4,int64,0,0.0,2,"0, 0, 0",コーナー数4,N,keep_nan_candidate,欠損なし - 完全データ,high
+syukaisu4,int64,0,0.0,3,"0, 0, 0",周回数4,N,keep_nan_candidate,欠損なし - 完全データ,high
+jyuni4,float64,45437,100.0,1,(all NaN),"4コーナー通過順位 (RA, レース後)",D,leakage_or_drop_candidate,レース後情報. 実害ないが削除推奨,high
+race_date,datetime64[ns],0,0.0,106,"2024-07-13 00:00:00, 2024-07-13 00:00:00, 2024-07-13 00:00:00",レース日付,N,keep_nan_candidate,欠損なし - 完全データ,high
+race_id,object,0,0.0,3327,"2024071310030501, 2024071310030501, 2024071310030501",レースID,N,keep_nan_candidate,欠損なし - 完全データ,high
+surface,object,0,0.0,2,"dirt, dirt, dirt",芝/ダート (computed),N,keep_nan_candidate,欠損なし - 完全データ,high
+track_condition_code,int64,0,0.0,4,"2, 2, 2",馬場状態コード (computed),N,keep_nan_candidate,欠損なし - 完全データ,high
+wakuban,int64,0,0.0,8,"1, 2, 3",枠番,N,keep_nan_candidate,欠損なし - 完全データ,high
+umaban,int64,0,0.0,18,"1, 2, 3",馬番,N,keep_nan_candidate,欠損なし - 完全データ,high
+kettonum,object,0,0.0,11497,"2022102776, 2022110088, 2022100683",血統登録番号,N,keep_nan_candidate,欠損なし - 完全データ,high
+bamei,object,0,0.0,11497,"マルモリマジック, オトメナシャチョウ, ラッキーキャット",馬名,E,unknown_category_candidate,カテゴリ文字列 - 欠損なし,high
+umakigocd,int64,0,0.0,6,"0, 6, 0",馬記号コード,N,keep_nan_candidate,欠損なし - 完全データ,high
+sexcd,int64,0,0.0,3,"2, 2, 2",性別コード,N,keep_nan_candidate,欠損なし - 完全データ,high
+hinsyucd,int64,0,0.0,1,"1, 1, 1",品種コード,N,keep_nan_candidate,欠損なし - 完全データ,high
+keirocd,int64,0,0.0,8,"3, 3, 1",毛色コード,N,keep_nan_candidate,欠損なし - 完全データ,high
+barei,int64,0,0.0,10,"2, 2, 2",馬齢,N,keep_nan_candidate,欠損なし - 完全データ,high
+tozaicd,int64,0,0.0,4,"2, 2, 2",東西所属コード,N,keep_nan_candidate,欠損なし - 完全データ,high
+chokyosicode,object,0,0.0,227,"01003, 00427, 01032",調教師コード,N,keep_nan_candidate,欠損なし - 完全データ,high
+chokyosiryakusyo,object,0,0.0,227,"川村禎彦, 森秀行, 大根田裕",調教師名略称,E,unknown_category_candidate,カテゴリ文字列 - 欠損なし,high
+banusicode,object,0,0.0,1495,"970031, 756800, 018700",馬主コード,N,keep_nan_candidate,欠損なし - 完全データ,high
+banusiname,object,0,0.0,1500,"山下　繁美, ミキハウスＨＫサービス, ロイヤルパーク",馬主名,E,unknown_category_candidate,カテゴリ文字列 - 欠損なし,high
+fukusyoku,float64,45437,100.0,1,(all NaN),服色標示 (SE),G,leakage_or_drop_candidate,100% NaN. 削除推奨,high
+reserved1,float64,45437,100.0,1,(all NaN),予備1 (SE),G,leakage_or_drop_candidate,100% NaN. 削除推奨,high
+futan,int64,0,0.0,22,"540, 550, 550",負担重量,N,keep_nan_candidate,欠損なし - 完全データ,high
+futanbefore,int64,0,0.0,10,"0, 0, 0",変更前負担重量,N,keep_nan_candidate,欠損なし - 完全データ,high
+blinker,int64,0,0.0,2,"0, 0, 0",ブリンカー区分,N,keep_nan_candidate,欠損なし - 完全データ,high
+reserved2,int64,0,0.0,1,"0, 0, 0",予備2 (SE),N,keep_nan_candidate,欠損なし - 完全データ,high
+kisyucode,object,0,0.0,191,"01208, 01154, 01125",騎手コード,N,keep_nan_candidate,欠損なし - 完全データ,high
+kisyucodebefore,int64,0,0.0,44,"0, 0, 0",変更前騎手コード,N,keep_nan_candidate,欠損なし - 完全データ,high
+kisyuryakusyo,object,0,0.0,191,"田口貫太, 松若風馬, 国分優作",騎手名略称,E,unknown_category_candidate,カテゴリ文字列 - 欠損なし,high
+kisyuryakusyobefore,object,0,0.0,44,(all NaN),変更前騎手名略称,E,unknown_category_candidate,カテゴリ文字列 - 欠損なし,high
+minaraicd,int64,0,0.0,6,"1, 0, 0",騎手見習コード,N,keep_nan_candidate,欠損なし - 完全データ,high
+minaraicdbefore,int64,0,0.0,5,"0, 0, 0",変更前騎手見習コード,N,keep_nan_candidate,欠損なし - 完全データ,high
+bataijyu,float64,0,0.0,123,"460.0, 480.0, 388.0",馬体重(kg),N,keep_nan_candidate,欠損なし - 完全データ,high
+zogenfugo,object,45437,100.0,1,(all NaN),"増減符号 (SE, zogensaで代替済み)",G,leakage_or_drop_candidate,100% NaN. 削除推奨,high
+zogensa,float64,4832,10.63,40,"0.0, 6.0, 6.0",増減差,A,keep_nan_candidate,初出走=zogensa 999→NaN,high
+chakusacdp,float64,45437,100.0,1,(all NaN),"+着差コード (SE, レース後)",D,leakage_or_drop_candidate,レース後情報. 実害ないが削除推奨,high
+chakusacdpp,float64,45437,100.0,1,(all NaN),"++着差コード (SE, レース後)",D,leakage_or_drop_candidate,レース後情報. 実害ないが削除推奨,high
+odds,float64,0,0.0,3223,"21.4, 3.7, 60.4",単勝オッズ (tanodds上書き済み),N,keep_nan_candidate,欠損なし - 完全データ,high
+reserved3,int64,0,0.0,1,"0, 0, 0",予備3 (SE),N,keep_nan_candidate,欠損なし - 完全データ,high
+reserved4,int64,0,0.0,1,"0, 0, 0",予備4 (SE),N,keep_nan_candidate,欠損なし - 完全データ,high
+kettonum1,int64,0,0.0,3823,"2022104957, 2022104957, 2022104957",血統登録番号(父),N,keep_nan_candidate,欠損なし - 完全データ,high
+bamei1,float64,45437,100.0,1,(all NaN),"相手馬1名 (SE, 同着)",G,leakage_or_drop_candidate,100% NaN. 削除推奨,high
+kettonum2,int64,0,0.0,14,"0, 0, 0",血統登録番号(母父),N,keep_nan_candidate,欠損なし - 完全データ,high
+bamei2,float64,45437,100.0,1,(all NaN),"相手馬2名 (SE, 同着)",G,leakage_or_drop_candidate,100% NaN. 削除推奨,high
+kettonum3,int64,0,0.0,1,"0, 0, 0",血統登録番号(母母父),N,keep_nan_candidate,欠損なし - 完全データ,high
+bamei3,float64,45437,100.0,1,(all NaN),"相手馬3名 (SE, 同着)",G,leakage_or_drop_candidate,100% NaN. 削除推奨,high
+dmkubun,int64,0,0.0,1,"3, 3, 3",マイニング区分,N,keep_nan_candidate,欠損なし - 完全データ,high
+dmgosap,int64,0,0.0,101,"52, 51, 52",マイニング誤差+,N,keep_nan_candidate,欠損なし - 完全データ,high
+dmgosam,int64,0,0.0,101,"10, 7, 10",マイニング誤差-,N,keep_nan_candidate,欠損なし - 完全データ,high
+tanodds,float64,0,0.0,3223,"21.4, 3.7, 60.4",単勝オッズ(スナップショット),N,keep_nan_candidate,欠損なし - 完全データ,high
+fukuoddslow,float64,0,0.0,592,"5.6, 1.2, 13.5",複勝オッズ下限,N,keep_nan_candidate,欠損なし - 完全データ,high
+tanninki,int64,0,0.0,18,"6, 2, 7",単勝人気順,N,keep_nan_candidate,欠損なし - 完全データ,high
+distance_bin,object,0,0.0,4,"sprint, sprint, sprint",距離帯カテゴリ,N,keep_nan_candidate,欠損なし - 完全データ,high
+grade_code,object,0,0.0,6,"X, X, X",グレードコード,N,keep_nan_candidate,欠損なし - 完全データ,high
+effective_jyokencd,object,0,0.0,6,"703, 703, 703",有効条件コード,N,keep_nan_candidate,欠損なし - 完全データ,high
+class_level_current,float64,0,0.0,8,"1.0, 1.0, 1.0",現在クラスレベル,N,keep_nan_candidate,欠損なし - 完全データ,high
+class_level_source_flag,float64,0,0.0,2,"1.0, 1.0, 1.0",クラスレベルソース,N,keep_nan_candidate,欠損なし - 完全データ,high
+class_bucket,object,0,0.0,8,"maiden, maiden, maiden",クラスバケット名,N,keep_nan_candidate,欠損なし - 完全データ,high
+class_regime_after_202406,float64,0,0.0,2,"1.0, 1.0, 1.0",2024/6以降制度フラグ,N,keep_nan_candidate,欠損なし - 完全データ,high
+field_size,int64,0,0.0,14,"7, 7, 7",フィールドサイズ,N,keep_nan_candidate,欠損なし - 完全データ,high
+popularity_rank_fallback_used,float64,0,0.0,1,"0.0, 0.0, 0.0",人気順フォールバック使用,N,keep_nan_candidate,欠損なし - 完全データ,high
+popularity_rank,float64,0,0.0,18,"6.0, 2.0, 7.0",人気順,N,keep_nan_candidate,欠損なし - 完全データ,high
+draw_ratio,float64,0,0.0,111,"0.0, 0.16666666666666666, 0.3333333333333333",枠順比率,N,keep_nan_candidate,欠損なし - 完全データ,high
+frame_number,int64,0,0.0,8,"1, 2, 3",枠番(数値),N,keep_nan_candidate,欠損なし - 完全データ,high
+blinker_on,float64,0,0.0,2,"0.0, 0.0, 0.0",ブリンカー装着フラグ,N,keep_nan_candidate,欠損なし - 完全データ,high
+weight_change_known,float64,0,0.0,2,"1.0, 1.0, 1.0",体重変化既知フラグ,N,keep_nan_candidate,欠損なし - 完全データ,high
+weight_change_missing_flag,float64,0,0.0,2,"0.0, 0.0, 0.0",体重変化不明フラグ,N,keep_nan_candidate,欠損なし - 完全データ,high
+weight_change_abs_capped,float64,4864,10.7,31,"0.0, 6.0, 6.0",体重変化絶対値(cap),A,keep_nan_candidate,zogensa依存. 初出走=NaN,high
+weight_change_zone,float64,4864,10.7,5,"1.0, 2.0, 2.0",体重変化ゾーン,A,missing_flag_candidate,初出走=NaN. NaN自体が初出走信号,high
+weight_change_ratio,float64,4864,10.7,1299,"0.0, 1.25, 1.5463917525773196",体重変化率,A,keep_nan_candidate,初出走=NaN,high
+weight_diff_from_mean,float64,0,0.0,6220,"10.285714285714278, 30.285714285714278, -61.71428571428572",平均体重との差分,N,keep_nan_candidate,欠損なし - 完全データ,high
+odds_rank,int64,0,0.0,18,"6, 2, 7",オッズ順位,N,keep_nan_candidate,欠損なし - 完全データ,high
+odds_drop_rate_60_10,float64,0,0.0,27026,"-0.2515337423312882, 0.11363636363636373, -0.28108108108108104",オッズ下落率(60->10分),N,keep_nan_candidate,欠損なし - 完全データ,high
+odds_drop_rate_30_10,float64,0,0.0,25942,"-0.16571428571428562, 0.0, -0.1048951048951049",オッズ下落率(30->10分),N,keep_nan_candidate,欠損なし - 完全データ,high
+odds_velocity,float64,0,0.0,45436,"0.0408070584652812, -0.006490940514240952, -0.007758277874512733",オッズ変化速度,N,keep_nan_candidate,欠損なし - 完全データ,high
+odds_volatility,float64,47,0.1,43405,"17.70240352580118, 0.3238340592871796, 16.1010318359886",オッズボラティリティ,C,keep_nan_candidate,直前オッズ時系列が必要. 欠損=時系列なし,high
+popularity_change_30_10,float64,0,0.0,14,"-1.0, 0.0, 0.0",人気変化(30->10分),N,keep_nan_candidate,欠損なし - 完全データ,high
+odds_acceleration,float64,0,0.0,16964,"0.10499999999999995, 0.01666666666666668, 0.028333333333333377",オッズ加速度,N,keep_nan_candidate,欠損なし - 完全データ,high
+odds_direction_consistency,float64,0,0.0,45432,"0.3282533610513401, 0.17841752927809887, 0.45847635066254355",オッズ方向一貫性,N,keep_nan_candidate,欠損なし - 完全データ,high
+overround,float64,0,0.0,3327,"0.27565204472306126, 0.27565204472306126, 0.27565204472306126",オーバーラウンド,N,keep_nan_candidate,欠損なし - 完全データ,high
+p_market_win_adj,float64,0,0.0,45119,"0.03663144049031136, 0.2118683314845035, 0.012978689180342106",市場勝率調整値,N,keep_nan_candidate,欠損なし - 完全データ,high
+market_entropy,float64,0,0.0,3327,"1.3269601825259727, 1.3269601825259727, 1.3269601825259727",市場エントロピー,N,keep_nan_candidate,欠損なし - 完全データ,high
+odds_skewness,float64,0,0.0,3327,"1.9141981200874867, 1.9141981200874867, 1.9141981200874867",オッズ歪度,N,keep_nan_candidate,欠損なし - 完全データ,high
+implied_prob_hhi,float64,0,0.0,3327,"0.3715511524763005, 0.3715511524763005, 0.3715511524763005",暗示確率HHI,N,keep_nan_candidate,欠損なし - 完全データ,high
+difficulty_score,float64,0,0.0,3327,"0.026519213707418415, 0.026519213707418415, 0.026519213707418415",レース難易度スコア,N,keep_nan_candidate,欠損なし - 完全データ,high
+rl_log_odds_entropy,float64,0,0.0,3327,"1.3269601825259727, 1.3269601825259727, 1.3269601825259727",RL対数オッズエントロピー,N,keep_nan_candidate,欠損なし - 完全データ,high
+rl_odds_dispersion,float64,0,0.0,3327,"19.86644694669166, 19.86644694669166, 19.86644694669166",RLオッズ分散,N,keep_nan_candidate,欠損なし - 完全データ,high
+rl_top1_odds,float64,0,0.0,49,"1.4, 1.4, 1.4",RL1位オッズ,N,keep_nan_candidate,欠損なし - 完全データ,high
+rl_top3_odds_gap,float64,0,0.0,310,"7.799999999999999, 7.799999999999999, 7.799999999999999",RL上位3頭オッズギャップ,N,keep_nan_candidate,欠損なし - 完全データ,high
+rl_favorite_rank_gap,float64,0,0.0,981,"0.9718605830289659, 0.9718605830289659, 0.9718605830289659",RL人気順位ギャップ,N,keep_nan_candidate,欠損なし - 完全データ,high
+rl_n_horses,float64,0,0.0,14,"7.0, 7.0, 7.0",RL出走頭数,N,keep_nan_candidate,欠損なし - 完全データ,high
+rl_favorite_in_wide_top1,float64,0,0.0,2,"1.0, 1.0, 1.0",RL1番人気ワイド1位フラグ,N,keep_nan_candidate,欠損なし - 完全データ,high
+rl_trio_overlap,float64,0,0.0,3,"3.0, 3.0, 3.0",RL三連複重複数,N,keep_nan_candidate,欠損なし - 完全データ,high
+rl_market_consistency,float64,0,0.0,2,"1.0, 1.0, 1.0",RL市場一貫性,N,keep_nan_candidate,欠損なし - 完全データ,high
+rl_trio_odds_ratio,float64,389,0.86,3297,"0.8027796088491684, 0.8027796088491684, 0.8027796088491684",三連複オッズ比率,A,keep_nan_candidate,trio oddsなし,high
+rl_wide_harville_ratio,float64,213,0.47,3311,"0.048312294066276996, 0.048312294066276996, 0.048312294066276996",ワイドHarville比率,A,keep_nan_candidate,wide odds計算不可,high
+blood_surface_wr,float64,14670,32.29,226,"0.08333333333333333, 0.08333333333333333, 0.07692307692307693",血統芝ダ別勝率,F,keep_nan_candidate,芝ダ別血統出走実績なし,high
+blood_distance_wr,float64,23664,52.08,187,"0.08333333333333333, 0.08333333333333333, 0.07692307692307693",血統距離別勝率,F,keep_nan_candidate,距離別血統出走実績なし,high
+blood_condition_wr,float64,9879,21.74,218,"0.08333333333333333, 0.08333333333333333, 0.08333333333333333",血統条件別勝率,F,keep_nan_candidate,条件別血統出走実績なし,high
+blood_total_wr,float64,4877,10.73,272,"0.08333333333333333, 0.08333333333333333, 0.08333333333333333",血統全体勝率,F,keep_nan_candidate,血統出走実績なし,high
+blood_prize_log,float64,12285,27.04,5143,"9.798182590890704, 9.305741456739435, 8.881975184248867",血統賞金log,F,keep_nan_candidate,血統出走実績なし,high
+blood_keito_cd,object,0,0.0,1,"unknown, unknown, unknown",血統系統コード,N,keep_nan_candidate,欠損なし - 完全データ,high
+is_turf_sprint,int64,0,0.0,2,"0, 0, 0",芝スプリントフラグ,N,keep_nan_candidate,欠損なし - 完全データ,high
+is_turf_mile,int64,0,0.0,2,"0, 0, 0",芝マイルフラグ,N,keep_nan_candidate,欠損なし - 完全データ,high
+is_turf_intermediate,int64,0,0.0,2,"0, 0, 0",芝中距離フラグ,N,keep_nan_candidate,欠損なし - 完全データ,high
+is_turf_long,int64,0,0.0,2,"0, 0, 0",芝長距離フラグ,N,keep_nan_candidate,欠損なし - 完全データ,high
+is_dirt_sprint,int64,0,0.0,2,"1, 1, 1",ダートスプリントフラグ,N,keep_nan_candidate,欠損なし - 完全データ,high
+is_dirt_mile,int64,0,0.0,2,"0, 0, 0",ダートマイルフラグ,N,keep_nan_candidate,欠損なし - 完全データ,high
+is_dirt_intermediate,int64,0,0.0,2,"0, 0, 0",ダート中距離フラグ,N,keep_nan_candidate,欠損なし - 完全データ,high
+is_good_track,int64,0,0.0,2,"1, 1, 1",良馬場フラグ,N,keep_nan_candidate,欠損なし - 完全データ,high
+is_soft_track,int64,0,0.0,2,"0, 0, 0",重馬場フラグ,N,keep_nan_candidate,欠損なし - 完全データ,high
+wide_odds_1_2,float64,435,0.96,1726,"0.68, 0.68, 0.68",ワイドオッズ 馬番1-2,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_1_3,float64,382,0.84,1783,"6.1, 6.1, 6.1",ワイドオッズ 馬番1-3,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_1_4,float64,389,0.86,1778,"1.77, 1.77, 1.77",ワイドオッズ 馬番1-4,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_1_5,float64,337,0.74,1809,"2.01, 2.01, 2.01",ワイドオッズ 馬番1-5,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_1_6,float64,402,0.88,1820,"0.67, 0.67, 0.67",ワイドオッズ 馬番1-6,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_1_7,float64,486,1.07,1793,"1.38, 1.38, 1.38",ワイドオッズ 馬番1-7,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_1_8,float64,862,1.9,1805,"29.57, 29.57, 29.57",ワイドオッズ 馬番1-8,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_1_9,float64,1736,3.82,1818,"11.54, 11.54, 11.54",ワイドオッズ 馬番1-9,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_1_10,float64,3185,7.01,1793,"14.29, 14.29, 14.29",ワイドオッズ 馬番1-10,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_1_11,float64,5236,11.52,1756,"21.36, 21.36, 21.36",ワイドオッズ 馬番1-11,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_1_12,float64,7631,16.79,1673,"71.13, 71.13, 71.13",ワイドオッズ 馬番1-12,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_1_13,float64,10873,23.93,1629,"14.74, 14.74, 14.74",ワイドオッズ 馬番1-13,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_1_14,float64,13812,30.4,1497,"15.99, 15.99, 15.99",ワイドオッズ 馬番1-14,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_1_15,float64,18488,40.69,1317,"5.53, 5.53, 5.53",ワイドオッズ 馬番1-15,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_1_16,float64,23809,52.4,1116,"64.98, 64.98, 64.98",ワイドオッズ 馬番1-16,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_1_17,float64,40170,88.41,289,"2.71, 2.71, 2.71",ワイドオッズ 馬番1-17,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_1_18,float64,41392,91.1,224,"5.81, 5.81, 5.81",ワイドオッズ 馬番1-18,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_2_3,float64,417,0.92,1777,"1.9, 1.9, 1.9",ワイドオッズ 馬番2-3,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_2_4,float64,424,0.93,1784,"0.25, 0.25, 0.25",ワイドオッズ 馬番2-4,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_2_5,float64,372,0.82,1825,"0.31, 0.31, 0.31",ワイドオッズ 馬番2-5,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_2_6,float64,437,0.96,1774,"0.11, 0.11, 0.11",ワイドオッズ 馬番2-6,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_2_7,float64,521,1.15,1785,"0.24, 0.24, 0.24",ワイドオッズ 馬番2-7,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_2_8,float64,891,1.96,1811,"18.65, 18.65, 18.65",ワイドオッズ 馬番2-8,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_2_9,float64,1751,3.85,1825,"11.31, 11.31, 11.31",ワイドオッズ 馬番2-9,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_2_10,float64,3184,7.01,1818,"4.34, 4.34, 4.34",ワイドオッズ 馬番2-10,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_2_11,float64,5254,11.56,1767,"14.1, 14.1, 14.1",ワイドオッズ 馬番2-11,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_2_12,float64,7629,16.79,1636,"5.02, 5.02, 5.02",ワイドオッズ 馬番2-12,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_2_13,float64,10859,23.9,1612,"3.81, 3.81, 3.81",ワイドオッズ 馬番2-13,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_2_14,float64,13798,30.37,1481,"21.37, 21.37, 21.37",ワイドオッズ 馬番2-14,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_2_15,float64,18474,40.66,1325,"7.02, 7.02, 7.02",ワイドオッズ 馬番2-15,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_2_16,float64,23795,52.37,1093,"11.28, 11.28, 11.28",ワイドオッズ 馬番2-16,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_2_17,float64,40186,88.44,285,"1.9, 1.9, 1.9",ワイドオッズ 馬番2-17,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_2_18,float64,41408,91.13,221,"4.08, 4.08, 4.08",ワイドオッズ 馬番2-18,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_3_4,float64,371,0.82,1773,"5.26, 5.26, 5.26",ワイドオッズ 馬番3-4,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_3_5,float64,319,0.7,1789,"4.84, 4.84, 4.84",ワイドオッズ 馬番3-5,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_3_6,float64,370,0.81,1769,"1.69, 1.69, 1.69",ワイドオッズ 馬番3-6,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_3_7,float64,468,1.03,1791,"3.82, 3.82, 3.82",ワイドオッズ 馬番3-7,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_3_8,float64,844,1.86,1778,"25.14, 25.14, 25.14",ワイドオッズ 馬番3-8,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_3_9,float64,1711,3.77,1797,"19.36, 19.36, 19.36",ワイドオッズ 馬番3-9,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_3_10,float64,3144,6.92,1818,"7.61, 7.61, 7.61",ワイドオッズ 馬番3-10,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_3_11,float64,5223,11.5,1793,"16.52, 16.52, 16.52",ワイドオッズ 馬番3-11,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_3_12,float64,7608,16.74,1672,"9.43, 9.43, 9.43",ワイドオッズ 馬番3-12,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_3_13,float64,10860,23.9,1600,"4.9, 4.9, 4.9",ワイドオッズ 馬番3-13,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_3_14,float64,13799,30.37,1478,"30.77, 30.77, 30.77",ワイドオッズ 馬番3-14,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_3_15,float64,18475,40.66,1350,"10.49, 10.49, 10.49",ワイドオッズ 馬番3-15,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_3_16,float64,23796,52.37,1105,"19.6, 19.6, 19.6",ワイドオッズ 馬番3-16,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_3_17,float64,40187,88.45,288,"1.33, 1.33, 1.33",ワイドオッズ 馬番3-17,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_3_18,float64,41409,91.13,217,"3.6, 3.6, 3.6",ワイドオッズ 馬番3-18,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_4_5,float64,326,0.72,1786,"1.38, 1.38, 1.38",ワイドオッズ 馬番4-5,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_4_6,float64,391,0.86,1758,"0.19, 0.19, 0.19",ワイドオッズ 馬番4-6,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_4_7,float64,475,1.05,1760,"0.78, 0.78, 0.78",ワイドオッズ 馬番4-7,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_4_8,float64,851,1.87,1764,"8.82, 8.82, 8.82",ワイドオッズ 馬番4-8,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_4_9,float64,1725,3.8,1805,"5.04, 5.04, 5.04",ワイドオッズ 馬番4-9,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_4_10,float64,3158,6.95,1789,"1.14, 1.14, 1.14",ワイドオッズ 馬番4-10,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_4_11,float64,5229,11.51,1763,"5.44, 5.44, 5.44",ワイドオッズ 馬番4-11,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_4_12,float64,7624,16.78,1617,"1.41, 1.41, 1.41",ワイドオッズ 馬番4-12,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_4_13,float64,10898,23.98,1591,"1.14, 1.14, 1.14",ワイドオッズ 馬番4-13,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_4_14,float64,13837,30.45,1442,"9.41, 9.41, 9.41",ワイドオッズ 馬番4-14,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_4_15,float64,18487,40.69,1316,"2.16, 2.16, 2.16",ワイドオッズ 馬番4-15,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_4_16,float64,23794,52.37,1103,"2.66, 2.66, 2.66",ワイドオッズ 馬番4-16,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_4_17,float64,40186,88.44,285,"19.27, 19.27, 19.27",ワイドオッズ 馬番4-17,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_4_18,float64,41392,91.1,223,"33.84, 33.84, 33.84",ワイドオッズ 馬番4-18,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_5_6,float64,339,0.75,1740,"0.33, 0.33, 0.33",ワイドオッズ 馬番5-6,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_5_7,float64,423,0.93,1784,"0.94, 0.94, 0.94",ワイドオッズ 馬番5-7,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_5_8,float64,799,1.76,1776,"30.76, 30.76, 30.76",ワイドオッズ 馬番5-8,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_5_9,float64,1666,3.67,1826,"16.95, 16.95, 16.95",ワイドオッズ 馬番5-9,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_5_10,float64,3115,6.86,1782,"7.31, 7.31, 7.31",ワイドオッズ 馬番5-10,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_5_11,float64,5185,11.41,1755,"18.85, 18.85, 18.85",ワイドオッズ 馬番5-11,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_5_12,float64,7580,16.68,1646,"7.05, 7.05, 7.05",ワイドオッズ 馬番5-12,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_5_13,float64,10854,23.89,1588,"5.21, 5.21, 5.21",ワイドオッズ 馬番5-13,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_5_14,float64,13793,30.36,1467,"49.72, 49.72, 49.72",ワイドオッズ 馬番5-14,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_5_15,float64,18456,40.62,1305,"11.97, 11.97, 11.97",ワイドオッズ 馬番5-15,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_5_16,float64,23735,52.24,1112,"15.62, 15.62, 15.62",ワイドオッズ 馬番5-16,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_5_17,float64,40170,88.41,286,"1.7, 1.7, 1.7",ワイドオッズ 馬番5-17,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_5_18,float64,41392,91.1,222,"3.75, 3.75, 3.75",ワイドオッズ 馬番5-18,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_6_7,float64,453,1.0,1739,"0.21, 0.21, 0.21",ワイドオッズ 馬番6-7,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_6_8,float64,829,1.82,1745,"57.63, 57.63, 57.63",ワイドオッズ 馬番6-8,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_6_9,float64,1703,3.75,1780,"38.76, 38.76, 38.76",ワイドオッズ 馬番6-9,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_6_10,float64,3152,6.94,1744,"22.09, 22.09, 22.09",ワイドオッズ 馬番6-10,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_6_11,float64,5222,11.49,1756,"49.18, 49.18, 49.18",ワイドオッズ 馬番6-11,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_6_12,float64,7607,16.74,1631,"19.19, 19.19, 19.19",ワイドオッズ 馬番6-12,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_6_13,float64,10881,23.95,1580,"10.68, 10.68, 10.68",ワイドオッズ 馬番6-13,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_6_14,float64,13796,30.36,1453,"79.0, 79.0, 79.0",ワイドオッズ 馬番6-14,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_6_15,float64,18446,40.6,1298,"30.35, 30.35, 30.35",ワイドオッズ 馬番6-15,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_6_16,float64,23767,52.31,1082,"40.26, 40.26, 40.26",ワイドオッズ 馬番6-16,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_6_17,float64,40203,88.48,282,"105.35, 105.35, 105.35",ワイドオッズ 馬番6-17,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_6_18,float64,41425,91.17,219,"151.87, 151.87, 151.87",ワイドオッズ 馬番6-18,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_7_8,float64,823,1.81,1722,"2.15, 2.15, 2.15",ワイドオッズ 馬番7-8,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_7_9,float64,1704,3.75,1807,"1.9, 1.9, 1.9",ワイドオッズ 馬番7-9,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_7_10,float64,3139,6.91,1743,"0.36, 0.36, 0.36",ワイドオッズ 馬番7-10,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_7_11,float64,5232,11.51,1712,"1.77, 1.77, 1.77",ワイドオッズ 馬番7-11,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_7_12,float64,7607,16.74,1620,"0.5, 0.5, 0.5",ワイドオッズ 馬番7-12,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_7_13,float64,10881,23.95,1553,"0.3, 0.3, 0.3",ワイドオッズ 馬番7-13,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_7_14,float64,13820,30.42,1444,"2.16, 2.16, 2.16",ワイドオッズ 馬番7-14,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_7_15,float64,18458,40.62,1300,"0.79, 0.79, 0.79",ワイドオッズ 馬番7-15,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_7_16,float64,23766,52.31,1098,"1.0, 1.0, 1.0",ワイドオッズ 馬番7-16,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_7_17,float64,40187,88.45,284,"1.12, 1.12, 1.12",ワイドオッズ 馬番7-17,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_7_18,float64,41409,91.13,219,"2.31, 2.31, 2.31",ワイドオッズ 馬番7-18,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_8_9,float64,1627,3.58,1755,"11.57, 11.57, 11.57",ワイドオッズ 馬番8-9,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_8_10,float64,3068,6.75,1719,"4.14, 4.14, 4.14",ワイドオッズ 馬番8-10,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_8_11,float64,5147,11.33,1727,"14.18, 14.18, 14.18",ワイドオッズ 馬番8-11,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_8_12,float64,7532,16.58,1596,"5.45, 5.45, 5.45",ワイドオッズ 馬番8-12,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_8_13,float64,10784,23.73,1591,"3.59, 3.59, 3.59",ワイドオッズ 馬番8-13,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_8_14,float64,13723,30.2,1451,"28.86, 28.86, 28.86",ワイドオッズ 馬番8-14,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_8_15,float64,18399,40.49,1307,"10.32, 10.32, 10.32",ワイドオッズ 馬番8-15,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_8_16,float64,23720,52.2,1093,"11.98, 11.98, 11.98",ワイドオッズ 馬番8-16,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_8_17,float64,40170,88.41,284,"1.01, 1.01, 1.01",ワイドオッズ 馬番8-17,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_8_18,float64,41392,91.1,216,"2.32, 2.32, 2.32",ワイドオッズ 馬番8-18,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_9_10,float64,3114,6.85,1737,"2.12, 2.12, 2.12",ワイドオッズ 馬番9-10,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_9_11,float64,5184,11.41,1772,"8.98, 8.98, 8.98",ワイドオッズ 馬番9-11,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_9_12,float64,7569,16.66,1618,"3.02, 3.02, 3.02",ワイドオッズ 馬番9-12,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_9_13,float64,10832,23.84,1570,"2.15, 2.15, 2.15",ワイドオッズ 馬番9-13,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_9_14,float64,13771,30.31,1446,"19.47, 19.47, 19.47",ワイドオッズ 馬番9-14,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_9_15,float64,18447,40.6,1317,"4.79, 4.79, 4.79",ワイドオッズ 馬番9-15,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_9_16,float64,23782,52.34,1078,"5.62, 5.62, 5.62",ワイドオッズ 馬番9-16,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_9_17,float64,40187,88.45,289,"21.64, 21.64, 21.64",ワイドオッズ 馬番9-17,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_9_18,float64,41409,91.13,219,"33.3, 33.3, 33.3",ワイドオッズ 馬番9-18,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_10_11,float64,5245,11.54,1719,"2.71, 2.71, 2.71",ワイドオッズ 馬番10-11,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_10_12,float64,7616,16.76,1613,"0.66, 0.66, 0.66",ワイドオッズ 馬番10-12,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_10_13,float64,10857,23.89,1570,"0.48, 0.48, 0.48",ワイドオッズ 馬番10-13,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_10_14,float64,13810,30.39,1444,"4.3, 4.3, 4.3",ワイドオッズ 馬番10-14,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_10_15,float64,18473,40.66,1279,"0.86, 0.86, 0.86",ワイドオッズ 馬番10-15,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_10_16,float64,23780,52.34,1095,"1.44, 1.44, 1.44",ワイドオッズ 馬番10-16,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_10_17,float64,40203,88.48,284,"43.12, 43.12, 43.12",ワイドオッズ 馬番10-17,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_10_18,float64,41409,91.13,221,"77.51, 77.51, 77.51",ワイドオッズ 馬番10-18,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_11_12,float64,7641,16.82,1572,"2.43, 2.43, 2.43",ワイドオッズ 馬番11-12,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_11_13,float64,10905,24.0,1572,"1.42, 1.42, 1.42",ワイドオッズ 馬番11-13,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_11_14,float64,13808,30.39,1443,"12.98, 12.98, 12.98",ワイドオッズ 馬番11-14,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_11_15,float64,18472,40.65,1307,"4.72, 4.72, 4.72",ワイドオッズ 馬番11-15,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_11_16,float64,23765,52.3,1104,"5.24, 5.24, 5.24",ワイドオッズ 馬番11-16,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_11_17,float64,40170,88.41,287,"4.14, 4.14, 4.14",ワイドオッズ 馬番11-17,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_11_18,float64,41392,91.1,220,"9.56, 9.56, 9.56",ワイドオッズ 馬番11-18,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_12_13,float64,10842,23.86,1531,"0.4, 0.4, 0.4",ワイドオッズ 馬番12-13,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_12_14,float64,13781,30.33,1400,"4.67, 4.67, 4.67",ワイドオッズ 馬番12-14,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_12_15,float64,18445,40.59,1257,"1.09, 1.09, 1.09",ワイドオッズ 馬番12-15,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_12_16,float64,23780,52.34,1065,"1.49, 1.49, 1.49",ワイドオッズ 馬番12-16,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_12_17,float64,40187,88.45,282,"30.22, 30.22, 30.22",ワイドオッズ 馬番12-17,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_12_18,float64,41409,91.13,219,"39.69, 39.69, 39.69",ワイドオッズ 馬番12-18,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_13_14,float64,13799,30.37,1429,"3.07, 3.07, 3.07",ワイドオッズ 馬番13-14,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_13_15,float64,18462,40.63,1320,"0.74, 0.74, 0.74",ワイドオッズ 馬番13-15,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_13_16,float64,23783,52.34,1096,"0.91, 0.91, 0.91",ワイドオッズ 馬番13-16,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_13_17,float64,40204,88.48,280,"8.5, 8.5, 8.5",ワイドオッズ 馬番13-17,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_13_18,float64,41426,91.17,220,"20.33, 20.33, 20.33",ワイドオッズ 馬番13-18,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_14_15,float64,18414,40.53,1263,"6.93, 6.93, 6.93",ワイドオッズ 馬番14-15,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_14_16,float64,23735,52.24,1059,"10.31, 10.31, 10.31",ワイドオッズ 馬番14-16,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_14_17,float64,40170,88.41,285,"100.92, 100.92, 100.92",ワイドオッズ 馬番14-17,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_14_18,float64,41392,91.1,224,"163.83, 163.83, 163.83",ワイドオッズ 馬番14-18,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_15_16,float64,23737,52.24,1082,"1.71, 1.71, 1.71",ワイドオッズ 馬番15-16,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_15_17,float64,40187,88.45,289,"1.71, 1.71, 1.71",ワイドオッズ 馬番15-17,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_15_18,float64,41409,91.13,220,"1.48, 1.48, 1.48",ワイドオッズ 馬番15-18,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_16_17,float64,40255,88.6,280,"22.58, 22.58, 22.58",ワイドオッズ 馬番16-17,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_16_18,float64,41477,91.28,218,"20.81, 20.81, 20.81",ワイドオッズ 馬番16-18,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+wide_odds_17_18,float64,41392,91.1,222,"5.6, 5.6, 5.6",ワイドオッズ 馬番17-18,A,keep_nan_candidate,"レース頭数に応じて自然にNaN (出走頭数<max(i,j))",high
+sire_id,object,0,0.0,456,"1120002427, 1140006042, 1120002459",種牡馬ID,N,keep_nan_candidate,欠損なし - 完全データ,high
+bms_id,object,0,0.0,888,"1120002221, 1140006233, 1120001901",母父ID,N,keep_nan_candidate,欠損なし - 完全データ,high
+bms_wr,float64,0,0.0,3546,"0.07257546563904946, 0.08984375, 0.04426106526631658",母父勝率,N,keep_nan_candidate,欠損なし - 完全データ,high
+sire_distance_wr,float64,0,0.0,11585,"0.07220216606498195, 0.1348314606741573, 0.07180851063829788",種牡馬距離別勝率,N,keep_nan_candidate,欠損なし - 完全データ,high
+sire_wr,float64,0,0.0,9744,"0.06605504587155964, 0.12625250501002003, 0.07006369426751592",種牡馬勝率,N,keep_nan_candidate,欠損なし - 完全データ,high
+sire_surface_wr,float64,0,0.0,11489,"0.07251264755480608, 0.12034383954154727, 0.05868544600938967",種牡馬芝ダ別勝率,N,keep_nan_candidate,欠損なし - 完全データ,high
+bms_surface_starts_log,float64,0,0.0,3374,"8.204124932574041, 5.247024072160486, 7.0431599159883405",母父芝ダ出走数log,N,keep_nan_candidate,欠損なし - 完全データ,high
+bms_surface_wr,float64,0,0.0,4192,"0.07692307692307693, 0.11, 0.04242424242424243",母父芝ダ別勝率,N,keep_nan_candidate,欠損なし - 完全データ,high
+sire_prize_avg,float64,0,0.0,13820,"9.216197052780226, 10.26212078269818, 9.422955724211548",種牡馬平均賞金log,N,keep_nan_candidate,欠損なし - 完全データ,high
+bms_starts_log,float64,0,0.0,3111,"8.446985296372741, 5.5053315359323625, 7.884576510596324",母父出走数log,N,keep_nan_candidate,欠損なし - 完全データ,high
+bms_distance_starts_log,float64,0,0.0,3143,"7.632885505395133, 4.418840607796598, 7.118826249062078",母父距離別出走数log,N,keep_nan_candidate,欠損なし - 完全データ,high
+bms_has_history,float64,0,0.0,2,"1.0, 1.0, 1.0",母父履歴ありフラグ,N,keep_nan_candidate,欠損なし - 完全データ,high
+bms_distance_wr,float64,0,0.0,4169,"0.07180722891566266, 0.08602150537634409, 0.036947791164658635",母父距離別勝率,N,keep_nan_candidate,欠損なし - 完全データ,high
+pace_aptitude,float64,31543,69.42,10662,"-0.19738198309626886, 0.15342738070010808, 0.21836774336774345",ペース適性スコア,F,keep_nan_candidate,69%欠損. ペース経験不足,high
+front_pace_wr,float64,9555,21.03,199,"0.07692307692307693, 0.09090909090909091, 0.16666666666666666",逃げ/先行ペース勝率,F,keep_nan_candidate,ペース出走経験なし,high
+closing_pace_wr,float64,9555,21.03,94,"0.1111111111111111, 0.07692307692307693, 0.07692307692307693",差し/追込ペース勝率,F,keep_nan_candidate,ペース出走経験なし,high
+pace_corner_stability,float64,9555,21.03,32367,"0.19636915439854277, 0.27368665989965335, 0.2580051794732943",コーナー順位安定性,A,keep_nan_candidate,過去コーナーデータなし,high
+pace_closing_power,float64,9555,21.03,10812,"-353.8125, -352.3333333333333, -362.9375",末脚パワー,A,keep_nan_candidate,過去ハロンタイムなし,high
+pace_position_consistency,float64,9555,21.03,32276,"0.30174442329837287, 0.25594798061744145, 0.2815059673932193",位置取り一貫性,A,keep_nan_candidate,過去コーナーデータなし,high
+course_wr,float64,4963,10.92,70,"0.08333333333333333, 0.09090909090909091, 0.09090909090909091",コース別勝率,F,keep_nan_candidate,該当コース経験なし,high
+course_distance_wr,float64,4963,10.92,64,"0.08333333333333333, 0.09090909090909091, 0.09090909090909091",コース距離別勝率,F,keep_nan_candidate,該当コース距離経験なし,high
+dam_wr,float64,45437,100.0,1,(all NaN),母父勝率 (未実装/データ不十分),B,leakage_or_drop_candidate,未実装特徴量. 削除推奨,high
+dam_surface_wr,float64,45437,100.0,1,(all NaN),母父芝ダ別勝率 (未実装),B,leakage_or_drop_candidate,未実装特徴量. 削除推奨,high
+dam_prize_log,float64,45437,100.0,1,(all NaN),母父賞金log (未実装),B,leakage_or_drop_candidate,未実装特徴量. 削除推奨,high
+breeder_strength,float64,45437,100.0,1,(all NaN),生産者強度 (未実装),B,leakage_or_drop_candidate,未実装特徴量. 削除推奨,high
+course_record_time,float64,45437,100.0,1,(all NaN),コースレコードタイム (未実装),B,leakage_or_drop_candidate,未実装特徴量. 削除推奨,high
+dm_time_rank,float64,45437,100.0,1,(all NaN),マイニング順位 (未実装),B,leakage_or_drop_candidate,未実装特徴量. 削除推奨,high
+dm_time_zscore,float64,45437,100.0,1,(all NaN),マイニングzscore (未実装),B,leakage_or_drop_candidate,未実装特徴量. 削除推奨,high
+dm_confidence_range,float64,45437,100.0,1,(all NaN),マイニング信頼区間 (未実装),B,leakage_or_drop_candidate,未実装特徴量. 削除推奨,high
+dm_time_margin_to_fav,float64,45437,100.0,1,(all NaN),マイニング人気差 (未実装),B,leakage_or_drop_candidate,未実装特徴量. 削除推奨,high
+norm_finish_logit_avg,float64,4995,10.99,26627,"0.9162907318741551, -2.3978952727983702, 0.6931471805599457",平均着順logit,A,keep_nan_candidate,過去出走なし,high
+harontimel5_avg,float64,4995,10.99,34061,"360.0, 369.0, 388.0",後5ハロン平均,A,keep_nan_candidate,過去出走なし,high
+harontimel5_zscore,float64,4995,10.99,39335,"0.18392469153873664, 0.28853334499841876, 0.3208852188738327",後5ハロンzscore,A,keep_nan_candidate,過去出走なし,high
+harontime_late_trend,float64,19932,43.87,2088,"-8.5, -7.333333333333314, 2.1666666666666856",後半ハロントレンド,A,keep_nan_candidate,過去出走不足で回帰不可,high
+timediff_avg,float64,4995,10.99,639,"4.0, 19.0, 15.0",平均タイム差,A,keep_nan_candidate,過去出走なし,high
+jyuni1c_avg,float64,4995,10.99,154,"0.0, 0.0, 0.0",平均1コーナー順位,A,keep_nan_candidate,過去出走なし,high
+jyuni4c_avg,float64,4995,10.99,165,"4.0, 2.0, 2.0",平均4コーナー順位,A,keep_nan_candidate,過去出走なし,high
+closing_index_avg,float64,4995,10.99,27020,"0.14285714285714285, -0.8333333333333333, -0.2222222222222222",平均クロージング指数,A,keep_nan_candidate,過去出走なし,high
+kyakusitukubun_cd,float64,4995,10.99,6,"2.0, 2.0, 2.0",脚質コード,A,missing_flag_candidate,過去出走なし→脚質判定不能. NaN=初出走信号,high
+jockey_surprise,float64,1349,2.97,784,"-0.009219315285306666, 0.00407545181816988, 0.02619434300309991",騎手サプライズ指標,F,keep_nan_candidate,騎手出走数不足,high
+jockey_cond_wr,float64,913,2.01,1463,"0.036205402554345775, 0.05853230965807979, 0.044924540004134796",騎手条件別勝率,F,keep_nan_candidate,該当条件出走実績なし,high
+weight_absolute,float64,0,0.0,123,"460.0, 480.0, 388.0",馬体重(絶対値),N,keep_nan_candidate,欠損なし - 完全データ,high
+weight_zscore,float64,9627,21.19,23474,"0.6602252917735247, 1.5320646925708563, 3.3075828740863784",体重zscore,A,keep_nan_candidate,過去出走なし,high
+days_since_last_race,float64,4995,10.99,407,"14.0, 41.0, 28.0",前走からの日数,A,keep_nan_candidate,初出走,high
+rest_category,float64,4995,10.99,6,"2.0, 3.0, 2.0",休養カテゴリ,A,keep_nan_candidate,初出走,high
+is_debut,float64,0,0.0,2,"1.0, 0.0, 0.0",初出走フラグ,N,keep_nan_candidate,欠損なし - 完全データ,high
+form_trend,float64,9622,21.18,27907,"0.04833333333333337, 0.008461538461538454, -0.21047619047619048",調子トレンド,A,keep_nan_candidate,過去出走不足,high
+form_consistency,float64,9622,21.18,30134,"0.2712931993250107, 0.25301951796286093, 0.35251270449763905",調子一貫性,A,keep_nan_candidate,過去出走不足,high
+form_peak_flag,float64,13636,30.01,3,"1.0, 1.0, 0.0",中度欠損 (30.0%),A,keep_nan_candidate,経験不足による自然欠損,medium
+class_move,float64,4998,11.0,25,"0.0, 0.0, 0.0",クラス変動,A,keep_nan_candidate,過去出走なし,high
+blinker_change,float64,0,0.0,3,"0.0, 0.0, 0.0",ブリンカー変更フラグ,N,keep_nan_candidate,欠損なし - 完全データ,high
+is_nar_transfer,float64,37,0.08,3,"0.0, 0.0, 0.0",地方転籍フラグ,A,keep_nan_candidate,中央のみ出走=0,high
+nar_recent_ratio,float64,8,0.02,12,"0.0, 0.0, 0.0",地方出走比率,A,keep_nan_candidate,中央のみ出走=0,high
+track_condition_delta,float64,4995,10.99,9,"0.0, 1.0, 1.0",馬場状態変化,A,keep_nan_candidate,過去出走なし,high
+distance_change,float64,4995,10.99,3,"0.0, 0.0, 0.0",距離変化フラグ,A,keep_nan_candidate,過去出走なし,high
+surface_change,float64,4995,10.99,3,"0.0, 1.0, 0.0",芝ダ変更フラグ,A,keep_nan_candidate,過去出走なし,high
+class_drop_bounce,float64,4998,11.0,965,"0.0, 0.0, 0.0",クラス降級バウンス,A,keep_nan_candidate,過去出走なし,high
+win_dominance,float64,32074,70.59,57,"14.0, 11.5, 12.5",重度欠損 (70.6%),A,keep_nan_candidate,経験不足による自然欠損,medium
+freshness_score,float64,13636,30.01,16492,"0.22944444444444448, 0.42678062678062667, 0.21273504273504268",中度欠損 (30.0%),A,keep_nan_candidate,経験不足による自然欠損,medium
+class_adj_formetric,float64,4997,11.0,27397,"0.2857142857142857, 0.9166666666666666, 0.3333333333333333",クラス調整フォーム,A,keep_nan_candidate,過去出走なし,high
+haron_zscore_trend,float64,13636,30.01,31567,"-0.06522690871874626, -0.06069990839384999, 0.07357427082489047",中度欠損 (30.0%),A,keep_nan_candidate,経験不足による自然欠損,medium
+class_promotions,float64,9626,21.19,6,"0.0, 0.0, 0.0",クラス昇級回数,F,zero_fill_candidate,過去出走なし→0が自然,high
+class_demotions,float64,9626,21.19,5,"0.0, 0.0, 0.0",クラス降級回数,F,zero_fill_candidate,過去出走なし→0が自然,high
+class_net_change,float64,9626,21.19,25,"0.0, 0.0, 0.0",クラス純変動,F,zero_fill_candidate,過去出走なし→0が自然,high
+class_max_level,float64,9626,21.19,9,"5.0, 5.0, 5.0",過去最高クラス,F,keep_nan_candidate,過去出走なし. NaN=初出走信号,high
+class_level_std,float64,9626,21.19,275,"0.0, 0.0, 0.0",クラスレベル標準偏差,F,zero_fill_candidate,過去出走なし→0が自然,high
+v_recovery_flag,float64,9626,21.19,3,"0.0, 0.0, 0.0",V字回復フラグ,F,zero_fill_candidate,過去出走なし→0が自然,high
+v_recovery_duration,float64,40852,89.91,4,"1.0, 3.0, 3.0",V字回復期間,F,keep_nan_candidate,90%欠損. 回復経験なし,high
+time_improvement_rate,float64,9622,21.18,30381,"0.2533160992166783, 0.1843814997441027, -0.11753839298740268",タイム改善率,A,keep_nan_candidate,過去出走不足,high
+position_improvement_rate,float64,9622,21.18,31475,"0.1297167497899186, 0.07099853880421178, -0.2949031214679215",順位改善率,A,keep_nan_candidate,過去出走不足,high
+dist_change_avg_pos,float64,39399,86.71,2351,"0.2857142857142857, 0.44886363636363635, 0.2111111111111111",距離変更時平均着順,F,keep_nan_candidate,87%欠損. 距離変更経験なし,high
+dist_change_win_rate,float64,39399,86.71,8,"0.0, 0.0, 0.3333333333333333",距離変更時勝率,F,keep_nan_candidate,87%欠損. 距離変更経験なし,high
+dist_change_exp_count,float64,39399,86.71,5,"1.0, 2.0, 3.0",距離変更経験回数,F,zero_fill_candidate,87%欠損. 0埋め自然,high
+surf_change_avg_pos,float64,43327,95.36,1196,"0.875, 0.0, 0.6378205128205128",芝ダ変更時平均着順,F,keep_nan_candidate,95%欠損. 芝ダ変更経験なし,high
+surf_change_win_rate,float64,43327,95.36,8,"0.0, 1.0, 0.0",芝ダ変更時勝率,F,keep_nan_candidate,95%欠損. 芝ダ変更経験なし,high
+surf_change_exp_count,float64,43327,95.36,5,"1.0, 3.0, 4.0",芝ダ変更経験回数,F,zero_fill_candidate,95%欠損. 0埋め自然,high
+cond_change_avg_pos,float64,35987,79.2,3651,"0.35181938159879333, 0.3827651515151515, 0.30000000000000004",条件変更時平均着順,F,keep_nan_candidate,79%欠損. 条件変更経験なし,high
+cond_change_win_rate,float64,35987,79.2,8,"0.0, 0.0, 0.0",条件変更時勝率,F,keep_nan_candidate,79%欠損. 条件変更経験なし,high
+cond_change_exp_count,float64,35987,79.2,5,"4.0, 4.0, 2.0",条件変更経験回数,F,zero_fill_candidate,79%欠損. 0埋め自然,high
+weighted_recent_form_finish,float64,4995,10.99,33812,"0.9162907318741551, -2.3978952727983702, 0.6931471805599457",加重最近着順,A,keep_nan_candidate,過去出走なし,high
+weighted_recent_form_time,float64,4995,10.99,33204,"4.0, 19.0, 15.0",加重最近タイム,A,keep_nan_candidate,過去出走なし,high
+closing_speed_ratio_avg,float64,5223,11.5,37242,"0.7725321888412017, 0.7801268498942917, 0.790224032586558",平均上がり比率,A,keep_nan_candidate,過去出走なし,high
+closing_speed_ratio_zscore,float64,5223,11.5,39235,"-0.085235430112648, 0.12318359718614091, 0.13417398252542645",上がり比率zscore,A,keep_nan_candidate,過去出走なし,high
+closing_speed_ratio_trend,float64,10156,22.35,34982,"-0.019238715008779998, -0.000752247512506683, -0.007838640885851105",上がり比率トレンド,A,keep_nan_candidate,過去出走不足,high
+harontime_last3f_avg,float64,4995,10.99,34061,"360.0, 369.0, 388.0",後3ハロン平均,A,keep_nan_candidate,過去出走なし,high
+harontime_last3f_zscore,float64,4995,10.99,39335,"0.18392469153873664, 0.28853334499841876, 0.3208852188738327",後3ハロンzscore,A,keep_nan_candidate,過去出走なし,high
+harontime_last3f_trend,float64,9622,21.18,11633,"-8.500000000000028, 1.5000000000000244, -9.50000000000002",後3ハロントレンド,A,keep_nan_candidate,過去出走不足,high
+pace_ratio_avg,float64,4884,10.75,36414,"1.105726872246696, 1.0701754385964912, 0.969359331476323",ペース比平均,A,keep_nan_candidate,過去出走なし,high
+pace_ratio_zscore,float64,13564,29.85,31862,"-0.6380703083726004, 0.2995243607708751, -0.14807519054762625",ペース比zscore,A,keep_nan_candidate,過去出走なし,high
+pace_ratio_trend,float64,9460,20.82,35133,"0.07528352566653398, -0.004073319755600867, 0.08489767271824293",ペース比トレンド,A,keep_nan_candidate,過去出走不足,high
+pace_early_avg,float64,4884,10.75,14672,"113.5, 114.0, 119.66666666666667",前半ペース平均,A,keep_nan_candidate,過去出走なし,high
+pace_mid_avg,float64,4884,10.75,13003,"117.5, 118.5, 120.5",中盤ペース平均,A,keep_nan_candidate,過去出走なし,high
+pace_late_avg,float64,4884,10.75,12200,"125.5, 122.0, 116.0",後半ペース平均,A,keep_nan_candidate,過去出走なし,high
+haron_race_gap_avg,float64,5223,11.5,34890,"10.5, 14.25, 19.75",ハロンレースギャップ平均,A,keep_nan_candidate,過去出走なし,high
+haron_race_gap_zscore,float64,5223,11.5,39207,"-0.09536691422002296, 0.1295653729124262, 0.1339104815249482",ハロンレースギャップzscore,A,keep_nan_candidate,過去出走なし,high
+haron_race_gap_trend,float64,10156,22.35,6220,"-8.875, -0.37499999999999667, -3.8750000000000027",ハロンレースギャップトレンド,A,keep_nan_candidate,過去出走不足,high
+pace_adj_finish_avg,float64,5252,11.56,38977,"0.3057644110275689, 0.8885793871866294, 0.34156378600823045",ペース調整着順平均,A,keep_nan_candidate,過去出走なし,high
+norm_finish_logit_avg_race_rank,float64,4995,10.99,178,"0.8333333333333334, 0.16666666666666666, 0.6666666666666666",norm_finish_logit_avgのレース内相対順位,A,keep_nan_candidate,元特徴量のNaNに連動,high
+harontimel5_avg_race_rank,float64,4995,10.99,172,"0.25, 0.6666666666666666, 1.0",harontimel5_avgのレース内相対順位,A,keep_nan_candidate,元特徴量のNaNに連動,high
+harontimel5_zscore_race_rank,float64,4995,10.99,117,"0.4166666666666667, 0.8333333333333334, 1.0",harontimel5_zscoreのレース内相対順位,A,keep_nan_candidate,元特徴量のNaNに連動,high
+timediff_avg_race_rank,float64,4995,10.99,196,"0.16666666666666666, 1.0, 0.8333333333333334",timediff_avgのレース内相対順位,A,keep_nan_candidate,元特徴量のNaNに連動,high
+jyuni1c_avg_race_rank,float64,4995,10.99,196,"0.5833333333333334, 0.5833333333333334, 0.5833333333333334",jyuni1c_avgのレース内相対順位,A,keep_nan_candidate,元特徴量のNaNに連動,high
+jyuni4c_avg_race_rank,float64,4995,10.99,196,"0.75, 0.25, 0.25",jyuni4c_avgのレース内相対順位,A,keep_nan_candidate,元特徴量のNaNに連動,high
+closing_index_avg_race_rank,float64,4995,10.99,178,"1.0, 0.16666666666666666, 0.5",closing_index_avgのレース内相対順位,A,keep_nan_candidate,元特徴量のNaNに連動,high
+form_trend_race_rank,float64,9622,21.18,126,"0.8571428571428571, 0.7142857142857143, 0.14285714285714285",form_trendのレース内相対順位,A,keep_nan_candidate,元特徴量のNaNに連動,high
+blood_total_wr_race_rank,float64,4877,10.73,196,"0.6428571428571429, 0.6428571428571429, 0.6428571428571429",blood_total_wrのレース内相対順位,A,keep_nan_candidate,元特徴量のNaNに連動,high
+blood_surface_wr_race_rank,float64,14670,32.29,196,"0.8333333333333334, 0.8333333333333334, 0.3333333333333333",血統芝ダ勝率順位,F,keep_nan_candidate,blood_surface_wr NaN連動,high
+closing_speed_ratio_avg_race_rank,float64,5223,11.5,121,"0.5833333333333334, 0.8333333333333334, 1.0",closing_speed_ratio_avgのレース内相対順位,A,keep_nan_candidate,元特徴量のNaNに連動,high
+harontime_last3f_avg_race_rank,float64,4995,10.99,172,"0.25, 0.6666666666666666, 1.0",harontime_last3f_avgのレース内相対順位,A,keep_nan_candidate,元特徴量のNaNに連動,high
+kyakusitu_x_distance,object,0,0.0,24,"nan_sprint, 2.0_sprint, 2.0_sprint",脚質x距離帯交差,N,keep_nan_candidate,欠損なし - 完全データ,high
+kyakusitu_x_surface,object,0,0.0,12,"nan_dirt, 2.0_dirt, 2.0_dirt",脚質x芝ダ交差,N,keep_nan_candidate,欠損なし - 完全データ,high
+weight_x_distance,float64,0,0.0,1229,"460000.0, 480000.0, 388000.0",体重x距離交差,N,keep_nan_candidate,欠損なし - 完全データ,high
+surface_x_distance_bin,object,0,0.0,7,"dirt_sprint, dirt_sprint, dirt_sprint",芝ダx距離帯交差,N,keep_nan_candidate,欠損なし - 完全データ,high
+grade_code_x_distance_bin,object,0,0.0,24,"X_sprint, X_sprint, X_sprint",グレードx距離帯交差,N,keep_nan_candidate,欠損なし - 完全データ,high
+sire_wr_x_distance,float64,0,0.0,25060,"66.05504587155964, 126.25250501002003, 70.06369426751593",種牡馬勝率x距離交差,N,keep_nan_candidate,欠損なし - 完全データ,high
+blood_surface_wr_x_condition,float64,14670,32.29,341,"0.16666666666666666, 0.16666666666666666, 0.15384615384615385",血統芝ダ勝率x馬場交差,F,keep_nan_candidate,blood_surface_wr NaN連動,high
+haron_x_distance,float64,4995,10.99,35848,"360000.0, 369000.0, 388000.0",ハロンx距離交差,A,keep_nan_candidate,元特徴量NaNに連動,high
+surface_x_past_perf,float64,4995,10.99,29250,"1.8325814637483102, -4.7957905455967405, 1.3862943611198915",芝ダx過去成績交差,A,keep_nan_candidate,元特徴量NaNに連動,high
+weight_x_class,float64,0,0.0,667,"460.0, 480.0, 388.0",体重xクラス交差,N,keep_nan_candidate,欠損なし - 完全データ,high
+grade_x_form_trend,float64,9622,21.18,29401,"0.24166666666666684, 0.04230769230769227, -1.0523809523809524",グレードx調子交差,A,keep_nan_candidate,元特徴量NaNに連動,high
+distance_x_closing_index,float64,4995,10.99,30780,"142.85714285714286, -833.3333333333333, -222.2222222222222",距離xクロージング交差,A,keep_nan_candidate,元特徴量NaNに連動,high
+grade_x_blood_prize_log,float64,12285,27.04,8695,"9.798182590890704, 9.305741456739435, 8.881975184248867",グレードx血統賞金交差,F,keep_nan_candidate,元特徴量NaNに連動,high
+race_mean_fuku_odds,float64,0,0.0,2462,"4.4714285714285715, 4.4714285714285715, 4.4714285714285715",レース平均複勝オッズ,N,keep_nan_candidate,欠損なし - 完全データ,high
+race_std_fuku_odds,float64,0,0.0,3325,"4.285523805290817, 4.285523805290817, 4.285523805290817",レース複勝オッズ標準偏差,N,keep_nan_candidate,欠損なし - 完全データ,high
+odds_gap_fav12,float64,0,0.0,51,"-0.09999999999999987, -0.09999999999999987, -0.09999999999999987",1-2番人気オッズギャップ,N,keep_nan_candidate,欠損なし - 完全データ,high
+odds_popularity_gap,float64,0,0.0,9,"0.0, 0.0, 0.0",オッズ人気ギャップ,N,keep_nan_candidate,欠損なし - 完全データ,high
+surface_track_interaction,int64,0,0.0,6,"4, 4, 4",芝ダx馬場状態交差,N,keep_nan_candidate,欠損なし - 完全データ,high
+pace_pressure,float64,0,0.0,88,"0.7142857142857143, 0.7142857142857143, 0.7142857142857143",ペース圧力,N,keep_nan_candidate,欠損なし - 完全データ,high
+closer_share,float64,0,0.0,91,"0.14285714285714285, 0.14285714285714285, 0.14285714285714285",差し馬シェア,N,keep_nan_candidate,欠損なし - 完全データ,high
+pace_scenario_fit,float64,0,0.0,256,"0.0, -0.35714285714285715, -0.35714285714285715",ペースシナリオ適合度,N,keep_nan_candidate,欠損なし - 完全データ,high
+actual_pace_fit,float64,9592,21.11,165,"0.1111111111111111, 0.07692307692307693, 0.16666666666666666",実際のペース適合度,F,keep_nan_candidate,過去ペース経験なし,high
+rel_norm_finish_zscore,float64,4995,10.99,40006,"0.559468102434996, -1.585090215138039, 0.4150753742329594",相対特徴量 (rel_norm_finish_zscore),A,keep_nan_candidate,元特徴量のNaNに連動,high
+rel_haron_vs_mean,float64,4995,10.99,40187,"-9.0, 0.0, 19.0",相対特徴量 (rel_haron_vs_mean),A,keep_nan_candidate,元特徴量のNaNに連動,high
+rel_timediff_rank,float64,4995,10.99,19,"1.0, 6.0, 5.0",相対特徴量 (rel_timediff_rank),A,keep_nan_candidate,元特徴量のNaNに連動,high
+rel_blood_quality_rank,float64,4877,10.73,19,"1.0, 1.0, 1.0",相対特徴量 (rel_blood_quality_rank),A,keep_nan_candidate,元特徴量のNaNに連動,high
+rel_sire_quality_rank,float64,0,0.0,18,"6.0, 2.0, 5.0",相対種牡馬品質順位,N,keep_nan_candidate,欠損なし - 完全データ,high
+rel_bms_quality_rank,float64,0,0.0,18,"5.0, 3.0, 7.0",相対母父品質順位,N,keep_nan_candidate,欠損なし - 完全データ,high
+rel_bms_surface_quality_rank,float64,0,0.0,18,"4.0, 1.0, 6.0",相対母父芝ダ品質順位,N,keep_nan_candidate,欠損なし - 完全データ,high
+rel_weight_zscore,float64,9627,21.19,35146,"-0.3779971868248865, 0.25409429952236656, 1.5413611119242143",相対特徴量 (rel_weight_zscore),A,keep_nan_candidate,元特徴量のNaNに連動,high
+rel_closing_index_rank,float64,4995,10.99,19,"6.0, 1.0, 3.0",相対特徴量 (rel_closing_index_rank),A,keep_nan_candidate,元特徴量のNaNに連動,high
+rel_fuku_odds_zscore,float64,0,0.0,42520,"0.2633450378173417, -0.7633672615211553, 2.106760302538734",相対複勝オッズzscore,N,keep_nan_candidate,欠損なし - 完全データ,high
+rel_popularity_rank_zscore,float64,0,0.0,407,"0.9258200997725515, -0.9258200997725515, 1.3887301496588274",相対人気順位zscore,N,keep_nan_candidate,欠損なし - 完全データ,high
+market_log_error_win,float64,0,0.0,44302,"-0.6979477243663765, 1.0316935973349413, -0.9358120214615901",市場対数誤差(単勝),N,keep_nan_candidate,欠損なし - 完全データ,high
+signed_log_error_win,float64,0,0.0,44302,"-0.6979477243663765, 1.0316935973349413, -0.9358120214615901",符号付き対数誤差,N,keep_nan_candidate,欠損なし - 完全データ,high
+abs_log_error_win,float64,0,0.0,44302,"0.6979477243663765, 1.0316935973349413, 0.9358120214615901",絶対対数誤差,N,keep_nan_candidate,欠損なし - 完全データ,high
+market_pred_error_win,float64,0,0.0,45430,"-0.03698398769194308, 0.13635785511535367, -0.020107658482757994",市場予測誤差,N,keep_nan_candidate,欠損なし - 完全データ,high
+market_error_rank_in_race,int64,0,0.0,18,"2, 6, 1",市場誤差レース内順位,N,keep_nan_candidate,欠損なし - 完全データ,high
+p_ability_win,float64,0,0.0,45389,"0.06351457057536898, 0.29677887476817755, 0.034237378775554106",能力勝率(Stage1),N,keep_nan_candidate,欠損なし - 完全データ,high
+p_ability_place_raw,float64,0,0.0,265,"0.2107843137254902, 0.7235772357723578, 0.07940780619111709",能力複勝率(raw),N,keep_nan_candidate,欠損なし - 完全データ,high
+p_ability_place,float64,0,0.0,34031,"0.24936304219790628, 0.8560097171762501, 0.09394139334232683",能力複勝率(調整),N,keep_nan_candidate,欠損なし - 完全データ,high
+odds_to_ability_ratio,float64,0,0.0,44751,"0.5767407408799686, 0.713892899722057, 0.3790795219875023",オッズ/能力比,N,keep_nan_candidate,欠損なし - 完全データ,high
+rel_p_ability_win_zscore,float64,0,0.0,45389,"-0.6656189118357745, 1.2912767100448004, -0.9112304667295725",相対能力勝率zscore,N,keep_nan_candidate,欠損なし - 完全データ,high
+rel_p_ability_win_rank,float64,0,0.0,18,"6.0, 2.0, 7.0",相対能力勝率順位,N,keep_nan_candidate,欠損なし - 完全データ,high
+rel_odds_ability_deviation,float64,0,0.0,45287,"-0.42316940749069026, -0.128468990218781, -0.8478863363226435",相対オッズ能力偏差,N,keep_nan_candidate,欠損なし - 完全データ,high
+te_blood_keito_cd,float64,0,0.0,2,"0.070958292648905, 0.070958292648905, 0.070958292648905",TE:血統系統コード,N,keep_nan_candidate,欠損なし - 完全データ,high
+te_kisyucode,float64,0,0.0,280,"0.07587949695025298, 0.06534938958717874, 0.03918939326692405",TE:騎手コード,N,keep_nan_candidate,欠損なし - 完全データ,high
+te_chokyosicode,float64,0,0.0,374,"0.051758855272629, 0.09389787224910673, 0.0626913640870793",TE:調教師コード,N,keep_nan_candidate,欠損なし - 完全データ,high
+deviation_rank,float64,0,0.0,18,"5.0, 3.0, 7.0",偏差順位,N,keep_nan_candidate,欠損なし - 完全データ,high
+deviation_zscore,float64,0,0.0,45287,"-0.42316940749069026, -0.128468990218781, -0.8478863363226435",偏差zscore,N,keep_nan_candidate,欠損なし - 完全データ,high
+p_win_pred,float64,0,0.0,30282,"0.0310871136029664, 0.16400533306624165, 0.012084256933519236",予測勝率(P補正),N,keep_nan_candidate,欠損なし - 完全データ,high
+e_return_win_pred,float64,0,0.0,45437,"21.515512512878175, 4.0232022122042626, 40.62703230633701",予測払戻(E補正),N,keep_nan_candidate,欠損なし - 完全データ,high
+ev_win,float64,0,0.0,30282,"0.6688551817138889, 0.6598266188054003, 0.49094749683616296",期待値(単勝),N,keep_nan_candidate,欠損なし - 完全データ,high
+jockey_wr_overall,float64,0,0.0,179,"0.05115303983228511, 0.06490718525066297, 0.03342984996051593",騎手全体勝率,N,keep_nan_candidate,欠損なし - 完全データ,high
+jockey_wr_distance,float64,14,0.03,172,"0.046632124352331605, 0.06074766355140187, 0.03387259858442872",騎手距離別勝率,F,keep_nan_candidate,距離別出走実績不足,high
+jockey_wr_venue,float64,1640,3.61,131,"0.0625, 0.08921933085501858, 0.05855855855855856",騎手場別勝率,F,keep_nan_candidate,場別出走実績不足,high
+jockey_prize_log,float64,0,0.0,181,"16.9753452990576, 18.396516639427, 17.719312886025854",騎手賞金log,N,keep_nan_candidate,欠損なし - 完全データ,high
+trainer_wr_overall,float64,0,0.0,209,"0.05514705882352941, 0.09294660514172709, 0.05661778355299796",調教師全体勝率,N,keep_nan_candidate,欠損なし - 完全データ,high
+trainer_wr_distance,float64,2,0.0,200,"0.031746031746031744, 0.09449404761904762, 0.035621198957428324",調教師距離別勝率,N,keep_nan_candidate,欠損なし - 完全データ,high
+trainer_wr_venue,float64,41,0.09,176,"0.08333333333333333, 0.13010204081632654, 0.0603448275862069",調教師場別勝率,F,keep_nan_candidate,場別出走実績不足,high
+trainer_prize_log,float64,0,0.0,209,"14.701053793379767, 19.111898569503335, 17.868692807347742",調教師賞金log,N,keep_nan_candidate,欠損なし - 完全データ,high
+jt_combo_wr,float64,2680,5.9,2753,"0.09090909090909091, 0.13559322033898305, 0.044444444444444446",騎手調教師コンビ勝率,F,keep_nan_candidate,コンビ実績なし,high
+jt_combo_place_rate,float64,2680,5.9,3764,"0.09090909090909091, 0.3389830508474576, 0.1259259259259259",コンビ複勝率,F,keep_nan_candidate,コンビ実績なし,high
+jt_combo_starts,float64,2680,5.9,501,"11.0, 48.0, 124.0",コンビ出走数,F,zero_fill_candidate,コンビ出走なし→0,high
+jt_combo_prize_log,float64,2680,5.9,9289,"10.915106645867503, 13.774689605110144, 13.49489336324516",コンビ賞金log,F,keep_nan_candidate,コンビ実績なし,high
+p_x_e_interaction,float64,0,0.0,30282,"0.6688551817138889, 0.6598266188054003, 0.49094749683616296",PxE交互作用,N,keep_nan_candidate,欠損なし - 完全データ,high
+p_minus_e_gap,float64,0,0.0,45437,"6.539735765251322, 3.199934430239355, 8.120284591517496",P-Eギャップ,N,keep_nan_candidate,欠損なし - 完全データ,high
+p_win_corrected,float64,0,0.0,44619,"0.029377747665282804, 0.15520247631964643, 0.01141752486500858",補正勝率,N,keep_nan_candidate,欠損なし - 完全データ,high
+e_return_win_corrected,float64,0,0.0,45437,"20.394472476721862, 4.011921466888115, 40.1411252935885",補正払戻,N,keep_nan_candidate,欠損なし - 完全データ,high
+ev_win_corrected,float64,0,0.0,45437,"0.5991436661876901, 0.6226601464609838, 0.45831229614897157",補正期待値,N,keep_nan_candidate,欠損なし - 完全データ,high
+ev_win_calibrated,float64,0,0.0,10965,"0.652385776155459, 0.6396762358117905, 0.476633338704756",較正期待値,N,keep_nan_candidate,欠損なし - 完全データ,high
+p_win_combined,float64,0,0.0,40702,"0.01457209375562124, 0.18488992350739217, 0.002665570951159724",統合勝率,N,keep_nan_candidate,欠損なし - 完全データ,high
+p_win_final,float64,0,0.0,42651,"0.015569811542791459, 0.19754891187553295, 0.0028480764713366296",最終勝率,N,keep_nan_candidate,欠損なし - 完全データ,high
+edge_win,float64,0,0.0,45432,"-0.6668060329842629, -0.26906902606052807, -0.8279761811312676",エッジ(単勝),N,keep_nan_candidate,欠損なし - 完全データ,high
+win_selection_ev,float64,0,0.0,45437,"0.5991436661876901, 0.6226601464609838, 0.45831229614897157",投票判定EV,N,keep_nan_candidate,欠損なし - 完全データ,high
+win_selection_edge,float64,0,0.0,45416,"-0.4008563338123099, -0.3773398535390162, -0.5416877038510284",投票判定エッジ,N,keep_nan_candidate,欠損なし - 完全データ,high
+win_selection_prob,float64,0,0.0,42651,"0.015569811542791459, 0.19754891187553295, 0.0028480764713366296",投票判定確率,N,keep_nan_candidate,欠損なし - 完全データ,high
+win_gate_score,float64,0,0.0,206,"0.2142467717091615, 0.6505496200417091, 0.17034348707522287",ゲートスコア,N,keep_nan_candidate,欠損なし - 完全データ,high
+win_gate_pass,bool,0,0.0,2,"False, False, False",ゲート通過フラグ,N,keep_nan_candidate,欠損なし - 完全データ,high
+win_gate_rank,float64,0,0.0,18,"5.0, 2.0, 6.0",ゲート順位,N,keep_nan_candidate,欠損なし - 完全データ,high
+win_gate_score_gap,float64,0,0.0,1429,"1.2753157371629298, 0.8390128888303823, 1.3192190217968685",ゲートスコアギャップ,N,keep_nan_candidate,欠損なし - 完全データ,high
+runner_up_gate_score,float64,0,0.0,65,"0.6505496200417091, 0.6505496200417091, 0.6505496200417091",2着候補ゲートスコア,N,keep_nan_candidate,欠損なし - 完全データ,high
+runner_up_gate_score_gap,float64,0,0.0,199,"0.8390128888303823, 0.8390128888303823, 0.8390128888303823",2着候補スコアギャップ,N,keep_nan_candidate,欠損なし - 完全データ,high
+runner_up_win_selection_prob,float64,0,0.0,3327,"0.19754891187553295, 0.19754891187553295, 0.19754891187553295",2着候補投票確率,N,keep_nan_candidate,欠損なし - 完全データ,high
+runner_up_win_selection_edge,float64,0,0.0,3327,"-0.3773398535390162, -0.3773398535390162, -0.3773398535390162",2着候補投票エッジ,N,keep_nan_candidate,欠損なし - 完全データ,high
+runner_up_tanodds,float64,0,0.0,625,"3.7, 3.7, 3.7",2着候補単勝オッズ,N,keep_nan_candidate,欠損なし - 完全データ,high
+market_condition_score,float64,0,0.0,3244,"0.35403788227113686, 0.35403788227113686, 0.35403788227113686",市場状態スコア,N,keep_nan_candidate,欠損なし - 完全データ,high
+aggressive_strength,float64,0,0.0,853,"0.0, 0.0, 0.0",攻撃的強度,N,keep_nan_candidate,欠損なし - 完全データ,high
+aggressive_tier,object,0,0.0,2,"weak, weak, weak",攻撃的ティア,N,keep_nan_candidate,欠損なし - 完全データ,high
+ev_place_corrected,float64,0,0.0,1,"0.0, 0.0, 0.0",複勝補正期待値,N,keep_nan_candidate,欠損なし - 完全データ,high
+EV_lower_win_corrected,float64,0,0.0,10987,"0.3269407356385825, 0.323127873535482, 0.12238675967815332",EV下限(補正),N,keep_nan_candidate,欠損なし - 完全データ,high
+EV_upper_win_corrected,float64,0,0.0,35549,"2.192779072595503, 1.884495256124677, 0.5666752874317652",EV上限(補正),N,keep_nan_candidate,欠損なし - 完全データ,high
+conformal_confidence_score,float64,0,0.0,40138,"0.028019210277791848, 0.08956813586373186, 0.14791218126146574",Conformal信頼度,N,keep_nan_candidate,欠損なし - 完全データ,high
+EV_lower_place,float64,0,0.0,1,"0.0, 0.0, 0.0",複勝EV下限,N,keep_nan_candidate,欠損なし - 完全データ,high
+kakuteijyuni,int64,0,0.0,18,"3, 2, 6",確定着順 (POST_RACE),D,leakage_or_drop_candidate,POST_RACE列 - 学習ターゲット/評価用. 特徴量投入不可,high
+confirmed_odds,float64,0,0.0,4483,"30.4, 2.9, 85.8",確定オッズ (POST_RACE),D,leakage_or_drop_candidate,POST_RACE列 - 学習ターゲット/評価用. 特徴量投入不可,high
+win_selection_ev_raw,float64,0,0.0,45437,"0.5991436661876901, 0.6226601464609838, 0.45831229614897157",生EV,N,keep_nan_candidate,欠損なし - 完全データ,high
+win_selection_edge_raw,float64,0,0.0,45416,"-0.4008563338123099, -0.3773398535390162, -0.5416877038510284",生エッジ,N,keep_nan_candidate,欠損なし - 完全データ,high
+win_selection_ev_tail_calibrated,float64,0,0.0,45437,"0.5991436661876901, 0.6226601464609838, 0.45831229614897157",テール較正EV,N,keep_nan_candidate,欠損なし - 完全データ,high
+selected_rank_by_p_win_final,float64,0,0.0,18,"5.0, 2.0, 7.0",p_win_final順位,N,keep_nan_candidate,欠損なし - 完全データ,high
+selected_rank_by_win_selection_ev,float64,0,0.0,18,"5.0, 3.0, 6.0",win_selection_ev順位,N,keep_nan_candidate,欠損なし - 完全データ,high
+excluded_reason,object,3541,7.79,18,"negative_or_zero_edge|low_probability, negative_or_zero_edge, negative_or_zero_edge|low_probability",除外理由,N,keep_nan_candidate,"投票対象外=NaN, 対象=理由文字列",high
+filter_pass_flags,object,0,0.0,18,"edge=False;odds=True;odds_tail=True;ev_tail=True;prob_rank=True;prob_floor=False, edge=False;odds=True;odds_tail=True;ev_tail=True;prob_rank=True;prob_floor=True, edge=False;odds=True;odds_tail=True;ev_tail=True;prob_rank=True;prob_floor=False",フィルタ通過フラグ,N,keep_nan_candidate,欠損なし - 完全データ,high
+candidate_count_before_filter,int64,0,0.0,12,"0, 0, 0",フィルタ前候補数,N,keep_nan_candidate,欠損なし - 完全データ,high
+candidate_count_after_filter,int64,0,0.0,6,"0, 0, 0",フィルタ後候補数,N,keep_nan_candidate,欠損なし - 完全データ,high
+is_actual_bet,bool,0,0.0,2,"False, False, False",実際投票フラグ,N,keep_nan_candidate,欠損なし - 完全データ,high
+stake,float64,43207,95.09,2,"100.0, 100.0, 100.0",掛け金,D,leakage_or_drop_candidate,95%欠損. 投票結果(レース後). BT専用,high
+result,float64,43207,95.09,116,"0.0, 0.0, 0.0",投票結果(払戻),D,leakage_or_drop_candidate,95%欠損. 払戻金(レース後). BT専用,high
+final_odds,float64,43207,95.09,270,"3.9, 7.3, 7.6",最終オッズ,D,leakage_or_drop_candidate,95%欠損. 確定オッズ(レース後). BT専用,high

@@ -25,6 +25,11 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+WIN_MAX_RELIABLE_ODDS: float = 30.0
+WIN_MAX_RELIABLE_TAIL_EV: float = 1.5
+WIN_LONGSHOT_ODDS: float = 10.0
+WIN_LONGSHOT_MIN_PROB: float = 0.05
+
 
 def _safe_float(val: Any, default: float = 0.0) -> float:
     """Convert *val* to float, returning *default* when val is pd.NA or NaN."""
@@ -243,9 +248,9 @@ class RacePredictor:
 
         if submodel.place is not None:
             df = submodel.place.predict_ev(df)
-        # place_ev_corrector: 補正EVと下限EVの両方をベット選択に使う
-        if submodel.place_ev_corrector is not None:
-            df = submodel.place_ev_corrector.correct_ev(df)
+            # place_ev_corrector: 補正EVと下限EVの両方をベット選択に使う
+            if submodel.place_ev_corrector is not None:
+                df = submodel.place_ev_corrector.correct_ev(df)
 
         # 7. 信頼区間 (ODDS-03: predict_interval for EV上下区間 + conformal_confidence_score)
         # place model が無い場合は ev_place_corrected 列を dummy で補完
@@ -527,7 +532,7 @@ class RacePredictor:
         """単勝ベット候補を選択。
 
         フィルタ: win_selection_edge > 0 AND tanodds >= 1.0 (D-06) に加え、
-        高オッズ/高EV尾部と低確率順位を保守的に除外する。
+        高オッズ/高EV尾部、長穴の低確率候補、低確率順位を保守的に除外する。
         ソート: win_gate_score DESC (D-07), fallback win_selection_edge DESC
         上限: 2頭 (D-09)
         win_gate_pass はログ表示のみ、フィルタに使用しない (D-08)
@@ -579,13 +584,16 @@ class RacePredictor:
         else:
             prepared["_calibrated_edge"] = calibrated_edge
 
-        # D-06: Basic filter — edge > 0 AND odds >= 1.0
-        positive_edge = selection_edge_raw.fillna(0.0) > 0.0
+        # D-06: Basic filter — edge > 0 AND odds >= 1.0.
+        # Tail calibration can shrink inflated EV below breakeven; use the
+        # calibrated edge for the final positive-edge check.
+        positive_edge = calibrated_edge.fillna(0.0) > 0.0
         valid_odds = odds.fillna(0.0) >= 1.0
         base_mask = positive_edge & valid_odds
 
-        high_odds_tail = odds.ge(100.0)
+        high_odds_tail = odds.ge(WIN_MAX_RELIABLE_ODDS)
         high_ev_tail = selection_ev_raw.ge(5.0)
+        overconfident_ev_tail = tail_ev.ge(WIN_MAX_RELIABLE_TAIL_EV)
 
         has_probability_source = (
             "p_win_final" in prepared.columns or "win_selection_prob" in prepared.columns
@@ -614,10 +622,18 @@ class RacePredictor:
         else:
             prob_rank_pass = pd.Series(True, index=prepared.index)
             prob_floor_pass = pd.Series(True, index=prepared.index)
+        if has_probability_source:
+            longshot_low_probability = odds.ge(WIN_LONGSHOT_ODDS) & prob_source.lt(
+                WIN_LONGSHOT_MIN_PROB
+            )
+        else:
+            longshot_low_probability = pd.Series(False, index=prepared.index)
         defensive_mask = (
             base_mask
             & ~high_odds_tail.fillna(False)
             & ~high_ev_tail.fillna(False)
+            & ~overconfident_ev_tail.fillna(False)
+            & ~longshot_low_probability.fillna(False)
             & prob_rank_pass.fillna(False)
             & prob_floor_pass.fillna(False)
         )
@@ -628,6 +644,8 @@ class RacePredictor:
             ("invalid_odds", ~valid_odds),
             ("high_odds_tail", high_odds_tail.fillna(False)),
             ("high_ev_tail", high_ev_tail.fillna(False)),
+            ("overconfident_ev_tail", overconfident_ev_tail.fillna(False)),
+            ("longshot_low_probability", longshot_low_probability.fillna(False)),
             ("low_probability_rank", ~prob_rank_pass.fillna(False)),
             ("low_probability", ~prob_floor_pass.fillna(False)),
         ]
@@ -647,6 +665,8 @@ class RacePredictor:
                 f"odds={bool(valid_odds.loc[idx])};"
                 f"odds_tail={not bool(high_odds_tail.fillna(False).loc[idx])};"
                 f"ev_tail={not bool(high_ev_tail.fillna(False).loc[idx])};"
+                f"ev_confidence={not bool(overconfident_ev_tail.fillna(False).loc[idx])};"
+                f"longshot_prob={not bool(longshot_low_probability.fillna(False).loc[idx])};"
                 f"prob_rank={bool(prob_rank_pass.fillna(False).loc[idx])};"
                 f"prob_floor={bool(prob_floor_pass.fillna(False).loc[idx])}"
             )
