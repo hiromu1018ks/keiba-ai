@@ -65,6 +65,7 @@ def test_ensure_win_selection_columns_fallback_chain() -> None:
     from models.win_selection_gate import ensure_win_selection_columns
 
     # Case 1: Has EV_lower_win_corrected -> should compute win_selection_ev
+    # from corrected EV, keeping CQR lower bounds out of primary selection.
     df1 = pd.DataFrame(
         {
             "EV_lower_win_corrected": [1.2, 0.8],
@@ -92,7 +93,7 @@ def test_ensure_win_selection_columns_fallback_chain() -> None:
 
 
 def test_build_win_selection_ev() -> None:
-    """Test 5: build_win_selection_ev returns max of lower_ev + corrected_ev safety floor."""
+    """Test 5: build_win_selection_ev ignores CQR lower bound when model EV exists."""
     from models.win_selection_gate import build_win_selection_ev
 
     # When both EV_lower_win_corrected and ev_win_corrected exist
@@ -104,14 +105,21 @@ def test_build_win_selection_ev() -> None:
         }
     )
     ev = build_win_selection_ev(df)
-    # Row 0: lower_ev=0.20 (notna), corrected_ev=1.50 -> selection_ev=0.20 (keep lower since notna)
-    # safety_floor = 1.50 * 0.85 = 1.275
-    # result = max(0.20, 1.275) = 1.275
-    assert ev.iloc[0] == pytest.approx(1.275)
-    # Row 1: lower_ev=1.50 (notna), corrected_ev=0.80 -> selection_ev=1.50 (keep lower since notna)
-    # safety_floor = 0.80 * 0.85 = 0.68
-    # result = max(1.50, 0.68) = 1.50
-    assert ev.iloc[1] == pytest.approx(1.50)
+
+    assert ev.iloc[0] == pytest.approx(1.50)
+    assert ev.iloc[1] == pytest.approx(0.80)
+
+
+def test_build_win_selection_ev_falls_back_to_lower_without_model_ev() -> None:
+    """CQR lower bound is only a compatibility fallback when model EV is absent."""
+    from models.win_selection_gate import build_win_selection_ev
+
+    df = pd.DataFrame({"EV_lower_win_corrected": [0.95, 1.10]})
+
+    ev = build_win_selection_ev(df)
+
+    assert ev.iloc[0] == pytest.approx(0.95)
+    assert ev.iloc[1] == pytest.approx(1.10)
 
 
 def test_build_win_selection_ev_prefers_corrected_over_calibrated_for_coverage() -> None:
@@ -293,15 +301,11 @@ def test_gate_edges_differ_between_single_and_ensemble_oof() -> None:
     np.random.seed(42)
 
     # 単一モデルOOF: 狭い分布
-    single_rows = _build_gate_fixture_rows(
-        prob_mean=0.20, prob_std=0.05, edge_base=0.02, seed=42
-    )
+    single_rows = _build_gate_fixture_rows(prob_mean=0.20, prob_std=0.05, edge_base=0.02, seed=42)
     df_single = pd.DataFrame(single_rows)
 
     # アンサンブルOOF: 広い分布、シャープな予測
-    ensemble_rows = _build_gate_fixture_rows(
-        prob_mean=0.28, prob_std=0.12, edge_base=0.08, seed=42
-    )
+    ensemble_rows = _build_gate_fixture_rows(prob_mean=0.28, prob_std=0.12, edge_base=0.08, seed=42)
     df_ensemble = pd.DataFrame(ensemble_rows)
 
     gate_single = WinSelectionGateModel(min_train_races=40, min_fold_races=20, max_folds=3)
