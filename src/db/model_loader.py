@@ -772,6 +772,12 @@ class ModelLoader:
             ev_corr.ev_isotonic_calibrator = ev_isotonic_calibrator
             ev_corr.ev_odds_band_scales = ev_odds_band_scales
 
+            # INTER-03: TargetEncoder
+            target_encoder = None
+            te_path = models_dir / f"target_encoder_{surface}.joblib"
+            if te_path.exists():
+                target_encoder = joblib.load(te_path)
+
             submodels[surface] = SubmodelSet(
                 market=market,
                 stage1=ability,
@@ -793,6 +799,7 @@ class ModelLoader:
                 win_selection_gate=win_selection_gate,
                 ev_isotonic_calibrator=ev_isotonic_calibrator,
                 ev_odds_band_scales=ev_odds_band_scales,
+                target_encoder=target_encoder,
             )
 
         # RaceQualityScreener

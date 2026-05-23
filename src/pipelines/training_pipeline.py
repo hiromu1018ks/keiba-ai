@@ -1990,6 +1990,13 @@ class TrainingPipelineV5:
             elif sub.ev_odds_band_scales is not None:
                 logger.warning("Skipping degenerate EV odds band scales for %s", surface)
 
+            # INTER-03: TargetEncoder (joblib)
+            if sub.target_encoder is not None:
+                joblib.dump(
+                    sub.target_encoder,
+                    models_dir / f"target_encoder_{surface}.joblib",
+                )
+
         saved["race_quality"] = quality_screen.model
         saved["regime_detector"] = regime_det.model
 
