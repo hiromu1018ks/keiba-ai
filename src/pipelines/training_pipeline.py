@@ -1427,11 +1427,6 @@ class TrainingPipelineV5:
                 )
                 wsg_train_df = df_oof.iloc[0:0].copy()
             wsg_train_df = ensure_win_selection_columns(wsg_train_df)
-            oof_guard_metrics = _validate_win_selection_oof_health(
-                wsg_train_df,
-                context=f"{surface}/win_selection_train",
-            )
-            logger.info("Win selection OOF guard passed for %s: %s", surface, oof_guard_metrics)
 
         # --- Drift diagnostics (GATE-02, D-01/D-02/D-03) ---
         if use_ensemble:
@@ -1468,6 +1463,11 @@ class TrainingPipelineV5:
             win_selection_policy = WinSelectionPolicy()
             win_selection_policy.train(wsg_train_df)
             wsg_train_df = win_selection_policy.apply(wsg_train_df)
+            oof_guard_metrics = _validate_win_selection_oof_health(
+                wsg_train_df,
+                context=f"{surface}/win_selection_train",
+            )
+            logger.info("Win selection OOF guard passed for %s: %s", surface, oof_guard_metrics)
             logger.info(
                 "WinSelectionPolicy trained for %s: late_odds_drop_weight=%.4f summary=%s",
                 surface,

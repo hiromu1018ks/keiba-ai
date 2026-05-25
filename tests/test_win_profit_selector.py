@@ -141,6 +141,35 @@ def test_win_profit_selector_requires_volume() -> None:
     assert model.training_summary["reason"] == "insufficient_races"
 
 
+def test_win_profit_selector_rejects_unprofitable_policy() -> None:
+    from models.win_profit_selector import WinProfitSelector
+
+    rows: list[dict[str, object]] = []
+    for race_idx in range(180):
+        race_id = f"R{race_idx:04d}"
+        race_date = pd.Timestamp("2021-01-01") + pd.Timedelta(days=race_idx)
+        for umaban in range(1, 4):
+            rows.append(
+                {
+                    "race_id": race_id,
+                    "race_date": race_date,
+                    "umaban": umaban,
+                    "kakuteijyuni": 2 + umaban,
+                    "tanodds": 4.0 + umaban,
+                    "win_selection_prob": 0.20,
+                    "win_selection_ev": 0.90,
+                    "win_selection_edge": 0.10,
+                    "win_market_selection_score": 1.0 / umaban,
+                }
+            )
+
+    model = WinProfitSelector(min_train_races=60, min_fold_races=30, max_folds=3)
+    model.train(pd.DataFrame(rows))
+
+    assert model.is_trained is False
+    assert model.training_summary["reason"] == "no_deployable_profit_policy"
+
+
 def test_race_predictor_uses_profit_selector_candidate_set() -> None:
     from types import SimpleNamespace
 

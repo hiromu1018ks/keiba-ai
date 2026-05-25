@@ -101,7 +101,8 @@ class WinProfitSelector:
     min_fold_races: int = 80
     max_folds: int = 4
     max_rank_limit: int = 3
-    min_bets_per_eval_race: float = 0.35
+    min_bets_per_eval_race: float = 0.75
+    min_yearly_roi: float = 0.85
     low_volume_penalty: float = 1.5
     drawdown_penalty: float = 0.02
     max_stake_scale: float = 2.0
@@ -247,6 +248,7 @@ class WinProfitSelector:
         total_eval_races = sum(test_end - train_end for train_end, test_end in folds)
         min_eval_bets = max(40.0, total_eval_races * self.min_bets_per_eval_race)
         best_params: WinProfitSelectorParams | None = None
+        best_row: dict[str, Any] | None = None
         best_key = (False, float("-inf"), float("-inf"), float("-inf"))
         candidate_rows: list[dict[str, Any]] = []
 
@@ -293,26 +295,58 @@ class WinProfitSelector:
             if key > best_key:
                 best_key = key
                 best_params = params
+                best_row = row
 
-        if best_params is None:
+        top_candidates = sorted(
+            candidate_rows,
+            key=lambda row: (bool(row["volume_ok"]), float(row["objective"])),
+            reverse=True,
+        )[:10]
+        if best_params is None or best_row is None:
             self.training_summary = {"reason": "no_valid_candidates"}
+            self._trained = False
+            return self
+
+        yearly_values = [float(v) for v in best_row.get("yearly_roi", {}).values()]
+        deployable = (
+            bool(best_row["volume_ok"])
+            and float(best_row["profit"]) > 0.0
+            and float(best_row["roi"]) > 1.0
+            and bool(yearly_values)
+            and min(yearly_values) >= self.min_yearly_roi
+        )
+        if not deployable:
+            self.params = best_params
+            self.training_summary = {
+                "reason": "no_deployable_profit_policy",
+                "selected_params": asdict(best_params),
+                "eval_bets": best_row["bets"],
+                "eval_roi": best_row["roi"],
+                "eval_profit": best_row["profit"],
+                "eval_yearly_roi": best_row.get("yearly_roi", {}),
+                "min_eval_bets": min_eval_bets,
+                "min_yearly_roi": self.min_yearly_roi,
+                "n_eval_races": int(total_eval_races),
+                "n_train_races": int(len(race_order)),
+                "candidates": top_candidates,
+            }
             self._trained = False
             return self
 
         self.params = best_params
         self._trained = True
         best_metrics = self._simulate(prepared, best_params)
-        top_candidates = sorted(
-            candidate_rows,
-            key=lambda row: (bool(row["volume_ok"]), float(row["objective"])),
-            reverse=True,
-        )[:10]
         self.training_summary = {
             "selected_params": asdict(best_params),
+            "eval_bets": best_row["bets"],
+            "eval_roi": best_row["roi"],
+            "eval_profit": best_row["profit"],
+            "eval_yearly_roi": best_row.get("yearly_roi", {}),
             "train_bets": best_metrics["bets"],
             "train_roi": best_metrics["roi"],
             "train_profit": best_metrics["profit"],
             "min_eval_bets": min_eval_bets,
+            "min_yearly_roi": self.min_yearly_roi,
             "n_eval_races": int(total_eval_races),
             "n_train_races": int(len(race_order)),
             "candidates": top_candidates,
@@ -352,6 +386,7 @@ class WinProfitSelector:
                 "max_folds": self.max_folds,
                 "max_rank_limit": self.max_rank_limit,
                 "min_bets_per_eval_race": self.min_bets_per_eval_race,
+                "min_yearly_roi": self.min_yearly_roi,
                 "low_volume_penalty": self.low_volume_penalty,
                 "drawdown_penalty": self.drawdown_penalty,
                 "max_stake_scale": self.max_stake_scale,
@@ -370,7 +405,8 @@ class WinProfitSelector:
             min_fold_races=int(state.get("min_fold_races", 80)),
             max_folds=int(state.get("max_folds", 4)),
             max_rank_limit=int(state.get("max_rank_limit", 3)),
-            min_bets_per_eval_race=float(state.get("min_bets_per_eval_race", 0.35)),
+            min_bets_per_eval_race=float(state.get("min_bets_per_eval_race", 0.75)),
+            min_yearly_roi=float(state.get("min_yearly_roi", 0.85)),
             low_volume_penalty=float(state.get("low_volume_penalty", 1.5)),
             drawdown_penalty=float(state.get("drawdown_penalty", 0.02)),
             max_stake_scale=float(state.get("max_stake_scale", 2.0)),
