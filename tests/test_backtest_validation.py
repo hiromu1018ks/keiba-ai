@@ -16,78 +16,179 @@ from backtest.engine import BacktestResult
 # Fixtures
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture
 def sample_bet_history() -> list[dict[str, Any]]:
     """オッズバンド/レジーム/芝ダートが含まれるbet_history fixture (10件)"""
     return [
         {
-            "race_id": "20240101010101", "bet_type": "win", "umaban": 1,
-            "stake": 100, "odds": 1.8, "fuku_odds_low": 1.9, "result": 190,
-            "surface": "turf", "kyori": 1600, "ev": 1.2, "edge": 0.05,
-            "popularity": 2, "bankroll_after": 100090, "race_date": "2024-01-01",
+            "race_id": "20240101010101",
+            "bet_type": "win",
+            "umaban": 1,
+            "stake": 100,
+            "odds": 1.8,
+            "fuku_odds_low": 1.9,
+            "result": 190,
+            "surface": "turf",
+            "kyori": 1600,
+            "ev": 1.2,
+            "edge": 0.05,
+            "popularity": 2,
+            "bankroll_after": 100090,
+            "race_date": "2024-01-01",
             "regime": "AGGRESSIVE",
         },
         {
-            "race_id": "20240102010101", "bet_type": "win", "umaban": 3,
-            "stake": 100, "odds": 3.5, "fuku_odds_low": 3.2, "result": 0,
-            "surface": "turf", "kyori": 2000, "ev": 1.1, "edge": 0.03,
-            "popularity": 5, "bankroll_after": 99990, "race_date": "2024-02-15",
+            "race_id": "20240102010101",
+            "bet_type": "win",
+            "umaban": 3,
+            "stake": 100,
+            "odds": 3.5,
+            "fuku_odds_low": 3.2,
+            "result": 0,
+            "surface": "turf",
+            "kyori": 2000,
+            "ev": 1.1,
+            "edge": 0.03,
+            "popularity": 5,
+            "bankroll_after": 99990,
+            "race_date": "2024-02-15",
             "regime": "CONSERVATIVE",
         },
         {
-            "race_id": "20240301010101", "bet_type": "win", "umaban": 7,
-            "stake": 100, "odds": 8.0, "fuku_odds_low": 7.5, "result": 750,
-            "surface": "dirt", "kyori": 1200, "ev": 1.5, "edge": 0.08,
-            "popularity": 8, "bankroll_after": 100640, "race_date": "2024-03-01",
+            "race_id": "20240301010101",
+            "bet_type": "win",
+            "umaban": 7,
+            "stake": 100,
+            "odds": 8.0,
+            "fuku_odds_low": 7.5,
+            "result": 750,
+            "surface": "dirt",
+            "kyori": 1200,
+            "ev": 1.5,
+            "edge": 0.08,
+            "popularity": 8,
+            "bankroll_after": 100640,
+            "race_date": "2024-03-01",
             "regime": "AGGRESSIVE",
         },
         {
-            "race_id": "20240401010101", "bet_type": "win", "umaban": 2,
-            "stake": 100, "odds": 2.5, "fuku_odds_low": 2.3, "result": 0,
-            "surface": "turf", "kyori": 1800, "ev": 0.9, "edge": -0.02,
-            "popularity": 3, "bankroll_after": 100540, "race_date": "2024-04-01",
+            "race_id": "20240401010101",
+            "bet_type": "win",
+            "umaban": 2,
+            "stake": 100,
+            "odds": 2.5,
+            "fuku_odds_low": 2.3,
+            "result": 0,
+            "surface": "turf",
+            "kyori": 1800,
+            "ev": 0.9,
+            "edge": -0.02,
+            "popularity": 3,
+            "bankroll_after": 100540,
+            "race_date": "2024-04-01",
             "regime": "CONSERVATIVE",
         },
         {
-            "race_id": "20240501010101", "bet_type": "win", "umaban": 5,
-            "stake": 100, "odds": 12.0, "fuku_odds_low": 11.0, "result": 0,
-            "surface": "dirt", "kyori": 1400, "ev": 1.3, "edge": 0.06,
-            "popularity": 10, "bankroll_after": 100440, "race_date": "2024-05-01",
+            "race_id": "20240501010101",
+            "bet_type": "win",
+            "umaban": 5,
+            "stake": 100,
+            "odds": 12.0,
+            "fuku_odds_low": 11.0,
+            "result": 0,
+            "surface": "dirt",
+            "kyori": 1400,
+            "ev": 1.3,
+            "edge": 0.06,
+            "popularity": 10,
+            "bankroll_after": 100440,
+            "race_date": "2024-05-01",
             "regime": "CONSERVATIVE",
         },
         {
-            "race_id": "20240601010101", "bet_type": "win", "umaban": 4,
-            "stake": 100, "odds": 4.5, "fuku_odds_low": 4.8, "result": 480,
-            "surface": "turf", "kyori": 1600, "ev": 1.4, "edge": 0.07,
-            "popularity": 6, "bankroll_after": 100820, "race_date": "2024-06-01",
+            "race_id": "20240601010101",
+            "bet_type": "win",
+            "umaban": 4,
+            "stake": 100,
+            "odds": 4.5,
+            "fuku_odds_low": 4.8,
+            "result": 480,
+            "surface": "turf",
+            "kyori": 1600,
+            "ev": 1.4,
+            "edge": 0.07,
+            "popularity": 6,
+            "bankroll_after": 100820,
+            "race_date": "2024-06-01",
             "regime": "AGGRESSIVE",
         },
         {
-            "race_id": "20240701010101", "bet_type": "win", "umaban": 6,
-            "stake": 100, "odds": 6.0, "fuku_odds_low": 5.5, "result": 0,
-            "surface": "turf", "kyori": 2000, "ev": 1.1, "edge": 0.03,
-            "popularity": 7, "bankroll_after": 100720, "race_date": "2024-07-01",
+            "race_id": "20240701010101",
+            "bet_type": "win",
+            "umaban": 6,
+            "stake": 100,
+            "odds": 6.0,
+            "fuku_odds_low": 5.5,
+            "result": 0,
+            "surface": "turf",
+            "kyori": 2000,
+            "ev": 1.1,
+            "edge": 0.03,
+            "popularity": 7,
+            "bankroll_after": 100720,
+            "race_date": "2024-07-01",
             "regime": "CONSERVATIVE",
         },
         {
-            "race_id": "20240801010101", "bet_type": "win", "umaban": 1,
-            "stake": 100, "odds": 1.5, "fuku_odds_low": 1.6, "result": 160,
-            "surface": "dirt", "kyori": 1000, "ev": 1.0, "edge": 0.01,
-            "popularity": 1, "bankroll_after": 100780, "race_date": "2024-08-01",
+            "race_id": "20240801010101",
+            "bet_type": "win",
+            "umaban": 1,
+            "stake": 100,
+            "odds": 1.5,
+            "fuku_odds_low": 1.6,
+            "result": 160,
+            "surface": "dirt",
+            "kyori": 1000,
+            "ev": 1.0,
+            "edge": 0.01,
+            "popularity": 1,
+            "bankroll_after": 100780,
+            "race_date": "2024-08-01",
             "regime": "CONSERVATIVE",
         },
         {
-            "race_id": "20240901010101", "bet_type": "win", "umaban": 9,
-            "stake": 100, "odds": 15.0, "fuku_odds_low": 14.0, "result": 0,
-            "surface": "turf", "kyori": 2400, "ev": 0.8, "edge": -0.05,
-            "popularity": 12, "bankroll_after": 100680, "race_date": "2024-09-01",
+            "race_id": "20240901010101",
+            "bet_type": "win",
+            "umaban": 9,
+            "stake": 100,
+            "odds": 15.0,
+            "fuku_odds_low": 14.0,
+            "result": 0,
+            "surface": "turf",
+            "kyori": 2400,
+            "ev": 0.8,
+            "edge": -0.05,
+            "popularity": 12,
+            "bankroll_after": 100680,
+            "race_date": "2024-09-01",
             "regime": "CONSERVATIVE",
         },
         {
-            "race_id": "20250101010101", "bet_type": "win", "umaban": 2,
-            "stake": 100, "odds": 3.0, "fuku_odds_low": 3.5, "result": 350,
-            "surface": "turf", "kyori": 1600, "ev": 1.2, "edge": 0.04,
-            "popularity": 4, "bankroll_after": 100930, "race_date": "2025-01-01",
+            "race_id": "20250101010101",
+            "bet_type": "win",
+            "umaban": 2,
+            "stake": 100,
+            "odds": 3.0,
+            "fuku_odds_low": 3.5,
+            "result": 350,
+            "surface": "turf",
+            "kyori": 1600,
+            "ev": 1.2,
+            "edge": 0.04,
+            "popularity": 4,
+            "bankroll_after": 100930,
+            "race_date": "2025-01-01",
             "regime": "AGGRESSIVE",
         },
     ]
@@ -113,14 +214,26 @@ def fail_result() -> BacktestResult:
     """ROI<100% のBacktestResult (テスト用)"""
     bet_history = [
         {
-            "race_id": "20240101010101", "stake": 100, "odds": 3.0,
-            "fuku_odds_low": 3.0, "result": 0, "surface": "turf",
-            "race_date": "2024-06-01", "regime": "CONSERVATIVE", "ev": 1.2,
+            "race_id": "20240101010101",
+            "stake": 100,
+            "odds": 3.0,
+            "fuku_odds_low": 3.0,
+            "result": 0,
+            "surface": "turf",
+            "race_date": "2024-06-01",
+            "regime": "CONSERVATIVE",
+            "ev": 1.2,
         },
         {
-            "race_id": "20240102010101", "stake": 100, "odds": 5.0,
-            "fuku_odds_low": 5.0, "result": 200, "surface": "dirt",
-            "race_date": "2024-06-15", "regime": "AGGRESSIVE", "ev": 0.8,
+            "race_id": "20240102010101",
+            "stake": 100,
+            "odds": 5.0,
+            "fuku_odds_low": 5.0,
+            "result": 200,
+            "surface": "dirt",
+            "race_date": "2024-06-15",
+            "regime": "AGGRESSIVE",
+            "ev": 0.8,
         },
     ]
     return BacktestResult(
@@ -136,6 +249,7 @@ def fail_result() -> BacktestResult:
 # ---------------------------------------------------------------------------
 # Test Class
 # ---------------------------------------------------------------------------
+
 
 class TestValidationReport:
     """VAL-01/VAL-02 検証レポート生成テスト"""
@@ -158,9 +272,7 @@ class TestValidationReport:
 
         assert evaluate_validation(roi=1.05, total_bets=50) == "FAIL"
 
-    def test_generate_validation_report_structure(
-        self, pass_result: BacktestResult
-    ) -> None:
+    def test_generate_validation_report_structure(self, pass_result: BacktestResult) -> None:
         """Test 4: generate_validation_report()が正しいJSON構造を返す"""
         from backtest.validation_report import generate_validation_report
 
@@ -214,6 +326,27 @@ class TestValidationReport:
 
         # ROI>100% & 10 bets -> FAIL (bets < 100)
         assert report["validation_result"] == "FAIL"
+        assert report["validation_guard"]["train_test_overlap"] is False
+
+    def test_generate_validation_report_fails_on_train_test_overlap(
+        self, pass_result: BacktestResult
+    ) -> None:
+        """学習期間とテスト期間が重なるROIは本番根拠としてFAILにする。"""
+        from backtest.validation_report import generate_validation_report
+
+        report = generate_validation_report(
+            result=pass_result,
+            test_start="2020-01-01",
+            test_end="2023-12-31",
+            train_start="2020-01-01",
+            train_end="2023-12-31",
+            manifest_path=None,
+            pfp_result=None,
+        )
+
+        assert report["validation_result"] == "FAIL"
+        assert report["roi"]["passed"] is False
+        assert report["validation_guard"]["train_test_overlap"] is True
 
     def test_generate_cause_analysis_odds_bands(
         self, sample_bet_history: list[dict[str, Any]]

@@ -16,6 +16,13 @@ from betting.ev_tail_calibration import EVTtailCalibrator
 from domain.models import Bet, BetType
 from domain.types import RegimeState
 from models.place_selection_gate import build_place_selection_ev, ensure_place_selection_columns
+from models.win_profit_selector import (
+    PROFIT_PASS_COL,
+    PROFIT_RANK_COL,
+    PROFIT_REASON_COL,
+    PROFIT_SCORE_COL,
+    PROFIT_STAKE_SCALE_COL,
+)
 from models.win_selection_gate import ensure_win_selection_columns
 from models.win_selection_policy import deployed_policy_params
 
@@ -30,6 +37,8 @@ WIN_MAX_RELIABLE_ODDS: float = 30.0
 WIN_MAX_RELIABLE_TAIL_EV: float = 1.5
 WIN_LONGSHOT_ODDS: float = 10.0
 WIN_LONGSHOT_MIN_PROB: float = 0.05
+
+
 def _safe_float(val: Any, default: float = 0.0) -> float:
     """Convert *val* to float, returning *default* when val is pd.NA or NaN."""
     if val is pd.NA:
@@ -115,6 +124,19 @@ class RacePredictor:
         policy = getattr(submodel, "win_selection_policy", None)
         if policy is not None and getattr(policy, "is_trained", False) is True:
             return policy
+        return None
+
+    def _get_win_profit_selector(self, race_df: pd.DataFrame) -> Any | None:
+        if race_df.empty or "surface" not in race_df.columns:
+            return None
+        surface_key = race_df["surface"].iloc[0]
+        submodels = getattr(self.models, "submodels", {})
+        submodel = submodels.get(surface_key)
+        if submodel is None:
+            return None
+        selector = getattr(submodel, "win_profit_selector", None)
+        if selector is not None and getattr(selector, "is_trained", False) is True:
+            return selector
         return None
 
     def predict(
@@ -569,9 +591,13 @@ class RacePredictor:
             selection_edge_raw + 1.0,
         )
         odds = pd.to_numeric(prepared[odds_col], errors="coerce")
-        race_key = prepared["race_id"] if "race_id" in prepared.columns else pd.Series(
-            "_race",
-            index=prepared.index,
+        race_key = (
+            prepared["race_id"]
+            if "race_id" in prepared.columns
+            else pd.Series(
+                "_race",
+                index=prepared.index,
+            )
         )
 
         prepared["win_selection_ev_raw"] = selection_ev_raw
@@ -710,11 +736,15 @@ class RacePredictor:
             values = pd.to_numeric(series, errors="coerce")
             if not values.notna().any():
                 return pd.Series(0.5, index=prepared.index, dtype=float)
-            return values.groupby(race_key, observed=True).rank(
-                pct=True,
-                method="average",
-                ascending=True,
-            ).fillna(0.5)
+            return (
+                values.groupby(race_key, observed=True)
+                .rank(
+                    pct=True,
+                    method="average",
+                    ascending=True,
+                )
+                .fillna(0.5)
+            )
 
         def race_zscore(series: pd.Series) -> pd.Series:
             values = pd.to_numeric(series, errors="coerce")
@@ -737,10 +767,14 @@ class RacePredictor:
         prepared["win_late_odds_drop_weight"] = late_odds_drop_weight
         prepared["win_log_odds_penalty"] = log_odds_penalty
         prepared["win_prob_rank_bonus"] = prob_rank_bonus
-        log_odds = np.log1p(odds.clip(lower=1.0)).replace(
-            [np.inf, -np.inf],
-            np.nan,
-        ).fillna(0.0)
+        log_odds = (
+            np.log1p(odds.clip(lower=1.0))
+            .replace(
+                [np.inf, -np.inf],
+                np.nan,
+            )
+            .fillna(0.0)
+        )
         prepared["win_log_odds"] = log_odds
         model_prob_rank = pct_rank(prob_source)
         prepared["win_model_prob_rank"] = model_prob_rank
@@ -759,13 +793,38 @@ class RacePredictor:
         if not selection_score.notna().any():
             selection_score = pct_rank(prob_source) - 1.0
         prepared["win_market_selection_score"] = (
-            selection_score - late_odds_drop_weight * late_odds_drop_z
+            selection_score
+            - late_odds_drop_weight * late_odds_drop_z
             - log_odds_penalty * log_odds
             + prob_rank_bonus * model_prob_rank
         )
-        prepared["selected_rank_by_win_market_score"] = prepared[
-            "win_market_selection_score"
-        ].groupby(race_key, observed=True).rank(method="first", ascending=False)
+        prepared["selected_rank_by_win_market_score"] = (
+            prepared["win_market_selection_score"]
+            .groupby(race_key, observed=True)
+            .rank(method="first", ascending=False)
+        )
+        win_profit_selector = self._get_win_profit_selector(prepared)
+        profit_selector_enabled = False
+        profit_max_per_race = 1
+        if win_profit_selector is not None:
+            prepared = win_profit_selector.score(prepared)
+            profit_pass = prepared[PROFIT_PASS_COL].fillna(False).astype(bool)
+            profit_selector_enabled = True
+            profit_max_per_race = max(1, int(getattr(win_profit_selector, "max_per_race", 1)))
+            defensive_mask = eligible_mask & profit_pass
+            filtered_by_profit = eligible_mask & ~profit_pass
+            reasons.loc[filtered_by_profit & reasons.eq("")] = "profit_selector"
+            reasons.loc[filtered_by_profit & ~reasons.eq("")] = (
+                reasons.loc[filtered_by_profit & ~reasons.eq("")] + "|profit_selector"
+            )
+            prepared["excluded_reason"] = reasons.replace("", pd.NA)
+            prepared.loc[defensive_mask, "excluded_reason"] = pd.NA
+        else:
+            prepared[PROFIT_SCORE_COL] = prepared["win_market_selection_score"]
+            prepared[PROFIT_PASS_COL] = eligible_mask
+            prepared[PROFIT_RANK_COL] = prepared["selected_rank_by_win_market_score"]
+            prepared[PROFIT_STAKE_SCALE_COL] = 1.0
+            prepared[PROFIT_REASON_COL] = "fallback_top1"
         risk_flag_values = prepared["risk_flags"].fillna("").astype(str)
 
         prepared["filter_pass_flags"] = [
@@ -781,7 +840,10 @@ class RacePredictor:
                 f"log_odds_pen={log_odds_penalty:.4f};"
                 f"prob_rank_bonus={prob_rank_bonus:.4f};"
                 f"prob_rank={bool(prob_rank_pass.fillna(False).loc[idx])};"
-                f"prob_floor={bool(prob_floor_pass.fillna(False).loc[idx])}"
+                f"prob_floor={bool(prob_floor_pass.fillna(False).loc[idx])};"
+                f"profit_pass={bool(prepared[PROFIT_PASS_COL].fillna(False).loc[idx])};"
+                f"profit_score="
+                f"{_safe_float(prepared[PROFIT_SCORE_COL].loc[idx], float('nan')):.4f}"
             )
             for idx in prepared.index
         ]
@@ -832,6 +894,7 @@ class RacePredictor:
             errors="coerce",
         ).fillna(float("-inf"))
         sort_cols = [
+            PROFIT_SCORE_COL,
             "_win_market_selection_score_num",
             "_win_market_logit_edge_num",
             "_win_market_value_ratio_num",
@@ -853,8 +916,8 @@ class RacePredictor:
 
         candidates = candidates.sort_values(sort_cols, ascending=[False] * len(sort_cols))
 
-        # 単勝は各レースの最良1頭だけを返す。ベット数はレース数側で担保する。
-        return candidates.head(1).drop(
+        # 従来モデルは1頭、利益セレクタがある場合は学習済み上限まで候補集合を返す。
+        return candidates.head(profit_max_per_race if profit_selector_enabled else 1).drop(
             columns=[
                 "_calibrated_edge",
                 "_win_market_selection_score_num",
@@ -1061,7 +1124,9 @@ class RacePredictor:
                         stake = self.dd_ctrl.adjust_stake(stake, bankroll)
                         stake = max(0, math.floor(stake / 100) * 100)
                 else:
-                    stake = 100.0
+                    stake_scale = _safe_float(row.get(PROFIT_STAKE_SCALE_COL, 1.0), 1.0)
+                    stake_scale = min(max(stake_scale, 1.0), 2.0)
+                    stake = max(100.0, math.floor(100.0 * stake_scale / 100.0) * 100.0)
 
                 if stake < 100:
                     continue

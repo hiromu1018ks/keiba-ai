@@ -22,6 +22,7 @@ if TYPE_CHECKING:
     from models.stage1_ability_model import AbilityModel
     from models.two_stage_return_model import PlaceTwoStageModel, WinTwoStageModel
     from models.wide_two_stage_model import WideTwoStageModel
+    from models.win_profit_selector import WinProfitSelector
     from models.win_selection_gate import WinSelectionGateModel
     from models.win_selection_policy import WinSelectionPolicy
 
@@ -124,7 +125,7 @@ class Entry:
     win_odds_actual: float  # 確定単勝オッズ
     popularity_rank: int  # 人気順位
     running_style: int  # POST_RACE — kyakusitukubun (SE No.73) レース後判定。
-                        # ML特徴量では使用不可。kyakusitukubun_cd (過去走) を代用。
+    # ML特徴量では使用不可。kyakusitukubun_cd (過去走) を代用。
     ba_taijyu: float  # 馬体重
     zogen_fugo: int  # 体重増減符号 (1=増, 2=減, 3=不变)
     zogen_sa: float  # 体重増減幅
@@ -258,6 +259,7 @@ class SubmodelSet:
     # Win Selection Gate (Phase 3, SELC-01)
     win_selection_gate: WinSelectionGateModel | None = None
     win_selection_policy: WinSelectionPolicy | None = None
+    win_profit_selector: WinProfitSelector | None = None
     # EV_lower dynamic threshold (D-01/D-02, EVF-01)
     ev_lower_threshold_turf: float = 1.0
     ev_lower_threshold_dirt: float = 1.0

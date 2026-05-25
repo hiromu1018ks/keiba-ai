@@ -78,6 +78,22 @@ def evaluate_validation(roi: float, total_bets: int) -> str:
     return "FAIL"
 
 
+def _periods_overlap(
+    train_start: str,
+    train_end: str,
+    test_start: str,
+    test_end: str,
+) -> bool:
+    try:
+        train_start_dt = datetime.fromisoformat(train_start)
+        train_end_dt = datetime.fromisoformat(train_end)
+        test_start_dt = datetime.fromisoformat(test_start)
+        test_end_dt = datetime.fromisoformat(test_end)
+    except ValueError:
+        return False
+    return max(train_start_dt, test_start_dt) <= min(train_end_dt, test_end_dt)
+
+
 def generate_validation_report(
     result: object,
     test_start: str,
@@ -121,8 +137,9 @@ def generate_validation_report(
     else:
         pfp_info = {"passed": None, "message": "PFP not used"}
 
-    # ROI判定
-    roi_passed = total_roi > 1.0 and total_bets >= 100
+    # ROI判定。学習期間とテスト期間が重なるレポートは本番性能の根拠にしない。
+    periods_overlap = _periods_overlap(train_start, train_end, test_start, test_end)
+    roi_passed = (not periods_overlap) and total_roi > 1.0 and total_bets >= 100
 
     # 年別内訳 (bet_historyのrace_date[:4]で集計)
     yearly_breakdown = _compute_yearly_breakdown(bet_history)
@@ -132,7 +149,7 @@ def generate_validation_report(
     if total_roi <= 1.0 and bet_history:
         cause_analysis = generate_cause_analysis(bet_history)
 
-    validation_result = evaluate_validation(total_roi, total_bets)
+    validation_result = "FAIL" if periods_overlap else evaluate_validation(total_roi, total_bets)
 
     return {
         "validation_timestamp": datetime.now(timezone.utc).isoformat(),
@@ -148,6 +165,14 @@ def generate_validation_report(
             "target_roi": 1.0,
             "target_bets": 100,
             "passed": roi_passed,
+        },
+        "validation_guard": {
+            "train_test_overlap": periods_overlap,
+            "message": (
+                "Train/test periods overlap; ROI is not accepted as production evidence."
+                if periods_overlap
+                else "OK"
+            ),
         },
         "yearly_breakdown": yearly_breakdown,
         "validation_result": validation_result,
@@ -235,9 +260,7 @@ def generate_cause_analysis(bet_history: list[dict[str, Any]]) -> dict[str, Any]
         else:
             band = "100.0+"
         win_odds_band_buckets[band].append(b)
-    win_odds_band_roi = {
-        name: _roi_summary(rows) for name, rows in win_odds_band_buckets.items()
-    }
+    win_odds_band_roi = {name: _roi_summary(rows) for name, rows in win_odds_band_buckets.items()}
 
     ev_band_buckets: dict[str, list[dict[str, Any]]] = {
         "<1.0": [],
@@ -300,26 +323,30 @@ def generate_cause_analysis(bet_history: list[dict[str, Any]]) -> dict[str, Any]
     tail_flag_roi = {
         "ev>=3": _roi_summary(
             [
-                b for b in actual_bets
+                b
+                for b in actual_bets
                 if _to_float(
                     b.get(
                         "win_selection_ev_tail_calibrated",
                         b.get("win_selection_ev", b.get("ev")),
                     ),
                     0.0,
-                ) >= 3.0
+                )
+                >= 3.0
             ]
         ),
         "ev>=5": _roi_summary(
             [
-                b for b in actual_bets
+                b
+                for b in actual_bets
                 if _to_float(
                     b.get(
                         "win_selection_ev_tail_calibrated",
                         b.get("win_selection_ev", b.get("ev")),
                     ),
                     0.0,
-                ) >= 5.0
+                )
+                >= 5.0
             ]
         ),
         "odds>=50": _roi_summary([b for b in actual_bets if _pick_win_odds(b) >= 50.0]),

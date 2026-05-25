@@ -79,6 +79,11 @@ class HorseDiagnostic:
     win_market_prob_ratio: float | None = None
     win_market_value_ratio: float | None = None
     win_market_selection_score: float | None = None
+    win_profit_score: float | None = None
+    win_profit_selector_pass: bool | None = None
+    win_profit_rank: float | None = None
+    win_profit_stake_scale: float | None = None
+    win_profit_reason: str | None = None
     win_late_odds_drop_z: float | None = None
     win_late_odds_drop_weight: float | None = None
     win_log_odds: float | None = None
@@ -189,6 +194,11 @@ class DiagnosticLogger:
         win_market_prob_ratio: float | None = None,
         win_market_value_ratio: float | None = None,
         win_market_selection_score: float | None = None,
+        win_profit_score: float | None = None,
+        win_profit_selector_pass: bool | None = None,
+        win_profit_rank: float | None = None,
+        win_profit_stake_scale: float | None = None,
+        win_profit_reason: str | None = None,
         win_late_odds_drop_z: float | None = None,
         win_late_odds_drop_weight: float | None = None,
         win_log_odds: float | None = None,
@@ -260,6 +270,11 @@ class DiagnosticLogger:
                 win_market_prob_ratio=win_market_prob_ratio,
                 win_market_value_ratio=win_market_value_ratio,
                 win_market_selection_score=win_market_selection_score,
+                win_profit_score=win_profit_score,
+                win_profit_selector_pass=win_profit_selector_pass,
+                win_profit_rank=win_profit_rank,
+                win_profit_stake_scale=win_profit_stake_scale,
+                win_profit_reason=win_profit_reason,
                 win_late_odds_drop_z=win_late_odds_drop_z,
                 win_late_odds_drop_weight=win_late_odds_drop_weight,
                 win_log_odds=win_log_odds,

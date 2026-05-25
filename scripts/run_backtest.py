@@ -211,6 +211,7 @@ def _build_strategy_config_from_manifest(
     betting.default_strategy.build_strategy_config_from_params に委譲。
     """
     from betting.default_strategy import build_strategy_config_from_params
+
     return build_strategy_config_from_params(params)
 
 
@@ -350,6 +351,11 @@ def save_year_parquet(year: int, result: BacktestResult) -> None:
             "win_market_prob_ratio",
             "win_market_value_ratio",
             "win_market_selection_score",
+            "win_profit_score",
+            "win_profit_selector_pass",
+            "win_profit_rank",
+            "win_profit_stake_scale",
+            "win_profit_reason",
             "win_market_risk_penalty",
             "risk_flags",
             "excluded_reason",
@@ -500,7 +506,8 @@ def _run_single_year(args: argparse.Namespace) -> None:
         pipeline = TrainingPipelineV5(store=store, model_dir=model_dir)
         try:
             models = pipeline.run(
-                train_start, train_end,
+                train_start,
+                train_end,
                 use_ensemble=args.ensemble,
                 betting_target=args.betting_target,
             )
@@ -649,9 +656,7 @@ def _run_multi_year(args: argparse.Namespace) -> None:
         if args.skip_train:
             logger.info("%d年: 学習スキップ (--skip-train)", test_year)
             try:
-                models = _load_cached_models(
-                    _get_model_dir(base_model_dir, test_year)
-                )
+                models = _load_cached_models(_get_model_dir(base_model_dir, test_year))
             except FileNotFoundError as e:
                 logger.error("%s — スキップ", e)
                 continue
@@ -665,7 +670,8 @@ def _run_multi_year(args: argparse.Namespace) -> None:
 
                 pipeline = TrainingPipelineV5(store=store, model_dir=year_model_dir)
                 models = pipeline.run(
-                    train_start, train_end,
+                    train_start,
+                    train_end,
                     use_ensemble=args.ensemble,
                     betting_target=args.betting_target,
                 )

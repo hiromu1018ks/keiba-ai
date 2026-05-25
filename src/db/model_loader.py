@@ -90,6 +90,7 @@ class ModelLoader:
         from models.stage1_ability_model import AbilityModel
         from models.two_stage_return_model import PlaceTwoStageModel, WinTwoStageModel
         from models.wide_two_stage_model import WideTwoStageModel
+        from models.win_profit_selector import WinProfitSelector
         from models.win_selection_gate import WinSelectionGateModel
         from models.win_selection_policy import WinSelectionPolicy
 
@@ -196,6 +197,25 @@ class ModelLoader:
                     except Exception:
                         logger.warning("Failed to load WinSelectionPolicy for %s", surface)
 
+            # --- WinProfitSelector (MLflow) ---
+            win_profit_selector = None
+            try:
+                wps_dir = mlflow.artifacts.download_artifacts(
+                    f"runs:/{run_id}/win_profit_selector_{surface}"
+                )
+            except Exception:
+                try:
+                    wps_dir = self._find_artifact_dir(run_id, f"win_profit_selector_{surface}")
+                except Exception:
+                    wps_dir = None
+            if wps_dir is not None:
+                wps_files = list(Path(wps_dir).glob("*.joblib"))
+                if wps_files:
+                    try:
+                        win_profit_selector = WinProfitSelector.load(wps_files[0])
+                    except Exception:
+                        logger.warning("Failed to load WinProfitSelector for %s", surface)
+
             # PlaceAbilityModel (joblib artifact)
             pa = PlaceAbilityModel()
             try:
@@ -279,6 +299,7 @@ class ModelLoader:
                     f"runs:/{run_id}/benter_combo_{surface}.json"
                 )
                 from models.benter_combination import BenterCombination
+
                 benter_combo = BenterCombination.load(Path(bent_path))
             except Exception:
                 pass
@@ -300,6 +321,7 @@ class ModelLoader:
                     f"runs:/{run_id}/temp_scale_{surface}.json"
                 )
                 from models.benter_combination import TemperatureScaling
+
                 temperature_scaler = TemperatureScaling.load(Path(temp_path))
             except Exception:
                 pass
@@ -311,6 +333,7 @@ class ModelLoader:
                     f"runs:/{run_id}/benter_combo_win_{surface}.json"
                 )
                 from models.benter_combination import BenterCombination
+
                 win_benter = BenterCombination.load(Path(wb_path))
             except Exception:
                 pass
@@ -332,6 +355,7 @@ class ModelLoader:
                     f"runs:/{run_id}/temp_scale_win_{surface}.json"
                 )
                 from models.benter_combination import TemperatureScaling
+
                 win_temperature_scaler = TemperatureScaling.load(Path(wtemp_path))
             except Exception:
                 pass
@@ -383,6 +407,7 @@ class ModelLoader:
                 win_temperature_scaler=win_temperature_scaler,
                 win_selection_gate=win_selection_gate,
                 win_selection_policy=win_selection_policy,
+                win_profit_selector=win_profit_selector,
                 ev_isotonic_calibrator=ev_isotonic_calibrator,
                 ev_odds_band_scales=ev_odds_band_scales,
             )
@@ -522,9 +547,7 @@ class ModelLoader:
         return mlflow.lightgbm.load_model(path)
 
     @staticmethod
-    def _load_hit_model(
-        models_dir: Path, name: str, *, use_ensemble: bool = False
-    ) -> object:
+    def _load_hit_model(models_dir: Path, name: str, *, use_ensemble: bool = False) -> object:
         """Load hit model from .joblib (StackedEnsemble) or .lgb (LightGBM)."""
         joblib_path = models_dir / f"{name}.joblib"
         lgb_path = models_dir / f"{name}.lgb"
@@ -534,17 +557,13 @@ class ModelLoader:
                 logger.info("Loading StackedEnsemble: %s", joblib_path)
                 return joblib.load(joblib_path)
             if lgb_path.is_file():
-                logger.warning(
-                    "use_ensemble=True but .joblib not found, falling back to .lgb"
-                )
+                logger.warning("use_ensemble=True but .joblib not found, falling back to .lgb")
                 return ModelLoader._load_lgbm(str(lgb_path))
         else:
             if lgb_path.is_file():
                 return ModelLoader._load_lgbm(str(lgb_path))
             if joblib_path.is_file():
-                logger.info(
-                    "Loading StackedEnsemble (discovered from .joblib): %s", name
-                )
+                logger.info("Loading StackedEnsemble (discovered from .joblib): %s", name)
                 return joblib.load(joblib_path)
 
         raise FileNotFoundError(f"No model file found for {name} in {models_dir}")
@@ -568,6 +587,7 @@ class ModelLoader:
         from models.stage1_ability_model import AbilityModel
         from models.two_stage_return_model import PlaceTwoStageModel, WinTwoStageModel
         from models.wide_two_stage_model import WideTwoStageModel
+        from models.win_profit_selector import WinProfitSelector
         from models.win_selection_gate import WinSelectionGateModel
         from models.win_selection_policy import WinSelectionPolicy
 
@@ -693,6 +713,14 @@ class ModelLoader:
                 except Exception:
                     logger.warning("Failed to load %s, skipping", wsp_file)
 
+            win_profit_selector = None
+            wps_file = models_dir / f"win_profit_selector_{surface}.joblib"
+            if wps_file.is_file():
+                try:
+                    win_profit_selector = WinProfitSelector.load(wps_file)
+                except Exception:
+                    logger.warning("Failed to load %s, skipping", wps_file)
+
             # PlaceAbilityModel (joblib)
             pa = PlaceAbilityModel()
             pa_file = models_dir / f"place_ability_{surface}.joblib"
@@ -742,6 +770,7 @@ class ModelLoader:
             if benter_file.is_file():
                 try:
                     from models.benter_combination import BenterCombination
+
                     benter_combo = BenterCombination.load(benter_file)
                 except Exception:
                     logger.warning("Failed to load %s, skipping", benter_file)
@@ -761,6 +790,7 @@ class ModelLoader:
             if temp_file.is_file():
                 try:
                     from models.benter_combination import TemperatureScaling
+
                     temperature_scaler = TemperatureScaling.load(temp_file)
                 except Exception:
                     logger.warning("Failed to load %s, skipping", temp_file)
@@ -771,6 +801,7 @@ class ModelLoader:
             if win_benter_file.is_file():
                 try:
                     from models.benter_combination import BenterCombination
+
                     win_benter = BenterCombination.load(win_benter_file)
                 except Exception:
                     logger.warning("Failed to load %s, skipping", win_benter_file)
@@ -790,6 +821,7 @@ class ModelLoader:
             if win_temp_file.is_file():
                 try:
                     from models.benter_combination import TemperatureScaling
+
                     win_temperature_scaler = TemperatureScaling.load(win_temp_file)
                 except Exception:
                     logger.warning("Failed to load %s, skipping", win_temp_file)
@@ -846,6 +878,7 @@ class ModelLoader:
                 win_temperature_scaler=win_temperature_scaler,
                 win_selection_gate=win_selection_gate,
                 win_selection_policy=win_selection_policy,
+                win_profit_selector=win_profit_selector,
                 ev_isotonic_calibrator=ev_isotonic_calibrator,
                 ev_odds_band_scales=ev_odds_band_scales,
                 target_encoder=target_encoder,

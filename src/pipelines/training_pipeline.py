@@ -49,6 +49,7 @@ from models.submodel_manager import SubModelManager
 from models.two_stage_return_model import PlaceTwoStageModel, WinTwoStageModel
 from models.wide_pair_builder import WideJointPairBuilder
 from models.wide_two_stage_model import WideTwoStageModel
+from models.win_profit_selector import WinProfitSelector
 from models.win_selection_gate import WinSelectionGateModel, ensure_win_selection_columns
 from models.win_selection_policy import WinSelectionPolicy
 
@@ -100,6 +101,11 @@ def _prepare_win_selection_oof_artifact(df: pd.DataFrame) -> pd.DataFrame:
         "win_market_logit_edge",
         "win_market_value_ratio",
         "win_market_selection_score",
+        "win_profit_score",
+        "win_profit_selector_pass",
+        "win_profit_rank",
+        "win_profit_stake_scale",
+        "win_profit_reason",
         "win_late_odds_drop_z",
         "win_late_odds_drop_weight",
         "win_log_odds",
@@ -122,8 +128,7 @@ def _prepare_win_selection_oof_artifact(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def _unpack_train_submodel_result(
-    result: tuple[SubmodelSet, pd.DataFrame]
-    | tuple[SubmodelSet, pd.DataFrame, pd.DataFrame],
+    result: tuple[SubmodelSet, pd.DataFrame] | tuple[SubmodelSet, pd.DataFrame, pd.DataFrame],
 ) -> tuple[SubmodelSet, pd.DataFrame, pd.DataFrame]:
     """Backwards-compatible unpacking for tests/custom overrides."""
     if len(result) == 2:
@@ -1350,6 +1355,17 @@ class TrainingPipelineV5:
                 win_selection_policy.training_summary,
             )
 
+        with TimingContext(f"{surface}/win_profit_selector_train"):
+            win_profit_selector = WinProfitSelector()
+            win_profit_selector.train(wsg_train_df)
+            wsg_train_df = win_profit_selector.score(wsg_train_df)
+            logger.info(
+                "WinProfitSelector trained for %s: trained=%s summary=%s",
+                surface,
+                win_profit_selector.is_trained,
+                win_profit_selector.training_summary,
+            )
+
         # --- D-08 Part 2: Runtime check (ensemble mode only) ---
         if use_ensemble and not win_selection_gate.is_trained:
             logger.warning(
@@ -1393,6 +1409,7 @@ class TrainingPipelineV5:
             win_temperature_scaler=win_temp_scaler,
             win_selection_gate=win_selection_gate,
             win_selection_policy=win_selection_policy,
+            win_profit_selector=win_profit_selector,
             ev_lower_threshold_turf=ev_threshold_turf,
             ev_lower_threshold_dirt=ev_threshold_dirt,
             ev_isotonic_calibrator=ev_isotonic_calibrator,
@@ -1898,6 +1915,20 @@ class TrainingPipelineV5:
                         if wsp_tmp and os.path.exists(wsp_tmp):
                             os.unlink(wsp_tmp)
 
+                if sub.win_profit_selector is not None and sub.win_profit_selector.is_trained:
+                    wps_tmp: str | None = None
+                    try:
+                        with tempfile.NamedTemporaryFile(
+                            suffix=".joblib",
+                            delete=False,
+                        ) as wps_file:
+                            wps_tmp = wps_file.name
+                        sub.win_profit_selector.save(Path(wps_tmp))
+                        mlflow.log_artifact(wps_tmp, f"win_profit_selector_{surface}")
+                    finally:
+                        if wps_tmp and os.path.exists(wps_tmp):
+                            os.unlink(wps_tmp)
+
                 # PlaceTwoStageModel
                 if sub.place is not None:
                     if sub.use_ensemble:
@@ -2061,9 +2092,10 @@ class TrainingPipelineV5:
                 sub.win_selection_gate.save(models_dir / f"win_selection_gate_{surface}.joblib")
 
             if sub.win_selection_policy is not None and sub.win_selection_policy.is_trained:
-                sub.win_selection_policy.save(
-                    models_dir / f"win_selection_policy_{surface}.joblib"
-                )
+                sub.win_selection_policy.save(models_dir / f"win_selection_policy_{surface}.joblib")
+
+            if sub.win_profit_selector is not None and sub.win_profit_selector.is_trained:
+                sub.win_profit_selector.save(models_dir / f"win_profit_selector_{surface}.joblib")
 
             # Benter Combination (JSON)
             if sub.benter_combo is not None:

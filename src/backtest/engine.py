@@ -391,35 +391,30 @@ def _horse_win_diagnostic_kwargs(row: Any) -> dict[str, Any]:
         "win_gate_odds_score": _optional_float(getattr(row, "win_gate_odds_score", None)),
         "win_gate_prob_score": _optional_float(getattr(row, "win_gate_prob_score", None)),
         "win_gate_edge_score": _optional_float(getattr(row, "win_gate_edge_score", None)),
-        "win_gate_edge_odds_score": _optional_float(
-            getattr(row, "win_gate_edge_odds_score", None)
-        ),
+        "win_gate_edge_odds_score": _optional_float(getattr(row, "win_gate_edge_odds_score", None)),
         "p_market_win_raw": _optional_float(getattr(row, "p_market_win_raw", None)),
         "p_market_win_norm": _optional_float(getattr(row, "p_market_win_norm", None)),
         "win_market_residual": _optional_float(getattr(row, "win_market_residual", None)),
         "win_market_logit_edge": _optional_float(getattr(row, "win_market_logit_edge", None)),
         "win_market_prob_ratio": _optional_float(getattr(row, "win_market_prob_ratio", None)),
-        "win_market_value_ratio": _optional_float(
-            getattr(row, "win_market_value_ratio", None)
-        ),
+        "win_market_value_ratio": _optional_float(getattr(row, "win_market_value_ratio", None)),
         "win_market_selection_score": _optional_float(
             getattr(row, "win_market_selection_score", None)
         ),
-        "win_late_odds_drop_z": _optional_float(
-            getattr(row, "win_late_odds_drop_z", None)
-        ),
+        "win_profit_score": _optional_float(getattr(row, "win_profit_score", None)),
+        "win_profit_selector_pass": _optional_bool(getattr(row, "win_profit_selector_pass", None)),
+        "win_profit_rank": _optional_float(getattr(row, "win_profit_rank", None)),
+        "win_profit_stake_scale": _optional_float(getattr(row, "win_profit_stake_scale", None)),
+        "win_profit_reason": _optional_str(getattr(row, "win_profit_reason", None)),
+        "win_late_odds_drop_z": _optional_float(getattr(row, "win_late_odds_drop_z", None)),
         "win_late_odds_drop_weight": _optional_float(
             getattr(row, "win_late_odds_drop_weight", None)
         ),
         "win_log_odds": _optional_float(getattr(row, "win_log_odds", None)),
-        "win_log_odds_penalty": _optional_float(
-            getattr(row, "win_log_odds_penalty", None)
-        ),
+        "win_log_odds_penalty": _optional_float(getattr(row, "win_log_odds_penalty", None)),
         "win_model_prob_rank": _optional_float(getattr(row, "win_model_prob_rank", None)),
         "win_prob_rank_bonus": _optional_float(getattr(row, "win_prob_rank_bonus", None)),
-        "win_market_risk_penalty": _optional_float(
-            getattr(row, "win_market_risk_penalty", None)
-        ),
+        "win_market_risk_penalty": _optional_float(getattr(row, "win_market_risk_penalty", None)),
         "risk_flags": _optional_str(getattr(row, "risk_flags", None)),
         "tanodds": _optional_float(getattr(row, "tanodds", None)),
         "closing_win_odds": _optional_float(getattr(row, "closing_win_odds", None)),
@@ -1534,15 +1529,26 @@ class BacktestEngine:
                         "win_market_selection_score": _optional_float(
                             horse_row.get("win_market_selection_score", None)
                         ),
+                        "win_profit_score": _optional_float(
+                            horse_row.get("win_profit_score", None)
+                        ),
+                        "win_profit_selector_pass": _optional_bool(
+                            horse_row.get("win_profit_selector_pass", None)
+                        ),
+                        "win_profit_rank": _optional_float(horse_row.get("win_profit_rank", None)),
+                        "win_profit_stake_scale": _optional_float(
+                            horse_row.get("win_profit_stake_scale", None)
+                        ),
+                        "win_profit_reason": _optional_str(
+                            horse_row.get("win_profit_reason", None)
+                        ),
                         "win_late_odds_drop_z": _optional_float(
                             horse_row.get("win_late_odds_drop_z", None)
                         ),
                         "win_late_odds_drop_weight": _optional_float(
                             horse_row.get("win_late_odds_drop_weight", None)
                         ),
-                        "win_log_odds": _optional_float(
-                            horse_row.get("win_log_odds", None)
-                        ),
+                        "win_log_odds": _optional_float(horse_row.get("win_log_odds", None)),
                         "win_log_odds_penalty": _optional_float(
                             horse_row.get("win_log_odds_penalty", None)
                         ),
