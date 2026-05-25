@@ -1814,7 +1814,7 @@ class TrainingPipelineV5:
         # C3 fix: favorite_win_rate を expanding window で計算
         if "race_date" in feat_df.columns:
             date_map = feat_df.groupby("race_id", observed=True)["race_date"].first()
-            race_feat["race_date"] = race_feat["race_id"].map(date_map)
+            race_feat["race_date"] = self._map_race_values(race_feat["race_id"], date_map)
             race_feat = race_feat.sort_values("race_date").reset_index(drop=True)
 
         if "kakuteijyuni" in feat_df.columns and "popularity_rank" in feat_df.columns:
@@ -1908,7 +1908,7 @@ class TrainingPipelineV5:
         for _col in _rl_cols:
             if _col in feat_df.columns:
                 _map = feat_df.groupby("race_id", observed=True)[_col].first()
-                race_feat[_col] = race_feat["race_id"].map(_map)
+                race_feat[_col] = self._map_race_numeric(race_feat["race_id"], _map)
             else:
                 race_feat[_col] = np.nan
 
@@ -1933,7 +1933,11 @@ class TrainingPipelineV5:
             for ema_col in ["overround_ema", "entropy_ema"]:
                 if ema_col in ema_df.columns:
                     ema_map = ema_df.groupby("race_id", observed=True)[ema_col].first()
-                    race_feat[ema_col] = race_feat["race_id"].map(ema_map).fillna(0.0)
+                    race_feat[ema_col] = self._map_race_numeric(
+                        race_feat["race_id"],
+                        ema_map,
+                        fill_value=0.0,
+                    )
         else:
             race_feat["overround_ema"] = 0.0
             race_feat["entropy_ema"] = 0.0
@@ -1942,12 +1946,24 @@ class TrainingPipelineV5:
         _col_csr = "closing_speed_ratio_avg"
         if _col_csr in feat_df.columns:
             _csr = feat_df.groupby("race_id", observed=True)[_col_csr]
-            race_feat["phase36_top1_strength"] = race_feat["race_id"].map(_csr.max()).fillna(0.0)
+            race_feat["phase36_top1_strength"] = self._map_race_numeric(
+                race_feat["race_id"],
+                _csr.max(),
+                fill_value=0.0,
+            )
             _top2_gap = _csr.apply(
                 lambda x: x.nlargest(2).diff().iloc[-1] if x.notna().sum() >= 2 else 0.0
             )
-            race_feat["phase36_top1_top2_gap"] = race_feat["race_id"].map(_top2_gap).fillna(0.0)
-            race_feat["phase36_field_dispersion"] = race_feat["race_id"].map(_csr.std()).fillna(0.0)
+            race_feat["phase36_top1_top2_gap"] = self._map_race_numeric(
+                race_feat["race_id"],
+                _top2_gap,
+                fill_value=0.0,
+            )
+            race_feat["phase36_field_dispersion"] = self._map_race_numeric(
+                race_feat["race_id"],
+                _csr.std(),
+                fill_value=0.0,
+            )
         else:
             race_feat["phase36_top1_strength"] = 0.0
             race_feat["phase36_top1_top2_gap"] = 0.0
@@ -1956,8 +1972,8 @@ class TrainingPipelineV5:
         _col_ftr = "form_trend_race_rank"
         if _col_ftr in feat_df.columns:
             _ftr = feat_df.groupby("race_id", observed=True)[_col_ftr]
-            race_feat["phase36_form_signal_dispersion"] = (
-                race_feat["race_id"].map(_ftr.std()).fillna(0.0)
+            race_feat["phase36_form_signal_dispersion"] = self._map_race_numeric(
+                race_feat["race_id"], _ftr.std(), fill_value=0.0
             )
         else:
             race_feat["phase36_form_signal_dispersion"] = 0.0
@@ -1965,8 +1981,8 @@ class TrainingPipelineV5:
         _col_wrf = "weighted_recent_form_finish"
         if _col_wrf in feat_df.columns:
             _wrf = feat_df.groupby("race_id", observed=True)[_col_wrf]
-            race_feat["phase36_weighted_form_mean"] = (
-                race_feat["race_id"].map(_wrf.mean()).fillna(0.0)
+            race_feat["phase36_weighted_form_mean"] = self._map_race_numeric(
+                race_feat["race_id"], _wrf.mean(), fill_value=0.0
             )
         else:
             race_feat["phase36_weighted_form_mean"] = 0.0
@@ -1986,6 +2002,10 @@ class TrainingPipelineV5:
             race_feat_df = race_feat_df.sort_values("race_date").reset_index(drop=True)
 
         stats = race_feat_df.copy()
+        # race_id や条件列が Categorical のまま map されないよう通常 dtype に戻す。
+        for col in stats.columns:
+            if isinstance(stats[col].dtype, pd.CategoricalDtype):
+                stats[col] = stats[col].astype(str)
 
         # 基本列マッピング (MarketModel 由来) — 元々 rolling 不使用
         stats["market_error_std"] = stats["market_log_error_std"].fillna(0.2)
@@ -2009,8 +2029,10 @@ class TrainingPipelineV5:
             fav_df = feat_df[feat_df["popularity_rank"] == 1][["race_id", "tanodds"]].copy()
             fav_df["fav_implied"] = 1.0 / fav_df["tanodds"].replace(0, np.nan)
             race_fav_implied = fav_df.groupby("race_id", observed=True)["fav_implied"].first()
-            stats["favorite_implied_prob_rolling"] = (
-                stats["race_id"].map(race_fav_implied).fillna(0.3)
+            stats["favorite_implied_prob_rolling"] = self._map_race_numeric(
+                stats["race_id"],
+                race_fav_implied,
+                fill_value=0.3,
             )
         else:
             stats["favorite_implied_prob_rolling"] = 0.3
@@ -2018,18 +2040,50 @@ class TrainingPipelineV5:
         # odds_skewness_rolling: レース毎のオッズ歪度 (生値)
         if all(c in feat_df.columns for c in ["race_id", "tanodds"]):
             race_skew = feat_df.groupby("race_id", observed=True)["tanodds"].skew()
-            stats["odds_skewness_rolling"] = stats["race_id"].map(race_skew).fillna(0.0)
+            stats["odds_skewness_rolling"] = self._map_race_numeric(
+                stats["race_id"],
+                race_skew,
+                fill_value=0.0,
+            )
         else:
             stats["odds_skewness_rolling"] = 0.0
 
         # odds_volatility_mean: レース毎の odds_volatility 平均 (生値)
         if "odds_volatility" in feat_df.columns:
             race_vol = feat_df.groupby("race_id", observed=True)["odds_volatility"].mean()
-            stats["odds_volatility_mean"] = stats["race_id"].map(race_vol).fillna(0.1)
+            stats["odds_volatility_mean"] = self._map_race_numeric(
+                stats["race_id"],
+                race_vol,
+                fill_value=0.1,
+            )
         else:
             stats["odds_volatility_mean"] = 0.1
 
         return stats
+
+    @staticmethod
+    def _map_race_values(race_ids: pd.Series, values: pd.Series) -> pd.Series:
+        """race_id が Categorical でも通常 dtype の Series として map する。"""
+        mapping = {str(k): v for k, v in values.items()}
+        return race_ids.astype(str).map(mapping)
+
+    @staticmethod
+    def _map_race_numeric(
+        race_ids: pd.Series,
+        values: pd.Series,
+        *,
+        fill_value: float | None = None,
+    ) -> pd.Series:
+        """race_id map の結果を必ず数値 dtype にする。
+
+        pandas は Categorical Series に map() した結果を category dtype に保つ場合があり、
+        そのまま LightGBM に渡すと学習時/推論時の categorical_feature が不一致になる。
+        """
+        mapped = TrainingPipelineV5._map_race_values(race_ids, values)
+        numeric = pd.to_numeric(mapped, errors="coerce")
+        if fill_value is not None:
+            numeric = numeric.fillna(fill_value)
+        return numeric.astype(float)
 
     def _log_to_mlflow(
         self,
@@ -2188,6 +2242,7 @@ class TrainingPipelineV5:
                     )
 
                 # PlaceAbilityModel (sklearn CalibratedClassifierCV → joblib)
+                calibrated = None
                 if sub.place_ability is not None:
                     calibrated = sub.place_ability._calibrated or sub.place_ability._model
                 if calibrated is not None:
@@ -2309,11 +2364,10 @@ class TrainingPipelineV5:
                 saved[f"wide_hit_{surface}"] = sub.wide.hit_model
                 saved[f"wide_ret_{surface}"] = sub.wide.return_model
             # PlaceAbilityModel (sklearn) は joblib で保存
+            calibrated = None
             if sub.place_ability is not None:
                 calibrated = sub.place_ability._calibrated or sub.place_ability._model
                 if calibrated is not None:
-                    import joblib
-
                     joblib.dump(
                         calibrated,
                         models_dir / f"place_ability_{surface}.joblib",

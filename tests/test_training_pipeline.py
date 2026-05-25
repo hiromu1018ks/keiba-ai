@@ -11,6 +11,7 @@ import pytest
 
 from domain.models import SubmodelSet, TrainedModelsV5
 from features.feature_engine import FeatureEngine
+from models.race_quality_screener import RaceQualityScreener
 from models.regime_detector import RegimeDetector
 from models.submodel_manager import SubModelManager
 from pipelines.training_pipeline import (
@@ -649,6 +650,42 @@ class TestBuildRaceLevelFeatures:
         assert "overround_ema" in result.columns
         assert "entropy_ema" in result.columns
 
+    def test_categorical_race_id_does_not_create_numeric_categories(
+        self,
+        pipeline: TrainingPipelineV5,
+    ) -> None:
+        """race_id が Categorical でも品質モデルの数値特徴量は category にしない"""
+        feat_df = self._make_feat_df(n_races=30)
+        feat_df["race_id"] = feat_df["race_id"].astype("category")
+
+        mapped_numeric_cols = [
+            "rl_log_odds_entropy",
+            "rl_odds_dispersion",
+            "rl_top3_odds_gap",
+            "rl_top1_odds",
+            "rl_favorite_rank_gap",
+            "rl_n_horses",
+            "rl_favorite_in_wide_top1",
+            "rl_trio_overlap",
+            "rl_market_consistency",
+            "rl_trio_odds_ratio",
+            "rl_wide_harville_ratio",
+            "implied_prob_hhi",
+            "odds_skewness",
+            "closing_speed_ratio_avg",
+            "form_trend_race_rank",
+            "weighted_recent_form_finish",
+        ]
+        for i, col in enumerate(mapped_numeric_cols):
+            feat_df[col] = np.linspace(0.1 + i, 1.0 + i, len(feat_df))
+
+        result = pipeline._build_race_level_features(feat_df)
+        categorical_allowed = set(RaceQualityScreener._CATEGORY_COLS)
+        for col in RaceQualityScreener.FEATURE_COLS:
+            if col not in result.columns or col in categorical_allowed:
+                continue
+            assert not isinstance(result[col].dtype, pd.CategoricalDtype), col
+
 
 class TestBuildRegimeStats:
     """_build_regime_stats の新 FEATURE_COLS マッピング テスト"""
@@ -780,6 +817,25 @@ class TestBuildRegimeStats:
         assert "entropy_rolling" in result.columns
         assert "favorite_implied_prob_rolling" in result.columns
         assert "odds_skewness_rolling" in result.columns
+
+    def test_build_regime_stats_handles_categorical_race_id(
+        self, pipeline: TrainingPipelineV5
+    ) -> None:
+        """race_id が Categorical でも map 由来の統計列は float のまま"""
+        race_feat_df = self._make_race_feat_df(20)
+        feat_df = self._make_feat_df(20)
+        race_feat_df["race_id"] = race_feat_df["race_id"].astype("category")
+        feat_df["race_id"] = feat_df["race_id"].astype("category")
+
+        result = pipeline._build_regime_stats(race_feat_df, feat_df)
+
+        for col in [
+            "favorite_implied_prob_rolling",
+            "odds_skewness_rolling",
+            "odds_volatility_mean",
+        ]:
+            assert pd.api.types.is_float_dtype(result[col]), col
+            assert not isinstance(result[col].dtype, pd.CategoricalDtype), col
 
 
 class TestJRAFilterTraining:

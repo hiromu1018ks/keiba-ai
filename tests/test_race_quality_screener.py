@@ -140,6 +140,48 @@ class TestRaceQualityScreener:
         assert "overround_ema" in RaceQualityScreener.FEATURE_COLS
         assert "entropy_ema" in RaceQualityScreener.FEATURE_COLS
 
+    def test_prepare_features_coerces_numeric_categories(
+        self,
+        race_features_df: pd.DataFrame,
+    ) -> None:
+        """map由来の数値category列をLightGBMカテゴリとして扱わない"""
+        screener = RaceQualityScreener()
+        df = race_features_df.copy()
+        df["overround_ema"] = pd.Series(df["overround_ema"], dtype="category")
+        df["phase36_top1_strength"] = pd.Series(
+            df["phase36_top1_strength"],
+            dtype="category",
+        )
+
+        prepared = screener._prepare_features(df[RaceQualityScreener.FEATURE_COLS])
+
+        assert pd.api.types.is_float_dtype(prepared["overround_ema"])
+        assert pd.api.types.is_float_dtype(prepared["phase36_top1_strength"])
+        assert isinstance(prepared["surface"].dtype, pd.CategoricalDtype)
+
+    def test_train_predict_with_numeric_category_inputs(
+        self,
+        race_features_df: pd.DataFrame,
+    ) -> None:
+        """数値列がcategoryで渡っても学習/推論のcategorical_featureを一致させる"""
+        screener = RaceQualityScreener()
+        df = pd.concat([race_features_df] * 30, ignore_index=True)
+        df["market_log_error_max_abs"] = np.linspace(0.1, 0.9, len(df))
+        df["hist_roi_topk"] = np.linspace(0.8, 1.4, len(df))
+        df["overround_ema"] = pd.Series(df["overround_ema"], dtype="category")
+        df["phase36_top1_strength"] = pd.Series(
+            df["phase36_top1_strength"],
+            dtype="category",
+        )
+
+        screener.train(df, num_threads=1)
+        score = screener.predict_score(df.iloc[0].to_dict())
+
+        assert isinstance(score, float)
+        assert len(getattr(screener.model, "pandas_categorical", [])) == len(
+            RaceQualityScreener._CATEGORY_COLS
+        )
+
     def test_screener_independence(self) -> None:
         """品質スコアとedge_max_per_raceの相関<0.30 (§13.1)
 
@@ -385,9 +427,7 @@ class TestBuildRaceFeatures:
 
         features = RacePredictor.build_race_features(race_df_with_rl_and_phase36)
         for col in _RL_COLUMNS:
-            assert col in features, (
-                f"rl_* column '{col}' missing from build_race_features() output"
-            )
+            assert col in features, f"rl_* column '{col}' missing from build_race_features() output"
 
     def test_build_race_features_phase36_defaults_when_missing(self) -> None:
         """Phase36 source columns がない場合、デフォルト0.0を返す"""

@@ -119,10 +119,17 @@ class RaceQualityScreener:
         """カテゴリ列を category 型に変換。pd.NA → np.nan に置換。"""
         df = df.copy()
         for col in df.columns:
+            if col in self._CATEGORY_COLS:
+                continue
             if pd.api.types.is_integer_dtype(df[col]):
                 df[col] = df[col].astype(float)
+            elif isinstance(df[col].dtype, pd.CategoricalDtype):
+                df[col] = pd.to_numeric(df[col].astype(object), errors="coerce")
             elif df[col].dtype == object:
-                df[col] = df[col].apply(lambda x: np.nan if x is pd.NA else x)
+                df[col] = pd.to_numeric(
+                    df[col].apply(lambda x: np.nan if x is pd.NA else x),
+                    errors="coerce",
+                )
         for col in self._CATEGORY_COLS:
             if col in df.columns:
                 df[col] = df[col].astype("category")
