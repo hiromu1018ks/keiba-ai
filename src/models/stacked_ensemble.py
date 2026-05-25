@@ -8,6 +8,8 @@ TwoStageModel の hit_model のドロップイン代替として設計。
 best_iteration=0 + predict(X) → ndarray を返すことで互換。
 """
 
+# ruff: noqa: N803,N806
+
 from __future__ import annotations
 
 import logging
@@ -18,6 +20,13 @@ import lightgbm as lgb
 import numpy as np
 import pandas as pd
 from sklearn.linear_model import Ridge
+
+from models.reproducibility import (
+    DEFAULT_RANDOM_SEED,
+    catboost_params,
+    lightgbm_native_params,
+    xgboost_params,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -375,7 +384,10 @@ class StackedEnsemble:
             ("xgb", self._suggest_xgb_params, self._eval_xgb, self._train_ref_xgb),
             ("cat", self._suggest_cat_params, self._eval_cat, self._train_ref_cat),
         ]:
-            study = optuna.create_study(direction="maximize")
+            study = optuna.create_study(
+                direction="maximize",
+                sampler=optuna.samplers.TPESampler(seed=DEFAULT_RANDOM_SEED),
+            )
             study.optimize(
                 lambda trial, fn=suggest_fn, tf=eval_fn: tf(
                     trial,
@@ -428,6 +440,7 @@ class StackedEnsemble:
         valid_data = lgb.Dataset(X_v, label=y_v, reference=train_data)
         m = lgb.train(
             {
+                **lightgbm_native_params(),
                 "objective": "binary",
                 "metric": "auc",
                 "num_leaves": best_params["lgb_num_leaves"],
@@ -461,6 +474,7 @@ class StackedEnsemble:
         dvalid = xgb.DMatrix(X_v_num, label=y_v)
         m = xgb.train(
             {
+                **xgboost_params(),
                 "objective": "binary:logistic",
                 "eval_metric": "auc",
                 "max_depth": best_params["xgb_max_depth"],
@@ -491,6 +505,7 @@ class StackedEnsemble:
         X_t_num = self._encode_cats(X_t)
         X_v_num = self._encode_cats(X_v)
         m = CatBoostClassifier(
+            **catboost_params(),
             iterations=500,
             learning_rate=best_params["cat_lr"],
             depth=best_params["cat_depth"],
@@ -538,6 +553,7 @@ class StackedEnsemble:
         valid_data = lgb.Dataset(X_v, label=y_v, reference=train_data)
         m = lgb.train(
             {
+                **lightgbm_native_params(),
                 "objective": "binary",
                 "metric": "auc",
                 "num_leaves": params["lgb_num_leaves"],
@@ -587,6 +603,7 @@ class StackedEnsemble:
         dvalid = xgb.DMatrix(X_v_num, label=y_v)
         m = xgb.train(
             {
+                **xgboost_params(),
                 "objective": "binary:logistic",
                 "eval_metric": "auc",
                 "max_depth": params["xgb_max_depth"],
@@ -632,6 +649,7 @@ class StackedEnsemble:
         X_t_num = self._encode_cats(X_t)
         X_v_num = self._encode_cats(X_v)
         m = CatBoostClassifier(
+            **catboost_params(),
             iterations=500,
             learning_rate=params["cat_lr"],
             depth=params["cat_depth"],
@@ -678,6 +696,7 @@ class StackedEnsemble:
 
         m = lgb.train(
             {
+                **lightgbm_native_params(),
                 "objective": "binary",
                 "metric": "auc",
                 "learning_rate": lr,
@@ -715,6 +734,7 @@ class StackedEnsemble:
 
         return lgb.train(
             {
+                **lightgbm_native_params(),
                 "objective": "binary",
                 "metric": "auc",
                 "learning_rate": lr,
@@ -756,6 +776,7 @@ class StackedEnsemble:
 
         m = xgb.train(
             {
+                **xgboost_params(),
                 "objective": "binary:logistic",
                 "eval_metric": "auc",
                 "max_depth": max_depth,
@@ -794,6 +815,7 @@ class StackedEnsemble:
 
         return xgb.train(
             {
+                **xgboost_params(),
                 "objective": "binary:logistic",
                 "eval_metric": "auc",
                 "max_depth": max_depth,
@@ -832,6 +854,7 @@ class StackedEnsemble:
         es_split = int(n_tr * 0.8)
 
         m = CatBoostClassifier(
+            **catboost_params(),
             iterations=500,
             learning_rate=lr,
             depth=depth,
@@ -868,6 +891,7 @@ class StackedEnsemble:
         es_split = int(n * 0.8)
 
         m = CatBoostClassifier(
+            **catboost_params(),
             iterations=500,
             learning_rate=lr,
             depth=depth,

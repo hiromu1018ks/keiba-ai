@@ -10,6 +10,8 @@ import lightgbm as lgb
 import numpy as np
 import pandas as pd
 
+from models.reproducibility import lightgbm_sklearn_params
+
 if TYPE_CHECKING:
     from sklearn.calibration import CalibratedClassifierCV
 
@@ -201,6 +203,7 @@ class PlaceAbilityModel:
         scale_pos_weight = n_neg / max(n_pos, 1)
 
         self._model = lgb.LGBMClassifier(
+            **lightgbm_sklearn_params(),
             objective="binary",
             scale_pos_weight=scale_pos_weight,
             num_leaves=15,  # v5: 31→15 過学習抑制

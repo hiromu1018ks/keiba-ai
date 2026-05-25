@@ -5,6 +5,8 @@ LightGBM quantile regression で alpha/2 と 1-alpha/2 の分位点を学習し�
 CQR非適合スコアでCP補正を適用する。
 """
 
+# ruff: noqa: N806
+
 from __future__ import annotations
 
 import json
@@ -16,6 +18,7 @@ import numpy as np
 import pandas as pd
 
 from domain.types import POST_RACE_COLS
+from models.reproducibility import lightgbm_native_params
 
 logger = logging.getLogger(__name__)
 
@@ -256,7 +259,8 @@ class ConformalEVModel:
             df_calib: ev_win_calibrated, actual_ev_win, 特徴量列を含むDataFrame
             num_threads: LightGBMスレッド数
             lgb_params: LightGBM追加パラメータ
-            train_ratio: 学習/キャリブレーション分割比。1.0の場合は全データを学習+キャリブレーションに使用
+            train_ratio: 学習/キャリブレーション分割比。
+                1.0の場合は全データを学習+キャリブレーションに使用
         """
         # ★ SAFE-01: Whitelist-based feature selection (blacklist _NON_FEATURE_COLS deprecated)
         if self.feature_cols is None:
@@ -313,6 +317,7 @@ class ConformalEVModel:
 
         # デフォルトパラメータ
         default_params: dict = {
+            **lightgbm_native_params(),
             "objective": "quantile",
             "metric": "quantile",
             "learning_rate": 0.05,

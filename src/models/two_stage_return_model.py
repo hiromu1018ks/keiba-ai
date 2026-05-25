@@ -11,6 +11,7 @@ import numpy as np
 import pandas as pd
 
 from domain.models import TwoStageConfig
+from models.reproducibility import lightgbm_native_params
 
 logger = logging.getLogger(__name__)
 
@@ -320,6 +321,7 @@ class WinTwoStageModel:
 
         self.hit_model = lgb.train(
             {
+                **lightgbm_native_params(),
                 "objective": "binary",
                 "metric": self.cfg.hit_metric,
                 "learning_rate": self.cfg.hit_lr,
@@ -363,6 +365,7 @@ class WinTwoStageModel:
             sample_weight = (1.0 / np.sqrt(np.clip(p_win, 0.01, None))).values
 
         params = {
+            **lightgbm_native_params(),
             "objective": "regression_l1",
             "metric": self.cfg.return_metric,
             "learning_rate": self.cfg.return_lr,
@@ -800,6 +803,7 @@ class PlaceTwoStageModel:
         train_data, valid_data = _train_valid_split(features, y)
         self.hit_model = lgb.train(
             {
+                **lightgbm_native_params(),
                 "objective": "binary",
                 "metric": "auc",
                 "learning_rate": self.cfg.hit_lr,
@@ -835,6 +839,7 @@ class PlaceTwoStageModel:
         y = hit_df["fukuoddslow"]
 
         params = {
+            **lightgbm_native_params(),
             "objective": "regression_l1",
             "metric": "mae",
             "learning_rate": self.cfg.return_lr,

@@ -9,6 +9,8 @@ import lightgbm as lgb
 import numpy as np
 import pandas as pd
 
+from models.reproducibility import lightgbm_native_params
+
 logger = logging.getLogger(__name__)
 
 
@@ -99,6 +101,7 @@ class MarketModel:
 
         self.model = lgb.train(
             {
+                **lightgbm_native_params(),
                 "objective": "regression_l1",
                 "metric": "mae",
                 "learning_rate": 0.03,
@@ -169,7 +172,13 @@ class MarketModel:
 
         return df
 
-    def predict_oof(self, df: pd.DataFrame, n_splits: int = 5, *, num_threads: int = 0) -> pd.DataFrame:
+    def predict_oof(
+        self,
+        df: pd.DataFrame,
+        n_splits: int = 5,
+        *,
+        num_threads: int = 0,
+    ) -> pd.DataFrame:
         """OOF (out-of-fold) 予測を生成し、DataFrame の該当列を上書きする。
 
         学習データ内で KFold CV を行い、各foldのvalid予測を結合。
@@ -201,6 +210,7 @@ class MarketModel:
             )
             fold_model = lgb.train(
                 {
+                    **lightgbm_native_params(),
                     "objective": "regression_l1",
                     "metric": "mae",
                     "learning_rate": 0.03,

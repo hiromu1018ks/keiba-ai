@@ -9,6 +9,8 @@ import lightgbm as lgb
 import numpy as np
 import pandas as pd
 
+from models.reproducibility import lightgbm_native_params
+
 logger = logging.getLogger(__name__)
 
 
@@ -146,6 +148,7 @@ class RaceQualityScreener:
 
         self.model = lgb.train(
             {
+                **lightgbm_native_params(),
                 "objective": "regression_l1",
                 "metric": "mae",
                 "learning_rate": 0.05,

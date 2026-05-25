@@ -11,6 +11,7 @@ import pandas as pd
 
 from domain.models import RegimeConfig
 from domain.types import RegimeState
+from models.reproducibility import lightgbm_native_params
 
 logger = logging.getLogger(__name__)
 
@@ -177,6 +178,7 @@ class RegimeDetector:
 
         self.model = lgb.train(
             {
+                **lightgbm_native_params(),
                 "objective": "multiclass",
                 "num_class": 3,
                 "metric": "multi_logloss",

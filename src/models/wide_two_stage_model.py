@@ -11,6 +11,7 @@ import numpy as np
 import pandas as pd
 
 from domain.models import TwoStageConfig
+from models.reproducibility import lightgbm_native_params
 
 logger = logging.getLogger(__name__)
 
@@ -156,6 +157,7 @@ class WideTwoStageModel:
         train_data, valid_data = _train_valid_split(features, label)
         self.hit_model = lgb.train(
             {
+                **lightgbm_native_params(),
                 "objective": "binary",
                 "metric": "auc",
                 "learning_rate": cfg.hit_lr,
@@ -203,6 +205,7 @@ class WideTwoStageModel:
         label = hit_df["wide_odds"]
 
         params = {
+            **lightgbm_native_params(),
             "objective": "regression_l1",
             "metric": "mae",
             "learning_rate": cfg.return_lr,

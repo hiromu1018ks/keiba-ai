@@ -9,6 +9,8 @@ import numpy as np
 import pandas as pd
 from sklearn.isotonic import IsotonicRegression
 
+from models.reproducibility import lightgbm_native_params
+
 
 def _best_iteration(booster: lgb.Booster | None) -> int | None:
     if booster is None:
@@ -300,6 +302,7 @@ class EVCorrectionModel:
 
         self.p_correction_model = lgb.train(
             {
+                **lightgbm_native_params(),
                 "objective": "binary",
                 "metric": "auc",
                 "learning_rate": 0.03,
@@ -349,6 +352,7 @@ class EVCorrectionModel:
 
         self.e_correction_model = lgb.train(
             {
+                **lightgbm_native_params(),
                 "objective": "regression_l1",
                 "metric": "mae",
                 "learning_rate": 0.03,
@@ -431,8 +435,11 @@ class EVCorrectionModel:
             if odds_col in df.columns:
                 odds = pd.to_numeric(df[odds_col], errors="coerce").values.astype(float)
                 calibrated = df["ev_win_calibrated"].values.astype(float)
-                OddsBandFilter = self._odds_band_filter_cls
-                for (lo, hi), band_name in zip(OddsBandFilter.BANDS, OddsBandFilter.BAND_NAMES):
+                odds_band_filter = self._odds_band_filter_cls
+                for (lo, hi), band_name in zip(
+                    odds_band_filter.BANDS,
+                    odds_band_filter.BAND_NAMES,
+                ):
                     scale = self.ev_odds_band_scales.get(band_name, 1.0)
                     if abs(scale - 1.0) < 1e-9:
                         continue
@@ -613,6 +620,7 @@ class PlaceEVCorrectionModel:
 
         self.p_correction_model = lgb.train(
             {
+                **lightgbm_native_params(),
                 "objective": "binary",
                 "metric": "auc",
                 "learning_rate": 0.03,
@@ -667,6 +675,7 @@ class PlaceEVCorrectionModel:
 
         self.e_correction_model = lgb.train(
             {
+                **lightgbm_native_params(),
                 "objective": "regression_l1",
                 "metric": "mae",
                 "learning_rate": 0.03,

@@ -9,6 +9,7 @@ import lightgbm as lgb
 import numpy as np
 import pandas as pd
 
+from models.reproducibility import lightgbm_native_params
 from models.submodel_manager import SubModelManager
 
 logger = logging.getLogger(__name__)
@@ -244,6 +245,7 @@ class AbilityModel:
         if num_threads <= 0:
             num_threads = max(1, (os.cpu_count() or 4) // 2)
         params: dict = {
+            **lightgbm_native_params(),
             "objective": "lambdarank",
             "metric": "ndcg",
             "learning_rate": 0.03,
