@@ -662,9 +662,7 @@ class TestFLBSlopeFeatures:
         # 18頭で 1.5〜200 のオッズ分布は右に歪む → 正の歪度
         assert skew_vals[0] > 0
 
-    def test_implied_prob_hhi_range(
-        self, sample_race_df, sample_entry_df, sample_odds_df
-    ) -> None:
+    def test_implied_prob_hhi_range(self, sample_race_df, sample_entry_df, sample_odds_df) -> None:
         """implied_prob_hhi が 0 < HHI <= 1 の範囲にある"""
         engine = FeatureEngine(exclude_steeple=False)
         result = engine.build_all(sample_race_df, sample_entry_df, sample_odds_df)
@@ -821,9 +819,7 @@ class TestFeatureCache:
         mock_store.data_dir = "data"
 
         engine = FeatureEngine(exclude_steeple=False, use_cache=False)
-        result = engine.build_all(
-            sample_race_df, sample_entry_df, sample_odds_df, store=mock_store
-        )
+        result = engine.build_all(sample_race_df, sample_entry_df, sample_odds_df, store=mock_store)
         assert len(result) == 15
         # store.write() should not be called for cache save when cache is disabled
         mock_store.write.assert_not_called()
@@ -886,11 +882,15 @@ class TestCodeHash:
         paths = [Path("data/raw/races.parquet")]
         key_no_hash = compute_cache_key(paths, ("2020-01-01", "2023-12-31"), "build_all")
         key_with_hash = compute_cache_key(
-            paths, ("2020-01-01", "2023-12-31"), "build_all",
+            paths,
+            ("2020-01-01", "2023-12-31"),
+            "build_all",
             code_hash="abc123",
         )
         key_other_hash = compute_cache_key(
-            paths, ("2020-01-01", "2023-12-31"), "build_all",
+            paths,
+            ("2020-01-01", "2023-12-31"),
+            "build_all",
             code_hash="def456",
         )
         assert key_no_hash != key_with_hash
@@ -907,12 +907,16 @@ class TestCodeHash:
         key_old_style = compute_cache_key(paths, ("2020-01-01", "2023-12-31"), "build_all")
         # 新しい呼び出し (code_hash=None)
         key_new_style = compute_cache_key(
-            paths, ("2020-01-01", "2023-12-31"), "build_all",
+            paths,
+            ("2020-01-01", "2023-12-31"),
+            "build_all",
             code_hash=None,
         )
         # code_hash="" と明示的に指定した場合も同じ
         key_explicit_empty = compute_cache_key(
-            paths, ("2020-01-01", "2023-12-31"), "build_all",
+            paths,
+            ("2020-01-01", "2023-12-31"),
+            "build_all",
             code_hash="",
         )
         assert key_old_style == key_new_style
@@ -922,8 +926,9 @@ class TestCodeHash:
 class TestCleanupStaleCache:
     """_cleanup_stale_cache() のテスト"""
 
-    def test_cleanup_stale_cache_removes_old_files(self, tmp_path: object) -> None:
-        """古いfeat_*.parquetが削除され新しいものは残る"""
+    def test_cleanup_stale_cache_keeps_recent_files(self, tmp_path: object) -> None:
+        """直近キャッシュを保持し、保持上限を超えた古いfeat_*.parquetだけ削除する"""
+        import os
         import pathlib
 
         cache_dir = pathlib.Path(str(tmp_path)) / "cache"
@@ -938,13 +943,36 @@ class TestCleanupStaleCache:
         # 関係ないファイル
         (cache_dir / "other.txt").write_text("keep", encoding="utf-8")
 
-        engine = FeatureEngine()
+        os.utime(cache_dir / "feat_old001.parquet", (100, 100))
+        os.utime(cache_dir / "feat_old002.parquet", (200, 200))
+
+        engine = FeatureEngine(cache_retention=2)
         engine._cleanup_stale_cache(cache_dir, current_name)
 
         # 現在のキャッシュは残る
         assert (cache_dir / f"{current_name}.parquet").exists()
-        # 古いキャッシュは削除される
+        # 直近の古いキャッシュは次回同一期間の再実行用に残る
+        assert (cache_dir / "feat_old002.parquet").exists()
+        # 保持上限を超えた古いキャッシュだけ削除される
         assert not (cache_dir / "feat_old001.parquet").exists()
-        assert not (cache_dir / "feat_old002.parquet").exists()
         # 関係ないファイルは残る
         assert (cache_dir / "other.txt").exists()
+
+    def test_cleanup_stale_cache_retention_one_removes_old_files(self, tmp_path: object) -> None:
+        """retention=1では従来どおり現在キャッシュ以外を削除する"""
+        import pathlib
+
+        cache_dir = pathlib.Path(str(tmp_path)) / "cache"
+        cache_dir.mkdir()
+        current_name = "feat_abc123"
+
+        (cache_dir / f"{current_name}.parquet").write_bytes(b"current")
+        (cache_dir / "feat_old001.parquet").write_bytes(b"old1")
+        (cache_dir / "feat_old002.parquet").write_bytes(b"old2")
+
+        engine = FeatureEngine(cache_retention=1)
+        engine._cleanup_stale_cache(cache_dir, current_name)
+
+        assert (cache_dir / f"{current_name}.parquet").exists()
+        assert not (cache_dir / "feat_old001.parquet").exists()
+        assert not (cache_dir / "feat_old002.parquet").exists()

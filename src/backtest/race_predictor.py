@@ -99,10 +99,16 @@ class RacePredictor:
         stake_calculator: StakeCalculator | None = None,
         dd_controller: DrawdownController | None = None,
         alpha: float = 0.4,
+        betting_target: str = "place",
     ) -> None:
+        if betting_target not in ("win", "place", "wide"):
+            raise ValueError(
+                f"betting_target must be 'win', 'place', or 'wide', got '{betting_target}'"
+            )
         self.models = models
         self.stake_calc = stake_calculator
         self.dd_ctrl = dd_controller
+        self.betting_target = betting_target
         self._betting_mode = "kelly" if stake_calculator is not None else "flat"
         if not 0.0 <= alpha <= 1.0:
             raise ValueError(f"alpha must be in [0, 1], got {alpha}")
@@ -210,7 +216,7 @@ class RacePredictor:
             logger.error("Market prediction failed: %s\n%s", e, traceback.format_exc())
             return pd.DataFrame()
         df = submodel.stage1.add_ability_probs(df)
-        if submodel.place_ability is not None:
+        if self.betting_target != "win" and submodel.place_ability is not None:
             df = submodel.place_ability.predict(df)
 
         # INTER-01: odds_to_ability_ratio + Stage2 relative features
@@ -280,7 +286,7 @@ class RacePredictor:
             if callable(win_annotate):
                 df = win_annotate(df)
 
-        if submodel.place is not None:
+        if self.betting_target != "win" and submodel.place is not None:
             df = submodel.place.predict_ev(df)
             # place_ev_corrector: 補正EVと下限EVの両方をベット選択に使う
             if submodel.place_ev_corrector is not None:
@@ -314,7 +320,7 @@ class RacePredictor:
             df["EV_lower_place"] = place_df["EV_lower_place"].reindex(df.index)
 
         # --- Place推論ブロック (place model がある場合のみ) ---
-        if submodel.place is not None:
+        if self.betting_target != "win" and submodel.place is not None:
             # --- Benter Combination + Isotonic Calibration ---
             # p_place_pred は fundamental model 出力 (オッズ特徴量なし)
             # Benter: logit(p_c) = alpha*logit(p_fund) + beta*logit(p_market) + gamma

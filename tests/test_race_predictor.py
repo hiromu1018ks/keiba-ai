@@ -105,6 +105,58 @@ class TestRacePredictor:
         assert isinstance(result, pd.DataFrame)
         assert len(result) == 1
 
+    def test_predict_win_target_skips_place_only_models(self, mock_models: MagicMock) -> None:
+        """単勝推論では複勝専用モデルを実行しない"""
+        from backtest.race_predictor import RacePredictor
+
+        predictor = RacePredictor(models=mock_models, betting_target="win")
+
+        race_df = pd.DataFrame(
+            {
+                "race_id": ["20240101010101"],
+                "umaban": [1],
+                "surface": ["turf"],
+                "kyori": [1200],
+                "distance_bin": ["sprint"],
+                "popularity_rank": [3],
+                "ninki": [3],
+                "fukuoddslow": [2.4],
+                "tanodds": [5.0],
+                "kakuteijyuni": [2],
+                "kettonum": [1234],
+                "odds": [5.0],
+                "bataijyu": [480],
+                "field_size": [10],
+                "track_condition_code": [2],
+                "grade_code": ["C"],
+            }
+        )
+
+        win_df = race_df.copy()
+        win_df["p_win_pred"] = [0.2]
+        win_df["e_return_win_pred"] = [5.0]
+        win_df["ev_win"] = [1.0]
+        win_df["ev_win_calibrated"] = [1.0]
+        win_df["win_selection_ev"] = [1.0]
+        win_df["win_selection_edge"] = [0.0]
+        win_df["EV_lower_win_corrected"] = [1.0]
+
+        submodel = mock_models.submodels["turf"]
+        submodel.market.predict_and_calc_error.return_value = race_df.copy()
+        submodel.stage1.add_ability_probs.return_value = race_df.assign(p_ability_win=0.2)
+        submodel.win.predict_ev.return_value = win_df.copy()
+        submodel.ev_corrector.correct_ev.return_value = win_df.copy()
+        submodel.conformal_ev_model.predict_interval.return_value = (
+            win_df.copy(),
+            pd.DataFrame({"EV_lower_place": [0.0]}),
+        )
+
+        result = predictor.predict(race_df)
+
+        assert len(result) == 1
+        submodel.place_ability.predict.assert_not_called()
+        submodel.place.predict_ev.assert_not_called()
+
     def test_predict_skips_unknown_surface(self, mock_models: MagicMock) -> None:
         from backtest.race_predictor import RacePredictor
 
@@ -1235,9 +1287,7 @@ class TestRacePredictorEVEdge:
 class TestRacePredictorConfidenceIntegration:
     """ODDS-03: predict_interval pipeline integration tests"""
 
-    def test_predict_produces_conformal_confidence_score(
-        self, mock_models: MagicMock
-    ) -> None:
+    def test_predict_produces_conformal_confidence_score(self, mock_models: MagicMock) -> None:
         """RacePredictor.predict() produces conformal_confidence_score when
         confidence estimator supports predict_interval."""
         from backtest.race_predictor import RacePredictor
@@ -1289,9 +1339,7 @@ class TestRacePredictorConfidenceIntegration:
         assert "conformal_confidence_score" in result.columns
         assert result["conformal_confidence_score"].iloc[0] == pytest.approx(0.5)
 
-    def test_predict_uses_predict_interval_not_lower_bound(
-        self, mock_models: MagicMock
-    ) -> None:
+    def test_predict_uses_predict_interval_not_lower_bound(self, mock_models: MagicMock) -> None:
         """RacePredictor.predict() calls predict_interval (not predict_lower_bound)."""
         from backtest.race_predictor import RacePredictor
 
@@ -1465,9 +1513,7 @@ class TestGetWinCandidates:
         assert pd.isna(row["excluded_reason"])
         assert "overconfident_ev_tail" in row["risk_flags"]
 
-    def test_low_win_probability_rank_flagged_not_excluded(
-        self, mock_models: MagicMock
-    ) -> None:
+    def test_low_win_probability_rank_flagged_not_excluded(self, mock_models: MagicMock) -> None:
         """p_win_final のレース内順位が9位以下でも除外せず、診断に残す"""
         from backtest.race_predictor import RacePredictor
 
@@ -1484,9 +1530,7 @@ class TestGetWinCandidates:
         flags = diag_df.loc[diag_df["umaban"].eq(9), "risk_flags"].iloc[0]
         assert "low_probability_rank" in flags
 
-    def test_low_win_probability_floor_flagged_not_excluded(
-        self, mock_models: MagicMock
-    ) -> None:
+    def test_low_win_probability_floor_flagged_not_excluded(self, mock_models: MagicMock) -> None:
         """p_win_final < 0.03 でも除外せず、診断に残す"""
         from backtest.race_predictor import RacePredictor
 
@@ -1499,9 +1543,7 @@ class TestGetWinCandidates:
         flags = diag_df.loc[diag_df["umaban"].eq(1), "risk_flags"].iloc[0]
         assert "low_probability" in flags
 
-    def test_tail_calibrated_ev_is_used_for_valid_candidates(
-        self, mock_models: MagicMock
-    ) -> None:
+    def test_tail_calibrated_ev_is_used_for_valid_candidates(self, mock_models: MagicMock) -> None:
         """EV tail calibration 後の値から win_selection_edge が再計算される"""
         from backtest.race_predictor import RacePredictor
 
@@ -1572,13 +1614,9 @@ class TestGetWinCandidates:
 
         assert len(result) == 1
         assert result.iloc[0]["umaban"] == 2
-        assert result.iloc[0]["win_market_selection_score"] < result.iloc[0][
-            "win_selection_edge"
-        ]
+        assert result.iloc[0]["win_market_selection_score"] < result.iloc[0]["win_selection_edge"]
 
-    def test_late_odds_drop_penalty_can_break_close_edge_ties(
-        self, mock_models: MagicMock
-    ) -> None:
+    def test_late_odds_drop_penalty_can_break_close_edge_ties(self, mock_models: MagicMock) -> None:
         """直前でオッズ低下が強い馬は、近いedge差なら過熱として減点する。"""
         from backtest.race_predictor import RacePredictor
 
@@ -1597,9 +1635,7 @@ class TestGetWinCandidates:
         assert result.iloc[0]["umaban"] == 2
         assert "win_late_odds_drop_z" in result.columns
 
-    def test_log_odds_penalty_can_break_close_edge_ties(
-        self, mock_models: MagicMock
-    ) -> None:
+    def test_log_odds_penalty_can_break_close_edge_ties(self, mock_models: MagicMock) -> None:
         """極端な高オッズ候補は、近いedge差なら滑らかに減点する。"""
         from backtest.race_predictor import RacePredictor
 
@@ -1646,9 +1682,7 @@ class TestGetWinCandidates:
         from backtest.race_predictor import RacePredictor
 
         predictor = RacePredictor(models=mock_models)
-        race_df = pd.DataFrame(
-            {"race_id": ["R1"], "umaban": [1], "win_selection_edge": [0.1]}
-        )
+        race_df = pd.DataFrame({"race_id": ["R1"], "umaban": [1], "win_selection_edge": [0.1]})
         result = predictor.get_win_candidates(race_df)
         assert len(result) == 0
 
@@ -1676,9 +1710,7 @@ class TestGetWinCandidates:
         result = predictor.get_win_candidates(race_df)
         assert len(result) == 1
 
-    def test_ev_lower_column_missing_keeps_existing_behavior(
-        self, mock_models: MagicMock
-    ) -> None:
+    def test_ev_lower_column_missing_keeps_existing_behavior(self, mock_models: MagicMock) -> None:
         """EV_lower_win_corrected 列なし → 有効オッズだけで判定"""
         from backtest.race_predictor import RacePredictor
 
@@ -1766,9 +1798,7 @@ class TestSelectBetsWinPath:
                 "surface": ["turf", "turf"],
             }
         )
-        bets = predictor.select_bets(
-            race_df, bankroll=100000.0, betting_target="win"
-        )
+        bets = predictor.select_bets(race_df, bankroll=100000.0, betting_target="win")
         assert len(bets) >= 1
         assert all(b.bet_type == BetType.WIN for b in bets)
         assert all(b.odds > 0 for b in bets)
@@ -1802,9 +1832,7 @@ class TestSelectBetsWinPath:
                 "surface": ["turf", "turf"],
             }
         )
-        bets = predictor.select_bets(
-            race_df, bankroll=100000.0, betting_target="win"
-        )
+        bets = predictor.select_bets(race_df, bankroll=100000.0, betting_target="win")
         assert len(bets) >= 1
         assert all(b.bet_type == BetType.WIN for b in bets)
         assert stake_calc.calc_stake.called
@@ -1831,9 +1859,7 @@ class TestSelectBetsWinPath:
                 "surface": ["turf", "turf", "turf"],
             }
         )
-        bets = predictor.select_bets(
-            race_df, bankroll=100000.0, betting_target="win"
-        )
+        bets = predictor.select_bets(race_df, bankroll=100000.0, betting_target="win")
         assert len(bets) <= 1
 
     def test_win_path_no_candidates_returns_empty(self, mock_models: MagicMock) -> None:
@@ -1850,7 +1876,5 @@ class TestSelectBetsWinPath:
                 "surface": ["turf"],
             }
         )
-        bets = predictor.select_bets(
-            race_df, bankroll=100000.0, betting_target="win"
-        )
+        bets = predictor.select_bets(race_df, bankroll=100000.0, betting_target="win")
         assert bets == []

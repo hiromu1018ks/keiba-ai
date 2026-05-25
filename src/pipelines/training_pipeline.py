@@ -413,19 +413,31 @@ class TrainingPipelineV5:
                     before - after,
                 )
 
-        # 2b. ワイドオッズを pivot して特徴量に merge
-        wide_odds_df = load_wide_odds(self.store, start, end)
-        if wide_odds_df is not None and not wide_odds_df.empty:
-            wide_pivot = wide_odds_df.pivot_table(index="race_id", columns="kumi", values="oddslow")
-            # ゼロ埋め解除: kumi "0102" → "1_2" (WideJointPairBuilder の lookup 形式に合わせる)
-            new_cols = []
-            for kumi in wide_pivot.columns:
-                lo = int(str(kumi)[:2])
-                hi = int(str(kumi)[2:])
-                new_cols.append(f"wide_odds_{lo}_{hi}")
-            wide_pivot.columns = new_cols
-            wide_pivot = wide_pivot.reset_index()
-            feat_df = feat_df.merge(wide_pivot, on="race_id", how="left")
+        # 2b. ワイドペア専用オッズを pivot して特徴量に merge
+        # build_all() 内の市場クロス特徴量は別経路で計算済み。wide_odds_* は
+        # WideJointPairBuilder だけが参照するため、単勝/複勝学習では不要。
+        if self._betting_target == "wide":
+            wide_odds_df = load_wide_odds(self.store, start, end)
+            if wide_odds_df is not None and not wide_odds_df.empty:
+                wide_pivot = wide_odds_df.pivot_table(
+                    index="race_id",
+                    columns="kumi",
+                    values="oddslow",
+                )
+                # ゼロ埋め解除: kumi "0102" → "1_2" (WideJointPairBuilder の lookup 形式に合わせる)
+                new_cols = []
+                for kumi in wide_pivot.columns:
+                    lo = int(str(kumi)[:2])
+                    hi = int(str(kumi)[2:])
+                    new_cols.append(f"wide_odds_{lo}_{hi}")
+                wide_pivot.columns = new_cols
+                wide_pivot = wide_pivot.reset_index()
+                feat_df = feat_df.merge(wide_pivot, on="race_id", how="left")
+        else:
+            logger.info(
+                "Skipping wide odds pivot for betting_target=%s",
+                self._betting_target,
+            )
 
         # 3. 各 surface ごとに学習 (parallel)
         models: dict[str, SubmodelSet] = {}
@@ -1017,13 +1029,17 @@ class TrainingPipelineV5:
         df_oof = compute_odds_deviation_features(df_oof)
 
         # NEW: PlaceAbilityModel
-        from models.place_ability_model import PlaceAbilityModel
+        place_ability = None
+        if betting_target != "win":
+            from models.place_ability_model import PlaceAbilityModel
 
-        with TimingContext(f"{surface}/place_ability_train"):
-            place_ability = PlaceAbilityModel()
-            place_ability.train(df_oof, n_jobs=num_threads)
-        with TimingContext(f"{surface}/place_ability_predict"):
-            df_oof = place_ability.predict(df_oof)
+            with TimingContext(f"{surface}/place_ability_train"):
+                place_ability = PlaceAbilityModel()
+                place_ability.train(df_oof, n_jobs=num_threads)
+            with TimingContext(f"{surface}/place_ability_predict"):
+                df_oof = place_ability.predict(df_oof)
+        else:
+            logger.info("Skipping PlaceAbilityModel for %s (betting_target=win)", surface)
 
         # 3. 単勝 2段階モデル
         win_2s = WinTwoStageModel()

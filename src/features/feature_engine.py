@@ -26,6 +26,7 @@ from utils.timing import TimingContext
 
 logger = logging.getLogger(__name__)
 
+
 def compute_code_hash(features_dir: str | Path = "src/features") -> str:
     """src/features/ 配下の全 .py ファイルの内容ハッシュを計算する。
 
@@ -131,10 +132,14 @@ def _compute_popularity_rank_from_tanodds(df: pd.DataFrame) -> pd.Series:
         return popularity_rank
 
     if "race_id" in df.columns:
-        popularity_rank.loc[valid_mask] = tanodds.loc[valid_mask].groupby(
-            df.loc[valid_mask, "race_id"],
-            observed=True,
-        ).rank(method="first", ascending=True)
+        popularity_rank.loc[valid_mask] = (
+            tanodds.loc[valid_mask]
+            .groupby(
+                df.loc[valid_mask, "race_id"],
+                observed=True,
+            )
+            .rank(method="first", ascending=True)
+        )
     else:
         popularity_rank.loc[valid_mask] = tanodds.loc[valid_mask].rank(
             method="first",
@@ -155,16 +160,20 @@ class FeatureEngine:
         exclude_steeple: bool = True,
         use_cache: bool = True,
         cache_dir: str = "features/cache",
+        cache_retention: int = 8,
     ) -> None:
         self._exclude_steeple = exclude_steeple
         self._use_cache = use_cache
         self._cache_dir = cache_dir
+        self._cache_retention = max(1, cache_retention)
 
     def _cleanup_stale_cache(self, cache_dir: Path, current_cache_name: str) -> None:
-        """古いキャッシュファイル (feat_*.parquet) を削除する。
+        """古いキャッシュファイル (feat_*.parquet) を保持上限まで削除する。
 
-        現在のキャッシュ名と一致しないファイルを全て削除する。
-        ディスク容量の無駄な消費を防止する。
+        従来は現在のキャッシュ以外を全削除していたため、年度をまたぐ
+        バックテストで毎回 build_all() がキャッシュミスになっていた。
+        現在のキャッシュに加えて直近のキャッシュを保持し、同じ入力・同じ
+        特徴量コードの再実行だけを再利用する。
 
         Args:
             cache_dir: キャッシュディレクトリのパス
@@ -172,17 +181,20 @@ class FeatureEngine:
         """
         if not cache_dir.exists():
             return
-        stale_files = [
-            f for f in cache_dir.glob("feat_*.parquet")
-            if f.stem != current_cache_name
-        ]
-        for stale_file in stale_files:
+        stale_files = [f for f in cache_dir.glob("feat_*.parquet") if f.stem != current_cache_name]
+        stale_files.sort(key=lambda f: f.stat().st_mtime, reverse=True)
+        delete_files = stale_files[max(0, self._cache_retention - 1) :]
+        for stale_file in delete_files:
             try:
                 stale_file.unlink()
             except OSError:
                 logger.warning("古いキャッシュファイルの削除に失敗: %s", stale_file)
-        if stale_files:
-            logger.info("古いキャッシュファイル %d件を削除", len(stale_files))
+        if delete_files:
+            logger.info(
+                "古いキャッシュファイル %d件を削除 (retention=%d)",
+                len(delete_files),
+                self._cache_retention,
+            )
 
     def build_all(
         self,
@@ -235,7 +247,9 @@ class FeatureEngine:
                         )
 
                 cache_key = compute_cache_key(
-                    source_paths, date_range, "build_all",
+                    source_paths,
+                    date_range,
+                    "build_all",
                     code_hash=compute_code_hash(),
                 )
                 _cache_name = f"feat_{cache_key}"
@@ -363,7 +377,9 @@ class FeatureEngine:
                 except Exception:
                     logger.warning("MCF: wide/trio odds load failed, using NaN fallback")
             result_df = compute_market_cross_features(
-                result_df, wide_df=wide_df_mcf, trio_df=trio_df_mcf,
+                result_df,
+                wide_df=wide_df_mcf,
+                trio_df=trio_df_mcf,
             )
 
         # Group B: 血統特徴量
@@ -555,8 +571,7 @@ class FeatureEngine:
                     fallback_mask = fallback_mask & ~usable_tanninki
                 if fallback_mask.any():
                     logging.getLogger(__name__).warning(
-                        "popularity_rank missing for %d horses after "
-                        "tanodds/tanninki fallback",
+                        "popularity_rank missing for %d horses after tanodds/tanninki fallback",
                         int(fallback_mask.sum()),
                     )
                     df.loc[fallback_mask, "popularity_rank"] = float("nan")
@@ -623,7 +638,7 @@ class FeatureEngine:
             df["weight_change_ratio"] = np.where(
                 (weight > 0) & weight.notna(),
                 zogen / weight * 100,  # パーセンテージに変換
-                float("nan")
+                float("nan"),
             )
         else:
             df["weight_change_ratio"] = float("nan")

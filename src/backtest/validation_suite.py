@@ -588,7 +588,7 @@ class BacktestValidationSuite:
             pipeline = TrainingPipelineV5(
                 store=self.store, model_dir=Path("data/models-validation")
             )
-            trained = pipeline.run(w["train"][0], w["train"][1])
+            trained = pipeline.run(w["train"][0], w["train"][1], betting_target="win")
 
             # 2. Freeze parameters (Rule 7)
             protocol = ParameterFreezeProtocol(trained)

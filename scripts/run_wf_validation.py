@@ -35,7 +35,9 @@ sys.path.insert(0, ROOT)
 sys.path.insert(0, os.path.join(ROOT, "src"))
 
 logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s", datefmt="%H:%M:%S",
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    datefmt="%H:%M:%S",
 )
 logger = logging.getLogger(__name__)
 
@@ -106,16 +108,24 @@ def _extract_all_feature_rankings(models: Any) -> tuple[dict[str, int], list[str
 def main() -> None:
     """WF検証のメインループ"""
     parser = argparse.ArgumentParser(description="Walk-Forward Validation")
-    parser.add_argument("--profile", action="store_true", default=False,
-                        help="Enable pyinstrument profiling (outputs to data/profiles/)")
+    parser.add_argument(
+        "--profile",
+        action="store_true",
+        default=False,
+        help="Enable pyinstrument profiling (outputs to data/profiles/)",
+    )
     parser.add_argument(
         "--betting-target",
         choices=["win", "place", "wide"],
         default="win",
         help="ベッティング対象 (デフォルト: win)",
     )
-    parser.add_argument("--ensemble", action="store_true", default=False,
-                        help="アンサンブル (LightGBM+XGBoost+CatBoost) を有効化")
+    parser.add_argument(
+        "--ensemble",
+        action="store_true",
+        default=False,
+        help="アンサンブル (LightGBM+XGBoost+CatBoost) を有効化",
+    )
     args = parser.parse_args()
 
     from utils.profiling import ProfileContext
@@ -136,7 +146,8 @@ def _run_validation(betting_target: str = "win", *, use_ensemble: bool = False) 
     # git hash
     try:
         git_hash = subprocess.check_output(
-            ["git", "rev-parse", "HEAD"], text=True,
+            ["git", "rev-parse", "HEAD"],
+            text=True,
         ).strip()[:7]
     except (subprocess.CalledProcessError, FileNotFoundError):
         git_hash = "unknown"
@@ -167,8 +178,11 @@ def _run_validation(betting_target: str = "win", *, use_ensemble: bool = False) 
         )
         logger.info(
             "Fold %d: train %s~%s, test %s~%s",
-            i, fold_def["train_start"], fold_def["train_end"],
-            fold_def["test_start"], fold_def["test_end"],
+            i,
+            fold_def["train_start"],
+            fold_def["train_end"],
+            fold_def["test_start"],
+            fold_def["test_end"],
         )
 
         # 1. 学習
@@ -179,7 +193,12 @@ def _run_validation(betting_target: str = "win", *, use_ensemble: bool = False) 
         from pipelines.training_pipeline import TrainingPipelineV5
 
         pipeline = TrainingPipelineV5(store=store, model_dir=year_model_dir)
-        models = pipeline.run(fold_def["train_start"], fold_def["train_end"], use_ensemble=use_ensemble)
+        models = pipeline.run(
+            fold_def["train_start"],
+            fold_def["train_end"],
+            use_ensemble=use_ensemble,
+            betting_target=betting_target,
+        )
         elapsed_train = time.time() - t0
         logger.info("Fold %d: 学習完了 (%.0f秒)", i, elapsed_train)
 
@@ -193,28 +212,36 @@ def _run_validation(betting_target: str = "win", *, use_ensemble: bool = False) 
         from backtest.engine import BacktestEngine
 
         test_engine = BacktestEngine(
-            models=models, store=store, diag_prefix=f"wf_{i}_test",
+            models=models,
+            store=store,
+            diag_prefix=f"wf_{i}_test",
             betting_target=betting_target,
         )
         test_result = test_engine.run(fold_def["test_start"], fold_def["test_end"])
         elapsed_test = time.time() - t1
         logger.info(
             "Fold %d: テストBT完了 (%.0f秒) ROI=%.1f%%",
-            i, elapsed_test, test_result.total_roi * 100,
+            i,
+            elapsed_test,
+            test_result.total_roi * 100,
         )
 
         # 3b. Train期間バックテスト (Per D-05)
         # 別インスタンスで状態汚染を回避 (Per Pitfall 2)
         t2 = time.time()
         train_engine = BacktestEngine(
-            models=models, store=store, diag_prefix=f"wf_{i}_train",
+            models=models,
+            store=store,
+            diag_prefix=f"wf_{i}_train",
             betting_target=betting_target,
         )
         train_result = train_engine.run(fold_def["train_start"], fold_def["train_end"])
         elapsed_train_bt = time.time() - t2
         logger.info(
             "Fold %d: 学習BT完了 (%.0f秒) ROI=%.1f%%",
-            i, elapsed_train_bt, train_result.total_roi * 100,
+            i,
+            elapsed_train_bt,
+            train_result.total_roi * 100,
         )
 
         # 4. FoldResult作成
@@ -244,11 +271,11 @@ def _run_validation(betting_target: str = "win", *, use_ensemble: bool = False) 
         logger.info("Fold %d: 途中結果保存 -> %s", i, output_path)
 
         print(
-            f"  学習: %.0f秒 | テストBT: %.0f秒 | 学習BT: %.0f秒"
+            "  学習: %.0f秒 | テストBT: %.0f秒 | 学習BT: %.0f秒"
             % (elapsed_train, elapsed_test, elapsed_train_bt),
         )
         print(
-            f"  Train ROI: %.1f%% | Test ROI: %.1f%% | Gap: %.1f%%"
+            "  Train ROI: %.1f%% | Test ROI: %.1f%% | Gap: %.1f%%"
             % (
                 train_result.total_roi * 100,
                 test_result.total_roi * 100,
@@ -256,7 +283,7 @@ def _run_validation(betting_target: str = "win", *, use_ensemble: bool = False) 
             ),
         )
         print(
-            f"  Test bets: %d | Test stake: %.0f | Test return: %.0f"
+            "  Test bets: %d | Test stake: %.0f | Test return: %.0f"
             % (test_result.total_bets, test_result.total_stake, test_result.total_return),
         )
         print()
@@ -270,9 +297,7 @@ def _run_validation(betting_target: str = "win", *, use_ensemble: bool = False) 
     wf_result.total_bets = total_test_bets
 
     # D-10: プールROI
-    wf_result.pool_roi = (
-        total_test_return / total_test_stake if total_test_stake > 0 else 0.0
-    )
+    wf_result.pool_roi = total_test_return / total_test_stake if total_test_stake > 0 else 0.0
 
     # D-11: ベット数加重ROI
     if total_test_bets > 0:
@@ -295,26 +320,32 @@ def _run_validation(betting_target: str = "win", *, use_ensemble: bool = False) 
     with mlflow.start_run(
         run_name=f"wf_{FOLDS[0]['test_start'][:4]}_{FOLDS[-1]['test_end'][:4]}",
     ):
-        mlflow.log_params({
-            "n_folds": len(FOLDS),
-            "train_years": 4,
-            "test_years": 1,
-            "git_hash": git_hash,
-        })
-        mlflow.log_metrics({
-            "pool_roi": wf_result.pool_roi,
-            "weighted_roi": wf_result.weighted_roi,
-            "spearman_rho": float(rho) if not np.isnan(rho) else -1.0,
-            "roi_gap_max": wf_result.roi_gap_max,
-            "total_bets": wf_result.total_bets,
-        })
+        mlflow.log_params(
+            {
+                "n_folds": len(FOLDS),
+                "train_years": 4,
+                "test_years": 1,
+                "git_hash": git_hash,
+            }
+        )
+        mlflow.log_metrics(
+            {
+                "pool_roi": wf_result.pool_roi,
+                "weighted_roi": wf_result.weighted_roi,
+                "spearman_rho": float(rho) if not np.isnan(rho) else -1.0,
+                "roi_gap_max": wf_result.roi_gap_max,
+                "total_bets": wf_result.total_bets,
+            }
+        )
         for fold_idx, fold in enumerate(wf_result.folds):
-            mlflow.log_metrics({
-                f"fold_{fold_idx}_train_roi": fold.train_roi,
-                f"fold_{fold_idx}_test_roi": fold.test_roi,
-                f"fold_{fold_idx}_roi_gap": fold.roi_gap,
-                f"fold_{fold_idx}_test_bets": fold.test_bets,
-            })
+            mlflow.log_metrics(
+                {
+                    f"fold_{fold_idx}_train_roi": fold.train_roi,
+                    f"fold_{fold_idx}_test_roi": fold.test_roi,
+                    f"fold_{fold_idx}_roi_gap": fold.roi_gap,
+                    f"fold_{fold_idx}_test_bets": fold.test_bets,
+                }
+            )
         mlflow.set_tag("verdict", wf_result.overall_verdict)
 
     # 10. 最終結果保存 (Per D-14)

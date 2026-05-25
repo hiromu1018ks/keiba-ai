@@ -561,9 +561,10 @@ class BacktestEngine:
                 models,
                 stake_calculator=stake_calc,
                 dd_controller=dd_ctrl,
+                betting_target=betting_target,
             )
         else:
-            self._race_predictor = RacePredictor(models)
+            self._race_predictor = RacePredictor(models, betting_target=betting_target)
 
     def _generate_training_bet_history(
         self,
@@ -799,23 +800,30 @@ class BacktestEngine:
         )
         feat_df = submodel_mgr.add_distance_band_features(feat_df)
 
-        # ワイドオッズを pivot して特徴量にマージ（WideJointPairBuilder 用）
-        wide_odds_df = load_wide_odds(self.store, start, end)
-        if wide_odds_df is not None and not wide_odds_df.empty:
-            # kumi "0102" → int変換で "1_2" 形式（WideJointPairBuilder の lookup に合わせる）
-            _wide = wide_odds_df[["race_id", "kumi", "oddslow"]].dropna(subset=["oddslow"])
-            if not _wide.empty:
-                wide_pivot = _wide.pivot_table(index="race_id", columns="kumi", values="oddslow")
-                # ゼロ埋めを解除: "0102" → "1_2", "0211" → "2_11"
-                new_cols = []
-                for c in wide_pivot.columns:
-                    lo = int(c[:2])
-                    hi = int(c[2:])
-                    new_cols.append(f"wide_odds_{lo}_{hi}")
-                wide_pivot.columns = new_cols
-                wide_pivot = wide_pivot.reset_index()
-                feat_df = feat_df.merge(wide_pivot, on="race_id", how="left")
-                logger.info("Merged wide odds: %d pair-columns", len(wide_pivot.columns) - 1)
+        # ワイドペア専用オッズを pivot して特徴量にマージ（WideJointPairBuilder 用）
+        if self.betting_target == "wide":
+            wide_odds_df = load_wide_odds(self.store, start, end)
+            if wide_odds_df is not None and not wide_odds_df.empty:
+                # kumi "0102" → int変換で "1_2" 形式（WideJointPairBuilder の lookup に合わせる）
+                _wide = wide_odds_df[["race_id", "kumi", "oddslow"]].dropna(subset=["oddslow"])
+                if not _wide.empty:
+                    wide_pivot = _wide.pivot_table(
+                        index="race_id",
+                        columns="kumi",
+                        values="oddslow",
+                    )
+                    # ゼロ埋めを解除: "0102" → "1_2", "0211" → "2_11"
+                    new_cols = []
+                    for c in wide_pivot.columns:
+                        lo = int(c[:2])
+                        hi = int(c[2:])
+                        new_cols.append(f"wide_odds_{lo}_{hi}")
+                    wide_pivot.columns = new_cols
+                    wide_pivot = wide_pivot.reset_index()
+                    feat_df = feat_df.merge(wide_pivot, on="race_id", how="left")
+                    logger.info("Merged wide odds: %d pair-columns", len(wide_pivot.columns) - 1)
+        else:
+            logger.info("Skipping wide odds pivot for betting_target=%s", self.betting_target)
 
         # Safety check: verify feature generation did not introduce NAR entries
         # (already filtered at data load above; this catches pipeline bugs)
