@@ -222,6 +222,95 @@ class WinProfitSelector:
             "max_dd": max_dd,
         }
 
+    def _build_training_arrays(
+        self,
+        prepared: pd.DataFrame,
+        race_order: pd.DataFrame,
+    ) -> dict[str, np.ndarray]:
+        race_pos_map = {race_id: idx for idx, race_id in enumerate(race_order["race_id"].tolist())}
+        race_pos = prepared["race_id"].map(race_pos_map).fillna(-1).astype(int).to_numpy(dtype=int)
+        years = (
+            pd.to_datetime(prepared["race_date"], errors="coerce")
+            .dt.year.fillna(-1)
+            .astype(int)
+            .to_numpy(dtype=int)
+        )
+        odds = _numeric(prepared, "tanodds").to_numpy(dtype=float)
+        odds_for_return = np.clip(np.nan_to_num(odds, nan=0.0, posinf=0.0, neginf=0.0), 0.0, None)
+        hit = _numeric(prepared, "kakuteijyuni").eq(1).to_numpy(dtype=bool)
+        returns = np.where(hit, odds_for_return, 0.0).astype(float)
+
+        order_cols = [col for col in ["race_date", "race_id"] if col in prepared.columns]
+        if order_cols:
+            sort_df = prepared.loc[:, order_cols].copy()
+            sort_df["_profit_selector_pos"] = np.arange(len(prepared), dtype=int)
+            chrono_order = sort_df.sort_values(order_cols)["_profit_selector_pos"].to_numpy(
+                dtype=int
+            )
+        else:
+            chrono_order = np.arange(len(prepared), dtype=int)
+
+        return {
+            "score": prepared[PROFIT_SCORE_COL].to_numpy(dtype=float),
+            "rank": prepared[PROFIT_RANK_COL].to_numpy(dtype=float),
+            "edge": _numeric(prepared, "win_selection_edge").to_numpy(dtype=float),
+            "prob": _numeric(prepared, "win_selection_prob").to_numpy(dtype=float),
+            "odds": odds,
+            "returns": returns,
+            "profit_units": returns - 1.0,
+            "race_pos": race_pos,
+            "year": years,
+            "chrono_order": chrono_order,
+        }
+
+    def _mask_arrays(
+        self,
+        arrays: dict[str, np.ndarray],
+        params: WinProfitSelectorParams,
+    ) -> np.ndarray:
+        return (
+            (arrays["rank"] <= float(params.rank_limit))
+            & (arrays["score"] >= params.min_score)
+            & (arrays["edge"] >= params.min_edge)
+            & (arrays["prob"] >= params.min_prob)
+            & (arrays["odds"] >= params.min_odds)
+            & (arrays["odds"] < params.max_odds)
+        )
+
+    def _simulate_arrays(
+        self,
+        arrays: dict[str, np.ndarray],
+        params: WinProfitSelectorParams,
+        base_mask: np.ndarray | None = None,
+    ) -> dict[str, float]:
+        selected_mask = self._mask_arrays(arrays, params)
+        if base_mask is not None:
+            selected_mask = selected_mask & base_mask
+
+        bets = int(selected_mask.sum())
+        if bets == 0:
+            return {"bets": 0.0, "return": 0.0, "profit": 0.0, "roi": 0.0, "max_dd": 0.0}
+
+        selected_returns = arrays["returns"][selected_mask]
+        total_return = float(selected_returns.sum())
+        profit = float(arrays["profit_units"][selected_mask].sum())
+
+        chrono_order = arrays["chrono_order"]
+        selected_positions = chrono_order[selected_mask[chrono_order]]
+        ordered_profit = arrays["profit_units"][selected_positions]
+        cumulative = np.cumsum(ordered_profit)
+        running_max = np.maximum.accumulate(cumulative)
+        running_max = np.maximum(running_max, 0.0)
+        max_dd = float(np.max(running_max - cumulative)) if cumulative.size > 0 else 0.0
+
+        return {
+            "bets": float(bets),
+            "return": total_return,
+            "profit": profit,
+            "roi": total_return / bets,
+            "max_dd": max_dd,
+        }
+
     def train(self, df: pd.DataFrame) -> WinProfitSelector:
         prepared = self._prepare(df)
         required = {"race_id", "race_date", "kakuteijyuni", "tanodds"}
@@ -247,6 +336,19 @@ class WinProfitSelector:
 
         total_eval_races = sum(test_end - train_end for train_end, test_end in folds)
         min_eval_bets = max(40.0, total_eval_races * self.min_bets_per_eval_race)
+        arrays = self._build_training_arrays(prepared, race_order)
+        fold_masks: list[np.ndarray] = []
+        fold_year_masks: list[list[tuple[str, np.ndarray]]] = []
+        for train_end, test_end in folds:
+            fold_mask = (arrays["race_pos"] >= train_end) & (arrays["race_pos"] < test_end)
+            fold_masks.append(fold_mask)
+            year_masks: list[tuple[str, np.ndarray]] = []
+            for year in sorted(np.unique(arrays["year"][fold_mask]).tolist()):
+                year_int = int(year)
+                if year_int >= 0:
+                    year_masks.append((str(year_int), fold_mask & (arrays["year"] == year_int)))
+            fold_year_masks.append(year_masks)
+
         best_params: WinProfitSelectorParams | None = None
         best_row: dict[str, Any] | None = None
         best_key = (False, float("-inf"), float("-inf"), float("-inf"))
@@ -255,19 +357,16 @@ class WinProfitSelector:
         for params in self._candidate_params(prepared):
             aggregate = {"bets": 0.0, "return": 0.0, "profit": 0.0, "max_dd": 0.0}
             yearly_roi: dict[str, float] = {}
-            for train_end, test_end in folds:
-                test_races = set(race_order.iloc[train_end:test_end]["race_id"])
-                fold_test = prepared[prepared["race_id"].isin(test_races)].copy()
-                metrics = self._simulate(fold_test, params)
+            for fold_mask, year_masks in zip(fold_masks, fold_year_masks, strict=True):
+                metrics = self._simulate_arrays(arrays, params, fold_mask)
                 aggregate["bets"] += metrics["bets"]
                 aggregate["return"] += metrics["return"]
                 aggregate["profit"] += metrics["profit"]
                 aggregate["max_dd"] = max(aggregate["max_dd"], metrics["max_dd"])
-                years = pd.to_datetime(fold_test["race_date"], errors="coerce").dt.year
-                for year in sorted(years.dropna().unique().tolist()):
-                    year_metrics = self._simulate(fold_test.loc[years.eq(year)], params)
+                for year, year_mask in year_masks:
+                    year_metrics = self._simulate_arrays(arrays, params, year_mask)
                     if year_metrics["bets"] > 0:
-                        yearly_roi[str(int(year))] = year_metrics["roi"]
+                        yearly_roi[year] = year_metrics["roi"]
 
             bets = aggregate["bets"]
             if bets <= 0:
@@ -335,7 +434,7 @@ class WinProfitSelector:
 
         self.params = best_params
         self._trained = True
-        best_metrics = self._simulate(prepared, best_params)
+        best_metrics = self._simulate_arrays(arrays, best_params)
         self.training_summary = {
             "selected_params": asdict(best_params),
             "eval_bets": best_row["bets"],

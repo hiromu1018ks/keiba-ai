@@ -170,6 +170,37 @@ def test_win_profit_selector_rejects_unprofitable_policy() -> None:
     assert model.training_summary["reason"] == "no_deployable_profit_policy"
 
 
+def test_win_profit_selector_vectorized_simulation_matches_dataframe_reference() -> None:
+    from models.win_profit_selector import WinProfitSelector, WinProfitSelectorParams
+
+    model = WinProfitSelector(min_train_races=60, min_fold_races=30, max_folds=3)
+    prepared = model._prepare(_make_profit_rows())
+    race_order = (
+        prepared[["race_id", "race_date"]]
+        .drop_duplicates()
+        .sort_values(["race_date", "race_id"])
+        .reset_index(drop=True)
+    )
+    arrays = model._build_training_arrays(prepared, race_order)
+    params = WinProfitSelectorParams(
+        rank_limit=2,
+        min_score=0.0,
+        min_edge=-0.2,
+        min_prob=0.02,
+        min_odds=1.0,
+        max_odds=50.0,
+    )
+
+    full_expected = model._simulate(prepared, params)
+    full_actual = model._simulate_arrays(arrays, params)
+    assert full_actual == full_expected
+
+    fold_mask = (arrays["race_pos"] >= 60) & (arrays["race_pos"] < 120)
+    fold_expected = model._simulate(prepared.loc[fold_mask].copy(), params)
+    fold_actual = model._simulate_arrays(arrays, params, fold_mask)
+    assert fold_actual == fold_expected
+
+
 def test_race_predictor_uses_profit_selector_candidate_set() -> None:
     from types import SimpleNamespace
 
