@@ -10,6 +10,8 @@ import pandas as pd
 import pytest
 
 from models.win_selection_policy import (
+    DEFAULT_EV_TAIL_PENALTY_WEIGHT,
+    DEFAULT_EV_TAIL_THRESHOLD,
     DEFAULT_LATE_ODDS_DROP_WEIGHT,
     DEFAULT_LOG_ODDS_PENALTY,
     DEFAULT_PROB_RANK_BONUS,
@@ -96,6 +98,51 @@ def test_win_selection_policy_save_load_roundtrip() -> None:
     assert loaded.training_summary["selected_weight"] == pytest.approx(
         policy.training_summary["selected_weight"]
     )
+    assert loaded.ev_tail_penalty_weight == pytest.approx(policy.ev_tail_penalty_weight)
+
+
+def test_train_can_deploy_oof_ev_tail_shrinkage_without_filtering() -> None:
+    rows: list[dict[str, object]] = []
+    race_no = 0
+    for year in [2021, 2022, 2023]:
+        for month in range(1, 8):
+            race_no += 1
+            race_id = f"{year}{month:02d}{race_no:08d}"
+            race_date = pd.Timestamp(year=year, month=month, day=1)
+            rows.extend(
+                [
+                    {
+                        "race_id": race_id,
+                        "race_date": race_date,
+                        "umaban": 1,
+                        "kakuteijyuni": 2,
+                        "tanodds": 20.0,
+                        "win_selection_prob": 0.07,
+                        "win_selection_ev": 1.40,
+                        "win_selection_edge": 0.40,
+                        "odds_drop_rate_30_10": 0.0,
+                    },
+                    {
+                        "race_id": race_id,
+                        "race_date": race_date,
+                        "umaban": 2,
+                        "kakuteijyuni": 1,
+                        "tanodds": 4.0,
+                        "win_selection_prob": 0.25,
+                        "win_selection_ev": 1.15,
+                        "win_selection_edge": 0.15,
+                        "odds_drop_rate_30_10": 0.0,
+                    },
+                ]
+            )
+
+    policy = WinSelectionPolicy()
+    policy.train(pd.DataFrame(rows))
+    scored = policy.apply(pd.DataFrame(rows[:2]))
+
+    assert policy.training_summary["deployable"] is True
+    assert policy.ev_tail_penalty_weight > 0.0
+    assert scored.sort_values("selected_rank_by_win_market_score").iloc[0]["umaban"] == 2
 
 
 def test_negative_saved_policy_weight_is_not_deployed() -> None:
@@ -132,4 +179,6 @@ def test_non_deployable_policy_uses_default_weight() -> None:
         "late_odds_drop_weight": DEFAULT_LATE_ODDS_DROP_WEIGHT,
         "log_odds_penalty": DEFAULT_LOG_ODDS_PENALTY,
         "prob_rank_bonus": DEFAULT_PROB_RANK_BONUS,
+        "ev_tail_penalty_weight": DEFAULT_EV_TAIL_PENALTY_WEIGHT,
+        "ev_tail_threshold": DEFAULT_EV_TAIL_THRESHOLD,
     }

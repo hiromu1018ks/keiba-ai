@@ -20,11 +20,17 @@ from models.win_selection_gate import ensure_win_selection_columns
 DEFAULT_LATE_ODDS_DROP_WEIGHT: float = 0.06
 DEFAULT_LOG_ODDS_PENALTY: float = 0.05
 DEFAULT_PROB_RANK_BONUS: float = 0.02
+DEFAULT_EV_TAIL_PENALTY_WEIGHT: float = 0.0
+DEFAULT_EV_TAIL_THRESHOLD: float = 1.2
 MAX_DEPLOYED_LATE_ODDS_DROP_WEIGHT: float = 0.12
 MAX_DEPLOYED_LOG_ODDS_PENALTY: float = 0.08
 MAX_DEPLOYED_PROB_RANK_BONUS: float = 0.05
+MAX_DEPLOYED_EV_TAIL_PENALTY_WEIGHT: float = 1.2
 MIN_POLICY_MEAN_ROI_IMPROVEMENT: float = 0.03
+MIN_TAIL_SHRINKAGE_MEAN_ROI_IMPROVEMENT: float = 0.05
+MIN_TAIL_SHRINKAGE_YEAR_ROI: float = 0.80
 MAX_POLICY_YEAR_ROI_REGRESSION: float = 0.02
+MIN_POLICY_DEPLOY_ROI_ALL: float = 0.85
 DEFAULT_CANDIDATE_WEIGHTS: tuple[float, ...] = (
     0.0,
     0.03,
@@ -32,6 +38,14 @@ DEFAULT_CANDIDATE_WEIGHTS: tuple[float, ...] = (
     0.08,
     0.10,
     0.12,
+)
+DEFAULT_CANDIDATE_EV_TAIL_PENALTIES: tuple[float, ...] = (
+    0.0,
+    0.15,
+    0.30,
+    0.50,
+    0.75,
+    1.00,
 )
 
 
@@ -135,11 +149,56 @@ def sanitize_prob_rank_bonus(value: Any) -> float:
     return bonus
 
 
+def sanitize_ev_tail_penalty_weight(value: Any) -> float:
+    try:
+        weight = float(value)
+    except (TypeError, ValueError):
+        return DEFAULT_EV_TAIL_PENALTY_WEIGHT
+    if not np.isfinite(weight):
+        return DEFAULT_EV_TAIL_PENALTY_WEIGHT
+    if weight < 0.0 or weight > MAX_DEPLOYED_EV_TAIL_PENALTY_WEIGHT:
+        return DEFAULT_EV_TAIL_PENALTY_WEIGHT
+    return weight
+
+
+def ev_tail_pressure(
+    df: pd.DataFrame,
+    *,
+    threshold: float = DEFAULT_EV_TAIL_THRESHOLD,
+) -> pd.Series:
+    """Continuous OOF-learned overconfidence pressure for high-EV tails.
+
+    The pressure is a ranking shrinkage feature, not a filter. It is strongest
+    when EV is high while the implied hit probability is low and odds are long.
+    """
+    prepared = ensure_win_selection_columns(df)
+    ev = _numeric(prepared, "win_selection_ev")
+    if not ev.notna().any():
+        ev = _numeric(prepared, "win_selection_edge") + 1.0
+    ev_excess = (ev - float(threshold)).clip(lower=0.0, upper=4.0)
+
+    odds = _numeric(prepared, "tanodds").clip(lower=1.0)
+    odds_tail = (
+        (np.log1p(odds) - np.log1p(30.0)) / max(1e-9, np.log1p(100.0) - np.log1p(30.0))
+    ).clip(lower=0.0, upper=1.0)
+
+    prob = _numeric(prepared, "p_win_final").where(
+        _numeric(prepared, "p_win_final").notna(),
+        _numeric(prepared, "win_selection_prob"),
+    )
+    low_prob_tail = ((0.08 - prob) / 0.08).clip(lower=0.0, upper=1.0)
+
+    pressure = np.log1p(ev_excess) * (1.0 + 0.50 * odds_tail + 0.25 * low_prob_tail)
+    return pd.to_numeric(pressure, errors="coerce").replace([np.inf, -np.inf], np.nan).fillna(0.0)
+
+
 def deployed_policy_params(policy: Any | None) -> dict[str, float]:
     defaults = {
         "late_odds_drop_weight": DEFAULT_LATE_ODDS_DROP_WEIGHT,
         "log_odds_penalty": DEFAULT_LOG_ODDS_PENALTY,
         "prob_rank_bonus": DEFAULT_PROB_RANK_BONUS,
+        "ev_tail_penalty_weight": DEFAULT_EV_TAIL_PENALTY_WEIGHT,
+        "ev_tail_threshold": DEFAULT_EV_TAIL_THRESHOLD,
     }
     if policy is None:
         return defaults
@@ -154,6 +213,10 @@ def deployed_policy_params(policy: Any | None) -> dict[str, float]:
             getattr(policy, "log_odds_penalty", None)
         ),
         "prob_rank_bonus": sanitize_prob_rank_bonus(getattr(policy, "prob_rank_bonus", None)),
+        "ev_tail_penalty_weight": sanitize_ev_tail_penalty_weight(
+            getattr(policy, "ev_tail_penalty_weight", None)
+        ),
+        "ev_tail_threshold": DEFAULT_EV_TAIL_THRESHOLD,
     }
 
 
@@ -174,7 +237,9 @@ class WinSelectionPolicy:
     late_odds_drop_weight: float = DEFAULT_LATE_ODDS_DROP_WEIGHT
     log_odds_penalty: float = DEFAULT_LOG_ODDS_PENALTY
     prob_rank_bonus: float = DEFAULT_PROB_RANK_BONUS
+    ev_tail_penalty_weight: float = DEFAULT_EV_TAIL_PENALTY_WEIGHT
     candidate_weights: tuple[float, ...] = DEFAULT_CANDIDATE_WEIGHTS
+    candidate_ev_tail_penalties: tuple[float, ...] = DEFAULT_CANDIDATE_EV_TAIL_PENALTIES
     is_trained: bool = False
     training_summary: dict[str, Any] = field(default_factory=dict)
 
@@ -215,6 +280,7 @@ class WinSelectionPolicy:
             - float(self.late_odds_drop_weight) * late_drop_z
             - float(self.log_odds_penalty) * log_odds
             + float(self.prob_rank_bonus) * prob_rank
+            - float(self.ev_tail_penalty_weight) * ev_tail_pressure(df)
         ).astype(float)
 
     def apply(
@@ -243,6 +309,8 @@ class WinSelectionPolicy:
         ).fillna(0.5)
         prepared["win_log_odds_penalty"] = self.log_odds_penalty
         prepared["win_prob_rank_bonus"] = self.prob_rank_bonus
+        prepared["win_ev_tail_pressure"] = ev_tail_pressure(prepared)
+        prepared["win_ev_tail_penalty_weight"] = self.ev_tail_penalty_weight
         prepared[score_col] = self.score(prepared, race_key=key)
         if "race_id" in prepared.columns:
             prepared["selected_rank_by_win_market_score"] = prepared[score_col].groupby(
@@ -287,43 +355,56 @@ class WinSelectionPolicy:
         ).fillna(0.5)
         log_penalty = sanitize_log_odds_penalty(self.log_odds_penalty)
         prob_bonus = sanitize_prob_rank_bonus(self.prob_rank_bonus)
+        ev_tail = ev_tail_pressure(prepared)
 
         rows: list[dict[str, Any]] = []
-        for weight in sorted({sanitize_late_odds_drop_weight(w) for w in self.candidate_weights}):
-            score = (
-                base
-                - float(weight) * late_drop_z
-                - log_penalty * log_odds
-                + prob_bonus * prob_rank
-            )
-            roi_all = _roi_for_score(prepared, score)
-            year_rois: list[float] = []
-            year_roi_by_year: dict[str, float] = {}
-            for year in sorted(years.dropna().unique().tolist()):
-                mask = years.eq(int(year))
-                if not mask.any():
-                    continue
-                year_roi = _roi_for_score(prepared.loc[mask], score.loc[mask])
-                year_rois.append(year_roi)
-                year_roi_by_year[str(int(year))] = year_roi
-            clean_year_rois = [r for r in year_rois if np.isfinite(r)]
-            rows.append(
-                {
-                    "weight": float(weight),
-                    "roi_all": roi_all,
-                    "roi_mean_by_year": float(np.nanmean(clean_year_rois))
-                    if clean_year_rois
-                    else float("nan"),
-                    "roi_min_by_year": float(np.nanmin(clean_year_rois))
-                    if clean_year_rois
-                    else float("nan"),
-                    "roi_std_by_year": float(np.nanstd(clean_year_rois))
-                    if clean_year_rois
-                    else float("nan"),
-                    "n_years": int(len(clean_year_rois)),
-                    "year_rois": year_roi_by_year,
-                }
-            )
+        late_weights = sorted(
+            {sanitize_late_odds_drop_weight(w) for w in self.candidate_weights}
+        )
+        tail_weights = sorted(
+            {
+                sanitize_ev_tail_penalty_weight(w)
+                for w in self.candidate_ev_tail_penalties
+            }
+        )
+        for weight in late_weights:
+            for tail_weight in tail_weights:
+                score = (
+                    base
+                    - float(weight) * late_drop_z
+                    - log_penalty * log_odds
+                    + prob_bonus * prob_rank
+                    - float(tail_weight) * ev_tail
+                )
+                roi_all = _roi_for_score(prepared, score)
+                year_rois: list[float] = []
+                year_roi_by_year: dict[str, float] = {}
+                for year in sorted(years.dropna().unique().tolist()):
+                    mask = years.eq(int(year))
+                    if not mask.any():
+                        continue
+                    year_roi = _roi_for_score(prepared.loc[mask], score.loc[mask])
+                    year_rois.append(year_roi)
+                    year_roi_by_year[str(int(year))] = year_roi
+                clean_year_rois = [r for r in year_rois if np.isfinite(r)]
+                rows.append(
+                    {
+                        "weight": float(weight),
+                        "ev_tail_penalty_weight": float(tail_weight),
+                        "roi_all": roi_all,
+                        "roi_mean_by_year": float(np.nanmean(clean_year_rois))
+                        if clean_year_rois
+                        else float("nan"),
+                        "roi_min_by_year": float(np.nanmin(clean_year_rois))
+                        if clean_year_rois
+                        else float("nan"),
+                        "roi_std_by_year": float(np.nanstd(clean_year_rois))
+                        if clean_year_rois
+                        else float("nan"),
+                        "n_years": int(len(clean_year_rois)),
+                        "year_rois": year_roi_by_year,
+                    }
+                )
 
         result = pd.DataFrame(rows).replace([np.inf, -np.inf], np.nan).dropna(
             subset=["roi_all", "roi_mean_by_year"]
@@ -333,13 +414,17 @@ class WinSelectionPolicy:
             self.training_summary = {"reason": "no_valid_candidates"}
             return self
 
-        default = result.loc[result["weight"].eq(DEFAULT_LATE_ODDS_DROP_WEIGHT)]
+        default = result.loc[
+            result["weight"].eq(DEFAULT_LATE_ODDS_DROP_WEIGHT)
+            & result["ev_tail_penalty_weight"].eq(DEFAULT_EV_TAIL_PENALTY_WEIGHT)
+        ]
         if default.empty:
             default_score = (
                 base
                 - DEFAULT_LATE_ODDS_DROP_WEIGHT * late_drop_z
                 - log_penalty * log_odds
                 + prob_bonus * prob_rank
+                - DEFAULT_EV_TAIL_PENALTY_WEIGHT * ev_tail
             )
             default_year_rois: dict[str, float] = {}
             for year in sorted(years.dropna().unique().tolist()):
@@ -350,6 +435,7 @@ class WinSelectionPolicy:
                 )
             default_row = {
                 "weight": DEFAULT_LATE_ODDS_DROP_WEIGHT,
+                "ev_tail_penalty_weight": DEFAULT_EV_TAIL_PENALTY_WEIGHT,
                 "roi_all": _roi_for_score(prepared, default_score),
                 "roi_mean_by_year": float(np.nanmean(list(default_year_rois.values()))),
                 "roi_min_by_year": float(np.nanmin(list(default_year_rois.values()))),
@@ -358,7 +444,10 @@ class WinSelectionPolicy:
                 "year_rois": default_year_rois,
             }
             result = pd.concat([result, pd.DataFrame([default_row])], ignore_index=True)
-            default = result.loc[result["weight"].eq(DEFAULT_LATE_ODDS_DROP_WEIGHT)]
+            default = result.loc[
+                result["weight"].eq(DEFAULT_LATE_ODDS_DROP_WEIGHT)
+                & result["ev_tail_penalty_weight"].eq(DEFAULT_EV_TAIL_PENALTY_WEIGHT)
+            ]
         default_row = default.iloc[0]
         default_roi = float(default_row["roi_mean_by_year"])
         result["objective"] = (
@@ -366,8 +455,13 @@ class WinSelectionPolicy:
             - 0.15 * result["roi_std_by_year"].fillna(0.0)
             + 0.10 * result["roi_min_by_year"].fillna(result["roi_mean_by_year"])
             - 0.02 * result["weight"].abs()
+            - 0.01 * result["ev_tail_penalty_weight"].abs()
         )
-        best = result.sort_values(["objective", "roi_mean_by_year"], ascending=False).iloc[0]
+        candidate_best = result.sort_values(
+            ["objective", "roi_mean_by_year"],
+            ascending=False,
+        ).iloc[0]
+        best = candidate_best
         default_year_rois = dict(default_row["year_rois"])
         best_year_rois = dict(best["year_rois"])
         year_deltas = {
@@ -377,37 +471,67 @@ class WinSelectionPolicy:
         }
         mean_delta = float(best["roi_mean_by_year"] - default_roi)
         min_year_delta = min(year_deltas.values()) if year_deltas else float("-inf")
-        deployable = (
+        candidate_changed = (
             float(best["weight"]) != DEFAULT_LATE_ODDS_DROP_WEIGHT
+            or float(best["ev_tail_penalty_weight"]) != DEFAULT_EV_TAIL_PENALTY_WEIGHT
+        )
+        uses_tail_shrinkage = (
+            float(best["ev_tail_penalty_weight"]) > DEFAULT_EV_TAIL_PENALTY_WEIGHT
+        )
+        roi_floor_met = float(best["roi_all"]) >= MIN_POLICY_DEPLOY_ROI_ALL
+        stable_tail_shrinkage_met = (
+            uses_tail_shrinkage
+            and mean_delta >= MIN_TAIL_SHRINKAGE_MEAN_ROI_IMPROVEMENT
+            and min_year_delta >= -MAX_POLICY_YEAR_ROI_REGRESSION
+            and float(best["roi_min_by_year"]) >= MIN_TAIL_SHRINKAGE_YEAR_ROI
+        )
+        deployable = (
+            candidate_changed
             and int(best["n_years"]) >= 3
             and mean_delta >= MIN_POLICY_MEAN_ROI_IMPROVEMENT
             and min_year_delta >= -MAX_POLICY_YEAR_ROI_REGRESSION
+            and (roi_floor_met or stable_tail_shrinkage_met)
         )
         fallback_reason = None
         if not deployable:
-            fallback_reason = (
-                "use_default_weight_until_positive_penalty_beats_default_across_years"
-            )
+            if not roi_floor_met and not stable_tail_shrinkage_met:
+                fallback_reason = "use_default_policy_until_oof_roi_floor_is_met"
+            else:
+                fallback_reason = (
+                    "use_default_policy_until_candidate_beats_default_across_years"
+                )
             best = default_row
 
         self.late_odds_drop_weight = sanitize_late_odds_drop_weight(best["weight"])
+        self.ev_tail_penalty_weight = sanitize_ev_tail_penalty_weight(
+            best["ev_tail_penalty_weight"]
+        )
         self.is_trained = True
         self.training_summary = {
             "selected_weight": self.late_odds_drop_weight,
+            "selected_ev_tail_penalty_weight": self.ev_tail_penalty_weight,
             "default_weight": DEFAULT_LATE_ODDS_DROP_WEIGHT,
+            "default_ev_tail_penalty_weight": DEFAULT_EV_TAIL_PENALTY_WEIGHT,
+            "ev_tail_threshold": DEFAULT_EV_TAIL_THRESHOLD,
             "default_log_odds_penalty": log_penalty,
             "default_prob_rank_bonus": prob_bonus,
+            "min_policy_deploy_roi_all": MIN_POLICY_DEPLOY_ROI_ALL,
+            "min_tail_shrinkage_mean_roi_improvement": (
+                MIN_TAIL_SHRINKAGE_MEAN_ROI_IMPROVEMENT
+            ),
+            "min_tail_shrinkage_year_roi": MIN_TAIL_SHRINKAGE_YEAR_ROI,
             "default_roi_mean_by_year": default_roi,
             "selected_roi_mean_by_year": float(best["roi_mean_by_year"]),
             "selected_roi_min_by_year": float(best["roi_min_by_year"]),
             "selected_roi_all": float(best["roi_all"]),
-            "candidate_best_weight": float(
-                result.sort_values(["objective", "roi_mean_by_year"], ascending=False).iloc[0][
-                    "weight"
-                ]
+            "candidate_best_weight": float(candidate_best["weight"]),
+            "candidate_best_ev_tail_penalty_weight": float(
+                candidate_best["ev_tail_penalty_weight"]
             ),
             "candidate_best_mean_delta_vs_default": mean_delta,
             "candidate_best_min_year_delta_vs_default": float(min_year_delta),
+            "roi_floor_met": bool(roi_floor_met),
+            "stable_tail_shrinkage_met": bool(stable_tail_shrinkage_met),
             "deployable": deployable,
             "fallback_reason": fallback_reason,
             "n_years": int(best["n_years"]),
@@ -424,7 +548,9 @@ class WinSelectionPolicy:
                 "late_odds_drop_weight": self.late_odds_drop_weight,
                 "log_odds_penalty": self.log_odds_penalty,
                 "prob_rank_bonus": self.prob_rank_bonus,
+                "ev_tail_penalty_weight": self.ev_tail_penalty_weight,
                 "candidate_weights": tuple(self.candidate_weights),
+                "candidate_ev_tail_penalties": tuple(self.candidate_ev_tail_penalties),
                 "is_trained": self.is_trained,
                 "training_summary": self.training_summary,
             },
@@ -444,7 +570,13 @@ class WinSelectionPolicy:
             prob_rank_bonus=sanitize_prob_rank_bonus(
                 state.get("prob_rank_bonus", DEFAULT_PROB_RANK_BONUS)
             ),
+            ev_tail_penalty_weight=sanitize_ev_tail_penalty_weight(
+                state.get("ev_tail_penalty_weight", DEFAULT_EV_TAIL_PENALTY_WEIGHT)
+            ),
             candidate_weights=tuple(state.get("candidate_weights", DEFAULT_CANDIDATE_WEIGHTS)),
+            candidate_ev_tail_penalties=tuple(
+                state.get("candidate_ev_tail_penalties", DEFAULT_CANDIDATE_EV_TAIL_PENALTIES)
+            ),
             is_trained=bool(state.get("is_trained", True)),
             training_summary=dict(state.get("training_summary", {})),
         )

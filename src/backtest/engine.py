@@ -410,6 +410,10 @@ def _horse_win_diagnostic_kwargs(row: Any) -> dict[str, Any]:
         "win_late_odds_drop_weight": _optional_float(
             getattr(row, "win_late_odds_drop_weight", None)
         ),
+        "win_ev_tail_pressure": _optional_float(getattr(row, "win_ev_tail_pressure", None)),
+        "win_ev_tail_penalty_weight": _optional_float(
+            getattr(row, "win_ev_tail_penalty_weight", None)
+        ),
         "win_log_odds": _optional_float(getattr(row, "win_log_odds", None)),
         "win_log_odds_penalty": _optional_float(getattr(row, "win_log_odds_penalty", None)),
         "win_model_prob_rank": _optional_float(getattr(row, "win_model_prob_rank", None)),
@@ -1547,6 +1551,12 @@ class BacktestEngine:
                         ),
                         "win_late_odds_drop_weight": _optional_float(
                             horse_row.get("win_late_odds_drop_weight", None)
+                        ),
+                        "win_ev_tail_pressure": _optional_float(
+                            horse_row.get("win_ev_tail_pressure", None)
+                        ),
+                        "win_ev_tail_penalty_weight": _optional_float(
+                            horse_row.get("win_ev_tail_penalty_weight", None)
                         ),
                         "win_log_odds": _optional_float(horse_row.get("win_log_odds", None)),
                         "win_log_odds_penalty": _optional_float(

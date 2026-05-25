@@ -85,6 +85,15 @@ def _prepare_oof_artifact(df: pd.DataFrame) -> pd.DataFrame:
     return oof_df
 
 
+def _normalize_race_id_for_artifact(series: pd.Series) -> pd.Series:
+    """Parquet artifactでrace_idをfloat化させないため文字列に正規化する。"""
+    if pd.api.types.is_numeric_dtype(series):
+        numeric = pd.to_numeric(series, errors="coerce").round()
+        return numeric.astype("Int64").astype(str).replace("<NA>", pd.NA)
+    text = series.astype("string")
+    return text.str.replace(r"\.0$", "", regex=True)
+
+
 def _prepare_win_selection_oof_artifact(df: pd.DataFrame) -> pd.DataFrame:
     """最終単勝選定の検証に必要なOOF列だけを保存する。"""
     wanted_cols = [
@@ -100,6 +109,7 @@ def _prepare_win_selection_oof_artifact(df: pd.DataFrame) -> pd.DataFrame:
         "p_win_corrected",
         "p_win_combined",
         "p_win_final",
+        "p_win_final_oof",
         "win_selection_prob",
         "win_selection_ev",
         "win_selection_edge",
@@ -113,6 +123,8 @@ def _prepare_win_selection_oof_artifact(df: pd.DataFrame) -> pd.DataFrame:
         "win_profit_reason",
         "win_late_odds_drop_z",
         "win_late_odds_drop_weight",
+        "win_ev_tail_pressure",
+        "win_ev_tail_penalty_weight",
         "win_log_odds",
         "win_log_odds_penalty",
         "win_model_prob_rank",
@@ -124,11 +136,38 @@ def _prepare_win_selection_oof_artifact(df: pd.DataFrame) -> pd.DataFrame:
         "win_gate_score",
         "win_gate_pass",
         "win_selection_oof_fold",
+        "is_win",
+        "win_return",
+        "win_return_unit",
     ]
     cols = [col for col in wanted_cols if col in df.columns]
     oof_df = df.loc[:, cols].copy()
+    if "race_id" in oof_df.columns:
+        oof_df["race_id"] = _normalize_race_id_for_artifact(oof_df["race_id"])
+    if "umaban" in oof_df.columns:
+        oof_df["umaban"] = pd.to_numeric(oof_df["umaban"], errors="coerce").astype("Int64")
+    if "p_win_final_oof" not in oof_df.columns:
+        if "p_win_final" in oof_df.columns:
+            oof_df["p_win_final_oof"] = pd.to_numeric(oof_df["p_win_final"], errors="coerce")
+        elif "win_selection_prob" in oof_df.columns:
+            oof_df["p_win_final_oof"] = pd.to_numeric(
+                oof_df["win_selection_prob"],
+                errors="coerce",
+            )
+        elif "p_win_oof" in oof_df.columns:
+            oof_df["p_win_final_oof"] = pd.to_numeric(oof_df["p_win_oof"], errors="coerce")
+    if "kakuteijyuni" in oof_df.columns and "is_win" not in oof_df.columns:
+        oof_df["is_win"] = pd.to_numeric(oof_df["kakuteijyuni"], errors="coerce").eq(1)
+    if "win_return" not in oof_df.columns and "is_win" in oof_df.columns:
+        odds_col = "confirmed_odds" if "confirmed_odds" in oof_df.columns else "tanodds"
+        if odds_col in oof_df.columns:
+            odds = pd.to_numeric(oof_df[odds_col], errors="coerce").fillna(0.0)
+            if odds.dropna().quantile(0.75) > 100.0:
+                odds = odds / 100.0
+            oof_df["win_return_unit"] = odds.where(oof_df["is_win"], 0.0)
+            oof_df["win_return"] = oof_df["win_return_unit"] * 100.0
     oof_df["is_oof"] = True
-    oof_df["oof_artifact_version"] = 3
+    oof_df["oof_artifact_version"] = 4
     oof_df["oof_row_id"] = np.arange(len(oof_df), dtype=np.int64)
     return oof_df
 

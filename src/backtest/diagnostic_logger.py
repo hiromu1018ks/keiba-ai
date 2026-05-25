@@ -86,6 +86,8 @@ class HorseDiagnostic:
     win_profit_reason: str | None = None
     win_late_odds_drop_z: float | None = None
     win_late_odds_drop_weight: float | None = None
+    win_ev_tail_pressure: float | None = None
+    win_ev_tail_penalty_weight: float | None = None
     win_log_odds: float | None = None
     win_log_odds_penalty: float | None = None
     win_model_prob_rank: float | None = None
@@ -201,6 +203,8 @@ class DiagnosticLogger:
         win_profit_reason: str | None = None,
         win_late_odds_drop_z: float | None = None,
         win_late_odds_drop_weight: float | None = None,
+        win_ev_tail_pressure: float | None = None,
+        win_ev_tail_penalty_weight: float | None = None,
         win_log_odds: float | None = None,
         win_log_odds_penalty: float | None = None,
         win_model_prob_rank: float | None = None,
@@ -277,6 +281,8 @@ class DiagnosticLogger:
                 win_profit_reason=win_profit_reason,
                 win_late_odds_drop_z=win_late_odds_drop_z,
                 win_late_odds_drop_weight=win_late_odds_drop_weight,
+                win_ev_tail_pressure=win_ev_tail_pressure,
+                win_ev_tail_penalty_weight=win_ev_tail_penalty_weight,
                 win_log_odds=win_log_odds,
                 win_log_odds_penalty=win_log_odds_penalty,
                 win_model_prob_rank=win_model_prob_rank,

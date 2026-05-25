@@ -262,15 +262,16 @@ class TestTrainingPipelineV5:
         assert result["oof_artifact_version"].tolist() == [1, 1]
         assert result["oof_row_id"].tolist() == [0, 1]
 
-    def test_prepare_win_selection_oof_artifact_marks_version_3(self) -> None:
-        """単勝選定OOFはwalk-forward版としてversion 3を付与する"""
+    def test_prepare_win_selection_oof_artifact_marks_version_4(self) -> None:
+        """単勝選定OOFは診断列を持つwalk-forward版としてversion 4を付与する"""
         df = pd.DataFrame(
             {
-                "race_id": ["R1"],
+                "race_id": [2024010101010101],
                 "kakuteijyuni": [1],
                 "tanodds": [3.0],
                 "win_market_selection_score": [0.5],
                 "p_win_oof": [0.2],
+                "win_selection_prob": [0.18],
                 "win_selection_oof_fold": [0],
             }
         )
@@ -278,8 +279,12 @@ class TestTrainingPipelineV5:
         result = _prepare_win_selection_oof_artifact(df)
 
         assert result["is_oof"].tolist() == [True]
-        assert result["oof_artifact_version"].tolist() == [3]
+        assert result["oof_artifact_version"].tolist() == [4]
+        assert result["race_id"].tolist() == ["2024010101010101"]
+        assert result["is_win"].tolist() == [True]
         assert result["p_win_oof"].tolist() == [0.2]
+        assert result["p_win_final_oof"].tolist() == [0.18]
+        assert result["win_return"].tolist() == [300.0]
 
     def test_win_selection_oof_guard_rejects_impossible_top1(self) -> None:
         """OOF top1が現実離れしている場合は学習/保存を止める"""

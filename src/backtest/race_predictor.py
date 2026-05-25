@@ -24,7 +24,7 @@ from models.win_profit_selector import (
     PROFIT_STAKE_SCALE_COL,
 )
 from models.win_selection_gate import ensure_win_selection_columns
-from models.win_selection_policy import deployed_policy_params
+from models.win_selection_policy import deployed_policy_params, ev_tail_pressure
 
 if TYPE_CHECKING:
     from betting.drawdown_controller import DrawdownController
@@ -764,9 +764,11 @@ class RacePredictor:
         late_odds_drop_weight = policy_params["late_odds_drop_weight"]
         log_odds_penalty = policy_params["log_odds_penalty"]
         prob_rank_bonus = policy_params["prob_rank_bonus"]
+        ev_tail_penalty_weight = policy_params["ev_tail_penalty_weight"]
         prepared["win_late_odds_drop_weight"] = late_odds_drop_weight
         prepared["win_log_odds_penalty"] = log_odds_penalty
         prepared["win_prob_rank_bonus"] = prob_rank_bonus
+        prepared["win_ev_tail_penalty_weight"] = ev_tail_penalty_weight
         log_odds = (
             np.log1p(odds.clip(lower=1.0))
             .replace(
@@ -778,6 +780,11 @@ class RacePredictor:
         prepared["win_log_odds"] = log_odds
         model_prob_rank = pct_rank(prob_source)
         prepared["win_model_prob_rank"] = model_prob_rank
+        ev_tail_risk = ev_tail_pressure(
+            prepared,
+            threshold=policy_params["ev_tail_threshold"],
+        )
+        prepared["win_ev_tail_pressure"] = ev_tail_risk
 
         # The previous market/probability blend regressed toward public favorites and
         # reproduced takeout-level losses. For win betting the one-horse-per-race
@@ -797,6 +804,7 @@ class RacePredictor:
             - late_odds_drop_weight * late_odds_drop_z
             - log_odds_penalty * log_odds
             + prob_rank_bonus * model_prob_rank
+            - ev_tail_penalty_weight * ev_tail_risk
         )
         prepared["selected_rank_by_win_market_score"] = (
             prepared["win_market_selection_score"]
@@ -839,6 +847,8 @@ class RacePredictor:
                 f"late_drop_w={late_odds_drop_weight:.4f};"
                 f"log_odds_pen={log_odds_penalty:.4f};"
                 f"prob_rank_bonus={prob_rank_bonus:.4f};"
+                f"ev_tail_pressure={_safe_float(ev_tail_risk.loc[idx], 0.0):.4f};"
+                f"ev_tail_pen_w={ev_tail_penalty_weight:.4f};"
                 f"prob_rank={bool(prob_rank_pass.fillna(False).loc[idx])};"
                 f"prob_floor={bool(prob_floor_pass.fillna(False).loc[idx])};"
                 f"profit_pass={bool(prepared[PROFIT_PASS_COL].fillna(False).loc[idx])};"
