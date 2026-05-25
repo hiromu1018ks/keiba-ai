@@ -76,7 +76,28 @@ class TestDiagnosticLogger:
             win_selection_prob=0.09,
             win_gate_score=1.2,
             win_gate_pass=True,
+            win_gate_odds_score=1.08,
+            win_gate_prob_score=0.92,
+            win_gate_edge_score=1.03,
+            win_gate_edge_odds_score=1.11,
+            p_market_win_raw=0.071,
+            p_market_win_norm=0.08,
+            win_market_residual=0.01,
+            win_market_logit_edge=0.13,
+            win_market_prob_ratio=1.12,
+            win_market_value_ratio=1.26,
+            win_market_selection_score=0.82,
+            win_late_odds_drop_z=1.5,
+            win_late_odds_drop_weight=0.06,
+            win_log_odds=2.708,
+            win_log_odds_penalty=0.05,
+            win_model_prob_rank=0.75,
+            win_prob_rank_bonus=0.02,
+            win_market_risk_penalty=0.20,
+            risk_flags="longshot_low_probability",
             tanodds=14.0,
+            closing_win_odds=13.5,
+            clv=-0.0357,
             final_odds=13.8,
             stake=100.0,
             result=0.0,
@@ -86,12 +107,22 @@ class TestDiagnosticLogger:
             candidate_count_after_filter=1,
             selected_rank_by_p_win_final=2.0,
             selected_rank_by_win_selection_ev=1.0,
+            selected_rank_by_win_market_logit_edge=1.0,
+            selected_rank_by_win_market_score=1.0,
         )
 
         rec = logger.horse_records[0]
         assert rec.is_actual_bet is True
         assert rec.p_win_final == pytest.approx(0.09)
         assert rec.win_selection_ev_tail_calibrated == pytest.approx(1.26)
+        assert rec.win_gate_odds_score == pytest.approx(1.08)
+        assert rec.win_market_logit_edge == pytest.approx(0.13)
+        assert rec.win_late_odds_drop_z == pytest.approx(1.5)
+        assert rec.win_late_odds_drop_weight == pytest.approx(0.06)
+        assert rec.win_log_odds_penalty == pytest.approx(0.05)
+        assert rec.win_model_prob_rank == pytest.approx(0.75)
+        assert rec.risk_flags == "longshot_low_probability"
+        assert rec.clv == pytest.approx(-0.0357)
         assert rec.stake == pytest.approx(100.0)
 
     def test_save_creates_two_csv_files(self):

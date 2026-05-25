@@ -56,6 +56,9 @@ def test_win_selection_gate_trains_and_scores() -> None:
 
     assert "win_gate_score" in scored.columns
     assert "win_gate_pass" in scored.columns
+    assert "win_gate_odds_score" in scored.columns
+    assert "win_gate_edge_odds_score" in scored.columns
+    assert scored["win_gate_odds_score"].notna().all()
     # High prob + high edge horse should have higher score than low prob + low edge
     assert scored.loc[0, "win_gate_score"] > scored.loc[1, "win_gate_score"]
 
@@ -89,6 +92,27 @@ def test_ensure_win_selection_columns_fallback_chain() -> None:
     result2 = ensure_win_selection_columns(df2)
     assert "win_selection_ev" in result2.columns
     assert "win_selection_prob" in result2.columns
+
+
+def test_ensure_win_selection_columns_adds_market_edge_columns() -> None:
+    from models.win_selection_gate import ensure_win_selection_columns
+
+    df = pd.DataFrame(
+        {
+            "race_id": ["R1", "R1", "R1"],
+            "tanodds": [2.0, 4.0, 8.0],
+            "win_selection_prob": [0.60, 0.30, 0.15],
+            "win_selection_ev": [1.10, 1.20, 1.20],
+        }
+    )
+
+    result = ensure_win_selection_columns(df)
+
+    assert "p_market_win_raw" in result.columns
+    assert "p_market_win_norm" in result.columns
+    assert "win_market_logit_edge" in result.columns
+    assert result.groupby("race_id")["p_market_win_norm"].sum().iloc[0] == pytest.approx(1.0)
+    assert result.loc[0, "win_market_logit_edge"] > 0.0
 
 
 def test_build_win_selection_ev() -> None:
@@ -210,6 +234,7 @@ def test_win_selection_gate_save_load_roundtrip() -> None:
         assert loaded.min_edge == model.min_edge
         assert loaded.max_odds == model.max_odds
         assert loaded.global_score == model.global_score
+        assert loaded.score_edge_col == model.score_edge_col
     finally:
         tmp_path.unlink(missing_ok=True)
 

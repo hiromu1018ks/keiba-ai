@@ -11,14 +11,13 @@ import pytest
 
 from betting.ev_tail_calibration import (
     EV_THRESHOLD,
-    EVTtailCalibrator,
     FAMILY_FEATURES,
     MULTI_FAMILY_FACTOR,
     NO_FAMILY_FACTOR,
     SINGLE_FAMILY_FACTOR,
     ZSCORE_THRESHOLD,
+    EVTtailCalibrator,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers: fixture builders
@@ -286,7 +285,11 @@ class TestConstants:
         assert ZSCORE_THRESHOLD == pytest.approx(1.0)
 
     def test_trf_features_correct(self) -> None:
-        expected = ["form_trend_race_rank", "blood_total_wr_race_rank", "blood_surface_wr_race_rank"]
+        expected = [
+            "form_trend_race_rank",
+            "blood_total_wr_race_rank",
+            "blood_surface_wr_race_rank",
+        ]
         assert FAMILY_FEATURES["trf"] == expected
 
     def test_market_features_correct(self) -> None:
@@ -349,7 +352,6 @@ class TestGetWinCandidatesIntegration:
             seed: 乱数シード
             with_gate_score: Trueの場合、win_gate_score列を追加 (値=馬番号)
         """
-        rng = np.random.default_rng(seed)
         df = _build_race_df(n_horses=n_horses, seed=seed)
         # 最初の len(edges) 馬にedgeを設定
         edge_col = [0.0] * n_horses
@@ -370,10 +372,9 @@ class TestGetWinCandidatesIntegration:
         rp = RacePredictor.__new__(RacePredictor)
         rp.models = object()
         result = rp.get_win_candidates(df)
-        # edge > 0 のみ候補 → 4頭、edge DESC → head(2)
-        assert len(result) == 2
+        # edge > 0 のみ候補 → 単勝は1レース最良1頭
+        assert len(result) == 1
         assert float(result.iloc[0]["win_selection_edge"]) == pytest.approx(0.5)
-        assert float(result.iloc[1]["win_selection_edge"]) == pytest.approx(0.3)
 
     def test_high_ev_candidate_calibrated(self) -> None:
         """edge >= 1.5 の候補がキャリブレーションされることを確認
@@ -389,16 +390,14 @@ class TestGetWinCandidatesIntegration:
         rp = RacePredictor.__new__(RacePredictor)
         rp.models = object()
         result = rp.get_win_candidates(df)
-        assert len(result) == 2
+        assert len(result) == 1
         # sorted by _calibrated_edge DESC:
         # idx0: edge=2.0 → cal=1.4
         # idx1: edge=1.5 → cal=1.05
         # idx2: edge=0.5 → cal=0.5
-        # → [1.4, 1.05] → original edges [2.0, 1.5]
+        # → [1.4] → original edge [2.0]
         first_edge = float(result.iloc[0]["win_selection_edge"])
-        second_edge = float(result.iloc[1]["win_selection_edge"])
         assert first_edge == pytest.approx(2.0)
-        assert second_edge == pytest.approx(1.5)
 
     def test_no_calibrated_edge_column_in_result(self) -> None:
         """返却DataFrameに_calibrated_edge列が含まれないことを確認"""

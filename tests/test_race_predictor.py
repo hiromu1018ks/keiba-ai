@@ -1363,24 +1363,27 @@ class TestGetWinCandidates:
                 data[key] = val
         return pd.DataFrame(data)
 
-    def test_basic_filter_returns_candidates(self, mock_models: MagicMock) -> None:
-        """Test 1: win_selection_edge>0, tanodds>=1.0 の馬が返される"""
+    def test_basic_filter_returns_one_candidate(self, mock_models: MagicMock) -> None:
+        """Test 1: tanodds>=1.0 のレースから単勝候補を1頭返す"""
         from backtest.race_predictor import RacePredictor
 
         predictor = RacePredictor(models=mock_models)
         race_df = self._make_win_race_df(n=3)
         result = predictor.get_win_candidates(race_df)
-        assert len(result) > 0
-        assert all(result["win_selection_edge"].fillna(0) > 0)
+        assert len(result) == 1
+        assert result.iloc[0]["tanodds"] >= 1.0
 
-    def test_negative_edge_returns_empty(self, mock_models: MagicMock) -> None:
-        """Test 2: win_selection_edge<0 の馬は除外される"""
+    def test_negative_edge_is_diagnostic_not_exclusion(self, mock_models: MagicMock) -> None:
+        """Test 2: win_selection_edge<0 は除外せず、リスクとして診断する"""
         from backtest.race_predictor import RacePredictor
 
         predictor = RacePredictor(models=mock_models)
         race_df = self._make_win_race_df(n=2, win_selection_edge=[-0.1, -0.2])
         result = predictor.get_win_candidates(race_df)
-        assert len(result) == 0
+        diag_df = result.attrs["win_diagnostic_df"]
+
+        assert len(result) == 1
+        assert set(diag_df["risk_flags"].dropna().unique()) == {"negative_or_zero_edge"}
 
     def test_low_odds_returns_empty(self, mock_models: MagicMock) -> None:
         """Test 3: tanodds < 1.0 の馬は除外される"""
@@ -1391,8 +1394,8 @@ class TestGetWinCandidates:
         result = predictor.get_win_candidates(race_df)
         assert len(result) == 0
 
-    def test_high_win_odds_tail_excluded(self, mock_models: MagicMock) -> None:
-        """tanodds >= 30 は単勝候補から除外される"""
+    def test_high_win_odds_tail_flagged_not_excluded(self, mock_models: MagicMock) -> None:
+        """tanodds >= 30 は除外せず、リスクとして診断する"""
         from backtest.race_predictor import RacePredictor
 
         predictor = RacePredictor(models=mock_models)
@@ -1400,12 +1403,13 @@ class TestGetWinCandidates:
         result = predictor.get_win_candidates(race_df)
         diag_df = result.attrs["win_diagnostic_df"]
 
-        assert result["umaban"].tolist() == [1]
-        reason = diag_df.loc[diag_df["umaban"].eq(2), "excluded_reason"].iloc[0]
-        assert "high_odds_tail" in reason
+        assert len(result) == 1
+        row = diag_df.loc[diag_df["umaban"].eq(2)].iloc[0]
+        assert pd.isna(row["excluded_reason"])
+        assert "high_odds_tail" in row["risk_flags"]
 
-    def test_longshot_low_probability_excluded(self, mock_models: MagicMock) -> None:
-        """10倍以上かつ p_win_final < 0.05 は単勝候補から除外される"""
+    def test_longshot_low_probability_flagged_not_excluded(self, mock_models: MagicMock) -> None:
+        """10倍以上かつ p_win_final < 0.05 は除外せず、リスクとして診断する"""
         from backtest.race_predictor import RacePredictor
 
         predictor = RacePredictor(models=mock_models)
@@ -1417,12 +1421,13 @@ class TestGetWinCandidates:
         result = predictor.get_win_candidates(race_df)
         diag_df = result.attrs["win_diagnostic_df"]
 
-        assert result["umaban"].tolist() == [1]
-        reason = diag_df.loc[diag_df["umaban"].eq(2), "excluded_reason"].iloc[0]
-        assert "longshot_low_probability" in reason
+        assert len(result) == 1
+        row = diag_df.loc[diag_df["umaban"].eq(2)].iloc[0]
+        assert pd.isna(row["excluded_reason"])
+        assert "longshot_low_probability" in row["risk_flags"]
 
-    def test_high_win_ev_tail_excluded(self, mock_models: MagicMock) -> None:
-        """win_selection_ev >= 5.0 は単勝候補から除外される"""
+    def test_high_win_ev_tail_flagged_not_excluded(self, mock_models: MagicMock) -> None:
+        """win_selection_ev >= 5.0 は除外せず、リスクとして診断する"""
         from backtest.race_predictor import RacePredictor
 
         predictor = RacePredictor(models=mock_models)
@@ -1434,12 +1439,15 @@ class TestGetWinCandidates:
         result = predictor.get_win_candidates(race_df)
         diag_df = result.attrs["win_diagnostic_df"]
 
-        assert result["umaban"].tolist() == [1]
-        reason = diag_df.loc[diag_df["umaban"].eq(2), "excluded_reason"].iloc[0]
-        assert "high_ev_tail" in reason
+        assert len(result) == 1
+        row = diag_df.loc[diag_df["umaban"].eq(2)].iloc[0]
+        assert pd.isna(row["excluded_reason"])
+        assert "high_ev_tail" in row["risk_flags"]
 
-    def test_overconfident_calibrated_ev_tail_excluded(self, mock_models: MagicMock) -> None:
-        """校正後 win_selection_ev >= 1.5 は単勝候補から除外される"""
+    def test_overconfident_calibrated_ev_tail_flagged_not_excluded(
+        self, mock_models: MagicMock
+    ) -> None:
+        """校正後 win_selection_ev >= 1.5 は除外せず、リスクとして診断する"""
         from backtest.race_predictor import RacePredictor
 
         predictor = RacePredictor(models=mock_models)
@@ -1452,12 +1460,15 @@ class TestGetWinCandidates:
         result = predictor.get_win_candidates(race_df)
         diag_df = result.attrs["win_diagnostic_df"]
 
-        assert result["umaban"].tolist() == [1]
-        reason = diag_df.loc[diag_df["umaban"].eq(2), "excluded_reason"].iloc[0]
-        assert "overconfident_ev_tail" in reason
+        assert len(result) == 1
+        row = diag_df.loc[diag_df["umaban"].eq(2)].iloc[0]
+        assert pd.isna(row["excluded_reason"])
+        assert "overconfident_ev_tail" in row["risk_flags"]
 
-    def test_low_win_probability_rank_excluded(self, mock_models: MagicMock) -> None:
-        """p_win_final のレース内順位が9位以下なら除外される"""
+    def test_low_win_probability_rank_flagged_not_excluded(
+        self, mock_models: MagicMock
+    ) -> None:
+        """p_win_final のレース内順位が9位以下でも除外せず、診断に残す"""
         from backtest.race_predictor import RacePredictor
 
         predictor = RacePredictor(models=mock_models)
@@ -1468,13 +1479,15 @@ class TestGetWinCandidates:
         result = predictor.get_win_candidates(race_df)
         diag_df = result.attrs["win_diagnostic_df"]
 
-        assert 9 not in result["umaban"].tolist()
+        assert len(result) == 1
         assert diag_df.loc[diag_df["umaban"].eq(9), "selected_rank_by_p_win_final"].iloc[0] == 9
-        reason = diag_df.loc[diag_df["umaban"].eq(9), "excluded_reason"].iloc[0]
-        assert "low_probability_rank" in reason
+        flags = diag_df.loc[diag_df["umaban"].eq(9), "risk_flags"].iloc[0]
+        assert "low_probability_rank" in flags
 
-    def test_low_win_probability_floor_excluded(self, mock_models: MagicMock) -> None:
-        """p_win_final < 0.03 は除外される"""
+    def test_low_win_probability_floor_flagged_not_excluded(
+        self, mock_models: MagicMock
+    ) -> None:
+        """p_win_final < 0.03 でも除外せず、診断に残す"""
         from backtest.race_predictor import RacePredictor
 
         predictor = RacePredictor(models=mock_models)
@@ -1482,9 +1495,9 @@ class TestGetWinCandidates:
         result = predictor.get_win_candidates(race_df)
         diag_df = result.attrs["win_diagnostic_df"]
 
-        assert result.empty
-        reason = diag_df.loc[diag_df["umaban"].eq(1), "excluded_reason"].iloc[0]
-        assert "low_probability" in reason
+        assert len(result) == 1
+        flags = diag_df.loc[diag_df["umaban"].eq(1), "risk_flags"].iloc[0]
+        assert "low_probability" in flags
 
     def test_tail_calibrated_ev_is_used_for_valid_candidates(
         self, mock_models: MagicMock
@@ -1505,8 +1518,8 @@ class TestGetWinCandidates:
         assert result.iloc[0]["win_selection_ev_tail_calibrated"] == pytest.approx(1.4)
         assert result.iloc[0]["win_selection_edge"] == pytest.approx(0.4)
 
-    def test_max_two_candidates(self, mock_models: MagicMock) -> None:
-        """Test 4: 5候補いても上位2頭のみ返す"""
+    def test_max_one_candidate(self, mock_models: MagicMock) -> None:
+        """Test 4: 5候補いても単勝は上位1頭のみ返す"""
         from backtest.race_predictor import RacePredictor
 
         predictor = RacePredictor(models=mock_models)
@@ -1515,7 +1528,7 @@ class TestGetWinCandidates:
             win_gate_score=[0.9, 0.7, 0.5, 0.3, 0.1],
         )
         result = predictor.get_win_candidates(race_df)
-        assert len(result) == 2
+        assert len(result) == 1
 
     def test_missing_edge_column_returns_empty(self, mock_models: MagicMock) -> None:
         """Test 5: win_selection_edge 列なし → 空 DataFrame"""
@@ -1537,9 +1550,96 @@ class TestGetWinCandidates:
             win_selection_edge=[0.05, 0.20, 0.10],
         )
         result = predictor.get_win_candidates(race_df)
-        assert len(result) == 2  # D-09: max 2 candidates per race
+        assert len(result) == 1
         assert result.iloc[0]["win_selection_edge"] == pytest.approx(0.20)
-        assert result.iloc[1]["win_selection_edge"] == pytest.approx(0.10)
+
+    def test_final_win_ranking_is_edge_first(self, mock_models: MagicMock) -> None:
+        """市場・勝率・gateが強くても、単勝最終選択はedgeを主軸にする。"""
+        from backtest.race_predictor import RacePredictor
+
+        predictor = RacePredictor(models=mock_models)
+        race_df = self._make_win_race_df(
+            n=3,
+            win_selection_edge=[0.05, 0.30, 0.10],
+            win_selection_ev=[1.05, 1.30, 1.10],
+            p_win_final=[0.60, 0.08, 0.20],
+            win_gate_score=[2.0, 0.2, 1.0],
+            win_market_logit_edge=[2.0, 0.1, 1.0],
+            win_market_value_ratio=[2.0, 0.1, 1.0],
+        )
+
+        result = predictor.get_win_candidates(race_df)
+
+        assert len(result) == 1
+        assert result.iloc[0]["umaban"] == 2
+        assert result.iloc[0]["win_market_selection_score"] < result.iloc[0][
+            "win_selection_edge"
+        ]
+
+    def test_late_odds_drop_penalty_can_break_close_edge_ties(
+        self, mock_models: MagicMock
+    ) -> None:
+        """直前でオッズ低下が強い馬は、近いedge差なら過熱として減点する。"""
+        from backtest.race_predictor import RacePredictor
+
+        predictor = RacePredictor(models=mock_models)
+        race_df = self._make_win_race_df(
+            n=2,
+            win_selection_edge=[0.20, 0.13],
+            win_selection_ev=[1.20, 1.13],
+            p_win_final=[0.20, 0.20],
+            odds_drop_rate_30_10=[1.0, -1.0],
+        )
+
+        result = predictor.get_win_candidates(race_df)
+
+        assert len(result) == 1
+        assert result.iloc[0]["umaban"] == 2
+        assert "win_late_odds_drop_z" in result.columns
+
+    def test_log_odds_penalty_can_break_close_edge_ties(
+        self, mock_models: MagicMock
+    ) -> None:
+        """極端な高オッズ候補は、近いedge差なら滑らかに減点する。"""
+        from backtest.race_predictor import RacePredictor
+
+        predictor = RacePredictor(models=mock_models)
+        race_df = self._make_win_race_df(
+            n=2,
+            tanodds=[50.0, 5.0],
+            win_selection_edge=[0.20, 0.15],
+            win_selection_ev=[1.20, 1.15],
+            p_win_final=[0.12, 0.12],
+        )
+
+        result = predictor.get_win_candidates(race_df)
+
+        assert len(result) == 1
+        assert result.iloc[0]["umaban"] == 2
+        assert result.iloc[0]["win_log_odds_penalty"] == pytest.approx(0.05)
+
+    def test_learned_odds_prior_does_not_dominate_win_candidates(
+        self, mock_models: MagicMock
+    ) -> None:
+        """OOF学習済みオッズpriorは診断用で、最終選択を単独支配しない."""
+        from backtest.race_predictor import RacePredictor
+
+        predictor = RacePredictor(models=mock_models)
+        race_df = self._make_win_race_df(
+            n=3,
+            tanodds=[2.0, 12.0, 8.0],
+            win_selection_prob=[0.60, 0.04, 0.08],
+            p_win_final=[0.60, 0.04, 0.08],
+            win_selection_edge=[0.20, 0.20, 0.05],
+            win_selection_ev=[1.20, 1.20, 1.05],
+            win_gate_score=[2.0, 1.0, 0.5],
+            win_gate_odds_score=[0.5, 2.0, 1.0],
+            win_gate_edge_odds_score=[0.5, 2.0, 1.0],
+        )
+
+        result = predictor.get_win_candidates(race_df)
+
+        assert result.iloc[0]["umaban"] == 1
 
     def test_missing_tanodds_returns_empty(self, mock_models: MagicMock) -> None:
         """tanodds 列なし → 空 DataFrame"""
@@ -1559,14 +1659,13 @@ class TestGetWinCandidates:
         predictor = RacePredictor(models=mock_models)
         race_df = self._make_win_race_df(
             n=3,
-            EV_lower_win_corrected=[0.8, 1.2, 0.5],  # 値に関わらず edge>0 なら候補
+            EV_lower_win_corrected=[0.8, 1.2, 0.5],  # 値に関わらず有効オッズなら候補
         )
         result = predictor.get_win_candidates(race_df)
-        # EV_lower に関わらず、edge > 0 の候補は全て保持される
-        assert len(result) == 2  # max 2 candidates per race
+        assert len(result) == 1
 
     def test_ev_lower_nan_no_effect(self, mock_models: MagicMock) -> None:
-        """EV_lower_win_corrected が NaN でも edge>0 で判定"""
+        """EV_lower_win_corrected が NaN でも有効オッズで判定"""
         from backtest.race_predictor import RacePredictor
 
         predictor = RacePredictor(models=mock_models)
@@ -1575,22 +1674,22 @@ class TestGetWinCandidates:
             EV_lower_win_corrected=[float("nan"), float("nan")],
         )
         result = predictor.get_win_candidates(race_df)
-        assert len(result) == 2
+        assert len(result) == 1
 
     def test_ev_lower_column_missing_keeps_existing_behavior(
         self, mock_models: MagicMock
     ) -> None:
-        """EV_lower_win_corrected 列なし → edge>0 だけで判定"""
+        """EV_lower_win_corrected 列なし → 有効オッズだけで判定"""
         from backtest.race_predictor import RacePredictor
 
         predictor = RacePredictor(models=mock_models)
         race_df = self._make_win_race_df(n=3)
         race_df = race_df.drop(columns=["EV_lower_win_corrected"], errors="ignore")
         result = predictor.get_win_candidates(race_df)
-        assert len(result) == 2  # max 2 candidates
+        assert len(result) == 1
 
     def test_ev_lower_high_values_no_effect(self, mock_models: MagicMock) -> None:
-        """EV_lower_win_corrected が高くても edge>0 だけで判定"""
+        """EV_lower_win_corrected が高くても有効オッズだけで判定"""
         from backtest.race_predictor import RacePredictor
 
         predictor = RacePredictor(models=mock_models)
@@ -1599,7 +1698,7 @@ class TestGetWinCandidates:
             EV_lower_win_corrected=[1.5, 1.2, 2.0],
         )
         result = predictor.get_win_candidates(race_df)
-        assert len(result) == 2  # max 2
+        assert len(result) == 1
 
     def test_ev_lower_dynamic_threshold_turf_no_filter(self, mock_models: MagicMock) -> None:
         """EV_lower閾値が設定されていても、ベット判定には使われない"""
@@ -1613,7 +1712,7 @@ class TestGetWinCandidates:
             EV_lower_win_corrected=[0.90, 0.80, 1.5],
         )
         result = predictor.get_win_candidates(race_df)
-        assert len(result) == 2  # EV_lower閾値に関わらず max 2 candidates
+        assert len(result) == 1
 
     def test_ev_lower_dynamic_threshold_dirt_no_filter(self, mock_models: MagicMock) -> None:
         """dirt EV_lower閾値が設定されていても、ベット判定には使われない"""
@@ -1629,10 +1728,10 @@ class TestGetWinCandidates:
             EV_lower_win_corrected=[0.75, 0.65, 1.2],
         )
         result = predictor.get_win_candidates(race_df)
-        assert len(result) == 2  # EV_lower閾値に関わらず max 2 candidates
+        assert len(result) == 1
 
     def test_ev_lower_nan_ignored(self, mock_models: MagicMock) -> None:
-        """EV_lower NaN でも edge>0 で判定"""
+        """EV_lower NaN でも有効オッズで判定"""
         from backtest.race_predictor import RacePredictor
 
         mock_models.submodels["turf"].ev_lower_threshold_turf = 0.80
@@ -1643,7 +1742,7 @@ class TestGetWinCandidates:
             EV_lower_win_corrected=[float("nan"), float("nan")],
         )
         result = predictor.get_win_candidates(race_df)
-        assert len(result) == 2
+        assert len(result) == 1
 
 
 class TestSelectBetsWinPath:
@@ -1738,7 +1837,7 @@ class TestSelectBetsWinPath:
         assert len(bets) <= 1
 
     def test_win_path_no_candidates_returns_empty(self, mock_models: MagicMock) -> None:
-        """win 候補がいない → 空 list"""
+        """有効な単勝オッズがない → 空 list"""
         from backtest.race_predictor import RacePredictor
 
         predictor = RacePredictor(models=mock_models)
@@ -1747,7 +1846,7 @@ class TestSelectBetsWinPath:
                 "race_id": ["R1"],
                 "umaban": [1],
                 "win_selection_edge": [-0.1],
-                "tanodds": [2.0],
+                "tanodds": [0.0],
                 "surface": ["turf"],
             }
         )
