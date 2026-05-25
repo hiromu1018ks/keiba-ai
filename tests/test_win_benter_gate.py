@@ -2,18 +2,18 @@
 
 from __future__ import annotations
 
+from unittest.mock import MagicMock
+
 import numpy as np
 import pandas as pd
-import pytest
 from numpy.testing import assert_allclose
-from unittest.mock import MagicMock, patch
 
 from models.benter_combination import BenterCombination
-
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_race_df(
     n_races: int = 2,
@@ -36,17 +36,20 @@ def _make_race_df(
     race_ids = []
     for r in range(n_races):
         race_ids.extend([f"R{r}"] * horses_per_race)
-    return pd.DataFrame({
-        "race_id": race_ids,
-        "p_win_corrected": p_win_corrected,
-        "tanodds": tanodds,
-        "kakuteijyuni": kakuteijyuni,
-    })
+    return pd.DataFrame(
+        {
+            "race_id": race_ids,
+            "p_win_corrected": p_win_corrected,
+            "tanodds": tanodds,
+            "kakuteijyuni": kakuteijyuni,
+        }
+    )
 
 
 # ---------------------------------------------------------------------------
 # Test 1: extract_market_probability
 # ---------------------------------------------------------------------------
+
 
 class TestExtractMarketProbability:
     """tanodds を市場確率に変換しクリップする."""
@@ -82,6 +85,7 @@ class TestExtractMarketProbability:
 # Test 2: apply() produces p_win_combined in (0, 1) range
 # ---------------------------------------------------------------------------
 
+
 class TestApplyPwinCombined:
     """apply() が p_win_combined を (0, 1) 範囲で出力する."""
 
@@ -103,6 +107,7 @@ class TestApplyPwinCombined:
 # Test 3: apply() produces p_win_final where race sum == 1.0
 # ---------------------------------------------------------------------------
 
+
 class TestApplyRaceNormalization:
     """apply() 後の p_win_final がレース単位で合計 1.0 になる."""
 
@@ -122,6 +127,7 @@ class TestApplyRaceNormalization:
 # ---------------------------------------------------------------------------
 # Test 4: apply() produces edge_win column
 # ---------------------------------------------------------------------------
+
 
 class TestApplyEdgeWin:
     """apply() が edge_win = p_win_final * tanodds - 1.0 を出力する."""
@@ -143,6 +149,7 @@ class TestApplyEdgeWin:
 # Test 5: generate_win_oof_predictions returns 3 valid arrays
 # ---------------------------------------------------------------------------
 
+
 class TestGenerateWinOofPredictions:
     """OOF 予測生成が3つの整合配列を返す."""
 
@@ -150,36 +157,49 @@ class TestGenerateWinOofPredictions:
         from models.win_benter_gate import generate_win_oof_predictions
 
         n = 100
-        df = pd.DataFrame({
-            "race_id": [f"R{i // 5}" for i in range(n)],
-            "race_date": pd.date_range("2020-01-01", periods=n, freq="D"),
-            "p_win_pred": np.random.uniform(0.05, 0.4, n),
-            "tanodds": np.random.uniform(2.0, 20.0, n),
-            "kakuteijyuni": np.random.randint(1, 16, n),
-        })
-
-        # Mock WinTwoStageModel
-        mock_model_cls = MagicMock()
-        mock_instance = MagicMock()
-        mock_hit_model = MagicMock()
-        mock_hit_model.best_iteration = 100
-        mock_hit_model.predict.return_value = np.random.uniform(0.05, 0.4, 20)
-        mock_instance.hit_model = mock_hit_model
-        mock_instance._prepare_features.side_effect = lambda d: d
-        mock_instance.train_hit_model.return_value = None
-        mock_model_cls.return_value = mock_instance
-
-        # Mock EVCorrectionModel
-        mock_ev = MagicMock()
-        mock_ev.correct_ev.side_effect = lambda d: d.assign(
-            p_win_corrected=d.get("p_win_pred", np.random.uniform(0.05, 0.4, len(d)))
-            * 0.95
+        df = pd.DataFrame(
+            {
+                "race_id": [f"R{i // 5}" for i in range(n)],
+                "race_date": pd.date_range("2020-01-01", periods=n, freq="D"),
+                "p_win_pred": np.random.uniform(0.05, 0.4, n),
+                "tanodds": np.random.uniform(2.0, 20.0, n),
+                "kakuteijyuni": np.random.randint(1, 16, n),
+            }
         )
+
+        class FakeWinTwoStageModel:
+            def train_hit_model(self, df: pd.DataFrame, *, num_threads: int = 0) -> None:
+                return None
+
+            def train_return_model(self, df: pd.DataFrame, *, num_threads: int = 0) -> None:
+                return None
+
+            def predict_ev(self, df: pd.DataFrame) -> pd.DataFrame:
+                result = df.copy()
+                result["p_win_pred"] = np.clip(result["p_win_pred"], 0.01, 0.99)
+                result["e_return_win_pred"] = result["tanodds"]
+                result["ev_win"] = result["p_win_pred"] * result["e_return_win_pred"]
+                return result
+
+        class FakeEVCorrectionModel:
+            def train(self, df: pd.DataFrame, *, num_threads: int = 0) -> None:
+                return None
+
+            def correct_ev(
+                self,
+                df: pd.DataFrame,
+                *,
+                probability_col: str = "p_win_pred",
+            ) -> pd.DataFrame:
+                result = df.copy()
+                result["p_win_corrected"] = result[probability_col] * 0.95
+                result["ev_win_corrected"] = result["p_win_corrected"] * result["tanodds"]
+                return result
 
         p_fund, p_market, y = generate_win_oof_predictions(
             df,
-            win_model_cls=mock_model_cls,
-            ev_corrector=mock_ev,
+            win_model_cls=FakeWinTwoStageModel,
+            ev_corrector=FakeEVCorrectionModel(),
             n_splits=5,
         )
 
@@ -194,6 +214,7 @@ class TestGenerateWinOofPredictions:
 # ---------------------------------------------------------------------------
 # Test 6: SubmodelSet has win_* fields
 # ---------------------------------------------------------------------------
+
 
 class TestSubmodelSetWinFields:
     """SubmodelSet に win_benter, win_isotonic_calibrator, win_temperature_scaler がある."""
@@ -234,6 +255,7 @@ class TestSubmodelSetWinFields:
 # Test 7: compute_ece returns non-negative float
 # ---------------------------------------------------------------------------
 
+
 class TestComputeECE:
     """compute_ece が非負の ECE を返す."""
 
@@ -263,6 +285,7 @@ class TestComputeECE:
 # ---------------------------------------------------------------------------
 # Test 8: compare_calibrations returns required keys and selects lower Brier
 # ---------------------------------------------------------------------------
+
 
 class TestCompareCalibrations:
     """compare_calibrations が正しいキーを返し、Brier Score で勝者を選ぶ."""
@@ -296,6 +319,7 @@ class TestCompareCalibrations:
 # ---------------------------------------------------------------------------
 # Test 9: generate_reliability_data returns required keys
 # ---------------------------------------------------------------------------
+
 
 class TestGenerateReliabilityData:
     """generate_reliability_data が信頼性ダイアグラムデータを返す."""

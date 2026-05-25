@@ -16,7 +16,6 @@ from sklearn.isotonic import IsotonicRegression
 
 from models.ev_correction_model import EVCorrectionModel
 
-
 # ── 共通 fixture ──────────────────────────────────────────────
 
 
@@ -83,9 +82,7 @@ def band_scales() -> dict[str, float]:
     }
 
 
-def _setup_mock_boosters(
-    model: EVCorrectionModel, n: int
-) -> None:
+def _setup_mock_boosters(model: EVCorrectionModel, n: int) -> None:
     """テスト用にmock boosterを設定して_trainedフラグを立てる"""
     model.p_correction_model = MagicMock()
     model.p_correction_model.best_iteration = 100
@@ -178,6 +175,23 @@ class TestEVIsotonicCalibration:
             result["ev_win_corrected"].values,
             atol=1e-10,
         )
+
+    def test_correct_ev_can_use_oof_probability_column(self) -> None:
+        """OOF補正時はp_win_predではなく指定されたp_win_oofを基準にする"""
+        model = EVCorrectionModel()
+        df = pd.DataFrame(
+            {
+                "race_id": ["R1", "R1"],
+                "p_win_pred": [0.9, 0.1],
+                "p_win_oof": [0.2, 0.8],
+                "e_return_win_pred": [4.0, 4.0],
+            }
+        )
+
+        result = model.correct_ev(df, probability_col="p_win_oof")
+
+        assert result["p_win_corrected"].tolist() == pytest.approx([0.2, 0.8])
+        assert result["ev_win_corrected"].tolist() == pytest.approx([0.8, 3.2])
 
 
 # ── TestOddsBandScaling ───────────────────────────────────────
@@ -296,61 +310,67 @@ class TestOOFEVGeneration:
     def _make_oof_df(self, n: int = 100) -> pd.DataFrame:
         """OOF生成テスト用DataFrame"""
         np.random.seed(42)
-        return pd.DataFrame({
-            "race_id": [f"R{i // 10:04d}" for i in range(n)],
-            "race_date": pd.date_range("2020-01-01", periods=n, freq="D"),
-            "kakuteijyuni": np.random.randint(1, 16, n),
-            "odds": np.random.uniform(1.1, 100, n),
-            "confirmed_odds": np.random.uniform(1.1, 100, n),
-            "p_win_pred": np.random.uniform(0.01, 0.5, n),
-            "e_return_win_pred": np.random.uniform(1.1, 100, n),
-            "ev_win": np.random.uniform(0.5, 10, n),
-            "signed_log_error_win": np.random.normal(0, 0.3, n),
-            "abs_log_error_win": np.abs(np.random.normal(0, 0.3, n)),
-            "market_entropy": np.random.uniform(2.0, 3.5, n),
-            "popularity_rank": np.random.randint(1, 16, n),
-            "implied_prob_hhi": np.random.uniform(0.05, 0.15, n),
-            "surface": np.random.choice(["turf", "dirt"], n),
-            "distance_bin": np.random.choice(["sprint", "mile", "long"], n),
-            "track_condition_code": np.random.randint(1, 4, n),
-            "field_size": np.random.randint(8, 16, n),
-            "jockey_wr_overall": np.random.uniform(0.05, 0.20, n),
-            "jockey_wr_distance": np.random.uniform(0.03, 0.18, n),
-            "jockey_wr_venue": np.random.uniform(0.04, 0.19, n),
-            "jockey_prize_log": np.random.uniform(8.0, 12.0, n),
-            "trainer_wr_overall": np.random.uniform(0.05, 0.20, n),
-            "trainer_wr_distance": np.random.uniform(0.03, 0.18, n),
-            "trainer_wr_venue": np.random.uniform(0.04, 0.19, n),
-            "trainer_prize_log": np.random.uniform(7.0, 11.5, n),
-            "jt_combo_wr": np.random.uniform(0.05, 0.20, n),
-            "jt_combo_place_rate": np.random.uniform(0.10, 0.35, n),
-            "jt_combo_starts": np.random.uniform(1, 30, n),
-            "jt_combo_prize_log": np.random.uniform(2.0, 6.0, n),
-        })
+        return pd.DataFrame(
+            {
+                "race_id": [f"R{i // 10:04d}" for i in range(n)],
+                "race_date": pd.date_range("2020-01-01", periods=n, freq="D"),
+                "kakuteijyuni": np.random.randint(1, 16, n),
+                "odds": np.random.uniform(1.1, 100, n),
+                "confirmed_odds": np.random.uniform(1.1, 100, n),
+                "p_win_pred": np.random.uniform(0.01, 0.5, n),
+                "e_return_win_pred": np.random.uniform(1.1, 100, n),
+                "ev_win": np.random.uniform(0.5, 10, n),
+                "signed_log_error_win": np.random.normal(0, 0.3, n),
+                "abs_log_error_win": np.abs(np.random.normal(0, 0.3, n)),
+                "market_entropy": np.random.uniform(2.0, 3.5, n),
+                "popularity_rank": np.random.randint(1, 16, n),
+                "implied_prob_hhi": np.random.uniform(0.05, 0.15, n),
+                "surface": np.random.choice(["turf", "dirt"], n),
+                "distance_bin": np.random.choice(["sprint", "mile", "long"], n),
+                "track_condition_code": np.random.randint(1, 4, n),
+                "field_size": np.random.randint(8, 16, n),
+                "jockey_wr_overall": np.random.uniform(0.05, 0.20, n),
+                "jockey_wr_distance": np.random.uniform(0.03, 0.18, n),
+                "jockey_wr_venue": np.random.uniform(0.04, 0.19, n),
+                "jockey_prize_log": np.random.uniform(8.0, 12.0, n),
+                "trainer_wr_overall": np.random.uniform(0.05, 0.20, n),
+                "trainer_wr_distance": np.random.uniform(0.03, 0.18, n),
+                "trainer_wr_venue": np.random.uniform(0.04, 0.19, n),
+                "trainer_prize_log": np.random.uniform(7.0, 11.5, n),
+                "jt_combo_wr": np.random.uniform(0.05, 0.20, n),
+                "jt_combo_place_rate": np.random.uniform(0.10, 0.35, n),
+                "jt_combo_starts": np.random.uniform(1, 30, n),
+                "jt_combo_prize_log": np.random.uniform(2.0, 6.0, n),
+            }
+        )
 
     def test_generate_ev_oof_returns_three_arrays(self) -> None:
         """generate_ev_oof_predictions()が3つのndarrayを返す"""
         from pipelines.training_pipeline import TrainingPipelineV5
 
         df = self._make_oof_df(50)
-        with patch("pipelines.training_pipeline.WinTwoStageModel") as MockWin, \
-             patch("pipelines.training_pipeline.EVCorrectionModel") as MockEV:
+        with (
+            patch("pipelines.training_pipeline.WinTwoStageModel") as mock_win_cls,
+            patch("pipelines.training_pipeline.EVCorrectionModel") as mock_ev_cls,
+        ):
             # WinTwoStageModel mock
             mock_win = MagicMock()
             mock_win.predict_ev.side_effect = lambda d: d.assign(
                 ev_win_corrected=np.random.uniform(0.5, 3.0, len(d)),
             )
-            MockWin.return_value = mock_win
+            mock_win_cls.return_value = mock_win
 
             # EVCorrectionModel mock
             mock_ev = MagicMock()
             mock_ev.correct_ev.side_effect = lambda d: d.assign(
                 ev_win_corrected=np.random.uniform(0.5, 3.0, len(d)),
             )
-            MockEV.return_value = mock_ev
+            mock_ev_cls.return_value = mock_ev
 
             result = TrainingPipelineV5.generate_ev_oof_predictions(
-                df, n_splits=3, num_threads=1,
+                df,
+                n_splits=3,
+                num_threads=1,
             )
             assert len(result) == 3
             oof_ev, oof_actual, oof_odds = result
@@ -358,35 +378,38 @@ class TestOOFEVGeneration:
             assert isinstance(oof_actual, np.ndarray)
             assert isinstance(oof_odds, np.ndarray)
 
-    def test_generate_ev_oof_no_shuffle(self) -> None:
-        """KFold(shuffle=False)が使用されること"""
+    def test_generate_ev_oof_uses_walk_forward_split(self) -> None:
+        """TimeSeriesSplitで未来データをtrainに混ぜないこと"""
         from pipelines.training_pipeline import TrainingPipelineV5
 
         df = self._make_oof_df(50)
-        with patch("pipelines.training_pipeline.WinTwoStageModel") as MockWin, \
-             patch("pipelines.training_pipeline.EVCorrectionModel") as MockEV:
+        with (
+            patch("pipelines.training_pipeline.WinTwoStageModel") as mock_win_cls,
+            patch("pipelines.training_pipeline.EVCorrectionModel") as mock_ev_cls,
+        ):
             mock_win = MagicMock()
             mock_win.predict_ev.side_effect = lambda d: d.assign(
                 ev_win_corrected=np.random.uniform(0.5, 3.0, len(d)),
             )
-            MockWin.return_value = mock_win
+            mock_win_cls.return_value = mock_win
             mock_ev = MagicMock()
             mock_ev.correct_ev.side_effect = lambda d: d.assign(
                 ev_win_corrected=np.random.uniform(0.5, 3.0, len(d)),
             )
-            MockEV.return_value = mock_ev
+            mock_ev_cls.return_value = mock_ev
 
-            from sklearn.model_selection import KFold as SklearnKFold
+            from sklearn.model_selection import TimeSeriesSplit as SklearnTimeSeriesSplit
 
-            with patch("sklearn.model_selection.KFold", wraps=SklearnKFold) as MockKFold:
+            with patch(
+                "pipelines.training_pipeline.TimeSeriesSplit",
+                wraps=SklearnTimeSeriesSplit,
+            ) as mock_split_cls:
                 TrainingPipelineV5.generate_ev_oof_predictions(
-                    df, n_splits=3, num_threads=1,
+                    df,
+                    n_splits=3,
+                    num_threads=1,
                 )
-                MockKFold.assert_called_once()
-                call_kwargs = MockKFold.call_args
-                assert call_kwargs.kwargs.get("shuffle", True) is False, (
-                    "KFold must use shuffle=False to prevent look-ahead bias"
-                )
+                mock_split_cls.assert_called_once()
 
     def test_generate_ev_oof_sorts_by_race_date(self) -> None:
         """入力dfがrace_dateでソートされること"""
@@ -397,25 +420,29 @@ class TestOOFEVGeneration:
         df = df.sample(frac=1, random_state=42).reset_index(drop=True)
         assert not df["race_date"].is_monotonic_increasing, "Precondition: data is unsorted"
 
-        with patch("pipelines.training_pipeline.WinTwoStageModel") as MockWin, \
-             patch("pipelines.training_pipeline.EVCorrectionModel") as MockEV:
+        with (
+            patch("pipelines.training_pipeline.WinTwoStageModel") as mock_win_cls,
+            patch("pipelines.training_pipeline.EVCorrectionModel") as mock_ev_cls,
+        ):
             mock_win = MagicMock()
             mock_win.predict_ev.side_effect = lambda d: d.assign(
                 ev_win_corrected=np.random.uniform(0.5, 3.0, len(d)),
             )
-            MockWin.return_value = mock_win
+            mock_win_cls.return_value = mock_win
             mock_ev = MagicMock()
             mock_ev.correct_ev.side_effect = lambda d: d.assign(
                 ev_win_corrected=np.random.uniform(0.5, 3.0, len(d)),
             )
-            MockEV.return_value = mock_ev
+            mock_ev_cls.return_value = mock_ev
 
             # train_hit_modelに渡されたDataFrameをキャプチャ
             captured_dfs: list[pd.DataFrame] = []
             mock_win.train_hit_model.side_effect = lambda d, **_: captured_dfs.append(d)
 
             TrainingPipelineV5.generate_ev_oof_predictions(
-                df, n_splits=3, num_threads=1,
+                df,
+                n_splits=3,
+                num_threads=1,
             )
             # KFold.split に渡された DataFrame が race_date ソート済みであることを確認
             assert len(captured_dfs) > 0, "train_hit_model should have been called"
@@ -424,33 +451,36 @@ class TestOOFEVGeneration:
                     "Training data must be sorted by race_date"
                 )
 
-    def test_generate_ev_oof_all_indices_covered(self) -> None:
-        """全データポイントがOOF予測でカバーされる (NaNなし)"""
+    def test_generate_ev_oof_returns_only_valid_walk_forward_rows(self) -> None:
+        """初期train期間を除き、検証foldの有効OOFだけを返す"""
         from pipelines.training_pipeline import TrainingPipelineV5
 
         n = 50
         df = self._make_oof_df(n)
-        with patch("pipelines.training_pipeline.WinTwoStageModel") as MockWin, \
-             patch("pipelines.training_pipeline.EVCorrectionModel") as MockEV:
+        with (
+            patch("pipelines.training_pipeline.WinTwoStageModel") as mock_win_cls,
+            patch("pipelines.training_pipeline.EVCorrectionModel") as mock_ev_cls,
+        ):
             mock_win = MagicMock()
             mock_win.predict_ev.side_effect = lambda d: d.assign(
                 ev_win_corrected=np.random.uniform(0.5, 3.0, len(d)),
             )
-            MockWin.return_value = mock_win
+            mock_win_cls.return_value = mock_win
             mock_ev = MagicMock()
             mock_ev.correct_ev.side_effect = lambda d: d.assign(
                 ev_win_corrected=np.random.uniform(0.5, 3.0, len(d)),
             )
-            MockEV.return_value = mock_ev
+            mock_ev_cls.return_value = mock_ev
 
             oof_ev, oof_actual, oof_odds = TrainingPipelineV5.generate_ev_oof_predictions(
-                df, n_splits=5, num_threads=1,
+                df,
+                n_splits=5,
+                num_threads=1,
             )
-            # 全インデックスがカバーされている (NaNなし)
             assert np.isfinite(oof_ev).all(), "All OOF EV values must be finite"
             assert np.isfinite(oof_actual).all(), "All OOF actual values must be finite"
             assert np.isfinite(oof_odds).all(), "All OOF odds values must be finite"
-            assert len(oof_ev) == n
+            assert 0 < len(oof_ev) < n
 
 
 # ── TestEVCorrectionIntegration ───────────────────────────────
@@ -549,10 +579,10 @@ class TestEVCorrectionIntegration:
 
     def test_submodelset_new_fields_default_none(self) -> None:
         """SubmodelSetの新フィールドのデフォルト値がNone"""
-        from domain.models import SubmodelSet
-
         # dataclass field の default を確認
         import dataclasses
+
+        from domain.models import SubmodelSet
 
         fields = {f.name: f for f in dataclasses.fields(SubmodelSet)}
         assert "ev_isotonic_calibrator" in fields

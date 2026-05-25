@@ -148,6 +148,7 @@ class EVCorrectionModel:
         self._trained: bool = False
         # 遅延import (循環依存回避)
         from betting.odds_band_filter import OddsBandFilter
+
         self._odds_band_filter_cls = OddsBandFilter
 
     FEATURE_COLS: list[str] = [
@@ -228,11 +229,16 @@ class EVCorrectionModel:
         "harontime_last3f_avg_race_rank",
     ]
 
-    def _add_interaction_features(self, df: pd.DataFrame) -> pd.DataFrame:
+    def _add_interaction_features(
+        self,
+        df: pd.DataFrame,
+        *,
+        probability_col: str = "p_win_pred",
+    ) -> pd.DataFrame:
         """交互作用特徴量を追加"""
-        df["p_x_e_interaction"] = df["p_win_pred"] * df["e_return_win_pred"]
+        df["p_x_e_interaction"] = df[probability_col] * df["e_return_win_pred"]
         df["p_minus_e_gap"] = np.abs(
-            np.log(df["p_win_pred"] + 1e-8) - np.log(df["e_return_win_pred"] + 1e-8)
+            np.log(df[probability_col] + 1e-8) - np.log(df["e_return_win_pred"] + 1e-8)
         )
         return df
 
@@ -242,8 +248,10 @@ class EVCorrectionModel:
         missing = [c for c in self.FEATURE_COLS if c not in df.columns]
         if missing:
             import logging
+
             logging.getLogger(__name__).debug(
-                "Missing feature columns filled with NaN: %s", missing[:5],
+                "Missing feature columns filled with NaN: %s",
+                missing[:5],
             )
             df = df.copy()
             for c in missing:
@@ -280,7 +288,7 @@ class EVCorrectionModel:
 
         pos_rate = y_p.mean()
         neg_pos_ratio = (1 - pos_rate) / max(pos_rate, 1e-6)
-        scale_pos = max(1.0, neg_pos_ratio ** 0.5)
+        scale_pos = max(1.0, neg_pos_ratio**0.5)
 
         # P correction: train/valid split (80/20) with init_score (時系列分割)
         n_p = len(features)
@@ -369,32 +377,40 @@ class EVCorrectionModel:
 
         self._trained = True
 
-    def correct_ev(self, df: pd.DataFrame) -> pd.DataFrame:
+    def correct_ev(self, df: pd.DataFrame, *, probability_col: str = "p_win_pred") -> pd.DataFrame:
         """
         全馬のEVをP補正×E補正で補正する。
         P_corrected = sigmoid(logit(P_pred) + correction_margin) を race 内で再正規化
         E_corrected = e_return_win_pred × exp(log_e_correction)
         EV_corrected = P_corrected × E_corrected
 
+        probability_col:
+            P補正の基準にする確率列。通常推論は p_win_pred を使う。
+            OOF検証では p_win_oof を渡し、in-sample 予測の混入を防ぐ。
+
         未学習時 (_trained=False): 元予測を補正済み列へ写像する。
         """
+        if probability_col not in df.columns:
+            raise KeyError(f"{probability_col} column is required for EV correction")
         if not self._trained:
             df = df.copy()
             df["p_win_corrected"] = _normalize_probability_by_race(
-                df, "p_win_pred", target_sum=1.0,
+                df,
+                probability_col,
+                target_sum=1.0,
             )
             df["e_return_win_corrected"] = df["e_return_win_pred"].copy()
             df["ev_win_corrected"] = df["p_win_corrected"] * df["e_return_win_corrected"]
             df["ev_win_calibrated"] = df["ev_win_corrected"].copy()
             return df
         df = df.copy()
-        df = self._add_interaction_features(df)
+        df = self._add_interaction_features(df, probability_col=probability_col)
         features = self._prepare_features(df)
 
         # P補正の適用:
         # LightGBM binary booster の predict() は probability を返すため、
         # init_score に加算する補正量は raw_score=True の margin を使う。
-        p_pred_clipped = np.clip(df["p_win_pred"], 1e-4, 1 - 1e-4)
+        p_pred_clipped = np.clip(df[probability_col], 1e-4, 1 - 1e-4)
         init_score = np.log(p_pred_clipped / (1 - p_pred_clipped))
         p_best = _best_iteration(self.p_correction_model)
         raw_margin = self.p_correction_model.predict(  # type: ignore[union-attr]
@@ -469,8 +485,8 @@ class PlaceEVCorrectionModel:
     FEATURE_COLS: list[str] = [
         # 2段階モデルの出力
         "e_return_place_pred",
-        "fukuoddslow",                 # 複勝オッズ (E-correction target context)
-        "p_ability_place",             # PlaceAbilityModel 出力
+        "fukuoddslow",  # 複勝オッズ (E-correction target context)
+        "p_ability_place",  # PlaceAbilityModel 出力
         # 市場歪み
         "signed_log_error_win",
         "abs_log_error_win",
@@ -598,7 +614,7 @@ class PlaceEVCorrectionModel:
 
         pos_rate = y_p.mean()
         neg_pos_ratio = (1 - pos_rate) / max(pos_rate, 1e-6)
-        scale_pos = max(1.0, neg_pos_ratio ** 0.5)
+        scale_pos = max(1.0, neg_pos_ratio**0.5)
 
         # P correction: train/valid split (80/20) with init_score (時系列分割)
         n_p = len(features)

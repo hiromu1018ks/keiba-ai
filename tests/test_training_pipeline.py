@@ -13,7 +13,12 @@ from domain.models import SubmodelSet, TrainedModelsV5
 from features.feature_engine import FeatureEngine
 from models.regime_detector import RegimeDetector
 from models.submodel_manager import SubModelManager
-from pipelines.training_pipeline import TrainingPipelineV5, _prepare_oof_artifact
+from pipelines.training_pipeline import (
+    TrainingPipelineV5,
+    _prepare_oof_artifact,
+    _prepare_win_selection_oof_artifact,
+    _validate_win_selection_oof_health,
+)
 
 
 def _make_mock_store() -> MagicMock:
@@ -257,6 +262,83 @@ class TestTrainingPipelineV5:
         assert result["oof_artifact_version"].tolist() == [1, 1]
         assert result["oof_row_id"].tolist() == [0, 1]
 
+    def test_prepare_win_selection_oof_artifact_marks_version_3(self) -> None:
+        """単勝選定OOFはwalk-forward版としてversion 3を付与する"""
+        df = pd.DataFrame(
+            {
+                "race_id": ["R1"],
+                "kakuteijyuni": [1],
+                "tanodds": [3.0],
+                "win_market_selection_score": [0.5],
+                "p_win_oof": [0.2],
+                "win_selection_oof_fold": [0],
+            }
+        )
+
+        result = _prepare_win_selection_oof_artifact(df)
+
+        assert result["is_oof"].tolist() == [True]
+        assert result["oof_artifact_version"].tolist() == [3]
+        assert result["p_win_oof"].tolist() == [0.2]
+
+    def test_win_selection_oof_guard_rejects_impossible_top1(self) -> None:
+        """OOF top1が現実離れしている場合は学習/保存を止める"""
+        rows: list[dict[str, object]] = []
+        for race_idx in range(120):
+            rows.append(
+                {
+                    "race_id": f"R{race_idx:04d}",
+                    "umaban": 1,
+                    "kakuteijyuni": 1,
+                    "tanodds": 5.0,
+                    "win_market_selection_score": 1.0,
+                }
+            )
+            rows.append(
+                {
+                    "race_id": f"R{race_idx:04d}",
+                    "umaban": 2,
+                    "kakuteijyuni": 2,
+                    "tanodds": 2.0,
+                    "win_market_selection_score": 0.0,
+                }
+            )
+
+        with pytest.raises(ValueError, match="OOF leakage guard failed"):
+            _validate_win_selection_oof_health(
+                pd.DataFrame(rows),
+                context="test",
+            )
+
+    def test_win_selection_oof_guard_allows_realistic_top1(self) -> None:
+        """通常範囲のOOF top1はメトリクスを返して通過する"""
+        rows: list[dict[str, object]] = []
+        for race_idx in range(120):
+            hit = race_idx % 5 == 0
+            rows.append(
+                {
+                    "race_id": f"R{race_idx:04d}",
+                    "umaban": 1,
+                    "kakuteijyuni": 1 if hit else 2,
+                    "tanodds": 3.0,
+                    "win_market_selection_score": 1.0,
+                }
+            )
+            rows.append(
+                {
+                    "race_id": f"R{race_idx:04d}",
+                    "umaban": 2,
+                    "kakuteijyuni": 2 if hit else 1,
+                    "tanodds": 3.0,
+                    "win_market_selection_score": 0.0,
+                }
+            )
+
+        metrics = _validate_win_selection_oof_health(pd.DataFrame(rows), context="test")
+
+        assert metrics["n_races"] == 120
+        assert metrics["top1_hit_rate"] == pytest.approx(0.2)
+
     @patch("pipelines.training_pipeline.mlflow")
     def test_run_returns_trained_models_v5(
         self,
@@ -303,7 +385,12 @@ class TestTrainingPipelineV5:
                                         pipeline.submodel_mgr = SubModelManager()
                                         pipeline.model_dir = Path("data/models")
 
-                                        result = pipeline.run("2020-01-01", "2023-12-31")
+                                        with patch(
+                                            "pipelines.training_pipeline."
+                                            "_validate_win_selection_oof_health",
+                                            return_value={"n_races": 0},
+                                        ):
+                                            result = pipeline.run("2020-01-01", "2023-12-31")
 
         assert isinstance(result, TrainedModelsV5)
         assert "turf" in result.submodels or "dirt" in result.submodels
@@ -359,7 +446,12 @@ class TestTrainingPipelineV5:
                                         pipeline.submodel_mgr = SubModelManager()
                                         pipeline.model_dir = Path("data/models")
 
-                                        result = pipeline.run("2020-01-01", "2023-12-31")
+                                        with patch(
+                                            "pipelines.training_pipeline."
+                                            "_validate_win_selection_oof_health",
+                                            return_value={"n_races": 0},
+                                        ):
+                                            result = pipeline.run("2020-01-01", "2023-12-31")
 
         assert len(result.submodels) >= 1
 
@@ -409,7 +501,12 @@ class TestTrainingPipelineV5:
                                         pipeline.submodel_mgr = SubModelManager()
                                         pipeline.model_dir = Path("data/models")
 
-                                        pipeline.run("2020-01-01", "2023-12-31")
+                                        with patch(
+                                            "pipelines.training_pipeline."
+                                            "_validate_win_selection_oof_health",
+                                            return_value={"n_races": 0},
+                                        ):
+                                            pipeline.run("2020-01-01", "2023-12-31")
 
         mock_mlflow.start_run.assert_called_once()
 
@@ -639,19 +736,29 @@ class TestBuildRegimeStats:
         # _build_regime_stats (which only processes race-level features).
         # Skip those columns in this test.
         horse_level_cols = {
-            "closing_speed_ratio_avg", "closing_speed_ratio_zscore",
-            "closing_speed_ratio_trend", "closing_speed_ratio_avg_race_rank",
-            "harontime_last3f_avg", "harontime_last3f_zscore",
-            "harontime_last3f_trend", "harontime_last3f_avg_race_rank",
+            "closing_speed_ratio_avg",
+            "closing_speed_ratio_zscore",
+            "closing_speed_ratio_trend",
+            "closing_speed_ratio_avg_race_rank",
+            "harontime_last3f_avg",
+            "harontime_last3f_zscore",
+            "harontime_last3f_trend",
+            "harontime_last3f_avg_race_rank",
             "pace_ratio_avg",
-            "pace_early_avg", "pace_mid_avg", "pace_late_avg",
-            "weighted_recent_form_finish", "weighted_recent_form_time",
-            "form_trend_race_rank", "blood_total_wr_race_rank",
+            "pace_early_avg",
+            "pace_mid_avg",
+            "pace_late_avg",
+            "weighted_recent_form_finish",
+            "weighted_recent_form_time",
+            "form_trend_race_rank",
+            "blood_total_wr_race_rank",
             "blood_surface_wr_race_rank",
-            "grade_x_form_trend", "grade_x_blood_prize_log",
+            "grade_x_form_trend",
+            "grade_x_blood_prize_log",
             "distance_x_closing_index",
             # Phase 36.1 horse-level features
-            "haron_race_gap_avg", "haron_race_gap_zscore",
+            "haron_race_gap_avg",
+            "haron_race_gap_zscore",
             "haron_race_gap_trend",
         }
         for col in RegimeDetector.FEATURE_COLS:

@@ -18,6 +18,7 @@ import mlflow
 import numpy as np
 import pandas as pd
 from sklearn.isotonic import IsotonicRegression
+from sklearn.model_selection import TimeSeriesSplit
 
 from db.parquet_store import ParquetStore
 from db.readers import (
@@ -57,6 +58,9 @@ logger = logging.getLogger(__name__)
 
 # MLflow pip高速化: pip freeze子プロセス起動を回避 (57.6x高速化, Spike 005 VALIDATED)
 _MLFLOW_PIP_REQS: list[str] = ["lightgbm", "scikit-learn", "pandas", "numpy", "joblib"]
+WIN_SELECTION_OOF_MAX_TOP1_HIT_RATE = 0.35
+WIN_SELECTION_OOF_MAX_TOP1_ROI = 2.0
+WIN_SELECTION_OOF_MIN_GUARD_RACES = 30
 
 
 def _valid_ev_band_scales(scales: dict[str, float] | None) -> bool:
@@ -91,6 +95,7 @@ def _prepare_win_selection_oof_artifact(df: pd.DataFrame) -> pd.DataFrame:
         "kakuteijyuni",
         "tanodds",
         "confirmed_odds",
+        "p_win_oof",
         "p_win_pred",
         "p_win_corrected",
         "p_win_combined",
@@ -118,13 +123,116 @@ def _prepare_win_selection_oof_artifact(df: pd.DataFrame) -> pd.DataFrame:
         "popularity_change_30_10",
         "win_gate_score",
         "win_gate_pass",
+        "win_selection_oof_fold",
     ]
     cols = [col for col in wanted_cols if col in df.columns]
     oof_df = df.loc[:, cols].copy()
     oof_df["is_oof"] = True
-    oof_df["oof_artifact_version"] = 2
+    oof_df["oof_artifact_version"] = 3
     oof_df["oof_row_id"] = np.arange(len(oof_df), dtype=np.int64)
     return oof_df
+
+
+def _walk_forward_race_splits(
+    df: pd.DataFrame,
+    *,
+    n_splits: int = 5,
+    min_train_races: int = 1,
+) -> list[tuple[np.ndarray, np.ndarray]]:
+    """race_id単位のexpanding walk-forward splitを返す。"""
+    if df.empty or "race_id" not in df.columns:
+        return []
+    race_cols = ["race_id"]
+    if "race_date" in df.columns:
+        race_cols.append("race_date")
+    race_order = df[race_cols].drop_duplicates()
+    if "race_date" in race_order.columns:
+        race_order = race_order.sort_values(["race_date", "race_id"])
+    else:
+        race_order = race_order.sort_values("race_id")
+    race_order = race_order.reset_index(drop=True)
+    n_races = len(race_order)
+    if n_races <= min_train_races + 1:
+        return []
+
+    effective_splits = min(n_splits, max(2, n_races // max(1, min_train_races)))
+    if n_races <= effective_splits:
+        return []
+
+    splits: list[tuple[np.ndarray, np.ndarray]] = []
+    splitter = TimeSeriesSplit(n_splits=effective_splits)
+    for train_race_idx, val_race_idx in splitter.split(race_order):
+        if len(train_race_idx) < min_train_races or len(val_race_idx) == 0:
+            continue
+        train_races = set(race_order.iloc[train_race_idx]["race_id"])
+        val_races = set(race_order.iloc[val_race_idx]["race_id"])
+        train_idx = df.index[df["race_id"].isin(train_races)].to_numpy()
+        val_idx = df.index[df["race_id"].isin(val_races)].to_numpy()
+        if len(train_idx) > 0 and len(val_idx) > 0:
+            splits.append((train_idx, val_idx))
+    return splits
+
+
+def _validate_win_selection_oof_health(
+    df: pd.DataFrame,
+    *,
+    context: str,
+    score_col: str = "win_market_selection_score",
+    max_top1_hit_rate: float = WIN_SELECTION_OOF_MAX_TOP1_HIT_RATE,
+    max_top1_roi: float = WIN_SELECTION_OOF_MAX_TOP1_ROI,
+    min_guard_races: int = WIN_SELECTION_OOF_MIN_GUARD_RACES,
+) -> dict[str, float | int | str]:
+    """OOF選定artifactがin-sample級に異常でないことを検証する。"""
+    if df.empty:
+        return {"context": context, "n_races": 0, "top1_hit_rate": 0.0, "top1_roi": 0.0}
+    required = {"race_id", "kakuteijyuni", score_col}
+    missing = required - set(df.columns)
+    if missing:
+        return {
+            "context": context,
+            "n_races": 0,
+            "top1_hit_rate": 0.0,
+            "top1_roi": 0.0,
+            "missing": ",".join(sorted(missing)),
+        }
+
+    odds_col = "confirmed_odds" if "confirmed_odds" in df.columns else "tanodds"
+    if odds_col not in df.columns:
+        return {
+            "context": context,
+            "n_races": 0,
+            "top1_hit_rate": 0.0,
+            "top1_roi": 0.0,
+            "missing": odds_col,
+        }
+
+    scored = df.copy()
+    scored["_oof_score"] = pd.to_numeric(scored[score_col], errors="coerce").fillna(float("-inf"))
+    top1 = (
+        scored.sort_values(["race_id", "_oof_score"], ascending=[True, False])
+        .groupby("race_id", observed=True)
+        .head(1)
+    )
+    n_races = int(top1["race_id"].nunique())
+    hit = pd.to_numeric(top1["kakuteijyuni"], errors="coerce").eq(1)
+    odds = pd.to_numeric(top1[odds_col], errors="coerce").fillna(0.0)
+    top1_hit_rate = float(hit.mean()) if n_races > 0 else 0.0
+    top1_roi = float(odds.where(hit, 0.0).sum() / max(1, n_races))
+    metrics: dict[str, float | int | str] = {
+        "context": context,
+        "n_races": n_races,
+        "top1_hit_rate": top1_hit_rate,
+        "top1_roi": top1_roi,
+    }
+    if n_races >= min_guard_races and (
+        top1_hit_rate > max_top1_hit_rate or top1_roi > max_top1_roi
+    ):
+        raise ValueError(
+            f"Win selection OOF leakage guard failed ({context}): "
+            f"top1_hit_rate={top1_hit_rate:.3f}, top1_roi={top1_roi:.3f}, "
+            f"n_races={n_races}. Refusing to train/save selection models on this artifact."
+        )
+    return metrics
 
 
 def _unpack_train_submodel_result(
@@ -358,6 +466,11 @@ class TrainingPipelineV5:
             win_oof_df = _prepare_win_selection_oof_artifact(
                 pd.concat(win_selection_oof_dfs, ignore_index=True)
             )
+            metrics = _validate_win_selection_oof_health(
+                win_oof_df,
+                context="combined_win_selection_oof_save",
+            )
+            logger.info("Win selection OOF guard passed: %s", metrics)
             win_oof_df.to_parquet(win_oof_path, index=False)
             logger.info(
                 "Saved win selection OOF predictions: %d rows, %d cols -> %s",
@@ -1300,18 +1413,25 @@ class TrainingPipelineV5:
                 place_selection_gate.train(gate_train_df)
 
         # --- WinSelectionGate training (SELC-01, D-01) ---
-        with TimingContext(f"{surface}/win_selection_gate"):
-            wsg_train_df = df_oof.copy()
-            wsg_place_df = df_oof.copy()
-            if "ev_place_corrected" not in wsg_place_df.columns:
-                wsg_place_df["ev_place_corrected"] = 0.0
-            if conformal_ev is not None:
-                wsg_win_df, _ = conformal_ev.predict_interval(df_oof.copy(), wsg_place_df)
-                if "EV_lower_win_corrected" in wsg_win_df.columns:
-                    wsg_train_df["EV_lower_win_corrected"] = wsg_win_df[
-                        "EV_lower_win_corrected"
-                    ].values
+        with TimingContext(f"{surface}/win_selection_oof"):
+            wsg_train_df = self.generate_win_selection_oof_frame(
+                df_oof_for_save,
+                n_splits=5,
+                num_threads=num_threads,
+            )
+            if wsg_train_df.empty:
+                logger.warning(
+                    "Win selection OOF generation returned empty for %s; "
+                    "selection models will remain conservative/untrained.",
+                    surface,
+                )
+                wsg_train_df = df_oof.iloc[0:0].copy()
             wsg_train_df = ensure_win_selection_columns(wsg_train_df)
+            oof_guard_metrics = _validate_win_selection_oof_health(
+                wsg_train_df,
+                context=f"{surface}/win_selection_train",
+            )
+            logger.info("Win selection OOF guard passed for %s: %s", surface, oof_guard_metrics)
 
         # --- Drift diagnostics (GATE-02, D-01/D-02/D-03) ---
         if use_ensemble:
@@ -1422,6 +1542,60 @@ class TrainingPipelineV5:
         return sub, df_oof_for_save, wsg_train_df
 
     @staticmethod
+    def generate_win_selection_oof_frame(
+        df: pd.DataFrame,
+        *,
+        n_splits: int = 5,
+        num_threads: int = 0,
+    ) -> pd.DataFrame:
+        """Win selection用のfold外予測DataFrameを生成する。
+
+        WinSelectionGate/Policy/ProfitSelector は選定順位を学習するため、
+        full trainに再予測した確率を使うとROIが極端に上振れする。
+        ここではrace単位のwalk-forwardで、各検証foldを過去データだけで
+        学習したWinTwoStageModel + EVCorrectionModelに通す。
+        """
+        if df.empty:
+            return pd.DataFrame()
+        sort_cols = [col for col in ["race_date", "race_id", "umaban"] if col in df.columns]
+        sorted_df = (
+            df.sort_values(sort_cols).reset_index(drop=True)
+            if sort_cols
+            else df.reset_index(drop=True)
+        )
+        splits = _walk_forward_race_splits(sorted_df, n_splits=n_splits)
+        if not splits:
+            return pd.DataFrame()
+
+        oof_frames: list[pd.DataFrame] = []
+        for fold_idx, (train_idx, val_idx) in enumerate(splits):
+            fold_train = sorted_df.iloc[train_idx].copy()
+            fold_val_source = sorted_df.iloc[val_idx].copy()
+
+            fold_win = WinTwoStageModel()
+            try:
+                fold_win.train_hit_model(fold_train, num_threads=num_threads)
+                fold_win.train_return_model(fold_train, num_threads=num_threads)
+
+                fold_train_pred = fold_win.predict_ev(fold_train.copy())
+                fold_ev_corr = EVCorrectionModel()
+                fold_ev_corr.train(fold_train_pred, num_threads=num_threads)
+
+                fold_val = fold_win.predict_ev(fold_val_source)
+                fold_val["p_win_oof"] = fold_val["p_win_pred"]
+                fold_val = fold_ev_corr.correct_ev(fold_val, probability_col="p_win_oof")
+            except Exception as exc:
+                logger.warning("Skipping win selection OOF fold %d: %s", fold_idx, exc)
+                continue
+            fold_val["win_selection_oof_fold"] = fold_idx
+            oof_frames.append(fold_val)
+
+        if not oof_frames:
+            return pd.DataFrame()
+        result = pd.concat(oof_frames, ignore_index=True)
+        return result.sort_values(sort_cols).reset_index(drop=True) if sort_cols else result
+
+    @staticmethod
     def generate_ev_oof_predictions(
         df: pd.DataFrame,
         *,
@@ -1433,24 +1607,26 @@ class TrainingPipelineV5:
         学習チェーン: WinTwoStage predict_ev → EVCorrection correct_ev
         Returns: (oof_ev_corrected, oof_actual_return, oof_odds) — NaN-masked arrays
         """
-        from sklearn.model_selection import KFold
-
         df = df.sort_values("race_date").reset_index(drop=True)
-        kfold = KFold(n_splits=n_splits, shuffle=False)
+        splits = _walk_forward_race_splits(df, n_splits=n_splits)
         oof_ev_corrected = np.full(len(df), np.nan)
         oof_actual_return = np.full(len(df), np.nan)
         oof_odds = np.full(len(df), np.nan)
 
-        for train_idx, val_idx in kfold.split(df):
+        for train_idx, val_idx in splits:
             fold_win = WinTwoStageModel()
-            fold_win.train_hit_model(df.iloc[train_idx], num_threads=num_threads)
-            fold_win.train_return_model(df.iloc[train_idx], num_threads=num_threads)
+            try:
+                fold_win.train_hit_model(df.iloc[train_idx], num_threads=num_threads)
+                fold_win.train_return_model(df.iloc[train_idx], num_threads=num_threads)
 
-            fold_ev_corr = EVCorrectionModel()
-            fold_train = fold_win.predict_ev(df.iloc[train_idx].copy())
-            fold_ev_corr.train(fold_train, num_threads=num_threads)
-            fold_val = fold_win.predict_ev(df.iloc[val_idx].copy())
-            fold_val = fold_ev_corr.correct_ev(fold_val)
+                fold_ev_corr = EVCorrectionModel()
+                fold_train = fold_win.predict_ev(df.iloc[train_idx].copy())
+                fold_ev_corr.train(fold_train, num_threads=num_threads)
+                fold_val = fold_win.predict_ev(df.iloc[val_idx].copy())
+                fold_val = fold_ev_corr.correct_ev(fold_val)
+            except Exception as exc:
+                logger.warning("Skipping EV OOF fold: %s", exc)
+                continue
 
             oof_ev_corrected[val_idx] = fold_val["ev_win_corrected"].values
 
@@ -1462,7 +1638,10 @@ class TrainingPipelineV5:
                 * (fold_val["kakuteijyuni"] == 1).astype(float)
             ).values
 
-        return oof_ev_corrected, oof_actual_return, oof_odds
+        valid = (
+            np.isfinite(oof_ev_corrected) & np.isfinite(oof_actual_return) & np.isfinite(oof_odds)
+        )
+        return oof_ev_corrected[valid], oof_actual_return[valid], oof_odds[valid]
 
     @staticmethod
     def fit_ev_calibration(
