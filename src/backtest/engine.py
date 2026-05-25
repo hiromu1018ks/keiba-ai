@@ -388,7 +388,42 @@ def _horse_win_diagnostic_kwargs(row: Any) -> dict[str, Any]:
         "win_selection_prob": _optional_float(getattr(row, "win_selection_prob", None)),
         "win_gate_score": _optional_float(getattr(row, "win_gate_score", None)),
         "win_gate_pass": _optional_bool(getattr(row, "win_gate_pass", None)),
+        "win_gate_odds_score": _optional_float(getattr(row, "win_gate_odds_score", None)),
+        "win_gate_prob_score": _optional_float(getattr(row, "win_gate_prob_score", None)),
+        "win_gate_edge_score": _optional_float(getattr(row, "win_gate_edge_score", None)),
+        "win_gate_edge_odds_score": _optional_float(
+            getattr(row, "win_gate_edge_odds_score", None)
+        ),
+        "p_market_win_raw": _optional_float(getattr(row, "p_market_win_raw", None)),
+        "p_market_win_norm": _optional_float(getattr(row, "p_market_win_norm", None)),
+        "win_market_residual": _optional_float(getattr(row, "win_market_residual", None)),
+        "win_market_logit_edge": _optional_float(getattr(row, "win_market_logit_edge", None)),
+        "win_market_prob_ratio": _optional_float(getattr(row, "win_market_prob_ratio", None)),
+        "win_market_value_ratio": _optional_float(
+            getattr(row, "win_market_value_ratio", None)
+        ),
+        "win_market_selection_score": _optional_float(
+            getattr(row, "win_market_selection_score", None)
+        ),
+        "win_late_odds_drop_z": _optional_float(
+            getattr(row, "win_late_odds_drop_z", None)
+        ),
+        "win_late_odds_drop_weight": _optional_float(
+            getattr(row, "win_late_odds_drop_weight", None)
+        ),
+        "win_log_odds": _optional_float(getattr(row, "win_log_odds", None)),
+        "win_log_odds_penalty": _optional_float(
+            getattr(row, "win_log_odds_penalty", None)
+        ),
+        "win_model_prob_rank": _optional_float(getattr(row, "win_model_prob_rank", None)),
+        "win_prob_rank_bonus": _optional_float(getattr(row, "win_prob_rank_bonus", None)),
+        "win_market_risk_penalty": _optional_float(
+            getattr(row, "win_market_risk_penalty", None)
+        ),
+        "risk_flags": _optional_str(getattr(row, "risk_flags", None)),
         "tanodds": _optional_float(getattr(row, "tanodds", None)),
+        "closing_win_odds": _optional_float(getattr(row, "closing_win_odds", None)),
+        "clv": _optional_float(getattr(row, "clv", None)),
         "final_odds": _optional_float(getattr(row, "final_odds", None)),
         "stake": _optional_float(getattr(row, "stake", None)),
         "result": _optional_float(getattr(row, "result", None)),
@@ -406,6 +441,12 @@ def _horse_win_diagnostic_kwargs(row: Any) -> dict[str, Any]:
         "selected_rank_by_win_selection_ev": _optional_float(
             getattr(row, "selected_rank_by_win_selection_ev", None)
         ),
+        "selected_rank_by_win_market_logit_edge": _optional_float(
+            getattr(row, "selected_rank_by_win_market_logit_edge", None)
+        ),
+        "selected_rank_by_win_market_score": _optional_float(
+            getattr(row, "selected_rank_by_win_market_score", None)
+        ),
     }
 
 
@@ -418,6 +459,7 @@ def _annotate_actual_bets(
     annotated["stake"] = np.nan
     annotated["result"] = np.nan
     annotated["final_odds"] = np.nan
+    annotated["clv"] = np.nan
 
     for bet, bet_result in settlements:
         if bet.stake <= 0:
@@ -429,6 +471,21 @@ def _annotate_actual_bets(
         annotated.loc[mask, "final_odds"] = float(
             bet.final_odds if bet.final_odds > 0 else bet.odds
         )
+        if "tanodds" in annotated.columns:
+            pre_odds = pd.to_numeric(annotated.loc[mask, "tanodds"], errors="coerce")
+            if "closing_win_odds" in annotated.columns:
+                close_odds = pd.to_numeric(
+                    annotated.loc[mask, "closing_win_odds"],
+                    errors="coerce",
+                )
+            else:
+                close_odds = pd.to_numeric(annotated.loc[mask, "final_odds"], errors="coerce")
+            valid_clv = pre_odds.gt(0.0) & close_odds.gt(0.0)
+            annotated.loc[mask, "clv"] = np.where(
+                valid_clv,
+                close_odds / pre_odds - 1.0,
+                np.nan,
+            )
 
     return annotated
 
@@ -696,6 +753,16 @@ class BacktestEngine:
                     "fukuoddslow"
                 ].items():
                     final_odds_map[(str(race_id), int(umaban))] = float(odds)
+        closing_win_odds_map: dict[tuple[str, int], float] = {}
+        if not final_odds_df.empty and {"race_id", "umaban", "tanodds"}.issubset(
+            final_odds_df.columns
+        ):
+            _win_odds = final_odds_df.dropna(subset=["tanodds"])
+            if not _win_odds.empty:
+                for (race_id, umaban), odds in _win_odds.set_index(["race_id", "umaban"])[
+                    "tanodds"
+                ].items():
+                    closing_win_odds_map[(str(race_id), int(umaban))] = float(odds)
 
         # 確定配当マップを構築（精算用。実際の払戻金額を使用）
         # BUG-FIX: betting_target に応じて必要な払戻マップのみ構築
@@ -1145,7 +1212,9 @@ class BacktestEngine:
             _quality_score = self._race_predictor.get_quality_score(result_df)
             _quality_passed = self._race_predictor.should_bet(result_df)
 
-            if not _quality_passed:
+            # 単勝はベット数を削らない方針のため、RaceQualityScreener は診断に留める。
+            # 複勝/ワイドでは既存どおり品質ゲートを適用する。
+            if not _quality_passed and self.betting_target != "win":
                 result_df = _annotate_actual_bets(result_df, [])
                 diag_logger.log_race(
                     race_id=race_id,
@@ -1244,18 +1313,27 @@ class BacktestEngine:
                     updated_bets.append(replace(bet, final_odds=fo))
             bets = updated_bets
             settlements = [(bet, self._settle_bet(bet, result_df)) for bet in bets]
+            if closing_win_odds_map and "umaban" in result_df.columns:
+                result_df = result_df.copy()
+                result_df["closing_win_odds"] = [
+                    closing_win_odds_map.get((race_id, int(umaban)), np.nan)
+                    if pd.notna(umaban)
+                    else np.nan
+                    for umaban in pd.to_numeric(result_df["umaban"], errors="coerce")
+                ]
             result_df = _annotate_actual_bets(result_df, settlements)
 
             # メトリクス集計 (全ベットが発走前オッズ)
             n_pre_post_odds_bets += len(bets)
 
-            # Log diagnostics for quality-passed race
+            # Log diagnostics for processed race. In win mode, quality_passed may be False
+            # because the quality model is diagnostic-only.
             diag_logger.log_race(
                 race_id=race_id,
                 regime=str(regime),
                 ev_threshold=regime_params.get("ev_threshold", 1.10),
                 edge_threshold=edge_threshold,
-                quality_passed=True,
+                quality_passed=_quality_passed,
                 quality_score=_quality_score,
                 n_candidates=n_candidates,
                 n_bets=len(bets),
@@ -1342,6 +1420,10 @@ class BacktestEngine:
                         "stake": bet.stake,
                         "odds": bet.odds,
                         "tanodds": _optional_float(horse_row.get("tanodds", bet.odds)),
+                        "closing_win_odds": _optional_float(
+                            horse_row.get("closing_win_odds", None)
+                        ),
+                        "clv": _optional_float(horse_row.get("clv", None)),
                         "final_odds": bet.final_odds,
                         "fuku_odds_low": bet.final_odds,
                         "result": bet_result,
@@ -1419,6 +1501,61 @@ class BacktestEngine:
                         ),
                         "win_gate_score": _optional_float(horse_row.get("win_gate_score", None)),
                         "win_gate_pass": _optional_bool(horse_row.get("win_gate_pass", None)),
+                        "win_gate_odds_score": _optional_float(
+                            horse_row.get("win_gate_odds_score", None)
+                        ),
+                        "win_gate_prob_score": _optional_float(
+                            horse_row.get("win_gate_prob_score", None)
+                        ),
+                        "win_gate_edge_score": _optional_float(
+                            horse_row.get("win_gate_edge_score", None)
+                        ),
+                        "win_gate_edge_odds_score": _optional_float(
+                            horse_row.get("win_gate_edge_odds_score", None)
+                        ),
+                        "p_market_win_raw": _optional_float(
+                            horse_row.get("p_market_win_raw", None)
+                        ),
+                        "p_market_win_norm": _optional_float(
+                            horse_row.get("p_market_win_norm", None)
+                        ),
+                        "win_market_residual": _optional_float(
+                            horse_row.get("win_market_residual", None)
+                        ),
+                        "win_market_logit_edge": _optional_float(
+                            horse_row.get("win_market_logit_edge", None)
+                        ),
+                        "win_market_prob_ratio": _optional_float(
+                            horse_row.get("win_market_prob_ratio", None)
+                        ),
+                        "win_market_value_ratio": _optional_float(
+                            horse_row.get("win_market_value_ratio", None)
+                        ),
+                        "win_market_selection_score": _optional_float(
+                            horse_row.get("win_market_selection_score", None)
+                        ),
+                        "win_late_odds_drop_z": _optional_float(
+                            horse_row.get("win_late_odds_drop_z", None)
+                        ),
+                        "win_late_odds_drop_weight": _optional_float(
+                            horse_row.get("win_late_odds_drop_weight", None)
+                        ),
+                        "win_log_odds": _optional_float(
+                            horse_row.get("win_log_odds", None)
+                        ),
+                        "win_log_odds_penalty": _optional_float(
+                            horse_row.get("win_log_odds_penalty", None)
+                        ),
+                        "win_model_prob_rank": _optional_float(
+                            horse_row.get("win_model_prob_rank", None)
+                        ),
+                        "win_prob_rank_bonus": _optional_float(
+                            horse_row.get("win_prob_rank_bonus", None)
+                        ),
+                        "win_market_risk_penalty": _optional_float(
+                            horse_row.get("win_market_risk_penalty", None)
+                        ),
+                        "risk_flags": _optional_str(horse_row.get("risk_flags", None)),
                         "excluded_reason": _optional_str(horse_row.get("excluded_reason", None)),
                         "filter_pass_flags": _optional_str(
                             horse_row.get("filter_pass_flags", None)
@@ -1434,6 +1571,12 @@ class BacktestEngine:
                         ),
                         "selected_rank_by_win_selection_ev": _optional_float(
                             horse_row.get("selected_rank_by_win_selection_ev", None)
+                        ),
+                        "selected_rank_by_win_market_logit_edge": _optional_float(
+                            horse_row.get("selected_rank_by_win_market_logit_edge", None)
+                        ),
+                        "selected_rank_by_win_market_score": _optional_float(
+                            horse_row.get("selected_rank_by_win_market_score", None)
                         ),
                         "top3_finishers": _top3,
                         "umaban_b": getattr(bet, "umaban_b", None),

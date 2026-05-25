@@ -68,7 +68,28 @@ class HorseDiagnostic:
     win_selection_prob: float | None = None
     win_gate_score: float | None = None
     win_gate_pass: bool | None = None
+    win_gate_odds_score: float | None = None
+    win_gate_prob_score: float | None = None
+    win_gate_edge_score: float | None = None
+    win_gate_edge_odds_score: float | None = None
+    p_market_win_raw: float | None = None
+    p_market_win_norm: float | None = None
+    win_market_residual: float | None = None
+    win_market_logit_edge: float | None = None
+    win_market_prob_ratio: float | None = None
+    win_market_value_ratio: float | None = None
+    win_market_selection_score: float | None = None
+    win_late_odds_drop_z: float | None = None
+    win_late_odds_drop_weight: float | None = None
+    win_log_odds: float | None = None
+    win_log_odds_penalty: float | None = None
+    win_model_prob_rank: float | None = None
+    win_prob_rank_bonus: float | None = None
+    win_market_risk_penalty: float | None = None
+    risk_flags: str | None = None
     tanodds: float | None = None
+    closing_win_odds: float | None = None
+    clv: float | None = None
     final_odds: float | None = None
     stake: float | None = None
     result: float | None = None
@@ -78,6 +99,8 @@ class HorseDiagnostic:
     candidate_count_after_filter: int | None = None
     selected_rank_by_p_win_final: float | None = None
     selected_rank_by_win_selection_ev: float | None = None
+    selected_rank_by_win_market_logit_edge: float | None = None
+    selected_rank_by_win_market_score: float | None = None
 
 
 class DiagnosticLogger:
@@ -155,7 +178,28 @@ class DiagnosticLogger:
         win_selection_prob: float | None = None,
         win_gate_score: float | None = None,
         win_gate_pass: bool | None = None,
+        win_gate_odds_score: float | None = None,
+        win_gate_prob_score: float | None = None,
+        win_gate_edge_score: float | None = None,
+        win_gate_edge_odds_score: float | None = None,
+        p_market_win_raw: float | None = None,
+        p_market_win_norm: float | None = None,
+        win_market_residual: float | None = None,
+        win_market_logit_edge: float | None = None,
+        win_market_prob_ratio: float | None = None,
+        win_market_value_ratio: float | None = None,
+        win_market_selection_score: float | None = None,
+        win_late_odds_drop_z: float | None = None,
+        win_late_odds_drop_weight: float | None = None,
+        win_log_odds: float | None = None,
+        win_log_odds_penalty: float | None = None,
+        win_model_prob_rank: float | None = None,
+        win_prob_rank_bonus: float | None = None,
+        win_market_risk_penalty: float | None = None,
+        risk_flags: str | None = None,
         tanodds: float | None = None,
+        closing_win_odds: float | None = None,
+        clv: float | None = None,
         final_odds: float | None = None,
         stake: float | None = None,
         result: float | None = None,
@@ -165,6 +209,8 @@ class DiagnosticLogger:
         candidate_count_after_filter: int | None = None,
         selected_rank_by_p_win_final: float | None = None,
         selected_rank_by_win_selection_ev: float | None = None,
+        selected_rank_by_win_market_logit_edge: float | None = None,
+        selected_rank_by_win_market_score: float | None = None,
     ) -> None:
         self.horse_records.append(
             HorseDiagnostic(
@@ -203,7 +249,28 @@ class DiagnosticLogger:
                 win_selection_prob=win_selection_prob,
                 win_gate_score=win_gate_score,
                 win_gate_pass=win_gate_pass,
+                win_gate_odds_score=win_gate_odds_score,
+                win_gate_prob_score=win_gate_prob_score,
+                win_gate_edge_score=win_gate_edge_score,
+                win_gate_edge_odds_score=win_gate_edge_odds_score,
+                p_market_win_raw=p_market_win_raw,
+                p_market_win_norm=p_market_win_norm,
+                win_market_residual=win_market_residual,
+                win_market_logit_edge=win_market_logit_edge,
+                win_market_prob_ratio=win_market_prob_ratio,
+                win_market_value_ratio=win_market_value_ratio,
+                win_market_selection_score=win_market_selection_score,
+                win_late_odds_drop_z=win_late_odds_drop_z,
+                win_late_odds_drop_weight=win_late_odds_drop_weight,
+                win_log_odds=win_log_odds,
+                win_log_odds_penalty=win_log_odds_penalty,
+                win_model_prob_rank=win_model_prob_rank,
+                win_prob_rank_bonus=win_prob_rank_bonus,
+                win_market_risk_penalty=win_market_risk_penalty,
+                risk_flags=risk_flags,
                 tanodds=tanodds,
+                closing_win_odds=closing_win_odds,
+                clv=clv,
                 final_odds=final_odds,
                 stake=stake,
                 result=result,
@@ -213,6 +280,8 @@ class DiagnosticLogger:
                 candidate_count_after_filter=candidate_count_after_filter,
                 selected_rank_by_p_win_final=selected_rank_by_p_win_final,
                 selected_rank_by_win_selection_ev=selected_rank_by_win_selection_ev,
+                selected_rank_by_win_market_logit_edge=selected_rank_by_win_market_logit_edge,
+                selected_rank_by_win_market_score=selected_rank_by_win_market_score,
             )
         )
 
