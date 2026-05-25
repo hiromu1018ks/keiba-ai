@@ -1,0 +1,115 @@
+11:15:07 [INFO] ParquetStore OK
+11:15:07 [INFO] 2024年: 学習スキップ (--skip-train)
+11:15:09 [INFO] Loading StackedEnsemble: data\models-backtest\2024\win_hit_turf.joblib
+11:15:11 [INFO] Place model files not found for turf, skipping (betting_target=win?)
+11:15:11 [INFO] Wide model files not found for turf, skipping (betting_target=win?)
+11:15:11 [INFO] Loading StackedEnsemble: data\models-backtest\2024\win_hit_dirt.joblib
+11:15:11 [INFO] Place model files not found for dirt, skipping (betting_target=win?)
+11:15:11 [INFO] Wide model files not found for dirt, skipping (betting_target=win?)
+11:15:11 [INFO] キャッシュモデルをロード: data\models-backtest\2024 (学習期間: 2020-01-01 ~ 2023-12-31)
+11:15:11 [INFO] キャリブレーションBT: スキップ (--calibration-bt 未指定)
+11:16:31 [INFO] Loaded win payout map: 3454 entries
+11:16:31 [INFO] Feature cache MISS: feat_401e3b1e2b5fa066 (computing...)
+11:16:32 [INFO] [TIMING] build_all/intra_race: 0.062s
+11:16:51 [INFO] [TIMING] build_all/odds_dynamics: 19.588s
+11:16:51 [INFO] [TIMING] build_all/market_bias: 0.171s
+11:16:52 [INFO] [TIMING] build_all/flb_slope: 0.879s
+11:16:52 [INFO] [TIMING] build_all/difficulty: 0.058s
+11:16:52 [INFO] [TIMING] build_all/race_level: 0.188s
+11:17:00 [INFO] [TIMING] build_all/market_cross: 7.314s
+11:17:02 [INFO] [TIMING] build_all/bloodline: 1.893s
+11:17:02 [INFO] SAFE-01: dropping 48 POST_RACE cols from build_all() output: ['nyusentosu', 'laptime1', 'laptime2', 'laptime3', 'laptime4', 'laptime5', 'laptime6', 'laptime7', 'laptime8', 'laptime9', 'laptime10', 'laptime11', 'laptime12', 'laptime13', 'laptime14', 'laptime15', 'laptime16', 'laptime17', 'laptime18', 'laptime19', 'laptime20', 'laptime21', 'laptime22', 'laptime23', 'laptime24', 'laptime25', 'harontimes3', 'harontimes4', 'harontimel3', 'harontimel4', 'recordupkubun', 'ijyocd', 'nyusenjyuni', 'dochakukubun', 'dochakutosu', 'time', 'chakusacd', 'jyuni1c', 'jyuni2c', 'jyuni3c', 'jyuni4c', 'ninki', 'honsyokin', 'fukasyokin', 'timediff', 'dmtime', 'dmjyuni', 'kyakusitukubun']
+11:17:02 [INFO] Feature cache SAVED: feat_401e3b1e2b5fa066 (45437 rows)
+11:17:03 [INFO] Merged wide odds: 153 pair-columns
+11:17:03 [INFO] Pre-computing HorseHistoryFeatures for 3327 races...
+11:20:24 [INFO] Pre-computing JockeyContextFeatures for 45827 entries...
+11:20:24 [INFO] Pre-computing TrainerContextFeatures for 45827 entries...
+11:20:25 [INFO] Pre-computing JockeyTrainerComboFeatures for 45827 entries...
+11:20:35 [INFO] Computing SireFeatures for backtest inference...
+11:20:47 [INFO] Pre-computing PaceAptitudeFeatures...
+11:20:57 [INFO] Pre-computing CourseFeatures...
+11:21:08 [INFO] Merged hist features into feat_df: 67 columns
+11:21:08 [INFO] [features] 3327 groups, 45437 rows, 229.7 MB
+11:21:08 [INFO] [jockey] 3329 groups, 45827 rows, 2.4 MB
+11:21:08 [INFO] [trainer] 3329 groups, 45827 rows, 2.4 MB
+11:21:08 [INFO] [jockey_trainer] 3329 groups, 45827 rows, 2.7 MB
+11:37:16 [INFO] Race diagnostics saved: 3327 records -> data\backtest\bt_2024_race_diagnostics.csv
+11:37:22 [INFO] Horse diagnostics saved: 45437 records -> data\backtest\bt_2024_horse_diagnostics.csv
+11:37:31 [INFO] Feature diagnostics saved: 45437 records -> data\backtest\bt_2024_horse_features.parquet
+11:37:31 [INFO] Bet Selection Filters: EV_excluded=0, COLLAPSED_skipped=0
+11:37:31 [INFO] Validation report saved: data\validation\validation_report.json
+11:37:33 [INFO] Parquet保存: C:\Users\hirom\develop\keiba-ai\data\backtest\predictions\2024.parquet (45437 rows)
+11:37:33 [INFO] 2025年: 学習スキップ (--skip-train)
+11:37:33 [INFO] Loading StackedEnsemble: data\models-backtest\2025\win_hit_turf.joblib
+11:37:33 [INFO] Place model files not found for turf, skipping (betting_target=win?)
+11:37:33 [INFO] Wide model files not found for turf, skipping (betting_target=win?)
+11:37:33 [INFO] Loading StackedEnsemble: data\models-backtest\2025\win_hit_dirt.joblib
+11:37:33 [INFO] Place model files not found for dirt, skipping (betting_target=win?)
+11:37:33 [INFO] Wide model files not found for dirt, skipping (betting_target=win?)
+11:37:33 [INFO] キャッシュモデルをロード: data\models-backtest\2025 (学習期間: 2021-01-01 ~ 2024-12-31)
+11:37:33 [INFO] キャリブレーションBT: スキップ (--calibration-bt 未指定)
+11:40:53 [INFO] Loaded win payout map: 3455 entries
+11:40:53 [INFO] Feature cache MISS: feat_ef9524324af08147 (computing...)
+11:40:55 [INFO] [TIMING] build_all/intra_race: 0.092s
+11:41:42 [INFO] [TIMING] build_all/odds_dynamics: 47.154s
+11:41:42 [INFO] [TIMING] build_all/market_bias: 0.402s
+11:41:44 [INFO] [TIMING] build_all/flb_slope: 1.967s
+11:41:44 [INFO] [TIMING] build_all/difficulty: 0.081s
+11:41:45 [INFO] [TIMING] build_all/race_level: 0.492s
+11:42:00 [INFO] [TIMING] build_all/market_cross: 15.628s
+11:42:04 [INFO] [TIMING] build_all/bloodline: 3.974s
+11:42:04 [INFO] SAFE-01: dropping 48 POST_RACE cols from build_all() output: ['nyusentosu', 'laptime1', 'laptime2', 'laptime3', 'laptime4', 'laptime5', 'laptime6', 'laptime7', 'laptime8', 'laptime9', 'laptime10', 'laptime11', 'laptime12', 'laptime13', 'laptime14', 'laptime15', 'laptime16', 'laptime17', 'laptime18', 'laptime19', 'laptime20', 'laptime21', 'laptime22', 'laptime23', 'laptime24', 'laptime25', 'harontimes3', 'harontimes4', 'harontimel3', 'harontimel4', 'recordupkubun', 'ijyocd', 'nyusenjyuni', 'dochakukubun', 'dochakutosu', 'time', 'chakusacd', 'jyuni1c', 'jyuni2c', 'jyuni3c', 'jyuni4c', 'ninki', 'honsyokin', 'fukasyokin', 'timediff', 'dmtime', 'dmjyuni', 'kyakusitukubun']
+11:42:04 [INFO] 古いキャッシュファイル 1件を削除
+11:42:05 [INFO] Feature cache SAVED: feat_ef9524324af08147 (46160 rows)
+11:42:06 [INFO] Merged wide odds: 153 pair-columns
+11:42:06 [INFO] Pre-computing HorseHistoryFeatures for 3335 races...
+11:48:43 [INFO] Pre-computing JockeyContextFeatures for 46499 entries...
+11:48:44 [INFO] Pre-computing TrainerContextFeatures for 46499 entries...
+11:48:44 [INFO] Pre-computing JockeyTrainerComboFeatures for 46499 entries...
+11:49:04 [INFO] Computing SireFeatures for backtest inference...
+11:49:32 [INFO] Pre-computing PaceAptitudeFeatures...
+11:49:54 [INFO] Pre-computing CourseFeatures...
+11:50:16 [INFO] Merged hist features into feat_df: 67 columns
+11:50:17 [INFO] [features] 3335 groups, 46160 rows, 232.9 MB
+11:50:17 [INFO] [jockey] 3336 groups, 46499 rows, 2.4 MB
+11:50:17 [INFO] [trainer] 3336 groups, 46499 rows, 2.4 MB
+11:50:17 [INFO] [jockey_trainer] 3336 groups, 46499 rows, 2.7 MB
+12:01:31 [WARNING] Win payout missing for 2025052404010709 umaban=11, using tanodds fallback=13.1
+12:13:43 [INFO] Race diagnostics saved: 3335 records -> data\backtest\bt_2025_race_diagnostics.csv
+12:13:49 [INFO] Horse diagnostics saved: 46160 records -> data\backtest\bt_2025_horse_diagnostics.csv
+12:13:59 [INFO] Feature diagnostics saved: 46160 records -> data\backtest\bt_2025_horse_features.parquet
+12:13:59 [INFO] Bet Selection Filters: EV_excluded=0, COLLAPSED_skipped=0
+12:13:59 [INFO] Validation report saved: data\validation\validation_report.json
+12:14:01 [INFO] Parquet保存: C:\Users\hirom\develop\keiba-ai\data\backtest\predictions\2025.parquet (46160 rows)
+
+==================================================
+  2024年 (学習: 2020-2023)
+==================================================
+  学習完了 (0秒)
+  テスト完了 (1341秒)
+  ベット数:    3,327 | 投資額: ¥   332,700 | 払戻: ¥   296,870
+  ROI:    89.2% | 利益: ¥   -35,830 | 最大DD:  48.6%
+
+==================================================
+  2025年 (学習: 2021-2024)
+==================================================
+  学習完了 (0秒)
+  テスト完了 (2187秒)
+  ベット数:    3,335 | 投資額: ¥   333,500 | 払戻: ¥   296,120
+  ROI:    88.8% | 利益: ¥   -37,380 | 最大DD:  40.2%
+
+==================================================
+  全体サマリー
+==================================================
+  総ベット数:       6,662
+  総投資額:  ¥     666,200
+  総払戻額:  ¥     592,990
+  総利益:    ¥     -73,210
+  合計 ROI:        89.0%
+  最良年度:  2024 (89.2%)
+  最悪年度:  2025 (88.8%)
+
+  JSON保存: C:\Users\hirom\develop\keiba-ai\data\backtest\multi_year_result.json
+  レポート生成: C:\Users\hirom\develop\keiba-ai\data\backtest\multi_year_report.html
+  bet_history保存: C:\Users\hirom\develop\keiba-ai\data\backtest\multi_year_bet_history.json
+  検証レポート: C:\Users\hirom\develop\keiba-ai\data\validation\multi_year_validation_report.json

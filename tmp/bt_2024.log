@@ -1,261 +1,276 @@
-20:54:36 [INFO] ==================================================
-20:54:36 [INFO]   学習期間: 2020-01-01 ~ 2023-12-31
-20:54:36 [INFO] ==================================================
-20:54:36 [INFO] Loading data: 2020-01-01 ~ 2023-12-31
-20:57:48 [INFO] Using pre-post odds (5min before): 185066 rows
-20:57:48 [INFO] Building features
-20:57:48 [INFO] Feature cache HIT: feat_76c907385287d81e
-21:01:41 [INFO] [TIMING] turf/horse_history: 228.140s
-21:01:41 [INFO] [TIMING] turf/add_race_transforms: 0.275s
-21:01:52 [INFO] [TIMING] turf/pace_aptitude: 10.940s
-21:02:04 [INFO] [TIMING] turf/course_features: 12.059s
-21:02:17 [INFO] [TIMING] turf/sire_features: 13.473s
-21:02:18 [INFO] [TIMING] turf/dam_pedigree: 0.362s
-21:02:18 [INFO] [TIMING] turf/record_features: 0.157s
-21:02:18 [INFO] [TIMING] turf/interaction: 0.351s
-21:02:18 [INFO] [TIMING] turf/mining_features: 0.194s
-21:02:19 [INFO] [TIMING] turf/relative_features: 0.276s
-21:02:24 [INFO] [TIMING] turf/market_model: 5.203s
-21:02:25 [INFO] SubModel 'turf' 学習完了: 22444 samples
-21:02:28 [INFO] SubModel 'turf' 学習完了: 44677 samples
-21:02:32 [INFO] SubModel 'turf' 学習完了: 66334 samples
-21:02:34 [INFO] SubModel 'turf' 学習完了: 88907 samples
-21:02:34 [INFO] [TIMING] turf/ability_oof: 10.242s
-21:02:35 [INFO] [TIMING] turf/target_encoding: 0.193s
-21:02:36 [INFO] [TIMING] turf/place_ability_train: 1.345s
-21:02:37 [INFO] [TIMING] turf/place_ability_predict: 0.398s
-21:03:39 [INFO] XGB correlation penalty applied: mean_corr=0.9738 > threshold=0.8500
-21:08:06 [INFO] CAT correlation penalty applied: mean_corr=0.8824 > threshold=0.8500
-21:08:40 [INFO] OOF prediction correlation LGB-XGB: 0.7639
-21:08:40 [INFO] OOF prediction correlation LGB-CAT: 0.2719
-21:08:40 [INFO] OOF prediction correlation XGB-CAT: 0.4706
-21:08:40 [INFO] Feature importance rank correlation LGB-XGB: 0.5493
-21:08:40 [INFO] Feature importance rank correlation LGB-CAT: 0.7591
-21:08:40 [INFO] Feature importance rank correlation XGB-CAT: 0.6964
-21:08:40 [INFO] [TIMING] turf/win_hit_ensemble: 363.103s
-21:08:40 [INFO] [TIMING] turf/win_return: 0.388s
-21:08:41 [INFO] [TIMING] turf/win_predict: 0.646s
-21:08:42 [INFO] [TIMING] turf/jockey_ctx: 1.111s
-21:08:43 [INFO] [TIMING] turf/trainer_ctx: 1.020s
-21:08:55 [INFO] [TIMING] turf/jt_combo: 12.223s
-21:08:57 [INFO] [TIMING] turf/ev_correction: 1.775s
-21:09:13 [INFO] [TIMING] turf/ev_isotonic_oof: 15.847s
-21:09:13 [INFO] [TIMING] turf/ev_isotonic_fit: 0.016s
-21:09:14 [INFO] EV Isotonic fitted for turf: 66463 OOF samples, band_scales={'1.0-3.0': 1.1232031673982348, '3.0-10.0': 1.0903339350545054, '10.0-30.0': 1.0943841641343954, '30.0+': 0.8692795126400517}
-21:09:14 [INFO] Skipping place model training for turf (betting_target=win)
-21:09:21 [INFO] Win OOF: 66463 valid / 66463 total samples
-21:09:21 [INFO] [TIMING] turf/win_oof: 6.734s
-21:09:25 [INFO] Win Benter (grid): alpha=1.194, beta=0.200, gamma=0.625, NLL=12283.08
-21:09:25 [INFO] Calibration comparison: Beta(Brier=0.062607, ECE=0.022012) vs Isotonic(Brier=0.062604, ECE=0.019787) -> winner=beta
-21:09:25 [INFO] [TIMING] turf/win_calibration: 0.353s
-21:09:25 [INFO] Win Reliability: bins=['0.020', '0.143', '0.245', '0.347', '0.445', '0.545', '0.644', '0.745', '0.844', '0.918'], positives=['0.021', '0.150', '0.241', '0.356', '0.398', '0.458', '0.616', '0.652', '0.866', '1.000']
-21:09:25 [INFO] Win calibration: Beta selected (Brier=0.062607)
-21:09:25 [INFO] Temperature Scaling: T=1.0282 (Brier=0.073827)
-21:09:25 [INFO] Win TempScale: no improvement (0.054441 -> 0.054467), skipping
-21:09:29 [INFO] CQR calibrated: Q_90=0.0639, Q_80=0.0390, residual_floor_90=0.0498, residual_floor_80=0.0390, n_calib=13293
-21:09:29 [INFO] Conformal EV fitted for turf: Q_90=0.0639, Q_80=0.0390
-21:09:29 [INFO] [TIMING] turf/conformal_ev: 3.989s
-21:09:31 [INFO] [TIMING] turf/win_selection_gate: 1.154s
-21:09:31 [INFO] Drift diagnostics saved to data\backtest\drift_diagnostics_turf.json
-21:09:31 [INFO] === Drift Diagnostics Summary (surface=turf) ===
-21:09:31 [INFO]   p_win_pred: mean=0.0745 std=0.1020 q50=0.0340 n=66463
-21:09:31 [INFO]   ev_win: mean=0.6023 std=0.4257 q50=0.6500 n=66463
-21:09:31 [INFO]   p_win_corrected: mean=0.0745 std=0.1009 q50=0.0339 n=66463
-21:09:31 [INFO]   ev_win_corrected: mean=0.6206 std=0.5075 q50=0.6323 n=66463
-21:09:31 [INFO]   win_selection_prob: mean=0.0745 std=0.1009 q50=0.0339 n=66463
-21:09:31 [INFO]   win_selection_edge: mean=-0.4480 std=0.4073 q50=-0.4626 n=66463
-21:09:31 [INFO]   win_selection_ev: mean=0.5520 std=0.4073 q50=0.5374 n=66463
-21:09:31 [INFO]   Surface turf: OK (7 columns)
-21:09:31 [INFO]   Year 2020: OK (7 columns)
-21:09:31 [INFO]   Year 2021: OK (7 columns)
-21:09:31 [INFO]   Year 2022: OK (7 columns)
-21:09:31 [INFO]   Year 2023: OK (7 columns)
-21:09:31 [INFO] No significant drift detected.
-21:09:31 [INFO] [TIMING] turf/drift_diagnostics: 0.367s
-21:09:31 [WARNING] Temporal drift: year 2020 skipped -- insufficient samples (n=320 < 1000)
-21:09:32 [INFO] EV diagnostics written to data\backtest\ev_diagnostics_turf.json
-21:09:32 [INFO] === EV Diagnostics (turf) ===
-21:09:32 [INFO]   Samples: 66463 / 66463
-21:09:32 [INFO]   Correlation: r=0.4651 (p=0.0000)
-21:09:32 [INFO]   RMSE: 0.5498
-21:09:32 [INFO]   EV Bias: -0.0735 (predicted 0.6451 vs actual 0.7186)
-21:09:32 [INFO]   ECE: 0.0164
-21:09:32 [INFO]   Brier: 0.0539 (reliability=0.0007, resolution=0.0140, uncertainty=0.0691)
-21:09:32 [INFO]   Temporal drift (4 years):
-21:09:32 [INFO]     2020: insufficient_samples (n=320)
-21:09:32 [INFO]     2021: n=21913, bias=-0.0330, corr=0.473
-21:09:32 [INFO]     2022: n=21837, bias=-0.1036, corr=0.491
-21:09:32 [INFO]     2023: n=22393, bias=-0.0855, corr=0.436
-21:09:32 [INFO] [TIMING] turf/ev_diagnostics: 0.855s
-21:10:40 [INFO] [TIMING] turf/win_selection_gate_train: 68.416s
-21:10:40 [INFO] EV threshold for turf: 0.4696 (from 1445 positive-edge winners, q25=0.4696 q50=0.4696 q75=0.4705)
-21:10:40 [INFO] Trained turf submodel (sequential)
-21:15:26 [INFO] [TIMING] dirt/horse_history: 286.034s
-21:15:27 [INFO] [TIMING] dirt/add_race_transforms: 0.369s
-21:15:41 [INFO] [TIMING] dirt/pace_aptitude: 13.651s
-21:15:54 [INFO] [TIMING] dirt/course_features: 13.873s
-21:16:11 [INFO] [TIMING] dirt/sire_features: 16.130s
-21:16:11 [INFO] [TIMING] dirt/dam_pedigree: 0.384s
-21:16:11 [INFO] [TIMING] dirt/record_features: 0.181s
-21:16:12 [INFO] [TIMING] dirt/interaction: 0.434s
-21:16:12 [INFO] [TIMING] dirt/mining_features: 0.243s
-21:16:12 [INFO] [TIMING] dirt/relative_features: 0.340s
-21:16:19 [INFO] [TIMING] dirt/market_model: 6.892s
-21:16:21 [INFO] SubModel 'dirt' 学習完了: 23269 samples
-21:16:23 [INFO] SubModel 'dirt' 学習完了: 47767 samples
-21:16:28 [INFO] SubModel 'dirt' 学習完了: 71273 samples
-21:16:31 [INFO] SubModel 'dirt' 学習完了: 94959 samples
-21:16:31 [INFO] [TIMING] dirt/ability_oof: 12.047s
-21:16:32 [INFO] [TIMING] dirt/target_encoding: 0.253s
-21:16:34 [INFO] [TIMING] dirt/place_ability_train: 1.469s
-21:16:34 [INFO] [TIMING] dirt/place_ability_predict: 0.463s
-21:17:39 [INFO] XGB correlation penalty applied: mean_corr=0.9744 > threshold=0.8500
-21:21:38 [INFO] CAT correlation penalty applied: mean_corr=0.8922 > threshold=0.8500
-21:21:58 [INFO] Orthogonalized XGB stack feature: max_corr=0.9622 >= threshold=0.9500
-21:22:10 [INFO] OOF prediction correlation LGB-XGB: 0.6032
-21:22:10 [INFO] OOF prediction correlation LGB-CAT: 0.4382
-21:22:10 [INFO] OOF prediction correlation XGB-CAT: 0.3384
-21:22:10 [INFO] Feature importance rank correlation LGB-XGB: 0.6751
-21:22:10 [INFO] Feature importance rank correlation LGB-CAT: 0.7910
-21:22:10 [INFO] Feature importance rank correlation XGB-CAT: 0.7385
-21:22:10 [INFO] [TIMING] dirt/win_hit_ensemble: 336.176s
-21:22:11 [INFO] [TIMING] dirt/win_return: 0.321s
-21:22:11 [INFO] [TIMING] dirt/win_predict: 0.557s
-21:22:12 [INFO] [TIMING] dirt/jockey_ctx: 1.072s
-21:22:13 [INFO] [TIMING] dirt/trainer_ctx: 1.065s
-21:22:26 [INFO] [TIMING] dirt/jt_combo: 12.401s
-21:22:28 [INFO] [TIMING] dirt/ev_correction: 1.411s
-21:22:43 [INFO] [TIMING] dirt/ev_isotonic_oof: 15.105s
-21:22:43 [INFO] [TIMING] dirt/ev_isotonic_fit: 0.018s
-21:22:43 [INFO] EV Isotonic fitted for dirt: 71690 OOF samples, band_scales={'1.0-3.0': 1.302825430867072, '3.0-10.0': 1.0719311276099486, '10.0-30.0': 1.119360855851092, '30.0+': 0.8569582558046136}
-21:22:43 [INFO] Skipping place model training for dirt (betting_target=win)
-21:22:50 [INFO] Win OOF: 71690 valid / 71690 total samples
-21:22:50 [INFO] [TIMING] dirt/win_oof: 6.841s
-21:22:55 [INFO] Win Benter (grid): alpha=1.188, beta=0.200, gamma=0.620, NLL=12690.37
-21:22:55 [INFO] Calibration comparison: Beta(Brier=0.058255, ECE=0.020991) vs Isotonic(Brier=0.058289, ECE=0.022350) -> winner=beta
-21:22:55 [INFO] [TIMING] dirt/win_calibration: 0.339s
-21:22:55 [INFO] Win Reliability: bins=['0.019', '0.145', '0.243', '0.345', '0.447', '0.545', '0.647', '0.746', '0.827'], positives=['0.020', '0.154', '0.248', '0.344', '0.388', '0.502', '0.545', '0.721', '0.923']
-21:22:55 [INFO] Win calibration: Beta selected (Brier=0.058255)
-21:22:55 [INFO] Temperature Scaling: T=1.0134 (Brier=0.069736)
-21:22:55 [INFO] Win TempScale: no improvement (0.051988 -> 0.051993), skipping
-21:22:59 [INFO] CQR calibrated: Q_90=0.0755, Q_80=0.0645, residual_floor_90=0.0755, residual_floor_80=0.0645, n_calib=14338
-21:22:59 [INFO] Conformal EV fitted for dirt: Q_90=0.0755, Q_80=0.0645
-21:22:59 [INFO] [TIMING] dirt/conformal_ev: 3.284s
-21:23:00 [INFO] [TIMING] dirt/win_selection_gate: 1.287s
-21:23:00 [INFO] Drift diagnostics saved to data\backtest\drift_diagnostics_dirt.json
-21:23:00 [INFO] === Drift Diagnostics Summary (surface=dirt) ===
-21:23:00 [INFO]   p_win_pred: mean=0.0698 std=0.0972 q50=0.0299 n=71690
-21:23:00 [INFO]   ev_win: mean=0.5802 std=0.3722 q50=0.6050 n=71690
-21:23:00 [INFO]   p_win_corrected: mean=0.0709 std=0.0981 q50=0.0300 n=71690
-21:23:00 [INFO]   ev_win_corrected: mean=0.6020 std=0.4383 q50=0.5969 n=71690
-21:23:00 [INFO]   win_selection_prob: mean=0.0709 std=0.0981 q50=0.0300 n=71690
-21:23:00 [INFO]   win_selection_edge: mean=-0.4817 std=0.3654 q50=-0.4927 n=71690
-21:23:00 [INFO]   win_selection_ev: mean=0.5183 std=0.3654 q50=0.5073 n=71690
-21:23:00 [INFO]   Surface dirt: OK (7 columns)
-21:23:00 [INFO]   Year 2020: OK (7 columns)
-21:23:00 [INFO]   Year 2021: OK (7 columns)
-21:23:00 [INFO]   Year 2022: OK (7 columns)
-21:23:00 [INFO]   Year 2023: OK (7 columns)
-21:23:00 [INFO] No significant drift detected.
-21:23:00 [INFO] [TIMING] dirt/drift_diagnostics: 0.448s
-21:23:02 [WARNING] Temporal drift: year 2020 skipped -- insufficient samples (n=366 < 1000)
-21:23:02 [INFO] EV diagnostics written to data\backtest\ev_diagnostics_dirt.json
-21:23:02 [INFO] === EV Diagnostics (dirt) ===
-21:23:02 [INFO]   Samples: 71690 / 71690
-21:23:02 [INFO]   Correlation: r=0.5293 (p=0.0000)
-21:23:02 [INFO]   RMSE: 0.6720
-21:23:02 [INFO]   EV Bias: -0.1000 (predicted 0.5982 vs actual 0.6983)
-21:23:02 [INFO]   ECE: 0.0159
-21:23:02 [INFO]   Brier: 0.0515 (reliability=0.0007, resolution=0.0134, uncertainty=0.0659)
-21:23:02 [INFO]   Temporal drift (4 years):
-21:23:02 [INFO]     2020: insufficient_samples (n=366)
-21:23:02 [INFO]     2021: n=24132, bias=-0.0537, corr=0.511
-21:23:02 [INFO]     2022: n=23682, bias=-0.0674, corr=0.551
-21:23:02 [INFO]     2023: n=23510, bias=-0.1813, corr=0.533
-21:23:02 [INFO] [TIMING] dirt/ev_diagnostics: 1.765s
-21:24:03 [INFO] [TIMING] dirt/win_selection_gate_train: 61.245s
-21:24:03 [INFO] EV threshold for dirt: 0.4489 (from 1330 positive-edge winners, q25=0.4489 q50=0.5229 q75=0.5282)
-21:24:04 [INFO] Trained dirt submodel (sequential)
-21:24:06 [INFO] Saved full feature set: 138153 rows, 523 cols -> data/features/horse_features.parquet
-21:24:09 [INFO] Saved OOF predictions: 138153 rows, 526 cols -> data\oof\oof_predictions.parquet
-21:24:16 [INFO] [TIMING] race_level_features: 6.035s
-21:24:17 [INFO] [TIMING] quality_screener: 0.207s
-21:24:17 [INFO] Trained RaceQualityScreener
-21:24:17 [INFO] [TIMING] regime_detector: 0.187s
-21:24:17 [INFO] Trained RegimeDetector
-21:24:22 [INFO] Saved ConformalEVModel for turf to data\models-backtest
-21:24:22 [INFO] Saved ConformalEVModel for dirt to data\models-backtest
-21:24:22 [INFO] CQR params SHA256 for turf: 7fe79e1e245bd7da
-21:24:22 [INFO] CQR params SHA256 for dirt: b7e32b2830a94e79
-21:24:22 [INFO] Models saved to data\models-backtest
-21:24:22 [INFO] 学習完了 (1786秒)
-21:24:22 [INFO] キャリブレーションBT: スキップ (--calibration-bt 未指定)
-21:24:22 [INFO] ==================================================
-21:24:22 [INFO]   テスト期間: 2024-01-01 ~ 2024-12-31
-21:24:22 [INFO] ==================================================
-21:26:02 [INFO] odds時系列データ事前ロード完了: 7354098行
-21:26:13 [INFO] Loaded win payout map: 3454 entries
-21:26:13 [INFO] Feature cache MISS: feat_401e3b1e2b5fa066 (computing...)
-21:26:14 [INFO] [TIMING] build_all/intra_race: 0.069s
-21:26:37 [INFO] [TIMING] build_all/odds_dynamics: 22.564s
-21:26:37 [INFO] [TIMING] build_all/market_bias: 0.141s
-21:26:38 [INFO] [TIMING] build_all/flb_slope: 1.734s
-21:26:39 [INFO] [TIMING] build_all/difficulty: 0.069s
-21:26:39 [INFO] [TIMING] build_all/race_level: 0.215s
-21:26:47 [INFO] [TIMING] build_all/market_cross: 8.336s
-21:26:49 [INFO] [TIMING] build_all/bloodline: 2.089s
-21:26:49 [INFO] SAFE-01: dropping 48 POST_RACE cols from build_all() output: ['nyusentosu', 'laptime1', 'laptime2', 'laptime3', 'laptime4', 'laptime5', 'laptime6', 'laptime7', 'laptime8', 'laptime9', 'laptime10', 'laptime11', 'laptime12', 'laptime13', 'laptime14', 'laptime15', 'laptime16', 'laptime17', 'laptime18', 'laptime19', 'laptime20', 'laptime21', 'laptime22', 'laptime23', 'laptime24', 'laptime25', 'harontimes3', 'harontimes4', 'harontimel3', 'harontimel4', 'recordupkubun', 'ijyocd', 'nyusenjyuni', 'dochakukubun', 'dochakutosu', 'time', 'chakusacd', 'jyuni1c', 'jyuni2c', 'jyuni3c', 'jyuni4c', 'ninki', 'honsyokin', 'fukasyokin', 'timediff', 'dmtime', 'dmjyuni', 'kyakusitukubun']
-21:26:49 [INFO] 古いキャッシュファイル 1件を削除
-21:26:50 [INFO] Feature cache SAVED: feat_401e3b1e2b5fa066 (45437 rows)
-21:26:50 [INFO] Merged wide odds: 153 pair-columns
-21:26:50 [INFO] Pre-computing HorseHistoryFeatures for 3327 races...
-21:30:38 [INFO] Pre-computing JockeyContextFeatures for 45827 entries...
-21:30:38 [INFO] Pre-computing TrainerContextFeatures for 45827 entries...
-21:30:39 [INFO] Pre-computing JockeyTrainerComboFeatures for 45827 entries...
-21:30:51 [INFO] Computing SireFeatures for backtest inference...
-21:31:05 [INFO] Pre-computing PaceAptitudeFeatures...
-21:31:16 [INFO] Pre-computing CourseFeatures...
-21:31:28 [INFO] Merged hist features into feat_df: 67 columns
-21:31:28 [INFO] [features] 3327 groups, 45437 rows, 229.7 MB
-21:31:28 [INFO] [jockey] 3329 groups, 45827 rows, 2.4 MB
-21:31:29 [INFO] [trainer] 3329 groups, 45827 rows, 2.4 MB
-21:31:29 [INFO] [jockey_trainer] 3329 groups, 45827 rows, 2.7 MB
-21:44:07 [INFO] Race diagnostics saved: 3327 records -> data\backtest\bt_2024_race_diagnostics.csv
-21:44:10 [INFO] Horse diagnostics saved: 45437 records -> data\backtest\bt_2024_horse_diagnostics.csv
-21:44:13 [INFO] Feature diagnostics saved: 45437 records -> data\backtest\bt_2024_horse_features.parquet
-21:44:13 [INFO] Bet Selection Filters: EV_excluded=1, COLLAPSED_skipped=0
-21:44:13 [INFO] Validation report saved: data\validation\validation_report.json
-21:44:16 [INFO] バックテスト完了 (1194秒)
-21:44:17 [INFO] Parquet保存: C:\Users\hirom\develop\keiba-ai\data\backtest\predictions\2024.parquet (45437 rows)
+11:58:49 [INFO] ==================================================
+11:58:49 [INFO]   学習期間: 2020-01-01 ~ 2023-12-31
+11:58:49 [INFO] ==================================================
+11:58:49 [INFO] Loading data: 2020-01-01 ~ 2023-12-31
+12:02:03 [INFO] Using pre-post odds (5min before): 185066 rows
+12:02:03 [INFO] Building features
+12:02:04 [INFO] Feature cache MISS: feat_76c907385287d81e (computing...)
+12:02:08 [INFO] [TIMING] build_all/intra_race: 0.251s
+12:03:29 [INFO] [TIMING] build_all/odds_dynamics: 81.590s
+12:03:30 [INFO] [TIMING] build_all/market_bias: 0.638s
+12:03:33 [INFO] [TIMING] build_all/flb_slope: 3.523s
+12:03:34 [INFO] [TIMING] build_all/difficulty: 0.227s
+12:03:34 [INFO] [TIMING] build_all/race_level: 0.767s
+12:04:05 [INFO] [TIMING] build_all/market_cross: 31.092s
+12:04:08 [INFO] [TIMING] build_all/bloodline: 2.207s
+12:04:08 [INFO] SAFE-01: dropping 48 POST_RACE cols from build_all() output: ['nyusentosu', 'laptime1', 'laptime2', 'laptime3', 'laptime4', 'laptime5', 'laptime6', 'laptime7', 'laptime8', 'laptime9', 'laptime10', 'laptime11', 'laptime12', 'laptime13', 'laptime14', 'laptime15', 'laptime16', 'laptime17', 'laptime18', 'laptime19', 'laptime20', 'laptime21', 'laptime22', 'laptime23', 'laptime24', 'laptime25', 'harontimes3', 'harontimes4', 'harontimel3', 'harontimel4', 'recordupkubun', 'ijyocd', 'nyusenjyuni', 'dochakukubun', 'dochakutosu', 'time', 'chakusacd', 'jyuni1c', 'jyuni2c', 'jyuni3c', 'jyuni4c', 'ninki', 'honsyokin', 'fukasyokin', 'timediff', 'dmtime', 'dmjyuni', 'kyakusitukubun']
+12:04:08 [INFO] 古いキャッシュファイル 1件を削除
+12:04:09 [INFO] Feature cache SAVED: feat_76c907385287d81e (183866 rows)
+12:07:54 [INFO] [TIMING] turf/horse_history: 221.519s
+12:07:54 [INFO] [TIMING] turf/add_race_transforms: 0.275s
+12:08:05 [INFO] [TIMING] turf/pace_aptitude: 10.901s
+12:08:17 [INFO] [TIMING] turf/course_features: 12.110s
+12:08:30 [INFO] [TIMING] turf/sire_features: 13.442s
+12:08:31 [INFO] [TIMING] turf/dam_pedigree: 0.326s
+12:08:31 [INFO] [TIMING] turf/record_features: 0.154s
+12:08:31 [INFO] [TIMING] turf/interaction: 0.350s
+12:08:32 [INFO] [TIMING] turf/mining_features: 0.202s
+12:08:32 [INFO] [TIMING] turf/relative_features: 0.283s
+12:08:37 [INFO] [TIMING] turf/market_model: 5.117s
+12:08:38 [INFO] SubModel 'turf' 学習完了: 22444 samples
+12:08:41 [INFO] SubModel 'turf' 学習完了: 44677 samples
+12:08:45 [INFO] SubModel 'turf' 学習完了: 66334 samples
+12:08:47 [INFO] SubModel 'turf' 学習完了: 88907 samples
+12:08:47 [INFO] [TIMING] turf/ability_oof: 10.276s
+12:08:48 [INFO] [TIMING] turf/target_encoding: 0.197s
+12:08:50 [INFO] [TIMING] turf/place_ability_train: 1.627s
+12:08:50 [INFO] [TIMING] turf/place_ability_predict: 0.411s
+12:09:40 [INFO] XGB correlation penalty applied: mean_corr=0.9619 > threshold=0.8500
+12:27:54 [INFO] CAT correlation penalty applied: mean_corr=0.8746 > threshold=0.8500
+12:32:47 [INFO] OOF prediction correlation LGB-XGB: 0.8427
+12:32:47 [INFO] OOF prediction correlation LGB-CAT: 0.3219
+12:32:47 [INFO] OOF prediction correlation XGB-CAT: 0.4081
+12:32:47 [INFO] Feature importance rank correlation LGB-XGB: 0.7098
+12:32:47 [INFO] Feature importance rank correlation LGB-CAT: 0.7887
+12:32:47 [INFO] Feature importance rank correlation XGB-CAT: 0.6967
+12:32:47 [INFO] [TIMING] turf/win_hit_ensemble: 1436.370s
+12:32:51 [INFO] [TIMING] turf/win_return: 4.063s
+12:32:52 [INFO] [TIMING] turf/win_predict: 1.463s
+12:32:54 [INFO] [TIMING] turf/jockey_ctx: 2.226s
+12:32:56 [INFO] [TIMING] turf/trainer_ctx: 2.064s
+12:33:29 [INFO] [TIMING] turf/jt_combo: 32.295s
+12:33:33 [INFO] [TIMING] turf/ev_correction: 3.999s
+12:34:44 [INFO] [TIMING] turf/ev_isotonic_oof: 70.947s
+12:34:44 [INFO] [TIMING] turf/ev_isotonic_fit: 0.027s
+12:34:46 [INFO] EV Isotonic fitted for turf: 66463 OOF samples, band_scales={'1.0-3.0': 1.208533467524163, '3.0-10.0': 1.0760934766574408, '10.0-30.0': 1.0776279224767147, '30.0+': 0.8775058720079006}
+12:34:46 [INFO] Skipping place model training for turf (betting_target=win)
+12:35:02 [INFO] Win OOF: 66463 valid / 66463 total samples
+12:35:02 [INFO] [TIMING] turf/win_oof: 16.213s
+12:35:10 [INFO] Win Benter (grid): alpha=1.125, beta=0.200, gamma=0.510, NLL=12483.48
+12:35:10 [INFO] Calibration comparison: Beta(Brier=0.062233, ECE=0.021309) vs Isotonic(Brier=0.062338, ECE=0.018562) -> winner=beta
+12:35:10 [INFO] [TIMING] turf/win_calibration: 0.659s
+12:35:10 [INFO] Win Reliability: bins=['0.020', '0.143', '0.245', '0.346', '0.443', '0.548', '0.644', '0.746', '0.836', '0.912'], positives=['0.022', '0.143', '0.243', '0.351', '0.398', '0.511', '0.592', '0.689', '0.842', '1.000']
+12:35:10 [INFO] Win calibration: Beta selected (Brier=0.062233)
+12:35:10 [INFO] Temperature Scaling: T=1.0093 (Brier=0.074077)
+12:35:10 [INFO] Win TempScale: no improvement (0.055021 -> 0.055028), skipping
+12:35:20 [INFO] CQR calibrated: Q_90=0.1855, Q_80=0.0376, residual_floor_90=0.0530, residual_floor_80=0.0376, n_calib=13293
+12:35:20 [INFO] Conformal EV fitted for turf: Q_90=0.1855, Q_80=0.0376
+12:35:20 [INFO] [TIMING] turf/conformal_ev: 9.516s
+12:35:22 [INFO] [TIMING] turf/win_selection_gate: 2.328s
+12:35:23 [INFO] Drift diagnostics saved to data\backtest\drift_diagnostics_turf.json
+12:35:23 [INFO] === Drift Diagnostics Summary (surface=turf) ===
+12:35:23 [INFO]   p_win_pred: mean=0.0711 std=0.0979 q50=0.0318 n=66463
+12:35:23 [INFO]   ev_win: mean=0.5577 std=0.3803 q50=0.6139 n=66463
+12:35:23 [INFO]   p_win_corrected: mean=0.0745 std=0.1016 q50=0.0329 n=66463
+12:35:23 [INFO]   ev_win_corrected: mean=0.5993 std=0.4755 q50=0.6244 n=66463
+12:35:23 [INFO]   win_selection_prob: mean=0.0745 std=0.1016 q50=0.0329 n=66463
+12:35:23 [INFO]   win_selection_edge: mean=-0.4802 std=0.3920 q50=-0.4692 n=66463
+12:35:23 [INFO]   win_selection_ev: mean=0.5198 std=0.3920 q50=0.5308 n=66463
+12:35:23 [INFO]   Surface turf: OK (7 columns)
+12:35:23 [INFO]   Year 2020: OK (7 columns)
+12:35:23 [INFO]   Year 2021: OK (7 columns)
+12:35:23 [INFO]   Year 2022: OK (7 columns)
+12:35:23 [INFO]   Year 2023: OK (7 columns)
+12:35:23 [INFO] No significant drift detected.
+12:35:23 [INFO] [TIMING] turf/drift_diagnostics: 0.627s
+12:35:24 [WARNING] Temporal drift: year 2020 skipped -- insufficient samples (n=320 < 1000)
+12:35:24 [INFO] EV diagnostics written to data\backtest\ev_diagnostics_turf.json
+12:35:24 [INFO] === EV Diagnostics (turf) ===
+12:35:24 [INFO]   Samples: 66463 / 66463
+12:35:24 [INFO]   Correlation: r=0.5513 (p=0.0000)
+12:35:24 [INFO]   RMSE: 0.5621
+12:35:24 [INFO]   EV Bias: -0.0954 (predicted 0.6233 vs actual 0.7186)
+12:35:24 [INFO]   ECE: 0.0141
+12:35:24 [INFO]   Brier: 0.0544 (reliability=0.0005, resolution=0.0133, uncertainty=0.0691)
+12:35:24 [INFO]   Temporal drift (4 years):
+12:35:24 [INFO]     2020: insufficient_samples (n=320)
+12:35:24 [INFO]     2021: n=21913, bias=-0.0569, corr=0.549
+12:35:24 [INFO]     2022: n=21837, bias=-0.1055, corr=0.580
+12:35:24 [INFO]     2023: n=22393, bias=-0.1240, corr=0.529
+12:35:24 [INFO] [TIMING] turf/ev_diagnostics: 1.395s
+12:37:58 [INFO] [TIMING] turf/win_selection_gate_train: 153.763s
+12:37:58 [INFO] EV threshold for turf: EV_lower distribution degenerate; using blended CQR/calibrated EV distribution
+12:37:58 [INFO] EV threshold for turf: blended still degenerate; falling back to full OOF population (66463 samples)
+12:37:58 [INFO] EV threshold for turf: 0.0859 (from 66463 positive-edge winners, q25=0.0859 q50=0.2418 q75=0.3023)
+12:37:58 [INFO] Trained turf submodel (sequential)
+12:47:01 [INFO] [TIMING] dirt/horse_history: 542.418s
+12:47:01 [INFO] [TIMING] dirt/add_race_transforms: 0.513s
+12:47:28 [INFO] [TIMING] dirt/pace_aptitude: 26.680s
+12:47:56 [INFO] [TIMING] dirt/course_features: 28.001s
+12:48:24 [INFO] [TIMING] dirt/sire_features: 27.624s
+12:48:24 [INFO] [TIMING] dirt/dam_pedigree: 0.512s
+12:48:24 [INFO] [TIMING] dirt/record_features: 0.227s
+12:48:25 [INFO] [TIMING] dirt/interaction: 0.613s
+12:48:25 [INFO] [TIMING] dirt/mining_features: 0.286s
+12:48:26 [INFO] [TIMING] dirt/relative_features: 0.426s
+12:48:40 [INFO] [TIMING] dirt/market_model: 14.353s
+12:48:43 [INFO] SubModel 'dirt' 学習完了: 23269 samples
+12:48:50 [INFO] SubModel 'dirt' 学習完了: 47767 samples
+12:49:01 [INFO] SubModel 'dirt' 学習完了: 71273 samples
+12:49:09 [INFO] SubModel 'dirt' 学習完了: 94959 samples
+12:49:09 [INFO] [TIMING] dirt/ability_oof: 29.326s
+12:49:10 [INFO] [TIMING] dirt/target_encoding: 0.331s
+12:49:14 [INFO] [TIMING] dirt/place_ability_train: 3.551s
+12:49:15 [INFO] [TIMING] dirt/place_ability_predict: 0.809s
+12:52:10 [INFO] XGB correlation penalty applied: mean_corr=0.9806 > threshold=0.8500
+13:02:46 [INFO] CAT correlation penalty applied: mean_corr=0.9643 > threshold=0.8500
+13:04:25 [INFO] Orthogonalized XGB stack feature: max_corr=0.9612 >= threshold=0.9500
+13:04:25 [INFO] Orthogonalized CAT stack feature: max_corr=0.9692 >= threshold=0.9500
+13:05:32 [INFO] OOF prediction correlation LGB-XGB: 0.6017
+13:05:32 [INFO] OOF prediction correlation LGB-CAT: 0.6151
+13:05:32 [INFO] OOF prediction correlation XGB-CAT: 0.3948
+13:05:32 [INFO] Feature importance rank correlation LGB-XGB: 0.5487
+13:05:32 [INFO] Feature importance rank correlation LGB-CAT: 0.8149
+13:05:32 [WARNING] High importance correlation LGB-CAT: 0.8149 > 0.8 — models rely on similar features
+13:05:32 [INFO] Feature importance rank correlation XGB-CAT: 0.5696
+13:05:32 [INFO] [TIMING] dirt/win_hit_ensemble: 976.426s
+13:05:37 [INFO] [TIMING] dirt/win_return: 5.445s
+13:05:39 [INFO] [TIMING] dirt/win_predict: 2.224s
+13:05:41 [INFO] [TIMING] dirt/jockey_ctx: 2.162s
+13:05:44 [INFO] [TIMING] dirt/trainer_ctx: 2.087s
+13:06:17 [INFO] [TIMING] dirt/jt_combo: 33.223s
+13:06:23 [INFO] [TIMING] dirt/ev_correction: 6.143s
+13:08:07 [INFO] [TIMING] dirt/ev_isotonic_oof: 103.328s
+13:08:07 [INFO] [TIMING] dirt/ev_isotonic_fit: 0.033s
+13:08:09 [INFO] EV Isotonic fitted for dirt: 71690 OOF samples, band_scales={'1.0-3.0': 1.3742181801646993, '3.0-10.0': 1.0676162110976464, '10.0-30.0': 1.0996885804098453, '30.0+': 0.8660178578613968}
+13:08:09 [INFO] Skipping place model training for dirt (betting_target=win)
+13:08:59 [INFO] Win OOF: 71690 valid / 71690 total samples
+13:08:59 [INFO] [TIMING] dirt/win_oof: 50.180s
+13:09:10 [INFO] Win Benter (grid): alpha=1.311, beta=0.200, gamma=0.804, NLL=12092.99
+13:09:11 [INFO] Calibration comparison: Beta(Brier=0.059603, ECE=0.027515) vs Isotonic(Brier=0.059342, ECE=0.024922) -> winner=beta
+13:09:11 [INFO] [TIMING] dirt/win_calibration: 0.904s
+13:09:11 [INFO] Win Reliability: bins=['0.017', '0.145', '0.244', '0.346', '0.447', '0.548', '0.645', '0.744', '0.842', '0.912'], positives=['0.019', '0.153', '0.237', '0.339', '0.426', '0.501', '0.580', '0.646', '0.883', '1.000']
+13:09:11 [INFO] Win calibration: Beta selected (Brier=0.059603)
+13:09:11 [INFO] Temperature Scaling: T=1.0231 (Brier=0.066865)
+13:09:11 [INFO] Win TempScale: no improvement (0.049829 -> 0.049843), skipping
+13:09:28 [INFO] CQR calibrated: Q_90=0.2576, Q_80=0.1888, residual_floor_90=0.0724, residual_floor_80=0.0641, n_calib=14338
+13:09:28 [INFO] Conformal EV fitted for dirt: Q_90=0.2576, Q_80=0.1888
+13:09:28 [INFO] [TIMING] dirt/conformal_ev: 16.591s
+13:09:31 [INFO] [TIMING] dirt/win_selection_gate: 2.619s
+13:09:31 [INFO] Drift diagnostics saved to data\backtest\drift_diagnostics_dirt.json
+13:09:31 [INFO] === Drift Diagnostics Summary (surface=dirt) ===
+13:09:31 [INFO]   p_win_pred: mean=0.0727 std=0.1041 q50=0.0293 n=71690
+13:09:31 [INFO]   ev_win: mean=0.5729 std=0.4246 q50=0.5987 n=71690
+13:09:31 [INFO]   p_win_corrected: mean=0.0709 std=0.1009 q50=0.0279 n=71690
+13:09:31 [INFO]   ev_win_corrected: mean=0.5731 std=0.5035 q50=0.5687 n=71690
+13:09:31 [INFO]   win_selection_prob: mean=0.0709 std=0.1009 q50=0.0279 n=71690
+13:09:31 [INFO]   win_selection_edge: mean=-0.5039 std=0.4190 q50=-0.5166 n=71690
+13:09:31 [INFO]   win_selection_ev: mean=0.4961 std=0.4190 q50=0.4834 n=71690
+13:09:31 [INFO]   Surface dirt: OK (7 columns)
+13:09:31 [INFO]   Year 2020: OK (7 columns)
+13:09:31 [INFO]   Year 2021: OK (7 columns)
+13:09:31 [INFO]   Year 2022: OK (7 columns)
+13:09:31 [INFO]   Year 2023: OK (7 columns)
+13:09:31 [INFO] No significant drift detected.
+13:09:31 [INFO] [TIMING] dirt/drift_diagnostics: 0.706s
+13:09:32 [WARNING] Temporal drift: year 2020 skipped -- insufficient samples (n=366 < 1000)
+13:09:33 [INFO] EV diagnostics written to data\backtest\ev_diagnostics_dirt.json
+13:09:33 [INFO] === EV Diagnostics (dirt) ===
+13:09:33 [INFO]   Samples: 71690 / 71690
+13:09:33 [INFO]   Correlation: r=0.5926 (p=0.0000)
+13:09:33 [INFO]   RMSE: 0.7067
+13:09:33 [INFO]   EV Bias: -0.0687 (predicted 0.6295 vs actual 0.6983)
+13:09:33 [INFO]   ECE: 0.0195
+13:09:33 [INFO]   Brier: 0.0494 (reliability=0.0012, resolution=0.0154, uncertainty=0.0659)
+13:09:33 [INFO]   Temporal drift (4 years):
+13:09:33 [INFO]     2020: insufficient_samples (n=366)
+13:09:33 [INFO]     2021: n=24132, bias=+0.0460, corr=0.579
+13:09:33 [INFO]     2022: n=23682, bias=-0.0514, corr=0.639
+13:09:33 [INFO]     2023: n=23510, bias=-0.2049, corr=0.579
+13:09:33 [INFO] [TIMING] dirt/ev_diagnostics: 1.623s
+13:12:39 [INFO] [TIMING] dirt/win_selection_gate_train: 186.549s
+13:12:40 [INFO] EV threshold for dirt: 0.2328 (from 1761 positive-edge winners, q25=0.2328 q50=0.2332 q75=0.2410)
+13:12:41 [INFO] Trained dirt submodel (sequential)
+13:12:45 [INFO] Saved full feature set: 138153 rows, 523 cols -> data/features/horse_features.parquet
+13:12:51 [INFO] Saved OOF predictions: 138153 rows, 526 cols -> data\oof\oof_predictions.parquet
+13:13:12 [INFO] [TIMING] race_level_features: 18.339s
+13:13:15 [INFO] [TIMING] quality_screener: 2.281s
+13:13:15 [INFO] Trained RaceQualityScreener
+13:13:16 [INFO] [TIMING] regime_detector: 1.499s
+13:13:16 [INFO] Trained RegimeDetector
+13:13:30 [INFO] Saved ConformalEVModel for turf to data\models-backtest
+13:13:30 [INFO] Saved ConformalEVModel for dirt to data\models-backtest
+13:13:30 [INFO] CQR params SHA256 for turf: a995e08c0cfbc66b
+13:13:30 [INFO] CQR params SHA256 for dirt: 5621a5eed8130246
+13:13:30 [INFO] Models saved to data\models-backtest
+13:13:30 [INFO] 学習完了 (4481秒)
+13:13:30 [INFO] キャリブレーションBT: スキップ (--calibration-bt 未指定)
+13:13:30 [INFO] ==================================================
+13:13:30 [INFO]   テスト期間: 2024-01-01 ~ 2024-12-31
+13:13:30 [INFO] ==================================================
+13:16:11 [INFO] odds時系列データ事前ロード完了: 7354098行
+13:16:34 [INFO] Loaded win payout map: 3454 entries
+13:16:34 [INFO] Feature cache MISS: feat_401e3b1e2b5fa066 (computing...)
+13:16:37 [INFO] [TIMING] build_all/intra_race: 0.116s
+13:17:31 [INFO] [TIMING] build_all/odds_dynamics: 53.794s
+13:17:31 [INFO] [TIMING] build_all/market_bias: 0.289s
+13:17:33 [INFO] [TIMING] build_all/flb_slope: 2.291s
+13:17:33 [INFO] [TIMING] build_all/difficulty: 0.078s
+13:17:34 [INFO] [TIMING] build_all/race_level: 0.480s
+13:17:50 [INFO] [TIMING] build_all/market_cross: 16.350s
+13:17:54 [INFO] [TIMING] build_all/bloodline: 3.504s
+13:17:54 [INFO] SAFE-01: dropping 48 POST_RACE cols from build_all() output: ['nyusentosu', 'laptime1', 'laptime2', 'laptime3', 'laptime4', 'laptime5', 'laptime6', 'laptime7', 'laptime8', 'laptime9', 'laptime10', 'laptime11', 'laptime12', 'laptime13', 'laptime14', 'laptime15', 'laptime16', 'laptime17', 'laptime18', 'laptime19', 'laptime20', 'laptime21', 'laptime22', 'laptime23', 'laptime24', 'laptime25', 'harontimes3', 'harontimes4', 'harontimel3', 'harontimel4', 'recordupkubun', 'ijyocd', 'nyusenjyuni', 'dochakukubun', 'dochakutosu', 'time', 'chakusacd', 'jyuni1c', 'jyuni2c', 'jyuni3c', 'jyuni4c', 'ninki', 'honsyokin', 'fukasyokin', 'timediff', 'dmtime', 'dmjyuni', 'kyakusitukubun']
+13:17:54 [INFO] 古いキャッシュファイル 1件を削除
+13:17:54 [INFO] Feature cache SAVED: feat_401e3b1e2b5fa066 (45437 rows)
+13:17:56 [INFO] Merged wide odds: 153 pair-columns
+13:17:56 [INFO] Pre-computing HorseHistoryFeatures for 3327 races...
+13:25:20 [INFO] Pre-computing JockeyContextFeatures for 45827 entries...
+13:25:21 [INFO] Pre-computing TrainerContextFeatures for 45827 entries...
+13:25:22 [INFO] Pre-computing JockeyTrainerComboFeatures for 45827 entries...
+13:25:44 [INFO] Computing SireFeatures for backtest inference...
+13:26:09 [INFO] Pre-computing PaceAptitudeFeatures...
+13:26:33 [INFO] Pre-computing CourseFeatures...
+13:26:56 [INFO] Merged hist features into feat_df: 67 columns
+13:26:57 [INFO] [features] 3327 groups, 45437 rows, 229.7 MB
+13:26:57 [INFO] [jockey] 3329 groups, 45827 rows, 2.4 MB
+13:26:57 [INFO] [trainer] 3329 groups, 45827 rows, 2.4 MB
+13:26:57 [INFO] [jockey_trainer] 3329 groups, 45827 rows, 2.7 MB
+13:51:43 [INFO] Race diagnostics saved: 3327 records -> data\backtest\bt_2024_race_diagnostics.csv
+13:51:49 [INFO] Horse diagnostics saved: 45437 records -> data\backtest\bt_2024_horse_diagnostics.csv
+13:51:59 [INFO] Feature diagnostics saved: 45437 records -> data\backtest\bt_2024_horse_features.parquet
+13:51:59 [INFO] Bet Selection Filters: EV_excluded=0, COLLAPSED_skipped=0
+13:51:59 [INFO] Validation report saved: data\validation\validation_report.json
+13:52:04 [INFO] バックテスト完了 (2314秒)
+13:52:05 [INFO] Parquet保存: C:\Users\hirom\develop\keiba-ai\data\backtest\predictions\2024.parquet (45437 rows)
 
 ==================================================
   結果
 ==================================================
-  レース数:          1,580
-  投資額:            158,000 円
-  払戻額:            137,540 円
-  利益:              -20,460 円
-  ROI:                87.1%
-  最大DD:             28.0%
-  最終資金:           79,540 円
-  学習時間:         1,786 秒
-  テスト時間:       1,194 秒
+  レース数:          1,788
+  投資額:            178,800 円
+  払戻額:            154,190 円
+  利益:              -24,610 円
+  ROI:                86.2%
+  最大DD:             33.3%
+  最終資金:           75,390 円
+  学習時間:         4,481 秒
+  テスト時間:       2,314 秒
 
 ==================================================
   単勝ベット詳細
 ==================================================
-  的中率:             14.6%
-  的中数:              231 / 1,580
-  平均オッズ:           8.2
-  平均Edge:           0.138
-  Edge範囲:       0.000 ~ 0.500
+  的中率:             14.3%
+  的中数:              256 / 1,788
+  平均オッズ:           9.0
+  平均Edge:           0.160
+  Edge範囲:       0.000 ~ 8.518
 
 ==================================================
   Before vs After
 ==================================================
   改善前 ROI:     63.8%
-  改善後 ROI:     87.1%
-  差分:           +23.3%
+  改善後 ROI:     86.2%
+  差分:           +22.4%
   判定:           未達
 
 結果保存: C:\Users\hirom\develop\keiba-ai\data\backtest\backtest_result.json
