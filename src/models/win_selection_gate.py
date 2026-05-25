@@ -12,6 +12,10 @@ import pandas as pd
 
 logger = getLogger(__name__)
 
+WIN_MARKET_EDGE_COL = "win_market_logit_edge"
+WIN_FALLBACK_EDGE_COL = "win_selection_edge"
+_PROB_EPS = 1e-6
+
 
 def _numeric_or_nan(df: pd.DataFrame, col: str) -> pd.Series:
     if col not in df.columns:
@@ -38,6 +42,41 @@ def build_win_selection_ev(df: pd.DataFrame) -> pd.Series:
     return direct_ev.astype(float)
 
 
+def _logit(series: pd.Series) -> pd.Series:
+    prob = pd.to_numeric(series, errors="coerce").clip(lower=_PROB_EPS, upper=1.0 - _PROB_EPS)
+    return np.log(prob / (1.0 - prob))
+
+
+def add_win_market_edge_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """Add market-relative win diagnostics used by the final selection gate."""
+    prepared = df.copy()
+    odds = _numeric_or_nan(prepared, "tanodds")
+
+    raw_market = pd.Series(np.nan, index=prepared.index, dtype=float)
+    valid_odds = odds.gt(0.0)
+    raw_market.loc[valid_odds] = 1.0 / odds.loc[valid_odds]
+    raw_market = raw_market.clip(lower=_PROB_EPS, upper=1.0 - _PROB_EPS)
+
+    if "race_id" in prepared.columns:
+        race_sum = raw_market.groupby(prepared["race_id"], observed=True).transform("sum")
+    else:
+        race_sum = pd.Series(float(raw_market.sum(skipna=True)), index=prepared.index, dtype=float)
+    market_norm = raw_market.where(race_sum.le(0.0) | race_sum.isna(), raw_market / race_sum)
+    market_norm = market_norm.clip(lower=_PROB_EPS, upper=1.0 - _PROB_EPS)
+
+    selection_prob = _numeric_or_nan(prepared, "win_selection_prob").clip(
+        lower=_PROB_EPS,
+        upper=1.0 - _PROB_EPS,
+    )
+    prepared["p_market_win_raw"] = raw_market
+    prepared["p_market_win_norm"] = market_norm
+    prepared["win_market_residual"] = selection_prob - market_norm
+    prepared[WIN_MARKET_EDGE_COL] = _logit(selection_prob) - _logit(market_norm)
+    prepared["win_market_prob_ratio"] = selection_prob / market_norm
+    prepared["win_market_value_ratio"] = selection_prob / raw_market
+    return prepared
+
+
 def ensure_win_selection_columns(df: pd.DataFrame) -> pd.DataFrame:
     prepared = df.copy()
     if "win_selection_ev" not in prepared.columns:
@@ -59,7 +98,17 @@ def ensure_win_selection_columns(df: pd.DataFrame) -> pd.DataFrame:
         else:
             prepared["win_selection_prob"] = _numeric_or_nan(prepared, "p_win_corrected")
 
-    return prepared
+    return add_win_market_edge_columns(prepared)
+
+
+def _score_edge_values(
+    df: pd.DataFrame,
+    preferred_col: str = WIN_MARKET_EDGE_COL,
+) -> pd.Series:
+    edge = _numeric_or_nan(df, preferred_col)
+    if edge.notna().any():
+        return edge
+    return _numeric_or_nan(df, WIN_FALLBACK_EDGE_COL)
 
 
 def _quantile_edges(series: pd.Series, n_bins: int) -> list[float]:
@@ -112,6 +161,10 @@ class WinSelectionGateModel:
     MARKET_CONDITION_COL = "market_condition_score"
     AGGRESSIVE_STRENGTH_COL = "aggressive_strength"
     AGGRESSIVE_TIER_COL = "aggressive_tier"
+    ODDS_PRIOR_COL = "win_gate_odds_score"
+    PROB_PRIOR_COL = "win_gate_prob_score"
+    EDGE_PRIOR_COL = "win_gate_edge_score"
+    EDGE_ODDS_PRIOR_COL = "win_gate_edge_odds_score"
     RUNNER_UP_SCORE_COL = "runner_up_gate_score"
     RUNNER_UP_GAP_COL = "runner_up_gate_score_gap"
     RUNNER_UP_PROB_COL = "runner_up_win_selection_prob"
@@ -145,6 +198,7 @@ class WinSelectionGateModel:
         self.combo_scores: dict[tuple[int, int, int], float] = {}
         self.pair_scores: dict[tuple[str, int, int], float] = {}
         self.single_scores: dict[tuple[str, int], float] = {}
+        self.score_edge_col = WIN_MARKET_EDGE_COL
         # ODDS-03: conformal confidence edges for pair scoring
         self._confidence_edges: list[float] = []
         self.min_prob = 0.0
@@ -197,28 +251,41 @@ class WinSelectionGateModel:
             "win_selection_prob",
             "win_selection_edge",
         ]
+        if self.score_edge_col not in required_cols:
+            required_cols.append(self.score_edge_col)
         optional_cols = [
             "surface",
             "market_entropy",
             "overround",
             "popularity_rank",
             "odds",
+            "confirmed_odds",
+            "p_market_win_raw",
+            "p_market_win_norm",
+            "win_market_residual",
+            "win_market_prob_ratio",
+            "win_market_value_ratio",
         ]
         missing = [col for col in required_cols if col not in prepared.columns]
         if missing:
             return pd.DataFrame(columns=required_cols)
 
-        columns = required_cols + [col for col in optional_cols if col in prepared.columns]
+        columns = list(
+            dict.fromkeys(required_cols + [col for col in optional_cols if col in prepared.columns])
+        )
         prepared = prepared[columns].copy()
         prepared["race_date"] = pd.to_datetime(prepared["race_date"], errors="coerce")
         prepared["tanodds"] = _numeric_or_nan(prepared, "tanodds")
         prepared["win_selection_prob"] = _numeric_or_nan(prepared, "win_selection_prob")
         prepared["win_selection_edge"] = _numeric_or_nan(prepared, "win_selection_edge")
+        prepared[self.score_edge_col] = _score_edge_values(prepared, self.score_edge_col)
         prepared["kakuteijyuni"] = _numeric_or_nan(prepared, "kakuteijyuni")
         prepared["market_entropy"] = _numeric_or_nan(prepared, "market_entropy")
         prepared["overround"] = _numeric_or_nan(prepared, "overround")
         prepared["popularity_rank"] = _numeric_or_nan(prepared, "popularity_rank")
         prepared["odds"] = _numeric_or_nan(prepared, "odds")
+        if "confirmed_odds" in prepared.columns:
+            prepared["confirmed_odds"] = _numeric_or_nan(prepared, "confirmed_odds")
         if "surface" in prepared.columns:
             prepared["surface"] = prepared["surface"].fillna("unknown").astype(str)
         else:
@@ -231,6 +298,7 @@ class WinSelectionGateModel:
                 "tanodds",
                 "win_selection_prob",
                 "win_selection_edge",
+                self.score_edge_col,
                 "kakuteijyuni",
             ]
         )
@@ -239,9 +307,16 @@ class WinSelectionGateModel:
 
         prepared = prepared[prepared["tanodds"] > 0].copy()
         prepared["log_win_odds"] = np.log1p(prepared["tanodds"])
+        if "confirmed_odds" in prepared.columns:
+            payout_odds = prepared["confirmed_odds"].where(
+                prepared["confirmed_odds"].gt(0.0),
+                prepared["tanodds"],
+            )
+        else:
+            payout_odds = prepared["tanodds"]
         prepared["realized_win_roi"] = np.where(
             prepared["kakuteijyuni"] == 1,
-            prepared["tanodds"],
+            payout_odds,
             0.0,
         )
         prepared[self.MARKET_CONDITION_COL] = self._compute_market_condition_score(prepared)
@@ -249,12 +324,13 @@ class WinSelectionGateModel:
 
     def _build_score_tables(self, df: pd.DataFrame) -> dict[str, Any]:
         work = df.copy()
+        edge_values = _score_edge_values(work, self.score_edge_col)
         prob_edges = _quantile_edges(work["win_selection_prob"], self.n_bins)
-        edge_edges = _quantile_edges(work["win_selection_edge"], self.n_bins)
+        edge_edges = _quantile_edges(edge_values, self.n_bins)
         odds_edges = _quantile_edges(work["log_win_odds"], self.n_bins)
 
         work["_prob_bin"] = _bucketize(work["win_selection_prob"], prob_edges)
-        work["_edge_bin"] = _bucketize(work["win_selection_edge"], edge_edges)
+        work["_edge_bin"] = _bucketize(edge_values, edge_edges)
         work["_odds_bin"] = _bucketize(work["log_win_odds"], odds_edges)
 
         global_score = float(work["realized_win_roi"].mean())
@@ -371,6 +447,7 @@ class WinSelectionGateModel:
             "edge_edges": edge_edges,
             "odds_edges": odds_edges,
             "confidence_edges": confidence_edges,
+            "score_edge_col": self.score_edge_col,
             "global_score": global_score,
             "combo_scores": combo_scores,
             "pair_scores": pair_scores,
@@ -446,7 +523,11 @@ class WinSelectionGateModel:
     ) -> pd.Series:
         prepared = ensure_win_selection_columns(df)
         prob_bins = _bucketize(prepared["win_selection_prob"], list(tables["prob_edges"]))
-        edge_bins = _bucketize(prepared["win_selection_edge"], list(tables["edge_edges"]))
+        score_edge_col = str(tables.get("score_edge_col", WIN_FALLBACK_EDGE_COL))
+        edge_bins = _bucketize(
+            _score_edge_values(prepared, score_edge_col),
+            list(tables["edge_edges"]),
+        )
         odds_values = np.log1p(_numeric_or_nan(prepared, "tanodds").clip(lower=0.0))
         odds_bins = _bucketize(odds_values, list(tables["odds_edges"]))
 
@@ -483,12 +564,58 @@ class WinSelectionGateModel:
             "edge_edges": self.edge_edges,
             "odds_edges": self.odds_edges,
             "confidence_edges": self._confidence_edges,
+            "score_edge_col": self.score_edge_col,
             "global_score": self.global_score,
             "combo_scores": self.combo_scores,
             "pair_scores": self.pair_scores,
             "single_scores": self.single_scores,
         }
         return self._score_frame_from_tables(df, tables)
+
+    def _prior_score_columns(self, df: pd.DataFrame) -> pd.DataFrame:
+        prepared = ensure_win_selection_columns(df)
+        if not self._trained or not (self.prob_edges and self.edge_edges and self.odds_edges):
+            prepared[self.ODDS_PRIOR_COL] = np.nan
+            prepared[self.PROB_PRIOR_COL] = np.nan
+            prepared[self.EDGE_PRIOR_COL] = np.nan
+            prepared[self.EDGE_ODDS_PRIOR_COL] = np.nan
+            return prepared
+
+        prob_bins = _bucketize(prepared["win_selection_prob"], self.prob_edges)
+        edge_values = _score_edge_values(prepared, self.score_edge_col)
+        edge_bins = _bucketize(edge_values, self.edge_edges)
+        odds_values = np.log1p(_numeric_or_nan(prepared, "tanodds").clip(lower=0.0))
+        odds_bins = _bucketize(odds_values, self.odds_edges)
+
+        def single_score(prefix: str, bin_value: object) -> float:
+            if pd.isna(bin_value):
+                return self.global_score
+            return float(self.single_scores.get((prefix, int(bin_value)), self.global_score))
+
+        def pair_score(prefix: str, bin_a: object, bin_b: object) -> float:
+            if pd.isna(bin_a) or pd.isna(bin_b):
+                return self.global_score
+            return float(
+                self.pair_scores.get(
+                    (prefix, int(bin_a), int(bin_b)),
+                    self.global_score,
+                )
+            )
+
+        prepared[self.ODDS_PRIOR_COL] = [
+            single_score("odds", bin_value) for bin_value in odds_bins
+        ]
+        prepared[self.PROB_PRIOR_COL] = [
+            single_score("prob", bin_value) for bin_value in prob_bins
+        ]
+        prepared[self.EDGE_PRIOR_COL] = [
+            single_score("edge", bin_value) for bin_value in edge_bins
+        ]
+        prepared[self.EDGE_ODDS_PRIOR_COL] = [
+            pair_score("edge_odds", edge_bin, odds_bin)
+            for edge_bin, odds_bin in zip(edge_bins, odds_bins, strict=False)
+        ]
+        return prepared
 
     def _build_walk_forward_folds(self, n_races: int) -> list[tuple[int, int]]:
         if n_races < self.min_train_races + self.min_fold_races:
@@ -510,6 +637,7 @@ class WinSelectionGateModel:
         self,
         df: pd.DataFrame,
     ) -> tuple[list[float], list[float], list[float]]:
+        score_edge = _score_edge_values(df, self.score_edge_col)
         prob_values = sorted(
             {
                 0.08,
@@ -533,7 +661,7 @@ class WinSelectionGateModel:
                 0.05,
                 0.06,
                 *(
-                    float(df["win_selection_edge"].quantile(q))
+                    float(score_edge.quantile(q))
                     for q in [0.90, 0.92, 0.94, 0.96, 0.97]
                 ),
             }
@@ -563,7 +691,7 @@ class WinSelectionGateModel:
         max_odds: float,
     ) -> pd.Series:
         prob = pd.to_numeric(df["win_selection_prob"], errors="coerce")
-        edge = pd.to_numeric(df["win_selection_edge"], errors="coerce")
+        edge = _score_edge_values(df, self.score_edge_col)
         odds = pd.to_numeric(df["tanodds"], errors="coerce")
 
         prob_scale = max(min_prob, 0.05)
@@ -584,12 +712,20 @@ class WinSelectionGateModel:
     ) -> dict[str, float]:
         scored = df.copy()
         scored[self.SCORE_COL] = self._surface_score(scored, min_prob, min_edge, max_odds)
-        candidates = scored.loc[self._pass_mask(scored, min_prob, min_edge, max_odds)].copy()
+        candidates = scored.loc[
+            self._pass_mask(
+                scored,
+                min_prob,
+                min_edge,
+                max_odds,
+                score_edge_col=self.score_edge_col,
+            )
+        ].copy()
         if candidates.empty:
             return {"roi": 0.0, "profit": 0.0, "max_drawdown": float("inf"), "bets": 0.0}
 
         candidates = candidates.sort_values(
-            ["race_id", self.SCORE_COL, "win_selection_edge", "win_selection_prob"],
+            ["race_id", self.SCORE_COL, self.score_edge_col, "win_selection_prob"],
             ascending=[True, False, False, False],
         )
         candidates = candidates.groupby(
@@ -615,9 +751,10 @@ class WinSelectionGateModel:
         min_prob: float,
         min_edge: float,
         max_odds: float,
+        score_edge_col: str = WIN_MARKET_EDGE_COL,
     ) -> pd.Series:
         prob = _numeric_or_nan(df, "win_selection_prob")
-        edge = _numeric_or_nan(df, "win_selection_edge")
+        edge = _score_edge_values(df, score_edge_col)
         odds = _numeric_or_nan(df, "tanodds")
         return (
             prob.ge(min_prob)
@@ -664,7 +801,7 @@ class WinSelectionGateModel:
         )
         gaps = scores.groupby(prepared["race_id"], observed=True).transform("max") - scores
         prob = _numeric_or_nan(prepared, "win_selection_prob")
-        edge = _numeric_or_nan(prepared, "win_selection_edge")
+        edge = _score_edge_values(prepared, self.score_edge_col)
         odds = _numeric_or_nan(prepared, "tanodds")
 
         prepared[self.RANK_COL] = ranks
@@ -695,6 +832,7 @@ class WinSelectionGateModel:
                 self.min_prob,
                 self.min_edge,
                 self.max_odds,
+                score_edge_col=self.score_edge_col,
             )
 
         hard_mask = prepared[self.PASS_COL].fillna(False).astype(bool)
@@ -708,9 +846,11 @@ class WinSelectionGateModel:
         eligible = prepared.loc[hard_mask | soft_mask].copy()
         if eligible.empty:
             return pd.Series(False, index=prepared.index, dtype=bool)
+        if self.score_edge_col not in eligible.columns:
+            eligible[self.score_edge_col] = _score_edge_values(eligible, self.score_edge_col)
 
         eligible = eligible.sort_values(
-            ["race_id", self.SCORE_COL, "win_selection_edge", "win_selection_prob"],
+            ["race_id", self.SCORE_COL, self.score_edge_col, "win_selection_prob"],
             ascending=[True, False, False, False],
         )
         selected = eligible.groupby("race_id", as_index=False, sort=False, observed=True).head(1)
@@ -727,6 +867,7 @@ class WinSelectionGateModel:
             self.min_prob,
             self.min_edge,
             self.max_odds,
+            score_edge_col=self.score_edge_col,
         )
         primary_mask = self._primary_selection_mask(scored)
         selected_races = scored["race_id"].isin(scored.loc[primary_mask, "race_id"])
@@ -840,6 +981,8 @@ class WinSelectionGateModel:
         min_bets = max(40, int(total_eval_races * 0.015))
         best_params = None
         best_key = (False, -np.inf, -np.inf, np.inf, np.inf)
+        fallback_params = None
+        fallback_key = (False, -np.inf, -np.inf, np.inf, np.inf)
 
         for min_prob in prob_grid:
             for min_edge in edge_grid:
@@ -863,10 +1006,22 @@ class WinSelectionGateModel:
                         total_bets += metrics["bets"]
                         total_return += metrics["roi"] * metrics["bets"]
                         max_drawdown = max(max_drawdown, metrics["max_drawdown"])
+                    if total_bets <= 0:
+                        continue
+                    roi = total_return / total_bets
+                    fallback_candidate_key = (
+                        total_profit > 0,
+                        total_profit,
+                        roi,
+                        -max_drawdown,
+                        total_bets,
+                    )
+                    if fallback_candidate_key > fallback_key:
+                        fallback_key = fallback_candidate_key
+                        fallback_params = (min_prob, min_edge, max_odds)
                     if total_bets < min_bets:
                         continue
 
-                    roi = total_return / total_bets if total_bets > 0 else 0.0
                     key = (
                         total_profit > 0,
                         total_profit,
@@ -879,8 +1034,11 @@ class WinSelectionGateModel:
                         best_params = (min_prob, min_edge, max_odds)
 
         if best_params is None:
-            logger.debug("WinSelectionGate: no profitable threshold combination found, skipping")
-            return
+            if fallback_params is None:
+                logger.debug("WinSelectionGate: no threshold combination found, skipping")
+                return
+            logger.debug("WinSelectionGate: using low-coverage fallback threshold combination")
+            best_params = fallback_params
 
         self.min_prob, self.min_edge, self.max_odds = best_params
         score_tables = self._build_score_tables(prepared)
@@ -1004,17 +1162,22 @@ class WinSelectionGateModel:
         if not self._trained:
             prepared[self.SCORE_COL] = np.nan
             prepared[self.PASS_COL] = False
+            prepared[self.ODDS_PRIOR_COL] = np.nan
+            prepared[self.PROB_PRIOR_COL] = np.nan
+            prepared[self.EDGE_PRIOR_COL] = np.nan
+            prepared[self.EDGE_ODDS_PRIOR_COL] = np.nan
             return prepared
 
         if self.prob_edges and self.edge_edges and self.odds_edges:
             scores = self._score_frame(prepared)
         else:
             scores = self._surface_score(prepared, self.min_prob, self.min_edge, self.max_odds)
+        prepared = self._prior_score_columns(prepared)
         odds = _numeric_or_nan(prepared, "tanodds")
         prepared[self.SCORE_COL] = scores
         prepared[self.PASS_COL] = (
             (pd.to_numeric(prepared["win_selection_prob"], errors="coerce") >= self.min_prob)
-            & (pd.to_numeric(prepared["win_selection_edge"], errors="coerce") >= self.min_edge)
+            & (_score_edge_values(prepared, self.score_edge_col) >= self.min_edge)
             & (odds > 0)
             & (odds <= self.max_odds)
         )
@@ -1036,7 +1199,7 @@ class WinSelectionGateModel:
             prepared = self.score(prepared)
 
         prob = pd.to_numeric(prepared["win_selection_prob"], errors="coerce")
-        edge = pd.to_numeric(prepared["win_selection_edge"], errors="coerce")
+        edge = _score_edge_values(prepared, self.score_edge_col)
         odds = _numeric_or_nan(prepared, "tanodds")
         hard_mask = prepared[self.PASS_COL].fillna(False).astype(bool)
         outer_mask = (
@@ -1055,9 +1218,11 @@ class WinSelectionGateModel:
         eligible = prepared.loc[no_hard_pass & outer_mask & near_mask & ~hard_mask].copy()
         if eligible.empty:
             return pd.Series(False, index=prepared.index, dtype=bool)
+        if self.score_edge_col not in eligible.columns:
+            eligible[self.score_edge_col] = _score_edge_values(eligible, self.score_edge_col)
 
         eligible = eligible.sort_values(
-            ["race_id", self.SCORE_COL, "win_selection_edge", "win_selection_prob"],
+            ["race_id", self.SCORE_COL, self.score_edge_col, "win_selection_prob"],
             ascending=[True, False, False, False],
         )
         selected = eligible.groupby(
@@ -1078,6 +1243,7 @@ class WinSelectionGateModel:
             "edge_edges": self.edge_edges,
             "odds_edges": self.odds_edges,
             "confidence_edges": self._confidence_edges,
+            "score_edge_col": self.score_edge_col,
             "combo_scores": self.combo_scores,
             "pair_scores": self.pair_scores,
             "single_scores": self.single_scores,
@@ -1112,6 +1278,7 @@ class WinSelectionGateModel:
         model.edge_edges = list(state["edge_edges"])
         model.odds_edges = list(state["odds_edges"])
         model._confidence_edges = list(state.get("confidence_edges", []))
+        model.score_edge_col = str(state.get("score_edge_col", WIN_FALLBACK_EDGE_COL))
         model.combo_scores = dict(state["combo_scores"])
         model.pair_scores = dict(state["pair_scores"])
         model.single_scores = dict(state["single_scores"])

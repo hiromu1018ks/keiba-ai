@@ -50,6 +50,7 @@ from models.two_stage_return_model import PlaceTwoStageModel, WinTwoStageModel
 from models.wide_pair_builder import WideJointPairBuilder
 from models.wide_two_stage_model import WideTwoStageModel
 from models.win_selection_gate import WinSelectionGateModel, ensure_win_selection_columns
+from models.win_selection_policy import WinSelectionPolicy
 
 logger = logging.getLogger(__name__)
 
@@ -77,6 +78,58 @@ def _prepare_oof_artifact(df: pd.DataFrame) -> pd.DataFrame:
     oof_df["oof_artifact_version"] = 1
     oof_df["oof_row_id"] = np.arange(len(oof_df), dtype=np.int64)
     return oof_df
+
+
+def _prepare_win_selection_oof_artifact(df: pd.DataFrame) -> pd.DataFrame:
+    """最終単勝選定の検証に必要なOOF列だけを保存する。"""
+    wanted_cols = [
+        "race_id",
+        "race_date",
+        "surface",
+        "umaban",
+        "kakuteijyuni",
+        "tanodds",
+        "confirmed_odds",
+        "p_win_pred",
+        "p_win_corrected",
+        "p_win_combined",
+        "p_win_final",
+        "win_selection_prob",
+        "win_selection_ev",
+        "win_selection_edge",
+        "win_market_logit_edge",
+        "win_market_value_ratio",
+        "win_market_selection_score",
+        "win_late_odds_drop_z",
+        "win_late_odds_drop_weight",
+        "win_log_odds",
+        "win_log_odds_penalty",
+        "win_model_prob_rank",
+        "win_prob_rank_bonus",
+        "odds_drop_rate_30_10",
+        "odds_drop_rate_60_10",
+        "odds_velocity",
+        "popularity_change_30_10",
+        "win_gate_score",
+        "win_gate_pass",
+    ]
+    cols = [col for col in wanted_cols if col in df.columns]
+    oof_df = df.loc[:, cols].copy()
+    oof_df["is_oof"] = True
+    oof_df["oof_artifact_version"] = 2
+    oof_df["oof_row_id"] = np.arange(len(oof_df), dtype=np.int64)
+    return oof_df
+
+
+def _unpack_train_submodel_result(
+    result: tuple[SubmodelSet, pd.DataFrame]
+    | tuple[SubmodelSet, pd.DataFrame, pd.DataFrame],
+) -> tuple[SubmodelSet, pd.DataFrame, pd.DataFrame]:
+    """Backwards-compatible unpacking for tests/custom overrides."""
+    if len(result) == 2:
+        sub, sub_oof = result
+        return sub, sub_oof, pd.DataFrame()
+    return result
 
 
 class TrainingPipelineV5:
@@ -225,6 +278,7 @@ class TrainingPipelineV5:
         # 3. 各 surface ごとに学習 (parallel)
         models: dict[str, SubmodelSet] = {}
         oof_dfs: list[pd.DataFrame] = []
+        win_selection_oof_dfs: list[pd.DataFrame] = []
         surfaces_to_train: list[tuple[str, pd.DataFrame]] = []
         for surface in ["turf", "dirt"]:
             subset_df = feat_df[feat_df["surface"] == surface].copy()
@@ -236,14 +290,18 @@ class TrainingPipelineV5:
         if len(surfaces_to_train) == 1:
             # Single surface — no parallelism needed
             surface, subset_df = surfaces_to_train[0]
-            sub, sub_oof = self._train_submodel(
-                subset_df,
-                num_threads=_get_num_threads(1),
-                use_ensemble=self.use_ensemble,
-                betting_target=self._betting_target,
+            sub, sub_oof, sub_win_selection_oof = _unpack_train_submodel_result(
+                self._train_submodel(
+                    subset_df,
+                    num_threads=_get_num_threads(1),
+                    use_ensemble=self.use_ensemble,
+                    betting_target=self._betting_target,
+                )
             )
             models[surface] = sub
             oof_dfs.append(sub_oof)
+            if not sub_win_selection_oof.empty:
+                win_selection_oof_dfs.append(sub_win_selection_oof)
             logger.info(f"Trained {surface} submodel")
         elif len(surfaces_to_train) >= 2:
             # Sequential training to avoid segfault from LightGBM/XGBoost
@@ -251,14 +309,18 @@ class TrainingPipelineV5:
             # Use same num_threads as parallel mode to maintain model parity
             num_threads = _get_num_threads(2)
             for surface, subset_df in surfaces_to_train:
-                sub, sub_oof = self._train_submodel(
-                    subset_df,
-                    num_threads=num_threads,
-                    use_ensemble=self.use_ensemble,
-                    betting_target=self._betting_target,
+                sub, sub_oof, sub_win_selection_oof = _unpack_train_submodel_result(
+                    self._train_submodel(
+                        subset_df,
+                        num_threads=num_threads,
+                        use_ensemble=self.use_ensemble,
+                        betting_target=self._betting_target,
+                    )
                 )
                 models[surface] = sub
                 oof_dfs.append(sub_oof)
+                if not sub_win_selection_oof.empty:
+                    win_selection_oof_dfs.append(sub_win_selection_oof)
                 logger.info(f"Trained {surface} submodel (sequential)")
 
         # 3b. 全サーフェスの完全特徴量を保存 (feature audit 用)
@@ -283,6 +345,20 @@ class TrainingPipelineV5:
                 len(oof_predictions_df),
                 len(oof_predictions_df.columns),
                 oof_path,
+            )
+
+        if win_selection_oof_dfs:
+            win_oof_path = Path("data/oof/win_selection_oof.parquet")
+            win_oof_path.parent.mkdir(parents=True, exist_ok=True)
+            win_oof_df = _prepare_win_selection_oof_artifact(
+                pd.concat(win_selection_oof_dfs, ignore_index=True)
+            )
+            win_oof_df.to_parquet(win_oof_path, index=False)
+            logger.info(
+                "Saved win selection OOF predictions: %d rows, %d cols -> %s",
+                len(win_oof_df),
+                len(win_oof_df.columns),
+                win_oof_path,
             )
 
         # 4. feat_df の object 数値列を float64 に統一
@@ -519,11 +595,12 @@ class TrainingPipelineV5:
         num_threads: int = 0,
         use_ensemble: bool = False,
         betting_target: str = "place",
-    ) -> tuple[SubmodelSet, pd.DataFrame]:
+    ) -> tuple[SubmodelSet, pd.DataFrame, pd.DataFrame]:
         """単一 surface のサブモデル群を学習
 
         Returns:
-            (SubmodelSet, df_oof) のタプル。df_oof は全特徴量を含むDataFrame。
+            (SubmodelSet, df_oof, win_selection_oof) のタプル。
+            df_oof は全特徴量を含むDataFrame。
         """
         if num_threads <= 0:
             num_threads = max(1, (os.cpu_count() or 4) // 2)
@@ -1262,6 +1339,17 @@ class TrainingPipelineV5:
             win_selection_gate = WinSelectionGateModel()
             win_selection_gate.train(wsg_train_df)
 
+        with TimingContext(f"{surface}/win_selection_policy_train"):
+            win_selection_policy = WinSelectionPolicy()
+            win_selection_policy.train(wsg_train_df)
+            wsg_train_df = win_selection_policy.apply(wsg_train_df)
+            logger.info(
+                "WinSelectionPolicy trained for %s: late_odds_drop_weight=%.4f summary=%s",
+                surface,
+                win_selection_policy.late_odds_drop_weight,
+                win_selection_policy.training_summary,
+            )
+
         # --- D-08 Part 2: Runtime check (ensemble mode only) ---
         if use_ensemble and not win_selection_gate.is_trained:
             logger.warning(
@@ -1304,6 +1392,7 @@ class TrainingPipelineV5:
             win_isotonic_calibrator=win_isotonic_cal,
             win_temperature_scaler=win_temp_scaler,
             win_selection_gate=win_selection_gate,
+            win_selection_policy=win_selection_policy,
             ev_lower_threshold_turf=ev_threshold_turf,
             ev_lower_threshold_dirt=ev_threshold_dirt,
             ev_isotonic_calibrator=ev_isotonic_calibrator,
@@ -1313,7 +1402,7 @@ class TrainingPipelineV5:
         # Wire Isotonic + band scales into ev_corrector for correct_ev() to apply
         sub.ev_corrector.ev_isotonic_calibrator = ev_isotonic_calibrator
         sub.ev_corrector.ev_odds_band_scales = ev_odds_band_scales
-        return sub, df_oof_for_save
+        return sub, df_oof_for_save, wsg_train_df
 
     @staticmethod
     def generate_ev_oof_predictions(
@@ -1795,6 +1884,20 @@ class TrainingPipelineV5:
                         if wsg_tmp and os.path.exists(wsg_tmp):
                             os.unlink(wsg_tmp)
 
+                if sub.win_selection_policy is not None and sub.win_selection_policy.is_trained:
+                    wsp_tmp: str | None = None
+                    try:
+                        with tempfile.NamedTemporaryFile(
+                            suffix=".joblib",
+                            delete=False,
+                        ) as wsp_file:
+                            wsp_tmp = wsp_file.name
+                        sub.win_selection_policy.save(Path(wsp_tmp))
+                        mlflow.log_artifact(wsp_tmp, f"win_selection_policy_{surface}")
+                    finally:
+                        if wsp_tmp and os.path.exists(wsp_tmp):
+                            os.unlink(wsp_tmp)
+
                 # PlaceTwoStageModel
                 if sub.place is not None:
                     if sub.use_ensemble:
@@ -1956,6 +2059,11 @@ class TrainingPipelineV5:
             # --- WinSelectionGate (local) ---
             if sub.win_selection_gate is not None and sub.win_selection_gate.is_trained:
                 sub.win_selection_gate.save(models_dir / f"win_selection_gate_{surface}.joblib")
+
+            if sub.win_selection_policy is not None and sub.win_selection_policy.is_trained:
+                sub.win_selection_policy.save(
+                    models_dir / f"win_selection_policy_{surface}.joblib"
+                )
 
             # Benter Combination (JSON)
             if sub.benter_combo is not None:

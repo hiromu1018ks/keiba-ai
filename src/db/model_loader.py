@@ -80,17 +80,18 @@ class ModelLoader:
         surfaces = ["turf", "dirt"]
 
         from domain.models import SubmodelSet, TrainedModelsV5
+        from models.conformal_ev_model import ConformalEVModel
         from models.ev_correction_model import EVCorrectionModel, PlaceEVCorrectionModel
         from models.market_model import MarketModel
         from models.place_ability_model import PlaceAbilityModel
         from models.place_selection_gate import PlaceSelectionGateModel
         from models.race_quality_screener import RaceQualityScreener
         from models.regime_detector import RegimeDetector
-        from models.conformal_ev_model import ConformalEVModel  # Phase 21: CQR-based EV prediction intervals
         from models.stage1_ability_model import AbilityModel
         from models.two_stage_return_model import PlaceTwoStageModel, WinTwoStageModel
         from models.wide_two_stage_model import WideTwoStageModel
         from models.win_selection_gate import WinSelectionGateModel
+        from models.win_selection_policy import WinSelectionPolicy
 
         submodels: dict[str, SubmodelSet] = {}
         for surface in surfaces:
@@ -176,6 +177,25 @@ class ModelLoader:
                     except Exception:
                         logger.warning("Failed to load WinSelectionGateModel for %s", surface)
 
+            # --- WinSelectionPolicy (MLflow) ---
+            win_selection_policy = None
+            try:
+                wsp_dir = mlflow.artifacts.download_artifacts(
+                    f"runs:/{run_id}/win_selection_policy_{surface}"
+                )
+            except Exception:
+                try:
+                    wsp_dir = self._find_artifact_dir(run_id, f"win_selection_policy_{surface}")
+                except Exception:
+                    wsp_dir = None
+            if wsp_dir is not None:
+                wsp_files = list(Path(wsp_dir).glob("*.joblib"))
+                if wsp_files:
+                    try:
+                        win_selection_policy = WinSelectionPolicy.load(wsp_files[0])
+                    except Exception:
+                        logger.warning("Failed to load WinSelectionPolicy for %s", surface)
+
             # PlaceAbilityModel (joblib artifact)
             pa = PlaceAbilityModel()
             try:
@@ -207,8 +227,16 @@ class ModelLoader:
                 import lightgbm as lgb
 
                 obj = ConformalEVModel()
-                obj.q_low_model = lgb.Booster(model_file=q_low_path) if Path(q_low_path).is_file() else mlflow.lightgbm.load_model(q_low_path)
-                obj.q_high_model = lgb.Booster(model_file=q_high_path) if Path(q_high_path).is_file() else mlflow.lightgbm.load_model(q_high_path)
+                obj.q_low_model = (
+                    lgb.Booster(model_file=q_low_path)
+                    if Path(q_low_path).is_file()
+                    else mlflow.lightgbm.load_model(q_low_path)
+                )
+                obj.q_high_model = (
+                    lgb.Booster(model_file=q_high_path)
+                    if Path(q_high_path).is_file()
+                    else mlflow.lightgbm.load_model(q_high_path)
+                )
                 params_path = mlflow.artifacts.download_artifacts(cqr_params_uri)
                 with open(params_path, encoding="utf-8") as f:
                     cqr_data = json.load(f)
@@ -221,7 +249,11 @@ class ModelLoader:
                 obj._calibrated = cqr_data.get("_calibrated", True)
                 conformal_ev = obj
             except Exception as e:
-                logger.warning("CQR model files not found for %s (%s), trying legacy format", surface, e)
+                logger.warning(
+                    "CQR model files not found for %s (%s), trying legacy format",
+                    surface,
+                    e,
+                )
                 # Fallback: try legacy confidence_params.json
                 try:
                     conf_path = mlflow.artifacts.download_artifacts(
@@ -233,7 +265,10 @@ class ModelLoader:
                     legacy.alpha = conf_data["alpha"]
                     legacy._calibrated = False  # No actual CQR models; will use fallback
                     conformal_ev = legacy
-                    logger.info("Loaded legacy confidence params as ConformalEVModel for %s", surface)
+                    logger.info(
+                        "Loaded legacy confidence params as ConformalEVModel for %s",
+                        surface,
+                    )
                 except Exception:
                     logger.info("ConformalEVModel not found for surface=%s, skipping", surface)
 
@@ -347,6 +382,7 @@ class ModelLoader:
                 win_isotonic_calibrator=win_isotonic_calibrator,
                 win_temperature_scaler=win_temperature_scaler,
                 win_selection_gate=win_selection_gate,
+                win_selection_policy=win_selection_policy,
                 ev_isotonic_calibrator=ev_isotonic_calibrator,
                 ev_odds_band_scales=ev_odds_band_scales,
             )
@@ -522,17 +558,18 @@ class ModelLoader:
         カスタムディレクトリを指定する場合に使用する。
         """
         from domain.models import SubmodelSet, TrainedModelsV5
+        from models.conformal_ev_model import ConformalEVModel
         from models.ev_correction_model import EVCorrectionModel, PlaceEVCorrectionModel
         from models.market_model import MarketModel
         from models.place_ability_model import PlaceAbilityModel
         from models.place_selection_gate import PlaceSelectionGateModel
         from models.race_quality_screener import RaceQualityScreener
         from models.regime_detector import RegimeDetector
-        from models.conformal_ev_model import ConformalEVModel  # Phase 21: CQR-based EV prediction intervals
         from models.stage1_ability_model import AbilityModel
         from models.two_stage_return_model import PlaceTwoStageModel, WinTwoStageModel
         from models.wide_two_stage_model import WideTwoStageModel
         from models.win_selection_gate import WinSelectionGateModel
+        from models.win_selection_policy import WinSelectionPolicy
 
         # メタ情報読み込み
         with open(models_dir / "meta.json", encoding="utf-8") as f:
@@ -648,6 +685,14 @@ class ModelLoader:
                 except Exception:
                     logger.warning("Failed to load %s, skipping", wsg_file)
 
+            win_selection_policy = None
+            wsp_file = models_dir / f"win_selection_policy_{surface}.joblib"
+            if wsp_file.is_file():
+                try:
+                    win_selection_policy = WinSelectionPolicy.load(wsp_file)
+                except Exception:
+                    logger.warning("Failed to load %s, skipping", wsp_file)
+
             # PlaceAbilityModel (joblib)
             pa = PlaceAbilityModel()
             pa_file = models_dir / f"place_ability_{surface}.joblib"
@@ -686,7 +731,10 @@ class ModelLoader:
                         conformal_ev._calibrated = False  # No actual CQR models; will use fallback
                         logger.info("Loaded legacy confidence_params.json for %s", surface)
                     except Exception:
-                        logger.warning("Failed to load legacy confidence_params.json for %s", surface)
+                        logger.warning(
+                            "Failed to load legacy confidence_params.json for %s",
+                            surface,
+                        )
 
             # Benter Combination (JSON)
             benter_combo = None
@@ -797,6 +845,7 @@ class ModelLoader:
                 win_isotonic_calibrator=win_isotonic_calibrator,
                 win_temperature_scaler=win_temperature_scaler,
                 win_selection_gate=win_selection_gate,
+                win_selection_policy=win_selection_policy,
                 ev_isotonic_calibrator=ev_isotonic_calibrator,
                 ev_odds_band_scales=ev_odds_band_scales,
                 target_encoder=target_encoder,

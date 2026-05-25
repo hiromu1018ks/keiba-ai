@@ -23,6 +23,7 @@ if TYPE_CHECKING:
     from models.two_stage_return_model import PlaceTwoStageModel, WinTwoStageModel
     from models.wide_two_stage_model import WideTwoStageModel
     from models.win_selection_gate import WinSelectionGateModel
+    from models.win_selection_policy import WinSelectionPolicy
 
 
 def _surface_from_track_cd(track_cd: int) -> Surface:
@@ -239,7 +240,8 @@ class SubmodelSet:
     stage1: AbilityModel
     win: WinTwoStageModel
     ev_corrector: EVCorrectionModel
-    conformal_ev_model: ConformalEVModel | None = None  # Phase 21: RobustConfidenceEstimator -> ConformalEVModel (Plan 02で統合)
+    # Phase 21: RobustConfidenceEstimator -> ConformalEVModel (Plan 02で統合)
+    conformal_ev_model: ConformalEVModel | None = None
     place_ability: PlaceAbilityModel | None = None
     place: PlaceTwoStageModel | None = None
     place_ev_corrector: PlaceEVCorrectionModel | None = None
@@ -255,6 +257,7 @@ class SubmodelSet:
     win_temperature_scaler: TemperatureScaling | None = None
     # Win Selection Gate (Phase 3, SELC-01)
     win_selection_gate: WinSelectionGateModel | None = None
+    win_selection_policy: WinSelectionPolicy | None = None
     # EV_lower dynamic threshold (D-01/D-02, EVF-01)
     ev_lower_threshold_turf: float = 1.0
     ev_lower_threshold_dirt: float = 1.0
