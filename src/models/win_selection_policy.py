@@ -17,11 +17,12 @@ import pandas as pd
 
 from models.win_selection_gate import ensure_win_selection_columns
 
-DEFAULT_LATE_ODDS_DROP_WEIGHT: float = 0.06
-DEFAULT_LOG_ODDS_PENALTY: float = 0.05
-DEFAULT_PROB_RANK_BONUS: float = 0.02
+DEFAULT_LATE_ODDS_DROP_WEIGHT: float = 0.09
+DEFAULT_LOG_ODDS_PENALTY: float = 0.08
+DEFAULT_PROB_RANK_BONUS: float = 0.01
 DEFAULT_EV_TAIL_PENALTY_WEIGHT: float = 0.0
 DEFAULT_EV_TAIL_THRESHOLD: float = 1.2
+DEFAULT_MARKET_RISK_PENALTY_WEIGHT: float = 0.10
 MAX_DEPLOYED_LATE_ODDS_DROP_WEIGHT: float = 0.12
 MAX_DEPLOYED_LOG_ODDS_PENALTY: float = 0.08
 MAX_DEPLOYED_PROB_RANK_BONUS: float = 0.05
@@ -36,6 +37,7 @@ DEFAULT_CANDIDATE_WEIGHTS: tuple[float, ...] = (
     0.03,
     0.06,
     0.08,
+    0.09,
     0.10,
     0.12,
 )
@@ -192,6 +194,67 @@ def ev_tail_pressure(
     return pd.to_numeric(pressure, errors="coerce").replace([np.inf, -np.inf], np.nan).fillna(0.0)
 
 
+def market_residual_score(
+    df: pd.DataFrame,
+    *,
+    race_key: pd.Series | None = None,
+) -> pd.Series:
+    """Model win-probability edge over the normalized public market."""
+    existing = _numeric(df, "win_market_residual")
+    prepared = ensure_win_selection_columns(df)
+    key = race_key if race_key is not None else _race_key(prepared)
+    prob = _numeric(prepared, "p_win_final").where(
+        _numeric(prepared, "p_win_final").notna(),
+        _numeric(prepared, "p_win_final_oof"),
+    )
+    prob = prob.where(prob.notna(), _numeric(prepared, "win_selection_prob"))
+    odds = _numeric(prepared, "tanodds")
+    market_raw = pd.Series(np.nan, index=prepared.index, dtype=float)
+    valid_odds = odds.gt(0.0) & odds.notna()
+    market_raw.loc[valid_odds] = (1.0 / odds.loc[valid_odds]).clip(0.01, 0.99)
+    market_sum = market_raw.groupby(key, observed=True).transform("sum")
+    market_norm = market_raw / market_sum.replace(0.0, np.nan)
+    residual = prob - market_norm
+    if residual.notna().any():
+        return residual.replace([np.inf, -np.inf], np.nan).astype(float)
+    if existing.notna().any():
+        return existing.replace([np.inf, -np.inf], np.nan).astype(float)
+    return _numeric(prepared, "win_market_logit_edge").replace([np.inf, -np.inf], np.nan)
+
+
+def market_risk_penalty(
+    df: pd.DataFrame,
+    *,
+    race_key: pd.Series | None = None,
+    tail_ev: pd.Series | None = None,
+) -> pd.Series:
+    """Smooth ranking penalty for unstable high-odds/low-probability EV tails."""
+    prepared = ensure_win_selection_columns(df)
+    existing = _numeric(prepared, "win_market_risk_penalty")
+    if existing.notna().any():
+        return existing.fillna(0.0).astype(float)
+
+    key = race_key if race_key is not None else _race_key(prepared)
+    odds = _numeric(prepared, "tanodds")
+    ev = _numeric(prepared, "win_selection_ev")
+    prob = _numeric(prepared, "p_win_final").where(
+        _numeric(prepared, "p_win_final").notna(),
+        _numeric(prepared, "p_win_final_oof"),
+    )
+    prob = prob.where(prob.notna(), _numeric(prepared, "win_selection_prob"))
+    prob_rank = prob.groupby(key, observed=True).rank(method="first", ascending=False)
+    tail_source = tail_ev if tail_ev is not None else ev
+    penalty = (
+        odds.ge(30.0).fillna(False).astype(float) * 0.20
+        + ev.ge(5.0).fillna(False).astype(float) * 0.30
+        + pd.to_numeric(tail_source, errors="coerce").ge(1.5).fillna(False).astype(float) * 0.25
+        + (odds.ge(10.0).fillna(False) & prob.lt(0.05).fillna(False)).astype(float) * 0.20
+        + prob_rank.gt(8.0).fillna(False).astype(float) * 0.10
+        + prob.lt(0.03).fillna(False).astype(float) * 0.10
+    )
+    return pd.to_numeric(penalty, errors="coerce").fillna(0.0).astype(float)
+
+
 def deployed_policy_params(policy: Any | None) -> dict[str, float]:
     defaults = {
         "late_odds_drop_weight": DEFAULT_LATE_ODDS_DROP_WEIGHT,
@@ -199,6 +262,7 @@ def deployed_policy_params(policy: Any | None) -> dict[str, float]:
         "prob_rank_bonus": DEFAULT_PROB_RANK_BONUS,
         "ev_tail_penalty_weight": DEFAULT_EV_TAIL_PENALTY_WEIGHT,
         "ev_tail_threshold": DEFAULT_EV_TAIL_THRESHOLD,
+        "market_risk_penalty_weight": DEFAULT_MARKET_RISK_PENALTY_WEIGHT,
     }
     if policy is None:
         return defaults
@@ -209,14 +273,13 @@ def deployed_policy_params(policy: Any | None) -> dict[str, float]:
         "late_odds_drop_weight": sanitize_late_odds_drop_weight(
             getattr(policy, "late_odds_drop_weight", None)
         ),
-        "log_odds_penalty": sanitize_log_odds_penalty(
-            getattr(policy, "log_odds_penalty", None)
-        ),
+        "log_odds_penalty": sanitize_log_odds_penalty(getattr(policy, "log_odds_penalty", None)),
         "prob_rank_bonus": sanitize_prob_rank_bonus(getattr(policy, "prob_rank_bonus", None)),
         "ev_tail_penalty_weight": sanitize_ev_tail_penalty_weight(
             getattr(policy, "ev_tail_penalty_weight", None)
         ),
         "ev_tail_threshold": DEFAULT_EV_TAIL_THRESHOLD,
+        "market_risk_penalty_weight": DEFAULT_MARKET_RISK_PENALTY_WEIGHT,
     }
 
 
@@ -245,6 +308,9 @@ class WinSelectionPolicy:
 
     def _base_edge(self, df: pd.DataFrame) -> pd.Series:
         prepared = ensure_win_selection_columns(df)
+        residual = market_residual_score(prepared)
+        if residual.notna().any():
+            return residual
         edge = _numeric(prepared, "win_selection_edge")
         if edge.notna().any():
             return edge
@@ -270,17 +336,23 @@ class WinSelectionPolicy:
             _numeric(df, "p_win_final").notna(),
             _numeric(df, "win_selection_prob"),
         )
-        prob_rank = prob.groupby(key, observed=True).rank(
-            pct=True,
-            method="average",
-            ascending=True,
-        ).fillna(0.5)
+        prob_rank = (
+            prob.groupby(key, observed=True)
+            .rank(
+                pct=True,
+                method="average",
+                ascending=True,
+            )
+            .fillna(0.5)
+        )
+        risk_penalty = market_risk_penalty(df, race_key=key)
         return (
             base
             - float(self.late_odds_drop_weight) * late_drop_z
             - float(self.log_odds_penalty) * log_odds
             + float(self.prob_rank_bonus) * prob_rank
             - float(self.ev_tail_penalty_weight) * ev_tail_pressure(df)
+            - DEFAULT_MARKET_RISK_PENALTY_WEIGHT * risk_penalty
         ).astype(float)
 
     def apply(
@@ -294,28 +366,40 @@ class WinSelectionPolicy:
         late_drop_z = race_zscore(_numeric(prepared, "odds_drop_rate_30_10"), key)
         prepared["win_late_odds_drop_z"] = late_drop_z
         odds = _numeric(prepared, "tanodds").clip(lower=1.0)
-        prepared["win_log_odds"] = np.log1p(odds).replace(
-            [np.inf, -np.inf],
-            np.nan,
-        ).fillna(0.0)
+        prepared["win_log_odds"] = (
+            np.log1p(odds)
+            .replace(
+                [np.inf, -np.inf],
+                np.nan,
+            )
+            .fillna(0.0)
+        )
         prob = _numeric(prepared, "p_win_final").where(
             _numeric(prepared, "p_win_final").notna(),
             _numeric(prepared, "win_selection_prob"),
         )
-        prepared["win_model_prob_rank"] = prob.groupby(key, observed=True).rank(
-            pct=True,
-            method="average",
-            ascending=True,
-        ).fillna(0.5)
+        prepared["win_model_prob_rank"] = (
+            prob.groupby(key, observed=True)
+            .rank(
+                pct=True,
+                method="average",
+                ascending=True,
+            )
+            .fillna(0.5)
+        )
         prepared["win_log_odds_penalty"] = self.log_odds_penalty
         prepared["win_prob_rank_bonus"] = self.prob_rank_bonus
         prepared["win_ev_tail_pressure"] = ev_tail_pressure(prepared)
         prepared["win_ev_tail_penalty_weight"] = self.ev_tail_penalty_weight
+        prepared["win_market_risk_penalty"] = market_risk_penalty(prepared, race_key=key)
+        prepared["win_market_risk_penalty_weight"] = DEFAULT_MARKET_RISK_PENALTY_WEIGHT
         prepared[score_col] = self.score(prepared, race_key=key)
         if "race_id" in prepared.columns:
-            prepared["selected_rank_by_win_market_score"] = prepared[score_col].groupby(
-                prepared["race_id"], observed=True
-            ).rank(method="first", ascending=False)
+            prepared["selected_rank_by_win_market_score"] = (
+                prepared[score_col]
+                .groupby(prepared["race_id"], observed=True)
+                .rank(method="first", ascending=False)
+            )
         else:
             prepared["selected_rank_by_win_market_score"] = prepared[score_col].rank(
                 method="first", ascending=False
@@ -348,24 +432,24 @@ class WinSelectionPolicy:
             _numeric(prepared, "p_win_final").notna(),
             _numeric(prepared, "win_selection_prob"),
         )
-        prob_rank = prob.groupby(key, observed=True).rank(
-            pct=True,
-            method="average",
-            ascending=True,
-        ).fillna(0.5)
+        prob_rank = (
+            prob.groupby(key, observed=True)
+            .rank(
+                pct=True,
+                method="average",
+                ascending=True,
+            )
+            .fillna(0.5)
+        )
         log_penalty = sanitize_log_odds_penalty(self.log_odds_penalty)
         prob_bonus = sanitize_prob_rank_bonus(self.prob_rank_bonus)
         ev_tail = ev_tail_pressure(prepared)
+        risk_penalty = market_risk_penalty(prepared, race_key=key)
 
         rows: list[dict[str, Any]] = []
-        late_weights = sorted(
-            {sanitize_late_odds_drop_weight(w) for w in self.candidate_weights}
-        )
+        late_weights = sorted({sanitize_late_odds_drop_weight(w) for w in self.candidate_weights})
         tail_weights = sorted(
-            {
-                sanitize_ev_tail_penalty_weight(w)
-                for w in self.candidate_ev_tail_penalties
-            }
+            {sanitize_ev_tail_penalty_weight(w) for w in self.candidate_ev_tail_penalties}
         )
         for weight in late_weights:
             for tail_weight in tail_weights:
@@ -375,6 +459,7 @@ class WinSelectionPolicy:
                     - log_penalty * log_odds
                     + prob_bonus * prob_rank
                     - float(tail_weight) * ev_tail
+                    - DEFAULT_MARKET_RISK_PENALTY_WEIGHT * risk_penalty
                 )
                 roi_all = _roi_for_score(prepared, score)
                 year_rois: list[float] = []
@@ -406,8 +491,10 @@ class WinSelectionPolicy:
                     }
                 )
 
-        result = pd.DataFrame(rows).replace([np.inf, -np.inf], np.nan).dropna(
-            subset=["roi_all", "roi_mean_by_year"]
+        result = (
+            pd.DataFrame(rows)
+            .replace([np.inf, -np.inf], np.nan)
+            .dropna(subset=["roi_all", "roi_mean_by_year"])
         )
         if result.empty:
             self.is_trained = False
@@ -425,6 +512,7 @@ class WinSelectionPolicy:
                 - log_penalty * log_odds
                 + prob_bonus * prob_rank
                 - DEFAULT_EV_TAIL_PENALTY_WEIGHT * ev_tail
+                - DEFAULT_MARKET_RISK_PENALTY_WEIGHT * risk_penalty
             )
             default_year_rois: dict[str, float] = {}
             for year in sorted(years.dropna().unique().tolist()):
@@ -475,9 +563,7 @@ class WinSelectionPolicy:
             float(best["weight"]) != DEFAULT_LATE_ODDS_DROP_WEIGHT
             or float(best["ev_tail_penalty_weight"]) != DEFAULT_EV_TAIL_PENALTY_WEIGHT
         )
-        uses_tail_shrinkage = (
-            float(best["ev_tail_penalty_weight"]) > DEFAULT_EV_TAIL_PENALTY_WEIGHT
-        )
+        uses_tail_shrinkage = float(best["ev_tail_penalty_weight"]) > DEFAULT_EV_TAIL_PENALTY_WEIGHT
         roi_floor_met = float(best["roi_all"]) >= MIN_POLICY_DEPLOY_ROI_ALL
         stable_tail_shrinkage_met = (
             uses_tail_shrinkage
@@ -497,9 +583,7 @@ class WinSelectionPolicy:
             if not roi_floor_met and not stable_tail_shrinkage_met:
                 fallback_reason = "use_default_policy_until_oof_roi_floor_is_met"
             else:
-                fallback_reason = (
-                    "use_default_policy_until_candidate_beats_default_across_years"
-                )
+                fallback_reason = "use_default_policy_until_candidate_beats_default_across_years"
             best = default_row
 
         self.late_odds_drop_weight = sanitize_late_odds_drop_weight(best["weight"])
@@ -513,12 +597,11 @@ class WinSelectionPolicy:
             "default_weight": DEFAULT_LATE_ODDS_DROP_WEIGHT,
             "default_ev_tail_penalty_weight": DEFAULT_EV_TAIL_PENALTY_WEIGHT,
             "ev_tail_threshold": DEFAULT_EV_TAIL_THRESHOLD,
+            "market_risk_penalty_weight": DEFAULT_MARKET_RISK_PENALTY_WEIGHT,
             "default_log_odds_penalty": log_penalty,
             "default_prob_rank_bonus": prob_bonus,
             "min_policy_deploy_roi_all": MIN_POLICY_DEPLOY_ROI_ALL,
-            "min_tail_shrinkage_mean_roi_improvement": (
-                MIN_TAIL_SHRINKAGE_MEAN_ROI_IMPROVEMENT
-            ),
+            "min_tail_shrinkage_mean_roi_improvement": (MIN_TAIL_SHRINKAGE_MEAN_ROI_IMPROVEMENT),
             "min_tail_shrinkage_year_roi": MIN_TAIL_SHRINKAGE_YEAR_ROI,
             "default_roi_mean_by_year": default_roi,
             "selected_roi_mean_by_year": float(best["roi_mean_by_year"]),
@@ -549,6 +632,7 @@ class WinSelectionPolicy:
                 "log_odds_penalty": self.log_odds_penalty,
                 "prob_rank_bonus": self.prob_rank_bonus,
                 "ev_tail_penalty_weight": self.ev_tail_penalty_weight,
+                "market_risk_penalty_weight": DEFAULT_MARKET_RISK_PENALTY_WEIGHT,
                 "candidate_weights": tuple(self.candidate_weights),
                 "candidate_ev_tail_penalties": tuple(self.candidate_ev_tail_penalties),
                 "is_trained": self.is_trained,

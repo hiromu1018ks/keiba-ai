@@ -24,7 +24,11 @@ from models.win_profit_selector import (
     PROFIT_STAKE_SCALE_COL,
 )
 from models.win_selection_gate import ensure_win_selection_columns
-from models.win_selection_policy import deployed_policy_params, ev_tail_pressure
+from models.win_selection_policy import (
+    deployed_policy_params,
+    ev_tail_pressure,
+    market_residual_score,
+)
 
 if TYPE_CHECKING:
     from betting.drawdown_controller import DrawdownController
@@ -771,10 +775,12 @@ class RacePredictor:
         log_odds_penalty = policy_params["log_odds_penalty"]
         prob_rank_bonus = policy_params["prob_rank_bonus"]
         ev_tail_penalty_weight = policy_params["ev_tail_penalty_weight"]
+        market_risk_penalty_weight = policy_params["market_risk_penalty_weight"]
         prepared["win_late_odds_drop_weight"] = late_odds_drop_weight
         prepared["win_log_odds_penalty"] = log_odds_penalty
         prepared["win_prob_rank_bonus"] = prob_rank_bonus
         prepared["win_ev_tail_penalty_weight"] = ev_tail_penalty_weight
+        prepared["win_market_risk_penalty_weight"] = market_risk_penalty_weight
         log_odds = (
             np.log1p(odds.clip(lower=1.0))
             .replace(
@@ -792,16 +798,13 @@ class RacePredictor:
         )
         prepared["win_ev_tail_pressure"] = ev_tail_risk
 
-        # The previous market/probability blend regressed toward public favorites and
-        # reproduced takeout-level losses. For win betting the one-horse-per-race
-        # decision should maximize model edge; market/probability/gate signals remain
-        # as diagnostics and tie-breakers instead of dominating the primary score.
-        # A small race-relative late-odds-drop penalty guards against taking horses
-        # whose value was already compressed by visible late steam. The log-odds
-        # term is smooth risk shrinkage, not a bet-count reducing odds filter.
-        selection_score = calibrated_edge.where(
-            calibrated_edge.notna(),
-            selection_ev_raw - 1.0,
+        # EV is noisy in the high-odds tail after leak-free OOF calibration.  The
+        # primary rank signal is therefore probability mispricing versus the
+        # normalized public market; EV remains a tie-breaker below.
+        selection_score = market_residual_score(prepared, race_key=race_key)
+        selection_score = selection_score.where(
+            selection_score.notna(),
+            calibrated_edge.where(calibrated_edge.notna(), selection_ev_raw - 1.0),
         )
         if not selection_score.notna().any():
             selection_score = pct_rank(prob_source) - 1.0
@@ -811,6 +814,7 @@ class RacePredictor:
             - log_odds_penalty * log_odds
             + prob_rank_bonus * model_prob_rank
             - ev_tail_penalty_weight * ev_tail_risk
+            - market_risk_penalty_weight * risk_penalty
         )
         prepared["selected_rank_by_win_market_score"] = (
             prepared["win_market_selection_score"]
@@ -855,6 +859,7 @@ class RacePredictor:
                 f"prob_rank_bonus={prob_rank_bonus:.4f};"
                 f"ev_tail_pressure={_safe_float(ev_tail_risk.loc[idx], 0.0):.4f};"
                 f"ev_tail_pen_w={ev_tail_penalty_weight:.4f};"
+                f"risk_pen_w={market_risk_penalty_weight:.4f};"
                 f"prob_rank={bool(prob_rank_pass.fillna(False).loc[idx])};"
                 f"prob_floor={bool(prob_floor_pass.fillna(False).loc[idx])};"
                 f"profit_pass={bool(prepared[PROFIT_PASS_COL].fillna(False).loc[idx])};"

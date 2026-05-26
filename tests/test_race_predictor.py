@@ -8,6 +8,7 @@ import pytest
 
 from domain.models import TrainedModelsV5
 from domain.types import RegimeState
+from models.win_selection_policy import DEFAULT_LOG_ODDS_PENALTY
 
 
 def _make_submodel_mock() -> MagicMock:
@@ -1595,8 +1596,10 @@ class TestGetWinCandidates:
         assert len(result) == 1
         assert result.iloc[0]["win_selection_edge"] == pytest.approx(0.20)
 
-    def test_final_win_ranking_is_edge_first(self, mock_models: MagicMock) -> None:
-        """市場・勝率・gateが強くても、単勝最終選択はedgeを主軸にする。"""
+    def test_final_win_ranking_uses_probability_market_residual_first(
+        self, mock_models: MagicMock
+    ) -> None:
+        """単勝最終選択はEV過信を避け、市場対比の勝率残差を主軸にする。"""
         from backtest.race_predictor import RacePredictor
 
         predictor = RacePredictor(models=mock_models)
@@ -1613,8 +1616,8 @@ class TestGetWinCandidates:
         result = predictor.get_win_candidates(race_df)
 
         assert len(result) == 1
-        assert result.iloc[0]["umaban"] == 2
-        assert result.iloc[0]["win_market_selection_score"] < result.iloc[0]["win_selection_edge"]
+        assert result.iloc[0]["umaban"] == 1
+        assert result.iloc[0]["win_market_selection_score"] < result.iloc[0]["p_win_final"]
 
     def test_late_odds_drop_penalty_can_break_close_edge_ties(self, mock_models: MagicMock) -> None:
         """直前でオッズ低下が強い馬は、近いedge差なら過熱として減点する。"""
@@ -1645,14 +1648,14 @@ class TestGetWinCandidates:
             tanodds=[50.0, 5.0],
             win_selection_edge=[0.20, 0.15],
             win_selection_ev=[1.20, 1.15],
-            p_win_final=[0.12, 0.12],
+            p_win_final=[0.10, 0.91],
         )
 
         result = predictor.get_win_candidates(race_df)
 
         assert len(result) == 1
         assert result.iloc[0]["umaban"] == 2
-        assert result.iloc[0]["win_log_odds_penalty"] == pytest.approx(0.05)
+        assert result.iloc[0]["win_log_odds_penalty"] == pytest.approx(DEFAULT_LOG_ODDS_PENALTY)
 
     def test_learned_odds_prior_does_not_dominate_win_candidates(
         self, mock_models: MagicMock
