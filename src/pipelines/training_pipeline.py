@@ -1548,14 +1548,21 @@ class TrainingPipelineV5:
                 win_profit_selector.training_summary,
             )
 
-        with TimingContext(f"{surface}/win_segment_calibrator_train"):
-            win_segment_calibrator = WinSegmentCalibrator()
-            win_segment_calibrator.train(wsg_train_df)
+        win_segment_calibrator = None
+        if surface == "turf":
+            with TimingContext(f"{surface}/win_segment_calibrator_train"):
+                win_segment_calibrator = WinSegmentCalibrator(target_surface=surface)
+                win_segment_calibrator.train(wsg_train_df)
+                logger.info(
+                    "WinSegmentCalibrator trained for %s: trained=%s summary=%s",
+                    surface,
+                    win_segment_calibrator.is_trained,
+                    win_segment_calibrator.training_summary,
+                )
+        else:
             logger.info(
-                "WinSegmentCalibrator trained for %s: trained=%s summary=%s",
+                "WinSegmentCalibrator skipped for %s: turf-only probability shrinkage is enabled",
                 surface,
-                win_segment_calibrator.is_trained,
-                win_segment_calibrator.training_summary,
             )
 
         # --- D-08 Part 2: Runtime check (ensemble mode only) ---

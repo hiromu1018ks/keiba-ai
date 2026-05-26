@@ -47,6 +47,7 @@ class WinSegmentCalibrator:
     min_segment_wins: int = 3
     min_factor: float = 0.85
     max_factor: float = 1.0
+    max_deploy_factor: float = 0.95
     apply_ev_factor: bool = False
     segment_table: dict[str, dict[str, float]] = field(default_factory=dict)
     training_summary: dict[str, Any] = field(default_factory=dict)
@@ -197,8 +198,8 @@ class WinSegmentCalibrator:
             / (grouped["pred_ev_sum"] + self.prior_strength * grouped["pred_ev_mean"])
         ).clip(lower=self.min_factor, upper=self.max_factor)
         deployable = grouped[
-            grouped["p_factor"].lt(0.995)
-            | (self.apply_ev_factor and grouped["ev_factor"].lt(0.995))
+            grouped["p_factor"].le(self.max_deploy_factor)
+            | (self.apply_ev_factor and grouped["ev_factor"].le(self.max_deploy_factor))
         ].copy()
         self.segment_table = {
             str(key): {
@@ -217,6 +218,7 @@ class WinSegmentCalibrator:
             "min_segment_wins": self.min_segment_wins,
             "min_factor": self.min_factor,
             "max_factor": self.max_factor,
+            "max_deploy_factor": self.max_deploy_factor,
             "apply_ev_factor": self.apply_ev_factor,
             "n_segments": int(len(grouped)),
             "n_deployed_segments": int(len(self.segment_table)),
@@ -278,6 +280,7 @@ class WinSegmentCalibrator:
                 "min_segment_wins": self.min_segment_wins,
                 "min_factor": self.min_factor,
                 "max_factor": self.max_factor,
+                "max_deploy_factor": self.max_deploy_factor,
                 "apply_ev_factor": self.apply_ev_factor,
                 "segment_table": self.segment_table,
                 "training_summary": self.training_summary,
@@ -296,9 +299,18 @@ class WinSegmentCalibrator:
             min_segment_wins=int(state.get("min_segment_wins", 3)),
             min_factor=float(state.get("min_factor", 0.85)),
             max_factor=float(state.get("max_factor", 1.0)),
+            max_deploy_factor=float(state.get("max_deploy_factor", 0.95)),
             apply_ev_factor=bool(state.get("apply_ev_factor", False)),
         )
-        obj.segment_table = dict(state.get("segment_table", {}))
+        raw_segments = dict(state.get("segment_table", {}))
+        obj.segment_table = {
+            str(key): dict(value)
+            for key, value in raw_segments.items()
+            if float(value.get("p_factor", 1.0)) <= obj.max_deploy_factor
+            or (obj.apply_ev_factor and float(value.get("ev_factor", 1.0)) <= obj.max_deploy_factor)
+        }
         obj.training_summary = dict(state.get("training_summary", {}))
-        obj._trained = bool(state.get("_trained", bool(obj.segment_table)))
+        obj._trained = bool(state.get("_trained", bool(obj.segment_table))) and bool(
+            obj.segment_table
+        )
         return obj
