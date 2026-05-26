@@ -27,7 +27,8 @@ from models.win_selection_gate import ensure_win_selection_columns
 from models.win_selection_policy import (
     deployed_policy_params,
     ev_tail_pressure,
-    market_residual_score,
+    surface_aware_selection_base,
+    surface_param_series,
 )
 
 if TYPE_CHECKING:
@@ -771,11 +772,27 @@ class RacePredictor:
         prepared["win_late_odds_drop_z"] = late_odds_drop_z
         win_selection_policy = self._get_win_selection_policy(prepared)
         policy_params = deployed_policy_params(win_selection_policy)
-        late_odds_drop_weight = policy_params["late_odds_drop_weight"]
-        log_odds_penalty = policy_params["log_odds_penalty"]
-        prob_rank_bonus = policy_params["prob_rank_bonus"]
+        late_odds_drop_weight = surface_param_series(
+            prepared,
+            turf_value=policy_params["late_odds_drop_weight"],
+            dirt_value=policy_params["dirt_late_odds_drop_weight"],
+        )
+        log_odds_penalty = surface_param_series(
+            prepared,
+            turf_value=policy_params["log_odds_penalty"],
+            dirt_value=policy_params["dirt_log_odds_penalty"],
+        )
+        prob_rank_bonus = surface_param_series(
+            prepared,
+            turf_value=policy_params["prob_rank_bonus"],
+            dirt_value=policy_params["dirt_prob_rank_bonus"],
+        )
         ev_tail_penalty_weight = policy_params["ev_tail_penalty_weight"]
-        market_risk_penalty_weight = policy_params["market_risk_penalty_weight"]
+        market_risk_penalty_weight = surface_param_series(
+            prepared,
+            turf_value=policy_params["market_risk_penalty_weight"],
+            dirt_value=policy_params["dirt_market_risk_penalty_weight"],
+        )
         prepared["win_late_odds_drop_weight"] = late_odds_drop_weight
         prepared["win_log_odds_penalty"] = log_odds_penalty
         prepared["win_prob_rank_bonus"] = prob_rank_bonus
@@ -798,13 +815,15 @@ class RacePredictor:
         )
         prepared["win_ev_tail_pressure"] = ev_tail_risk
 
-        # EV is noisy in the high-odds tail after leak-free OOF calibration.  The
-        # primary rank signal is therefore probability mispricing versus the
-        # normalized public market; EV remains a tie-breaker below.
-        selection_score = market_residual_score(prepared, race_key=race_key)
-        selection_score = selection_score.where(
-            selection_score.notna(),
-            calibrated_edge.where(calibrated_edge.notna(), selection_ev_raw - 1.0),
+        # Turf benefits from probability mispricing versus the public market, while
+        # dirt regressed when the same signal pushed the ranker too far toward
+        # low-odds favorites. Keep bet volume unchanged and switch only the
+        # race-internal base score by surface.
+        fallback_edge = calibrated_edge.where(calibrated_edge.notna(), selection_ev_raw - 1.0)
+        selection_score = surface_aware_selection_base(
+            prepared,
+            race_key=race_key,
+            fallback_edge=fallback_edge,
         )
         if not selection_score.notna().any():
             selection_score = pct_rank(prob_source) - 1.0
@@ -854,12 +873,12 @@ class RacePredictor:
                 f"edge_score="
                 f"{_safe_float(prepared['win_market_selection_score'].loc[idx], float('nan')):.4f};"
                 f"late_drop_z={_safe_float(late_odds_drop_z.loc[idx], 0.0):.4f};"
-                f"late_drop_w={late_odds_drop_weight:.4f};"
-                f"log_odds_pen={log_odds_penalty:.4f};"
-                f"prob_rank_bonus={prob_rank_bonus:.4f};"
+                f"late_drop_w={_safe_float(late_odds_drop_weight.loc[idx], 0.0):.4f};"
+                f"log_odds_pen={_safe_float(log_odds_penalty.loc[idx], 0.0):.4f};"
+                f"prob_rank_bonus={_safe_float(prob_rank_bonus.loc[idx], 0.0):.4f};"
                 f"ev_tail_pressure={_safe_float(ev_tail_risk.loc[idx], 0.0):.4f};"
                 f"ev_tail_pen_w={ev_tail_penalty_weight:.4f};"
-                f"risk_pen_w={market_risk_penalty_weight:.4f};"
+                f"risk_pen_w={_safe_float(market_risk_penalty_weight.loc[idx], 0.0):.4f};"
                 f"prob_rank={bool(prob_rank_pass.fillna(False).loc[idx])};"
                 f"prob_floor={bool(prob_floor_pass.fillna(False).loc[idx])};"
                 f"profit_pass={bool(prepared[PROFIT_PASS_COL].fillna(False).loc[idx])};"

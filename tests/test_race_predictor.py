@@ -8,7 +8,7 @@ import pytest
 
 from domain.models import TrainedModelsV5
 from domain.types import RegimeState
-from models.win_selection_policy import DEFAULT_LOG_ODDS_PENALTY
+from models.win_selection_policy import DEFAULT_DIRT_LOG_ODDS_PENALTY, DEFAULT_LOG_ODDS_PENALTY
 
 
 def _make_submodel_mock() -> MagicMock:
@@ -1583,18 +1583,45 @@ class TestGetWinCandidates:
         assert len(result) == 0
 
     def test_nan_gate_score_fallback_to_edge(self, mock_models: MagicMock) -> None:
-        """Test 6: win_gate_score が NaN でも win_selection_edge でソートされる"""
+        """Test 6: dirt は市場残差ではなく win_selection_edge を主軸にソートされる"""
         from backtest.race_predictor import RacePredictor
 
         predictor = RacePredictor(models=mock_models)
         race_df = self._make_win_race_df(
             n=3,
+            surface=["dirt", "dirt", "dirt"],
             win_gate_score=[float("nan"), float("nan"), float("nan")],
             win_selection_edge=[0.05, 0.20, 0.10],
         )
         result = predictor.get_win_candidates(race_df)
         assert len(result) == 1
         assert result.iloc[0]["win_selection_edge"] == pytest.approx(0.20)
+
+    def test_dirt_win_ranking_uses_edge_not_market_residual(self, mock_models: MagicMock) -> None:
+        """dirt は人気寄りの市場残差でなく、修正前に強かったedge主軸で順位付けする。"""
+        from backtest.race_predictor import RacePredictor
+
+        predictor = RacePredictor(models=mock_models)
+        race_df = self._make_win_race_df(
+            n=2,
+            surface=["dirt", "dirt"],
+            tanodds=[2.0, 12.0],
+            p_win_final=[0.60, 0.08],
+            win_selection_prob=[0.60, 0.08],
+            win_selection_edge=[0.05, 0.30],
+            win_selection_ev=[1.05, 1.30],
+            win_gate_score=[2.0, 0.2],
+            win_market_logit_edge=[2.0, 0.1],
+            win_market_value_ratio=[2.0, 0.1],
+        )
+
+        result = predictor.get_win_candidates(race_df)
+
+        assert len(result) == 1
+        assert result.iloc[0]["umaban"] == 2
+        assert result.iloc[0]["win_log_odds_penalty"] == pytest.approx(
+            DEFAULT_DIRT_LOG_ODDS_PENALTY
+        )
 
     def test_final_win_ranking_uses_probability_market_residual_first(
         self, mock_models: MagicMock

@@ -23,6 +23,10 @@ DEFAULT_PROB_RANK_BONUS: float = 0.01
 DEFAULT_EV_TAIL_PENALTY_WEIGHT: float = 0.0
 DEFAULT_EV_TAIL_THRESHOLD: float = 1.2
 DEFAULT_MARKET_RISK_PENALTY_WEIGHT: float = 0.10
+DEFAULT_DIRT_LATE_ODDS_DROP_WEIGHT: float = 0.06
+DEFAULT_DIRT_LOG_ODDS_PENALTY: float = 0.05
+DEFAULT_DIRT_PROB_RANK_BONUS: float = 0.02
+DEFAULT_DIRT_MARKET_RISK_PENALTY_WEIGHT: float = 0.0
 MAX_DEPLOYED_LATE_ODDS_DROP_WEIGHT: float = 0.12
 MAX_DEPLOYED_LOG_ODDS_PENALTY: float = 0.08
 MAX_DEPLOYED_PROB_RANK_BONUS: float = 0.05
@@ -61,6 +65,45 @@ def _race_key(df: pd.DataFrame) -> pd.Series:
     if "race_id" in df.columns:
         return df["race_id"]
     return pd.Series("_race", index=df.index, dtype=object)
+
+
+def _surface_series(df: pd.DataFrame) -> pd.Series:
+    if "surface" not in df.columns:
+        return pd.Series("turf", index=df.index, dtype=object)
+    return df["surface"].astype(str).str.lower()
+
+
+def _dirt_mask(df: pd.DataFrame) -> pd.Series:
+    return _surface_series(df).eq("dirt")
+
+
+def _surface_defaults(df: pd.DataFrame) -> dict[str, float]:
+    is_dirt = bool(_dirt_mask(df).mean() >= 0.5)
+    if is_dirt:
+        return {
+            "late_odds_drop_weight": DEFAULT_DIRT_LATE_ODDS_DROP_WEIGHT,
+            "log_odds_penalty": DEFAULT_DIRT_LOG_ODDS_PENALTY,
+            "prob_rank_bonus": DEFAULT_DIRT_PROB_RANK_BONUS,
+            "market_risk_penalty_weight": DEFAULT_DIRT_MARKET_RISK_PENALTY_WEIGHT,
+        }
+    return {
+        "late_odds_drop_weight": DEFAULT_LATE_ODDS_DROP_WEIGHT,
+        "log_odds_penalty": DEFAULT_LOG_ODDS_PENALTY,
+        "prob_rank_bonus": DEFAULT_PROB_RANK_BONUS,
+        "market_risk_penalty_weight": DEFAULT_MARKET_RISK_PENALTY_WEIGHT,
+    }
+
+
+def surface_param_series(
+    df: pd.DataFrame,
+    *,
+    turf_value: float,
+    dirt_value: float,
+) -> pd.Series:
+    return pd.Series(float(turf_value), index=df.index, dtype=float).mask(
+        _dirt_mask(df),
+        float(dirt_value),
+    )
 
 
 def race_zscore(values: pd.Series, race_key: pd.Series) -> pd.Series:
@@ -255,6 +298,26 @@ def market_risk_penalty(
     return pd.to_numeric(penalty, errors="coerce").fillna(0.0).astype(float)
 
 
+def surface_aware_selection_base(
+    df: pd.DataFrame,
+    *,
+    race_key: pd.Series | None = None,
+    fallback_edge: pd.Series | None = None,
+) -> pd.Series:
+    """Use market residual for turf and model edge for dirt."""
+    prepared = ensure_win_selection_columns(df)
+    residual = market_residual_score(prepared, race_key=race_key)
+    if fallback_edge is not None:
+        edge = pd.to_numeric(fallback_edge, errors="coerce")
+    else:
+        edge = _numeric(prepared, "win_selection_edge")
+        edge = edge.where(edge.notna(), _numeric(prepared, "win_selection_ev") - 1.0)
+    if not residual.notna().any():
+        return edge
+    base = residual.where(residual.notna(), edge)
+    return base.where(~_dirt_mask(prepared), edge).astype(float)
+
+
 def deployed_policy_params(policy: Any | None) -> dict[str, float]:
     defaults = {
         "late_odds_drop_weight": DEFAULT_LATE_ODDS_DROP_WEIGHT,
@@ -263,6 +326,10 @@ def deployed_policy_params(policy: Any | None) -> dict[str, float]:
         "ev_tail_penalty_weight": DEFAULT_EV_TAIL_PENALTY_WEIGHT,
         "ev_tail_threshold": DEFAULT_EV_TAIL_THRESHOLD,
         "market_risk_penalty_weight": DEFAULT_MARKET_RISK_PENALTY_WEIGHT,
+        "dirt_late_odds_drop_weight": DEFAULT_DIRT_LATE_ODDS_DROP_WEIGHT,
+        "dirt_log_odds_penalty": DEFAULT_DIRT_LOG_ODDS_PENALTY,
+        "dirt_prob_rank_bonus": DEFAULT_DIRT_PROB_RANK_BONUS,
+        "dirt_market_risk_penalty_weight": DEFAULT_DIRT_MARKET_RISK_PENALTY_WEIGHT,
     }
     if policy is None:
         return defaults
@@ -280,6 +347,10 @@ def deployed_policy_params(policy: Any | None) -> dict[str, float]:
         ),
         "ev_tail_threshold": DEFAULT_EV_TAIL_THRESHOLD,
         "market_risk_penalty_weight": DEFAULT_MARKET_RISK_PENALTY_WEIGHT,
+        "dirt_late_odds_drop_weight": DEFAULT_DIRT_LATE_ODDS_DROP_WEIGHT,
+        "dirt_log_odds_penalty": DEFAULT_DIRT_LOG_ODDS_PENALTY,
+        "dirt_prob_rank_bonus": DEFAULT_DIRT_PROB_RANK_BONUS,
+        "dirt_market_risk_penalty_weight": DEFAULT_DIRT_MARKET_RISK_PENALTY_WEIGHT,
     }
 
 
@@ -308,13 +379,7 @@ class WinSelectionPolicy:
 
     def _base_edge(self, df: pd.DataFrame) -> pd.Series:
         prepared = ensure_win_selection_columns(df)
-        residual = market_residual_score(prepared)
-        if residual.notna().any():
-            return residual
-        edge = _numeric(prepared, "win_selection_edge")
-        if edge.notna().any():
-            return edge
-        return _numeric(prepared, "win_selection_ev") - 1.0
+        return surface_aware_selection_base(prepared)
 
     def score(
         self,
@@ -346,13 +411,33 @@ class WinSelectionPolicy:
             .fillna(0.5)
         )
         risk_penalty = market_risk_penalty(df, race_key=key)
+        late_weight = surface_param_series(
+            df,
+            turf_value=self.late_odds_drop_weight,
+            dirt_value=DEFAULT_DIRT_LATE_ODDS_DROP_WEIGHT,
+        )
+        log_penalty = surface_param_series(
+            df,
+            turf_value=self.log_odds_penalty,
+            dirt_value=DEFAULT_DIRT_LOG_ODDS_PENALTY,
+        )
+        prob_bonus = surface_param_series(
+            df,
+            turf_value=self.prob_rank_bonus,
+            dirt_value=DEFAULT_DIRT_PROB_RANK_BONUS,
+        )
+        risk_weight = surface_param_series(
+            df,
+            turf_value=DEFAULT_MARKET_RISK_PENALTY_WEIGHT,
+            dirt_value=DEFAULT_DIRT_MARKET_RISK_PENALTY_WEIGHT,
+        )
         return (
             base
-            - float(self.late_odds_drop_weight) * late_drop_z
-            - float(self.log_odds_penalty) * log_odds
-            + float(self.prob_rank_bonus) * prob_rank
+            - late_weight * late_drop_z
+            - log_penalty * log_odds
+            + prob_bonus * prob_rank
             - float(self.ev_tail_penalty_weight) * ev_tail_pressure(df)
-            - DEFAULT_MARKET_RISK_PENALTY_WEIGHT * risk_penalty
+            - risk_weight * risk_penalty
         ).astype(float)
 
     def apply(
@@ -387,12 +472,29 @@ class WinSelectionPolicy:
             )
             .fillna(0.5)
         )
-        prepared["win_log_odds_penalty"] = self.log_odds_penalty
-        prepared["win_prob_rank_bonus"] = self.prob_rank_bonus
+        prepared["win_late_odds_drop_weight"] = surface_param_series(
+            prepared,
+            turf_value=self.late_odds_drop_weight,
+            dirt_value=DEFAULT_DIRT_LATE_ODDS_DROP_WEIGHT,
+        )
+        prepared["win_log_odds_penalty"] = surface_param_series(
+            prepared,
+            turf_value=self.log_odds_penalty,
+            dirt_value=DEFAULT_DIRT_LOG_ODDS_PENALTY,
+        )
+        prepared["win_prob_rank_bonus"] = surface_param_series(
+            prepared,
+            turf_value=self.prob_rank_bonus,
+            dirt_value=DEFAULT_DIRT_PROB_RANK_BONUS,
+        )
         prepared["win_ev_tail_pressure"] = ev_tail_pressure(prepared)
         prepared["win_ev_tail_penalty_weight"] = self.ev_tail_penalty_weight
         prepared["win_market_risk_penalty"] = market_risk_penalty(prepared, race_key=key)
-        prepared["win_market_risk_penalty_weight"] = DEFAULT_MARKET_RISK_PENALTY_WEIGHT
+        prepared["win_market_risk_penalty_weight"] = surface_param_series(
+            prepared,
+            turf_value=DEFAULT_MARKET_RISK_PENALTY_WEIGHT,
+            dirt_value=DEFAULT_DIRT_MARKET_RISK_PENALTY_WEIGHT,
+        )
         prepared[score_col] = self.score(prepared, race_key=key)
         if "race_id" in prepared.columns:
             prepared["selected_rank_by_win_market_score"] = (
@@ -441,8 +543,11 @@ class WinSelectionPolicy:
             )
             .fillna(0.5)
         )
-        log_penalty = sanitize_log_odds_penalty(self.log_odds_penalty)
-        prob_bonus = sanitize_prob_rank_bonus(self.prob_rank_bonus)
+        defaults = _surface_defaults(prepared)
+        default_late_weight = defaults["late_odds_drop_weight"]
+        log_penalty = defaults["log_odds_penalty"]
+        prob_bonus = defaults["prob_rank_bonus"]
+        risk_weight = defaults["market_risk_penalty_weight"]
         ev_tail = ev_tail_pressure(prepared)
         risk_penalty = market_risk_penalty(prepared, race_key=key)
 
@@ -459,7 +564,7 @@ class WinSelectionPolicy:
                     - log_penalty * log_odds
                     + prob_bonus * prob_rank
                     - float(tail_weight) * ev_tail
-                    - DEFAULT_MARKET_RISK_PENALTY_WEIGHT * risk_penalty
+                    - risk_weight * risk_penalty
                 )
                 roi_all = _roi_for_score(prepared, score)
                 year_rois: list[float] = []
@@ -502,17 +607,17 @@ class WinSelectionPolicy:
             return self
 
         default = result.loc[
-            result["weight"].eq(DEFAULT_LATE_ODDS_DROP_WEIGHT)
+            result["weight"].eq(default_late_weight)
             & result["ev_tail_penalty_weight"].eq(DEFAULT_EV_TAIL_PENALTY_WEIGHT)
         ]
         if default.empty:
             default_score = (
                 base
-                - DEFAULT_LATE_ODDS_DROP_WEIGHT * late_drop_z
+                - default_late_weight * late_drop_z
                 - log_penalty * log_odds
                 + prob_bonus * prob_rank
                 - DEFAULT_EV_TAIL_PENALTY_WEIGHT * ev_tail
-                - DEFAULT_MARKET_RISK_PENALTY_WEIGHT * risk_penalty
+                - risk_weight * risk_penalty
             )
             default_year_rois: dict[str, float] = {}
             for year in sorted(years.dropna().unique().tolist()):
@@ -522,7 +627,7 @@ class WinSelectionPolicy:
                     default_score.loc[mask],
                 )
             default_row = {
-                "weight": DEFAULT_LATE_ODDS_DROP_WEIGHT,
+                "weight": default_late_weight,
                 "ev_tail_penalty_weight": DEFAULT_EV_TAIL_PENALTY_WEIGHT,
                 "roi_all": _roi_for_score(prepared, default_score),
                 "roi_mean_by_year": float(np.nanmean(list(default_year_rois.values()))),
@@ -533,7 +638,7 @@ class WinSelectionPolicy:
             }
             result = pd.concat([result, pd.DataFrame([default_row])], ignore_index=True)
             default = result.loc[
-                result["weight"].eq(DEFAULT_LATE_ODDS_DROP_WEIGHT)
+                result["weight"].eq(default_late_weight)
                 & result["ev_tail_penalty_weight"].eq(DEFAULT_EV_TAIL_PENALTY_WEIGHT)
             ]
         default_row = default.iloc[0]
@@ -560,7 +665,7 @@ class WinSelectionPolicy:
         mean_delta = float(best["roi_mean_by_year"] - default_roi)
         min_year_delta = min(year_deltas.values()) if year_deltas else float("-inf")
         candidate_changed = (
-            float(best["weight"]) != DEFAULT_LATE_ODDS_DROP_WEIGHT
+            float(best["weight"]) != default_late_weight
             or float(best["ev_tail_penalty_weight"]) != DEFAULT_EV_TAIL_PENALTY_WEIGHT
         )
         uses_tail_shrinkage = float(best["ev_tail_penalty_weight"]) > DEFAULT_EV_TAIL_PENALTY_WEIGHT
@@ -594,10 +699,10 @@ class WinSelectionPolicy:
         self.training_summary = {
             "selected_weight": self.late_odds_drop_weight,
             "selected_ev_tail_penalty_weight": self.ev_tail_penalty_weight,
-            "default_weight": DEFAULT_LATE_ODDS_DROP_WEIGHT,
+            "default_weight": default_late_weight,
             "default_ev_tail_penalty_weight": DEFAULT_EV_TAIL_PENALTY_WEIGHT,
             "ev_tail_threshold": DEFAULT_EV_TAIL_THRESHOLD,
-            "market_risk_penalty_weight": DEFAULT_MARKET_RISK_PENALTY_WEIGHT,
+            "market_risk_penalty_weight": risk_weight,
             "default_log_odds_penalty": log_penalty,
             "default_prob_rank_bonus": prob_bonus,
             "min_policy_deploy_roi_all": MIN_POLICY_DEPLOY_ROI_ALL,
@@ -633,6 +738,10 @@ class WinSelectionPolicy:
                 "prob_rank_bonus": self.prob_rank_bonus,
                 "ev_tail_penalty_weight": self.ev_tail_penalty_weight,
                 "market_risk_penalty_weight": DEFAULT_MARKET_RISK_PENALTY_WEIGHT,
+                "dirt_late_odds_drop_weight": DEFAULT_DIRT_LATE_ODDS_DROP_WEIGHT,
+                "dirt_log_odds_penalty": DEFAULT_DIRT_LOG_ODDS_PENALTY,
+                "dirt_prob_rank_bonus": DEFAULT_DIRT_PROB_RANK_BONUS,
+                "dirt_market_risk_penalty_weight": DEFAULT_DIRT_MARKET_RISK_PENALTY_WEIGHT,
                 "candidate_weights": tuple(self.candidate_weights),
                 "candidate_ev_tail_penalties": tuple(self.candidate_ev_tail_penalties),
                 "is_trained": self.is_trained,

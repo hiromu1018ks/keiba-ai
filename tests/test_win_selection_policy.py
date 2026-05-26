@@ -10,6 +10,10 @@ import pandas as pd
 import pytest
 
 from models.win_selection_policy import (
+    DEFAULT_DIRT_LATE_ODDS_DROP_WEIGHT,
+    DEFAULT_DIRT_LOG_ODDS_PENALTY,
+    DEFAULT_DIRT_MARKET_RISK_PENALTY_WEIGHT,
+    DEFAULT_DIRT_PROB_RANK_BONUS,
     DEFAULT_EV_TAIL_PENALTY_WEIGHT,
     DEFAULT_EV_TAIL_THRESHOLD,
     DEFAULT_LATE_ODDS_DROP_WEIGHT,
@@ -151,6 +155,38 @@ def test_train_can_deploy_oof_ev_tail_shrinkage_without_filtering() -> None:
     assert scored.sort_values("selected_rank_by_win_market_score").iloc[0]["umaban"] == 2
 
 
+def test_dirt_policy_keeps_edge_base_and_dirt_defaults() -> None:
+    policy = WinSelectionPolicy()
+    scored = policy.apply(
+        pd.DataFrame(
+            {
+                "race_id": ["202401010001", "202401010001"],
+                "race_date": [pd.Timestamp("2024-01-01"), pd.Timestamp("2024-01-01")],
+                "surface": ["dirt", "dirt"],
+                "umaban": [1, 2],
+                "kakuteijyuni": [2, 1],
+                "tanodds": [2.0, 12.0],
+                "p_win_final": [0.60, 0.08],
+                "win_selection_prob": [0.60, 0.08],
+                "win_selection_ev": [1.05, 1.30],
+                "win_selection_edge": [0.05, 0.30],
+                "odds_drop_rate_30_10": [0.0, 0.0],
+            }
+        )
+    )
+
+    selected = scored.sort_values("selected_rank_by_win_market_score").iloc[0]
+    assert selected["umaban"] == 2
+    assert selected["win_late_odds_drop_weight"] == pytest.approx(
+        DEFAULT_DIRT_LATE_ODDS_DROP_WEIGHT
+    )
+    assert selected["win_log_odds_penalty"] == pytest.approx(DEFAULT_DIRT_LOG_ODDS_PENALTY)
+    assert selected["win_prob_rank_bonus"] == pytest.approx(DEFAULT_DIRT_PROB_RANK_BONUS)
+    assert selected["win_market_risk_penalty_weight"] == pytest.approx(
+        DEFAULT_DIRT_MARKET_RISK_PENALTY_WEIGHT
+    )
+
+
 def test_negative_saved_policy_weight_is_not_deployed() -> None:
     with tempfile.TemporaryDirectory() as tmpdir:
         path = Path(tmpdir) / "bad_policy.joblib"
@@ -184,4 +220,8 @@ def test_non_deployable_policy_uses_default_weight() -> None:
         "ev_tail_penalty_weight": DEFAULT_EV_TAIL_PENALTY_WEIGHT,
         "ev_tail_threshold": DEFAULT_EV_TAIL_THRESHOLD,
         "market_risk_penalty_weight": DEFAULT_MARKET_RISK_PENALTY_WEIGHT,
+        "dirt_late_odds_drop_weight": DEFAULT_DIRT_LATE_ODDS_DROP_WEIGHT,
+        "dirt_log_odds_penalty": DEFAULT_DIRT_LOG_ODDS_PENALTY,
+        "dirt_prob_rank_bonus": DEFAULT_DIRT_PROB_RANK_BONUS,
+        "dirt_market_risk_penalty_weight": DEFAULT_DIRT_MARKET_RISK_PENALTY_WEIGHT,
     }
