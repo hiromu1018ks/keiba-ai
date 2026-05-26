@@ -29,6 +29,7 @@ def _make_submodel_mock() -> MagicMock:
     sm.win_isotonic_calibrator = None
     sm.win_temperature_scaler = None
     sm.win_selection_gate = None
+    sm.win_segment_calibrator = None
     sm.ev_lower_threshold_turf = 1.0
     sm.ev_lower_threshold_dirt = 1.0
     sm.target_encoder = None
@@ -1706,6 +1707,45 @@ class TestGetWinCandidates:
         result = predictor.get_win_candidates(race_df)
 
         assert result.iloc[0]["umaban"] == 1
+
+    def test_turf_segment_calibrator_updates_probability_residual_rank(
+        self, mock_models: MagicMock
+    ) -> None:
+        """OOFセグメント補正は除外ではなく、芝の確率残差順位を補正する。"""
+        from backtest.race_predictor import RacePredictor
+        from models.win_segment_calibrator import WinSegmentCalibrator
+
+        calibrator = WinSegmentCalibrator()
+        calibrator.segment_table = {
+            "turf|2-5|1|1.2-1.5": {
+                "p_factor": 0.85,
+                "ev_factor": 1.0,
+                "n": 180.0,
+                "wins": 20.0,
+            }
+        }
+        calibrator._trained = True
+        mock_models.submodels["turf"].win_segment_calibrator = calibrator
+        predictor = RacePredictor(models=mock_models)
+        race_df = self._make_win_race_df(
+            n=2,
+            surface=["turf", "turf"],
+            tanodds=[3.0, 3.0],
+            p_win_final=[0.55, 0.50],
+            win_selection_prob=[0.55, 0.50],
+            win_selection_ev=[1.20, 1.20],
+            win_selection_edge=[0.20, 0.20],
+        )
+
+        result = predictor.get_win_candidates(race_df)
+        diag_df = result.attrs["win_diagnostic_df"]
+
+        assert len(result) == 1
+        assert result.iloc[0]["umaban"] == 2
+        first_diag = diag_df.loc[diag_df["umaban"].eq(1)].iloc[0]
+        assert first_diag["p_win_final"] == pytest.approx(0.4675)
+        assert "seg_p=0.8500" in first_diag["filter_pass_flags"]
+        assert result.iloc[0]["win_selection_ev_tail_calibrated"] == pytest.approx(1.20)
 
     def test_missing_tanodds_returns_empty(self, mock_models: MagicMock) -> None:
         """tanodds 列なし → 空 DataFrame"""

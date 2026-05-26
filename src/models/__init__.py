@@ -11,6 +11,7 @@ from models.submodel_manager import SubModelManager
 from models.two_stage_return_model import PlaceTwoStageModel, WinTwoStageModel
 from models.wide_two_stage_model import WideTwoStageModel
 from models.win_profit_selector import WinProfitSelector
+from models.win_segment_calibrator import WinSegmentCalibrator
 
 __all__ = [
     "AbilityModel",
@@ -24,5 +25,6 @@ __all__ = [
     "SubModelManager",
     "WinTwoStageModel",
     "WinProfitSelector",
+    "WinSegmentCalibrator",
     "WideTwoStageModel",
 ]

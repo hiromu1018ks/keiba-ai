@@ -23,6 +23,7 @@ if TYPE_CHECKING:
     from models.two_stage_return_model import PlaceTwoStageModel, WinTwoStageModel
     from models.wide_two_stage_model import WideTwoStageModel
     from models.win_profit_selector import WinProfitSelector
+    from models.win_segment_calibrator import WinSegmentCalibrator
     from models.win_selection_gate import WinSelectionGateModel
     from models.win_selection_policy import WinSelectionPolicy
 
@@ -260,6 +261,7 @@ class SubmodelSet:
     win_selection_gate: WinSelectionGateModel | None = None
     win_selection_policy: WinSelectionPolicy | None = None
     win_profit_selector: WinProfitSelector | None = None
+    win_segment_calibrator: WinSegmentCalibrator | None = None
     # EV_lower dynamic threshold (D-01/D-02, EVF-01)
     ev_lower_threshold_turf: float = 1.0
     ev_lower_threshold_dirt: float = 1.0

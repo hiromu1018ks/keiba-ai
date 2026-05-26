@@ -91,6 +91,7 @@ class ModelLoader:
         from models.two_stage_return_model import PlaceTwoStageModel, WinTwoStageModel
         from models.wide_two_stage_model import WideTwoStageModel
         from models.win_profit_selector import WinProfitSelector
+        from models.win_segment_calibrator import WinSegmentCalibrator
         from models.win_selection_gate import WinSelectionGateModel
         from models.win_selection_policy import WinSelectionPolicy
 
@@ -215,6 +216,25 @@ class ModelLoader:
                         win_profit_selector = WinProfitSelector.load(wps_files[0])
                     except Exception:
                         logger.warning("Failed to load WinProfitSelector for %s", surface)
+
+            # --- WinSegmentCalibrator (MLflow) ---
+            win_segment_calibrator = None
+            try:
+                wsc_dir = mlflow.artifacts.download_artifacts(
+                    f"runs:/{run_id}/win_segment_calibrator_{surface}"
+                )
+            except Exception:
+                try:
+                    wsc_dir = self._find_artifact_dir(run_id, f"win_segment_calibrator_{surface}")
+                except Exception:
+                    wsc_dir = None
+            if wsc_dir is not None:
+                wsc_files = list(Path(wsc_dir).glob("*.joblib"))
+                if wsc_files:
+                    try:
+                        win_segment_calibrator = WinSegmentCalibrator.load(wsc_files[0])
+                    except Exception:
+                        logger.warning("Failed to load WinSegmentCalibrator for %s", surface)
 
             # PlaceAbilityModel (joblib artifact)
             pa = PlaceAbilityModel()
@@ -408,6 +428,7 @@ class ModelLoader:
                 win_selection_gate=win_selection_gate,
                 win_selection_policy=win_selection_policy,
                 win_profit_selector=win_profit_selector,
+                win_segment_calibrator=win_segment_calibrator,
                 ev_isotonic_calibrator=ev_isotonic_calibrator,
                 ev_odds_band_scales=ev_odds_band_scales,
             )
@@ -588,6 +609,7 @@ class ModelLoader:
         from models.two_stage_return_model import PlaceTwoStageModel, WinTwoStageModel
         from models.wide_two_stage_model import WideTwoStageModel
         from models.win_profit_selector import WinProfitSelector
+        from models.win_segment_calibrator import WinSegmentCalibrator
         from models.win_selection_gate import WinSelectionGateModel
         from models.win_selection_policy import WinSelectionPolicy
 
@@ -720,6 +742,14 @@ class ModelLoader:
                     win_profit_selector = WinProfitSelector.load(wps_file)
                 except Exception:
                     logger.warning("Failed to load %s, skipping", wps_file)
+
+            win_segment_calibrator = None
+            wsc_file = models_dir / f"win_segment_calibrator_{surface}.joblib"
+            if wsc_file.is_file():
+                try:
+                    win_segment_calibrator = WinSegmentCalibrator.load(wsc_file)
+                except Exception:
+                    logger.warning("Failed to load %s, skipping", wsc_file)
 
             # PlaceAbilityModel (joblib)
             pa = PlaceAbilityModel()
@@ -879,6 +909,7 @@ class ModelLoader:
                 win_selection_gate=win_selection_gate,
                 win_selection_policy=win_selection_policy,
                 win_profit_selector=win_profit_selector,
+                win_segment_calibrator=win_segment_calibrator,
                 ev_isotonic_calibrator=ev_isotonic_calibrator,
                 ev_odds_band_scales=ev_odds_band_scales,
                 target_encoder=target_encoder,

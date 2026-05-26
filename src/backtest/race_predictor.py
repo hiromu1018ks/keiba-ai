@@ -150,6 +150,19 @@ class RacePredictor:
             return selector
         return None
 
+    def _get_win_segment_calibrator(self, race_df: pd.DataFrame) -> Any | None:
+        if race_df.empty or "surface" not in race_df.columns:
+            return None
+        surface_key = race_df["surface"].iloc[0]
+        submodels = getattr(self.models, "submodels", {})
+        submodel = submodels.get(surface_key)
+        if submodel is None:
+            return None
+        calibrator = getattr(submodel, "win_segment_calibrator", None)
+        if calibrator is not None and getattr(calibrator, "is_trained", False) is True:
+            return calibrator
+        return None
+
     def predict(
         self,
         race_df: pd.DataFrame,
@@ -641,6 +654,31 @@ class RacePredictor:
         else:
             prepared["_calibrated_edge"] = calibrated_edge
 
+        segment_calibrator = self._get_win_segment_calibrator(prepared)
+        if segment_calibrator is not None:
+            prepared = segment_calibrator.apply(prepared)
+            if "p_win_final" in prepared.columns:
+                prob_source_after_segment = pd.to_numeric(
+                    prepared["p_win_final"],
+                    errors="coerce",
+                )
+            else:
+                prob_source_after_segment = pd.to_numeric(
+                    prepared.get("win_selection_prob", pd.Series(np.nan, index=prepared.index)),
+                    errors="coerce",
+                )
+            if "win_selection_ev_tail_calibrated" in prepared.columns:
+                tail_ev = pd.to_numeric(
+                    prepared["win_selection_ev_tail_calibrated"],
+                    errors="coerce",
+                )
+            calibrated_edge = pd.to_numeric(prepared[edge_col], errors="coerce")
+        else:
+            prob_source_after_segment = None
+            prepared["win_segment_prob_factor"] = 1.0
+            prepared["win_segment_ev_factor"] = 1.0
+            prepared["win_segment_key"] = pd.NA
+
         # ROI診断で edge>0 ゲートが勝ち馬の約9割を落としていたため、
         # edge は購入条件ではなく診断・順位付け材料に留める。
         positive_edge = calibrated_edge.fillna(0.0) > 0.0
@@ -660,6 +698,8 @@ class RacePredictor:
                 prepared.get("win_selection_prob", pd.Series(np.nan, index=prepared.index)),
                 errors="coerce",
             )
+        if prob_source_after_segment is not None:
+            prob_source = prob_source_after_segment
         has_predictive_signal = (
             selection_ev_raw.notna() | calibrated_edge.notna() | prob_source.notna()
         )
@@ -879,6 +919,8 @@ class RacePredictor:
                 f"ev_tail_pressure={_safe_float(ev_tail_risk.loc[idx], 0.0):.4f};"
                 f"ev_tail_pen_w={ev_tail_penalty_weight:.4f};"
                 f"risk_pen_w={_safe_float(market_risk_penalty_weight.loc[idx], 0.0):.4f};"
+                f"seg_p={_safe_float(prepared['win_segment_prob_factor'].loc[idx], 1.0):.4f};"
+                f"seg_ev={_safe_float(prepared['win_segment_ev_factor'].loc[idx], 1.0):.4f};"
                 f"prob_rank={bool(prob_rank_pass.fillna(False).loc[idx])};"
                 f"prob_floor={bool(prob_floor_pass.fillna(False).loc[idx])};"
                 f"profit_pass={bool(prepared[PROFIT_PASS_COL].fillna(False).loc[idx])};"

@@ -51,6 +51,7 @@ from models.two_stage_return_model import PlaceTwoStageModel, WinTwoStageModel
 from models.wide_pair_builder import WideJointPairBuilder
 from models.wide_two_stage_model import WideTwoStageModel
 from models.win_profit_selector import WinProfitSelector
+from models.win_segment_calibrator import WinSegmentCalibrator
 from models.win_selection_gate import WinSelectionGateModel, ensure_win_selection_columns
 from models.win_selection_policy import WinSelectionPolicy
 
@@ -1541,6 +1542,16 @@ class TrainingPipelineV5:
                 win_profit_selector.training_summary,
             )
 
+        with TimingContext(f"{surface}/win_segment_calibrator_train"):
+            win_segment_calibrator = WinSegmentCalibrator()
+            win_segment_calibrator.train(wsg_train_df)
+            logger.info(
+                "WinSegmentCalibrator trained for %s: trained=%s summary=%s",
+                surface,
+                win_segment_calibrator.is_trained,
+                win_segment_calibrator.training_summary,
+            )
+
         # --- D-08 Part 2: Runtime check (ensemble mode only) ---
         if use_ensemble and not win_selection_gate.is_trained:
             logger.warning(
@@ -1585,6 +1596,7 @@ class TrainingPipelineV5:
             win_selection_gate=win_selection_gate,
             win_selection_policy=win_selection_policy,
             win_profit_selector=win_profit_selector,
+            win_segment_calibrator=win_segment_calibrator,
             ev_lower_threshold_turf=ev_threshold_turf,
             ev_lower_threshold_dirt=ev_threshold_dirt,
             ev_isotonic_calibrator=ev_isotonic_calibrator,
@@ -2217,6 +2229,20 @@ class TrainingPipelineV5:
                         if wps_tmp and os.path.exists(wps_tmp):
                             os.unlink(wps_tmp)
 
+                if sub.win_segment_calibrator is not None and sub.win_segment_calibrator.is_trained:
+                    wsc_tmp: str | None = None
+                    try:
+                        with tempfile.NamedTemporaryFile(
+                            suffix=".joblib",
+                            delete=False,
+                        ) as wsc_file:
+                            wsc_tmp = wsc_file.name
+                        sub.win_segment_calibrator.save(Path(wsc_tmp))
+                        mlflow.log_artifact(wsc_tmp, f"win_segment_calibrator_{surface}")
+                    finally:
+                        if wsc_tmp and os.path.exists(wsc_tmp):
+                            os.unlink(wsc_tmp)
+
                 # PlaceTwoStageModel
                 if sub.place is not None:
                     if sub.use_ensemble:
@@ -2384,6 +2410,11 @@ class TrainingPipelineV5:
 
             if sub.win_profit_selector is not None and sub.win_profit_selector.is_trained:
                 sub.win_profit_selector.save(models_dir / f"win_profit_selector_{surface}.joblib")
+
+            if sub.win_segment_calibrator is not None and sub.win_segment_calibrator.is_trained:
+                sub.win_segment_calibrator.save(
+                    models_dir / f"win_segment_calibrator_{surface}.joblib"
+                )
 
             # Benter Combination (JSON)
             if sub.benter_combo is not None:
