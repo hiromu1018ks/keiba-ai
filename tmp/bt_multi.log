@@ -1,113 +1,457 @@
-11:15:07 [INFO] ParquetStore OK
-11:15:07 [INFO] 2024年: 学習スキップ (--skip-train)
-11:15:09 [INFO] Loading StackedEnsemble: data\models-backtest\2024\win_hit_turf.joblib
-11:15:11 [INFO] Place model files not found for turf, skipping (betting_target=win?)
-11:15:11 [INFO] Wide model files not found for turf, skipping (betting_target=win?)
-11:15:11 [INFO] Loading StackedEnsemble: data\models-backtest\2024\win_hit_dirt.joblib
-11:15:11 [INFO] Place model files not found for dirt, skipping (betting_target=win?)
-11:15:11 [INFO] Wide model files not found for dirt, skipping (betting_target=win?)
-11:15:11 [INFO] キャッシュモデルをロード: data\models-backtest\2024 (学習期間: 2020-01-01 ~ 2023-12-31)
-11:15:11 [INFO] キャリブレーションBT: スキップ (--calibration-bt 未指定)
-11:16:31 [INFO] Loaded win payout map: 3454 entries
-11:16:31 [INFO] Feature cache MISS: feat_401e3b1e2b5fa066 (computing...)
-11:16:32 [INFO] [TIMING] build_all/intra_race: 0.062s
-11:16:51 [INFO] [TIMING] build_all/odds_dynamics: 19.588s
-11:16:51 [INFO] [TIMING] build_all/market_bias: 0.171s
-11:16:52 [INFO] [TIMING] build_all/flb_slope: 0.879s
-11:16:52 [INFO] [TIMING] build_all/difficulty: 0.058s
-11:16:52 [INFO] [TIMING] build_all/race_level: 0.188s
-11:17:00 [INFO] [TIMING] build_all/market_cross: 7.314s
-11:17:02 [INFO] [TIMING] build_all/bloodline: 1.893s
-11:17:02 [INFO] SAFE-01: dropping 48 POST_RACE cols from build_all() output: ['nyusentosu', 'laptime1', 'laptime2', 'laptime3', 'laptime4', 'laptime5', 'laptime6', 'laptime7', 'laptime8', 'laptime9', 'laptime10', 'laptime11', 'laptime12', 'laptime13', 'laptime14', 'laptime15', 'laptime16', 'laptime17', 'laptime18', 'laptime19', 'laptime20', 'laptime21', 'laptime22', 'laptime23', 'laptime24', 'laptime25', 'harontimes3', 'harontimes4', 'harontimel3', 'harontimel4', 'recordupkubun', 'ijyocd', 'nyusenjyuni', 'dochakukubun', 'dochakutosu', 'time', 'chakusacd', 'jyuni1c', 'jyuni2c', 'jyuni3c', 'jyuni4c', 'ninki', 'honsyokin', 'fukasyokin', 'timediff', 'dmtime', 'dmjyuni', 'kyakusitukubun']
-11:17:02 [INFO] Feature cache SAVED: feat_401e3b1e2b5fa066 (45437 rows)
-11:17:03 [INFO] Merged wide odds: 153 pair-columns
-11:17:03 [INFO] Pre-computing HorseHistoryFeatures for 3327 races...
-11:20:24 [INFO] Pre-computing JockeyContextFeatures for 45827 entries...
-11:20:24 [INFO] Pre-computing TrainerContextFeatures for 45827 entries...
-11:20:25 [INFO] Pre-computing JockeyTrainerComboFeatures for 45827 entries...
-11:20:35 [INFO] Computing SireFeatures for backtest inference...
-11:20:47 [INFO] Pre-computing PaceAptitudeFeatures...
-11:20:57 [INFO] Pre-computing CourseFeatures...
-11:21:08 [INFO] Merged hist features into feat_df: 67 columns
-11:21:08 [INFO] [features] 3327 groups, 45437 rows, 229.7 MB
-11:21:08 [INFO] [jockey] 3329 groups, 45827 rows, 2.4 MB
-11:21:08 [INFO] [trainer] 3329 groups, 45827 rows, 2.4 MB
-11:21:08 [INFO] [jockey_trainer] 3329 groups, 45827 rows, 2.7 MB
-11:37:16 [INFO] Race diagnostics saved: 3327 records -> data\backtest\bt_2024_race_diagnostics.csv
-11:37:22 [INFO] Horse diagnostics saved: 45437 records -> data\backtest\bt_2024_horse_diagnostics.csv
-11:37:31 [INFO] Feature diagnostics saved: 45437 records -> data\backtest\bt_2024_horse_features.parquet
-11:37:31 [INFO] Bet Selection Filters: EV_excluded=0, COLLAPSED_skipped=0
-11:37:31 [INFO] Validation report saved: data\validation\validation_report.json
-11:37:33 [INFO] Parquet保存: C:\Users\hirom\develop\keiba-ai\data\backtest\predictions\2024.parquet (45437 rows)
-11:37:33 [INFO] 2025年: 学習スキップ (--skip-train)
-11:37:33 [INFO] Loading StackedEnsemble: data\models-backtest\2025\win_hit_turf.joblib
-11:37:33 [INFO] Place model files not found for turf, skipping (betting_target=win?)
-11:37:33 [INFO] Wide model files not found for turf, skipping (betting_target=win?)
-11:37:33 [INFO] Loading StackedEnsemble: data\models-backtest\2025\win_hit_dirt.joblib
-11:37:33 [INFO] Place model files not found for dirt, skipping (betting_target=win?)
-11:37:33 [INFO] Wide model files not found for dirt, skipping (betting_target=win?)
-11:37:33 [INFO] キャッシュモデルをロード: data\models-backtest\2025 (学習期間: 2021-01-01 ~ 2024-12-31)
-11:37:33 [INFO] キャリブレーションBT: スキップ (--calibration-bt 未指定)
-11:40:53 [INFO] Loaded win payout map: 3455 entries
-11:40:53 [INFO] Feature cache MISS: feat_ef9524324af08147 (computing...)
-11:40:55 [INFO] [TIMING] build_all/intra_race: 0.092s
-11:41:42 [INFO] [TIMING] build_all/odds_dynamics: 47.154s
-11:41:42 [INFO] [TIMING] build_all/market_bias: 0.402s
-11:41:44 [INFO] [TIMING] build_all/flb_slope: 1.967s
-11:41:44 [INFO] [TIMING] build_all/difficulty: 0.081s
-11:41:45 [INFO] [TIMING] build_all/race_level: 0.492s
-11:42:00 [INFO] [TIMING] build_all/market_cross: 15.628s
-11:42:04 [INFO] [TIMING] build_all/bloodline: 3.974s
-11:42:04 [INFO] SAFE-01: dropping 48 POST_RACE cols from build_all() output: ['nyusentosu', 'laptime1', 'laptime2', 'laptime3', 'laptime4', 'laptime5', 'laptime6', 'laptime7', 'laptime8', 'laptime9', 'laptime10', 'laptime11', 'laptime12', 'laptime13', 'laptime14', 'laptime15', 'laptime16', 'laptime17', 'laptime18', 'laptime19', 'laptime20', 'laptime21', 'laptime22', 'laptime23', 'laptime24', 'laptime25', 'harontimes3', 'harontimes4', 'harontimel3', 'harontimel4', 'recordupkubun', 'ijyocd', 'nyusenjyuni', 'dochakukubun', 'dochakutosu', 'time', 'chakusacd', 'jyuni1c', 'jyuni2c', 'jyuni3c', 'jyuni4c', 'ninki', 'honsyokin', 'fukasyokin', 'timediff', 'dmtime', 'dmjyuni', 'kyakusitukubun']
-11:42:04 [INFO] 古いキャッシュファイル 1件を削除
-11:42:05 [INFO] Feature cache SAVED: feat_ef9524324af08147 (46160 rows)
-11:42:06 [INFO] Merged wide odds: 153 pair-columns
-11:42:06 [INFO] Pre-computing HorseHistoryFeatures for 3335 races...
-11:48:43 [INFO] Pre-computing JockeyContextFeatures for 46499 entries...
-11:48:44 [INFO] Pre-computing TrainerContextFeatures for 46499 entries...
-11:48:44 [INFO] Pre-computing JockeyTrainerComboFeatures for 46499 entries...
-11:49:04 [INFO] Computing SireFeatures for backtest inference...
-11:49:32 [INFO] Pre-computing PaceAptitudeFeatures...
-11:49:54 [INFO] Pre-computing CourseFeatures...
-11:50:16 [INFO] Merged hist features into feat_df: 67 columns
-11:50:17 [INFO] [features] 3335 groups, 46160 rows, 232.9 MB
-11:50:17 [INFO] [jockey] 3336 groups, 46499 rows, 2.4 MB
-11:50:17 [INFO] [trainer] 3336 groups, 46499 rows, 2.4 MB
-11:50:17 [INFO] [jockey_trainer] 3336 groups, 46499 rows, 2.7 MB
-12:01:31 [WARNING] Win payout missing for 2025052404010709 umaban=11, using tanodds fallback=13.1
-12:13:43 [INFO] Race diagnostics saved: 3335 records -> data\backtest\bt_2025_race_diagnostics.csv
-12:13:49 [INFO] Horse diagnostics saved: 46160 records -> data\backtest\bt_2025_horse_diagnostics.csv
-12:13:59 [INFO] Feature diagnostics saved: 46160 records -> data\backtest\bt_2025_horse_features.parquet
-12:13:59 [INFO] Bet Selection Filters: EV_excluded=0, COLLAPSED_skipped=0
-12:13:59 [INFO] Validation report saved: data\validation\validation_report.json
-12:14:01 [INFO] Parquet保存: C:\Users\hirom\develop\keiba-ai\data\backtest\predictions\2025.parquet (46160 rows)
+18:51:53 [INFO] ParquetStore OK
+18:51:54 [INFO] Loading data: 2020-01-01 ~ 2023-12-31
+18:56:14 [INFO] Using pre-post odds (5min before): 185066 rows
+18:56:14 [INFO] Building features
+18:56:14 [INFO] Feature cache HIT: feat_31f3e4d43d1101e3
+18:56:15 [INFO] Skipping wide odds pivot for betting_target=win
+19:04:04 [INFO] [TIMING] turf/horse_history: 468.242s
+19:04:04 [INFO] [TIMING] turf/add_race_transforms: 0.312s
+19:04:28 [INFO] [TIMING] turf/pace_aptitude: 23.755s
+19:04:54 [INFO] [TIMING] turf/course_features: 26.273s
+19:05:16 [INFO] [TIMING] turf/sire_features: 22.250s
+19:05:17 [INFO] [TIMING] turf/dam_pedigree: 0.468s
+19:05:17 [INFO] [TIMING] turf/record_features: 0.136s
+19:05:18 [INFO] [TIMING] turf/interaction: 0.452s
+19:05:18 [INFO] [TIMING] turf/mining_features: 0.185s
+19:05:18 [INFO] [TIMING] turf/relative_features: 0.310s
+19:05:30 [INFO] [TIMING] turf/market_model: 12.105s
+19:05:34 [INFO] SubModel 'turf' 学習完了: 22444 samples
+19:05:41 [INFO] SubModel 'turf' 学習完了: 44677 samples
+19:05:51 [INFO] SubModel 'turf' 学習完了: 66334 samples
+19:05:58 [INFO] SubModel 'turf' 学習完了: 88907 samples
+19:05:58 [INFO] [TIMING] turf/ability_oof: 27.856s
+19:05:59 [INFO] [TIMING] turf/target_encoding: 0.240s
+19:05:59 [INFO] Skipping PlaceAbilityModel for turf (betting_target=win)
+19:08:58 [INFO] XGB correlation penalty applied: mean_corr=0.9743 > threshold=0.8500
+19:20:31 [INFO] CAT correlation penalty applied: mean_corr=0.9686 > threshold=0.8500
+19:21:57 [INFO] OOF prediction correlation LGB-XGB: 0.8677
+19:21:57 [INFO] OOF prediction correlation LGB-CAT: 0.8545
+19:21:57 [INFO] OOF prediction correlation XGB-CAT: 0.9469
+19:21:57 [INFO] Feature importance rank correlation LGB-XGB: 0.6372
+19:21:57 [INFO] Feature importance rank correlation LGB-CAT: 0.8007
+19:21:57 [WARNING] High importance correlation LGB-CAT: 0.8007 > 0.8 — models rely on similar features
+19:21:57 [INFO] Feature importance rank correlation XGB-CAT: 0.5998
+19:21:57 [INFO] [TIMING] turf/win_hit_ensemble: 957.848s
+19:21:58 [INFO] [TIMING] turf/win_return: 0.995s
+19:21:59 [INFO] [TIMING] turf/win_predict: 1.107s
+19:22:00 [INFO] [TIMING] turf/jockey_ctx: 1.140s
+19:22:01 [INFO] [TIMING] turf/trainer_ctx: 1.118s
+19:22:17 [INFO] [TIMING] turf/jt_combo: 15.845s
+19:22:20 [INFO] [TIMING] turf/ev_correction: 2.685s
+19:22:43 [INFO] [TIMING] turf/ev_isotonic_oof: 22.871s
+19:22:43 [INFO] [TIMING] turf/ev_isotonic_fit: 0.020s
+19:22:44 [INFO] EV Isotonic fitted for turf: 55295 OOF samples, band_scales={'1.0-3.0': 1.193183336266241, '3.0-10.0': 1.1295820161442136, '10.0-30.0': 1.1087633516938564, '30.0+': 0.843398764255644}
+19:22:44 [INFO] Skipping place model training for turf (betting_target=win)
+19:23:08 [INFO] Win OOF: 55295 valid / 66463 total samples
+19:23:08 [INFO] [TIMING] turf/win_oof: 23.477s
+19:23:14 [INFO] Win Benter (grid): alpha=0.282, beta=0.768, gamma=-0.113, NLL=11745.33
+19:23:14 [INFO] Calibration comparison: Beta(Brier=0.060305, ECE=0.002376) vs Isotonic(Brier=0.060479, ECE=0.002349) -> winner=beta
+19:23:14 [INFO] [TIMING] turf/win_calibration: 0.491s
+19:23:14 [INFO] Win Reliability: bins=['0.030', '0.141', '0.241', '0.344', '0.448', '0.547', '0.640', '0.727', '0.827'], positives=['0.030', '0.148', '0.244', '0.319', '0.405', '0.502', '0.640', '0.769', '0.762']
+19:23:14 [INFO] Win calibration: Beta selected (Brier=0.060305)
+19:23:14 [INFO] Temperature Scaling: T=0.9965 (Brier=0.081084)
+19:23:14 [INFO] Win TempScale: T=0.9965 improved Brier (0.059865 -> 0.059864)
+19:23:26 [INFO] CQR calibrated: Q_90=0.0857, Q_80=0.0703, residual_floor_90=0.0857, residual_floor_80=0.0703, n_calib=13293
+19:23:26 [INFO] Conformal EV fitted for turf: Q_90=0.0857, Q_80=0.0703
+19:23:26 [INFO] [TIMING] turf/conformal_ev: 11.190s
+19:23:50 [INFO] [TIMING] turf/win_selection_oof: 24.116s
+19:23:50 [INFO] Drift diagnostics saved to data\backtest\drift_diagnostics_turf.json
+19:23:50 [INFO] === Drift Diagnostics Summary (surface=turf) ===
+19:23:50 [INFO]   p_win_pred: mean=0.1646 std=0.1608 q50=0.1021 n=55295
+19:23:50 [INFO]   ev_win: mean=2.0232 std=0.8975 q50=1.8681 n=55295
+19:23:50 [INFO]   p_win_corrected: mean=0.0746 std=0.0732 q50=0.0469 n=55295
+19:23:50 [INFO]   ev_win_corrected: mean=0.9093 std=0.4657 q50=0.7938 n=55295
+19:23:50 [INFO]   win_selection_prob: mean=0.0746 std=0.0732 q50=0.0469 n=55295
+19:23:50 [INFO]   win_selection_edge: mean=-0.0907 std=0.4657 q50=-0.2062 n=55295
+19:23:50 [INFO]   win_selection_ev: mean=0.9093 std=0.4657 q50=0.7938 n=55295
+19:23:50 [INFO]   Surface turf: OK (7 columns)
+19:23:50 [INFO]   Year 2021: OK (7 columns)
+19:23:50 [INFO]   Year 2022: OK (7 columns)
+19:23:50 [INFO]   Year 2023: OK (7 columns)
+19:23:50 [INFO] No significant drift detected.
+19:23:50 [INFO] [TIMING] turf/drift_diagnostics: 0.336s
+19:23:51 [INFO] EV diagnostics written to data\backtest\ev_diagnostics_turf.json
+19:23:51 [INFO] === EV Diagnostics (turf) ===
+19:23:51 [INFO]   Samples: 55295 / 55295
+19:23:51 [INFO]   Correlation: r=0.0056 (p=0.1895)
+19:23:51 [INFO]   RMSE: 5.3915
+19:23:51 [INFO]   EV Bias: +0.1877 (predicted 0.9093 vs actual 0.7216)
+19:23:51 [INFO]   ECE: 0.0119
+19:23:51 [INFO]   Brier: 0.0612 (reliability=0.0004, resolution=0.0076, uncertainty=0.0691)
+19:23:51 [INFO]   Temporal drift (3 years):
+19:23:51 [INFO]     2021: n=11065, bias=+0.0520, corr=0.009
+19:23:51 [INFO]     2022: n=21837, bias=+0.3171, corr=0.001
+19:23:51 [INFO]     2023: n=22393, bias=+0.1286, corr=0.013
+19:23:51 [INFO] [TIMING] turf/ev_diagnostics: 0.803s
+19:25:40 [INFO] [TIMING] turf/win_selection_gate_train: 109.170s
+19:25:58 [INFO] Win selection OOF guard passed for turf: {'context': 'turf/win_selection_train', 'n_races': 4125, 'top1_hit_rate': 0.12678787878787878, 'top1_roi': 0.8812121212121212}
+19:25:58 [INFO] WinSelectionPolicy trained for turf: late_odds_drop_weight=0.0900 summary={'selected_weight': 0.09, 'selected_ev_tail_penalty_weight': 0.0, 'default_weight': 0.09, 'default_ev_tail_penalty_weight': 0.0, 'ev_tail_threshold': 1.2, 'market_risk_penalty_weight': 0.1, 'default_log_odds_penalty': 0.08, 'default_prob_rank_bonus': 0.01, 'min_policy_deploy_roi_all': 0.85, 'min_tail_shrinkage_mean_roi_improvement': 0.05, 'min_tail_shrinkage_year_roi': 0.8, 'default_roi_mean_by_year': 0.9050853281085839, 'selected_roi_mean_by_year': 0.9050853281085839, 'selected_roi_min_by_year': 0.8741204531902206, 'selected_roi_all': 0.9082666666666667, 'candidate_best_weight': 0.12, 'candidate_best_ev_tail_penalty_weight': 0.3, 'candidate_best_mean_delta_vs_default': 0.06073227471160281, 'candidate_best_min_year_delta_vs_default': -0.055982905982906006, 'roi_floor_met': True, 'stable_tail_shrinkage_met': False, 'deployable': False, 'fallback_reason': 'use_default_policy_until_candidate_beats_default_across_years', 'n_years': 3, 'candidates': [{'weight': 0.12, 'ev_tail_penalty_weight': 0.3, 'roi_all': 0.9440484848484848, 'roi_mean_by_year': 0.9658176028201867, 'roi_min_by_year': 0.8973748473748474, 'roi_std_by_year': 0.07641743025708424, 'n_years': 3, 'year_rois': {'2021': 1.0724691358024692, '2022': 0.8973748473748474, '2023': 0.9276088252832438}, 'objective': 1.038692473019109}, {'weight': 0.12, 'ev_tail_penalty_weight': 0.0, 'roi_all': 0.9357333333333333, 'roi_mean_by_year': 0.9602773071506921, 'roi_min_by_year': 0.892002442002442, 'roi_std_by_year': 0.08501794747479112, 'n_years': 3, 'year_rois': {'2021': 1.0801234567901234, '2022': 0.892002442002442, '2023': 0.9087060226595111}, 'objective': 1.0343248592297178}, {'weight': 0.1, 'ev_tail_penalty_weight': 0.0, 'roi_all': 0.9303272727272728, 'roi_mean_by_year': 0.9484954446453154, 'roi_min_by_year': 0.8961836612999403, 'roi_std_by_year': 0.0626258520642843, 'n_years': 3, 'year_rois': {'2021': 1.0365432098765432, '2022': 0.9127594627594627, '2023': 0.8961836612999403}, 'objective': 1.0267199329656669}, {'weight': 0.12, 'ev_tail_penalty_weight': 0.15, 'roi_all': 0.9310060606060606, 'roi_mean_by_year': 0.9514942699180425, 'roi_min_by_year': 0.892979242979243, 'roi_std_by_year': 0.07112512842531092, 'n_years': 3, 'year_rois': {'2021': 1.0516049382716048, '2022': 0.892979242979243, '2023': 0.9098986285032796}, 'objective': 1.0262234249521702}, {'weight': 0.1, 'ev_tail_penalty_weight': 0.15, 'roi_all': 0.9338909090909091, 'roi_mean_by_year': 0.9418515047972412, 'roi_min_by_year': 0.9176505664877758, 'roi_std_by_year': 0.02753416944590186, 'n_years': 3, 'year_rois': {'2021': 0.9803703703703703, '2022': 0.9275335775335776, '2023': 0.9176505664877758}, 'objective': 1.0259864360291335}, {'weight': 0.12, 'ev_tail_penalty_weight': 0.5, 'roi_all': 0.9289939393939394, 'roi_mean_by_year': 0.958289020769641, 'roi_min_by_year': 0.8762671437090042, 'roi_std_by_year': 0.10086598115438307, 'n_years': 3, 'year_rois': {'2021': 1.1003703703703704, '2022': 0.8982295482295483, '2023': 0.8762671437090042}, 'objective': 1.023385837967384}, {'weight': 0.1, 'ev_tail_penalty_weight': 0.3, 'roi_all': 0.9287515151515151, 'roi_mean_by_year': 0.9391974519881496, 'roi_min_by_year': 0.8893261776982707, 'roi_std_by_year': 0.04064650555723508, 'n_years': 3, 'year_rois': {'2021': 0.9888888888888889, '2022': 0.9393772893772894, '2023': 0.8893261776982707}, 'objective': 1.0170330939243915}, {'weight': 0.06, 'ev_tail_penalty_weight': 0.0, 'roi_all': 0.9491151515151515, 'roi_mean_by_year': 0.9368849640167469, 'roi_min_by_year': 0.8759259259259259, 'roi_std_by_year': 0.0500319207317851, 'n_years': 3, 'year_rois': {'2021': 0.8759259259259259, '2022': 0.9984737484737485, '2023': 0.9362552176505665}, 'objective': 1.0157727684995717}, {'weight': 0.12, 'ev_tail_penalty_weight': 0.75, 'roi_all': 0.9239272727272727, 'roi_mean_by_year': 0.9508470130692354, 'roi_min_by_year': 0.8717948717948718, 'roi_std_by_year': 0.09288968399892965, 'n_years': 3, 'year_rois': {'2021': 1.0812345679012345, '2022': 0.8995115995115995, '2023': 0.8717948717948718}, 'objective': 1.014193047648883}, {'weight': 0.12, 'ev_tail_penalty_weight': 1.0, 'roi_all': 0.9205333333333333, 'roi_mean_by_year': 0.9479956439387965, 'roi_min_by_year': 0.872093023255814, 'roi_std_by_year': 0.09451855260382623, 'n_years': 3, 'year_rois': {'2021': 1.0812345679012345, '2022': 0.8906593406593407, '2023': 0.872093023255814}, 'objective': 1.008627163373804}]}
+19:25:58 [INFO] [TIMING] turf/win_selection_policy_train: 18.124s
+19:26:08 [INFO] WinProfitSelector trained for turf: trained=False summary={'reason': 'no_deployable_profit_policy', 'selected_params': {'rank_limit': 2, 'min_score': -0.18475332903777367, 'min_edge': -inf, 'min_prob': 0.08, 'min_odds': 5.0, 'max_odds': 50.0}, 'eval_bets': 3546.0, 'eval_roi': 0.925296108291032, 'eval_profit': -264.9, 'eval_yearly_roi': {'2021': 0.7083185840707964, '2022': 0.8426966292134831, '2023': 0.902612330198537}, 'min_eval_bets': 2943.0, 'min_yearly_roi': 0.85, 'n_eval_races': 3924, 'n_train_races': 4125, 'candidates': [{'params': {'rank_limit': 2, 'min_score': -0.18475332903777367, 'min_edge': -inf, 'min_prob': 0.08, 'min_odds': 5.0, 'max_odds': 50.0}, 'bets': 3546.0, 'roi': 0.925296108291032, 'profit': -264.9, 'max_dd': 186.7, 'objective': -268.63399999999996, 'volume_ok': True, 'yearly_roi': {'2021': 0.7083185840707964, '2022': 0.8426966292134831, '2023': 0.902612330198537}}, {'params': {'rank_limit': 1, 'min_score': -inf, 'min_edge': -inf, 'min_prob': 0.08, 'min_odds': 1.0, 'max_odds': inf}, 'bets': 2952.0, 'roi': 0.9084010840108401, 'profit': -270.4, 'max_dd': 180.89999999999995, 'objective': -274.018, 'volume_ok': True, 'yearly_roi': {'2021': 0.8629327902240326, '2022': 0.8248888888888889, '2023': 0.9442432082794308}}, {'params': {'rank_limit': 1, 'min_score': -inf, 'min_edge': -inf, 'min_prob': 0.08, 'min_odds': 1.0, 'max_odds': 100.0}, 'bets': 2952.0, 'roi': 0.9084010840108401, 'profit': -270.4, 'max_dd': 180.89999999999995, 'objective': -274.018, 'volume_ok': True, 'yearly_roi': {'2021': 0.8629327902240326, '2022': 0.8248888888888889, '2023': 0.9442432082794308}}, {'params': {'rank_limit': 1, 'min_score': -0.20585122680370346, 'min_edge': -inf, 'min_prob': 0.02, 'min_odds': 5.0, 'max_odds': 50.0}, 'bets': 3060.0, 'roi': 0.9118627450980393, 'profit': -269.70000000000005, 'max_dd': 245.3, 'objective': -274.60600000000005, 'volume_ok': True, 'yearly_roi': {'2021': 0.8512658227848101, '2022': 0.7589041095890411, '2023': 0.9175066312997346}}, {'params': {'rank_limit': 1, 'min_score': -inf, 'min_edge': -inf, 'min_prob': 0.02, 'min_odds': 5.0, 'max_odds': 50.0}, 'bets': 3121.0, 'roi': 0.911887215636014, 'profit': -275.0, 'max_dd': 251.20000000000002, 'objective': -280.024, 'volume_ok': True, 'yearly_roi': {'2021': 0.8776397515527949, '2022': 0.7579646017699115, '2023': 0.9066841415465268}}, {'params': {'rank_limit': 1, 'min_score': -0.2290907749783037, 'min_edge': -inf, 'min_prob': 0.02, 'min_odds': 5.0, 'max_odds': 50.0}, 'bets': 3112.0, 'roi': 0.9108933161953727, 'profit': -277.29999999999995, 'max_dd': 249.20000000000002, 'objective': -282.28399999999993, 'volume_ok': True, 'yearly_roi': {'2021': 0.8776397515527949, '2022': 0.7613333333333334, '2023': 0.9102631578947368}}, {'params': {'rank_limit': 1, 'min_score': -0.20585122680370346, 'min_edge': -inf, 'min_prob': 0.0, 'min_odds': 5.0, 'max_odds': 50.0}, 'bets': 3072.0, 'roi': 0.90830078125, 'profit': -281.7, 'max_dd': 247.3, 'objective': -286.646, 'volume_ok': True, 'yearly_roi': {'2021': 0.8441422594142259, '2022': 0.7520361990950226, '2023': 0.9114624505928853}}, {'params': {'rank_limit': 1, 'min_score': -0.20585122680370346, 'min_edge': -inf, 'min_prob': 0.01, 'min_odds': 5.0, 'max_odds': 50.0}, 'bets': 3072.0, 'roi': 0.90830078125, 'profit': -281.7, 'max_dd': 247.3, 'objective': -286.646, 'volume_ok': True, 'yearly_roi': {'2021': 0.8441422594142259, '2022': 0.7520361990950226, '2023': 0.9114624505928853}}, {'params': {'rank_limit': 1, 'min_score': -0.20585122680370346, 'min_edge': -inf, 'min_prob': 0.03, 'min_odds': 5.0, 'max_odds': 50.0}, 'bets': 3037.0, 'roi': 0.9058610470859402, 'profit': -285.90000000000003, 'max_dd': 255.4, 'objective': -291.00800000000004, 'volume_ok': True, 'yearly_roi': {'2021': 0.8603411513859275, '2022': 0.7623853211009174, '2023': 0.9001344086021505}}, {'params': {'rank_limit': 1, 'min_score': -inf, 'min_edge': -inf, 'min_prob': 0.0, 'min_odds': 5.0, 'max_odds': 50.0}, 'bets': 3133.0, 'roi': 0.9083945100542611, 'profit': -286.99999999999994, 'max_dd': 253.20000000000002, 'objective': -292.06399999999996, 'volume_ok': True, 'yearly_roi': {'2021': 0.8704312114989734, '2022': 0.7513157894736842, '2023': 0.90078125}}]}
+19:26:08 [INFO] [TIMING] turf/win_profit_selector_train: 10.167s
+19:26:08 [INFO] Trained turf submodel (sequential)
+19:34:37 [INFO] [TIMING] dirt/horse_history: 508.376s
+19:34:37 [INFO] [TIMING] dirt/add_race_transforms: 0.354s
+19:35:03 [INFO] [TIMING] dirt/pace_aptitude: 25.843s
+19:35:30 [INFO] [TIMING] dirt/course_features: 26.526s
+19:36:00 [INFO] [TIMING] dirt/sire_features: 30.630s
+19:36:01 [INFO] [TIMING] dirt/dam_pedigree: 0.438s
+19:36:01 [INFO] [TIMING] dirt/record_features: 0.139s
+19:36:01 [INFO] [TIMING] dirt/interaction: 0.512s
+19:36:02 [INFO] [TIMING] dirt/mining_features: 0.194s
+19:36:02 [INFO] [TIMING] dirt/relative_features: 0.349s
+19:36:15 [INFO] [TIMING] dirt/market_model: 12.542s
+19:36:17 [INFO] SubModel 'dirt' 学習完了: 23269 samples
+19:36:23 [INFO] SubModel 'dirt' 学習完了: 47767 samples
+19:36:34 [INFO] SubModel 'dirt' 学習完了: 71273 samples
+19:36:41 [INFO] SubModel 'dirt' 学習完了: 94959 samples
+19:36:41 [INFO] [TIMING] dirt/ability_oof: 26.788s
+19:36:42 [INFO] [TIMING] dirt/target_encoding: 0.236s
+19:36:42 [INFO] Skipping PlaceAbilityModel for dirt (betting_target=win)
+19:39:15 [INFO] XGB correlation penalty applied: mean_corr=0.9730 > threshold=0.8500
+19:48:43 [INFO] CAT correlation penalty applied: mean_corr=0.8839 > threshold=0.8500
+19:49:48 [INFO] Orthogonalized XGB stack feature: max_corr=0.9631 >= threshold=0.9500
+19:50:42 [INFO] OOF prediction correlation LGB-XGB: 0.6046
+19:50:42 [INFO] OOF prediction correlation LGB-CAT: 0.2796
+19:50:42 [INFO] OOF prediction correlation XGB-CAT: 0.2797
+19:50:42 [INFO] Feature importance rank correlation LGB-XGB: 0.6802
+19:50:42 [INFO] Feature importance rank correlation LGB-CAT: 0.8396
+19:50:42 [WARNING] High importance correlation LGB-CAT: 0.8396 > 0.8 — models rely on similar features
+19:50:42 [INFO] Feature importance rank correlation XGB-CAT: 0.6981
+19:50:42 [INFO] [TIMING] dirt/win_hit_ensemble: 839.864s
+19:50:43 [INFO] [TIMING] dirt/win_return: 0.961s
+19:50:44 [INFO] [TIMING] dirt/win_predict: 1.153s
+19:50:46 [INFO] [TIMING] dirt/jockey_ctx: 1.311s
+19:50:47 [INFO] [TIMING] dirt/trainer_ctx: 1.254s
+19:51:11 [INFO] [TIMING] dirt/jt_combo: 24.224s
+19:51:15 [INFO] [TIMING] dirt/ev_correction: 3.319s
+19:51:38 [INFO] [TIMING] dirt/ev_isotonic_oof: 23.133s
+19:51:38 [INFO] [TIMING] dirt/ev_isotonic_fit: 0.018s
+19:51:39 [INFO] EV Isotonic fitted for dirt: 59487 OOF samples, band_scales={'1.0-3.0': 1.3561656214401778, '3.0-10.0': 1.094869043264393, '10.0-30.0': 1.1661104807420046, '30.0+': 0.8228992818075239}
+19:51:39 [INFO] Skipping place model training for dirt (betting_target=win)
+19:52:03 [INFO] Win OOF: 59487 valid / 71690 total samples
+19:52:03 [INFO] [TIMING] dirt/win_oof: 23.550s
+19:52:09 [INFO] Win Benter (grid): alpha=0.268, beta=0.791, gamma=-0.106, NLL=12050.56
+19:52:10 [INFO] Calibration comparison: Beta(Brier=0.057796, ECE=0.004025) vs Isotonic(Brier=0.057901, ECE=0.003647) -> winner=beta
+19:52:10 [INFO] [TIMING] dirt/win_calibration: 0.600s
+19:52:10 [INFO] Win Reliability: bins=['0.029', '0.141', '0.242', '0.343', '0.448', '0.541', '0.639', '0.735', '0.829'], positives=['0.028', '0.145', '0.252', '0.345', '0.412', '0.469', '0.599', '0.630', '0.654']
+19:52:10 [INFO] Win calibration: Beta selected (Brier=0.057796)
+19:52:10 [INFO] Temperature Scaling: T=0.9963 (Brier=0.077135)
+19:52:10 [INFO] Win TempScale: T=0.9963 improved Brier (0.056909 -> 0.056908)
+19:52:20 [INFO] CQR calibrated: Q_90=0.2101, Q_80=0.0550, residual_floor_90=0.0645, residual_floor_80=0.0550, n_calib=14338
+19:52:20 [INFO] Conformal EV fitted for dirt: Q_90=0.2101, Q_80=0.0550
+19:52:20 [INFO] [TIMING] dirt/conformal_ev: 10.650s
+19:52:44 [INFO] [TIMING] dirt/win_selection_oof: 23.975s
+19:52:45 [INFO] Drift diagnostics saved to data\backtest\drift_diagnostics_dirt.json
+19:52:45 [INFO] === Drift Diagnostics Summary (surface=dirt) ===
+19:52:45 [INFO]   p_win_pred: mean=0.1646 std=0.1701 q50=0.0942 n=59487
+19:52:45 [INFO]   ev_win: mean=1.9229 std=0.7810 q50=1.8565 n=59487
+19:52:45 [INFO]   p_win_corrected: mean=0.0711 std=0.0756 q50=0.0400 n=59487
+19:52:45 [INFO]   ev_win_corrected: mean=0.8248 std=0.3455 q50=0.7793 n=59487
+19:52:45 [INFO]   win_selection_prob: mean=0.0711 std=0.0756 q50=0.0400 n=59487
+19:52:45 [INFO]   win_selection_edge: mean=-0.1752 std=0.3455 q50=-0.2207 n=59487
+19:52:45 [INFO]   win_selection_ev: mean=0.8248 std=0.3455 q50=0.7793 n=59487
+19:52:45 [INFO]   Surface dirt: OK (7 columns)
+19:52:45 [INFO]   Year 2021: OK (7 columns)
+19:52:45 [INFO]   Year 2022: OK (7 columns)
+19:52:45 [INFO]   Year 2023: OK (7 columns)
+19:52:45 [INFO] No significant drift detected.
+19:52:45 [INFO] [TIMING] dirt/drift_diagnostics: 0.448s
+19:52:46 [INFO] EV diagnostics written to data\backtest\ev_diagnostics_dirt.json
+19:52:46 [INFO] === EV Diagnostics (dirt) ===
+19:52:46 [INFO]   Samples: 59487 / 59487
+19:52:46 [INFO]   Correlation: r=0.0076 (p=0.0653)
+19:52:46 [INFO]   RMSE: 6.0775
+19:52:46 [INFO]   EV Bias: +0.1235 (predicted 0.8248 vs actual 0.7013)
+19:52:46 [INFO]   ECE: 0.0103
+19:52:46 [INFO]   Brier: 0.0582 (reliability=0.0003, resolution=0.0075, uncertainty=0.0661)
+19:52:46 [INFO]   Temporal drift (3 years):
+19:52:46 [INFO]     2021: n=12295, bias=+0.0001, corr=0.011
+19:52:46 [INFO]     2022: n=23682, bias=+0.2025, corr=0.008
+19:52:46 [INFO]     2023: n=23510, bias=+0.1085, corr=0.007
+19:52:46 [INFO] [TIMING] dirt/ev_diagnostics: 0.777s
+19:54:44 [INFO] [TIMING] dirt/win_selection_gate_train: 118.489s
+19:55:03 [INFO] Win selection OOF guard passed for dirt: {'context': 'dirt/win_selection_train', 'n_races': 4230, 'top1_hit_rate': 0.045153664302600476, 'top1_roi': 0.6472813238770686}
+19:55:03 [INFO] WinSelectionPolicy trained for dirt: late_odds_drop_weight=0.0600 summary={'selected_weight': 0.06, 'selected_ev_tail_penalty_weight': 0.0, 'default_weight': 0.06, 'default_ev_tail_penalty_weight': 0.0, 'ev_tail_threshold': 1.2, 'market_risk_penalty_weight': 0.0, 'default_log_odds_penalty': 0.05, 'default_prob_rank_bonus': 0.02, 'min_policy_deploy_roi_all': 0.85, 'min_tail_shrinkage_mean_roi_improvement': 0.05, 'min_tail_shrinkage_year_roi': 0.8, 'default_roi_mean_by_year': 0.6774158847116288, 'selected_roi_mean_by_year': 0.6774158847116288, 'selected_roi_min_by_year': 0.5949152542372881, 'selected_roi_all': 0.6922695035460993, 'candidate_best_weight': 0.03, 'candidate_best_ev_tail_penalty_weight': 0.75, 'candidate_best_mean_delta_vs_default': 0.09359790054825445, 'candidate_best_min_year_delta_vs_default': 0.03716707021791765, 'roi_floor_met': False, 'stable_tail_shrinkage_met': False, 'deployable': False, 'fallback_reason': 'use_default_policy_until_oof_roi_floor_is_met', 'n_years': 3, 'candidates': [{'weight': 0.03, 'ev_tail_penalty_weight': 0.75, 'roi_all': 0.7808747044917258, 'roi_mean_by_year': 0.7710137852598833, 'roi_min_by_year': 0.7175141242937854, 'roi_std_by_year': 0.03874055296116549, 'n_years': 3, 'year_rois': {'2021': 0.7175141242937854, '2022': 0.787536916715889, '2023': 0.8079903147699757}, 'objective': 0.828854114745087}, {'weight': 0.08, 'ev_tail_penalty_weight': 1.0, 'roi_all': 0.7654137115839243, 'roi_mean_by_year': 0.7735993037211414, 'roi_min_by_year': 0.7014527845036319, 'roi_std_by_year': 0.051722611279099814, 'n_years': 3, 'year_rois': {'2021': 0.8201129943502825, '2022': 0.7992321323095097, '2023': 0.7014527845036319}, 'objective': 0.8243861904796396}, {'weight': 0.0, 'ev_tail_penalty_weight': 0.75, 'roi_all': 0.7684633569739953, 'roi_mean_by_year': 0.7659414408122448, 'roi_min_by_year': 0.7208232445520582, 'roi_std_by_year': 0.042008990679959654, 'n_years': 3, 'year_rois': {'2021': 0.7550282485875707, '2022': 0.8219728292971057, '2023': 0.7208232445520582}, 'objective': 0.8242224166654567}, {'weight': 0.12, 'ev_tail_penalty_weight': 1.0, 'roi_all': 0.7658156028368794, 'roi_mean_by_year': 0.7669786120220611, 'roi_min_by_year': 0.6971549636803874, 'roi_std_by_year': 0.053513850452001736, 'n_years': 3, 'year_rois': {'2021': 0.7766101694915254, '2022': 0.8271707028942705, '2023': 0.6971549636803874}, 'objective': 0.8162670308222996}, {'weight': 0.0, 'ev_tail_penalty_weight': 1.0, 'roi_all': 0.7489125295508274, 'roi_mean_by_year': 0.7650180624740877, 'roi_min_by_year': 0.7039951573849879, 'roi_std_by_year': 0.06340578668054828, 'n_years': 3, 'year_rois': {'2021': 0.8524293785310735, '2022': 0.738629651506202, '2023': 0.7039951573849879}, 'objective': 0.8159067102105042}, {'weight': 0.1, 'ev_tail_penalty_weight': 1.0, 'roi_all': 0.7567612293144208, 'roi_mean_by_year': 0.766026322442773, 'roi_min_by_year': 0.6693704600484262, 'roi_std_by_year': 0.06847179989854707, 'n_years': 3, 'year_rois': {'2021': 0.8194350282485876, '2022': 0.8092734790313054, '2023': 0.6693704600484262}, 'objective': 0.8106925984628336}, {'weight': 0.03, 'ev_tail_penalty_weight': 1.0, 'roi_all': 0.7408274231678487, 'roi_mean_by_year': 0.7499864434112133, 'roi_min_by_year': 0.7048426150121065, 'roi_std_by_year': 0.03910645080646046, 'n_years': 3, 'year_rois': {'2021': 0.8002259887005649, '2022': 0.7448907265209687, '2023': 0.7048426150121065}, 'objective': 0.8040047372914549}, {'weight': 0.09, 'ev_tail_penalty_weight': 1.0, 'roi_all': 0.7443026004728133, 'roi_mean_by_year': 0.7544368453813126, 'roi_min_by_year': 0.6526634382566586, 'roi_std_by_year': 0.07221322758668094, 'n_years': 3, 'year_rois': {'2021': 0.8126553672316384, '2022': 0.7979917306556409, '2023': 0.6526634382566586}, 'objective': 0.7970712050689763}, {'weight': 0.08, 'ev_tail_penalty_weight': 0.75, 'roi_all': 0.7402364066193854, 'roi_mean_by_year': 0.7269515361882736, 'roi_min_by_year': 0.6579661016949152, 'roi_std_by_year': 0.06135800151595693, 'n_years': 3, 'year_rois': {'2021': 0.6579661016949152, '2022': 0.8070289427052569, '2023': 0.7158595641646489}, 'objective': 0.7744444461303716}, {'weight': 0.06, 'ev_tail_penalty_weight': 0.75, 'roi_all': 0.7171394799054374, 'roi_mean_by_year': 0.7117108912436132, 'roi_min_by_year': 0.6831638418079096, 'roi_std_by_year': 0.022352928464771635, 'n_years': 3, 'year_rois': {'2021': 0.6831638418079096, '2022': 0.7377436503248671, '2023': 0.7142251815980629}, 'objective': 0.7679743361546886}]}
+19:55:03 [INFO] [TIMING] dirt/win_selection_policy_train: 18.481s
+19:55:14 [INFO] WinProfitSelector trained for dirt: trained=False summary={'reason': 'no_deployable_profit_policy', 'selected_params': {'rank_limit': 3, 'min_score': -0.1708113860629778, 'min_edge': 0.0, 'min_prob': 0.08, 'min_odds': 2.0, 'max_odds': 30.0}, 'eval_bets': 3066.0, 'eval_roi': 0.8897586431833006, 'eval_profit': -338.0, 'eval_yearly_roi': {'2021': 0.9969628796400449, '2022': 0.9246268656716419, '2023': 0.8618971061093246}, 'min_eval_bets': 3021.0, 'min_yearly_roi': 0.85, 'n_eval_races': 4028, 'n_train_races': 4230, 'candidates': [{'params': {'rank_limit': 3, 'min_score': -0.1708113860629778, 'min_edge': 0.0, 'min_prob': 0.08, 'min_odds': 2.0, 'max_odds': 30.0}, 'bets': 3066.0, 'roi': 0.8897586431833006, 'profit': -338.0, 'max_dd': 243.1, 'objective': -342.862, 'volume_ok': True, 'yearly_roi': {'2021': 0.9969628796400449, '2022': 0.9246268656716419, '2023': 0.8618971061093246}}, {'params': {'rank_limit': 3, 'min_score': -inf, 'min_edge': 0.0, 'min_prob': 0.08, 'min_odds': 2.0, 'max_odds': 30.0}, 'bets': 3079.0, 'roi': 0.8896070152646963, 'profit': -339.9, 'max_dd': 246.10000000000002, 'objective': -344.822, 'volume_ok': True, 'yearly_roi': {'2021': 0.993609865470852, '2022': 0.921189591078067, '2023': 0.8591346153846152}}, {'params': {'rank_limit': 3, 'min_score': -0.2503424449217279, 'min_edge': 0.0, 'min_prob': 0.08, 'min_odds': 2.0, 'max_odds': 30.0}, 'bets': 3079.0, 'roi': 0.8896070152646963, 'profit': -339.9, 'max_dd': 246.10000000000002, 'objective': -344.822, 'volume_ok': True, 'yearly_roi': {'2021': 0.993609865470852, '2022': 0.921189591078067, '2023': 0.8591346153846152}}, {'params': {'rank_limit': 3, 'min_score': -0.1708113860629778, 'min_edge': 0.0, 'min_prob': 0.08, 'min_odds': 2.0, 'max_odds': 50.0}, 'bets': 3100.0, 'roi': 0.88, 'profit': -372.0, 'max_dd': 254.10000000000002, 'objective': -377.082, 'volume_ok': True, 'yearly_roi': {'2021': 0.9902793296089385, '2022': 0.921189591078067, '2023': 0.8591346153846152}}, {'params': {'rank_limit': 3, 'min_score': -inf, 'min_edge': 0.0, 'min_prob': 0.08, 'min_odds': 2.0, 'max_odds': 50.0}, 'bets': 3113.0, 'roi': 0.8798907805974944, 'profit': -373.9, 'max_dd': 257.1, 'objective': -379.042, 'volume_ok': True, 'yearly_roi': {'2021': 0.9869710467706013, '2022': 0.9177777777777778, '2023': 0.8563897763578275}}, {'params': {'rank_limit': 3, 'min_score': -0.2503424449217279, 'min_edge': 0.0, 'min_prob': 0.08, 'min_odds': 2.0, 'max_odds': 50.0}, 'bets': 3113.0, 'roi': 0.8798907805974944, 'profit': -373.9, 'max_dd': 257.1, 'objective': -379.042, 'volume_ok': True, 'yearly_roi': {'2021': 0.9869710467706013, '2022': 0.9177777777777778, '2023': 0.8563897763578275}}, {'params': {'rank_limit': 3, 'min_score': -0.1708113860629778, 'min_edge': 0.0, 'min_prob': 0.08, 'min_odds': 1.0, 'max_odds': 100.0}, 'bets': 3105.0, 'roi': 0.8795813204508857, 'profit': -373.9, 'max_dd': 257.1, 'objective': -379.042, 'volume_ok': True, 'yearly_roi': {'2021': 0.989321468298109, '2022': 0.921189591078067, '2023': 0.8591346153846152}}, {'params': {'rank_limit': 3, 'min_score': -0.1708113860629778, 'min_edge': 0.0, 'min_prob': 0.08, 'min_odds': 1.0, 'max_odds': inf}, 'bets': 3106.0, 'roi': 0.8792981326464906, 'profit': -374.9, 'max_dd': 258.1, 'objective': -380.06199999999995, 'volume_ok': True, 'yearly_roi': {'2021': 0.9882222222222222, '2022': 0.921189591078067, '2023': 0.8591346153846152}}, {'params': {'rank_limit': 3, 'min_score': -inf, 'min_edge': 0.0, 'min_prob': 0.08, 'min_odds': 1.0, 'max_odds': 100.0}, 'bets': 3118.0, 'roi': 0.8794740218088518, 'profit': -375.79999999999995, 'max_dd': 260.1, 'objective': -381.00199999999995, 'volume_ok': True, 'yearly_roi': {'2021': 0.986031042128603, '2022': 0.9177777777777778, '2023': 0.8563897763578275}}, {'params': {'rank_limit': 3, 'min_score': -0.2503424449217279, 'min_edge': 0.0, 'min_prob': 0.08, 'min_odds': 1.0, 'max_odds': 100.0}, 'bets': 3118.0, 'roi': 0.8794740218088518, 'profit': -375.79999999999995, 'max_dd': 260.1, 'objective': -381.00199999999995, 'volume_ok': True, 'yearly_roi': {'2021': 0.986031042128603, '2022': 0.9177777777777778, '2023': 0.8563897763578275}}]}
+19:55:14 [INFO] [TIMING] dirt/win_profit_selector_train: 11.881s
+19:55:15 [INFO] Trained dirt submodel (sequential)
+19:55:18 [INFO] Saved full feature set: 138153 rows, 368 cols -> data/features/horse_features.parquet
+19:55:21 [INFO] Saved OOF predictions: 138153 rows, 371 cols -> data\oof\oof_predictions.parquet
+19:55:21 [INFO] Win selection OOF guard passed: {'context': 'combined_win_selection_oof_save', 'n_races': 8355, 'top1_hit_rate': 0.08545780969479354, 'top1_roi': 0.7627767803710354}
+19:55:21 [INFO] Saved win selection OOF predictions: 114782 rows, 41 cols -> data\oof\win_selection_oof.parquet
+19:55:34 [INFO] [TIMING] race_level_features: 11.163s
+19:55:35 [INFO] [TIMING] quality_screener: 0.501s
+19:55:35 [INFO] Trained RaceQualityScreener
+19:55:35 [INFO] [TIMING] regime_detector: 0.415s
+19:55:35 [INFO] Trained RegimeDetector
+19:55:40 [INFO] Saved ConformalEVModel for turf to data\models-backtest\2024
+19:55:40 [INFO] Saved ConformalEVModel for dirt to data\models-backtest\2024
+19:55:40 [INFO] CQR params SHA256 for turf: 344af86cac15f72e
+19:55:40 [INFO] CQR params SHA256 for dirt: 7fd3a83695e94c98
+19:55:40 [INFO] Models saved to data\models-backtest\2024
+19:55:40 [INFO] キャリブレーションBT: スキップ (--calibration-bt 未指定)
+19:58:41 [INFO] Loaded win payout map: 3454 entries
+19:58:41 [INFO] Feature cache HIT: feat_c5195b715eca26e5
+19:58:41 [INFO] Skipping wide odds pivot for betting_target=win
+19:58:41 [INFO] Pre-computing HorseHistoryFeatures for 3327 races...
+20:05:18 [INFO] Pre-computing JockeyContextFeatures for 45827 entries...
+20:05:19 [INFO] Pre-computing TrainerContextFeatures for 45827 entries...
+20:05:19 [INFO] Pre-computing JockeyTrainerComboFeatures for 45827 entries...
+20:05:37 [INFO] Computing SireFeatures for backtest inference...
+20:06:05 [INFO] Pre-computing PaceAptitudeFeatures...
+20:06:26 [INFO] Pre-computing CourseFeatures...
+20:06:48 [INFO] Merged hist features into feat_df: 67 columns
+20:06:49 [INFO] [features] 3327 groups, 45437 rows, 172.9 MB
+20:06:50 [INFO] [jockey] 3329 groups, 45827 rows, 2.4 MB
+20:06:50 [INFO] [trainer] 3329 groups, 45827 rows, 2.4 MB
+20:06:50 [INFO] [jockey_trainer] 3329 groups, 45827 rows, 2.7 MB
+20:29:26 [INFO] Race diagnostics saved: 3327 records -> data\backtest\bt_2024_race_diagnostics.csv
+20:29:33 [INFO] Horse diagnostics saved: 45437 records -> data\backtest\bt_2024_horse_diagnostics.csv
+20:29:38 [INFO] Feature diagnostics saved: 45437 records -> data\backtest\bt_2024_horse_features.parquet
+20:29:38 [INFO] Bet Selection Filters: EV_excluded=0, COLLAPSED_skipped=0
+20:29:38 [INFO] Validation report saved: data\validation\validation_report.json
+20:29:41 [INFO] Parquet保存: C:\Users\hirom\develop\keiba-ai\data\backtest\predictions\2024.parquet (45437 rows)
+20:29:41 [INFO] Loading data: 2021-01-01 ~ 2024-12-31
+20:34:30 [INFO] Using pre-post odds (5min before): 184177 rows
+20:34:30 [INFO] Building features
+20:34:30 [INFO] Feature cache HIT: feat_29c4eb276e014a90
+20:34:31 [INFO] Skipping wide odds pivot for betting_target=win
+20:44:30 [INFO] [TIMING] turf/horse_history: 598.715s
+20:44:31 [INFO] [TIMING] turf/add_race_transforms: 0.420s
+20:44:59 [INFO] [TIMING] turf/pace_aptitude: 28.033s
+20:45:28 [INFO] [TIMING] turf/course_features: 29.034s
+20:45:53 [INFO] [TIMING] turf/sire_features: 25.812s
+20:45:54 [INFO] [TIMING] turf/dam_pedigree: 0.461s
+20:45:54 [INFO] [TIMING] turf/record_features: 0.135s
+20:45:54 [INFO] [TIMING] turf/interaction: 0.470s
+20:45:55 [INFO] [TIMING] turf/mining_features: 0.191s
+20:45:55 [INFO] [TIMING] turf/relative_features: 0.349s
+20:46:07 [INFO] [TIMING] turf/market_model: 12.406s
+20:46:12 [INFO] SubModel 'turf' 学習完了: 21913 samples
+20:46:21 [INFO] SubModel 'turf' 学習完了: 43570 samples
+20:46:33 [INFO] SubModel 'turf' 学習完了: 65967 samples
+20:46:40 [INFO] SubModel 'turf' 学習完了: 88105 samples
+20:46:40 [INFO] [TIMING] turf/ability_oof: 32.126s
+20:46:40 [INFO] [TIMING] turf/target_encoding: 0.252s
+20:46:40 [INFO] Skipping PlaceAbilityModel for turf (betting_target=win)
+20:49:05 [INFO] XGB correlation penalty applied: mean_corr=0.9582 > threshold=0.8500
+21:08:48 [INFO] CAT correlation penalty applied: mean_corr=0.8707 > threshold=0.8500
+21:10:36 [INFO] OOF prediction correlation LGB-XGB: 0.9307
+21:10:36 [INFO] OOF prediction correlation LGB-CAT: 0.8075
+21:10:36 [INFO] OOF prediction correlation XGB-CAT: 0.7785
+21:10:36 [INFO] Feature importance rank correlation LGB-XGB: 0.6147
+21:10:36 [INFO] Feature importance rank correlation LGB-CAT: 0.8413
+21:10:36 [WARNING] High importance correlation LGB-CAT: 0.8413 > 0.8 — models rely on similar features
+21:10:36 [INFO] Feature importance rank correlation XGB-CAT: 0.6401
+21:10:36 [INFO] [TIMING] turf/win_hit_ensemble: 1435.305s
+21:10:37 [INFO] [TIMING] turf/win_return: 1.281s
+21:10:38 [INFO] [TIMING] turf/win_predict: 0.983s
+21:10:40 [INFO] [TIMING] turf/jockey_ctx: 1.365s
+21:10:41 [INFO] [TIMING] turf/trainer_ctx: 1.276s
+21:11:04 [INFO] [TIMING] turf/jt_combo: 22.811s
+21:11:08 [INFO] [TIMING] turf/ev_correction: 4.125s
+21:11:35 [INFO] [TIMING] turf/ev_isotonic_oof: 27.400s
+21:11:35 [INFO] [TIMING] turf/ev_isotonic_fit: 0.023s
+21:11:37 [INFO] EV Isotonic fitted for turf: 55188 OOF samples, band_scales={'1.0-3.0': 1.2005700627408984, '3.0-10.0': 1.1210278698770249, '10.0-30.0': 1.1345916604971333, '30.0+': 0.8257049021476003}
+21:11:37 [INFO] Skipping place model training for turf (betting_target=win)
+21:12:04 [INFO] Win OOF: 55188 valid / 66192 total samples
+21:12:04 [INFO] [TIMING] turf/win_oof: 27.336s
+21:12:13 [INFO] Win Benter (grid): alpha=0.364, beta=0.728, gamma=-0.025, NLL=11638.59
+21:12:13 [INFO] Calibration comparison: Beta(Brier=0.059719, ECE=0.004610) vs Isotonic(Brier=0.059883, ECE=0.003298) -> winner=beta
+21:12:13 [INFO] [TIMING] turf/win_calibration: 0.572s
+21:12:13 [INFO] Win Reliability: bins=['0.029', '0.142', '0.241', '0.343', '0.449', '0.547', '0.637', '0.731', '0.829'], positives=['0.029', '0.145', '0.247', '0.337', '0.421', '0.503', '0.586', '0.769', '0.875']
+21:12:13 [INFO] Win calibration: Beta selected (Brier=0.059719)
+21:12:13 [INFO] Temperature Scaling: T=0.9939 (Brier=0.080712)
+21:12:13 [INFO] Win TempScale: T=0.9939 improved Brier (0.059628 -> 0.059627)
+21:12:25 [INFO] CQR calibrated: Q_90=0.0659, Q_80=0.0477, residual_floor_90=0.0659, residual_floor_80=0.0477, n_calib=13239
+21:12:26 [INFO] Conformal EV fitted for turf: Q_90=0.0659, Q_80=0.0477
+21:12:26 [INFO] [TIMING] turf/conformal_ev: 11.990s
+21:12:53 [INFO] [TIMING] turf/win_selection_oof: 27.424s
+21:12:53 [INFO] Drift diagnostics saved to data\backtest\drift_diagnostics_turf.json
+21:12:53 [INFO] === Drift Diagnostics Summary (surface=turf) ===
+21:12:53 [INFO]   p_win_pred: mean=0.1682 std=0.1628 q50=0.0979 n=55188
+21:12:53 [INFO]   ev_win: mean=2.0036 std=0.7099 q50=1.9375 n=55188
+21:12:53 [INFO]   p_win_corrected: mean=0.0749 std=0.0745 q50=0.0425 n=55188
+21:12:53 [INFO]   ev_win_corrected: mean=0.8998 std=0.3433 q50=0.8389 n=55188
+21:12:53 [INFO]   win_selection_prob: mean=0.0749 std=0.0745 q50=0.0425 n=55188
+21:12:53 [INFO]   win_selection_edge: mean=-0.1002 std=0.3433 q50=-0.1611 n=55188
+21:12:53 [INFO]   win_selection_ev: mean=0.8998 std=0.3433 q50=0.8389 n=55188
+21:12:53 [INFO]   Surface turf: OK (7 columns)
+21:12:53 [INFO]   Year 2022: OK (7 columns)
+21:12:53 [INFO]   Year 2023: OK (7 columns)
+21:12:53 [INFO]   Year 2024: OK (7 columns)
+21:12:53 [INFO] No significant drift detected.
+21:12:53 [INFO] [TIMING] turf/drift_diagnostics: 0.320s
+21:12:54 [INFO] EV diagnostics written to data\backtest\ev_diagnostics_turf.json
+21:12:54 [INFO] === EV Diagnostics (turf) ===
+21:12:54 [INFO]   Samples: 55188 / 55188
+21:12:54 [INFO]   Correlation: r=-0.0007 (p=0.8666)
+21:12:54 [INFO]   RMSE: 5.3364
+21:12:54 [INFO]   EV Bias: +0.2016 (predicted 0.8998 vs actual 0.6982)
+21:12:54 [INFO]   ECE: 0.0141
+21:12:54 [INFO]   Brier: 0.0609 (reliability=0.0006, resolution=0.0083, uncertainty=0.0694)
+21:12:54 [INFO]   Temporal drift (3 years):
+21:12:54 [INFO]     2022: n=10833, bias=+0.1564, corr=-0.000
+21:12:54 [INFO]     2023: n=22393, bias=+0.2687, corr=-0.018
+21:12:54 [INFO]     2024: n=21962, bias=+0.1555, corr=0.016
+21:12:54 [INFO] [TIMING] turf/ev_diagnostics: 0.681s
+21:14:54 [INFO] [TIMING] turf/win_selection_gate_train: 120.536s
+21:15:13 [INFO] Win selection OOF guard passed for turf: {'context': 'turf/win_selection_train', 'n_races': 4135, 'top1_hit_rate': 0.12962515114873036, 'top1_roi': 0.8520193470374848}
+21:15:13 [INFO] WinSelectionPolicy trained for turf: late_odds_drop_weight=0.0900 summary={'selected_weight': 0.09, 'selected_ev_tail_penalty_weight': 0.0, 'default_weight': 0.09, 'default_ev_tail_penalty_weight': 0.0, 'ev_tail_threshold': 1.2, 'market_risk_penalty_weight': 0.1, 'default_log_odds_penalty': 0.08, 'default_prob_rank_bonus': 0.01, 'min_policy_deploy_roi_all': 0.85, 'min_tail_shrinkage_mean_roi_improvement': 0.05, 'min_tail_shrinkage_year_roi': 0.8, 'default_roi_mean_by_year': 0.880487490939199, 'selected_roi_mean_by_year': 0.880487490939199, 'selected_roi_min_by_year': 0.834610630407911, 'selected_roi_all': 0.8898911729141475, 'candidate_best_weight': 0.08, 'candidate_best_ev_tail_penalty_weight': 0.75, 'candidate_best_mean_delta_vs_default': 0.036934488120608844, 'candidate_best_min_year_delta_vs_default': -0.005033353547604591, 'roi_floor_met': True, 'stable_tail_shrinkage_met': False, 'deployable': False, 'fallback_reason': 'use_default_policy_until_candidate_beats_default_across_years', 'n_years': 3, 'candidates': [{'weight': 0.08, 'ev_tail_penalty_weight': 0.75, 'roi_all': 0.9136638452237001, 'roi_mean_by_year': 0.9174219790598078, 'roi_min_by_year': 0.9077519379844962, 'roi_std_by_year': 0.012862211738878887, 'n_years': 3, 'year_rois': {'2022': 0.9355995055624228, '2023': 0.9077519379844962, '2024': 0.9089144936325045}, 'objective': 0.9971678410974255}, {'weight': 0.08, 'ev_tail_penalty_weight': 0.0, 'roi_all': 0.9183555018137848, 'roi_mean_by_year': 0.9116193562079687, 'roi_min_by_year': 0.8784919653893696, 'roi_std_by_year': 0.026664096820550872, 'n_years': 3, 'year_rois': {'2022': 0.8784919653893696, '2023': 0.9125819916517591, '2024': 0.9437841115827774}, 'objective': 0.993868938223823}, {'weight': 0.03, 'ev_tail_penalty_weight': 0.5, 'roi_all': 0.9034824667472793, 'roi_mean_by_year': 0.9156330784740709, 'roi_min_by_year': 0.876349302607641, 'roi_std_by_year': 0.042570334082098274, 'n_years': 3, 'year_rois': {'2022': 0.9747836835599506, '2023': 0.8957662492546213, '2024': 0.876349302607641}, 'objective': 0.9912824586225202}, {'weight': 0.08, 'ev_tail_penalty_weight': 0.3, 'roi_all': 0.9092140266021765, 'roi_mean_by_year': 0.9063803312450355, 'roi_min_by_year': 0.8928306551297899, 'roi_std_by_year': 0.010483301116478435, 'n_years': 3, 'year_rois': {'2022': 0.8928306551297899, '2023': 0.918366129994037, '2024': 0.9079442086112796}, 'objective': 0.9894909015905428}, {'weight': 0.08, 'ev_tail_penalty_weight': 1.0, 'roi_all': 0.9085852478839178, 'roi_mean_by_year': 0.9131577441808241, 'roi_min_by_year': 0.8927228623408127, 'roi_std_by_year': 0.017561744552846342, 'n_years': 3, 'year_rois': {'2022': 0.9355995055624228, '2023': 0.9111508646392368, '2024': 0.8927228623408127}, 'objective': 0.9881957687319783}, {'weight': 0.03, 'ev_tail_penalty_weight': 1.0, 'roi_all': 0.9060217654171705, 'roi_mean_by_year': 0.9123030511484473, 'roi_min_by_year': 0.8878107944208611, 'roi_std_by_year': 0.02296270883022613, 'n_years': 3, 'year_rois': {'2022': 0.9430160692212608, '2023': 0.90608228980322, '2024': 0.8878107944208611}, 'objective': 0.9870397242659995}, {'weight': 0.03, 'ev_tail_penalty_weight': 0.75, 'roi_all': 0.9006045949214027, 'roi_mean_by_year': 0.9078256804646373, 'roi_min_by_year': 0.8833232261976955, 'roi_std_by_year': 0.02551447739096113, 'n_years': 3, 'year_rois': {'2022': 0.9430160692212608, '2023': 0.8971377459749553, '2024': 0.8833232261976955}, 'objective': 0.9842308314757626}, {'weight': 0.08, 'ev_tail_penalty_weight': 0.15, 'roi_all': 0.9094074969770254, 'roi_mean_by_year': 0.9035111914291859, 'roi_min_by_year': 0.8756489493201484, 'roi_std_by_year': 0.026096398893496006, 'n_years': 3, 'year_rois': {'2022': 0.8756489493201484, '2023': 0.93840190816935, '2024': 0.8964827167980595}, 'objective': 0.9840616265271763}, {'weight': 0.12, 'ev_tail_penalty_weight': 0.3, 'roi_all': 0.8985731559854897, 'roi_mean_by_year': 0.9104651408113683, 'roi_min_by_year': 0.8528805336567616, 'roi_std_by_year': 0.04739948249416948, 'n_years': 3, 'year_rois': {'2022': 0.9689740420271941, '2023': 0.9095408467501491, '2024': 0.8528805336567616}, 'objective': 0.983243271802919}, {'weight': 0.03, 'ev_tail_penalty_weight': 0.0, 'roi_all': 0.8930834340991536, 'roi_mean_by_year': 0.9047740266206722, 'roi_min_by_year': 0.8556094602789569, 'roi_std_by_year': 0.0438320172131403, 'n_years': 3, 'year_rois': {'2022': 0.9620519159456119, '2023': 0.8966607036374479, '2024': 0.8556094602789569}, 'objective': 0.9831601700665967}]}
+21:15:13 [INFO] [TIMING] turf/win_selection_policy_train: 18.617s
+21:15:29 [INFO] WinProfitSelector trained for turf: trained=False summary={'reason': 'no_deployable_profit_policy', 'selected_params': {'rank_limit': 2, 'min_score': -0.18323122989793528, 'min_edge': -0.1, 'min_prob': 0.05, 'min_odds': 2.0, 'max_odds': 30.0}, 'eval_bets': 2999.0, 'eval_roi': 0.9654218072690897, 'eval_profit': -103.69999999999999, 'eval_yearly_roi': {'2022': 1.0755364806866952, '2023': 0.9481012658227849, '2024': 0.9513550135501355}, 'min_eval_bets': 2949.0, 'min_yearly_roi': 0.85, 'n_eval_races': 3932, 'n_train_races': 4135, 'candidates': [{'params': {'rank_limit': 2, 'min_score': -0.18323122989793528, 'min_edge': -0.1, 'min_prob': 0.05, 'min_odds': 2.0, 'max_odds': 30.0}, 'bets': 2999.0, 'roi': 0.9654218072690897, 'profit': -103.69999999999999, 'max_dd': 89.69999999999999, 'objective': -105.49399999999999, 'volume_ok': True, 'yearly_roi': {'2022': 1.0755364806866952, '2023': 0.9481012658227849, '2024': 0.9513550135501355}}, {'params': {'rank_limit': 2, 'min_score': -0.18323122989793528, 'min_edge': -0.1, 'min_prob': 0.05, 'min_odds': 2.0, 'max_odds': 50.0}, 'bets': 3016.0, 'roi': 0.9599801061007956, 'profit': -120.70000000000002, 'max_dd': 91.4, 'objective': -122.52800000000002, 'volume_ok': True, 'yearly_roi': {'2022': 1.0663829787234043, '2023': 0.9481012658227849, '2024': 0.9411528150134048}}, {'params': {'rank_limit': 2, 'min_score': -0.18323122989793528, 'min_edge': -0.1, 'min_prob': 0.05, 'min_odds': 1.0, 'max_odds': inf}, 'bets': 3019.0, 'roi': 0.9590261676051672, 'profit': -123.69999999999999, 'max_dd': 91.4, 'objective': -125.52799999999999, 'volume_ok': True, 'yearly_roi': {'2022': 1.061864406779661, '2023': 0.9481012658227849, '2024': 0.9398929049531458}}, {'params': {'rank_limit': 2, 'min_score': -0.18323122989793528, 'min_edge': -0.1, 'min_prob': 0.05, 'min_odds': 1.0, 'max_odds': 100.0}, 'bets': 3019.0, 'roi': 0.9590261676051672, 'profit': -123.69999999999999, 'max_dd': 91.4, 'objective': -125.52799999999999, 'volume_ok': True, 'yearly_roi': {'2022': 1.061864406779661, '2023': 0.9481012658227849, '2024': 0.9398929049531458}}, {'params': {'rank_limit': 2, 'min_score': -0.18323122989793528, 'min_edge': -0.1, 'min_prob': 0.03, 'min_odds': 2.0, 'max_odds': 30.0}, 'bets': 3187.0, 'roi': 0.9519297144650141, 'profit': -153.2, 'max_dd': 110.20000000000002, 'objective': -155.404, 'volume_ok': True, 'yearly_roi': {'2022': 1.014574898785425, '2023': 0.8846456692913387, '2024': 0.95706940874036}}, {'params': {'rank_limit': 2, 'min_score': -0.18323122989793528, 'min_edge': -0.1, 'min_prob': 0.03, 'min_odds': 5.0, 'max_odds': 50.0}, 'bets': 3148.0, 'roi': 0.9507941550190598, 'profit': -154.9, 'max_dd': 109.6, 'objective': -157.092, 'volume_ok': True, 'yearly_roi': {'2022': 0.9989878542510121, '2023': 0.8792000000000001, '2024': 0.94296875}}, {'params': {'rank_limit': 2, 'min_score': -0.18323122989793528, 'min_edge': -0.1, 'min_prob': 0.03, 'min_odds': 2.0, 'max_odds': 50.0}, 'bets': 3232.0, 'roi': 0.9504950495049503, 'profit': -160.00000000000003, 'max_dd': 109.4, 'objective': -162.18800000000002, 'volume_ok': True, 'yearly_roi': {'2022': 1.0003992015968062, '2023': 0.877734375, '2024': 0.9377833753148614}}, {'params': {'rank_limit': 2, 'min_score': -0.18323122989793528, 'min_edge': -0.1, 'min_prob': 0.03, 'min_odds': 1.0, 'max_odds': inf}, 'bets': 3236.0, 'roi': 0.9493201483312732, 'profit': -164.00000000000003, 'max_dd': 109.4, 'objective': -166.18800000000002, 'volume_ok': True, 'yearly_roi': {'2022': 0.9964214711729621, '2023': 0.87431906614786, '2024': 0.9366037735849057}}, {'params': {'rank_limit': 2, 'min_score': -0.18323122989793528, 'min_edge': -0.1, 'min_prob': 0.03, 'min_odds': 1.0, 'max_odds': 100.0}, 'bets': 3236.0, 'roi': 0.9493201483312732, 'profit': -164.00000000000003, 'max_dd': 109.4, 'objective': -166.18800000000002, 'volume_ok': True, 'yearly_roi': {'2022': 0.9964214711729621, '2023': 0.87431906614786, '2024': 0.9366037735849057}}, {'params': {'rank_limit': 2, 'min_score': -0.18323122989793528, 'min_edge': -0.1, 'min_prob': 0.0, 'min_odds': 2.0, 'max_odds': 30.0}, 'bets': 3203.0, 'roi': 0.9471745238838588, 'profit': -169.2, 'max_dd': 113.20000000000002, 'objective': -171.464, 'volume_ok': True, 'yearly_roi': {'2022': 1.0064257028112449, '2023': 0.8777343750000001, '2024': 0.9509578544061301}}]}
+21:15:29 [INFO] [TIMING] turf/win_profit_selector_train: 16.084s
+21:15:30 [INFO] Trained turf submodel (sequential)
+21:26:39 [INFO] [TIMING] dirt/horse_history: 669.403s
+21:26:40 [INFO] [TIMING] dirt/add_race_transforms: 0.442s
+21:27:09 [INFO] [TIMING] dirt/pace_aptitude: 29.410s
+21:27:41 [INFO] [TIMING] dirt/course_features: 32.250s
+21:28:08 [INFO] [TIMING] dirt/sire_features: 26.226s
+21:28:08 [INFO] [TIMING] dirt/dam_pedigree: 0.431s
+21:28:08 [INFO] [TIMING] dirt/record_features: 0.141s
+21:28:09 [INFO] [TIMING] dirt/interaction: 0.520s
+21:28:09 [INFO] [TIMING] dirt/mining_features: 0.199s
+21:28:09 [INFO] [TIMING] dirt/relative_features: 0.361s
+21:28:22 [INFO] [TIMING] dirt/market_model: 13.034s
+21:28:27 [INFO] SubModel 'dirt' 学習完了: 24132 samples
+21:28:37 [INFO] SubModel 'dirt' 学習完了: 47638 samples
+21:28:50 [INFO] SubModel 'dirt' 学習完了: 71157 samples
+21:28:59 [INFO] SubModel 'dirt' 学習完了: 94799 samples
+21:28:59 [INFO] [TIMING] dirt/ability_oof: 36.604s
+21:28:59 [INFO] [TIMING] dirt/target_encoding: 0.264s
+21:29:00 [INFO] Skipping PlaceAbilityModel for dirt (betting_target=win)
+21:32:40 [INFO] XGB correlation penalty applied: mean_corr=0.9707 > threshold=0.8500
+21:47:55 [INFO] CAT correlation penalty applied: mean_corr=0.9021 > threshold=0.8500
+21:49:24 [INFO] OOF prediction correlation LGB-XGB: 0.9369
+21:49:24 [INFO] OOF prediction correlation LGB-CAT: 0.6953
+21:49:24 [INFO] OOF prediction correlation XGB-CAT: 0.6688
+21:49:24 [INFO] Feature importance rank correlation LGB-XGB: 0.6854
+21:49:24 [INFO] Feature importance rank correlation LGB-CAT: 0.6847
+21:49:24 [INFO] Feature importance rank correlation XGB-CAT: 0.6113
+21:49:24 [INFO] [TIMING] dirt/win_hit_ensemble: 1224.331s
+21:49:25 [INFO] [TIMING] dirt/win_return: 1.002s
+21:49:27 [INFO] [TIMING] dirt/win_predict: 1.726s
+21:49:28 [INFO] [TIMING] dirt/jockey_ctx: 1.293s
+21:49:30 [INFO] [TIMING] dirt/trainer_ctx: 1.304s
+21:49:52 [INFO] [TIMING] dirt/jt_combo: 22.280s
+21:49:56 [INFO] [TIMING] dirt/ev_correction: 3.480s
+21:50:24 [INFO] [TIMING] dirt/ev_isotonic_oof: 28.043s
+21:50:24 [INFO] [TIMING] dirt/ev_isotonic_fit: 0.020s
+21:50:25 [INFO] EV Isotonic fitted for dirt: 58750 OOF samples, band_scales={'1.0-3.0': 1.2215221366097808, '3.0-10.0': 1.055744631066483, '10.0-30.0': 1.0834177769852171, '30.0+': 0.9028185578522242}
+21:50:25 [INFO] Skipping place model training for dirt (betting_target=win)
+21:50:53 [INFO] Win OOF: 58750 valid / 70667 total samples
+21:50:53 [INFO] [TIMING] dirt/win_oof: 28.035s
+21:51:01 [INFO] Win Benter (grid): alpha=0.271, beta=0.788, gamma=-0.107, NLL=11912.89
+21:51:02 [INFO] Calibration comparison: Beta(Brier=0.057886, ECE=0.003591) vs Isotonic(Brier=0.057866, ECE=0.003359) -> winner=beta
+21:51:02 [INFO] [TIMING] dirt/win_calibration: 0.626s
+21:51:02 [INFO] Win Reliability: bins=['0.028', '0.142', '0.241', '0.343', '0.448', '0.544', '0.638', '0.739', '0.829'], positives=['0.028', '0.146', '0.250', '0.334', '0.424', '0.480', '0.550', '0.765', '0.781']
+21:51:02 [INFO] Win calibration: Beta selected (Brier=0.057886)
+21:51:02 [INFO] Temperature Scaling: T=0.9953 (Brier=0.077222)
+21:51:02 [INFO] Win TempScale: T=0.9953 improved Brier (0.056966 -> 0.056964)
+21:51:14 [INFO] CQR calibrated: Q_90=0.0583, Q_80=0.0559, residual_floor_90=0.0583, residual_floor_80=0.0559, n_calib=14134
+21:51:14 [INFO] Conformal EV fitted for dirt: Q_90=0.0583, Q_80=0.0559
+21:51:14 [INFO] [TIMING] dirt/conformal_ev: 11.835s
+21:51:42 [INFO] [TIMING] dirt/win_selection_oof: 28.142s
+21:51:42 [INFO] Drift diagnostics saved to data\backtest\drift_diagnostics_dirt.json
+21:51:42 [INFO] === Drift Diagnostics Summary (surface=dirt) ===
+21:51:42 [INFO]   p_win_pred: mean=0.1556 std=0.1635 q50=0.0844 n=58750
+21:51:42 [INFO]   ev_win: mean=1.9515 std=0.8903 q50=1.7991 n=58750
+21:51:42 [INFO]   p_win_corrected: mean=0.0712 std=0.0735 q50=0.0409 n=58750
+21:51:42 [INFO]   ev_win_corrected: mean=0.9346 std=0.5812 q50=0.7864 n=58750
+21:51:42 [INFO]   win_selection_prob: mean=0.0712 std=0.0735 q50=0.0409 n=58750
+21:51:42 [INFO]   win_selection_edge: mean=-0.0654 std=0.5812 q50=-0.2136 n=58750
+21:51:42 [INFO]   win_selection_ev: mean=0.9346 std=0.5812 q50=0.7864 n=58750
+21:51:42 [INFO]   Surface dirt: OK (7 columns)
+21:51:42 [INFO]   Year 2022: OK (7 columns)
+21:51:42 [INFO]   Year 2023: OK (7 columns)
+21:51:42 [INFO]   Year 2024: OK (7 columns)
+21:51:42 [INFO] No significant drift detected.
+21:51:42 [INFO] [TIMING] dirt/drift_diagnostics: 0.337s
+21:51:43 [INFO] EV diagnostics written to data\backtest\ev_diagnostics_dirt.json
+21:51:43 [INFO] === EV Diagnostics (dirt) ===
+21:51:43 [INFO]   Samples: 58750 / 58750
+21:51:43 [INFO]   Correlation: r=-0.0010 (p=0.8159)
+21:51:43 [INFO]   RMSE: 6.0973
+21:51:43 [INFO]   EV Bias: +0.2103 (predicted 0.9346 vs actual 0.7243)
+21:51:43 [INFO]   ECE: 0.0117
+21:51:43 [INFO]   Brier: 0.0583 (reliability=0.0004, resolution=0.0076, uncertainty=0.0662)
+21:51:43 [INFO]   Temporal drift (3 years):
+21:51:43 [INFO]     2022: n=11765, bias=+0.1052, corr=-0.000
+21:51:43 [INFO]     2023: n=23510, bias=+0.4591, corr=-0.010
+21:51:43 [INFO]     2024: n=23475, bias=+0.0137, corr=0.024
+21:51:43 [INFO] [TIMING] dirt/ev_diagnostics: 0.800s
+21:53:41 [INFO] [TIMING] dirt/win_selection_gate_train: 117.834s
+21:54:01 [INFO] Win selection OOF guard passed for dirt: {'context': 'dirt/win_selection_train', 'n_races': 4185, 'top1_hit_rate': 0.047311827956989246, 'top1_roi': 0.8254241338112306}
+21:54:01 [INFO] WinSelectionPolicy trained for dirt: late_odds_drop_weight=0.0600 summary={'selected_weight': 0.06, 'selected_ev_tail_penalty_weight': 0.0, 'default_weight': 0.06, 'default_ev_tail_penalty_weight': 0.0, 'ev_tail_threshold': 1.2, 'market_risk_penalty_weight': 0.0, 'default_log_odds_penalty': 0.05, 'default_prob_rank_bonus': 0.02, 'min_policy_deploy_roi_all': 0.85, 'min_tail_shrinkage_mean_roi_improvement': 0.05, 'min_tail_shrinkage_year_roi': 0.8, 'default_roi_mean_by_year': 0.5985795624248125, 'selected_roi_mean_by_year': 0.5985795624248125, 'selected_roi_min_by_year': 0.004961864406779661, 'selected_roi_all': 0.007573237753882916, 'candidate_best_weight': 0.03, 'candidate_best_ev_tail_penalty_weight': 0.5, 'candidate_best_mean_delta_vs_default': 0.02042340165545553, 'candidate_best_min_year_delta_vs_default': -0.010369487485101248, 'roi_floor_met': False, 'stable_tail_shrinkage_met': False, 'deployable': False, 'fallback_reason': 'use_default_policy_until_oof_roi_floor_is_met', 'n_years': 3, 'candidates': [{'weight': 0.03, 'ev_tail_penalty_weight': 0.5, 'roi_all': 0.7839665471923536, 'roi_mean_by_year': 0.619002964080268, 'roi_min_by_year': 0.005373486682808717, 'roi_std_by_year': 0.43651817081891514, 'n_years': 3, 'year_rois': {'2022': 0.8673684210526316, '2023': 0.005373486682808717, '2024': 0.9842669845053635}, 'objective': 0.5484625871257116}, {'weight': 0.08, 'ev_tail_penalty_weight': 0.3, 'roi_all': 0.00785041816009558, 'roi_mean_by_year': 0.6124346418231393, 'roi_min_by_year': 0.005592615012106538, 'roi_std_by_year': 0.43108586531732035, 'n_years': 3, 'year_rois': {'2022': 0.8652631578947368, '2023': 0.005592615012106538, '2024': 0.9664481525625745}, 'objective': 0.543731023526752}, {'weight': 0.09, 'ev_tail_penalty_weight': 0.0, 'roi_all': 0.007845878136200716, 'roi_mean_by_year': 0.6071238778253418, 'roi_min_by_year': 0.005592615012106538, 'roi_std_by_year': 0.42948030278761856, 'n_years': 3, 'year_rois': {'2022': 0.8350877192982457, '2023': 0.005592615012106538, '2024': 0.9806912991656734}, 'objective': 0.5414610939084097}, {'weight': 0.06, 'ev_tail_penalty_weight': 0.5, 'roi_all': 0.7532855436081243, 'roi_mean_by_year': 0.6114410559531155, 'roi_min_by_year': 0.004872276029055691, 'roi_std_by_year': 0.4299819639172319, 'n_years': 3, 'year_rois': {'2022': 0.8775438596491228, '2023': 0.004872276029055691, '2024': 0.951907032181168}, 'objective': 0.5412309889684362}, {'weight': 0.08, 'ev_tail_penalty_weight': 0.15, 'roi_all': 0.007846356033452807, 'roi_mean_by_year': 0.6071636076624495, 'roi_min_by_year': 0.005592615012106538, 'roi_std_by_year': 0.4295148625892492, 'n_years': 3, 'year_rois': {'2022': 0.8350877192982457, '2023': 0.005592615012106538, '2024': 0.9808104886769964}, 'objective': 0.5401956397752727}, {'weight': 0.09, 'ev_tail_penalty_weight': 0.15, 'roi_all': 0.007845878136200716, 'roi_mean_by_year': 0.6071238778253418, 'roi_min_by_year': 0.005592615012106538, 'roi_std_by_year': 0.42948030278761856, 'n_years': 3, 'year_rois': {'2022': 0.8350877192982457, '2023': 0.005592615012106538, '2024': 0.9806912991656734}, 'objective': 0.5399610939084097}, {'weight': 0.09, 'ev_tail_penalty_weight': 0.3, 'roi_all': 0.007852090800477897, 'roi_mean_by_year': 0.6081375230495134, 'roi_min_by_year': 0.005592615012106538, 'roi_std_by_year': 0.43002038830061434, 'n_years': 3, 'year_rois': {'2022': 0.8381286549707603, '2023': 0.005592615012106538, '2024': 0.9806912991656734}, 'objective': 0.5393937263056319}, {'weight': 0.03, 'ev_tail_penalty_weight': 0.0, 'roi_all': 0.007676224611708483, 'roi_mean_by_year': 0.6032482017232059, 'roi_min_by_year': 0.005102905569007264, 'roi_std_by_year': 0.431069384822663, 'n_years': 3, 'year_rois': {'2022': 0.8003508771929825, '2023': 0.005102905569007264, '2024': 1.0042908224076281}, 'objective': 0.5384980845567072}, {'weight': 0.1, 'ev_tail_penalty_weight': 0.0, 'roi_all': 0.0078035842293906815, 'roi_mean_by_year': 0.6036077872413133, 'roi_min_by_year': 0.005592615012106538, 'roi_std_by_year': 0.42643998696555835, 'n_years': 3, 'year_rois': {'2022': 0.8350877192982457, '2023': 0.005592615012106538, '2024': 0.9701430274135876}, 'objective': 0.5382010506976902}, {'weight': 0.06, 'ev_tail_penalty_weight': 0.3, 'roi_all': 0.007595221027479093, 'roi_mean_by_year': 0.6059429241184301, 'roi_min_by_year': 0.005015133171912833, 'roi_std_by_year': 0.4283053399370618, 'n_years': 3, 'year_rois': {'2022': 0.8405847953216374, '2023': 0.005015133171912833, '2024': 0.9722288438617401}, 'objective': 0.5379986364450622}]}
+21:54:01 [INFO] [TIMING] dirt/win_selection_policy_train: 19.656s
+21:54:17 [INFO] WinProfitSelector trained for dirt: trained=False summary={'reason': 'no_deployable_profit_policy', 'selected_params': {'rank_limit': 2, 'min_score': -0.19448693416040902, 'min_edge': -0.1, 'min_prob': 0.05, 'min_odds': 5.0, 'max_odds': 50.0}, 'eval_bets': 3137.0, 'eval_roi': 0.9505897354160026, 'eval_profit': -154.99999999999997, 'eval_yearly_roi': {'2022': 0.9437768240343348, '2023': 0.8165048543689319, '2024': 0.9794533459000943}, 'min_eval_bets': 2988.0, 'min_yearly_roi': 0.85, 'n_eval_races': 3984, 'n_train_races': 4185, 'candidates': [{'params': {'rank_limit': 2, 'min_score': -0.19448693416040902, 'min_edge': -0.1, 'min_prob': 0.05, 'min_odds': 5.0, 'max_odds': 50.0}, 'bets': 3137.0, 'roi': 0.9505897354160026, 'profit': -154.99999999999997, 'max_dd': 179.20000000000002, 'objective': -158.58399999999997, 'volume_ok': True, 'yearly_roi': {'2022': 0.9437768240343348, '2023': 0.8165048543689319, '2024': 0.9794533459000943}}, {'params': {'rank_limit': 2, 'min_score': -0.19448693416040902, 'min_edge': -inf, 'min_prob': 0.05, 'min_odds': 5.0, 'max_odds': 50.0}, 'bets': 3204.0, 'roi': 0.9476903870162298, 'profit': -167.59999999999997, 'max_dd': 185.3, 'objective': -171.30599999999995, 'volume_ok': True, 'yearly_roi': {'2022': 0.9330975954738332, '2023': 0.8009523809523809, '2024': 0.9879740980573543}}, {'params': {'rank_limit': 2, 'min_score': -0.19448693416040902, 'min_edge': -0.1, 'min_prob': 0.05, 'min_odds': 2.0, 'max_odds': 50.0}, 'bets': 3263.0, 'roi': 0.9449279803861477, 'profit': -179.69999999999996, 'max_dd': 190.1, 'objective': -183.50199999999995, 'volume_ok': True, 'yearly_roi': {'2022': 0.9338177014531045, '2023': 0.8047846889952153, '2024': 0.9854661791590493}}, {'params': {'rank_limit': 3, 'min_score': -0.19448693416040902, 'min_edge': 0.05, 'min_prob': 0.03, 'min_odds': 2.0, 'max_odds': 30.0}, 'bets': 3015.0, 'roi': 0.9376451077943615, 'profit': -187.99999999999994, 'max_dd': 243.80000000000004, 'objective': -192.87599999999995, 'volume_ok': True, 'yearly_roi': {'2022': 0.8620904836193448, '2023': 0.8352422907488988, '2024': 1.0694664031620553}}, {'params': {'rank_limit': 3, 'min_score': -inf, 'min_edge': 0.05, 'min_prob': 0.03, 'min_odds': 2.0, 'max_odds': 30.0}, 'bets': 3016.0, 'roi': 0.9373342175066313, 'profit': -188.99999999999994, 'max_dd': 243.80000000000004, 'objective': -193.87599999999995, 'volume_ok': True, 'yearly_roi': {'2022': 0.8620904836193448, '2023': 0.8352422907488988, '2024': 1.068410661401777}}, {'params': {'rank_limit': 3, 'min_score': -0.26672336115635115, 'min_edge': 0.05, 'min_prob': 0.03, 'min_odds': 2.0, 'max_odds': 30.0}, 'bets': 3016.0, 'roi': 0.9373342175066313, 'profit': -188.99999999999994, 'max_dd': 243.80000000000004, 'objective': -193.87599999999995, 'volume_ok': True, 'yearly_roi': {'2022': 0.8620904836193448, '2023': 0.8352422907488988, '2024': 1.068410661401777}}, {'params': {'rank_limit': 2, 'min_score': -0.19448693416040902, 'min_edge': -inf, 'min_prob': 0.05, 'min_odds': 2.0, 'max_odds': 50.0}, 'bets': 3362.0, 'roi': 0.9430696014277216, 'profit': -191.4, 'max_dd': 195.7, 'objective': -195.314, 'volume_ok': True, 'yearly_roi': {'2022': 0.9227096774193547, '2023': 0.8009302325581394, '2024': 0.9947555555555555}}, {'params': {'rank_limit': 2, 'min_score': -0.19448693416040902, 'min_edge': -0.1, 'min_prob': 0.05, 'min_odds': 1.0, 'max_odds': 100.0}, 'bets': 3276.0, 'roi': 0.9411782661782663, 'profit': -192.70000000000002, 'max_dd': 191.1, 'objective': -196.52200000000002, 'volume_ok': True, 'yearly_roi': {'2022': 0.9276902887139109, '2023': 0.7971563981042653, '2024': 0.9836678832116788}}, {'params': {'rank_limit': 2, 'min_score': -0.19448693416040902, 'min_edge': -0.1, 'min_prob': 0.05, 'min_odds': 2.0, 'max_odds': 30.0}, 'bets': 3172.0, 'roi': 0.9389029003783101, 'profit': -193.79999999999998, 'max_dd': 195.09999999999997, 'objective': -197.70199999999997, 'volume_ok': True, 'yearly_roi': {'2022': 0.9157181571815718, '2023': 0.8452261306532662, '2024': 1.0047530288909599}}, {'params': {'rank_limit': 2, 'min_score': -0.19448693416040902, 'min_edge': -0.1, 'min_prob': 0.05, 'min_odds': 1.0, 'max_odds': inf}, 'bets': 3279.0, 'roi': 0.9403171698688625, 'profit': -195.70000000000002, 'max_dd': 191.1, 'objective': -199.52200000000002, 'volume_ok': True, 'yearly_roi': {'2022': 0.9264744429882046, '2023': 0.7971563981042653, '2024': 0.9836678832116788}}]}
+21:54:17 [INFO] [TIMING] dirt/win_profit_selector_train: 16.691s
+21:54:18 [INFO] Trained dirt submodel (sequential)
+21:54:21 [INFO] Saved full feature set: 136859 rows, 368 cols -> data/features/horse_features.parquet
+21:54:24 [INFO] Saved OOF predictions: 136859 rows, 371 cols -> data\oof\oof_predictions.parquet
+21:54:25 [INFO] Win selection OOF guard passed: {'context': 'combined_win_selection_oof_save', 'n_races': 8320, 'top1_hit_rate': 0.08822115384615385, 'top1_roi': 0.8386418269230769}
+21:54:25 [INFO] Saved win selection OOF predictions: 113938 rows, 41 cols -> data\oof\win_selection_oof.parquet
+21:54:39 [INFO] [TIMING] race_level_features: 12.189s
+21:54:39 [INFO] [TIMING] quality_screener: 0.547s
+21:54:39 [INFO] Trained RaceQualityScreener
+21:54:40 [INFO] [TIMING] regime_detector: 0.452s
+21:54:40 [INFO] Trained RegimeDetector
+21:54:42 [INFO] Saved ConformalEVModel for turf to data\models-backtest\2025
+21:54:42 [INFO] Saved ConformalEVModel for dirt to data\models-backtest\2025
+21:54:42 [INFO] CQR params SHA256 for turf: 164c1003db08624b
+21:54:42 [INFO] CQR params SHA256 for dirt: 6ac3c7c13d8a9e2d
+21:54:42 [INFO] Models saved to data\models-backtest\2025
+21:54:44 [INFO] キャリブレーションBT: スキップ (--calibration-bt 未指定)
+21:57:22 [INFO] Loaded win payout map: 3455 entries
+21:57:22 [INFO] Feature cache HIT: feat_a1ab3907143c70db
+21:57:22 [INFO] Skipping wide odds pivot for betting_target=win
+21:57:22 [INFO] Pre-computing HorseHistoryFeatures for 3335 races...
+22:04:34 [INFO] Pre-computing JockeyContextFeatures for 46499 entries...
+22:04:34 [INFO] Pre-computing TrainerContextFeatures for 46499 entries...
+22:04:35 [INFO] Pre-computing JockeyTrainerComboFeatures for 46499 entries...
+22:04:55 [INFO] Computing SireFeatures for backtest inference...
+22:05:19 [INFO] Pre-computing PaceAptitudeFeatures...
+22:05:41 [INFO] Pre-computing CourseFeatures...
+22:06:04 [INFO] Merged hist features into feat_df: 67 columns
+22:06:04 [INFO] [features] 3335 groups, 46160 rows, 175.2 MB
+22:06:04 [INFO] [jockey] 3336 groups, 46499 rows, 2.4 MB
+22:06:04 [INFO] [trainer] 3336 groups, 46499 rows, 2.4 MB
+22:06:05 [INFO] [jockey_trainer] 3336 groups, 46499 rows, 2.7 MB
+22:30:17 [INFO] Race diagnostics saved: 3335 records -> data\backtest\bt_2025_race_diagnostics.csv
+22:30:24 [INFO] Horse diagnostics saved: 46160 records -> data\backtest\bt_2025_horse_diagnostics.csv
+22:30:31 [INFO] Feature diagnostics saved: 46160 records -> data\backtest\bt_2025_horse_features.parquet
+22:30:31 [INFO] Bet Selection Filters: EV_excluded=0, COLLAPSED_skipped=0
+22:30:31 [INFO] Validation report saved: data\validation\validation_report.json
+22:30:35 [INFO] Parquet保存: C:\Users\hirom\develop\keiba-ai\data\backtest\predictions\2025.parquet (46160 rows)
 
 ==================================================
   2024年 (学習: 2020-2023)
 ==================================================
-  学習完了 (0秒)
-  テスト完了 (1341秒)
-  ベット数:    3,327 | 投資額: ¥   332,700 | 払戻: ¥   296,870
-  ROI:    89.2% | 利益: ¥   -35,830 | 最大DD:  48.6%
+  学習完了 (3828秒)
+  テスト完了 (2040秒)
+  ベット数:    3,327 | 投資額: ¥   332,700 | 払戻: ¥   302,390
+  ROI:    90.9% | 利益: ¥   -30,310 | 最大DD:  43.1%
 
 ==================================================
   2025年 (学習: 2021-2024)
 ==================================================
-  学習完了 (0秒)
-  テスト完了 (2187秒)
-  ベット数:    3,335 | 投資額: ¥   333,500 | 払戻: ¥   296,120
-  ROI:    88.8% | 利益: ¥   -37,380 | 最大DD:  40.2%
+  学習完了 (5102秒)
+  テスト完了 (2150秒)
+  ベット数:    3,335 | 投資額: ¥   333,500 | 払戻: ¥   307,740
+  ROI:    92.3% | 利益: ¥   -25,760 | 最大DD:  31.5%
 
 ==================================================
   全体サマリー
 ==================================================
   総ベット数:       6,662
   総投資額:  ¥     666,200
-  総払戻額:  ¥     592,990
-  総利益:    ¥     -73,210
-  合計 ROI:        89.0%
-  最良年度:  2024 (89.2%)
-  最悪年度:  2025 (88.8%)
+  総払戻額:  ¥     610,130
+  総利益:    ¥     -56,070
+  合計 ROI:        91.6%
+  最良年度:  2025 (92.3%)
+  最悪年度:  2024 (90.9%)
 
   JSON保存: C:\Users\hirom\develop\keiba-ai\data\backtest\multi_year_result.json
   レポート生成: C:\Users\hirom\develop\keiba-ai\data\backtest\multi_year_report.html
