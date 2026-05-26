@@ -21,6 +21,7 @@ from models.win_selection_policy import (
     DEFAULT_MARKET_RISK_PENALTY_WEIGHT,
     DEFAULT_PROB_RANK_BONUS,
     WinSelectionPolicy,
+    _annotate_policy_deployability,
     deployed_late_odds_drop_weight,
     deployed_policy_params,
 )
@@ -170,6 +171,53 @@ def test_tail_shrinkage_uses_stricter_deploy_guard(monkeypatch: pytest.MonkeyPat
     assert policy.training_summary["deployable"] is False
     assert policy.training_summary["stable_tail_shrinkage_met"] is False
     assert policy.ev_tail_penalty_weight == pytest.approx(DEFAULT_EV_TAIL_PENALTY_WEIGHT)
+
+
+def test_policy_deployability_rejects_any_yearly_regression() -> None:
+    result = pd.DataFrame(
+        [
+            {
+                "weight": DEFAULT_LATE_ODDS_DROP_WEIGHT,
+                "ev_tail_penalty_weight": DEFAULT_EV_TAIL_PENALTY_WEIGHT,
+                "roi_all": 0.90,
+                "roi_mean_by_year": 0.90,
+                "roi_min_by_year": 0.90,
+                "n_years": 3,
+                "year_rois": {"2021": 0.90, "2022": 0.90, "2023": 0.90},
+            },
+            {
+                "weight": 0.12,
+                "ev_tail_penalty_weight": DEFAULT_EV_TAIL_PENALTY_WEIGHT,
+                "roi_all": 0.96,
+                "roi_mean_by_year": 0.96,
+                "roi_min_by_year": 0.89,
+                "n_years": 3,
+                "year_rois": {"2021": 1.05, "2022": 0.94, "2023": 0.89},
+            },
+            {
+                "weight": 0.08,
+                "ev_tail_penalty_weight": DEFAULT_EV_TAIL_PENALTY_WEIGHT,
+                "roi_all": 0.94,
+                "roi_mean_by_year": 0.94,
+                "roi_min_by_year": 0.91,
+                "n_years": 3,
+                "year_rois": {"2021": 0.99, "2022": 0.92, "2023": 0.91},
+            },
+        ]
+    )
+
+    annotated = _annotate_policy_deployability(
+        result,
+        default_row=result.iloc[0],
+        default_late_weight=DEFAULT_LATE_ODDS_DROP_WEIGHT,
+    )
+
+    risky = annotated.loc[annotated["weight"].eq(0.12)].iloc[0]
+    stable = annotated.loc[annotated["weight"].eq(0.08)].iloc[0]
+    assert risky["min_year_delta_vs_default"] == pytest.approx(-0.01)
+    assert bool(risky["deployable_candidate"]) is False
+    assert stable["min_year_delta_vs_default"] == pytest.approx(0.01)
+    assert bool(stable["deployable_candidate"]) is True
 
 
 def test_dirt_policy_keeps_edge_base_and_dirt_defaults() -> None:

@@ -34,7 +34,7 @@ MAX_DEPLOYED_EV_TAIL_PENALTY_WEIGHT: float = 1.2
 MIN_POLICY_MEAN_ROI_IMPROVEMENT: float = 0.03
 MIN_TAIL_SHRINKAGE_MEAN_ROI_IMPROVEMENT: float = 0.05
 MIN_TAIL_SHRINKAGE_YEAR_ROI: float = 0.80
-MAX_POLICY_YEAR_ROI_REGRESSION: float = 0.02
+MAX_POLICY_YEAR_ROI_REGRESSION: float = 0.0
 MIN_POLICY_DEPLOY_ROI_ALL: float = 0.85
 DEFAULT_CANDIDATE_WEIGHTS: tuple[float, ...] = (
     0.0,
@@ -156,6 +156,83 @@ def _roi_for_score(df: pd.DataFrame, score: pd.Series) -> float:
         0.0,
     )
     return float(np.sum(returns) / (len(selected) * 100.0))
+
+
+def _candidate_year_deltas(
+    candidate_year_rois: Any,
+    default_year_rois: dict[str, float],
+) -> dict[str, float]:
+    if not isinstance(candidate_year_rois, dict):
+        return {}
+
+    deltas: dict[str, float] = {}
+    for year, default_roi in default_year_rois.items():
+        try:
+            candidate_roi = float(candidate_year_rois.get(year, np.nan))
+            default_value = float(default_roi)
+        except (TypeError, ValueError):
+            continue
+        if np.isfinite(candidate_roi) and np.isfinite(default_value):
+            deltas[str(year)] = candidate_roi - default_value
+    return deltas
+
+
+def _annotate_policy_deployability(
+    result: pd.DataFrame,
+    *,
+    default_row: pd.Series,
+    default_late_weight: float,
+) -> pd.DataFrame:
+    """Add deployment diagnostics and reject candidates with any yearly regression."""
+    annotated = result.copy()
+    default_year_rois = dict(default_row["year_rois"])
+    default_roi = float(default_row["roi_mean_by_year"])
+
+    mean_deltas: list[float] = []
+    min_year_deltas: list[float] = []
+    year_delta_maps: list[dict[str, float]] = []
+    for _, row in annotated.iterrows():
+        year_deltas = _candidate_year_deltas(row.get("year_rois", {}), default_year_rois)
+        year_delta_maps.append(year_deltas)
+        mean_deltas.append(float(row["roi_mean_by_year"] - default_roi))
+        min_year_deltas.append(min(year_deltas.values()) if year_deltas else float("-inf"))
+
+    annotated["mean_delta_vs_default"] = mean_deltas
+    annotated["min_year_delta_vs_default"] = min_year_deltas
+    annotated["year_delta_vs_default"] = year_delta_maps
+    annotated["candidate_changed"] = (
+        annotated["weight"].astype(float).ne(float(default_late_weight))
+        | annotated["ev_tail_penalty_weight"].astype(float).ne(
+            DEFAULT_EV_TAIL_PENALTY_WEIGHT
+        )
+    )
+    annotated["uses_tail_shrinkage"] = annotated["ev_tail_penalty_weight"].astype(float).gt(
+        DEFAULT_EV_TAIL_PENALTY_WEIGHT
+    )
+    annotated["roi_floor_met"] = annotated["roi_all"].astype(float).ge(MIN_POLICY_DEPLOY_ROI_ALL)
+    annotated["stable_tail_shrinkage_met"] = (
+        annotated["uses_tail_shrinkage"]
+        & annotated["mean_delta_vs_default"].ge(MIN_TAIL_SHRINKAGE_MEAN_ROI_IMPROVEMENT)
+        & annotated["min_year_delta_vs_default"].ge(-MAX_POLICY_YEAR_ROI_REGRESSION)
+        & annotated["roi_min_by_year"].astype(float).ge(MIN_TAIL_SHRINKAGE_YEAR_ROI)
+        & annotated["roi_floor_met"]
+    )
+    non_tail_deployable = (
+        annotated["candidate_changed"]
+        & ~annotated["uses_tail_shrinkage"]
+        & annotated["n_years"].astype(int).ge(3)
+        & annotated["mean_delta_vs_default"].ge(MIN_POLICY_MEAN_ROI_IMPROVEMENT)
+        & annotated["min_year_delta_vs_default"].ge(-MAX_POLICY_YEAR_ROI_REGRESSION)
+        & annotated["roi_floor_met"]
+    )
+    tail_deployable = (
+        annotated["candidate_changed"]
+        & annotated["uses_tail_shrinkage"]
+        & annotated["n_years"].astype(int).ge(3)
+        & annotated["stable_tail_shrinkage_met"]
+    )
+    annotated["deployable_candidate"] = non_tail_deployable | tail_deployable
+    return annotated
 
 
 def sanitize_late_odds_drop_weight(value: Any) -> float:
@@ -650,50 +727,32 @@ class WinSelectionPolicy:
             - 0.02 * result["weight"].abs()
             - 0.01 * result["ev_tail_penalty_weight"].abs()
         )
+        result = _annotate_policy_deployability(
+            result,
+            default_row=default_row,
+            default_late_weight=default_late_weight,
+        )
         candidate_best = result.sort_values(
             ["objective", "roi_mean_by_year"],
             ascending=False,
         ).iloc[0]
-        best = candidate_best
-        default_year_rois = dict(default_row["year_rois"])
-        best_year_rois = dict(best["year_rois"])
-        year_deltas = {
-            year: float(best_year_rois.get(year, np.nan) - default_roi)
-            for year, default_roi in default_year_rois.items()
-            if np.isfinite(best_year_rois.get(year, np.nan)) and np.isfinite(default_roi)
-        }
-        mean_delta = float(best["roi_mean_by_year"] - default_roi)
-        min_year_delta = min(year_deltas.values()) if year_deltas else float("-inf")
-        candidate_changed = (
-            float(best["weight"]) != default_late_weight
-            or float(best["ev_tail_penalty_weight"]) != DEFAULT_EV_TAIL_PENALTY_WEIGHT
-        )
-        uses_tail_shrinkage = float(best["ev_tail_penalty_weight"]) > DEFAULT_EV_TAIL_PENALTY_WEIGHT
-        roi_floor_met = float(best["roi_all"]) >= MIN_POLICY_DEPLOY_ROI_ALL
-        stable_tail_shrinkage_met = (
-            uses_tail_shrinkage
-            and mean_delta >= MIN_TAIL_SHRINKAGE_MEAN_ROI_IMPROVEMENT
-            and min_year_delta >= -MAX_POLICY_YEAR_ROI_REGRESSION
-            and float(best["roi_min_by_year"]) >= MIN_TAIL_SHRINKAGE_YEAR_ROI
-        )
-        if uses_tail_shrinkage:
-            deployable = (
-                candidate_changed and int(best["n_years"]) >= 3 and stable_tail_shrinkage_met
-            )
-        else:
-            deployable = (
-                candidate_changed
-                and int(best["n_years"]) >= 3
-                and mean_delta >= MIN_POLICY_MEAN_ROI_IMPROVEMENT
-                and min_year_delta >= -MAX_POLICY_YEAR_ROI_REGRESSION
-                and roi_floor_met
-            )
+        deployable_candidates = result.loc[result["deployable_candidate"].fillna(False)].copy()
+        deployable = not deployable_candidates.empty
         fallback_reason = None
-        if not deployable:
-            if not roi_floor_met and not stable_tail_shrinkage_met:
+        if deployable:
+            best = deployable_candidates.sort_values(
+                ["objective", "roi_mean_by_year"],
+                ascending=False,
+            ).iloc[0]
+        else:
+            if not bool(candidate_best["roi_floor_met"]) and not bool(
+                candidate_best["stable_tail_shrinkage_met"]
+            ):
                 fallback_reason = "use_default_policy_until_oof_roi_floor_is_met"
             else:
-                fallback_reason = "use_default_policy_until_candidate_beats_default_across_years"
+                fallback_reason = (
+                    "use_default_policy_until_candidate_beats_default_in_every_year"
+                )
             best = default_row
 
         self.late_odds_drop_weight = sanitize_late_odds_drop_weight(best["weight"])
@@ -717,14 +776,24 @@ class WinSelectionPolicy:
             "selected_roi_mean_by_year": float(best["roi_mean_by_year"]),
             "selected_roi_min_by_year": float(best["roi_min_by_year"]),
             "selected_roi_all": float(best["roi_all"]),
+            "selected_mean_delta_vs_default": float(
+                best.get("mean_delta_vs_default", 0.0)
+            ),
+            "selected_min_year_delta_vs_default": float(
+                best.get("min_year_delta_vs_default", 0.0)
+            ),
             "candidate_best_weight": float(candidate_best["weight"]),
             "candidate_best_ev_tail_penalty_weight": float(
                 candidate_best["ev_tail_penalty_weight"]
             ),
-            "candidate_best_mean_delta_vs_default": mean_delta,
-            "candidate_best_min_year_delta_vs_default": float(min_year_delta),
-            "roi_floor_met": bool(roi_floor_met),
-            "stable_tail_shrinkage_met": bool(stable_tail_shrinkage_met),
+            "candidate_best_mean_delta_vs_default": float(
+                candidate_best["mean_delta_vs_default"]
+            ),
+            "candidate_best_min_year_delta_vs_default": float(
+                candidate_best["min_year_delta_vs_default"]
+            ),
+            "roi_floor_met": bool(candidate_best["roi_floor_met"]),
+            "stable_tail_shrinkage_met": bool(candidate_best["stable_tail_shrinkage_met"]),
             "deployable": deployable,
             "fallback_reason": fallback_reason,
             "n_years": int(best["n_years"]),
