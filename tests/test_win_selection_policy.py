@@ -109,7 +109,7 @@ def test_win_selection_policy_save_load_roundtrip() -> None:
     assert loaded.ev_tail_penalty_weight == pytest.approx(policy.ev_tail_penalty_weight)
 
 
-def test_train_can_deploy_oof_ev_tail_shrinkage_without_filtering() -> None:
+def _tail_shrinkage_rows() -> pd.DataFrame:
     rows: list[dict[str, object]] = []
     race_no = 0
     for year in [2021, 2022, 2023]:
@@ -145,14 +145,31 @@ def test_train_can_deploy_oof_ev_tail_shrinkage_without_filtering() -> None:
                     },
                 ]
             )
+    return pd.DataFrame(rows)
 
+
+def test_train_can_deploy_oof_ev_tail_shrinkage_without_filtering() -> None:
     policy = WinSelectionPolicy()
-    policy.train(pd.DataFrame(rows))
-    scored = policy.apply(pd.DataFrame(rows[:2]))
+    rows = _tail_shrinkage_rows()
+    policy.train(rows)
+    scored = policy.apply(rows.head(2))
 
     assert policy.training_summary["deployable"] is True
     assert policy.ev_tail_penalty_weight > 0.0
     assert scored.sort_values("selected_rank_by_win_market_score").iloc[0]["umaban"] == 2
+
+
+def test_tail_shrinkage_uses_stricter_deploy_guard(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "models.win_selection_policy.MIN_TAIL_SHRINKAGE_MEAN_ROI_IMPROVEMENT",
+        10.0,
+    )
+    policy = WinSelectionPolicy()
+    policy.train(_tail_shrinkage_rows())
+
+    assert policy.training_summary["deployable"] is False
+    assert policy.training_summary["stable_tail_shrinkage_met"] is False
+    assert policy.ev_tail_penalty_weight == pytest.approx(DEFAULT_EV_TAIL_PENALTY_WEIGHT)
 
 
 def test_dirt_policy_keeps_edge_base_and_dirt_defaults() -> None:

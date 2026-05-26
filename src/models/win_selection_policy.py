@@ -676,13 +676,18 @@ class WinSelectionPolicy:
             and min_year_delta >= -MAX_POLICY_YEAR_ROI_REGRESSION
             and float(best["roi_min_by_year"]) >= MIN_TAIL_SHRINKAGE_YEAR_ROI
         )
-        deployable = (
-            candidate_changed
-            and int(best["n_years"]) >= 3
-            and mean_delta >= MIN_POLICY_MEAN_ROI_IMPROVEMENT
-            and min_year_delta >= -MAX_POLICY_YEAR_ROI_REGRESSION
-            and (roi_floor_met or stable_tail_shrinkage_met)
-        )
+        if uses_tail_shrinkage:
+            deployable = (
+                candidate_changed and int(best["n_years"]) >= 3 and stable_tail_shrinkage_met
+            )
+        else:
+            deployable = (
+                candidate_changed
+                and int(best["n_years"]) >= 3
+                and mean_delta >= MIN_POLICY_MEAN_ROI_IMPROVEMENT
+                and min_year_delta >= -MAX_POLICY_YEAR_ROI_REGRESSION
+                and roi_floor_met
+            )
         fallback_reason = None
         if not deployable:
             if not roi_floor_met and not stable_tail_shrinkage_met:
