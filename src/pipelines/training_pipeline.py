@@ -493,24 +493,30 @@ class TrainingPipelineV5:
         # interaction / jockey_context / trainer_context 等を含む
         if oof_dfs:
             full_features_df = pd.concat(oof_dfs, ignore_index=True)
-            save_features(self.store, full_features_df)
-            logger.info(
-                "Saved full feature set: %d rows, %d cols -> data/features/horse_features.parquet",
-                len(full_features_df),
-                len(full_features_df.columns),
-            )
+            if full_features_df.empty:
+                logger.warning(
+                    "Skipping feature/OOF artifact save because no OOF rows were produced"
+                )
+            else:
+                save_features(self.store, full_features_df)
+                logger.info(
+                    "Saved full feature set: %d rows, %d cols -> "
+                    "data/features/horse_features.parquet",
+                    len(full_features_df),
+                    len(full_features_df.columns),
+                )
 
-            # 3c. OOF予測Parquet保存 (IC評価用, Phase 30)
-            oof_path = Path("data/oof/oof_predictions.parquet")
-            oof_path.parent.mkdir(parents=True, exist_ok=True)
-            oof_predictions_df = _prepare_oof_artifact(full_features_df)
-            oof_predictions_df.to_parquet(oof_path, index=False)
-            logger.info(
-                "Saved OOF predictions: %d rows, %d cols -> %s",
-                len(oof_predictions_df),
-                len(oof_predictions_df.columns),
-                oof_path,
-            )
+                # 3c. OOF予測Parquet保存 (IC評価用, Phase 30)
+                oof_path = Path("data/oof/oof_predictions.parquet")
+                oof_path.parent.mkdir(parents=True, exist_ok=True)
+                oof_predictions_df = _prepare_oof_artifact(full_features_df)
+                oof_predictions_df.to_parquet(oof_path, index=False)
+                logger.info(
+                    "Saved OOF predictions: %d rows, %d cols -> %s",
+                    len(oof_predictions_df),
+                    len(oof_predictions_df.columns),
+                    oof_path,
+                )
 
         if win_selection_oof_dfs:
             win_oof_path = Path("data/oof/win_selection_oof.parquet")

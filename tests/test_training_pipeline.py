@@ -252,6 +252,11 @@ def _make_feature_df(n: int = 8000, n_races: int = 800) -> pd.DataFrame:
 class TestTrainingPipelineV5:
     """TrainingPipelineV5 のテスト"""
 
+    @pytest.fixture(autouse=True)
+    def _isolate_artifact_writes(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """run() 系テストがリポジトリ直下の data/ を上書きしないよう隔離する。"""
+        monkeypatch.chdir(tmp_path)
+
     def test_prepare_oof_artifact_adds_markers_without_mutating_source(self) -> None:
         """OOF成果物はfeature cacheと区別できる識別列を持つ"""
         df = pd.DataFrame({"race_id": ["R1", "R2"], "p_win_pred": [0.2, 0.3]})
