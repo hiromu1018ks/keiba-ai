@@ -377,6 +377,17 @@ class ModelLoader:
             ev_corr.ev_isotonic_calibrator = ev_isotonic_calibrator
             ev_corr.ev_odds_band_scales = ev_odds_band_scales
 
+            # INTER-03: TargetEncoder (MLflow)
+            target_encoder = None
+            try:
+                te_dir = mlflow.artifacts.download_artifacts(
+                    f"runs:/{run_id}/target_encoder_{surface}"
+                )
+                te_files = list(Path(te_dir).glob("*.joblib"))
+                if te_files:
+                    target_encoder = joblib.load(te_files[0])
+            except Exception:
+                pass
             submodels[surface] = SubmodelSet(
                 market=market,
                 stage1=ability,
@@ -397,6 +408,7 @@ class ModelLoader:
                 win_profit_selector=win_profit_selector,
                 ev_isotonic_calibrator=ev_isotonic_calibrator,
                 ev_odds_band_scales=ev_odds_band_scales,
+                target_encoder=target_encoder,
             )
         quality = RaceQualityScreener()
         quality.model = self._load_lgbm(f"{artifact_uri}/race_quality")
