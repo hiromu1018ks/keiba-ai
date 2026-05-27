@@ -123,13 +123,13 @@ MLflow で実験管理。PostgreSQL (EveryDB2/JRA-VAN DataLab) をデータソ�
 **BT ROI:** 87.8% (v2.0 close), target 100%+
 **InvestmentFeatureFrame:** 94 specs, 9 categories, dual-mode builder with leakage guard
 **OOF Health:** OOFHealthValidator with fail-fast + SHA256 manifest + anomaly detection
-**Next:** v2.1 — MarketAware Calibration + Race-Level Ranker for ROI Recovery
+**Next:** v2.1 — Phase 39 complete, Phase 40 next (Race-Level Ranker)
 
 ## Context
 
-### 現状 (v2.0完了)
+### 現状 (v2.1進行中)
 
-- 10マイルストーン38フェーズ完了 (v1.0〜v2.0)
+- 11マイルストーン39フェーズ完了 (v1.0〜v2.1 Phase 39)
 - BT ROI v1.7: 97.8% → v2.0: 87.8% (Phase 36強特徴量副作用、修正済み但し未検証)
 - 上がりタイム/ラップタイムETL基盤完成 (HaronTimeL3/L4 + LapTime1~25 + Jyuni1c~4c)
 - 芝レース相対特徴量 + クロスレベル派生特徴量 + 条件交互作用項を実装
