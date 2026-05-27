@@ -114,7 +114,7 @@ class OOFHealthValidator:
             )
 
         # OOF-06: same race in multiple folds (always-on, D-03)
-        race_fold_counts = df.groupby("race_id")[profile.fold_col].nunique()
+        race_fold_counts = df.groupby("race_id", observed=True)[profile.fold_col].nunique()
         multi_fold_races = int((race_fold_counts > 1).sum())
         metrics["same_race_multiple_fold_count"] = multi_fold_races
         if multi_fold_races > 0:
@@ -177,7 +177,7 @@ class OOFHealthValidator:
         """OOF-03: check top1 hit rate and ROI for anomalies."""
         # Per-race top1: highest score_col horse
         top1_rows = df.loc[
-            df.groupby("race_id")[profile.score_col].idxmax()
+            df.groupby("race_id", observed=True)[profile.score_col].idxmax()
         ]
 
         n_races = len(top1_rows)
@@ -253,7 +253,7 @@ class OOFHealthValidator:
         fold_col = profile.fold_col
         fold_counts = df[fold_col].value_counts().to_dict()
         fold_race_counts = (
-            df.groupby(fold_col)["race_id"].nunique().to_dict()
+            df.groupby(fold_col, observed=True)["race_id"].nunique().to_dict()
         )
 
         # Fold row/race counts with string keys for JSON
