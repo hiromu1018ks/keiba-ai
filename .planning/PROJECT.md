@@ -110,15 +110,14 @@ MLflow で実験管理。PostgreSQL (EveryDB2/JRA-VAN DataLab) をデータソ�
 
 ## Current State
 
-**Shipped:** v1.7 Market-Independent Edge Discovery (2026-05-19)
-**Current:** v1.8 Turf Precision Calibration (planning)
-**Phases:** 34 total (v1.0-v1.7), v1.8 starting at Phase 35
-**LOC:** ~24,100 (src/)
-**Tests:** 1,540+ passed
-**BT ROI:** 97.8% (v1.7), target 100%+ (v1.8)
-**C-orthogonal IC:** 0.2753 (market-independent predictive power confirmed)
-**Turf b_difference:** -0.004 (market-losing, target: positive)
-**Next:** Phase 35 — v1.8 execution
+**Shipped:** v1.8 Turf Precision Calibration (2026-05-27)
+**Current:** v2.0 Investment Pipeline Restructuring — Phase 38 complete
+**Phases:** 38 total (v1.0-v1.8), v2.0 starting after Phase 38
+**LOC:** ~25,800 (src/)
+**Tests:** 2,012 passed, 85 investment-specific
+**BT ROI:** 87.8% (v1.8 close), target 100%+ (v2.0)
+**InvestmentFeatureFrame:** 94 specs, 9 categories, dual-mode builder with leakage guard
+**Next:** v2.0 planning — Investment Pipeline Restructuring
 
 ## Context
 
