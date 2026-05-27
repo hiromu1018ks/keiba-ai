@@ -360,6 +360,7 @@ class AbilityModel:
             df["race_date"] = pd.to_datetime(df["race_date"])
         df = df.sort_values("race_date").reset_index(drop=True)
         oof_preds = pd.Series(np.nan, index=df.index, dtype=np.float64)
+        oof_folds = pd.Series(pd.NA, index=df.index, dtype=pd.Int64Dtype())
 
         dates = sorted(df["race_date"].unique())
         n_dates = len(dates)
@@ -390,10 +391,12 @@ class AbilityModel:
             test_df = fold_model.add_ability_probs(test_df)
 
             oof_preds.loc[test_mask] = test_df["p_ability_win"].values
+            oof_folds.loc[test_mask] = i
 
         # 最終モデルを全データで学習（推論用、early stopping あり）
         self.train(df, early_stopping=True, num_threads=num_threads)
 
         # OOF 予測を設定
         df["p_ability_win"] = oof_preds
+        df["ability_oof_fold"] = oof_folds
         return df

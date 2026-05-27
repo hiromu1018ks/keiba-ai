@@ -202,3 +202,76 @@ class TestTrainOof:
         assert len(train_calls) == 1
         assert "p_ability_win" in result.columns
         assert result["p_ability_win"].notna().all()
+
+
+class TestAbilityOofFold:
+    """Tests for ability_oof_fold column in train_oof() output (D-05)."""
+
+    def test_train_oof_records_ability_oof_fold_column(self) -> None:
+        """train_oof() returns DataFrame with ability_oof_fold column."""
+        df = _make_oof_df(n_races=40, horses_per_race=8)
+        with (
+            patch.object(AbilityModel, "train"),
+            patch.object(
+                AbilityModel,
+                "add_ability_probs",
+                side_effect=lambda d: d.assign(p_ability_win=np.full(len(d), 0.125)),
+            ),
+        ):
+            model = AbilityModel()
+            result = model.train_oof(df, n_folds=3)
+
+        assert "ability_oof_fold" in result.columns
+
+    def test_train_oof_fold_assignment_values(self) -> None:
+        """Rows with predictions have fold numbers; rows without have NA."""
+        df = _make_oof_df(n_races=40, horses_per_race=8)
+        with (
+            patch.object(AbilityModel, "train"),
+            patch.object(
+                AbilityModel,
+                "add_ability_probs",
+                side_effect=lambda d: d.assign(p_ability_win=np.full(len(d), 0.125)),
+            ),
+        ):
+            model = AbilityModel()
+            result = model.train_oof(df, n_folds=3)
+
+        # Rows where p_ability_win is not NaN should have a fold number
+        has_pred = result["p_ability_win"].notna()
+        has_fold = result["ability_oof_fold"].notna()
+
+        # Every row with a prediction should have a fold number
+        assert has_fold[has_pred].all(), (
+            "Rows with predictions should have fold numbers"
+        )
+
+        # Rows without predictions should have NA fold
+        no_pred = ~has_pred
+        assert result.loc[no_pred, "ability_oof_fold"].isna().all(), (
+            "Rows without predictions should have NA fold"
+        )
+
+        # Fold values should be 0-based integers (0, 1, 2 for 3 folds)
+        fold_vals = result.loc[has_fold, "ability_oof_fold"]
+        assert set(fold_vals.unique()) <= {0, 1, 2}, (
+            f"Fold values should be 0-based, got {set(fold_vals.unique())}"
+        )
+
+    def test_train_oof_fold_dtype_is_nullable_int(self) -> None:
+        """ability_oof_fold dtype is nullable integer (Int64)."""
+        df = _make_oof_df(n_races=40, horses_per_race=8)
+        with (
+            patch.object(AbilityModel, "train"),
+            patch.object(
+                AbilityModel,
+                "add_ability_probs",
+                side_effect=lambda d: d.assign(p_ability_win=np.full(len(d), 0.125)),
+            ),
+        ):
+            model = AbilityModel()
+            result = model.train_oof(df, n_folds=3)
+
+        assert pd.api.types.is_extension_array_dtype(result["ability_oof_fold"]), (
+            f"ability_oof_fold should be nullable integer, got {result['ability_oof_fold'].dtype}"
+        )
