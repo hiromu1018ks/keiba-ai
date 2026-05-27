@@ -350,6 +350,39 @@ class TestTrainingPipelineV5:
         assert metrics["n_races"] == 120
         assert metrics["top1_hit_rate"] == pytest.approx(0.2)
 
+    def test_win_selection_oof_guard_uses_realized_return_before_snapshot_odds(self) -> None:
+        """OOF ROIの健全性判定は選定時点オッズではなく実払戻で見る"""
+        rows: list[dict[str, object]] = []
+        for race_idx in range(120):
+            hit = race_idx % 5 == 0
+            rows.append(
+                {
+                    "race_id": f"R{race_idx:04d}",
+                    "umaban": 1,
+                    "kakuteijyuni": 1 if hit else 2,
+                    "tanodds": 20.0,
+                    "confirmed_odds": 3.0,
+                    "win_return_unit": 3.0 if hit else 0.0,
+                    "win_market_selection_score": 1.0,
+                }
+            )
+            rows.append(
+                {
+                    "race_id": f"R{race_idx:04d}",
+                    "umaban": 2,
+                    "kakuteijyuni": 2 if hit else 1,
+                    "tanodds": 2.0,
+                    "confirmed_odds": 2.0,
+                    "win_return_unit": 0.0 if hit else 2.0,
+                    "win_market_selection_score": 0.0,
+                }
+            )
+
+        metrics = _validate_win_selection_oof_health(pd.DataFrame(rows), context="test")
+
+        assert metrics["top1_hit_rate"] == pytest.approx(0.2)
+        assert metrics["top1_roi"] == pytest.approx(0.6)
+
     @patch("pipelines.training_pipeline.mlflow")
     def test_run_returns_trained_models_v5(
         self,

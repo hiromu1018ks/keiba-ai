@@ -173,6 +173,27 @@ def _prepare_win_selection_oof_artifact(df: pd.DataFrame) -> pd.DataFrame:
     return oof_df
 
 
+def _win_selection_oof_return_unit(df: pd.DataFrame) -> pd.Series:
+    """Return realized win payout per 100-yen stake for OOF ROI checks."""
+    if "win_return_unit" in df.columns:
+        unit_return = pd.to_numeric(df["win_return_unit"], errors="coerce")
+        if unit_return.notna().any():
+            return unit_return.clip(lower=0.0).fillna(0.0)
+    if "win_return" in df.columns:
+        yen_return = pd.to_numeric(df["win_return"], errors="coerce")
+        if yen_return.notna().any():
+            return (yen_return.clip(lower=0.0).fillna(0.0) / 100.0)
+
+    odds_col = "confirmed_odds" if "confirmed_odds" in df.columns else "tanodds"
+    if odds_col not in df.columns:
+        return pd.Series(np.nan, index=df.index, dtype=float)
+    odds = pd.to_numeric(df[odds_col], errors="coerce").fillna(0.0)
+    if odds.dropna().quantile(0.75) > 100.0:
+        odds = odds / 100.0
+    hit = pd.to_numeric(df["kakuteijyuni"], errors="coerce").eq(1)
+    return odds.where(hit, 0.0).clip(lower=0.0)
+
+
 def _walk_forward_race_splits(
     df: pd.DataFrame,
     *,
@@ -236,14 +257,15 @@ def _validate_win_selection_oof_health(
             "missing": ",".join(sorted(missing)),
         }
 
-    odds_col = "confirmed_odds" if "confirmed_odds" in df.columns else "tanodds"
-    if odds_col not in df.columns:
+    has_return_col = bool({"win_return_unit", "win_return"} & set(df.columns))
+    has_odds_col = bool({"confirmed_odds", "tanodds"} & set(df.columns))
+    if not has_return_col and not has_odds_col:
         return {
             "context": context,
             "n_races": 0,
             "top1_hit_rate": 0.0,
             "top1_roi": 0.0,
-            "missing": odds_col,
+            "missing": "win_return_unit|win_return|confirmed_odds|tanodds",
         }
 
     scored = df.copy()
@@ -255,9 +277,9 @@ def _validate_win_selection_oof_health(
     )
     n_races = int(top1["race_id"].nunique())
     hit = pd.to_numeric(top1["kakuteijyuni"], errors="coerce").eq(1)
-    odds = pd.to_numeric(top1[odds_col], errors="coerce").fillna(0.0)
+    unit_return = _win_selection_oof_return_unit(top1)
     top1_hit_rate = float(hit.mean()) if n_races > 0 else 0.0
-    top1_roi = float(odds.where(hit, 0.0).sum() / max(1, n_races))
+    top1_roi = float(unit_return.sum() / max(1, n_races))
     metrics: dict[str, float | int | str] = {
         "context": context,
         "n_races": n_races,

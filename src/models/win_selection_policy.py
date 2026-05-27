@@ -148,17 +148,26 @@ def _roi_for_score(df: pd.DataFrame, score: pd.Series) -> float:
     selected = _top_one_by_score(df, score)
     if selected.empty:
         return float("nan")
-    odds = _numeric(selected, "tanodds")
+    if "win_return_unit" in selected.columns:
+        unit_return = _numeric(selected, "win_return_unit")
+        if unit_return.notna().any():
+            return float(unit_return.clip(lower=0.0).fillna(0.0).sum() / len(selected))
+    if "win_return" in selected.columns:
+        yen_return = _numeric(selected, "win_return")
+        if yen_return.notna().any():
+            return float(yen_return.clip(lower=0.0).fillna(0.0).sum() / (len(selected) * 100.0))
+
+    odds = _numeric(selected, "confirmed_odds")
     if not odds.notna().any():
-        odds = _numeric(selected, "confirmed_odds")
+        odds = _numeric(selected, "tanodds")
     if odds.dropna().quantile(0.75) > 100.0:
         odds = odds / 100.0
     returns = np.where(
         _numeric(selected, "kakuteijyuni").eq(1),
-        odds.clip(lower=0.0).fillna(0.0) * 100.0,
+        odds.clip(lower=0.0).fillna(0.0),
         0.0,
     )
-    return float(np.sum(returns) / (len(selected) * 100.0))
+    return float(np.sum(returns) / len(selected))
 
 
 def _candidate_year_deltas(

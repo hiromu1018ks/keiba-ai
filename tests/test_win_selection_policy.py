@@ -22,6 +22,7 @@ from models.win_selection_policy import (
     DEFAULT_PROB_RANK_BONUS,
     WinSelectionPolicy,
     _annotate_policy_deployability,
+    _roi_for_score,
     deployed_late_odds_drop_weight,
     deployed_policy_params,
 )
@@ -91,6 +92,22 @@ def test_train_selects_late_odds_drop_penalty_from_historical_roi() -> None:
     assert policy.late_odds_drop_weight > 0.0
     assert scored.sort_values("selected_rank_by_win_market_score").iloc[0]["umaban"] == 2
     assert scored["win_late_odds_drop_z"].tolist() == pytest.approx([0.70710678, -0.70710678])
+
+
+def test_roi_for_score_prefers_realized_win_return_over_snapshot_odds() -> None:
+    rows = pd.DataFrame(
+        {
+            "race_id": ["R1", "R1", "R2", "R2"],
+            "umaban": [1, 2, 1, 2],
+            "kakuteijyuni": [1, 2, 1, 2],
+            "tanodds": [50.0, 2.0, 40.0, 2.0],
+            "confirmed_odds": [3.0, 2.0, 4.0, 2.0],
+            "win_return_unit": [3.0, 0.0, 4.0, 0.0],
+        }
+    )
+    score = pd.Series([1.0, 0.0, 1.0, 0.0], index=rows.index)
+
+    assert _roi_for_score(rows, score) == pytest.approx(3.5)
 
 
 def test_win_selection_policy_save_load_roundtrip() -> None:
