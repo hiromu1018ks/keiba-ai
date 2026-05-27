@@ -31,8 +31,11 @@ MAX_DEPLOYED_LATE_ODDS_DROP_WEIGHT: float = 0.12
 MAX_DEPLOYED_LOG_ODDS_PENALTY: float = 0.08
 MAX_DEPLOYED_PROB_RANK_BONUS: float = 0.05
 MAX_DEPLOYED_EV_TAIL_PENALTY_WEIGHT: float = 1.2
-MIN_POLICY_MEAN_ROI_IMPROVEMENT: float = 0.03
-MIN_TAIL_SHRINKAGE_MEAN_ROI_IMPROVEMENT: float = 0.05
+MIN_POLICY_MEAN_ROI_IMPROVEMENT: float = 0.05
+# The yearly guard below rejects any candidate that loses to the default in an
+# OOF year, so a smaller mean edge is acceptable for deployment. This keeps
+# stable tail shrinkage available without fitting to a single validation year.
+MIN_TAIL_SHRINKAGE_MEAN_ROI_IMPROVEMENT: float = 0.005
 MIN_TAIL_SHRINKAGE_YEAR_ROI: float = 0.80
 MAX_POLICY_YEAR_ROI_REGRESSION: float = 0.0
 MIN_POLICY_DEPLOY_ROI_ALL: float = 0.85
@@ -206,6 +209,9 @@ def _annotate_policy_deployability(
             DEFAULT_EV_TAIL_PENALTY_WEIGHT
         )
     )
+    annotated["changes_late_weight"] = annotated["weight"].astype(float).ne(
+        float(default_late_weight)
+    )
     annotated["uses_tail_shrinkage"] = annotated["ev_tail_penalty_weight"].astype(float).gt(
         DEFAULT_EV_TAIL_PENALTY_WEIGHT
     )
@@ -216,6 +222,10 @@ def _annotate_policy_deployability(
         & annotated["min_year_delta_vs_default"].ge(-MAX_POLICY_YEAR_ROI_REGRESSION)
         & annotated["roi_min_by_year"].astype(float).ge(MIN_TAIL_SHRINKAGE_YEAR_ROI)
         & annotated["roi_floor_met"]
+        & (
+            ~annotated["changes_late_weight"]
+            | annotated["mean_delta_vs_default"].ge(MIN_POLICY_MEAN_ROI_IMPROVEMENT)
+        )
     )
     non_tail_deployable = (
         annotated["candidate_changed"]

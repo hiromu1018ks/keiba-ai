@@ -197,11 +197,29 @@ def test_policy_deployability_rejects_any_yearly_regression() -> None:
             {
                 "weight": 0.08,
                 "ev_tail_penalty_weight": DEFAULT_EV_TAIL_PENALTY_WEIGHT,
-                "roi_all": 0.94,
-                "roi_mean_by_year": 0.94,
-                "roi_min_by_year": 0.91,
+                "roi_all": 0.96,
+                "roi_mean_by_year": 0.96,
+                "roi_min_by_year": 0.95,
                 "n_years": 3,
-                "year_rois": {"2021": 0.99, "2022": 0.92, "2023": 0.91},
+                "year_rois": {"2021": 0.97, "2022": 0.96, "2023": 0.95},
+            },
+            {
+                "weight": DEFAULT_LATE_ODDS_DROP_WEIGHT,
+                "ev_tail_penalty_weight": 0.30,
+                "roi_all": 0.91,
+                "roi_mean_by_year": 0.91,
+                "roi_min_by_year": 0.905,
+                "n_years": 3,
+                "year_rois": {"2021": 0.915, "2022": 0.91, "2023": 0.905},
+            },
+            {
+                "weight": 0.10,
+                "ev_tail_penalty_weight": DEFAULT_EV_TAIL_PENALTY_WEIGHT,
+                "roi_all": 0.93,
+                "roi_mean_by_year": 0.93,
+                "roi_min_by_year": 0.92,
+                "n_years": 3,
+                "year_rois": {"2021": 0.94, "2022": 0.93, "2023": 0.92},
             },
         ]
     )
@@ -214,10 +232,16 @@ def test_policy_deployability_rejects_any_yearly_regression() -> None:
 
     risky = annotated.loc[annotated["weight"].eq(0.12)].iloc[0]
     stable = annotated.loc[annotated["weight"].eq(0.08)].iloc[0]
+    stable_tail = annotated.loc[annotated["ev_tail_penalty_weight"].eq(0.30)].iloc[0]
+    weak_late_change = annotated.loc[annotated["weight"].eq(0.10)].iloc[0]
     assert risky["min_year_delta_vs_default"] == pytest.approx(-0.01)
     assert bool(risky["deployable_candidate"]) is False
-    assert stable["min_year_delta_vs_default"] == pytest.approx(0.01)
+    assert stable["min_year_delta_vs_default"] == pytest.approx(0.05)
     assert bool(stable["deployable_candidate"]) is True
+    assert stable_tail["mean_delta_vs_default"] == pytest.approx(0.01)
+    assert bool(stable_tail["deployable_candidate"]) is True
+    assert weak_late_change["mean_delta_vs_default"] == pytest.approx(0.03)
+    assert bool(weak_late_change["deployable_candidate"]) is False
 
 
 def test_dirt_policy_keeps_edge_base_and_dirt_defaults() -> None:
