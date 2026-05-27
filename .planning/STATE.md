@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: Investment Pipeline Restructuring
-status: ready_to_execute
-stopped_at: Phase 37 planned
-last_updated: "2026-05-27T06:00:00.000Z"
-last_activity: 2026-05-27 — Phase 37 planned (2 plans, 2 waves)
+status: milestone_complete
+stopped_at: Phase 38 context gathered
+last_updated: "2026-05-27T10:00:17.738Z"
+last_activity: 2026-05-27 -- Phase 38 execution started
 progress:
-  total_phases: 4
-  completed_phases: 0
-  total_plans: 2
-  completed_plans: 0
-  percent: 0
+  total_phases: 6
+  completed_phases: 6
+  total_plans: 15
+  completed_plans: 12
+  percent: 100
 ---
 
 # Project State
@@ -21,16 +21,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-05-27)
 
 **Core value:** 単勝モデルのバックテストROIを100%超えにすること
-**Current focus:** Phase 37 — OOF Health Infrastructure
+**Current focus:** Phase 38 — InvestmentFeatureFrame
 
 ## Current Position
 
-Phase: 37 of 40 (OOF Health Infrastructure)
-Plan: 0 of 2 in current phase
-Status: Ready to execute
-Last activity: 2026-05-27 — Phase 37 planned (2 plans, 2 waves)
+Phase: 38
+Plan: Not started
+Status: Milestone complete
+Last activity: 2026-05-27
 
-Progress: [░░░░░░░░░░] 0%
+Progress: [▓▓▓▓▓░░░░░░░░░░░░░░] 25%
 
 ## Accumulated Context
 
@@ -67,6 +67,6 @@ None yet for v2.0.
 
 ## Session Continuity
 
-Last session: 2026-05-27T05:32:59.309Z
-Stopped at: Phase 37 context gathered
-Resume file: .planning/phases/37-ev-calibration-layers/37-CONTEXT.md
+Last session: 2026-05-27T09:14:37.173Z
+Stopped at: Phase 38 context gathered
+Resume file: .planning/phases/38-investmentfeatureframe/38-CONTEXT.md

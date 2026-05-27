@@ -6,6 +6,7 @@ MLflow に実験を記録。
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
@@ -54,6 +55,11 @@ from models.win_profit_selector import WinProfitSelector
 from models.win_segment_calibrator import WinSegmentCalibrator
 from models.win_selection_gate import WinSelectionGateModel, ensure_win_selection_columns
 from models.win_selection_policy import WinSelectionPolicy
+from validation.oof_health_validator import (
+    OOFHealthValidator,
+    OOF_PREDICTIONS_PROFILE,
+    _update_index,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -528,16 +534,59 @@ class TrainingPipelineV5:
                     len(full_features_df.columns),
                 )
 
-                # 3c. OOF予測Parquet保存 (IC評価用, Phase 30)
+            # 3c. OOF予測Parquet保存 — producer-side validation (D-13)
+            if not full_features_df.empty and "race_date" in full_features_df.columns:
                 oof_path = Path("data/oof/oof_predictions.parquet")
                 oof_path.parent.mkdir(parents=True, exist_ok=True)
-                oof_predictions_df = _prepare_oof_artifact(full_features_df)
-                oof_predictions_df.to_parquet(oof_path, index=False)
+
+                # Add OOF metadata columns before validation
+                full_features_df["is_oof"] = True
+                full_features_df["oof_artifact_version"] = 1
+
+                # D-13: validate before save
+                train_date_range = (
+                    str(full_features_df["race_date"].min()),
+                    str(full_features_df["race_date"].max()),
+                )
+                oof_validator = OOFHealthValidator()
+                oof_result = oof_validator.validate(
+                    full_features_df,
+                    OOF_PREDICTIONS_PROFILE,
+                    train_date_range=train_date_range,
+                    expected_row_count=len(full_features_df),
+                )
+                if oof_result["status"] != "PASS":
+                    raise ValueError(
+                        f"OOF health check failed for oof_predictions: "
+                        f"{oof_result['failures']}"
+                    )
+
+                full_features_df.to_parquet(oof_path, index=False)
+
+                # D-08: health manifest
+                artifact_hash = hashlib.sha256(oof_path.read_bytes()).hexdigest()
+                manifest = oof_validator.generate_manifest(
+                    full_features_df,
+                    OOF_PREDICTIONS_PROFILE,
+                    artifact_hash,
+                    train_date_range=train_date_range,
+                )
+                manifest_path = Path("data/oof/manifests/oof_predictions.health.json")
+                manifest_path.parent.mkdir(parents=True, exist_ok=True)
+                manifest_path.write_text(
+                    json.dumps(manifest, sort_keys=True, indent=2, ensure_ascii=False),
+                    encoding="utf-8",
+                )
+                _update_index("oof_predictions", str(manifest_path), artifact_hash)
                 logger.info(
-                    "Saved OOF predictions: %d rows, %d cols -> %s",
-                    len(oof_predictions_df),
-                    len(oof_predictions_df.columns),
+                    "Saved OOF predictions: %d rows -> %s (validated, manifest=%s)",
+                    len(full_features_df),
                     oof_path,
+                    manifest_path,
+                )
+            else:
+                logger.info(
+                    "Skipping OOF predictions save: empty df or no race_date column"
                 )
 
         if win_selection_oof_dfs:
@@ -1142,11 +1191,13 @@ class TrainingPipelineV5:
         ev_odds_band_scales = None
         if len(df_oof) >= 500 and "confirmed_odds" in df_oof.columns:
             with TimingContext(f"{surface}/ev_isotonic_oof"):
-                oof_ev, oof_actual, oof_odds = self.generate_ev_oof_predictions(
+                oof_ev, oof_actual, oof_odds, ev_fold_full = self.generate_ev_oof_predictions(
                     df_oof,
                     n_splits=5,
                     num_threads=num_threads,
                 )
+            # D-05: record ev_oof_fold on df_oof before df_oof_for_save copy
+            df_oof["ev_oof_fold"] = pd.array(ev_fold_full, dtype=pd.Int64Dtype())
             if np.isfinite(oof_ev).sum() >= 200:
                 with TimingContext(f"{surface}/ev_isotonic_fit"):
                     ev_isotonic_calibrator, ev_odds_band_scales = self.fit_ev_calibration(
@@ -1703,19 +1754,21 @@ class TrainingPipelineV5:
         *,
         n_splits: int = 5,
         num_threads: int = 0,
-    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         """EVC-01/D-05/D-09: OOF EV予測をK-foldで生成.
 
         学習チェーン: WinTwoStage predict_ev → EVCorrection correct_ev
-        Returns: (oof_ev_corrected, oof_actual_return, oof_odds) — NaN-masked arrays
+        Returns: (oof_ev_corrected, oof_actual_return, oof_odds, oof_fold_assignments)
+          — first 3 are NaN-masked (valid only), oof_fold_assignments is full-length
         """
         df = df.sort_values("race_date").reset_index(drop=True)
         splits = _walk_forward_race_splits(df, n_splits=n_splits)
         oof_ev_corrected = np.full(len(df), np.nan)
         oof_actual_return = np.full(len(df), np.nan)
         oof_odds = np.full(len(df), np.nan)
+        oof_fold_assignments = np.full(len(df), np.nan)
 
-        for train_idx, val_idx in splits:
+        for fold_idx, (train_idx, val_idx) in enumerate(splits):
             fold_win = WinTwoStageModel()
             try:
                 fold_win.train_hit_model(df.iloc[train_idx], num_threads=num_threads)
@@ -1739,11 +1792,9 @@ class TrainingPipelineV5:
                 pd.to_numeric(odds_vals, errors="coerce")
                 * (fold_val["kakuteijyuni"] == 1).astype(float)
             ).values
+            oof_fold_assignments[val_idx] = fold_idx
 
-        valid = (
-            np.isfinite(oof_ev_corrected) & np.isfinite(oof_actual_return) & np.isfinite(oof_odds)
-        )
-        return oof_ev_corrected[valid], oof_actual_return[valid], oof_odds[valid]
+        return oof_ev_corrected, oof_actual_return, oof_odds, oof_fold_assignments
 
     @staticmethod
     def fit_ev_calibration(
