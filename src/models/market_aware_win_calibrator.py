@@ -288,7 +288,7 @@ class MarketAwareWinCalibrator:
 
         # D-05: Year/surface actual/predicted ratio gate
         if "surface" in df.columns and "race_date" in df.columns:
-            self._check_ratio_gates(df, X, y, best_c)
+            self._check_ratio_diagnostics(df, X, y, best_c)
 
         # Fit final model with best C
         self._fit_final(X, y, c=best_c)
@@ -326,7 +326,7 @@ class MarketAwareWinCalibrator:
         self.training_summary["n_features"] = int(X.shape[1])
         self.training_summary["n_positive"] = int(y.sum())
 
-    def _check_ratio_gates(
+    def _check_ratio_diagnostics(
         self, df: pd.DataFrame, X: np.ndarray, y: np.ndarray, c: float,
     ) -> None:
         """D-05: Check year/surface actual/predicted ratio not worsen materially."""
