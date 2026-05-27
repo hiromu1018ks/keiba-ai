@@ -272,4 +272,4 @@ Phases execute in numeric order: 35 -> 36 -> 36.1 -> 36.1.1 -> 37 -> 38
 | 36.1. HaronTime L4/LapTime Redesign | v1.8 | 2/2 | Complete | 2026-05-20 |
 | 36.1.1. MarketModel & RaceQuality配線修正 | v1.8 | 4/4 | Complete    | 2026-05-20 |
 | 37. OOF Health Infrastructure | v2.0 | 2/2 | Complete | 2026-05-27 |
-| 38. InvestmentFeatureFrame | v2.0 | 3/3 | Complete   | 2026-05-27 |
+| 38. InvestmentFeatureFrame | v2.0 | 3/3 | Complete    | 2026-05-27 |

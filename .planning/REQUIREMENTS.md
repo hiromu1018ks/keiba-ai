@@ -44,7 +44,7 @@
 
 ### VAL — Validation & Verification
 
-- [ ] **VAL-01**: v1.6の3層CI漏洩検出テストを全新特徴量(HLF/TRF/INT)に適用し全通過
+- [x] **VAL-01**: v1.6の3層CI漏洩検出テストを全新特徴量(HLF/TRF/INT)に適用し全通過
 - [ ] **VAL-02**: 芝Stage1 IC b_difference が正の値に改善されたことを確認
 - [ ] **VAL-03**: 芝pop 4-12キャリブレーションratioが0.527から改善されたことを確認
 - [ ] **VAL-04**: BT 2024 ROIが100%超えを達成したことを確認
@@ -123,14 +123,14 @@
 | CAL-03 | Phase 39 | Pending |
 | CAL-04 | Retired | Regime-dependent calibration out of scope for v2.0 |
 | CAL-05 | Retired | Regime-dependent calibration out of scope for v2.0 |
-| IFF-01 | Phase 38 | Pending |
-| IFF-02 | Phase 38 | Pending |
-| IFF-03 | Phase 38 | Pending |
-| IFF-04 | Phase 38 | Pending |
-| IFF-05 | Phase 38 | Pending |
-| IFF-06 | Phase 38 | Pending |
-| IFF-07 | Phase 38 | Pending |
-| VAL-01 | Phase 38 | Pending |
+| IFF-01 | Phase 38 | Complete |
+| IFF-02 | Phase 38 | Complete |
+| IFF-03 | Phase 38 | Complete |
+| IFF-04 | Phase 38 | Complete |
+| IFF-05 | Phase 38 | Complete |
+| IFF-06 | Phase 38 | Complete |
+| IFF-07 | Phase 38 | Complete |
+| VAL-01 | Phase 38 | Complete |
 | VAL-02 | Phase 39 | Pending |
 | VAL-03 | Phase 39 | Pending |
 | VAL-04 | Phase 39 | Pending |
