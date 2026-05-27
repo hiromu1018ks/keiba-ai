@@ -1,6 +1,6 @@
 {
   "version": "1.0",
-  "timestamp": "2026-05-27T02:15:00.000Z",
+  "timestamp": "2026-05-27T20:00:00.000Z",
   "phase": null,
   "phase_name": null,
   "phase_dir": null,
@@ -12,21 +12,8 @@
   "remaining_tasks": [],
   "blockers": [],
   "human_actions_pending": [],
-  "decisions": [
-    {
-      "decision": "Phase 38 (Integrated Validation) removed from v1.8 roadmap",
-      "rationale": "User requested removal",
-      "phase": "roadmap"
-    },
-    {
-      "decision": "Phase 37 (EV Calibration Layers) removed from v1.8 roadmap",
-      "rationale": "User requested removal; v1.8 marked complete with 4 phases",
-      "phase": "roadmap"
-    }
-  ],
-  "uncommitted_files": [
-    "tmp/bt_multi.log"
-  ],
-  "next_action": "Start next milestone via /gsd:new-milestone or /gsd:complete-milestone",
-  "context_notes": "v1.8 Turf Precision Calibration is now complete (4/4 phases). Phases 37 and 38 were removed. CAL-01~05 and VAL-01~06 requirements are deferred to future work."
+  "decisions": [],
+  "uncommitted_files": [],
+  "next_action": "Start next milestone via /gsd:new-milestone",
+  "context_notes": "v1.8 Turf Precision Calibration + v2.0 Investment Pipeline Restructuring archived. All 38 phases complete. Ready for v2.1+ planning."
 }
