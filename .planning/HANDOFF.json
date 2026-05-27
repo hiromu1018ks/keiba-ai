@@ -1,13 +1,13 @@
 {
   "version": "1.0",
-  "timestamp": "2026-05-27T02:11:22.000Z",
-  "phase": 37,
-  "phase_name": "EV Calibration Layers",
+  "timestamp": "2026-05-27T02:15:00.000Z",
+  "phase": null,
+  "phase_name": null,
   "phase_dir": null,
   "plan": null,
   "task": null,
   "total_tasks": null,
-  "status": "paused",
+  "status": "milestone_complete",
   "completed_tasks": [],
   "remaining_tasks": [],
   "blockers": [],
@@ -15,13 +15,18 @@
   "decisions": [
     {
       "decision": "Phase 38 (Integrated Validation) removed from v1.8 roadmap",
-      "rationale": "User requested removal; validation items will need to be integrated into Phase 37 or post-v1.8 workflow",
+      "rationale": "User requested removal",
+      "phase": "roadmap"
+    },
+    {
+      "decision": "Phase 37 (EV Calibration Layers) removed from v1.8 roadmap",
+      "rationale": "User requested removal; v1.8 marked complete with 4 phases",
       "phase": "roadmap"
     }
   ],
   "uncommitted_files": [
     "tmp/bt_multi.log"
   ],
-  "next_action": "Plan Phase 37 (EV Calibration Layers) via /gsd:plan-phase",
-  "context_notes": "Session was a brief administrative session. Removed Phase 38 from roadmap. No active phase directory exists yet for Phase 37. v1.8 is at 4/5 phases done (80%). Phase 37 is the last remaining phase."
+  "next_action": "Start next milestone via /gsd:new-milestone or /gsd:complete-milestone",
+  "context_notes": "v1.8 Turf Precision Calibration is now complete (4/4 phases). Phases 37 and 38 were removed. CAL-01~05 and VAL-01~06 requirements are deferred to future work."
 }

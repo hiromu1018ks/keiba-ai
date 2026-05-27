@@ -5,11 +5,11 @@ milestone_name: Turf Precision Calibration
 status: planning
 last_updated: "2026-05-20T17:30:00Z"
 progress:
-  total_phases: 39
-  completed_phases: 34
+  total_phases: 38
+  completed_phases: 38
   total_plans: 84
-  completed_plans: 80
-  percent: 87
+  completed_plans: 84
+  percent: 100
 ---
 
 # Roadmap: keiba-ai Win Model Improvement
@@ -24,7 +24,7 @@ progress:
 - **v1.5 Model Accuracy Improvement** -- Phases 19-22 (shipped 2026-05-10)
 - **v1.6 Feature Engineering Overhaul** -- Phases 23-28 (shipped 2026-05-17)
 - **v1.7 Market-Independent Edge Discovery** -- Phases 29-34 (shipped 2026-05-19)
-- **v1.8 Turf Precision Calibration** -- Phases 35-38 (in progress)
+- **v1.8 Turf Precision Calibration** -- Phases 35-36.1.1 (shipped 2026-05-20)
 
 ## Phases
 
@@ -111,7 +111,7 @@ progress:
 
 </details>
 
-### v1.8 Turf Precision Calibration (In Progress)
+### v1.8 Turf Precision Calibration (Complete)
 
 **Milestone Goal:** IC b_difference --> positive, ROI 97.8%-->100%+
 
@@ -119,8 +119,6 @@ progress:
 - [x] **Phase 36: Feature Computation** - Turf relative features + conditional interactions + Haron/Lap PIT-safe (completed 2026-05-20)
 - [x] **Phase 36.1: HaronTime L4/LapTime Redesign** - クロスレベル派生特徴量 + BT hist_features修正 (completed 2026-05-20)
 - [x] **Phase 36.1.1: MarketModel & RaceQuality配線修正** - Phase36特徴量ルーティング修正 + EV Tail Calibration (INSERTED) (completed 2026-05-20)
-- [ ] **Phase 37: EV Calibration Layers** - Pop band calibration + regime x surface EV correction
-
 ## Phase Details
 
 ### Phase 35: ETL Data Foundation
@@ -190,21 +188,10 @@ Plans:
 - [x] 36.1.1-03-PLAN.md -- EV Tail Calibration feature family合意度 (RTG-04)
 - [x] 36.1.1-04-PLAN.md -- v1.7 vs 現行 差分診断スクリプト (RTG-05)
 
-### Phase 37: EV Calibration Layers
-**Goal**: Popularity band calibration and regime-surface EV correction improve EV accuracy for turf middle-popularity horses
-**Depends on**: Phase 36.1.1
-**Requirements**: CAL-01, CAL-02, CAL-03, CAL-04, CAL-05
-**Success Criteria** (what must be TRUE):
-  1. Popularity band calibration (5 bands: 1-3, 4-6, 7-9, 10-12, 13+) produces per-band EV scaling factors computed from OOF residuals with extended-window OOF to prevent look-ahead bias
-  2. EVCorrectionModel.FEATURE_COLS includes regime_state, surface_x_popularity, and market_entropy_x_surface columns
-  3. regime_state propagates from RacePredictor through to EVCorrectionModel without manual intervention during backtest
-  4. Regime-EV feedback loop forced-transition test passes (regime state cannot be gamed by EV outputs)
-**Plans**: TBD
-
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 35 -> 36 -> 36.1 -> 36.1.1 -> 37
+Phases execute in numeric order: 35 -> 36 -> 36.1 -> 36.1.1
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
@@ -247,4 +234,3 @@ Phases execute in numeric order: 35 -> 36 -> 36.1 -> 36.1.1 -> 37
 | 36. Feature Computation | v1.8 | 2/2 | Complete | 2026-05-20 |
 | 36.1. HaronTime L4/LapTime Redesign | v1.8 | 2/2 | Complete | 2026-05-20 |
 | 36.1.1. MarketModel & RaceQuality配線修正 | v1.8 | 4/4 | Complete    | 2026-05-20 |
-| 37. EV Calibration Layers | v1.8 | 0/? | Not started | - |

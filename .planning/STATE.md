@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.8
 milestone_name: Turf Precision Calibration
-status: planning
-last_updated: "2026-05-21T05:42:49.162Z"
-last_activity: 2026-05-21
+status: complete
+last_updated: "2026-05-27T02:15:00.000Z"
+last_activity: 2026-05-27
 progress:
-  total_phases: 5
+  total_phases: 4
   completed_phases: 4
   total_plans: 10
   completed_plans: 10
-  percent: 80
+  percent: 100
 ---
 
 # Project State
@@ -20,16 +20,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-05-19)
 
 **Core value:** 単勝モデルのバックテストROIを100%超えにすること
-**Current focus:** Phase 37 - EV Calibration Layers
+**Current focus:** v1.8 complete — ready for next milestone
 
 ## Current Position
 
-Phase: 37
-Plan: Not started
-Status: Ready to plan
-Last activity: 2026-05-21
+Phase: v1.8 complete
+Plan: All plans complete
+Status: Milestone done
+Last activity: 2026-05-27
 
-Progress: [▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓░░░░] 80% (v1.8: 4/5 phases done, Phase 37 next)
+Progress: [▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓] 100% (v1.8: 4/4 phases done)
 
 ## v1.8 Roadmap
 
@@ -38,8 +38,7 @@ Progress: [▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓░░░░] 80% (v1
 | 35. ETL Data Foundation | HaronTime/LapTime/Jyuni float64 in Parquet + POST_RACE safety | ETL-01~05 | DONE |
 | 36. Feature Computation | Turf relative + conditional interactions + Haron/Lap PIT-safe | TRF-01~03, INT-01~04, HLF-01~05 | DONE |
 | 36.1. HaronTime L4/LapTime Redesign | クロスレベル派生特徴量への再設計 + BT hist_features欠落修正 | RED-01~06 | DONE (352 tests) |
-| 36.1.1. MarketModel & RaceQuality配線修正 | Phase36特徴量ルーティング修正 + EV Tail Calibration | RTG-01~05 | Next (URGENT) |
-| 37. EV Calibration Layers | Pop band calibration + regime-surface EV correction | CAL-01~05 | Pending |
+| 36.1.1. MarketModel & RaceQuality配線修正 | Phase36特徴量ルーティング修正 + EV Tail Calibration | RTG-01~05 | DONE |
 
 ## Performance Metrics
 
