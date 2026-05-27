@@ -16,7 +16,6 @@ from sklearn.linear_model import LogisticRegression
 
 from models.market_aware_win_calibrator import MarketAwareWinCalibrator
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -80,7 +79,7 @@ class TestBuildFeatureMatrix:
         """Test 1: build_feature_matrix produces ~51 dims for synthetic data."""
         cal = MarketAwareWinCalibrator()
         df = _make_synthetic_df()
-        X, names = cal.build_feature_matrix(df)
+        X, names = cal.build_feature_matrix(df)  # noqa: N806
         # 6 main + 15 one-hot + 30 interactions = 51 (D-17)
         assert X.shape[0] == len(df)
         assert X.shape[1] == 51, f"Expected 51 features, got {X.shape[1]}"
@@ -104,7 +103,9 @@ class TestBuildFeatureMatrix:
         expected_names = MarketAwareWinCalibrator.ODDS_BAND_NAMES
         for i, name in enumerate(expected_names):
             # Column order should match ODDS_BAND_NAMES
-            assert odds_oh.columns[i] == name, f"Column {i}: expected {name}, got {odds_oh.columns[i]}"
+            assert odds_oh.columns[i] == name, (
+                f"Column {i}: expected {name}, got {odds_oh.columns[i]}"
+            )
 
     def test_pop_bucket_all_5_columns(self) -> None:
         """Test 3a: One-hot encoding produces ALL 5 popularity_bucket columns."""
@@ -276,12 +277,14 @@ class TestInteractions:
         only, NO segment x segment (D-06)."""
         cal = MarketAwareWinCalibrator()
         df = _make_synthetic_df()
-        X, names = cal.build_feature_matrix(df)
+        X, names = cal.build_feature_matrix(df)  # noqa: N806
 
         # 6 main effects + 15 one-hot + 30 interactions = 51
         # Interaction names should contain 'x_logit_model' or 'x_logit_market'
         interaction_names = names[21:]  # After 6 main + 15 one-hot
-        assert len(interaction_names) == 30, f"Expected 30 interaction features, got {len(interaction_names)}"
+        assert len(interaction_names) == 30, (
+            f"Expected 30 interaction features, got {len(interaction_names)}"
+        )
 
         # Verify no segment x segment interactions
         for name in interaction_names:
@@ -298,5 +301,6 @@ class TestInteractions:
 
         # Should be exactly the 15 segment features (7 odds + 5 pop + 3 p_rank)
         assert len(segment_names_in_interactions) == 15, (
-            f"Expected 15 segment features in interactions, got {len(segment_names_in_interactions)}"
+            f"Expected 15 segment features in interactions, "
+            f"got {len(segment_names_in_interactions)}"
         )
