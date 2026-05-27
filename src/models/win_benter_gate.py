@@ -130,8 +130,8 @@ def generate_win_oof_predictions(
     ev_corrector: Any,
     n_splits: int = 5,
     num_threads: int = 0,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Generate OOF predictions for Win Benter fitting (D-04).
+) -> pd.DataFrame:
+    """Generate OOF predictions for MarketAwareWinCalibrator training (D-04, D-21).
 
     Uses expanding walk-forward splits on race_date to generate predictions.
     Each validation fold is scored only by models trained on past races.
@@ -144,16 +144,22 @@ def generate_win_oof_predictions(
         num_threads: LightGBM thread count.
 
     Returns:
-        (oof_p_fund, oof_p_market, oof_y) -- aligned arrays for Benter.fit()
+        DataFrame with columns: p_win_oof, p_market_norm, tanodds, popularity_rank,
+        field_size, p_win_race_rank_pct, race_id, race_date, umaban, kakuteijyuni,
+        surface, p_win_corrected (D-18/D-19/D-20).
+        Rows with NaN in core columns are dropped.
     """
     sort_cols = [col for col in ["race_date", "race_id", "umaban"] if col in df.columns]
     df = (
         df.sort_values(sort_cols).reset_index(drop=True) if sort_cols else df.reset_index(drop=True)
     )
     splits = _walk_forward_race_splits(df, n_splits=n_splits)
-    p_fund_oof = np.full(len(df), np.nan)
-    p_market_oof = np.full(len(df), np.nan)
-    y_oof = np.full(len(df), np.nan)
+
+    # Initialize output columns with NaN
+    oof_p_win_corrected = pd.Series(np.nan, index=df.index, dtype=float)
+    oof_p_market_norm = pd.Series(np.nan, index=df.index, dtype=float)
+    oof_kakuteijyuni = pd.Series(np.nan, index=df.index, dtype=float)
+    oof_p_win_oof = pd.Series(np.nan, index=df.index, dtype=float)
 
     for train_idx, val_idx in splits:
         fold_model = win_model_cls()
@@ -177,17 +183,54 @@ def generate_win_oof_predictions(
             logger.warning("Skipping Win OOF fold: %s", exc)
             continue
 
-        p_fund_oof[val_idx] = pd.to_numeric(fold_val["p_win_corrected"], errors="coerce").values
-        p_market_oof[val_idx] = np.clip(
+        oof_p_win_corrected.iloc[val_idx] = pd.to_numeric(
+            fold_val["p_win_corrected"], errors="coerce"
+        ).values
+        oof_p_market_norm.iloc[val_idx] = np.clip(
             np.where(fold_val["tanodds"] > 0, 1.0 / fold_val["tanodds"].values, np.nan),
             0.01,
             0.99,
         )
-        y_oof[val_idx] = (fold_val["kakuteijyuni"] == 1).astype(float).values
+        oof_kakuteijyuni.iloc[val_idx] = (
+            fold_val["kakuteijyuni"].astype(float).values
+        )
+        oof_p_win_oof.iloc[val_idx] = pd.to_numeric(
+            fold_val["p_win_oof"], errors="coerce"
+        ).values
 
-    valid = ~(np.isnan(p_fund_oof) | np.isnan(p_market_oof) | np.isnan(y_oof))
-    logger.info("Win OOF: %d valid / %d total samples", int(valid.sum()), len(valid))
-    return p_fund_oof[valid], p_market_oof[valid], y_oof[valid].astype(int)
+    # Build result DataFrame with all columns needed by MarketAwareWinCalibrator
+    result = df[[]].copy()
+    result["p_win_corrected"] = oof_p_win_corrected
+    result["p_win_oof"] = oof_p_win_oof
+    result["p_market_norm"] = oof_p_market_norm
+    result["kakuteijyuni"] = oof_kakuteijyuni
+
+    # Copy market/static columns from source df (D-20)
+    for col in [
+        "tanodds", "popularity_rank", "field_size", "race_id",
+        "race_date", "umaban", "surface",
+    ]:
+        if col in df.columns:
+            result[col] = df[col].values
+
+    # Compute p_win_race_rank_pct from OOF predictions (D-19)
+    valid_oof_mask = result["p_win_oof"].notna()
+    result["p_win_race_rank_pct"] = np.nan
+    if valid_oof_mask.any() and "race_id" in result.columns:
+        result.loc[valid_oof_mask, "p_win_race_rank_pct"] = (
+            result.loc[valid_oof_mask]
+            .groupby("race_id", observed=True)["p_win_oof"]
+            .rank(pct=True, method="min", ascending=False)
+            .values
+        )
+
+    # Drop rows with NaN in core columns
+    core_cols = ["p_win_oof", "p_market_norm", "kakuteijyuni"]
+    valid = result[core_cols].notna().all(axis=1)
+    result = result[valid].reset_index(drop=True)
+
+    logger.info("Win OOF: %d valid / %d total samples", len(result), len(df))
+    return result
 
 
 # ---------------------------------------------------------------------------

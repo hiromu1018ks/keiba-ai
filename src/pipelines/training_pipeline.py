@@ -52,12 +52,11 @@ from models.two_stage_return_model import PlaceTwoStageModel, WinTwoStageModel
 from models.wide_pair_builder import WideJointPairBuilder
 from models.wide_two_stage_model import WideTwoStageModel
 from models.win_profit_selector import WinProfitSelector
-from models.win_segment_calibrator import WinSegmentCalibrator
 from models.win_selection_gate import WinSelectionGateModel, ensure_win_selection_columns
 from models.win_selection_policy import WinSelectionPolicy
 from validation.oof_health_validator import (
-    OOFHealthValidator,
     OOF_PREDICTIONS_PROFILE,
+    OOFHealthValidator,
     _update_index,
 )
 
@@ -1325,16 +1324,14 @@ class TrainingPipelineV5:
                 temp_scaler = TemperatureScaling.fit(val_p_isotonic, val_y)
                 logger.info("Temperature Scaling: T=%.4f", temp_scaler.temperature)
 
-        # 5c. Win Benter Combination (D-11, D-04, D-13)
-        win_benter = None
-        win_isotonic_cal = None
-        win_temp_scaler = None
+        # 5c. MarketAwareWinCalibrator (Phase 39, CAL-01/CAL-03/CAL-04)
+        market_aware_calibrator = None
         if "tanodds" in df_oof.columns and len(df_oof) >= 500:
-            from models.benter_combination import BenterCombination
+            from models.market_aware_win_calibrator import MarketAwareWinCalibrator
             from models.win_benter_gate import generate_win_oof_predictions
 
             with TimingContext(f"{surface}/win_oof"):
-                oof_p_fund, oof_p_market, oof_y = generate_win_oof_predictions(
+                oof_cal_df = generate_win_oof_predictions(
                     df_oof,
                     win_model_cls=WinTwoStageModel,
                     ev_corrector=ev_corrector,
@@ -1342,144 +1339,26 @@ class TrainingPipelineV5:
                     num_threads=num_threads,
                 )
 
-            if len(oof_p_fund) >= 500:
-                from itertools import product as iter_product
+            if len(oof_cal_df) >= 500:
+                with TimingContext(f"{surface}/market_aware_calibrator"):
+                    market_aware_calibrator = MarketAwareWinCalibrator()
+                    market_aware_calibrator.train(oof_cal_df)
 
-                from scipy.optimize import minimize as scipy_minimize
-
-                # Grid search for initial parameters (D-13)
-                best_nll = float("inf")
-                best_benter = None
-                alpha_grid = [0.3, 0.5, 0.7, 1.0]
-                beta_grid = [0.3, 0.5, 0.7, 1.0]
-                gamma_grid = [-1.0, 0.0, 1.0]
-
-                for a0, b0, g0 in iter_product(alpha_grid, beta_grid, gamma_grid):
-                    try:
-                        logit_f = BenterCombination._logit(oof_p_fund)
-                        logit_m = BenterCombination._logit(oof_p_market)
-                        y_arr = oof_y.astype(float)
-
-                        def _nll(params: np.ndarray) -> float:
-                            alpha, beta, gamma = params
-                            logit_c = alpha * logit_f + beta * logit_m + gamma
-                            p_c = 1.0 / (1.0 + np.exp(-logit_c))
-                            p_c = np.clip(p_c, 1e-10, 1 - 1e-10)
-                            return float(
-                                -np.sum(y_arr * np.log(p_c) + (1 - y_arr) * np.log(1 - p_c))
-                            )
-
-                        res = scipy_minimize(
-                            _nll,
-                            x0=[a0, b0, g0],
-                            method="L-BFGS-B",
-                            bounds=[(0.01, 5.0), (0.20, 5.0), (-5.0, 5.0)],
-                        )
-                        if res.fun < best_nll:
-                            best_nll = res.fun
-                            best_benter = BenterCombination(
-                                alpha=float(res.x[0]),
-                                beta=float(res.x[1]),
-                                gamma=float(res.x[2]),
-                            )
-                    except Exception:
-                        continue
-
-                if best_benter is not None:
-                    win_benter = best_benter
-                    logger.info(
-                        "Win Benter (grid): alpha=%.3f, beta=%.3f, gamma=%.3f, NLL=%.2f",
-                        win_benter.alpha,
-                        win_benter.beta,
-                        win_benter.gamma,
-                        best_nll,
-                    )
-                else:
-                    # Fallback to standard fit
-                    with TimingContext(f"{surface}/win_benter"):
-                        win_benter = BenterCombination.fit(oof_p_fund, oof_p_market, oof_y)
-                    logger.info(
-                        "Win Benter (fallback): alpha=%.3f, beta=%.3f, gamma=%.3f",
-                        win_benter.alpha,
-                        win_benter.beta,
-                        win_benter.gamma,
-                    )
-            else:
-                logger.warning("Win OOF samples < 500 (%d), skipping Win Benter", len(oof_p_fund))
-        else:
-            logger.info("tanodds not in df_oof or df too small, skipping Win Benter")
-
-        # 5d. Win Calibration Comparison (D-05, D-07, D-08)
-        if win_benter is not None and len(oof_p_fund) >= 500:
-            from models.win_benter_gate import compare_calibrations, generate_reliability_data
-
-            # Get Benter-combined probabilities for calibration
-            oof_p_combined = win_benter.combine(oof_p_fund, oof_p_market)
-
-            with TimingContext(f"{surface}/win_calibration"):
-                cal_result = compare_calibrations(oof_p_combined, oof_y, train_ratio=0.8)
-
-            # Log reliability diagram data
-            reliability = generate_reliability_data(oof_y, oof_p_combined, n_bins=10)
-            logger.info(
-                "Win Reliability: bins=%s, positives=%s",
-                [f"{v:.3f}" for v in reliability["mean_predicted_value"]],
-                [f"{v:.3f}" for v in reliability["fraction_of_positives"]],
-            )
-
-            # Select calibrator based on comparison
-            winner = cal_result["winner"]
-            if winner == "beta":
-                win_isotonic_cal = cal_result["beta_calibrator"]
-                logger.info("Win calibration: Beta selected (Brier=%.6f)", cal_result["beta_brier"])
-            elif winner == "isotonic":
-                win_isotonic_cal = cal_result["iso_calibrator"]
                 logger.info(
-                    "Win calibration: Isotonic selected (Brier=%.6f)", cal_result["iso_brier"]
+                    "MarketAwareWinCalibrator trained for %s: "
+                    "is_trained=%s best_c=%s summary=%s",
+                    surface,
+                    market_aware_calibrator.is_trained,
+                    market_aware_calibrator.best_c,
+                    market_aware_calibrator.training_summary,
                 )
             else:
-                win_isotonic_cal = None
-                logger.info("Win calibration: none selected (insufficient data)")
-
-            # Temperature scaling (D-06: optional, apply only if it improves Brier Score)
-            if win_isotonic_cal is not None:
-                from sklearn.metrics import brier_score_loss
-
-                from models.benter_combination import TemperatureScaling
-
-                # Get calibrated probabilities on full OOF data
-                oof_p_calibrated = np.asarray(
-                    win_isotonic_cal.transform(oof_p_combined), dtype=float
+                logger.warning(
+                    "Win OOF samples < 500 (%d), skipping MarketAwareWinCalibrator",
+                    len(oof_cal_df),
                 )
-                brier_before_temp = float(
-                    brier_score_loss(oof_y, np.clip(oof_p_calibrated, 1e-10, 1 - 1e-10))
-                )
-
-                try:
-                    win_temp_scaler = TemperatureScaling.fit(oof_p_calibrated, oof_y)
-                    oof_p_temp = win_temp_scaler.transform(oof_p_calibrated)
-                    brier_after_temp = float(
-                        brier_score_loss(oof_y, np.clip(oof_p_temp, 1e-10, 1 - 1e-10))
-                    )
-
-                    # Only keep TempScale if it improves Brier Score (D-06)
-                    if brier_after_temp >= brier_before_temp:
-                        logger.info(
-                            "Win TempScale: no improvement (%.6f -> %.6f), skipping",
-                            brier_before_temp,
-                            brier_after_temp,
-                        )
-                        win_temp_scaler = None
-                    else:
-                        logger.info(
-                            "Win TempScale: T=%.4f improved Brier (%.6f -> %.6f)",
-                            win_temp_scaler.temperature,
-                            brier_before_temp,
-                            brier_after_temp,
-                        )
-                except Exception:
-                    logger.warning("Win TempScale failed, skipping")
-                    win_temp_scaler = None
+        else:
+            logger.info("tanodds not in df_oof or df too small, skipping MarketAwareWinCalibrator")
 
         # 5a. Place EV補正 (P/E decomposition)
         place_ev_corrector: PlaceEVCorrectionModel | None = None
@@ -1621,22 +1500,8 @@ class TrainingPipelineV5:
                 win_profit_selector.training_summary,
             )
 
-        win_segment_calibrator = None
-        if surface == "turf":
-            with TimingContext(f"{surface}/win_segment_calibrator_train"):
-                win_segment_calibrator = WinSegmentCalibrator(target_surface=surface)
-                win_segment_calibrator.train(wsg_train_df)
-                logger.info(
-                    "WinSegmentCalibrator trained for %s: trained=%s summary=%s",
-                    surface,
-                    win_segment_calibrator.is_trained,
-                    win_segment_calibrator.training_summary,
-                )
-        else:
-            logger.info(
-                "WinSegmentCalibrator skipped for %s: turf-only probability shrinkage is enabled",
-                surface,
-            )
+        # Phase 39: WinSegmentCalibrator removed — segment conditioning now in
+        # MarketAwareWinCalibrator (CAL-04)
 
         # --- D-08 Part 2: Runtime check (ensemble mode only) ---
         if use_ensemble and not win_selection_gate.is_trained:
@@ -1676,13 +1541,10 @@ class TrainingPipelineV5:
             benter_combo=benter_combo,
             isotonic_calibrator=isotonic_cal,
             temperature_scaler=temp_scaler,
-            win_benter=win_benter,
-            win_isotonic_calibrator=win_isotonic_cal,
-            win_temperature_scaler=win_temp_scaler,
             win_selection_gate=win_selection_gate,
             win_selection_policy=win_selection_policy,
             win_profit_selector=win_profit_selector,
-            win_segment_calibrator=win_segment_calibrator,
+            market_aware_win_calibrator=market_aware_calibrator,
             ev_lower_threshold_turf=ev_threshold_turf,
             ev_lower_threshold_dirt=ev_threshold_dirt,
             ev_isotonic_calibrator=ev_isotonic_calibrator,
@@ -2315,19 +2177,22 @@ class TrainingPipelineV5:
                         if wps_tmp and os.path.exists(wps_tmp):
                             os.unlink(wps_tmp)
 
-                if sub.win_segment_calibrator is not None and sub.win_segment_calibrator.is_trained:
-                    wsc_tmp: str | None = None
+                if (
+                    sub.market_aware_win_calibrator is not None
+                    and sub.market_aware_win_calibrator.is_trained
+                ):
+                    mawc_tmp: str | None = None
                     try:
                         with tempfile.NamedTemporaryFile(
                             suffix=".joblib",
                             delete=False,
-                        ) as wsc_file:
-                            wsc_tmp = wsc_file.name
-                        sub.win_segment_calibrator.save(Path(wsc_tmp))
-                        mlflow.log_artifact(wsc_tmp, f"win_segment_calibrator_{surface}")
+                        ) as mawc_file:
+                            mawc_tmp = mawc_file.name
+                        sub.market_aware_win_calibrator.save(Path(mawc_tmp))
+                        mlflow.log_artifact(mawc_tmp, f"market_aware_win_calibrator_{surface}")
                     finally:
-                        if wsc_tmp and os.path.exists(wsc_tmp):
-                            os.unlink(wsc_tmp)
+                        if mawc_tmp and os.path.exists(mawc_tmp):
+                            os.unlink(mawc_tmp)
 
                 # PlaceTwoStageModel
                 if sub.place is not None:
@@ -2497,9 +2362,12 @@ class TrainingPipelineV5:
             if sub.win_profit_selector is not None and sub.win_profit_selector.is_trained:
                 sub.win_profit_selector.save(models_dir / f"win_profit_selector_{surface}.joblib")
 
-            if sub.win_segment_calibrator is not None and sub.win_segment_calibrator.is_trained:
-                sub.win_segment_calibrator.save(
-                    models_dir / f"win_segment_calibrator_{surface}.joblib"
+            if (
+                sub.market_aware_win_calibrator is not None
+                and sub.market_aware_win_calibrator.is_trained
+            ):
+                sub.market_aware_win_calibrator.save(
+                    models_dir / f"market_aware_win_calibrator_{surface}.joblib"
                 )
 
             # Benter Combination (JSON)
@@ -2516,21 +2384,6 @@ class TrainingPipelineV5:
             # v5: Temperature Scaler (JSON)
             if sub.temperature_scaler is not None:
                 sub.temperature_scaler.save(models_dir / f"temp_scale_{surface}.json")
-
-            # Win Benter Combination (JSON)
-            if sub.win_benter is not None:
-                sub.win_benter.save(models_dir / f"benter_combo_win_{surface}.json")
-
-            # Win Isotonic Calibrator (joblib)
-            if sub.win_isotonic_calibrator is not None:
-                joblib.dump(
-                    sub.win_isotonic_calibrator,
-                    models_dir / f"isotonic_win_{surface}.joblib",
-                )
-
-            # Win Temperature Scaler (JSON)
-            if sub.win_temperature_scaler is not None:
-                sub.win_temperature_scaler.save(models_dir / f"temp_scale_win_{surface}.json")
 
             # Phase 19: EV Isotonic Calibrator (joblib)
             if sub.ev_isotonic_calibrator is not None:
