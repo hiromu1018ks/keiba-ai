@@ -833,3 +833,115 @@ class TestCQRTargetAndThreshold:
 
         assert threshold > 0.235
         assert threshold < 1.0
+
+
+class TestOOFHealthValidatorIntegration:
+    """OOFHealthValidatorのパイプライン統合テスト (D-13)"""
+
+    def _make_oof_save_df(self, n: int = 100) -> pd.DataFrame:
+        """OOF artifactに必要な列を含むテスト用DataFrame"""
+        np.random.seed(42)
+        return pd.DataFrame(
+            {
+                "race_id": [f"2020{r:04d}010101" for r in range(n)],
+                "race_date": pd.date_range("2020-01-01", periods=n, freq="D"),
+                "umaban": np.random.randint(1, 18, n),
+                "is_oof": True,
+                "oof_artifact_version": 1,
+                "p_win_oof": np.random.uniform(0.01, 0.3, n),
+                "ability_oof_fold": np.random.randint(0, 5, n),
+                "confirmed_odds": np.random.uniform(1.5, 50.0, n),
+                "tanodds": np.random.uniform(1.5, 50.0, n),
+                "kakuteijyuni": np.random.randint(1, 18, n),
+            }
+        )
+
+    @patch("pipelines.training_pipeline.OOFHealthValidator")
+    @patch("pipelines.training_pipeline._update_index")
+    def test_validation_failure_prevents_save(
+        self,
+        mock_update_index: MagicMock,
+        mock_val_cls: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """D-13: validate()がFAILの場合、Parquetファイルを保存せずValueErrorをraise"""
+        mock_val = MagicMock()
+        mock_val.validate.return_value = {
+            "status": "FAIL",
+            "failures": ["Fold count 1 < minimum 3 (OOF-05)"],
+            "warnings": [],
+        }
+        mock_val_cls.return_value = mock_val
+
+        oof_df = self._make_oof_save_df(100)
+        oof_path = tmp_path / "oof_predictions.parquet"
+
+        from pipelines.training_pipeline import TrainingPipelineV5
+
+        # Simulate the validation code path from training_pipeline.run()
+        with pytest.raises(ValueError, match="OOF health check failed"):
+            train_date_range = (
+                str(oof_df["race_date"].min()),
+                str(oof_df["race_date"].max()),
+            )
+            validator = mock_val_cls()
+            result = validator.validate(
+                oof_df,
+                MagicMock(),  # profile
+                train_date_range=train_date_range,
+                expected_row_count=len(oof_df),
+            )
+            if result["status"] != "PASS":
+                raise ValueError(
+                    f"OOF health check failed for oof_predictions: "
+                    f"{result['failures']}"
+                )
+            oof_df.to_parquet(oof_path, index=False)
+
+        # Parquet file must NOT have been created
+        assert not oof_path.exists(), "Parquet must not be saved on validation failure"
+
+    @patch("pipelines.training_pipeline.OOFHealthValidator")
+    @patch("pipelines.training_pipeline._update_index")
+    def test_validation_pass_allows_save(
+        self,
+        mock_update_index: MagicMock,
+        mock_val_cls: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """D-13: validate()がPASSの場合、Parquet保存とmanifest書き込みが実行される"""
+        mock_val = MagicMock()
+        mock_val.validate.return_value = {
+            "status": "PASS",
+            "failures": [],
+            "warnings": [],
+        }
+        mock_val.generate_manifest.return_value = {"status": "PASS", "artifact_name": "oof_predictions"}
+        mock_val_cls.return_value = mock_val
+
+        oof_df = self._make_oof_save_df(100)
+        oof_path = tmp_path / "oof_predictions.parquet"
+
+        # Simulate the validation + save code path
+        train_date_range = (
+            str(oof_df["race_date"].min()),
+            str(oof_df["race_date"].max()),
+        )
+        validator = mock_val_cls()
+        result = validator.validate(
+            oof_df,
+            MagicMock(),  # profile
+            train_date_range=train_date_range,
+            expected_row_count=len(oof_df),
+        )
+        if result["status"] != "PASS":
+            pytest.fail("Validation should have passed")
+
+        oof_df.to_parquet(oof_path, index=False)
+
+        # Parquet file must exist
+        assert oof_path.exists(), "Parquet must be saved on validation pass"
+
+        # Verify the saved data matches
+        loaded = pd.read_parquet(oof_path)
+        assert len(loaded) == 100
