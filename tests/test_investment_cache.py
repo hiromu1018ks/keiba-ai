@@ -244,20 +244,29 @@ class TestCacheHitMiss:
         self,
         cache_dir: str,
         sample_df: pd.DataFrame,
-        sample_manifest: dict[str, Any],
     ) -> None:
         """load_or_compute returns cached result on hit."""
+        from investment.manifest import compute_investment_schema_hash
+
         cache = InvestmentFrameCache(cache_dir=cache_dir)
 
-        # Pre-populate cache
+        # Compute the input schema hash that load_or_compute will use
+        input_schema_hash = compute_investment_schema_hash(sample_df)
+
+        # Pre-populate cache with matching key and manifest
         cache_key = cache._compute_cache_key(
             mode="train",
             feature_version="v2.0",
             source_artifact_hash="abc",
-            schema_hash=sample_manifest["schema_hash"],
+            schema_hash=input_schema_hash,
             builder_version="1.0.0",
         )
-        cache.save(cache_key, sample_df, sample_manifest)
+        manifest_with_output_hash = {
+            "schema_hash": input_schema_hash,
+            "mode": "train",
+            "feature_version": "v2.0",
+        }
+        cache.save(cache_key, sample_df, manifest_with_output_hash)
 
         compute_called = False
 
