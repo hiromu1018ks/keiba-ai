@@ -331,3 +331,82 @@ class TestSubmodelSet:
         )
         assert sub.benter_combo is None
         assert sub.isotonic_calibrator is None
+
+    def test_submodel_set_has_market_aware_win_calibrator(self) -> None:
+        """SubmodelSet has market_aware_win_calibrator field (CAL-04)"""
+        from unittest.mock import MagicMock
+
+        sub = SubmodelSet(
+            market=MagicMock(),
+            stage1=MagicMock(),
+            place_ability=MagicMock(),
+            win=MagicMock(),
+            ev_corrector=MagicMock(),
+            place=MagicMock(),
+            place_ev_corrector=MagicMock(),
+            wide=MagicMock(),
+            conformal_ev_model=MagicMock(),
+        )
+        assert hasattr(sub, "market_aware_win_calibrator")
+        assert sub.market_aware_win_calibrator is None
+
+    def test_submodel_set_no_removed_win_fields(self) -> None:
+        """SubmodelSet does NOT have removed win fields (CAL-04)"""
+        from unittest.mock import MagicMock
+
+        sub = SubmodelSet(
+            market=MagicMock(),
+            stage1=MagicMock(),
+            place_ability=MagicMock(),
+            win=MagicMock(),
+            ev_corrector=MagicMock(),
+            place=MagicMock(),
+            place_ev_corrector=MagicMock(),
+            wide=MagicMock(),
+            conformal_ev_model=MagicMock(),
+        )
+        assert not hasattr(sub, "win_benter")
+        assert not hasattr(sub, "win_isotonic_calibrator")
+        assert not hasattr(sub, "win_temperature_scaler")
+        assert not hasattr(sub, "win_segment_calibrator")
+
+    def test_submodel_set_market_aware_win_calibrator_accepts_instance(self) -> None:
+        """SubmodelSet.market_aware_win_calibrator accepts MarketAwareWinCalibrator"""
+        from unittest.mock import MagicMock
+
+        from models.market_aware_win_calibrator import MarketAwareWinCalibrator
+
+        calibrator = MarketAwareWinCalibrator()
+        sub = SubmodelSet(
+            market=MagicMock(),
+            stage1=MagicMock(),
+            place_ability=MagicMock(),
+            win=MagicMock(),
+            ev_corrector=MagicMock(),
+            place=MagicMock(),
+            place_ev_corrector=MagicMock(),
+            wide=MagicMock(),
+            conformal_ev_model=MagicMock(),
+            market_aware_win_calibrator=calibrator,
+        )
+        assert sub.market_aware_win_calibrator is calibrator
+
+    def test_submodel_set_place_fields_remain(self) -> None:
+        """Place prediction fields (benter_combo, isotonic_calibrator, temperature_scaler) remain"""
+        from unittest.mock import MagicMock
+
+        sub = SubmodelSet(
+            market=MagicMock(),
+            stage1=MagicMock(),
+            place_ability=MagicMock(),
+            win=MagicMock(),
+            ev_corrector=MagicMock(),
+            place=MagicMock(),
+            place_ev_corrector=MagicMock(),
+            wide=MagicMock(),
+            conformal_ev_model=MagicMock(),
+        )
+        # Place fields must remain
+        assert hasattr(sub, "benter_combo")
+        assert hasattr(sub, "isotonic_calibrator")
+        assert hasattr(sub, "temperature_scaler")
