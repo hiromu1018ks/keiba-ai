@@ -63,14 +63,18 @@ class TestBuildFrameTrainMode:
     """Tests for build_frame(df, mode='train')."""
 
     def test_produces_if_columns_in_range(self) -> None:
-        """Test 1: train mode produces 90-130 'if_*' columns."""
+        """Test 1: train mode produces 90-130 'if_*' columns (excluding _missing)."""
         df = _make_train_source_df()
         builder = InvestmentFeatureFrameBuilder()
         result = builder.build_frame(df, mode="train")
 
-        if_cols = [c for c in result.columns if c.startswith("if_")]
+        # Count feature columns (exclude _missing indicators)
+        if_cols = [
+            c for c in result.columns
+            if c.startswith("if_") and not c.endswith("_missing")
+        ]
         assert 90 <= len(if_cols) <= 130, (
-            f"Expected 90-130 if_* columns, got {len(if_cols)}"
+            f"Expected 90-130 if_* feature columns, got {len(if_cols)}"
         )
 
     def test_output_contains_identity_columns(self) -> None:
