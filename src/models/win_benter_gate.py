@@ -161,6 +161,7 @@ def generate_win_oof_predictions(
     oof_kakuteijyuni = pd.Series(np.nan, index=df.index, dtype=float)
     oof_p_win_oof = pd.Series(np.nan, index=df.index, dtype=float)
 
+    n_failed = 0
     for train_idx, val_idx in splits:
         fold_model = win_model_cls()
         fold_train = df.iloc[train_idx]
@@ -179,8 +180,14 @@ def generate_win_oof_predictions(
                 fold_val,
                 probability_col="p_win_oof",
             )
-        except Exception as exc:
+        except (ValueError, RuntimeError) as exc:
+            n_failed += 1
             logger.warning("Skipping Win OOF fold: %s", exc)
+            if n_failed >= len(splits):
+                raise RuntimeError(
+                    f"All {len(splits)} Win OOF folds failed; "
+                    "check input data quality"
+                ) from exc
             continue
 
         oof_p_win_corrected.iloc[val_idx] = pd.to_numeric(
