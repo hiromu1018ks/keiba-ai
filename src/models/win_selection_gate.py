@@ -29,17 +29,15 @@ def build_win_selection_ev(df: pd.DataFrame) -> pd.Series:
     corrected_ev = _numeric_or_nan(df, "ev_win_corrected")
     direct_ev = _numeric_or_nan(df, "ev_win")
 
-    if corrected_ev.notna().any() or calibrated_ev.notna().any():
-        # Candidate generation needs coverage. Calibrated EV can be intentionally
-        # compressed below 1.0, so use it only as a fallback when raw corrected EV
-        # is unavailable.
-        base_ev = corrected_ev.where(corrected_ev.notna(), calibrated_ev)
-        selection_ev = lower_ev.where(lower_ev.notna(), base_ev)
-        safety_floor = base_ev * 0.85
-        return pd.concat([selection_ev, safety_floor], axis=1).max(axis=1).astype(float)
+    model_ev = corrected_ev.where(corrected_ev.notna(), calibrated_ev)
+    model_ev = model_ev.where(model_ev.notna(), direct_ev)
+    if model_ev.notna().any():
+        # CQR lower bounds are intentionally conservative and can collapse into a
+        # narrow band. Keep them diagnostic-only for selection when model EV exists.
+        return model_ev.astype(float)
     if lower_ev.notna().any():
         return lower_ev.astype(float)
-    return direct_ev.astype(float)
+    return model_ev.astype(float)
 
 
 def _logit(series: pd.Series) -> pd.Series:
@@ -675,10 +673,7 @@ class WinSelectionGateModel:
                 12.0,
                 15.0,
                 18.0,
-                *(
-                    float(df["tanodds"].quantile(q))
-                    for q in [0.50, 0.60, 0.70, 0.80, 0.90]
-                ),
+                *(float(df["tanodds"].quantile(q)) for q in [0.50, 0.60, 0.70, 0.80, 0.90]),
             }
         )
         return prob_values, edge_values, odds_values
@@ -698,9 +693,7 @@ class WinSelectionGateModel:
         edge_scale = max(abs(min_edge), 0.05)
         odds_scale = max(max_odds, 1.0)
         return (
-            prob / prob_scale
-            + (edge - min_edge) / edge_scale
-            + (max_odds - odds) / odds_scale
+            prob / prob_scale + (edge - min_edge) / edge_scale + (max_odds - odds) / odds_scale
         ).astype(float)
 
     def _simulate_threshold_surface(
@@ -728,9 +721,9 @@ class WinSelectionGateModel:
             ["race_id", self.SCORE_COL, self.score_edge_col, "win_selection_prob"],
             ascending=[True, False, False, False],
         )
-        candidates = candidates.groupby(
-            "race_id", as_index=False, sort=False, observed=True
-        ).head(1)
+        candidates = candidates.groupby("race_id", as_index=False, sort=False, observed=True).head(
+            1
+        )
         if candidates.empty:
             return {"roi": 0.0, "profit": 0.0, "max_drawdown": float("inf"), "bets": 0.0}
 
@@ -756,12 +749,7 @@ class WinSelectionGateModel:
         prob = _numeric_or_nan(df, "win_selection_prob")
         edge = _score_edge_values(df, score_edge_col)
         odds = _numeric_or_nan(df, "tanodds")
-        return (
-            prob.ge(min_prob)
-            & edge.ge(min_edge)
-            & odds.gt(0.0)
-            & odds.le(max_odds)
-        )
+        return prob.ge(min_prob) & edge.ge(min_edge) & odds.gt(0.0) & odds.le(max_odds)
 
     def _build_oof_scores(
         self,
@@ -806,21 +794,21 @@ class WinSelectionGateModel:
 
         prepared[self.RANK_COL] = ranks
         prepared[self.GAP_COL] = gaps
-        prepared[self.RUNNER_UP_SCORE_COL] = scores.where(ranks.eq(2)).groupby(
-            prepared["race_id"], observed=True
-        ).transform("max")
-        prepared[self.RUNNER_UP_GAP_COL] = gaps.where(ranks.eq(2)).groupby(
-            prepared["race_id"], observed=True
-        ).transform("min")
-        prepared[self.RUNNER_UP_PROB_COL] = prob.where(ranks.eq(2)).groupby(
-            prepared["race_id"], observed=True
-        ).transform("max")
-        prepared[self.RUNNER_UP_EDGE_COL] = edge.where(ranks.eq(2)).groupby(
-            prepared["race_id"], observed=True
-        ).transform("max")
-        prepared[self.RUNNER_UP_ODDS_COL] = odds.where(ranks.eq(2)).groupby(
-            prepared["race_id"], observed=True
-        ).transform("max")
+        prepared[self.RUNNER_UP_SCORE_COL] = (
+            scores.where(ranks.eq(2)).groupby(prepared["race_id"], observed=True).transform("max")
+        )
+        prepared[self.RUNNER_UP_GAP_COL] = (
+            gaps.where(ranks.eq(2)).groupby(prepared["race_id"], observed=True).transform("min")
+        )
+        prepared[self.RUNNER_UP_PROB_COL] = (
+            prob.where(ranks.eq(2)).groupby(prepared["race_id"], observed=True).transform("max")
+        )
+        prepared[self.RUNNER_UP_EDGE_COL] = (
+            edge.where(ranks.eq(2)).groupby(prepared["race_id"], observed=True).transform("max")
+        )
+        prepared[self.RUNNER_UP_ODDS_COL] = (
+            odds.where(ranks.eq(2)).groupby(prepared["race_id"], observed=True).transform("max")
+        )
         prepared[self.MARKET_CONDITION_COL] = self._compute_market_condition_score(prepared)
         return prepared
 
@@ -896,8 +884,7 @@ class WinSelectionGateModel:
         )
         market_values = sorted(
             set(
-                float(candidates[self.MARKET_CONDITION_COL].quantile(q))
-                for q in [0.20, 0.40, 0.60]
+                float(candidates[self.MARKET_CONDITION_COL].quantile(q)) for q in [0.20, 0.40, 0.60]
             )
             | {0.0}
         )
@@ -1202,12 +1189,7 @@ class WinSelectionGateModel:
         edge = _score_edge_values(prepared, self.score_edge_col)
         odds = _numeric_or_nan(prepared, "tanodds")
         hard_mask = prepared[self.PASS_COL].fillna(False).astype(bool)
-        outer_mask = (
-            (edge >= edge_floor)
-            & (prob >= min_prob)
-            & (odds > 0)
-            & (odds <= max_odds)
-        )
+        outer_mask = (edge >= edge_floor) & (prob >= min_prob) & (odds > 0) & (odds <= max_odds)
         near_mask = (
             (prob >= self.min_prob - self.SOFT_PROB_BUFFER)
             & (edge >= self.min_edge - self.SOFT_EDGE_BUFFER)
@@ -1225,9 +1207,9 @@ class WinSelectionGateModel:
             ["race_id", self.SCORE_COL, self.score_edge_col, "win_selection_prob"],
             ascending=[True, False, False, False],
         )
-        selected = eligible.groupby(
-            "race_id", as_index=False, sort=False, observed=True
-        ).head(max_per_race)
+        selected = eligible.groupby("race_id", as_index=False, sort=False, observed=True).head(
+            max_per_race
+        )
         return prepared.index.isin(selected.index)
 
     def save(self, path: Path) -> None:
@@ -1286,9 +1268,7 @@ class WinSelectionGateModel:
         model.min_edge = float(state.get("min_edge", 0.0))
         model.max_odds = float(state.get("max_odds", float("inf")))
         model.add_second_score_min = float(state.get("add_second_score_min", float("inf")))
-        model.add_second_score_gap_max = float(
-            state.get("add_second_score_gap_max", float("inf"))
-        )
+        model.add_second_score_gap_max = float(state.get("add_second_score_gap_max", float("inf")))
         model.add_second_min_prob = float(state.get("add_second_min_prob", 0.0))
         model.add_second_min_edge = float(state.get("add_second_min_edge", 0.0))
         model.add_second_max_odds = float(state.get("add_second_max_odds", float("inf")))
