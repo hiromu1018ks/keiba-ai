@@ -445,7 +445,20 @@ class TestTrainingPipelineV5:
                                                 pipeline.submodel_mgr = SubModelManager()
                                                 pipeline.model_dir = Path("data/models")
 
-                                                result = pipeline.run("2020-01-01", "2023-12-31")
+                                        with patch(
+                                            "pipelines.training_pipeline."
+                                            "_validate_win_selection_oof_health",
+                                            return_value={"n_races": 0},
+                                        ), patch(
+                                            "pipelines.training_pipeline.OOFHealthValidator"
+                                        ) as mock_oof_val:
+                                            mock_oof_val.return_value.validate.return_value = {
+                                                "status": "PASS",
+                                                "failures": [],
+                                                "warnings": [],
+                                            }
+                                            mock_oof_val.return_value.generate_manifest.return_value = {}
+                                            result = pipeline.run("2020-01-01", "2023-12-31")
 
         assert isinstance(result, TrainedModelsV5)
         assert "turf" in result.submodels or "dirt" in result.submodels
@@ -512,7 +525,20 @@ class TestTrainingPipelineV5:
                                                 pipeline.submodel_mgr = SubModelManager()
                                                 pipeline.model_dir = Path("data/models")
 
-                                                result = pipeline.run("2020-01-01", "2023-12-31")
+                                        with patch(
+                                            "pipelines.training_pipeline."
+                                            "_validate_win_selection_oof_health",
+                                            return_value={"n_races": 0},
+                                        ), patch(
+                                            "pipelines.training_pipeline.OOFHealthValidator"
+                                        ) as mock_oof_val:
+                                            mock_oof_val.return_value.validate.return_value = {
+                                                "status": "PASS",
+                                                "failures": [],
+                                                "warnings": [],
+                                            }
+                                            mock_oof_val.return_value.generate_manifest.return_value = {}
+                                            result = pipeline.run("2020-01-01", "2023-12-31")
 
         assert len(result.submodels) >= 1
 
@@ -573,7 +599,20 @@ class TestTrainingPipelineV5:
                                                 pipeline.submodel_mgr = SubModelManager()
                                                 pipeline.model_dir = Path("data/models")
 
-                                                pipeline.run("2020-01-01", "2023-12-31")
+                                        with patch(
+                                            "pipelines.training_pipeline."
+                                            "_validate_win_selection_oof_health",
+                                            return_value={"n_races": 0},
+                                        ), patch(
+                                            "pipelines.training_pipeline.OOFHealthValidator"
+                                        ) as mock_oof_val:
+                                            mock_oof_val.return_value.validate.return_value = {
+                                                "status": "PASS",
+                                                "failures": [],
+                                                "warnings": [],
+                                            }
+                                            mock_oof_val.return_value.generate_manifest.return_value = {}
+                                            pipeline.run("2020-01-01", "2023-12-31")
 
         mock_mlflow.start_run.assert_called_once()
 
