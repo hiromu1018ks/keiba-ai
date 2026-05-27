@@ -14,6 +14,7 @@ if TYPE_CHECKING:
     from models.benter_combination import BenterCombination, TemperatureScaling
     from models.conformal_ev_model import ConformalEVModel
     from models.ev_correction_model import EVCorrectionModel, PlaceEVCorrectionModel
+    from models.market_aware_win_calibrator import MarketAwareWinCalibrator
     from models.market_model import MarketModel
     from models.place_ability_model import PlaceAbilityModel
     from models.place_selection_gate import PlaceSelectionGateModel
@@ -23,7 +24,6 @@ if TYPE_CHECKING:
     from models.two_stage_return_model import PlaceTwoStageModel, WinTwoStageModel
     from models.wide_two_stage_model import WideTwoStageModel
     from models.win_profit_selector import WinProfitSelector
-    from models.win_segment_calibrator import WinSegmentCalibrator
     from models.win_selection_gate import WinSelectionGateModel
     from models.win_selection_policy import WinSelectionPolicy
 
@@ -253,15 +253,12 @@ class SubmodelSet:
     benter_combo: BenterCombination | None = None
     isotonic_calibrator: IsotonicRegression | None = None
     temperature_scaler: TemperatureScaling | None = None
-    # Win Benter fields (D-12)
-    win_benter: BenterCombination | None = None
-    win_isotonic_calibrator: IsotonicRegression | None = None
-    win_temperature_scaler: TemperatureScaling | None = None
     # Win Selection Gate (Phase 3, SELC-01)
     win_selection_gate: WinSelectionGateModel | None = None
     win_selection_policy: WinSelectionPolicy | None = None
     win_profit_selector: WinProfitSelector | None = None
-    win_segment_calibrator: WinSegmentCalibrator | None = None
+    # Phase 39: MarketAwareWinCalibrator replaces WinBenterGate + WinSegmentCalibrator (CAL-04)
+    market_aware_win_calibrator: MarketAwareWinCalibrator | None = None
     # EV_lower dynamic threshold (D-01/D-02, EVF-01)
     ev_lower_threshold_turf: float = 1.0
     ev_lower_threshold_dirt: float = 1.0
