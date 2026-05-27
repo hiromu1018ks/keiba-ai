@@ -3,8 +3,9 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: Investment Pipeline Restructuring
 status: planning
-last_updated: "2026-05-27T00:00:00.000Z"
-last_activity: 2026-05-27
+stopped_at: Phase 37 context gathered
+last_updated: "2026-05-27T05:32:59.319Z"
+last_activity: 2026-05-27 — v2.0 roadmap created
 progress:
   total_phases: 4
   completed_phases: 0
@@ -66,6 +67,6 @@ None yet for v2.0.
 
 ## Session Continuity
 
-Last session: 2026-05-27
-Stopped at: v2.0 roadmap created, ready to plan Phase 37
-Resume file: None
+Last session: 2026-05-27T05:32:59.309Z
+Stopped at: Phase 37 context gathered
+Resume file: .planning/phases/37-ev-calibration-layers/37-CONTEXT.md
