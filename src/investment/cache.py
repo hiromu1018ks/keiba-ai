@@ -12,8 +12,6 @@ from pathlib import Path
 from typing import Any, Callable
 
 import pandas as pd
-import pyarrow as pa
-import pyarrow.parquet as pq
 
 __all__ = ["InvestmentFrameCache"]
 
@@ -59,7 +57,10 @@ class InvestmentFrameCache:
         Returns:
             Relative path string for cache file.
         """
-        key_input = f"{mode}|{feature_version}|{source_artifact_hash}|{schema_hash}|{builder_version}"
+        key_input = (
+            f"{mode}|{feature_version}|"
+            f"{source_artifact_hash}|{schema_hash}|{builder_version}"
+        )
         hash_val = hashlib.sha256(key_input.encode()).hexdigest()[:16]
         return f"{mode}/{feature_version}_{hash_val}.parquet"
 

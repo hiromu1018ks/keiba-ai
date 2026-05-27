@@ -14,7 +14,6 @@ import pandas as pd
 
 from investment.leakage import validate_no_post_race_leakage
 from investment.schema_registry import (
-    ALL_IF_COLUMNS,
     CATEGORY_ORDER,
     FEATURE_SPECS,
     InvestmentFeatureSpec,
