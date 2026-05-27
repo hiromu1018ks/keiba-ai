@@ -178,3 +178,47 @@ Known deferred items at close: 11 (see STATE.md Deferred Items)
 - `.planning/milestones/v1.7-ROADMAP.md`
 - `.planning/milestones/v1.7-REQUIREMENTS.md`
 - `.planning/milestones/v1.7-MILESTONE-AUDIT.md`
+
+## v1.8 Turf Precision Calibration — 2026-05-20
+
+**Status:** ✅ Shipped
+**Phases:** 4 (35-36.1.1) | **Plans:** 10 | **LOC:** ~25,800
+
+### Key Accomplishments
+
+1. ETL Data Foundation — HaronTime/LapTime/Jyuni float64変換 + POST_RACE 41列化 + sentinel NaN化 + 3層CI漏洩検出
+2. Feature Computation — TRF 3特徴量 + INT 3交互作用 + HLF Haron/Lap 7特徴量を12モデル全登録
+3. HaronTime L4/LapTime Redesign — クロスレベル派生特徴量 (closing_speed_ratio, haron_race_gap, pace_adj_finish) + backtest engine hist_features修正
+4. MarketModel & RaceQuality配線修正 — Phase36強特徴量の3モデル除外 + race aggregate追加 + EV Tail Calibration + v1.7差分診断
+
+### Known Deferred Items
+
+- BT ROI 87.8% (v1.7 was 97.8%) — Phase 36.1.1 fixes not BT-validated
+- WF検証未実行 (~4時間)
+- test_training_pipeline.py 3件既知失敗
+
+Known deferred items at close: 8
+
+### Archive
+
+- `.planning/milestones/v2.0-ROADMAP.md` (combined v1.8+v2.0 archive)
+- `.planning/milestones/v2.0-REQUIREMENTS.md`
+
+## v2.0 Investment Pipeline Restructuring — 2026-05-27
+
+**Status:** ✅ Shipped
+**Phases:** 2 (37-38) | **Plans:** 5 | **LOC:** ~44,582 (src)
+
+### Key Accomplishments
+
+1. OOF Health Infrastructure — OOFHealthValidator基盤 (fail-fast validation + SHA256 manifest + anomaly detection) + ev_oof_fold fold assignment配線
+2. InvestmentFeatureFrame — 94 specs / 9 categories スキーマレジストリ (InvestmentFeatureSpec frozen dataclass) + dual-mode builder (train/infer) + leakage guard + Parquet cache + sidecar manifest
+
+### Known Deferred Items
+
+- BT ROI 87.8% at v2.0 close, target 100%+
+- HLF/TRF/INT features implemented but not BT-validated for IC improvement
+- CAL-01~03 calibration layers deferred to Phase 39+
+- VAL-02~06 validation metrics deferred to Phase 39+
+
+Known deferred items at close: 12 (see STATE.md Deferred Items)

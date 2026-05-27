@@ -210,6 +210,85 @@
 
 ---
 
+## Milestone: v1.8 — Turf Precision Calibration
+
+**Shipped:** 2026-05-20
+**Phases:** 4 (35-36.1.1) | **Plans:** 10 | **Sessions:** ~3
+
+### What Was Built
+- ETL Data Foundation — HaronTime/LapTime/Jyuni float64変換 + POST_RACE 41列化 + sentinel NaN化
+- Feature Computation — TRF 3特徴量 + INT 3交互作用 + HLF Haron/Lap 7特徴量 + 12モデル全登録
+- HaronTime L4/LapTime Redesign — クロスレベル派生3特徴量 (closing_speed_ratio, haron_race_gap, pace_adj_finish)
+- MarketModel & RaceQuality配線修正 — 27特徴量/モデルの外科的除外 + race aggregate追加 + EV Tail Calibration
+
+### What Worked
+- Phase 35のETL基盤が一括構築され、Phase 36の特徴量計算がスムーズに進行
+- HaronTime sentinelルールの宣言型dict設計が複数センチネルパターンを統一的に処理
+- Phase 36.1.1の原因診断(4項目)がルーティング修正を的確にガイド
+- v1.7 vs v2.0 差分診断スクリプトがROI低下の原因分解を定量的に示した
+
+### What Was Inefficient
+- Phase 36強特徴量の一律登録がMarketModel/RaceQualityを崩壊 — Phase 36.1.1で修正に4プラン消費
+- HaronTimeL4データソース誤り(entries vs races)がPhase 36.1で発覚 — 再設計が必要だった
+- BT ROI 97.8%→87.8%の低下をPhase 36.1.1完了後に検証できず(BT再実行未完了)
+
+### Patterns Established
+- sentinelルール宣言型dict: columns/sentinels/divisor keysでETL変換ルールを一元管理
+- 外科的特徴量除外: 全モデル一律登録ではなく、モデル役割に応じたFEATURE_COLS管理
+- 差分診断スクリプト: v[N-1] vs v[N] のmerge-based classificationでROI変動原因を分解
+
+### Key Lessons
+1. 強特徴量の一律登録は市場モデル等の特殊役割モデルを崩壊させる — モデル役割別ルーティングが必須
+2. POST_RACE情報のETLはsentinelパターンが複数(000/999/00)あるため宣言型ルールで統一する
+3. 特徴量追加後は必ずBT再実行でROI検証する — コード修正完了≠ROI改善確認
+
+### Cost Observations
+- Model mix: ~45% opus, ~40% sonnet, ~15% haiku
+- Sessions: ~3
+- Notable: Phase 36.1.1が4プラン中2プランでworktree使用、Phase 35は10分で完了
+
+---
+
+## Milestone: v2.0 — Investment Pipeline Restructuring
+
+**Shipped:** 2026-05-27
+**Phases:** 2 (37-38) | **Plans:** 5 | **Sessions:** ~3
+
+### What Was Built
+- OOF Health Infrastructure — OOFHealthValidator (fail-fast + anomaly detection + SHA256 manifest) + ev_oof_fold配線
+- InvestmentFeatureFrame — 94 specs / 9 categories schema registry + dual-mode builder (train/infer) + leakage guard + Parquet cache
+
+### What Worked
+- OOFHealthValidatorのfrozen dataclass + profile-driven validationが型安全性と拡張性を両立
+- InvestmentFeatureSpec frozen dataclassが94 specsのメタデータをコンパイル時に検証
+- dual-mode builder (train=infer同一スキーマ) が学習/推論パスの整合性を機械的に保証
+- Parquet cache + sidecar manifestが決定性出力を保証(同一入力→同一出力)
+- コードレビュー(CR-01/02, WR-01~04)が命名・docstring・edge case品質を向上
+
+### What Was Inefficient
+- Phase 37 worktreeのmergeでテストが失敗 — mock OOFHealthValidatorのパス調整が必要だった
+- Phase 38 plan 02のderived featuresが20個に膨張 — 94 specsの内20がderivedで計算コスト増
+- スキーマレジストリ94 specsの定義が手作業中心 — 自動生成ツールがあれば効率化可能
+
+### Patterns Established
+- frozen dataclass schema registry: InvestmentFeatureSpecで全特徴量のメタデータを型安全に管理
+- dual-mode builder: train mode (OOF-safe) / infer mode (production) で同一出力スキーマ
+- fail-fast at save point: OOF保存時に健全性検査、異常は下流に伝播前に検出
+- sidecar manifest: Parquetファイル横にJSON manifestで決定性・トレーサビリティ保証
+
+### Key Lessons
+1. frozen dataclass + dict-based FEATURE_SPEPSが大規模スキーマ管理に有効 — 追加・変更が安全
+2. train/infer同一スキーマはテスト可能なアサーションで機械的に検証すべき
+3. OOF検証は保存時(producer-side)が最適 — consumer-sideでは既に汚染データが使われる
+4. コードレビューの命名指摘(CR-01/02)はSPEC段階で防げる — 仕様レビューの重要性
+
+### Cost Observations
+- Model mix: ~40% opus, ~45% sonnet, ~15% haiku
+- Sessions: ~3
+- Notable: Phase 38 plan 02がderived features 20個で最長、Phase 37 plan 01が29テストでTDD効率的
+
+---
+
 ## Cross-Milestone Trends
 
 ### Process Evolution
@@ -223,6 +302,9 @@
 | v1.4 | ~3 | 5 | フィルター再キャリブレーション、動的閾値、PFP二重検証 |
 | v1.5 | ~3 | 5 | EVキャリブレーション、高オッズ特徴量、CQR Conformal区間 |
 | v1.6 | ~5 | 6 | 特徴量オーバーホール、漏洩排除、EveryDB2新特徴量、TE導入 |
+| v1.7 | ~2 | 6 | 市場独立性獲得、IC評価フレームワーク、GPD診断 |
+| v1.8 | ~3 | 4 | 上がりタイムETL、芝相対特徴量、MarketModel配線修正 |
+| v2.0 | ~3 | 2 | OOF検査基盤、投資特徴量フレーム、schema registry |
 
 ### Cumulative Quality
 
@@ -234,12 +316,16 @@
 | v1.4 | 1,327 | mock-based | ~19,300 |
 | v1.5 | 1,392+ | mock-based | ~24,970 |
 | v1.6 | 1,527 | mock-based | ~23,215 |
+| v1.7 | 1,540+ | mock-based | ~24,100 |
+| v2.0 | 2,056 | mock-based | ~44,582 |
 
 ### Top Lessons (Verified Across Milestones)
 
-1. TDD RED/GREEN gateは品質の最強の味方 — 全52プラン(v1.0-v1.6)で一貫して適用
+1. TDD RED/GREEN gateは品質の最強の味方 — 全84プラン(v1.0-v2.0)で一貫して適用
 2. テストモックパスの不一致が複数マイルストーンで発生 — ローカルimportに直接パッチするパターンを確立
-3. 自動deviation修正ルール(Rule 1-3)が6マイルストーン合計18+件のバグを検出・修正
+3. 自動deviation修正ルール(Rule 1-3)が10マイルストーン合計25+件のバグを検出・修正
 4. コンストラクタ注入パターンがテスタビリティを劇的に向上 — Optuna最適化の前提となる
 5. フィルター閾値はモデル出力分布に適合させる必要がある — v1.4で実証
 6. 特徴量の量より質 — 37新特徴量でROI+1.3ppは限界、アプローチ自体の見直しが必要 — v1.6で実証
+7. 強特徴量の一律登録は特殊役割モデルを崩壊させる — モデル役割別ルーティングが必須 — v1.8で実証
+8. frozen dataclass schema registryが大規模特徴量管理に有効 — v2.0で確立

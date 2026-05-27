@@ -2,10 +2,12 @@
 
 ## What This Is
 
-競馬AI予測システム v5.5 — 統計的 horse racing prediction system (単勝/複勝/ワイド)。
+競馬AI予測システム v6.0 — 統計的 horse racing prediction system (単勝/複勝/ワイド)。
 LightGBM + XGBoost + CatBoost 3モデルスタッキング、Optuna個別HP最適化、Isotonic EVキャリブレーション + オッズバンド別補正、CQR Conformal EV区間を搭載。
-POST_RACE情報漏洩完全排除(3層CI検出)、100+特徴量Tier分類監査基盤、EveryDB2未活用データからの22新特徴量(mining/血統/BMS/record/相対比較)、12ドメイン知識交互作用項、OOF安全ターゲットエンコーディング(血統/騎手/調教師)を追加。
-Race-level集約特徴量6 + 市場クロス整合性特徴量5 (Harville公式) で市場独立性を獲得。IC評価フレームワーク (B差分/C直交/E Incremental/Per-race) + Gain-per-Depth診断システム搭載。
+POST_RACE情報漏洩完全排除(3層CI検出)、100+特徴量Tier分類監査基盤、EveryDB2未活用データからの22新特徴量 + 上がりタイム/ラップタイム/コーナー通過順ETL基盤。
+Race-level集約特徴量6 + 市場クロス整合性特徴量5 (Harville公式) + 芝レース相対特徴量 + クロスレベル派生特徴量 で市場独立性を獲得。
+OOF健全性検査基盤(OOFHealthValidator + fail-fast validation + SHA256 manifest) + 投資判断用統合特徴量フレーム(94 specs / 9 categories / dual-mode builder)を搭載。
+IC評価フレームワーク + Gain-per-Depth診断システム搭載。
 3段階ベットフィルター(動的EV_lower/OddsBand/COLLAPSED skip)、レジーム別Kellyサイジング、DD%のみ3段階制御、Optuna TPE 16次元パラメータ最適化 + multi-seed安定性検証、SHA256特徴量凍結manifestを搭載。
 MLflow で実験管理。PostgreSQL (EveryDB2/JRA-VAN DataLab) をデータソースとする。
 
@@ -64,32 +66,28 @@ MLflow で実験管理。PostgreSQL (EveryDB2/JRA-VAN DataLab) をデータソ�
 - ✓ IC評価フレームワーク (B差分/C直交/E Incremental/Per-race + 方向一致性) — v1.7
 - ✓ Gain per Depth診断 (179特徴量カテゴリマップ + MDR/FAD + 可視化CLI) — v1.7
 - ✓ BT 2024 ROI 97.8% (v1.6: 85.7%, +12.1pp改善) + Manifest v1.7凍結 — v1.7
+- ✓ 上がりタイム+ラップ特徴量のETL基盤 (sentinel_float NaN化 + POST_RACE_COLS 41列化 + 漏洩検出) — v1.8 Phase 35
+- ✓ 芝レース内相対特徴量強化 (form_trend/blood_wr race_rank系 + weighted_recent_form) — v1.8 Phase 36
+- ✓ 条件交互作用特徴量 (grade×form, distance×closing, grade×blood_prize_log) — v1.8 Phase 36
+- ✓ Haron/Lap過走履歴特徴量 (7特徴量 + クロスレベル派生3特徴量) — v1.8 Phase 36/36.1
+- ✓ MarketModel/RaceQuality配線修正 + EV Tail Calibration — v1.8 Phase 36.1.1
+- ✓ OOF健全性検査基盤 (OOFHealthValidator + fail-fast + SHA256 manifest) — v2.0 Phase 37
+- ✓ 投資判断用統合特徴量フレーム (94 specs / 9 categories / dual-mode) — v2.0 Phase 38
 
 ### Active
 
-- 上がりタイム+ラップ特徴量のETL基盤 (sentinel_float NaN化 + POST_RACE_COLS 41列化 + 漏洩検出) — v1.8 Phase 35
-- 人気帯キャリブレーションレイヤーの追加 (OOF residual ratio 5段階スケーリング) — v1.8
-- 芝レース内相対特徴量強化 (form_trend/blood_wr race_rank系追加) — v1.8
-- 条件交互作用特徴量の追加 (grade×form, distance×closing等) — v1.8
-- レジーム×サーフェスEV補正 (EV補正FEATURE_COLSにregime等追加) — v1.8
+- 人気帯キャリブレーションレイヤー (OOF residual ratio 5段階スケーリング) — v2.1+
+- レジーム×サーフェスEV補正 (EV補正FEATURE_COLSにregime等追加) — v2.1+
+- BT ROI 100%超え達成 (現在87.8%、目標100%+) — v2.1+
+- 芝Stage1 IC b_difference正転換 — v2.1+
+- Turf conservative regime ROI改善 — v2.1+
 
-## Current Milestone: v1.8 Turf Precision Calibration
+## Current Milestone: Planning Next
 
-**Goal:** 芝モデルのIC b_differenceを負から正に転換し、ROI 97.8%→100%超えを達成する
+**Shipped:** v1.8 Turf Precision Calibration + v2.0 Investment Pipeline Restructuring (2026-05-27)
+**Next:** v2.1+ planning — ROI recovery and calibration layers
 
-**Target features:**
-- A: 上がりタイム+ラップ特徴量実装 (HaronTimeL3/L4 + LapTime1~25 ETL・特徴量化)
-- B: 人気帯キャリブレーション (OOF residual ratio 5段階スケーリング)
-- C: 芝レース内相対特徴量強化 (form_trend/blood_wr等のrace_rank系追加)
-- D: 条件交互作用特徴量 (grade×form, distance×closing等)
-- E: レジーム×サーフェスEV補正 (EV補正FEATURE_COLSにregime等追加)
-
-**絶対制約: リーク・PIT安全性への最新の注意**
-> 提案Aの上がりタイム(HaronTimeL3/L4)・ラップタイム(LapTime1~25)は全てPOST_RACE情報。
-> 特徴量化は必ず過走データのみから集計し、当該レースのPOST_RACEデータは一切使用しない。
-> v1.6で構築した3層CI漏洩検出テストを全新特徴量に適用。提案B~EもOOF予測ベースを確認。
-
-**BT ROI progress:** 84.4% (v1.5) → 85.7% (v1.6) → 97.8% (v1.7) → 目標 100%+
+**BT ROI progress:** 84.4% (v1.5) → 85.7% (v1.6) → 97.8% (v1.7) → 87.8% (v2.0) → 目標 100%+
 
 ### Out of Scope
 
@@ -110,37 +108,36 @@ MLflow で実験管理。PostgreSQL (EveryDB2/JRA-VAN DataLab) をデータソ�
 
 ## Current State
 
-**Shipped:** v1.8 Turf Precision Calibration (2026-05-27)
-**Current:** v2.0 Investment Pipeline Restructuring — Phase 38 complete
-**Phases:** 38 total (v1.0-v1.8), v2.0 starting after Phase 38
-**LOC:** ~25,800 (src/)
-**Tests:** 2,012 passed, 85 investment-specific
-**BT ROI:** 87.8% (v1.8 close), target 100%+ (v2.0)
+**Shipped:** v1.8 Turf Precision Calibration + v2.0 Investment Pipeline Restructuring (2026-05-27)
+**Phases:** 38 total (v1.0-v2.0), all complete
+**LOC:** ~44,582 (src/) + ~38,319 (tests/) = 82,901 total
+**Tests:** 2,056 passed, 3 known failures
+**BT ROI:** 87.8% (v2.0 close), target 100%+
 **InvestmentFeatureFrame:** 94 specs, 9 categories, dual-mode builder with leakage guard
-**Next:** v2.0 planning — Investment Pipeline Restructuring
+**OOF Health:** OOFHealthValidator with fail-fast + SHA256 manifest + anomaly detection
+**Next:** v2.1+ planning — ROI recovery and calibration layers
 
 ## Context
 
-### 現状 (v1.7完了)
+### 現状 (v2.0完了)
 
-- 8マイルストーン34フェーズ完了 (v1.0〜v1.7)
-- BT ROI 85.7% → 97.8% (+12.1pp改善)
-- 11新特徴量 (6 rl_* + 5 MCF) + 2既存特徴量昇格
-- C直交IC 0.2753で市場独立予測力を確認
-- ダートROI 107.4%、Aggressive regime 116.7%で黒字セグメント確認
-- 高オッズ帯(10.0+) ROI 179.9%で高オッズ改善確認
-- Turf conservative regimeは赤字 — 改善余地あり
-- GPD診断でStage1モデルがfundamental-dominatedであることを確認 (Echo Chamber脱却)
+- 10マイルストーン38フェーズ完了 (v1.0〜v2.0)
+- BT ROI v1.7: 97.8% → v2.0: 87.8% (Phase 36強特徴量副作用、修正済み但し未検証)
+- 上がりタイム/ラップタイムETL基盤完成 (HaronTimeL3/L4 + LapTime1~25 + Jyuni1c~4c)
+- 芝レース相対特徴量 + クロスレベル派生特徴量 + 条件交互作用項を実装
+- MarketModel/RaceQuality配線修正 + EV Tail Calibration適用
+- OOF健全性検査基盤 (fail-fast + anomaly detection + SHA256 manifest)
+- 投資判断用統合特徴量フレーム (94 specs / 9 categories / dual-mode)
 
 ### 残存課題
 
-- ROI 100%目標未達 (97.8%、あと2.2pp)
+- ROI 100%目標未達 (87.8%、v1.7は97.8%)
 - Turf conservative regime unprofitable — 最大の改善余地
-- training_pipeline.pyの_build_race_level_features()にrl_*列処理追加必要
-- GPD診断はplace modelがなくても動作するように修正が必要
-- WF検証未実行 — 過学習の有無未確認
+- 人気帯キャリブレーション (CAL-01~03) 未実装
+- WF検証未実行 (~4h) — 過学習の有無未確認
 - Human UAT 5項目がPostgreSQL環境依存で未実行
-- test_training_pipeline.py 3件既知失敗(RecordFeatures.compute mock問題)
+- test_training_pipeline.py 3件既知失敗
+- training_pipeline _build_race_level_features() rl_*列処理未追加
 
 ### 技術背景
 
@@ -205,6 +202,11 @@ MLflow で実験管理。PostgreSQL (EveryDB2/JRA-VAN DataLab) をデータソ�
 | GPD raw metrics only | PASS/FAIL判定は恣意的、数値ベースで判断 | ✓ Good (v1.7) |
 | DataRepository DI pattern | ParquetStore注入でテスト容易性確保 | ✓ Good (v1.7) |
 | Manifest freeze proceeds regardless | 特徴量凍結は検証結果に依存しない | ✓ Good (v1.7) |
+| Phase36特徴量の外科的ルーティング | 強特徴量を全モデルに一律登録せず、モデル役割に応じて除外 | ✓ Good (v1.8) — MarketModel支配解消 |
+| OOF health fail-fast at save point | 空ファイル異常が下流に伝播する前に検出 | ✓ Good (v2.0) |
+| InvestmentFeatureSpec frozen dataclass | コンパイル時スキーマ安全 + dual-mode source resolution | ✓ Good (v2.0) |
+| Benter型市場ブレンド | logit(p_model) + logit(p_market)で強い事前分布 | ✓ Good (v2.0) |
+| 配備条件=確率品質 | ROIではなくBrier/logloss/ECEで判定 | ✓ Good (v2.0) |
 
 ## Evolution
 
@@ -224,4 +226,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-19 after v1.8 milestone planning started*
+*Last updated: 2026-05-27 after v2.0 milestone completion*
