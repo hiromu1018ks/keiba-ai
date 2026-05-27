@@ -120,7 +120,7 @@ progress:
 - [x] **Phase 36.1: HaronTime L4/LapTime Redesign** - クロスレベル派生特徴量 + BT hist_features修正 (completed 2026-05-20)
 - [x] **Phase 36.1.1: MarketModel & RaceQuality配線修正** - Phase36特徴量ルーティング修正 + EV Tail Calibration (INSERTED) (completed 2026-05-20)
 - [x] **Phase 37: OOF Health Infrastructure** - OOF成果物の健全性検査基盤 (fail-fast validation) (completed 2026-05-27)
-- [ ] **Phase 38: InvestmentFeatureFrame** - 投資判断用統合特徴量フレーム (90-130列)
+- [x] **Phase 38: InvestmentFeatureFrame** - 投資判断用統合特徴量フレーム (90-130列) (completed 2026-05-27)
 
 ## Phase Details
 
@@ -223,7 +223,7 @@ Plans:
 Plans:
 - [x] 38-01-PLAN.md -- Schema registry + leakage detection foundation (IFF-04, IFF-05)
 - [x] 38-02-PLAN.md -- Feature frame builder + manifest + cache (IFF-01, IFF-02, IFF-03, IFF-06, IFF-07)
-- [ ] 38-03-PLAN.md -- Test suite + integration validation (VAL-01, full coverage)
+- [x] 38-03-PLAN.md -- Test suite + integration validation (VAL-01, full coverage)
 
 ## Progress
 
@@ -272,4 +272,4 @@ Phases execute in numeric order: 35 -> 36 -> 36.1 -> 36.1.1 -> 37 -> 38
 | 36.1. HaronTime L4/LapTime Redesign | v1.8 | 2/2 | Complete | 2026-05-20 |
 | 36.1.1. MarketModel & RaceQuality配線修正 | v1.8 | 4/4 | Complete    | 2026-05-20 |
 | 37. OOF Health Infrastructure | v2.0 | 2/2 | Complete | 2026-05-27 |
-| 38. InvestmentFeatureFrame | v2.0 | 2/3 | In Progress|  |
+| 38. InvestmentFeatureFrame | v2.0 | 3/3 | Complete   | 2026-05-27 |
