@@ -440,7 +440,7 @@ _RACE_RELATIVE_SPECS: tuple[InvestmentFeatureSpec, ...] = (
         description="レース内EV順位 (pct)",
     ),
     InvestmentFeatureSpec(
-        name="if_ability_race_rank",
+        name="if_p_ability_win",
         category="race_relative",
         dtype="float64",
         train_sources=("p_ability_win",),
@@ -449,7 +449,7 @@ _RACE_RELATIVE_SPECS: tuple[InvestmentFeatureSpec, ...] = (
         default_value=None,
         missing_indicator=None,
         leakage_class="safe",
-        description="レース内能力順位 (pct)",
+        description="AbilityModel単勝確率 (順位化はPhase 39で実装)",
     ),
     InvestmentFeatureSpec(
         name="if_ev_top1_gap",
