@@ -118,9 +118,9 @@ progress:
 - [x] **Phase 35: ETL Data Foundation** - HaronTime/LapTime/Jyuni float64 + POST_RACE_COLS (completed 2026-05-19)
 - [x] **Phase 36: Feature Computation** - Turf relative features + conditional interactions + Haron/Lap PIT-safe (completed 2026-05-20)
 - [x] **Phase 36.1: HaronTime L4/LapTime Redesign** - クロスレベル派生特徴量 + BT hist_features修正 (completed 2026-05-20)
-- [x] **Phase 36.1.1: MarketModel & RaceQuality配線修正** - Phase36特徴量ルーティング修正 + EV Tail Calibration (INSERTED) (completed 2026-05-20)
+- [x] **Phase 36.1.1: MarketModel & RaceQuality配線修正** - Phase36特徴量ルーティング修正 + EV Tail Calibration (INSERTED) (completed 2026-05-20)
 - [x] **Phase 37: OOF Health Infrastructure** - OOF成果物の健全性検査基盤 (fail-fast validation) (completed 2026-05-27)
-- [ ] **Phase 38: InvestmentFeatureFrame** - 投資判断用統合特徴量フレーム (80-150列)
+- [ ] **Phase 38: InvestmentFeatureFrame** - 投資判断用統合特徴量フレーム (90-130列)
 
 ## Phase Details
 
@@ -210,7 +210,7 @@ Plans:
 ### Phase 38: InvestmentFeatureFrame
 **Goal**: 投資判断用統合特徴量フレーム (90-130列) を構築。モデル出力・市場データ・OOF予測を統合し、投資判断に特化した構造化特徴量を生成する
 **Depends on**: Phase 37
-**Requirements**: IFF-01, IFF-02, IFF-03, IFF-04, IFF-05, IFF-06, IFF-07
+**Requirements**: IFF-01, IFF-02, IFF-03, IFF-04, IFF-05, IFF-06, IFF-07, VAL-01
 **Success Criteria** (what must be TRUE):
   1. InvestmentFeatureFrameBuilder.build_frame(df, mode="train"|"infer") が9カテゴリ90-130列の特徴量を生成 (IFF-01)
   2. train modeはOOF-safe列のみ使用、p_win_pred等in-sample列を拒否。infer modeは本番列を使用 (IFF-02)
@@ -219,7 +219,11 @@ Plans:
   5. POST_RACE列非混入。漏洩テスト(VAL-01 scoped to frame)通過 (IFF-05)
   6. Parquetキャッシュ + sidecar manifest。決定性出力(同一入力→同一出力) (IFF-06)
   7. artifact manifest: feature_version, schema_hash, source_artifact_hash, OOF health manifest path, builder_version, mode, generated_at (IFF-07)
-**Plans**: TBD
+**Plans**: 3 plans
+Plans:
+- [ ] 38-01-PLAN.md -- Schema registry + leakage detection foundation (IFF-04, IFF-05)
+- [ ] 38-02-PLAN.md -- Feature frame builder + manifest + cache (IFF-01, IFF-02, IFF-03, IFF-06, IFF-07)
+- [ ] 38-03-PLAN.md -- Test suite + integration validation (VAL-01, full coverage)
 
 ## Progress
 
@@ -268,4 +272,4 @@ Phases execute in numeric order: 35 -> 36 -> 36.1 -> 36.1.1 -> 37 -> 38
 | 36.1. HaronTime L4/LapTime Redesign | v1.8 | 2/2 | Complete | 2026-05-20 |
 | 36.1.1. MarketModel & RaceQuality配線修正 | v1.8 | 4/4 | Complete    | 2026-05-20 |
 | 37. OOF Health Infrastructure | v2.0 | 2/2 | Complete | 2026-05-27 |
-| 38. InvestmentFeatureFrame | v2.0 | 0/? | Not started | - |
+| 38. InvestmentFeatureFrame | v2.0 | 0/3 | Planned | - |
