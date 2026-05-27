@@ -137,6 +137,12 @@ class InvestmentFrameCache:
         On cache hit, returns the cached result. On miss, calls compute_fn,
         saves the result, and returns it.
 
+        **Important:** ``source_artifact_hash`` is the only guard against stale
+        cache hits when source *data* changes but the column schema stays the
+        same.  Callers MUST ensure ``source_artifact_hash`` changes whenever
+        the content of the source artifact changes; otherwise cached results
+        from a previous run may be returned for new data.
+
         Args:
             df: Input DataFrame.
             mode: "train" or "infer".
