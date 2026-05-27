@@ -573,7 +573,7 @@ _ODDS_BAND_SPECS: tuple[InvestmentFeatureSpec, ...] = (
         default_value=None,
         missing_indicator=None,
         leakage_class="safe",
-        description="オッズ帯ID",
+        description="単勝オッズ (バンド変換はPhase 39で実装)",
     ),
     InvestmentFeatureSpec(
         name="if_odds",
