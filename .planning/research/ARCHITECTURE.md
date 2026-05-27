@@ -1,14 +1,14 @@
-# Architecture: Investment Pipeline Restructuring (v2.0)
+# Architecture Research: Investment Pipeline Restructuring (v2.0)
 
-**Domain:** Horse racing prediction system -- probability calibration, feature engineering, race-level ranking
+**Domain:** Horse racing prediction system -- probability calibration, feature engineering, race-level ranking, shadow validation
 **Researched:** 2026-05-27
 **Overall confidence:** HIGH (based on direct codebase analysis of all integration points)
 
 ## Executive Summary
 
-The v2.0 milestone restructures the probability estimation and horse selection pipeline. Four new components (OOF Health, InvestmentFeatureFrame, MarketAwareWinCalibrator, Race-Level Ranker) insert into the existing training and inference paths at specific, well-defined points. The architecture follows the established pattern of extend-not-replace: new models are added as optional fields on SubmodelSet, with graceful fallback when absent. The critical architectural invariant is OOF safety: MarketAwareWinCalibrator and Race-Level Ranker both consume predictions from earlier models and must train on out-of-fold predictions using the existing walk-forward race-split pattern. The existing WinBenterGate is retained as fallback but superseded by MarketAwareWinCalibrator.
+The v2.0 milestone restructures the probability estimation and horse selection pipeline. Four new components (OOF Health, InvestmentFeatureFrame, MarketAwareWinCalibrator, Race-Level Ranker) insert into the existing training and inference paths at specific, well-defined points. A fifth component (ShadowComparator) provides baseline-vs-shadow validation by wrapping the existing BacktestEngine without modifying it. The architecture follows the established pattern of extend-not-replace: new models are added as optional fields on SubmodelSet, with graceful fallback when absent. The critical architectural invariant is OOF safety: MarketAwareWinCalibrator and Race-Level Ranker both consume predictions from earlier models and must train on out-of-fold predictions using the existing walk-forward race-split pattern. The existing WinBenterGate is retained as fallback but superseded by MarketAwareWinCalibrator.
 
-The recommended build order follows a strict dependency chain: Phase 0 (OOF Health) first because all downstream training depends on valid OOF artifacts; Phase 1 (InvestmentFeatureFrame) second because it provides the feature substrate for both the calibrator and ranker; Phase 2+3 (MarketAwareWinCalibrator with Segment Calibration) third because it produces p_win_market_aware which the ranker consumes; Phase 4 (Race-Level Ranker) last because it depends on both investment features and market-aware probabilities.
+The recommended build order follows a strict dependency chain: Phase 0 (OOF Health) first because all downstream training depends on valid OOF artifacts; Phase 1 (InvestmentFeatureFrame) second because it provides the feature substrate for both the calibrator and ranker; Phase 2+3 (MarketAwareWinCalibrator with Segment Calibration) third because it produces p_win_market_aware which the ranker consumes; Phase 4 (Race-Level Ranker) fourth because it depends on both investment features and market-aware probabilities; Phase 5 (Shadow Comparison) last because it validates the full integrated pipeline against the baseline.
 
 ## Recommended Architecture
 
@@ -86,7 +86,7 @@ TrainingPipelineV5.run() [MODIFIED]
   |     +-- [NEW] MarketAwareWinCalibrator.train(oof_df)
   |     |     -- Input: win_investment_oof (OOF predictions + investment features)
   |     |     -- Label: is_win (kakuteijyuni == 1)
-  |     |     -- Model: LightGBM binary with logit(p_model)+logit(p_market)+segment features
+  |     |     -- Model: segment-conditioned Benter blend (scipy MLE per segment)
   |     |     -- Output: p_win_market_aware
   |     |     -- Replaces win_benter as primary probability source
   |     +-- [MODIFIED] Segment Calibration features added to InvestmentFeatureFrame
@@ -96,8 +96,8 @@ TrainingPipelineV5.run() [MODIFIED]
   |     +-- (unchanged) WinSelectionPolicy + WinProfitSelector
   |     +-- [NEW] Race-Level Ranker training
   |     |     -- Input: InvestmentFeatureFrame + p_win_market_aware
-  |     |     -- Two sub-models: win rate ranker + value ranker
-  |     |     -- Uses LightGBM ranker (LambdaRank)
+  |     |     -- Deterministic composite score: w_p*p_win + w_edge*edge + w_ev*ev
+  |     |     -- Weights tuned via Optuna (extending existing 16-dim parameter space)
   |     |     -- Output: investment_score per horse within race
   |     +-- Returns SubmodelSet [EXTENDED] + investment_oof + ranker_oof
   +-- 5-8. (unchanged) Race features, QualityScreener, RegimeDetector, MLflow
@@ -121,10 +121,31 @@ RacePredictor.get_win_candidates() [MODIFIED]
   +-- (unchanged) WinSegmentCalibrator.apply()
   +-- [NEW] Race-Level Ranker.score()
   |     -- Replaces manual selection_score computation
-  |     -- investment_score = value_ranker + win_rate_ranker - uncertainty_penalty
+  |     -- investment_score = w_p*p_win_final + w_edge*edge + w_ev*ev_corrected
   +-- (unchanged) WinProfitSelector.score()
   +-- Sort by investment_score -> profit_score -> prob -> edge
   +-- Return top candidate(s)
+```
+
+```
+Shadow Comparison Pipeline [NEW]
+  |
+  +-- Train baseline models (existing pipeline, no changes)
+  +-- Train shadow models (pipeline WITH MarketAwareWinCalibrator + Ranker)
+  +-- Run BacktestEngine(baseline_models) on 2024+2025 -> baseline_results
+  +-- Run BacktestEngine(shadow_models) on 2024+2025 -> shadow_results
+  +-- ShadowComparator.compare(baseline_results, shadow_results)
+  |     -- Probability quality: Brier, log-loss, ECE (per-year)
+  |     -- Selection agreement: top-1 horse overlap rate
+  |     -- CLV comparison: average closing line value
+  |     -- ROI/HR/DD comparison
+  |     -- Bet count ratio
+  +-- Deployment gate evaluation:
+  |     -- Brier/log-loss/ECE improvement required
+  |     -- Selection agreement >= 85%
+  |     -- ROI not degraded > 5%
+  |     -- Bet count within 90-110%
+  +-- Output: data/shadow/shadow_comparison_report.json
 ```
 
 ## Component Boundaries
@@ -135,9 +156,10 @@ RacePredictor.get_win_candidates() [MODIFIED]
 |-----------|------|----------------|-------------------|
 | OOF Health Checker | `src/validation/oof_health.py` | Validates OOF artifacts: empty check, race_id dedup, anomaly detection, fold integrity | TrainingPipelineV5 (called after OOF generation) |
 | InvestmentFeatureFrame | `src/features/investment_features.py` | Builds 80-150 investment-judgment features from base features + model outputs | FeatureEngine (reads base features), MarketAwareWinCalibrator (provides input), RacePredictor (inference) |
-| MarketAwareWinCalibrator | `src/models/market_aware_win_calibrator.py` | Benter-type logit blend + segment calibration features -> p_win_market_aware | TrainingPipelineV5 (train), SubmodelSet (stored), RacePredictor (inference) |
-| Win Race-Level Ranker | `src/models/win_race_level_ranker.py` | LightGBM ranker for race-internal horse ranking (value + win rate) | InvestmentFeatureFrame (features), RacePredictor (inference) |
+| MarketAwareWinCalibrator | `src/models/market_aware_win_calibrator.py` | Segment-conditioned Benter logit blend -> p_win_market_aware | TrainingPipelineV5 (train), SubmodelSet (stored), RacePredictor (inference) |
+| Win Race-Level Ranker | `src/models/win_race_level_ranker.py` | Deterministic composite scoring for race-internal horse ranking | InvestmentFeatureFrame (features), RacePredictor (inference) |
 | Calibration Report | `src/validation/calibration_report.py` | Generates probability quality reports (Brier, ECE, actual/pred) | MarketAwareWinCalibrator (validation) |
+| ShadowComparator | `src/validation/shadow_comparator.py` | Baseline vs shadow comparison: probability quality, selection agreement, CLV, ROI, bet count | BacktestEngine (consumes results from two runs), deployment gate |
 
 ### MODIFIED Components
 
@@ -148,6 +170,7 @@ RacePredictor.get_win_candidates() [MODIFIED]
 | TrainedModelsV5 | `src/domain/models.py` | No change | Already contains submodels dict, quality_screener, regime_detector |
 | RacePredictor | `src/backtest/race_predictor.py` | Extension | Add InvestmentFeatureFrame.build() call, MarketAwareWinCalibrator.apply(), Ranker.score(). Modify get_win_candidates() to use ranker output |
 | ModelLoader | `src/db/model_loader.py` | Extension | Load MarketAwareWinCalibrator and WinRaceLevelRanker artifacts from MLflow/local |
+| run_backtest.py | `scripts/run_backtest.py` | Extension | Add `--shadow` flag to enable shadow comparison mode (trains both baseline and shadow, runs comparison) |
 
 ### UNCHANGED Components
 
@@ -160,7 +183,7 @@ RacePredictor.get_win_candidates() [MODIFIED]
 | AbilityModel | `src/models/stage1_ability_model.py` | Stage1 output p_ability_win is input to InvestmentFeatureFrame |
 | WinTwoStageModel | `src/models/two_stage_return_model.py` | Core model unchanged; its output feeds InvestmentFeatureFrame |
 | EVCorrectionModel | `src/models/ev_correction_model.py` | EV correction unchanged; feeds InvestmentFeatureFrame |
-| BacktestEngine | `src/backtest/engine.py` | Uses RacePredictor; benefits from changes without modification |
+| BacktestEngine | `src/backtest/engine.py` | Used as-is by ShadowComparator; no internal changes needed |
 | BettingOrchestrator | `src/betting/orchestrator.py` | Uses RacePredictor output; no changes needed |
 | StakeCalculator | `src/betting/stake_calculator.py` | Stake computation unchanged |
 | DrawdownController | `src/betting/drawdown_controller.py` | DD control unchanged |
@@ -207,19 +230,18 @@ RacePredictor.get_win_candidates() [MODIFIED]
                         |  Label: is_win                                |
                         |  Features: logit(p_model), logit(p_market),   |
                         |            segment features, investment feats  |
-                        |  Model: LightGBM binary (initial)              |
+                        |  Model: per-segment BenterCombination (MLE)    |
                         |  Output: p_win_market_aware                   |
                         |  Validation: Brier, ECE, actual/pred          |
                         |  Must pass OOF deployment gate before saving   |
                         +-----------------------+------------------------+
                                                 |
                         +-----------------------v------------------------+
-                        |  [NEW] Win Race-Level Ranker.train()           |
+                        |  [NEW] Win Race-Level Ranker setup             |
                         |  Input: InvestmentFeatureFrame +               |
                         |         p_win_market_aware                     |
-                        |  Sub-model 1: win_rate_ranker (target: is_win) |
-                        |  Sub-model 2: value_ranker (target: ev, CLV)   |
-                        |  Model: LightGBM ranker (LambdaRank)           |
+                        |  Composite: w_p*p_win + w_edge*edge + w_ev*ev |
+                        |  Weights: tuned via Optuna (19-dim space)      |
                         |  Output: investment_score per horse per race   |
                         |  Must not reduce bet count vs baseline         |
                         +-----------------------------------------------+
@@ -273,6 +295,50 @@ WinProfitSelector.score()  -- (existing, secondary filter)
      |
      v
 final bet candidates
+```
+
+### Shadow Comparison Data Flow
+
+```
+Training Phase:
+  baseline_models = TrainingPipelineV5.run(config=v1.8)   -- existing pipeline
+  shadow_models   = TrainingPipelineV5.run(config=v2.0)   -- with calibrator + ranker
+
+Comparison Phase:
+  +------------------------+     +------------------------+
+  | BacktestEngine         |     | BacktestEngine         |
+  | models=baseline_models |     | models=shadow_models   |
+  | test=2024+2025         |     | test=2024+2025         |
+  +-----------+------------+     +-----------+------------+
+              |                              |
+              v                              v
+  baseline_results.parquet     shadow_results.parquet
+  (bet_history + per-race      (bet_history + per-race
+   diagnostics)                 diagnostics)
+              |                              |
+              +---------------+--------------+
+                              |
+                              v
+                  +------------------------+
+                  |  ShadowComparator      |
+                  |  .compare(             |
+                  |    baseline_results,   |
+                  |    shadow_results      |
+                  |  )                     |
+                  +-----------+------------+
+                              |
+         +--------------------+--------------------+
+         |                    |                    |
+         v                    v                    v
+  probability_metrics   selection_metrics    performance_metrics
+  (Brier, ECE,          (top-1 agreement,   (ROI, HR, DD,
+   log-loss, per-year)   CLV, rank corr)     bet_count ratio)
+         |                    |                    |
+         +--------------------+--------------------+
+                              |
+                              v
+                  shadow_comparison_report.json
+                  + deployment_gate verdict
 ```
 
 ## Patterns to Follow
@@ -381,6 +447,42 @@ def assess_deployment(calibrator, oof_df):
 
 **Absolute constraint from PROJECT.md:** "2024/2025にだけ合う係数調整はしない。OOF、ウォークフォワード、年別安定性で配備可否を判定する。"
 
+### Pattern 5: Shadow Comparison via Engine Wrapping (new pattern for v2.0)
+
+**What:** The BacktestEngine is used as-is by running it twice with different TrainedModelsV5 instances. The ShadowComparator wraps the engine rather than modifying it. This prevents the comparison framework from coupling to engine internals.
+
+**When:** Validating that MarketAwareWinCalibrator + Race-Level Ranker improve over baseline.
+
+**Implementation:**
+```python
+# In scripts/run_backtest.py --shadow mode:
+from validation.shadow_comparator import ShadowComparator
+
+# Train both model sets
+baseline_models = train_pipeline.run(config=baseline_config)
+shadow_models = train_pipeline.run(config=shadow_config)
+
+# Run backtests on same test period
+baseline_engine = BacktestEngine(baseline_models, ...)
+shadow_engine = BacktestEngine(shadow_models, ...)
+
+baseline_result = baseline_engine.run(test_start, test_end)
+shadow_result = shadow_engine.run(test_start, test_end)
+
+# Compare
+comparator = ShadowComparator()
+report = comparator.compare(baseline_result, shadow_result)
+report.save("data/shadow/shadow_comparison_report.json")
+
+# Deployment gate
+if report.passes_deployment_gate():
+    logger.info("SHADOW DEPLOYMENT APPROVED")
+else:
+    logger.warning("SHADOW DEPLOYMENT BLOCKED: %s", report.blockers)
+```
+
+**Why wrapping, not modifying:** BacktestEngine is 900+ lines of complex simulation logic. Adding shadow comparison hooks inside it creates tight coupling. Running it twice is clean, deterministic, and requires zero engine changes.
+
 ## Anti-Patterns to Avoid
 
 ### Anti-Pattern 1: Replacing WinBenterGate Before MarketAwareWinCalibrator is Validated
@@ -406,13 +508,25 @@ def assess_deployment(calibrator, oof_df):
 
 **What:** Training the Race-Level Ranker with ROI or profit as the direct optimization target.
 **Why bad:** Single-win ROI is extremely noisy (10% hit rate means 90% of samples have zero return). The model would overfit to the few high-odds winners in the training set.
-**Instead:** Use two separate objectives: (1) win_rate_ranker with is_win target (binary classification ranking), (2) value_ranker with calibrated_ev target (regression ranking). Combine scores with fixed weights, not end-to-end ROI optimization. The investment_score formula from ROI_IMPROVEMENT_PLAN.md (calibrated_log_ev + value_ranker_score + clv_score - uncertainty_penalty) uses multiple orthogonal signals.
+**Instead:** Use a deterministic composite score combining orthogonal signals (p_win, edge, ev_corrected) with Optuna-tuned weights. This avoids the overfitting risk of learned rankers on sparse win labels while still producing race-internal rankings.
 
 ### Anti-Pattern 5: Reducing Bet Count to Inflate ROI
 
 **What:** Adding aggressive filters that cut bet count significantly while reporting improved ROI.
 **Why bad:** Violates the absolute constraint "ベット数を過剰に減らしてROIを上げる方針は採用しない." A cherry-picking filter can trivially improve ROI by only betting on the most confident signals, but this is not a robust strategy.
 **Instead:** Deployment criteria must include bet count stability. Race-Level Ranker must demonstrate equal or greater race coverage compared to the existing selection_score approach.
+
+### Anti-Pattern 6: Shadow Comparison Modifying BacktestEngine Internals
+
+**What:** Adding hooks, flags, or dual-path logic inside BacktestEngine.run() to support shadow mode.
+**Why bad:** The engine is 900+ lines of complex simulation with PFP verification, diagnostic logging, and bet history tracking. Adding shadow hooks creates tight coupling, makes debugging harder, and risks PFP integrity violations.
+**Instead:** Run BacktestEngine twice with different TrainedModelsV5. The ShadowComparator operates on the two BacktestResult objects externally. Zero engine modification required.
+
+### Anti-Pattern 7: Shadow Comparison Using Only Calibration Metrics for Deployment Gate
+
+**What:** Passing deployment based solely on Brier/ECE/log-loss improvement.
+**Why bad:** A calibrator that produces better-calibrated probabilities but selects different horses (low selection agreement) may have worse ROI. Calibration is a proxy for the business metric, not the business metric itself.
+**Instead:** The deployment gate requires FIVE conditions: (1) probability quality improvement (Brier/ECE/log-loss), (2) selection agreement >= 85% (same top-1 horse), (3) ROI not degraded > 5%, (4) bet count within 90-110%, (5) both 2024 AND 2025 pass independently.
 
 ## Integration Points Detail
 
@@ -493,7 +607,7 @@ for col in inv_df.columns:
 
 **Where:** Inside `_train_submodel()`, after InvestmentFeatureFrame, before WinSelectionGate OOF generation.
 
-**Relationship to existing WinBenterGate:** MarketAwareWinCalibrator replaces and generalizes WinBenterGate. Where WinBenterGate does `logit(p_c) = alpha*logit(p_fund) + beta*logit(p_market) + gamma` (3 scalar parameters), MarketAwareWinCalibrator does `logit(p_aware) = f(logit(p_model), logit(p_market), segment_features, investment_features)` with a learned LightGBM model.
+**Relationship to existing WinBenterGate:** MarketAwareWinCalibrator replaces and generalizes WinBenterGate. Where WinBenterGate does `logit(p_c) = alpha*logit(p_fund) + beta*logit(p_market) + gamma` (3 scalar parameters), MarketAwareWinCalibrator does `logit(p_aware) = f(logit(p_model), logit(p_market), segment_features, investment_features)` with per-segment alpha/beta/gamma fitted via MLE.
 
 **Integration in training:**
 ```python
@@ -625,11 +739,95 @@ else:
 **Where:** `_log_to_mlflow()` in TrainingPipelineV5 and `load_from_dir()` / `load()` in ModelLoader.
 
 **New artifacts to save/load per surface:**
-- `market_aware_calibrator_{surface}.joblib` -- MarketAwareWinCalibrator model (joblib for LightGBM + metadata)
-- `win_race_level_ranker_{surface}.joblib` -- WinRaceLevelRanker model (joblib for LightGBM ranker)
+- `market_aware_calibrator_{surface}.joblib` -- MarketAwareWinCalibrator model (joblib for segment tables + metadata)
+- `win_race_level_ranker_{surface}.joblib` -- WinRaceLevelRanker model (joblib for weights + metadata)
 - `investment_feature_cols.json` -- Column manifest for InvestmentFeatureFrame (deterministic feature list)
 
 **Files modified:** `src/pipelines/training_pipeline.py` (MLflow logging), `src/db/model_loader.py` (loading)
+
+### 7. Shadow Comparison Framework
+
+**Where:** New script flag in `scripts/run_backtest.py` (`--shadow`) and new module `src/validation/shadow_comparator.py`.
+
+**Architecture:** The ShadowComparator does NOT modify BacktestEngine. It runs the engine twice with different TrainedModelsV5 instances and compares results externally.
+
+**Integration:**
+```python
+# scripts/run_backtest.py --shadow mode:
+# 1. Train baseline (existing pipeline, no calibrator/ranker)
+baseline_models = TrainingPipelineV5(config=baseline_config).run(...)
+
+# 2. Train shadow (pipeline WITH calibrator + ranker)
+shadow_config = baseline_config.with_extras(
+    market_aware_calibrator=True,
+    win_race_level_ranker=True,
+)
+shadow_models = TrainingPipelineV5(config=shadow_config).run(...)
+
+# 3. Run backtests on SAME test period
+baseline_result = BacktestEngine(baseline_models).run(test_start, test_end)
+shadow_result = BacktestEngine(shadow_models).run(test_start, test_end)
+
+# 4. Compare results
+comparator = ShadowComparator()
+report = comparator.compare(
+    baseline_result.bet_history,
+    shadow_result.bet_history,
+    baseline_diagnostic=baseline_result.diagnostic_log,
+    shadow_diagnostic=shadow_result.diagnostic_log,
+)
+```
+
+**ShadowComparator internal logic:**
+```python
+class ShadowComparator:
+    def compare(self, baseline_bets, shadow_bets, **kwargs) -> ShadowComparisonReport:
+        # Align on (race_id, umaban)
+        merged = pd.merge(
+            baseline_bets[["race_id", "umaban", "p_win_final", ...]],
+            shadow_bets[["race_id", "umaban", "p_win_final", ...]],
+            on=["race_id", "umaban"],
+            suffixes=("_baseline", "_shadow"),
+            how="outer",
+        )
+
+        # Probability quality metrics
+        prob_metrics = {
+            "brier_baseline": brier_score_loss(merged["is_win"], merged["p_win_baseline"]),
+            "brier_shadow": brier_score_loss(merged["is_win"], merged["p_win_shadow"]),
+            "ece_baseline": compute_ece(merged["is_win"], merged["p_win_baseline"]),
+            "ece_shadow": compute_ece(merged["is_win"], merged["p_win_shadow"]),
+        }
+
+        # Selection agreement: same top-1 horse per race
+        baseline_top1 = baseline_bets.groupby("race_id").first()["umaban"]
+        shadow_top1 = shadow_bets.groupby("race_id").first()["umaban"]
+        selection_agreement = (baseline_top1 == shadow_top1).mean()
+
+        # CLV comparison
+        ...
+
+        # Deployment gate
+        gate_result = {
+            "prob_quality_passed": prob_metrics["brier_shadow"] <= prob_metrics["brier_baseline"],
+            "selection_agreement_passed": selection_agreement >= 0.85,
+            "roi_not_degraded": shadow_roi >= baseline_roi * 0.95,
+            "bet_count_stable": 0.9 <= (len(shadow_bets) / max(len(baseline_bets), 1)) <= 1.1,
+            "both_years_pass": per_year_check(merged),
+        }
+
+        return ShadowComparisonReport(
+            probability_metrics=prob_metrics,
+            selection_agreement=selection_agreement,
+            deployment_gate=gate_result,
+        )
+```
+
+**Critical constraint:** Shadow comparison MUST run on BOTH 2024 AND 2025 data independently. If the new calibrator helps only one year, it is overfitted to that year's market structure.
+
+**Files modified:** `scripts/run_backtest.py` (add `--shadow` flag)
+**Files created:** `src/validation/shadow_comparator.py`, `tests/test_shadow_comparator.py`
+**Artifacts produced:** `data/shadow/shadow_comparison_report.json`, `data/shadow/baseline_results.parquet`, `data/shadow/shadow_results.parquet`
 
 ## Build Order and Dependencies
 
@@ -646,8 +844,10 @@ Phase 1: InvestmentFeatureFrame
   |       +---> Phase 3: Segment Calibration (features into calibrator)
   |               |
   |               +---> Phase 4: Race-Level Ranker
+  |                       |
+  |                       +---> Phase 5: Shadow Comparison
   |
-  +---> Phase 9: Validation Design (can run in parallel after Phase 2)
+  +---> Phase 4: Race-Level Ranker (can start after Phase 1 with Phase 2 completion)
 ```
 
 ### Phase Ordering Rationale
@@ -679,12 +879,19 @@ Phase 1: InvestmentFeatureFrame
 - No standalone model -- just feature engineering columns
 - Can be implemented as additional feature columns in InvestmentFeatureFrame
 
-**Phase 4 (Race-Level Ranker) last** because:
+**Phase 4 (Race-Level Ranker) fourth** because:
 - Depends on both InvestmentFeatureFrame and p_win_market_aware from Phase 2
 - Replaces manual selection_score computation in get_win_candidates()
-- LightGBM ranker needs group-aware training (race_id groups)
+- Deterministic composite score with Optuna-tuned weights
 - Must validate that ranker does not reduce bet count
-- Estimated effort: Large (ranker model, OOF validation, integration testing, ~600 lines + tests)
+- Estimated effort: Medium (composite scoring function + Optuna integration, ~200 lines + tests)
+
+**Phase 5 (Shadow Comparison) last** because:
+- Depends on ALL previous phases being integrated
+- Runs the full pipeline twice (baseline + shadow) and compares
+- Does not modify BacktestEngine -- external wrapping
+- Validation-focused, not a runtime component
+- Estimated effort: Medium (comparison module + script integration, ~200 lines + tests)
 
 ### Final Recommended Build Order
 
@@ -692,25 +899,36 @@ Phase 1: InvestmentFeatureFrame
 2. **Phase 1**: InvestmentFeatureFrame (depends on Phase 0 for OOF quality)
 3. **Phase 2+3**: MarketAwareWinCalibrator with Segment Calibration features (depends on Phase 1)
 4. **Phase 4**: Race-Level Ranker (depends on Phases 1+2)
+5. **Phase 5**: Shadow Comparison (depends on Phases 0-4 integrated, validates full pipeline)
 
 ## Scalability Considerations
 
 | Concern | Current (v1.8) | After v2.0 | Mitigation |
 |---------|----------------|------------|------------|
-| Training time | ~17 min | ~25-30 min (calibrator + ranker training) | Both are LightGBM models with small feature sets (under 200 cols). OOF generation adds ~5 min per model. |
+| Training time | ~17 min | ~25-30 min (calibrator + ranker training) | Calibrator is MLE fitting (fast). Ranker is deterministic scoring (no training). OOF generation adds ~5 min. |
 | Inference latency (per race) | ~50ms | ~80ms (feature frame + calibrator + ranker) | All operations are vectorized per-race. No network calls. |
-| Model artifact size | ~50MB | ~70MB (two new models per surface) | joblib compression. Negligible disk impact. |
+| Model artifact size | ~50MB | ~60MB (new calibrator model per surface) | joblib compression. Ranker is just weights (negligible). |
 | Memory (training) | ~4GB | ~6GB (investment features + calibrator OOF) | Investment features are computed in-place. Calibrator OOF reuses existing walk-forward infrastructure. |
 | Feature columns | 368-438 | 368-438 (base) + 80-150 (investment, separate) | Investment features are a separate DataFrame, not merged into base. Consumed only by calibrator/ranker. |
+| Shadow comparison runtime | N/A | ~2x backtest time (~80-120 min for 2 years) | Runs in parallel if needed. Not part of production inference. |
+| Optuna parameter space | 16 dims | 19 dims (3 new ranker weights) | Marginal increase in optimization time. Same n_trials sufficient. |
 
 ## Sources
 
 - Direct codebase analysis: `src/pipelines/training_pipeline.py` (2567 lines, training orchestration)
 - Direct codebase analysis: `src/backtest/race_predictor.py` (1538 lines, inference pipeline)
+- Direct codebase analysis: `src/backtest/engine.py` (900+ lines, backtest simulation)
 - Direct codebase analysis: `src/domain/models.py` (305 lines, SubmodelSet/TrainedModelsV5 definitions)
 - Direct codebase analysis: `src/db/model_loader.py` (943 lines, MLflow/local artifact loading)
 - Direct codebase analysis: `src/models/benter_combination.py` (157 lines, existing Benter logit blend)
-- Direct codebase analysis: `src/models/win_benter_gate.py` (80+ lines, existing Win Benter pipeline)
+- Direct codebase analysis: `src/models/win_benter_gate.py` (398 lines, existing Win Benter pipeline)
+- Direct codebase analysis: `src/models/win_segment_calibrator.py` (317 lines, existing segment calibration)
+- Direct codebase analysis: `src/investment/feature_frame.py` (365 lines, existing investment feature builder)
 - Direct codebase analysis: `src/features/` (30 feature modules, feature engineering patterns)
 - Project plan: `.planning/PROJECT.md` (v2.0 milestone definition, constraints, decisions)
 - Improvement plan: `ROI_IMPROVEMENT_PLAN.md` (1021 lines, detailed implementation plan with phases)
+- Benter (1994): "Computer Based Horse Race Handicapping and Wagering Systems" -- logit-space blending methodology
+
+---
+*Architecture research for: v2.0 Investment Pipeline Restructuring*
+*Researched: 2026-05-27*

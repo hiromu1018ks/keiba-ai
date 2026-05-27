@@ -1,272 +1,309 @@
-# Feature Landscape: v2.0 Investment Pipeline Restructuring
+# Feature Landscape: v2.1 MarketAware Calibration + Race-Level Ranker for ROI Recovery
 
-**Domain:** Horse racing prediction / betting investment pipeline
+**Domain:** Horse racing prediction / win bet calibration and ranking
 **Researched:** 2026-05-27
-**Scope:** 4 new components -- OOF Health, InvestmentFeatureFrame, MarketAwareWinCalibrator, Race-Level Ranker
-**Supersedes:** v1.8 FEATURES.md (that document covers turf precision features; this covers investment pipeline restructuring)
+**Scope:** 4 active features -- MarketAwareWinCalibrator, Segment Conditioning, Race-Level Ranker, Shadow Comparison Metrics
+**Supersedes:** v2.0 FEATURES.md (that document covers OOF health + feature frame; this covers calibration + ranking for ROI recovery)
 
 ---
 
 ## Executive Summary
 
-The v2.0 milestone restructures the investment decision pipeline around four components. Unlike v1.8 (feature engineering for the turf model), v2.0 focuses on the post-model pipeline: how calibrated probabilities are combined with market information, how features are curated for investment decisions, and how horses are ranked within races for final bet selection.
+The v2.1 milestone targets ROI recovery from 87.8% (v2.0) to 100%+, leveraging the v2.0 infrastructure (OOF health, InvestmentFeatureFrame, 94-spec schema). The four active features form a causal chain: better probability calibration (MarketAwareWinCalibrator + segment conditioning) produces better race-level ordering (Race-Level Ranker), which is validated before deployment through shadow comparison metrics.
 
-The critical dependency chain is OOF Health (Phase 0) -> InvestmentFeatureFrame (Phase 1) -> MarketAwareWinCalibrator (Phase 2) -> Race-Level Ranker (Phase 4). Phase 3 (Segment Calibration) is absorbed into Phase 2 rather than standing alone. Every component after Phase 0 depends on reliable OOF predictions, making OOF health the single highest-priority deliverable.
+The critical insight from codebase analysis is that most building blocks already exist. `BenterCombination` already implements logit-blend with MLE fitting (alpha/beta/gamma). `WinBenterGate` already applies this to win probability with race normalization, isotonic calibration, and temperature scaling. `WinSegmentCalibrator` already segments by surface|odds_band|rank_band|ev_band with Bayesian shrinkage. The gap is that these components operate independently -- the Benter blend uses global alpha/beta without segment conditioning, and the ranker (`get_win_candidates`) uses a hand-tuned multi-factor scoring formula rather than a learned ranking model.
+
+The design challenge is not "build from scratch" but "wire existing components together with segment-aware weights." Specifically: extend BenterCombination so alpha/beta vary by segment (popularity rank / odds band / probability rank), replace the `win_market_selection_score` hand-tuned formula with a learned ranker consuming InvestmentFeatureFrame outputs, and add shadow comparison infrastructure to validate before switching.
 
 ---
 
-## Component 1: OOF Health (Phase 0)
+## Component 1: MarketAwareWinCalibrator
 
-Infrastructure layer. All downstream components depend on reliable OOF predictions. This is not a user-facing feature but a pipeline integrity gate.
+### What Already Exists
+
+| Component | Location | Status |
+|-----------|----------|--------|
+| `BenterCombination` | `src/models/benter_combination.py` | Working. MLE fit (L-BFGS-B), alpha/beta/gamma logit blend, beta floor >= 0.20 |
+| `WinBenterGate` | `src/models/win_benter_gate.py` | Working. Wraps BenterCombination + tanodds extraction + race normalization + optional isotonic/temp scaling |
+| `generate_win_oof_predictions()` | `src/models/win_benter_gate.py` | Working. Walk-forward OOF for Benter fitting |
+| `compare_calibrations()` | `src/models/win_benter_gate.py` | Working. Beta vs Isotonic comparison with Brier/ECE |
+| `EVCorrectionModel` | `src/models/ev_correction_model.py` | Working. P-correction + E-correction + isotonic calibration + odds-band residual scaling |
+| `TemperatureScaling` | `src/models/benter_combination.py` | Working. Post-hoc Brier+NLL minimization |
 
 ### Table Stakes
 
 | Feature | Why Expected | Complexity | Notes |
 |---------|--------------|------------|-------|
-| K-fold OOF prediction generation | Without OOF, every downstream component leaks training data into evaluation | Medium | Existing `predict_oof()` in MarketModel uses 5-fold KFold; replicate for win/place/wide hit models |
-| OOF Brier score per fold | Standard calibration metric; missing means no calibration quality signal | Low | `sklearn.metrics.brier_score_loss` on OOF predictions vs actuals |
-| OOF log-loss per fold | Complementary to Brier; sensitive to confidence extremes | Low | `sklearn.metrics.log_loss` |
-| OOF ECE (Expected Calibration Error) | Brier/log-loss detect mis-calibration but not WHERE; ECE bins reveal it | Medium | 10-bin equal-mass ECE; no existing implementation in codebase |
-| Fold-level consistency check | Wildly different per-fold scores indicate data leakage or distribution shift | Low | Std-dev of Brier across folds; flag if > threshold |
-| Time-series OOF splits | Horse racing data has temporal dependencies; random KFold leaks future patterns into past | Medium | Use `TimeSeriesSplit` or year-based splits; existing MarketModel.predict_oof uses `shuffle=False` KFold which is acceptable but year-based is safer |
+| Segment-conditioned alpha/beta | Global alpha/beta treats favorites and longshots identically; favorite-longshot bias literature proves they need different weights | High | Core new work: alpha_s, beta_s per segment, with regularization toward global values |
+| OOF-based segment fitting | In-sample segment parameters overfit to noise; must use OOF predictions | Medium | `generate_win_oof_predictions()` already produces OOF arrays; add segment membership column |
+| Surface-aware fitting | Turf and dirt have different market efficiency; v1.7 showed turf conservative regime is unprofitable | Low | Already proven in submodel split pattern; fit per-surface Benter parameters |
+| Post-hoc isotonic or Beta calibration | Benter blend output may still be miscalibrated; calibration layer corrects residual bias | Low | `compare_calibrations()` already implements both; select winner by Brier score |
+| Race normalization | Probabilities within a race must sum to 1.0; uncalibrated blend violates this | Low | `WinBenterGate.apply()` already does `p_combined / race_sum` |
+| Probability clipping | Logit(0) and logit(1) are undefined; numerical safety | Low | Already in BenterCombination: clip to [1e-10, 1-1e-10] |
 
 ### Differentiators
 
 | Feature | Value Proposition | Complexity | Notes |
 |---------|-------------------|------------|-------|
-| Per-surface OOF health | Turf vs dirt have different calibration profiles; aggregate masks problems | Low | Group by surface, compute metrics separately |
-| Reliability diagram export | Visual diagnostic for calibration; invaluable for debugging | Medium | Matplotlib reliability diagram with perfect/calibrated/current curves |
-| OOF drift detector | Year-over-year OOF quality degradation signals concept drift | Medium | Rolling window Brier trend; flag when slope exceeds threshold |
+| Bayesian shrinkage toward global alpha/beta | Prevents segment parameters from diverging when data is sparse; prior_strength controls regularization | Medium | `WinSegmentCalibrator` already uses this pattern with `prior_strength=500`; replicate for Benter parameters |
+| Logit-gap interaction with segment | `if_logit_gap` from InvestmentFeatureFrame captures model-vs-market disagreement; conditioning on this improves calibration in disagreement regions | Medium | Derived feature already computed in `InvestmentFeatureFrameBuilder._compute_derived()` |
+| Per-segment temperature scaling | Different segments may have different confidence levels; segment-specific T corrects this | Medium | One TemperatureScaling per segment; shrink toward global T with Bayesian prior |
+| Calibration stability across OOF folds | If alpha_s swings wildly across folds, the segment conditioning is unstable | Medium | Compute CV of parameters across OOF folds; flag segments with CV > 0.3 |
+| Pseudo-R2 (Benter) as quality metric | Benter paper shows `dR2 = R2_combined - R2_public` correlates with profitability; directly measures information added by fundamental model | Low | Compute per-segment; segments with negative dR2 should use higher market weight |
 
 ### Anti-Features
 
 | Anti-Feature | Why Avoid | What to Do Instead |
 |--------------|-----------|-------------------|
-| Retraining models to fix bad OOF | OOF health is diagnostic; retraining changes the model being evaluated | Log the issue, fix in next training cycle |
-| OOF-based feature selection | Causes nested leakage without proper inner-loop CV | Use separate held-out set for feature decisions |
-| Random shuffle KFold | Time-series horse racing data has temporal dependencies | Use TimeSeriesSplit or year-based splits |
-| OOF health as deployment gate (block on threshold) | Too brittle; a single bad fold should not block entire pipeline | Report metrics; let human review decide |
+| Neural network calibrator | 3-7 parameters per segment is tractable; NN adds opacity and overfitting risk | Parametric logit blend + temperature scaling |
+| Dropping BenterCombination | Working MLE fitting with tested numerical stability; rewrite is waste | Extend with segment conditioning; do not replace |
+| More than 3 parameters per segment | With ~20-50 segments, each extra parameter multiplies overfitting risk | alpha + beta + gamma per segment maximum; use shrinkage |
+| Segment conditioning by regime | RegimeDetector uses market-level aggregate (fav_rate x overround); too coarse for horse-level calibration | Use horse-level segments (popularity rank, odds band) not race-level regimes |
+| Independent fitting per segment without regularization | Sparse segments (e.g., 100+ odds band) will overfit to noise | Bayesian shrinkage toward global parameters; minimum sample size per segment |
+| Using p_market_pred as input | MarketModel Rule 11: predicted market probability must not reach Stage2 | Calibrator uses tanodds-derived implied probability, not MarketModel's p_market_pred |
 
 ---
 
-## Component 2: InvestmentFeatureFrame (Phase 1)
+## Component 2: Popularity/Odds/Probability-Rank Segment Conditioning
 
-Curated feature set (80-150 columns) that replaces ad-hoc column selection throughout the pipeline. This is a data organization layer, not a model.
+### What Already Exists
 
-### Table Stakes
-
-| Feature Category | Column Count | Why Expected | Complexity | Notes |
-|-----------------|-------------|--------------|------------|-------|
-| Model probability columns | ~6 | p_win, p_place, p_hit, p_win_oof, p_place_oof are the primary model outputs | Low | Already exist; curate from existing columns |
-| Market probability columns | ~3 | p_market_win_adj is the market view; essential for model-vs-market comparison | Low | Already exists from MarketModel |
-| Model-vs-market gap features | ~4 | log_error, raw error, signed/abs versions; the core value signal | Low | Already exist (signed_log_error_win, abs_log_error_win) |
-| Race-relative ranks | ~6 | rank of p_win within race; rank of EV within race; positional context | Low | Already computed in places; standardize |
-| Odds band features | ~2 | Binned tanodds (1-2, 2-5, 5-10, 10-30, 30-100, 100+) | Low | Already in WinSegmentCalibrator ODDS_BINS |
-| EV/edge columns | ~4 | win_selection_ev, win_selection_edge; the investment decision signal | Low | Already exist |
-| Surface/condition indicators | ~3 | Surface, track_condition, distance_bin; fundamental context | Low | Already exist |
-| Race-level features | ~6 | rl_log_odds_entropy, rl_odds_dispersion, etc.; race difficulty context | Low | Already exist in race_level_features.py |
-| Market cross features | ~5 | Harville-based cross-checks; detect market mispricing | Low | Already exist in market_cross_features.py |
-| OOF-derived columns | ~4 | p_win_final_oof, p_win_oof, win_selection_prob; the calibration backbone | Low | From Phase 0 OOF generation |
-
-### Differentiators
-
-| Feature | Value Proposition | Complexity | Notes |
-|---------|-------------------|------------|-------|
-| Late odds delta features | Late money movement is the strongest signal in horse racing; odds change from open to close captures smart money | Medium | Requires odds time-series data from `data/odds/time_series/`; column may need engineering |
-| Harville place probability | Theoretical place probability from win probability; provides independent baseline for place betting | Medium | `p_place_harville = p_win + sum(p_2nd + p_3rd)` via Harville formula; known to be biased but useful as feature |
-| Ability/form summary features | Standardized recent form composite; provides signal beyond raw model output | Medium | From horse_features.parquet; needs curation of which form columns to include |
-| Segment calibration features | WinSegmentCalibrator factors (prob_factor, ev_factor, segment_key) as features for downstream models | Low | Already computed by WSC; add to frame |
-| Feature provenance metadata | Track which model version produced each column; enables reproducibility and debugging | Low | Add version tag columns during feature frame assembly |
-
-### Anti-Features
-
-| Anti-Feature | Why Avoid | What to Do Instead |
-|--------------|-----------|-------------------|
-| Raw p_market_pred in feature frame | MarketModel Rule 11: predicted market probability must not leak to Stage2 | Use only log_error derived features from MarketModel |
-| One-hot encoding of categoricals | Bloats column count from 80-150 to 300+; tree models handle categoricals natively | Keep as category dtype; let LightGBM handle |
-| Feature engineering inside frame assembly | Feature frame is a curation layer, not an engineering layer | Engineer features in feature modules; frame selects and organizes |
-| More than 150 columns | Diminishing returns; increases overfitting risk and debugging complexity | Curate ruthlessly; every column must justify its inclusion |
-| Including POST_RACE columns | Leakage risk even in curation; kakuteijyuni, time, harontime are outcomes | Strict pre-race-only curation policy |
-
----
-
-## Component 3: MarketAwareWinCalibrator (Phase 2)
-
-Benter-type logit blending of fundamental model probability with market probability, extended with segment calibration features. This is the core value proposition of v2.0.
+| Component | Location | Status |
+|-----------|----------|--------|
+| `WinSegmentCalibrator` | `src/models/win_segment_calibrator.py` | Working. Segments by surface\|odds_band\|rank_band\|ev_band with Bayesian shrinkage. ODDS_BINS: (1,2,5,10,30,100,inf), RANK_BINS: (0,1,3,6,8,inf) |
+| `OddsBandFilter` | `src/betting/odds_band_filter.py` | Working. BANDS and BAND_NAMES define odds groupings |
+| `if_popularity_rank` | `src/investment/schema_registry.py` | In InvestmentFeatureFrame. Popularity rank from market |
+| `if_odds_band_id` | `src/investment/schema_registry.py` | In InvestmentFeatureFrame. Odds band identifier |
+| `if_p_win_race_rank` | `src/investment/schema_registry.py` | In InvestmentFeatureFrame. Percentile rank of p_win within race |
+| `ensure_win_selection_columns()` | `src/models/win_selection_gate.py` | Working. Ensures win_selection_prob/ev/edge columns exist |
 
 ### Table Stakes
 
 | Feature | Why Expected | Complexity | Notes |
 |---------|--------------|------------|-------|
-| Logit-blend core (alpha, beta, gamma) | Benter (1994) foundation: `logit(p_combined) = alpha * logit(p_fund) + beta * logit(p_market) + gamma` | Medium | BenterCombination class already exists with MLE fitting via scipy.optimize.minimize (L-BFGS-B) |
-| Beta floor (market weight >= 0.20) | Market is strongly informative; zero weight on market is never correct | Low | Already enforced in existing BenterCombination (beta lower bound = 0.20) |
-| OOF-based parameter fitting | In-sample fitting leaks; parameters must be fit on held-out predictions | Medium | Use OOF predictions from Phase 0 as input to MLE |
-| Probability clipping | Logit of 0 or 1 is undefined; numerical safety | Low | Clip to [0.01, 0.99] before logit transform |
-| Post-hoc temperature scaling | Benter blend may be over/under-confident in aggregate; temperature scaling corrects this | Low | TemperatureScaling class already exists; reuse |
-| Surface-aware fitting | Turf and dirt have different market efficiency profiles; separate parameters needed | Low | Fit separate alpha/beta/gamma per surface (same pattern as existing submodel split) |
+| Segment definition by popularity rank | Favorites (rank 1-3), mid-range (4-6), longshots (7+) have fundamentally different calibration needs | Low | WSC already defines RANK_BINS (0,1,3,6,8,inf) -- reuse exactly |
+| Segment definition by odds band | Odds directly measure market confidence; different bands have different favorite-longshot bias magnitude | Low | WSC already defines ODDS_BINS (1,2,5,10,30,100,inf) -- reuse exactly |
+| Segment definition by EV band | Horses with EV > 1.5 are where model disagrees with market most; calibration quality varies by EV level | Low | WSC already defines EV_BINS (-inf,0.8,1.0,1.2,1.5,2.0,inf) -- reuse exactly |
+| Minimum sample size per segment | Sparse segments produce unreliable parameters; guardrail against noise | Low | WSC uses min_segment_rows=120, min_segment_wins=3 -- proven thresholds |
+| Segment key format | Composite key for lookup; must be deterministic and serializable | Low | WSC uses `surface|odds_band|rank_band|ev_band` string format -- reuse |
+| Default factor for missing segments | At inference time, horse may not match any trained segment | Low | Return 1.0 (no adjustment) for unmapped segments; WSC already does this |
 
 ### Differentiators
 
 | Feature | Value Proposition | Complexity | Notes |
 |---------|-------------------|------------|-------|
-| Segment-conditioned calibration | Different odds bands and EV bands have different reliability; one global alpha/beta is suboptimal | High | Absorb WSC segment logic (surface\|odds_band\|rank_band\|ev_band) as conditioning features |
-| Odds-band interaction terms | Favorite-longshot bias means low-odds and high-odds horses need different calibration | Medium | Add odds_band * logit(p_fund), odds_band * logit(p_market) interaction features to the blend |
-| EV-band conditioning | High-EV horses are where mispricing concentrates; calibrator should be more aggressive there | Medium | Add EV band as conditioning feature for alpha/beta |
-| Per-fold calibration stability | If alpha/beta swing wildly across OOF folds, the fit is unstable and likely overfits | Medium | Compute parameter variance across folds; flag if coefficient of variation > 0.3 |
-| Benter residual features | `logit(p_actual) - logit(p_combined)` per segment; identifies WHERE the combined model still fails | Medium | Requires OOF actuals; segment-level analysis similar to existing WSC training |
-| LogisticRegression as alternative | LogisticRegression directly models the Benter formula with regularization; may be more stable than MLE | Medium | `sklearn.linear_model.LogisticRegression` with `logit(p_fund)` and `logit(p_market)` as features |
+| Probability-rank percentile segment | `if_p_win_race_rank` from InvestmentFeatureFrame provides model-based ranking; captures cases where popularity rank disagrees with model | Low | Add as alternative to popularity_rank segmentation; compare calibration quality |
+| Adaptive segment boundaries | Fixed bins may not capture the actual calibration boundary; quantile-based bins adapt to data distribution | Medium | `WinSelectionGateModel._quantile_edges()` already computes adaptive bins -- reuse pattern |
+| Cross-segment smoothing | Adjacent segments (e.g., odds 1-2 and 2-5) should have correlated parameters; smoothing reduces variance | Medium | Kernel smoothing or weighted average of neighboring segment parameters |
+| Segment diagnostics export | Per-segment Brier, hit rate, ROI, sample count; enables human review of calibration quality | Low | Similar to WSC training_summary; export as JSON manifest |
 
 ### Anti-Features
 
 | Anti-Feature | Why Avoid | What to Do Instead |
 |--------------|-----------|-------------------|
-| Neural network calibrator | Overkill for 3-7 parameter model; harder to interpret and debug | Stick with parametric logit blend + temperature scaling |
-| Dropping BenterCombination entirely | Existing class has working MLE fitting; rewrite wastes time and loses tested code | Extend the existing class with segment conditioning |
-| Market probability as direct input to Stage2 | Market probability is already captured via log_error features; duplicate signal harms tree models | Calibrator outputs calibrated p_win; market signal stays in log_error features |
-| Regime-conditional calibration | RegimeDetector is explicitly excluded from v2.0 scope per PROJECT.md | Use surface/odds_band/EV_band conditioning instead of regime |
-| More than 2 blend parameters per segment | With ~50+ segments, each additional parameter exponentially increases overfitting risk | Alpha + beta + gamma per segment maximum; use Bayesian shrinkage toward global values |
-| Beta calibration as primary model | BetaCalibration (betacal package) is a post-processing calibrator, not a full combination model | Use TemperatureScaling for post-hoc; Benter blend for combination |
+| Fine-grained segments (< 50 samples each) | Statistical noise dominates; parameters are meaningless | Enforce minimum sample size; merge sparse segments into neighbors |
+| More than 4 segment dimensions | 4 dimensions (surface, odds, rank, EV) already produce ~150+ segments; more causes combinatorial explosion | Stick with 4 dimensions; use WSC proven segment keys |
+| Segment conditioning that reduces bet count | PROJECT.md explicitly requires "no bet count reduction" as deployment constraint | Calibration adjusts probabilities, not filtering; bet selection is separate |
+| Dynamic segment boundaries at inference time | Boundaries must be frozen at training time; inference uses the same bins | Train boundaries on OOF data; store in manifest; apply identically at inference |
+| One segment per individual odds value | Continuous segmentation defeats the purpose of grouping for statistical reliability | Use binned segments; continuous calibration is the Benter blend's job |
 
 ---
 
-## Component 4: Race-Level Ranker (Phase 4)
+## Component 3: Race-Level Ranker
 
-LightGBM LambdaRank model that ranks horses within a race for final bet selection. Replaces the current 41-column scoring in WinSelectionGate with a learned ranking model.
+### What Already Exists
+
+| Component | Location | Status |
+|---------|------------|-------|
+| `get_win_candidates()` | `src/backtest/race_predictor.py` | Working. 450-line method with hand-tuned multi-factor scoring: `win_market_selection_score = selection_score - late_odds_drop*weight - log_odds_penalty + prob_rank_bonus - ev_tail_pressure - market_risk_penalty` |
+| `InvestmentFeatureFrameBuilder` | `src/investment/feature_frame.py` | Working. 94 specs / 9 categories. Includes `if_p_win_race_rank`, `if_ev_race_rank`, `if_edge_rank_in_race`, `if_edge_zscore_in_race`, `if_top3_gap`, `if_ev_top1_gap`, `if_ev_top3_indicator`, `if_field_ev_dispersion` |
+| `WinSelectionGateModel` | `src/models/win_selection_gate.py` | Working. 1282-line learned gate with walk-forward OOF scoring, threshold grid search, runner-up candidate detection |
+| `WinProfitSelector` | `src/models/win_profit_selector.py` | Working. Profit-based candidate selection with max_per_race |
+| `win_market_selection_score` | `src/backtest/race_predictor.py` | Current ranking signal. Hand-tuned formula with surface-aware base score + 5 penalty/bonus terms |
 
 ### Table Stakes
 
 | Feature | Why Expected | Complexity | Notes |
 |---------|--------------|------------|-------|
-| LambdaRank objective | Standard learning-to-rank for pointwise/group scoring; proven for race ranking | Medium | `lgb.LGBMRanker` with `objective='lambdarank'`; verified available in installed LightGBM 4.6.0 |
-| Group parameter (horses per race) | LambdaRank requires group sizes; missing this causes silent incorrect training | Medium | `df.groupby('race_id').size().values` as group array; data MUST be sorted by race_id first |
-| NDCG evaluation metric | Standard ranking metric; needed for early stopping and model comparison | Low | `eval_at=[1, 3, 5]` for top-k relevance |
-| Win ranker (1st model) | Rank horses by probability of winning; primary ranking signal | Medium | Target = binary win indicator or graded relevance by finish position |
-| InvestmentFeatureFrame as input | Curated feature set ensures consistent, complete features | Low | Direct consumer of Phase 1 output |
-| OOF-based ranker evaluation | In-sample ranking metrics are meaningless; must evaluate on held-out folds | Medium | Use OOF predictions from Phase 0; compute per-fold NDCG |
+| Learned ranking within race | Hand-tuned `win_market_selection_score` has 6 surface-specific parameters that Optuna must search; a learned ranker automates this | Medium | LightGBM `LGBMRanker` with `objective='lambdarank'`; race_id as group |
+| InvestmentFeatureFrame as input | Curated 94-spec frame provides consistent feature set; avoids ad-hoc column selection | Low | `build_frame(df, mode="infer")` produces the ranker input |
+| OOF-based ranker training | In-sample ranking metrics are meaningless; ranker must be trained on OOF predictions | Medium | Use OOF predictions from v2.0 OOFHealthValidator infrastructure |
+| Group constraint (horses per race) | LambdaRank requires `group` parameter; data must be sorted by race_id | Medium | `df.groupby('race_id').size().values`; MUST sort by race_id first |
+| NDCG as evaluation metric | Standard ranking quality metric; early stopping signal | Low | `eval_at=[1, 3, 5]` for top-k relevance |
+| Position-graded relevance | Binary win/loss target wastes information; 1st >> 2nd >> 3rd for ranking | Medium | Relevance = `1/finish_position` or exponential decay; standard in learning-to-rank |
 
 ### Differentiators
 
 | Feature | Value Proposition | Complexity | Notes |
 |---------|-------------------|------------|-------|
-| Value ranker (2nd model) | Separate ranker for expected value; win probability and value are different objectives | High | Target = `EV = p_win * odds`; rank by investment attractiveness |
-| Rank fusion (win + value) | Win ranker selects likely winners; value ranker selects profitable bets; fusion captures both | High | Weighted combination or learned fusion; requires validation |
-| Position-graded relevance | 1st place more important than 2nd; relevance should be `1/finish_position` or exponential decay | Medium | Standard in learning-to-rank; better than binary win/loss |
-| Calibrated probability as ranking feature | MarketAwareWinCalibrator's `p_win_market_aware` provides a superior probability signal for ranking | Low | Requires Phase 2 completion before ranker training |
-| Per-surface ranker training | Turf and dirt races have different ranking dynamics | Medium | Train separate rankers OR include surface interaction terms |
+| Calibrated probability as ranking feature | `p_win_final` from MarketAwareWinCalibrator provides superior probability signal for ranking | Low | Requires Component 1 completion; add to InvestmentFeatureFrame as `if_p_win_calibrated` |
+| Per-surface ranker training | Turf and dirt have different ranking dynamics; turf conservative regime is unprofitable, suggesting ranker miscalibration on turf | Medium | Train separate rankers OR include surface interaction features |
+| Ranker-derived confidence score | Ranker output margin between top-1 and top-2 within race indicates selection confidence | Low | Compute as `score_rank1 - score_rank2` per race; use as stake sizing signal |
+| Conformal confidence as ranking feature | `conformal_confidence_score` from CQR model captures prediction interval width; tighter intervals = more reliable predictions | Low | Already computed in RacePredictor pipeline; add to InvestmentFeatureFrame |
+| WinSelectionGate integration | Ranker replaces `win_market_selection_score` in sort order; gate policy (thresholds, filtering) remains | Medium | Ranker provides score column; WinSelectionGate applies learned thresholds on top |
 
 ### Anti-Features
 
 | Anti-Feature | Why Avoid | What to Do Instead |
 |--------------|-----------|-------------------|
-| Pairwise ranking objective | O(n^2) per race; computationally expensive and hard to debug | Use pointwise LambdaRank; sufficient for field sizes of 8-18 |
-| Neural ranking model | Training instability, hyperparameter sensitivity, no interpretability | LightGBM LambdaRank is mature, fast, interpretable via feature importance |
-| Replacing the entire WinSelectionGate | Gate has 1300+ lines of evolved logic; replacing all at once is high risk | Ranker provides ranking signal; gate policy still makes final selection |
-| Ranking without group constraint | Each horse must be ranked within its own race; global ranking is meaningless | Always group by race_id; sort by race_id before training |
+| Replacing entire WinSelectionGate | 1282 lines of evolved logic with runner-up detection, soft pass, market condition scoring; replacement is high risk | Ranker provides the ranking signal; gate policy still makes final selection |
+| Neural ranking model | Training instability, hyperparameter sensitivity, no feature importance for diagnostics | LightGBM LambdaRank is mature, fast, interpretable |
+| Pairwise ranking objective | O(n^2) per race with field sizes 8-18; computationally expensive | Pointwise LambdaRank is sufficient |
 | Using raw odds as ranking target | Odds already embedded in market features; ranking by odds = replicating market | Rank by model+value signal; odds are input features, not targets |
-| XGBoost/CatBoost ranker alternatives | One ranker implementation is enough; adding more creates maintenance burden without proven benefit | LightGBM LGBMRanker is the only one needed |
+| Multiple ranker models (win + value) | v2.1 scope is single ranker; adding value ranker doubles complexity | Start with single ranker targeting win probability; add value ranker post-MVP if needed |
+| XGBoost/CatBoost ranker alternatives | One ranker implementation is sufficient; multiple creates maintenance burden | LightGBM LGBMRanker only |
+
+---
+
+## Component 4: Shadow Comparison Metrics
+
+### What Already Exists
+
+| Component | Location | Status |
+|-----------|----------|--------|
+| `compute_ece()` | `src/models/win_benter_gate.py` | Working. 10-bin Expected Calibration Error |
+| `compare_calibrations()` | `src/models/win_benter_gate.py` | Working. Beta vs Isotonic with Brier + ECE |
+| `generate_reliability_data()` | `src/models/win_benter_gate.py` | Working. Reliability diagram data for visualization |
+| `BacktestEngine` | `src/backtest/engine.py` | Working. Full backtest with ROI, HR, DD metrics |
+| `OOFHealthValidator` | `src/validation/oof_health_validator.py` | Working. OOF artifact validation with manifests |
+| BT ROI tracking | `data/backtest/bt_*` | Historical ROI data from v1.5-v2.0 |
+
+### Table Stakes
+
+| Feature | Why Expected | Complexity | Notes |
+|---------|--------------|------------|-------|
+| Brier score (probability quality) | Standard calibration metric; missing means no calibration quality comparison | Low | `sklearn.metrics.brier_score_loss` on OOF predictions |
+| Log-loss (probability quality) | Complementary to Brier; sensitive to confidence extremes | Low | `sklearn.metrics.log_loss` |
+| ECE (probability quality) | Reveals WHERE mis-calibration occurs (which probability bins) | Low | `compute_ece()` already exists |
+| Selection overlap rate | Measures how often new vs baseline ranker pick the same horse; >80% overlap = low disruption | Low | Compare `win_market_selection_score` top-1 per race between baseline and shadow |
+| ROI comparison (betting performance) | Ultimate success metric; new ranker must not degrade ROI | Low | Both rankers run on same test period; compare realized ROI |
+| Hit rate comparison | Complementary to ROI; less noisy at small sample sizes | Low | Compare win rate of selected horses |
+| Max drawdown comparison | Risk metric; new ranker must not increase drawdown | Low | Compare cumulative drawdown profiles |
+
+### Differentiators
+
+| Feature | Value Proposition | Complexity | Notes |
+|---------|-------------------|------------|-------|
+| Closing Line Value (CLV) | Low-variance metric that measures prediction quality independent of outcome luck; model's odds vs closing odds | Medium | CLV = (model_odds - closing_odds) / closing_odds for selected horses; positive CLV indicates genuine edge |
+| Pseudo-R2 (Benter) | `dR2 = R2_combined - R2_public` measures information added by fundamental model; Benter paper shows this correlates with profitability | Medium | Compute per-year; compare baseline vs shadow dR2 |
+| Selection change analysis | When shadow picks a different horse, analyze WHY; which features changed the ranking | Medium | Log feature contributions for changed selections; compare ranker feature importance |
+| Brier score decomposition | Decompose into reliability, resolution, uncertainty; identifies whether improvement comes from better calibration or better discrimination | Medium | Standard meteorological Brier decomposition |
+| Regime-stratified metrics | Metrics broken down by RegimeDetector state; reveals if shadow helps specifically in conservative regime (known pain point) | Low | Group by regime; compute per-regime ROI/HR |
+
+### Anti-Features
+
+| Anti-Feature | Why Avoid | What to Do Instead |
+|--------------|-----------|-------------------|
+| Deploying on ROI alone | ROI is noisy at sample sizes of 1000-3000 bets; a lucky streak should not trigger deployment | Use probability quality (Brier/ECE) as primary gate; ROI as secondary confirmation |
+| A/B testing in production | Paper trading is the deployment model; live A/B is unnecessary complexity | Shadow comparison on historical data first; paper trading validation second |
+| Metrics that require outcome data not in Parquet | All metrics must be computable from existing backtest data | Use only metrics derivable from race entries + odds + results |
+| Comparing on different time periods | Fair comparison requires identical test periods | Run both baseline and shadow on identical 2024/2025 test data |
+| Single aggregate metric | No single number captures calibration quality + selection quality + betting performance | Use 3-tier gate: probability quality AND selection overlap AND ROI |
 
 ---
 
 ## Feature Dependencies
 
 ```
-Phase 0: OOF Health
+Component 1: MarketAwareWinCalibrator
   |
-  +--> Phase 1: InvestmentFeatureFrame (uses OOF-derived columns)
+  +--> Component 2: Segment Conditioning (provides segment keys for alpha_s/beta_s)
   |      |
-  |      +--> Phase 2: MarketAwareWinCalibrator (uses Frame columns + OOF for fitting)
-  |      |      |
-  |      |      +--> Phase 4: Race-Level Ranker (uses Frame + calibrated probabilities)
-  |      |
-  |      +--> Phase 4: Race-Level Ranker (uses Frame as primary input)
+  |      +--> Component 3: Race-Level Ranker (uses calibrated p_win_final as ranking feature)
+  |             |
+  |             +--> Component 4: Shadow Comparison (compares baseline vs new ranker)
   |
-  +--> Phase 2: MarketAwareWinCalibrator (OOF predictions for parameter fitting)
+  +--> Component 4: Shadow Comparison (compares baseline vs new calibrator)
+
+Existing infrastructure (from v2.0):
+  OOFHealthValidator --> All components (OOF predictions for training)
+  InvestmentFeatureFrame --> Components 1, 2, 3 (94-spec curated features)
+  BenterCombination --> Component 1 (base logit blend to extend)
+  WinSegmentCalibrator --> Component 2 (segment key pattern to reuse)
+  WinSelectionGateModel --> Component 3 (gate policy to preserve)
 ```
 
-Critical path: **OOF Health -> InvestmentFeatureFrame -> MarketAwareWinCalibrator -> Race-Level Ranker**
+Critical path: **Segment Conditioning definitions -> MarketAwareWinCalibrator -> Race-Level Ranker -> Shadow Comparison**
 
-Phase 3 (Segment Calibration integration) is NOT a separate phase in this dependency graph -- it is absorbed into Phase 2 as features within MarketAwareWinCalibrator.
+Components 1 and 2 are tightly coupled and should be implemented together. Component 3 depends on Component 1 producing `p_win_final` with segment-aware calibration. Component 4 depends on Component 3 producing ranking output.
 
 ### Within-Component Dependencies
 
 ```
 MarketAwareWinCalibrator internal:
-  BenterCombination (existing) --extend--> segment conditioning
-                                           |
-                                           +--> WSC segment keys (surface|odds|rank|ev)
-                                           +--> Per-segment alpha/beta/gamma
-                                           +--> Temperature scaling post-hoc
-
-InvestmentFeatureFrame internal:
-  Existing feature columns --curate--> 80-150 column frame
-                                        |
-                                        +--> Model prob columns (existing)
-                                        +--> Market prob columns (existing)
-                                        +--> Model-vs-market features (existing)
-                                        +--> Race-level features (existing, 6 cols)
-                                        +--> Market cross features (existing, 5 cols)
-                                        +--> Late odds features (may need engineering)
-                                        +--> Harville place probability (new, medium)
-                                        +--> Segment calibration features (from WSC)
+  BenterCombination.fit() (existing) --extend--> segment-conditioned fit
+                                                  |
+                                                  +--> Segment keys from WSC pattern
+                                                  +--> Per-segment alpha/beta with Bayesian shrinkage
+                                                  +--> Post-hoc isotonic or temp scaling (existing)
+                                                  +--> Race normalization (existing in WinBenterGate)
 
 Race-Level Ranker internal:
-  InvestmentFeatureFrame --input--> LGBMRanker
-                                     |
-                                     +--> Win ranker (target: finish position)
-                                     +--> Value ranker (target: EV)
-                                     +--> Rank fusion (combine both)
+  InvestmentFeatureFrame.build_frame(mode="infer") --input--> LGBMRanker
+                                                              |
+                                                              +--> if_p_win_final (from calibrator)
+                                                              +--> if_edge_rank_in_race (race-relative)
+                                                              +--> if_ev_race_rank (race-relative)
+                                                              +--> if_logit_gap (model-vs-market)
+                                                              +--> if_field_ev_dispersion (race context)
+                                                              +--> win_gate_score (from WinSelectionGate)
+                                                              |
+                                                              +--> Sort by race_id, compute group sizes
+                                                              +--> Train with position-graded relevance
+                                                              +--> Output: ranking score per horse
+
+Shadow Comparison internal:
+  Baseline pipeline --run--> metrics_baseline
+  Shadow pipeline --run--> metrics_shadow
+  Compare: Brier, ECE, CLV, ROI, HR, DD, selection overlap
+  |
+  +--> Deploy gate: probability quality PASS AND selection overlap >= 80% AND ROI not degraded
 ```
 
 ---
 
 ## MVP Recommendation
 
-### Phase 0 -- OOF Health (MUST be first, blocking)
+### Must-build first: Segment Conditioning + MarketAwareWinCalibrator
 
 Prioritize:
-1. Time-series OOF generation for all hit models (win/place/wide) -- Medium
-2. Per-fold Brier + log-loss reporting -- Low
-3. 10-bin ECE implementation -- Medium
-4. Year-stratified OOF (not random shuffle) -- Medium
+1. Reuse WSC segment keys (surface|odds_band|rank_band|ev_band) -- Low
+2. Extend BenterCombination with per-segment alpha/beta + Bayesian shrinkage -- High
+3. OOF-based fitting via existing `generate_win_oof_predictions()` -- Medium
+4. Post-hoc calibration (isotonic or Beta) via existing `compare_calibrations()` -- Low
+5. Race normalization via existing `WinBenterGate.apply()` -- Low
 
-Defer: Reliability diagrams, OOF drift detector (nice-to-have; requires historical baseline)
+Defer: Per-segment temperature scaling, calibration stability analysis, pseudo-R2 per segment
 
-### Phase 1 -- InvestmentFeatureFrame (MUST be second, blocking)
-
-Prioritize:
-1. Curate existing columns into formal frame (model prob, market, gap, ranks, odds bands) -- Low
-2. Add race-level features (6 cols) and market cross features (5 cols) -- Low
-3. Add segment calibration features from WSC -- Low
-
-Defer: Harville place probability (Medium; useful but not blocking), Late odds delta features (Medium; requires data engineering)
-
-### Phase 2 -- MarketAwareWinCalibrator (depends on Phase 0 + 1)
+### Must-build second: Race-Level Ranker
 
 Prioritize:
-1. Extend BenterCombination with OOF-based fitting -- Medium
-2. Surface-aware parameter fitting -- Low
-3. Absorb WSC logic as calibrator features -- High
-4. Post-hoc temperature scaling -- Low
+1. LGBMRanker with LambdaRank objective + group constraint -- Medium
+2. InvestmentFeatureFrame as input (94-spec frame already built) -- Low
+3. Position-graded relevance (1/finish_position) -- Medium
+4. Integration with WinSelectionGate (ranker score replaces `win_market_selection_score`) -- Medium
 
-Defer: Per-fold calibration stability analysis, Odds-band interaction terms (can add after core works)
+Defer: Per-surface ranker, value ranker (2nd model), rank fusion, ranker-derived confidence score
 
-### Phase 4 -- Race-Level Ranker (depends on Phase 1 + 2)
+### Must-build third: Shadow Comparison
 
 Prioritize:
-1. Win ranker with LambdaRank + position-graded relevance -- Medium
-2. Group constraint enforcement (sort by race_id) -- Medium
-3. OOF-based NDCG evaluation -- Medium
+1. Brier + log-loss + ECE comparison on identical test period -- Low
+2. Selection overlap rate (top-1 per race agreement) -- Low
+3. ROI + HR + max DD comparison -- Low
+4. Deploy gate logic (probability quality AND selection overlap AND ROI) -- Low
 
-Defer: Value ranker (2nd ranker model), Rank fusion, Per-surface ranker (start with single ranker + surface features)
+Defer: CLV computation, pseudo-R2 per segment, Brier decomposition, regime-stratified metrics, selection change analysis
 
 ### Post-MVP (future milestones)
 
-- Value ranker (2nd ranker model): High complexity, uncertain marginal value over win ranker + EV threshold
-- Rank fusion: Requires both rankers; defer
-- Reliability diagrams: Nice-to-have visualization
-- OOF drift detector: Requires multiple training cycles of history
 - Per-surface ranker: Start with single ranker + surface features; split only if metrics demand it
-- LogisticRegression alternative to MLE Benter: Worth evaluating post-MVP
+- Value ranker (2nd model): Separate ranking by expected value; uncertain marginal gain
+- Rank fusion: Requires both rankers; defer
+- CLV computation: Requires closing odds vs model odds comparison infrastructure
+- Per-segment temperature scaling: Adds complexity; only if global temp scaling proves insufficient
+- Brier score decomposition: Nice-to-have diagnostic; not blocking
+- Selection change analysis: Post-deployment diagnostic for understanding ranker behavior
 
 ---
 
@@ -274,24 +311,25 @@ Defer: Value ranker (2nd ranker model), Rank fusion, Per-surface ranker (start w
 
 | Area | Confidence | Reason |
 |------|------------|--------|
-| OOF Health features | HIGH | Standard ML practice; well-documented metrics; existing codebase patterns |
-| InvestmentFeatureFrame features | HIGH | Mostly curating existing columns; limited new engineering required |
-| MarketAwareWinCalibrator features | HIGH | Benter (1994) paper provides theoretical foundation; existing BenterCombination class provides implementation base; Tables 3-7 demonstrate the approach works |
-| Race-Level Ranker features | MEDIUM | LambdaRank API well-documented via Context7 but race-specific tuning patterns need empirical validation |
-| Segment conditioning design | MEDIUM | WSC segment logic exists but absorbing it into calibrator is an architectural change with integration risk |
-| Benter formula effectiveness | HIGH | Benter paper shows combined model removes fundamental model bias; pseudo-R2 analysis confirms delta-R2 is the key profitability metric |
+| MarketAwareWinCalibrator | HIGH | BenterCombination class already works; extending with segment conditioning is well-scoped; Benter (1994) provides theoretical foundation; WSC pattern proves segment conditioning works |
+| Segment Conditioning | HIGH | WinSegmentCalibrator already implements identical segment keys with Bayesian shrinkage; just needs wiring to Benter parameters instead of prob_factor |
+| Race-Level Ranker | MEDIUM | LambdaRank API verified via Context7 for LightGBM 4.6.0; race-specific tuning (relevance function, group sizes) needs empirical validation; integration with WinSelectionGate requires care |
+| Shadow Comparison | HIGH | All required metrics (Brier, ECE, ROI, HR, DD) are standard and already partially implemented; comparison infrastructure is straightforward |
+| ROI recovery to 100%+ | MEDIUM | v1.7 achieved 97.8% with different features; segment-aware calibration should recover this; but ROI depends on many factors beyond calibration quality |
 
 ## Sources
 
-- Benter, A.W. (1994/2024 annotated). "Computer-Based Horse Race Handicapping and Wagering Systems." ActaMachina annotated edition. Tables 3-7 demonstrate logit-blend bias removal. Combined model removes bias completely. Pseudo-R2 comparison shows public-only R2 improved from 0.1325 (1986-1993) to 0.1863 (2016-2023) -- markets getting more efficient. Delta-R2 (combined - public) is the key profitability metric. **HIGH confidence.**
-- LightGBM LGBMRanker API. Context7 documentation for `lightgbm-org/lightgbm` v4.6.0. `objective='lambdarank'`, `group` parameter, `eval_at` for NDCG positions, `eval_group` for validation groups. **HIGH confidence.**
-- Existing codebase: `src/models/benter_combination.py` (BenterCombination class with alpha/beta/gamma MLE fitting, TemperatureScaling post-hoc). **HIGH confidence.**
-- Existing codebase: `src/models/win_segment_calibrator.py` (WinSegmentCalibrator with segment keys, Bayesian shrinkage, OOF-based training). **HIGH confidence.**
-- Existing codebase: `src/models/market_model.py` (MarketModel with log_error computation, Rule 11 for p_market_pred exclusion). **HIGH confidence.**
-- Existing codebase: `src/models/win_selection_gate.py` (1302-line gate model, 41-column final selection). **HIGH confidence.**
-- ROI_IMPROVEMENT_PLAN.md (project internal). Phase definitions, feature lists for all 4 components. **HIGH confidence.**
-- PROJECT.md (project internal). v2.0 milestone scope, constraints (no bet count reduction, no regime dependency, deployment on probability quality not ROI). **HIGH confidence.**
+- Benter, A.W. (1994/2024 annotated). "Computer-Based Horse Race Handicapping and Wagering Systems." ActaMachina annotated edition. Tables 3-7 demonstrate logit-blend bias removal. Combined model removes bias completely. Pseudo-R2 comparison shows public-only R2 improved from 0.1325 (1986-1993) to 0.1863 (2016-2023). **HIGH confidence.**
+- LightGBM LGBMRanker API. Context7 documentation for `lightgbm-org/lightgbm` v4.6.0. `objective='lambdarank'`, `group` parameter, `eval_at` for NDCG. **HIGH confidence.**
+- Existing codebase: `src/models/benter_combination.py` (alpha/beta/gamma MLE with L-BFGS-B, beta floor 0.20). **HIGH confidence.**
+- Existing codebase: `src/models/win_benter_gate.py` (WinBenterGate wrapping Benter + isotonic + temp + race normalization; `generate_win_oof_predictions` with walk-forward splits; `compare_calibrations` Beta vs Isotonic; `compute_ece` 10-bin). **HIGH confidence.**
+- Existing codebase: `src/models/win_segment_calibrator.py` (WinSegmentCalibrator with ODDS_BINS/RANK_BINS/EV_BINS, Bayesian shrinkage prior_strength=500, min_segment_rows=120, max_deploy_factor=0.95). **HIGH confidence.**
+- Existing codebase: `src/investment/schema_registry.py` (94 specs, 9 categories, InvestmentFeatureSpec frozen dataclass with dual-mode sources). **HIGH confidence.**
+- Existing codebase: `src/investment/feature_frame.py` (InvestmentFeatureFrameBuilder with derived features: if_logit_gap, if_edge_rank_in_race, if_ev_race_rank, if_top3_gap, if_field_ev_dispersion). **HIGH confidence.**
+- Existing codebase: `src/backtest/race_predictor.py` (get_win_candidates with win_market_selection_score formula, surface-aware base score, 6 penalty/bonus terms). **HIGH confidence.**
+- Existing codebase: `src/models/win_selection_gate.py` (WinSelectionGateModel with walk-forward OOF scoring, threshold grid, runner-up detection). **HIGH confidence.**
+- Snowberg & Wolfers (2010). "Explaining the Favorite-Longshot Bias." Evidence for probability misperception as primary cause. **MEDIUM confidence.**
 
 ---
-*Feature research for: v2.0 Investment Pipeline Restructuring -- 4 components*
+*Feature research for: v2.1 MarketAware Calibration + Race-Level Ranker for ROI Recovery*
 *Researched: 2026-05-27*
