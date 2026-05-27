@@ -5,11 +5,11 @@ milestone_name: Turf Precision Calibration
 status: planning
 last_updated: "2026-05-20T17:30:00Z"
 progress:
-  total_phases: 40
+  total_phases: 39
   completed_phases: 34
   total_plans: 84
   completed_plans: 80
-  percent: 85
+  percent: 87
 ---
 
 # Roadmap: keiba-ai Win Model Improvement
@@ -120,7 +120,6 @@ progress:
 - [x] **Phase 36.1: HaronTime L4/LapTime Redesign** - クロスレベル派生特徴量 + BT hist_features修正 (completed 2026-05-20)
 - [x] **Phase 36.1.1: MarketModel & RaceQuality配線修正** - Phase36特徴量ルーティング修正 + EV Tail Calibration (INSERTED) (completed 2026-05-20)
 - [ ] **Phase 37: EV Calibration Layers** - Pop band calibration + regime x surface EV correction
-- [ ] **Phase 38: Integrated Validation** - CI leakage tests + IC confirmation + BT ROI 100% + Manifest freeze
 
 ## Phase Details
 
@@ -202,23 +201,10 @@ Plans:
   4. Regime-EV feedback loop forced-transition test passes (regime state cannot be gamed by EV outputs)
 **Plans**: TBD
 
-### Phase 38: Integrated Validation
-**Goal**: All v1.8 features and calibration layers are validated safe, turf IC is positive, and BT ROI exceeds 100%
-**Depends on**: Phase 37
-**Requirements**: VAL-01, VAL-02, VAL-03, VAL-04, VAL-05, VAL-06
-**Success Criteria** (what must be TRUE):
-  1. 3-layer CI leakage tests cover all new HLF/TRF/INT feature columns and all pass
-  2. Turf Stage1 IC b_difference is positive (was -0.004 in v1.7)
-  3. Turf pop 4-12 calibration ratio improves from 0.527
-  4. BT 2024 ROI exceeds 100% (was 97.8% in v1.7)
-  5. Turf conservative regime ROI improves (currently unprofitable)
-  6. Manifest v1.8 is frozen with SHA256 feature hashes for all 12 models
-**Plans**: TBD
-
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 35 -> 36 -> 36.1 -> 36.1.1 -> 37 -> 38
+Phases execute in numeric order: 35 -> 36 -> 36.1 -> 36.1.1 -> 37
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
@@ -262,4 +248,3 @@ Phases execute in numeric order: 35 -> 36 -> 36.1 -> 36.1.1 -> 37 -> 38
 | 36.1. HaronTime L4/LapTime Redesign | v1.8 | 2/2 | Complete | 2026-05-20 |
 | 36.1.1. MarketModel & RaceQuality配線修正 | v1.8 | 4/4 | Complete    | 2026-05-20 |
 | 37. EV Calibration Layers | v1.8 | 0/? | Not started | - |
-| 38. Integrated Validation | v1.8 | 0/? | Not started | - |

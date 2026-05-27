@@ -6,11 +6,11 @@ status: planning
 last_updated: "2026-05-21T05:42:49.162Z"
 last_activity: 2026-05-21
 progress:
-  total_phases: 6
+  total_phases: 5
   completed_phases: 4
   total_plans: 10
   completed_plans: 10
-  percent: 67
+  percent: 80
 ---
 
 # Project State
@@ -29,7 +29,7 @@ Plan: Not started
 Status: Ready to plan
 Last activity: 2026-05-21
 
-Progress: [▓▓▓▓▓▓▓▓▓▓▓▓▓░░░░░░░] 67% (v1.8: 4/6 phases done, Phase 37 next)
+Progress: [▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓░░░░] 80% (v1.8: 4/5 phases done, Phase 37 next)
 
 ## v1.8 Roadmap
 
@@ -40,7 +40,6 @@ Progress: [▓▓▓▓▓▓▓▓▓▓▓▓▓░░░░░░░] 67% (v1
 | 36.1. HaronTime L4/LapTime Redesign | クロスレベル派生特徴量への再設計 + BT hist_features欠落修正 | RED-01~06 | DONE (352 tests) |
 | 36.1.1. MarketModel & RaceQuality配線修正 | Phase36特徴量ルーティング修正 + EV Tail Calibration | RTG-01~05 | Next (URGENT) |
 | 37. EV Calibration Layers | Pop band calibration + regime-surface EV correction | CAL-01~05 | Pending |
-| 38. Integrated Validation | CI tests + IC positive + BT ROI 100%+ + Manifest freeze | VAL-01~06 | Pending |
 
 ## Performance Metrics
 
