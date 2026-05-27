@@ -1216,16 +1216,16 @@ _UNCERTAINTY_SPECS: tuple[InvestmentFeatureSpec, ...] = (
         description="Isotonicキャリブレーション残差",
     ),
     InvestmentFeatureSpec(
-        name="if_odds_to_ability_dispersion",
+        name="if_odds_ability_ratio_dup",
         category="uncertainty",
         dtype="float64",
         train_sources=("odds_to_ability_ratio",),
         infer_sources=("odds_to_ability_ratio",),
         required=False,
         default_value=float("nan"),
-        missing_indicator="if_odds_to_ability_dispersion_missing",
+        missing_indicator="if_odds_ability_ratio_dup_missing",
         leakage_class="safe",
-        description="オッズ/能力比分散 (race内std)",
+        description="オッズ/能力比 (分散化はPhase 39で実装, model_market_gapと同ソース)",
     ),
 )
 
