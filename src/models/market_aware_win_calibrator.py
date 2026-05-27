@@ -471,7 +471,7 @@ class MarketAwareWinCalibrator:
 
         # Race normalization: sum-to-1.0 per race_id
         race_sums = df.groupby("race_id", observed=True)["p_win_combined"].transform("sum")
-        df["p_win_final"] = df["p_win_combined"] / race_sums
+        df["p_win_final"] = df["p_win_combined"] / race_sums.clip(lower=1e-10)
 
         # Edge calculation
         df["edge_win"] = df["p_win_final"] * df["tanodds"] - 1.0
