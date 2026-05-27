@@ -481,7 +481,7 @@ def generate_manifest(
 
 **Note:** A1-A3は低リスク。CONTEXT.mdのD-05が明確に定義しており、コードベースの確認で裏付けられている。
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **generate_ev_oof_predictions()のfold列追加アプローチ**
    - What we know: 現在3つのnumpy配列を返す。呼び出し元はtraining_pipeline.py内の複数箇所

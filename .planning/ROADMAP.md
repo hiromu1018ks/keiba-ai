@@ -126,7 +126,7 @@ progress:
 
 **Milestone Goal:** 確率推定を構造改革し、投資判断に耐える p_win_market_aware を確立、Race-Level Rankerで「市場が過小評価している馬」を選定する。ROI 100%超えは最終成果指標とする。ただし各コンポーネントの配備判定はROI直接最適化ではなく、OOF/WFでの確率品質・年別安定性・baseline比較で行う
 
-- [ ] **Phase 37: OOF Health Infrastructure** -- OOF成果物の健全性検査基盤 (fail-fast validation)
+- [ ] **Phase 37: OOF Health Infrastructure** -- OOF成果物の健全性検査基盤 (fail-fast validation) (2 plans, 2 waves)
 - [ ] **Phase 38: InvestmentFeatureFrame** -- 投資判断用統合特徴量フレーム (80-150列)
 - [ ] **Phase 39: MarketAwareWinCalibrator + Segment** -- Benter型市場ブレンドキャリブレーション
 - [ ] **Phase 40: Race-Level Ranker** -- LightGBM LambdaRank レース内ランキング
@@ -230,7 +230,7 @@ Phases execute in numeric order: 37 -> 38 -> 39 -> 40
 | 36. Feature Computation | v1.8 | 2/2 | Complete | 2026-05-20 |
 | 36.1. HaronTime L4/LapTime Redesign | v1.8 | 2/2 | Complete | 2026-05-20 |
 | 36.1.1. MarketModel & RaceQuality配線修正 | v1.8 | 4/4 | Complete | 2026-05-20 |
-| 37. OOF Health Infrastructure | v2.0 | 0/2 | Not started | - |
+| 37. OOF Health Infrastructure | v2.0 | 0/2 | Planned | - |
 | 38. InvestmentFeatureFrame | v2.0 | 0/? | Not started | - |
 | 39. MarketAwareWinCalibrator + Segment | v2.0 | 0/? | Not started | - |
 | 40. Race-Level Ranker | v2.0 | 0/? | Not started | - |
