@@ -222,7 +222,7 @@ Plans:
 **Plans**: 3 plans
 Plans:
 - [x] 38-01-PLAN.md -- Schema registry + leakage detection foundation (IFF-04, IFF-05)
-- [ ] 38-02-PLAN.md -- Feature frame builder + manifest + cache (IFF-01, IFF-02, IFF-03, IFF-06, IFF-07)
+- [x] 38-02-PLAN.md -- Feature frame builder + manifest + cache (IFF-01, IFF-02, IFF-03, IFF-06, IFF-07)
 - [ ] 38-03-PLAN.md -- Test suite + integration validation (VAL-01, full coverage)
 
 ## Progress
@@ -272,4 +272,4 @@ Phases execute in numeric order: 35 -> 36 -> 36.1 -> 36.1.1 -> 37 -> 38
 | 36.1. HaronTime L4/LapTime Redesign | v1.8 | 2/2 | Complete | 2026-05-20 |
 | 36.1.1. MarketModel & RaceQuality配線修正 | v1.8 | 4/4 | Complete    | 2026-05-20 |
 | 37. OOF Health Infrastructure | v2.0 | 2/2 | Complete | 2026-05-27 |
-| 38. InvestmentFeatureFrame | v2.0 | 1/3 | In Progress|  |
+| 38. InvestmentFeatureFrame | v2.0 | 2/3 | In Progress|  |
