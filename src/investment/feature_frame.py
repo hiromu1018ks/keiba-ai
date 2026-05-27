@@ -222,8 +222,6 @@ class InvestmentFeatureFrameBuilder:
         self,
         df: pd.DataFrame,
         mode: Literal["train", "infer"],
-        *,
-        builder_version: str = BUILDERS_VERSION,
     ) -> pd.DataFrame:
         """Build investment feature frame (D-10, IFF-01).
 
@@ -234,7 +232,6 @@ class InvestmentFeatureFrameBuilder:
         Args:
             df: Input DataFrame with source columns.
             mode: "train" (OOF-safe) or "infer" (production).
-            builder_version: Builder code version for cache keying.
 
         Returns:
             Investment feature DataFrame with identity cols + if_* cols + missing indicators.
@@ -358,12 +355,10 @@ class InvestmentFeatureFrameBuilder:
 def build_frame(
     df: pd.DataFrame,
     mode: Literal["train", "infer"],
-    *,
-    builder_version: str = BUILDERS_VERSION,
 ) -> pd.DataFrame:
     """Module-level convenience function for building investment feature frame.
 
     Creates a default InvestmentFeatureFrameBuilder and delegates to build_frame().
     """
     builder = InvestmentFeatureFrameBuilder()
-    return builder.build_frame(df, mode, builder_version=builder_version)
+    return builder.build_frame(df, mode)
