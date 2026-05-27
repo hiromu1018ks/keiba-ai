@@ -1,15 +1,15 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.8
-milestone_name: Turf Precision Calibration
+milestone: v2.0
+milestone_name: Investment Pipeline Restructuring
 status: planning
-last_updated: "2026-05-20T17:30:00Z"
+last_updated: "2026-05-27T00:00:00Z"
 progress:
-  total_phases: 38
-  completed_phases: 38
-  total_plans: 84
-  completed_plans: 84
-  percent: 100
+  total_phases: 4
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Roadmap: keiba-ai Win Model Improvement
@@ -25,6 +25,7 @@ progress:
 - **v1.6 Feature Engineering Overhaul** -- Phases 23-28 (shipped 2026-05-17)
 - **v1.7 Market-Independent Edge Discovery** -- Phases 29-34 (shipped 2026-05-19)
 - **v1.8 Turf Precision Calibration** -- Phases 35-36.1.1 (shipped 2026-05-20)
+- **v2.0 Investment Pipeline Restructuring** -- Phases 37-40 (in progress)
 
 ## Phases
 
@@ -111,87 +112,79 @@ progress:
 
 </details>
 
-### v1.8 Turf Precision Calibration (Complete)
+<details>
+<summary>v1.8 Turf Precision Calibration (Phases 35-36.1.1) -- SHIPPED 2026-05-20</summary>
 
-**Milestone Goal:** IC b_difference --> positive, ROI 97.8%-->100%+
+- [x] Phase 35: ETL Data Foundation (2/2 plans) -- completed 2026-05-19
+- [x] Phase 36: Feature Computation (2/2 plans) -- completed 2026-05-20
+- [x] Phase 36.1: HaronTime L4/LapTime Redesign (2/2 plans) -- completed 2026-05-20
+- [x] Phase 36.1.1: MarketModel & RaceQuality配線修正 (4/4 plans) -- completed 2026-05-20
 
-- [x] **Phase 35: ETL Data Foundation** - HaronTime/LapTime/Jyuni float64 + POST_RACE_COLS (completed 2026-05-19)
-- [x] **Phase 36: Feature Computation** - Turf relative features + conditional interactions + Haron/Lap PIT-safe (completed 2026-05-20)
-- [x] **Phase 36.1: HaronTime L4/LapTime Redesign** - クロスレベル派生特徴量 + BT hist_features修正 (completed 2026-05-20)
-- [x] **Phase 36.1.1: MarketModel & RaceQuality配線修正** - Phase36特徴量ルーティング修正 + EV Tail Calibration (INSERTED) (completed 2026-05-20)
+</details>
+
+### v2.0 Investment Pipeline Restructuring (In Progress)
+
+**Milestone Goal:** 確率推定を構造改革し、投資判断に耐える p_win_market_aware を確立、Race-Level Rankerで「市場が過小評価している馬」を選定する。ROI 100%超えは最終成果指標とする。ただし各コンポーネントの配備判定はROI直接最適化ではなく、OOF/WFでの確率品質・年別安定性・baseline比較で行う
+
+- [ ] **Phase 37: OOF Health Infrastructure** -- OOF成果物の健全性検査基盤 (fail-fast validation)
+- [ ] **Phase 38: InvestmentFeatureFrame** -- 投資判断用統合特徴量フレーム (80-150列)
+- [ ] **Phase 39: MarketAwareWinCalibrator + Segment** -- Benter型市場ブレンドキャリブレーション
+- [ ] **Phase 40: Race-Level Ranker** -- LightGBM LambdaRank レース内ランキング
+
 ## Phase Details
 
-### Phase 35: ETL Data Foundation
-**Goal**: HaronTimeL3/L4, LapTime1~25, Jyuni1c~4c are available as float64 in Parquet with sentinel values handled and POST_RACE safety enforced
-**Depends on**: Nothing (first phase of v1.8)
-**Requirements**: ETL-01, ETL-02, ETL-03, ETL-04, ETL-05
+### Phase 37: OOF Health Infrastructure
+**Goal**: 全OOF成果物が健全性検査を通過し、下流コンポーネント(キャリブレータ・ランカー)が信頼できるOOF予測を利用できる状態になる
+**Depends on**: Nothing (first phase of v2.0, builds on existing OOF infrastructure)
+**Requirements**: OOF-01, OOF-02, OOF-03, OOF-04, OOF-05, OOF-06, OOF-07, OOF-08, XCT-05, XCT-08
 **Success Criteria** (what must be TRUE):
-  1. entries.parquet contains HaronTimeL3/L4 columns as float64 with 000/999 sentinel values replaced by NaN
-  2. races.parquet contains LapTime1~25 columns as float64 with 000 sentinel values replaced by NaN
-  3. entries.parquet contains Jyuni1c~4c corner position columns as numeric values
-  4. All new POST_RACE columns appear in domain/types.py POST_RACE_COLS and 3-layer CI leakage tests detect any misuse
-  5. HaronTimeL3/L4 mutual exclusivity is validated and coalescing logic (harontime_last3f) is documented
-**Plans**: 2 plans
-Plans:
-- [x] 35-01-PLAN.md -- sentinel_float/sentinel_int rules + _TABLE_TYPE_RULES update + readers.py
-- [x] 35-02-PLAN.md -- POST_RACE_COLS consolidation + HaronTime mutual exclusivity analysis
+  1. 空OOF保存がfail-fastで異常終了し、空ファイルが下流パイプラインに流入しない
+  2. race_id単位でtrain/valid重複・同一race_idの複数fold混入が検出され、混入時は学習が停止する
+  3. OOF top1 hit rate > 35% または top1 ROI > 200% の異常値が検出され停止する
+  4. health manifestに行数、レース数、fold数、fold別race_id一意性、top1 hit rate/ROI、日付範囲、source model hashが記録され、同一入力から決定的な出力が生成される(XCT-05)
+  5. 全health manifest artifactにversion、schema hash、source OOF manifest path、train日付範囲が含まれる(XCT-08)
+**Plans**: TBD
 
-### Phase 36: Feature Computation
-**Goal**: All new turf-focused features (relative ranks, conditional interactions, haron/lap history) are computed PIT-safe and registered across all 12 models
-**Depends on**: Phase 35
-**Requirements**: TRF-01, TRF-02, TRF-03, INT-01, INT-02, INT-03, INT-04, HLF-01, HLF-02, HLF-03, HLF-04, HLF-05
+### Phase 38: InvestmentFeatureFrame
+**Goal**: キャリブレータとランカーが一貫した80-150列の投資判断用特徴量にアクセスでき、学習用FrameはOOF-safe列のみで構成される
+**Depends on**: Phase 37 (reliable OOF predictions)
+**Requirements**: IFF-01, IFF-02, IFF-03, IFF-04, IFF-05, IFF-06, IFF-07, IFF-08, IFF-09, IFF-10, IFF-11, IFF-12, XCT-05, XCT-07, XCT-08
 **Success Criteria** (what must be TRUE):
-  1. form_trend_race_rank, blood_total_wr_race_rank, blood_surface_wr_race_rank, and weighted_recent_form appear in training data via add_race_transforms()
-  2. grade_x_form_trend, distance_x_closing_index, grade_x_blood_prize_log interaction features appear in interaction_features.py output
-  3. Haron/Lap history features (harontimel4_avg, harontimel4_zscore, haron_l3l4_ratio, lap pace ratios) are computed using expanding_stats + searchsorted (PIT-safe, no current-race data)
-  4. All HLF/TRF/INT features appear in all 12 models' FEATURE_COLS lists
-  5. Both training pipeline (_train_submodel) and inference path (BettingOrchestrator.build_features) produce identical feature sets
-**Plans**: 2 plans
-Plans:
-- [x] 36-01-PLAN.md -- TRF + INT features: race-rank, weighted_recent_form, interactions, model registration
-- [x] 36-02-PLAN.md -- HLF features: HaronTime L4/unified history, LapTime pace, model registration, dual-path
+  1. モデル確率5列、市場確率6列、モデル対市場ギャップ7列、レース内相対12列のFeatureFrameが生成される (IFF-01~04)
+  2. オッズ帯7列、late odds 9列、能力/フォーム要約9列、コース/ペース要約8列、不確実性6列が生成される (IFF-05~09)
+  3. 学習用FeatureFrameはOOF-safe列のみで構成され、当該レースのPOST_RACEデータを一切使用しない (IFF-10)
+  4. FeatureFrameはstable schema (feature_version, source_artifact_version) を持ち、POST_RACE列を含まず、欠損特徴量はindicator列で扱われる (IFF-11, IFF-12)
+  5. 再利用可能frameがキャッシュされ、不要な全面再計算が導入されず、同一入力から決定的な出力が保証される (XCT-05, XCT-07, XCT-08)
+**Plans**: TBD
 
-### Phase 36.1: HaronTime L4/LapTime Feature Redesign - クロスレベル派生特徴量への再設計 + backtest engine hist_features欠落修正 (INSERTED)
-
-**Goal:** HaronTimeL4 データソースを races レベルに修正し、L3/L4 クロスレベル派生特徴量（closing_speed_ratio, haron_race_gap, pace_adj_finish）を PIT-safe に実装し、harontime_last3f を L3 ベースに統一し、backtest engine の hist_features 欠落バグを修正する
-**Requirements**: RED-01, RED-02, RED-03, RED-04, RED-05, RED-06
-**Depends on:** Phase 36
-**Plans:** 2 plans
-Plans:
-- [x] 36.1-01-PLAN.md -- D-09 データソース修正 + D-01/02/03 新規派生特徴量 + D-07 last3f L3統一 + D-08 harontimel4 置換
-- [x] 36.1-02-PLAN.md -- D-11 backtest engine hist_features マージ修正 + 全10モデル FEATURE_COLS 更新
-
-### Phase 36.1.1: MarketModel & RaceQuality配線修正 — Phase36特徴量ルーティング修正 + EV Tail Calibration (INSERTED)
-
-**Goal:** Phase36/36.1の強いfundamental特徴量が全モデルに一律登録されたことで、MarketModelの市場歪み検出役割とRaceQualityScreenerのレース品質判定が崩壊した問題を修復する。Phase36特徴量は残すが、モデルごとの役割に応じたルーティングに変更し、高EV長穴のtail calibrationを実装して、BT 2024 ROIをv1.7水準(97.8%)以上に回復させる
-
-**主因診断:**
-1. RaceQualityScreenerが利益源レースを大量脱落（旧ROI 103.4%の1831件を除外）
-2. 高EV長穴の較正崩壊（EV>=1.5: 160件0勝、人気7+ ROI 58.3%）
-3. 共通レースの馬選択悪化（別馬394件でROI 59.8%）
-4. Phase36特徴量がMarketModelを支配（gain share 80%+、市場モデル契約が崩壊）
-
-**Requirements**: RTG-01, RTG-02, RTG-03, RTG-04, RTG-05
-**Depends on:** Phase 36.1
+### Phase 39: MarketAwareWinCalibrator + Segment Calibration
+**Goal**: Benter型logit(p_model)+logit(p_market)ブレンドがOOFで学習され、surface/odds帯/prob rankのsegment conditioningが特徴量として統合され、確率品質で配備判定が行われる
+**Depends on**: Phase 37 (OOF for fitting), Phase 38 (feature frame)
+**Requirements**: MAW-01, MAW-02, MAW-03, MAW-04, MAW-05, MAW-06, MAW-07, MAW-08, MAW-09, XCT-01, XCT-02, XCT-04, XCT-05, XCT-07, XCT-08
 **Success Criteria** (what must be TRUE):
-  1. MarketModel.FEATURE_COLS からPhase36 fundamental特徴量を除外し、market-only特徴量(odds distribution, overround, market_entropy, popularity_rank, late_money)に戻す
-  2. RaceQualityScreenerが quality_score=0 固定問題を解消し、実効的なscore/thresholdを出力する
-  3. RaceQualityScreenerが馬単位Phase36列ではなくrace aggregate特徴量(phase36_top1_strength, phase36_top1_top2_gap, form_signal_dispersion等)を使用する
-  4. EV>=1.5高EV長穴をfeature family合意度で分類し、Phase36単独跳ねは縮小、複数合意はaggressiveに扱う
-  5. v1.7 vs 現行 共通632レースの同馬/別馬差分レポートでPhase36寄与分解が可能
-  6. BT 2024再学習で ROI >= 97.8% (v1.7水準) に回復、ベット数 >= 1500 **[Phase 38で検証]** -- Phase 36.1.1はコード修正を完了し、Phase 38 (Integrated Validation) でBT再実行によるROI検証を実施
-**Plans:** 4/4 plans complete
+  1. Benter型logitブレンドがOOF予測(p_win_oof)のみで学習され、in-sample予測を使用せず、beta係数floor >= 0.20が設定される (MAW-01, MAW-02)
+  2. LogisticRegression(主)とLightGBM binary(対照)の2モデルを比較し、最もシンプルなモデルを優先する (MAW-05, MAW-07)
+  3. surface/odds帯/prob rankのsegment conditioningが特徴量としてMarketAwareWinCalibratorに統合され、post-hoc確率乗数として扱われない (MAW-04)
+  4. 配備判定がBrier/logloss/ECEで行われ、年別actual/predicted比率の最大乖離が既存より改善する (MAW-03, MAW-08)
+  5. 新calibratorはshadow modeをサポートし(新旧両出力)、feature flagで排他切り替え、既存WinBenterGate/WinSegmentCalibratorはフォールバックとして保持され、二重補正は禁止される (XCT-01, XCT-02, MAW-09)
+**Plans**: TBD
 
-Plans:
-- [x] 36.1.1-01-PLAN.md -- Phase36特徴量の3モデルFEATURE_COLS除外 (RTG-01)
-- [x] 36.1.1-02-PLAN.md -- Race-level aggregate追加 + quality_score修正 (RTG-02, RTG-03)
-- [x] 36.1.1-03-PLAN.md -- EV Tail Calibration feature family合意度 (RTG-04)
-- [x] 36.1.1-04-PLAN.md -- v1.7 vs 現行 差分診断スクリプト (RTG-05)
+### Phase 40: Race-Level Ranker
+**Goal**: LightGBM LambdaRankがレース内ランキングで「市場が過小評価している馬」を選定し、既存の1レース1頭選択ベースラインのベット数を維持する
+**Depends on**: Phase 38 (feature frame), Phase 39 (calibrated probabilities)
+**Requirements**: RLR-01, RLR-02, RLR-03, RLR-04, RLR-05, RLR-06, XCT-01, XCT-02, XCT-03, XCT-04, XCT-05, XCT-06, XCT-07, XCT-08
+**Success Criteria** (what must be TRUE):
+  1. LightGBM LambdaRank(objective=lambdarank)がrace_id group強制付きで実装され、勝率ranker(1段目)とvalue ranker(2段目)の2段構成が動作する (RLR-01, RLR-03, RLR-04)
+  2. investment_score = calibrated_log_ev + value_ranker_score + market_mispricing_score - uncertainty_penalty の統合スコアが計算され、CLVは学習ラベル補助・診断に限定される (RLR-05, RLR-06)
+  3. 単勝1頭選択の既存動作が維持され、ベット数が減少しない。配備時はbaseline bet countとの比較で明示的承認を要する (RLR-02, XCT-03)
+  4. rankerはshadow modeをサポートし、backtest reportがbaseline vs新パイプラインを確率品質・選定馬変更・surface/odds/prob-rank帯・CLV・ROI・hit rate・drawdownで比較する (XCT-01, XCT-06)
+  5. 検証はOOF + walk-forward 2024/2025 + artifact再現性チェックを含み、2024/2025は固定検証foldとして係数最適化に使用しない (XCT-04, XCT-05, XCT-08)
+**Plans**: TBD
 
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 35 -> 36 -> 36.1 -> 36.1.1
+Phases execute in numeric order: 37 -> 38 -> 39 -> 40
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
@@ -230,7 +223,11 @@ Phases execute in numeric order: 35 -> 36 -> 36.1 -> 36.1.1
 | 32. Market Cross-Consistency Features | v1.7 | 2/2 | Complete | 2026-05-18 |
 | 33. Gain per Depth Diagnostic | v1.7 | 2/2 | Complete | 2026-05-18 |
 | 34. Validation and Manifest Update | v1.7 | 4/4 | Complete | 2026-05-19 |
-| 35. ETL Data Foundation | v1.8 | 2/2 | Complete    | 2026-05-19 |
+| 35. ETL Data Foundation | v1.8 | 2/2 | Complete | 2026-05-19 |
 | 36. Feature Computation | v1.8 | 2/2 | Complete | 2026-05-20 |
 | 36.1. HaronTime L4/LapTime Redesign | v1.8 | 2/2 | Complete | 2026-05-20 |
-| 36.1.1. MarketModel & RaceQuality配線修正 | v1.8 | 4/4 | Complete    | 2026-05-20 |
+| 36.1.1. MarketModel & RaceQuality配線修正 | v1.8 | 4/4 | Complete | 2026-05-20 |
+| 37. OOF Health Infrastructure | v2.0 | 0/? | Not started | - |
+| 38. InvestmentFeatureFrame | v2.0 | 0/? | Not started | - |
+| 39. MarketAwareWinCalibrator + Segment | v2.0 | 0/? | Not started | - |
+| 40. Race-Level Ranker | v2.0 | 0/? | Not started | - |

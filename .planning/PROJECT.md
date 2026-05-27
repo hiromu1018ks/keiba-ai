@@ -65,37 +65,44 @@ MLflow で実験管理。PostgreSQL (EveryDB2/JRA-VAN DataLab) をデータソ�
 - ✓ Gain per Depth診断 (179特徴量カテゴリマップ + MDR/FAD + 可視化CLI) — v1.7
 - ✓ BT 2024 ROI 97.8% (v1.6: 85.7%, +12.1pp改善) + Manifest v1.7凍結 — v1.7
 
-### Active
+### Active (v2.0)
 
-- 上がりタイム+ラップ特徴量のETL基盤 (sentinel_float NaN化 + POST_RACE_COLS 41列化 + 漏洩検出) — v1.8 Phase 35
-- 人気帯キャリブレーションレイヤーの追加 (OOF residual ratio 5段階スケーリング) — v1.8
-- 芝レース内相対特徴量強化 (form_trend/blood_wr race_rank系追加) — v1.8
-- 条件交互作用特徴量の追加 (grade×form, distance×closing等) — v1.8
-- レジーム×サーフェスEV補正 (EV補正FEATURE_COLSにregime等追加) — v1.8
+- OOF/成果物健全性の再保証 (空OOF保存禁止、race_id重複検査、異常値停止) — v2.0 Phase 0
+- 投資判断用InvestmentFeatureFrame (モデル/市場/相対/不確実性 80-150列統合) — v2.0 Phase 1
+- MarketAwareWinCalibrator新設 (Benter型 logit(p_model)+logit(p_market) ブレンド) — v2.0 Phase 2
+- Segment Calibration統合 (WSC→MarketAwareWinCalibrator特徴量に統合) — v2.0 Phase 3
+- Race-Level Ranker新設 (LightGBM ranker、value ranker + 勝率ranker 2段構成) — v2.0 Phase 4
 
-## Current Milestone: v1.8 Turf Precision Calibration
+### Deferred (v1.8)
 
-**Goal:** 芝モデルのIC b_differenceを負から正に転換し、ROI 97.8%→100%超えを達成する
+- 上がりタイム+ラップ特徴量のETL基盤 — v1.8 Phase 35 (shipped)
+- 人気帯キャリブレーションレイヤー — v1.8 (shipped as WSC)
+- 芝レース内相対特徴量強化 — v1.8 Phase 36 (shipped)
+- 条件交互作用特徴量 — v1.8 Phase 36 (shipped)
+- レジーム×サーフェスEV補正 — v1.8 Phase 36.1.1 (shipped)
+
+## Current Milestone: v2.0 Investment Pipeline Restructuring
+
+**Goal:** 確率推定を構造改革し、投資判断に耐える `p_win_market_aware` を確立、Race-Level Rankerで「市場が過小評価している馬」を選定する
 
 **Target features:**
-- A: 上がりタイム+ラップ特徴量実装 (HaronTimeL3/L4 + LapTime1~25 ETL・特徴量化)
-- B: 人気帯キャリブレーション (OOF residual ratio 5段階スケーリング)
-- C: 芝レース内相対特徴量強化 (form_trend/blood_wr等のrace_rank系追加)
-- D: 条件交互作用特徴量 (grade×form, distance×closing等)
-- E: レジーム×サーフェスEV補正 (EV補正FEATURE_COLSにregime等追加)
+- Phase 0: OOF/成果物健全性の再保証 (空OOF禁止、race_id重複検査、異常停止)
+- Phase 1: 投資判断用InvestmentFeatureFrame (80-150列、モデル/市場/相対/不確実性統合)
+- Phase 2: MarketAwareWinCalibrator (Benter型 logit(p_model)+logit(p_market) ブレンド)
+- Phase 3: Segment Calibration統合 (WSC→MarketAwareWinCalibratorの特徴量に統合)
+- Phase 4: Race-Level Ranker (LightGBM ranker、value ranker + 勝率ranker 2段構成)
 
-**絶対制約: リーク・PIT安全性への最新の注意**
-> 提案Aの上がりタイム(HaronTimeL3/L4)・ラップタイム(LapTime1~25)は全てPOST_RACE情報。
-> 特徴量化は必ず過走データのみから集計し、当該レースのPOST_RACEデータは一切使用しない。
-> v1.6で構築した3層CI漏洩検出テストを全新特徴量に適用。提案B~EもOOF予測ベースを確認。
+**絶対制約:**
+> 2024/2025にだけ合う係数調整はしない。OOF、ウォークフォワード、年別安定性で配備可否を判定する。
+> ベット数を過剰に減らしてROIを上げる方針は採用しない。レジーム検出には依存しない。
 
-**BT ROI progress:** 84.4% (v1.5) → 85.7% (v1.6) → 97.8% (v1.7) → 目標 100%+
+**BT ROI progress:** 84.4% (v1.5) → 85.7% (v1.6) → 97.8% (v1.7) → 91.0% (#30) → 87.8% (#33) → 目標 100%+
 
 ### Out of Scope
 
 | Feature | Reason |
 |---------|--------|
-| 複勝/ワイドモデルの変更 | 単勝に集中するため |
+| 複勝/ワイドモデルの変更 | v2.0は単勝パイプライン構造改革に集中。Phase 6で後続対応 |
 | 新データ源の導入 | 既存EveryDB2データで十分 |
 | 実馬券購入機能 | ペーパートレードまで |
 | Web UI | CLIベースで十分 |
@@ -104,41 +111,41 @@ MLflow で実験管理。PostgreSQL (EveryDB2/JRA-VAN DataLab) をデータソ�
 | 複雑メタラーナー(GBM/NN) | 特徴量3個ではRidgeが最適 |
 | sklearn StackingClassifier | ネイティブブースティングAPIとPIT安全フォールドに非対応 |
 | 外部Kellyライブラリ導入 | 既存StakeCalculatorで十分、JRA固有制約はカスタム実装が必要 |
-| モデル再学習 | 既存3モデルスタッキングをそのまま使用 |
-| オッズ特徴量の除去 | Echo Chamber脱却 = 追加アプローチ。除去はC直交ICを悪化させる (実証済み) |
-| Stern/Heneryモデル | Harvilleで90%+のシグナルを捕捉。複雑モデルは利益逓減 |
+| Race-Level Portfolio (Phase 5) | v2.1以降。v2.0で確立した確率品質・Ranker基盤の上に構築 |
+| Win/Place/Wide統合 (Phase 6) | v2.1以降。単勝改善を先に完了させる |
+| ROI直接最適化 | 確率品質(Brier/logloss/ECE)で配備判定。ROIは結果指標 |
+| レジーム検出依存 | レジームに依存しない構造にする |
+| ベット数削減 | ベット数を減らしてROIを嵩上げしない |
 
 ## Current State
 
-**Shipped:** v1.7 Market-Independent Edge Discovery (2026-05-19)
-**Current:** v1.8 Turf Precision Calibration (planning)
-**Phases:** 34 total (v1.0-v1.7), v1.8 starting at Phase 35
+**Shipped:** v1.8 Turf Precision Calibration (2026-05-20)
+**Current:** v2.0 Investment Pipeline Restructuring (planning)
+**Phases:** 39 total (v1.0-v1.8), v2.0 starting at Phase 37
 **LOC:** ~24,100 (src/)
 **Tests:** 1,540+ passed
-**BT ROI:** 97.8% (v1.7), target 100%+ (v1.8)
-**C-orthogonal IC:** 0.2753 (market-independent predictive power confirmed)
-**Turf b_difference:** -0.004 (market-losing, target: positive)
-**Next:** Phase 35 — v1.8 execution
+**BT ROI:** 87.8% (#33), target 100%+ (v2.0)
+**Next:** Phase 37 — v2.0 execution
 
 ## Context
 
-### 現状 (v1.7完了)
+### 現状 (v1.8完了)
 
-- 8マイルストーン34フェーズ完了 (v1.0〜v1.7)
-- BT ROI 85.7% → 97.8% (+12.1pp改善)
-- 11新特徴量 (6 rl_* + 5 MCF) + 2既存特徴量昇格
-- C直交IC 0.2753で市場独立予測力を確認
-- ダートROI 107.4%、Aggressive regime 116.7%で黒字セグメント確認
-- 高オッズ帯(10.0+) ROI 179.9%で高オッズ改善確認
-- Turf conservative regimeは赤字 — 改善余地あり
-- GPD診断でStage1モデルがfundamental-dominatedであることを確認 (Echo Chamber脱却)
+- 9マイルストーン39フェーズ完了 (v1.0〜v1.8)
+- BT ROI 97.8% (v1.7) → 87.8% (#33)。直近の改善(#30-33)で91%→88%と悪化傾向
+- 確率推定の過信: p_win_finalがsurface/odds帯/prob rank帯/年度でズレる
+- 最終セレクタが41列のみで、ベースモデルが外した時の復元力不足
+- ROI直接最適化がノイズを拾いやすい (高オッズ的中の偶然を強化する危険)
+- 投資判断用特徴量の不足: 市場ズレ説明・確率キャリブレーション・レース内ポートフォリオ
+- 特徴量の量は足りている (368-438列)、質とパイプライン構造が課題
 
 ### 残存課題
 
-- ROI 100%目標未達 (97.8%、あと2.2pp)
-- Turf conservative regime unprofitable — 最大の改善余地
+- ROI 100%目標未達 (87.8%、v2.0構造改革で対応)
+- 確率品質の年度間安定性不足
+- EV過大評価区間の存在
+- 市場確率を強い事前分布として使い切れていない
 - training_pipeline.pyの_build_race_level_features()にrl_*列処理追加必要
-- GPD診断はplace modelがなくても動作するように修正が必要
 - WF検証未実行 — 過学習の有無未確認
 - Human UAT 5項目がPostgreSQL環境依存で未実行
 - test_training_pipeline.py 3件既知失敗(RecordFeatures.compute mock問題)
@@ -206,6 +213,13 @@ MLflow で実験管理。PostgreSQL (EveryDB2/JRA-VAN DataLab) をデータソ�
 | GPD raw metrics only | PASS/FAIL判定は恣意的、数値ベースで判断 | ✓ Good (v1.7) |
 | DataRepository DI pattern | ParquetStore注入でテスト容易性確保 | ✓ Good (v1.7) |
 | Manifest freeze proceeds regardless | 特徴量凍結は検証結果に依存しない | ✓ Good (v1.7) |
+| Benter型市場ブレンド | logit(p_model)+logit(p_market)で市場を敵ではなく強い事前分布として扱う | — Pending (v2.0) |
+| 配備条件=確率品質 | ROIではなくBrier/logloss/ECE/actual-predで配備判定 | — Pending (v2.0) |
+| Segment Calibration統合(Option B) | WSCを単独モデルにせず、MarketAwareWinCalibratorの特徴量に統合 | — Pending (v2.0) |
+| Race-Level Ranker | 馬単位分類器ではなくレース内ランキングで「市場が過小評価している馬」を選定 | — Pending (v2.0) |
+| ベット数削減禁止 | ROI嵩上げのためにベット数を減らさない。同等以上のレースカバー率を維持 | ✓ Good (v2.0) |
+| レジーム非依存 | レジーム検出に依存しない構造で安定性を確保 | ✓ Good (v2.0) |
+| Portfolio・Multi-Market後送 | Phase 5(Portfolio)/Phase 6(Multi-Market)はv2.1以降。まず単勝パイプライン改革 | ✓ Good (v2.0) |
 
 ## Evolution
 
@@ -225,4 +239,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-19 after v1.8 milestone planning started*
+*Last updated: 2026-05-27 after v2.0 milestone planning started*
