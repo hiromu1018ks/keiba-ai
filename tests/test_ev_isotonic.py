@@ -328,8 +328,8 @@ class TestOOFEVGeneration:
             "jt_combo_prize_log": np.random.uniform(2.0, 6.0, n),
         })
 
-    def test_generate_ev_oof_returns_three_arrays(self) -> None:
-        """generate_ev_oof_predictions()が3つのndarrayを返す"""
+    def test_generate_ev_oof_returns_four_arrays(self) -> None:
+        """generate_ev_oof_predictions()が4つのndarrayを返す (D-05: ev_oof_fold追加)"""
         from pipelines.training_pipeline import TrainingPipelineV5
 
         df = self._make_oof_df(50)
@@ -352,11 +352,12 @@ class TestOOFEVGeneration:
             result = TrainingPipelineV5.generate_ev_oof_predictions(
                 df, n_splits=3, num_threads=1,
             )
-            assert len(result) == 3
-            oof_ev, oof_actual, oof_odds = result
+            assert len(result) == 4
+            oof_ev, oof_actual, oof_odds, oof_fold = result
             assert isinstance(oof_ev, np.ndarray)
             assert isinstance(oof_actual, np.ndarray)
             assert isinstance(oof_odds, np.ndarray)
+            assert isinstance(oof_fold, np.ndarray)
 
     def test_generate_ev_oof_no_shuffle(self) -> None:
         """KFold(shuffle=False)が使用されること"""
@@ -443,7 +444,7 @@ class TestOOFEVGeneration:
             )
             MockEV.return_value = mock_ev
 
-            oof_ev, oof_actual, oof_odds = TrainingPipelineV5.generate_ev_oof_predictions(
+            oof_ev, oof_actual, oof_odds, oof_fold = TrainingPipelineV5.generate_ev_oof_predictions(
                 df, n_splits=5, num_threads=1,
             )
             # 全インデックスがカバーされている (NaNなし)
@@ -451,6 +452,9 @@ class TestOOFEVGeneration:
             assert np.isfinite(oof_actual).all(), "All OOF actual values must be finite"
             assert np.isfinite(oof_odds).all(), "All OOF odds values must be finite"
             assert len(oof_ev) == n
+            # D-05: fold assignments also fully covered
+            assert np.isfinite(oof_fold).all(), "All fold assignments must be finite"
+            assert len(oof_fold) == n
 
 
 # ── TestEVCorrectionIntegration ───────────────────────────────

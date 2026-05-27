@@ -899,11 +899,13 @@ class TrainingPipelineV5:
         ev_odds_band_scales = None
         if len(df_oof) >= 500 and "confirmed_odds" in df_oof.columns:
             with TimingContext(f"{surface}/ev_isotonic_oof"):
-                oof_ev, oof_actual, oof_odds = self.generate_ev_oof_predictions(
+                oof_ev, oof_actual, oof_odds, ev_fold_full = self.generate_ev_oof_predictions(
                     df_oof,
                     n_splits=5,
                     num_threads=num_threads,
                 )
+            # D-05: record ev_oof_fold on df_oof before df_oof_for_save copy
+            df_oof["ev_oof_fold"] = pd.array(ev_fold_full, dtype=pd.Int64Dtype())
             if np.isfinite(oof_ev).sum() >= 200:
                 with TimingContext(f"{surface}/ev_isotonic_fit"):
                     ev_isotonic_calibrator, ev_odds_band_scales = self.fit_ev_calibration(
@@ -1357,11 +1359,12 @@ class TrainingPipelineV5:
         *,
         n_splits: int = 5,
         num_threads: int = 0,
-    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         """EVC-01/D-05/D-09: OOF EV予測をK-foldで生成.
 
         学習チェーン: WinTwoStage predict_ev → EVCorrection correct_ev
-        Returns: (oof_ev_corrected, oof_actual_return, oof_odds) — NaN-masked arrays
+        Returns: (oof_ev_corrected, oof_actual_return, oof_odds, oof_fold_assignments)
+          — first 3 are NaN-masked (valid only), oof_fold_assignments is full-length
         """
         from sklearn.model_selection import KFold
 
@@ -1370,8 +1373,9 @@ class TrainingPipelineV5:
         oof_ev_corrected = np.full(len(df), np.nan)
         oof_actual_return = np.full(len(df), np.nan)
         oof_odds = np.full(len(df), np.nan)
+        oof_fold_assignments = np.full(len(df), np.nan)
 
-        for train_idx, val_idx in kfold.split(df):
+        for fold_idx, (train_idx, val_idx) in enumerate(kfold.split(df)):
             fold_win = WinTwoStageModel()
             fold_win.train_hit_model(df.iloc[train_idx], num_threads=num_threads)
             fold_win.train_return_model(df.iloc[train_idx], num_threads=num_threads)
@@ -1391,8 +1395,9 @@ class TrainingPipelineV5:
                 pd.to_numeric(odds_vals, errors="coerce")
                 * (fold_val["kakuteijyuni"] == 1).astype(float)
             ).values
+            oof_fold_assignments[val_idx] = fold_idx
 
-        return oof_ev_corrected, oof_actual_return, oof_odds
+        return oof_ev_corrected, oof_actual_return, oof_odds, oof_fold_assignments
 
     @staticmethod
     def fit_ev_calibration(
