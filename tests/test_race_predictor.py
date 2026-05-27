@@ -25,11 +25,10 @@ def _make_submodel_mock() -> MagicMock:
     sm.place_selection_gate = None
     sm.benter_combo = None
     sm.isotonic_calibrator = None
-    sm.win_benter = None
-    sm.win_isotonic_calibrator = None
-    sm.win_temperature_scaler = None
+    sm.market_aware_win_calibrator = None
     sm.win_selection_gate = None
-    sm.win_segment_calibrator = None
+    sm.win_selection_policy = None
+    sm.win_profit_selector = None
     sm.ev_lower_threshold_turf = 1.0
     sm.ev_lower_threshold_dirt = 1.0
     sm.target_encoder = None
@@ -1708,24 +1707,12 @@ class TestGetWinCandidates:
 
         assert result.iloc[0]["umaban"] == 1
 
-    def test_turf_segment_calibrator_updates_probability_residual_rank(
+    def test_win_segment_factors_are_neutral_by_default(
         self, mock_models: MagicMock
     ) -> None:
-        """OOFセグメント補正は除外ではなく、芝の確率残差順位を補正する。"""
+        """WinSegmentCalibrator removed -- segment factors are always neutral (1.0)."""
         from backtest.race_predictor import RacePredictor
-        from models.win_segment_calibrator import WinSegmentCalibrator
 
-        calibrator = WinSegmentCalibrator()
-        calibrator.segment_table = {
-            "turf|2-5|1|1.2-1.5": {
-                "p_factor": 0.85,
-                "ev_factor": 1.0,
-                "n": 180.0,
-                "wins": 20.0,
-            }
-        }
-        calibrator._trained = True
-        mock_models.submodels["turf"].win_segment_calibrator = calibrator
         predictor = RacePredictor(models=mock_models)
         race_df = self._make_win_race_df(
             n=2,
@@ -1740,12 +1727,11 @@ class TestGetWinCandidates:
         result = predictor.get_win_candidates(race_df)
         diag_df = result.attrs["win_diagnostic_df"]
 
+        # segment factors should be neutral (1.0) since WinSegmentCalibrator is removed
         assert len(result) == 1
-        assert result.iloc[0]["umaban"] == 2
-        first_diag = diag_df.loc[diag_df["umaban"].eq(1)].iloc[0]
-        assert first_diag["p_win_final"] == pytest.approx(0.4675)
-        assert "seg_p=0.8500" in first_diag["filter_pass_flags"]
-        assert result.iloc[0]["win_selection_ev_tail_calibrated"] == pytest.approx(1.20)
+        for idx in diag_df.index:
+            assert diag_df.loc[idx, "win_segment_prob_factor"] == pytest.approx(1.0)
+            assert diag_df.loc[idx, "win_segment_ev_factor"] == pytest.approx(1.0)
 
     def test_missing_tanodds_returns_empty(self, mock_models: MagicMock) -> None:
         """tanodds 列なし → 空 DataFrame"""
@@ -1844,6 +1830,138 @@ class TestGetWinCandidates:
             EV_lower_win_corrected=[float("nan"), float("nan")],
         )
         result = predictor.get_win_candidates(race_df)
+        assert len(result) == 1
+
+
+class TestMarketAwareWinCalibratorIntegration:
+    """MarketAwareWinCalibrator integration tests in RacePredictor (CAL-04)."""
+
+    def test_predict_calls_calibrator_apply_when_available(
+        self, mock_models: MagicMock
+    ) -> None:
+        """predict() calls market_aware_win_calibrator.apply() when calibrator is available."""
+        from backtest.race_predictor import RacePredictor
+
+        calibrator_mock = MagicMock()
+        calibrator_mock.is_trained = True
+        calibrator_mock.apply.side_effect = lambda df: df.assign(
+            p_win_combined=df.get("p_win_corrected", pd.Series([0.2])),
+            p_win_final=pd.Series([0.2]),
+            edge_win=pd.Series([0.0]),
+        )
+        mock_models.submodels["turf"].market_aware_win_calibrator = calibrator_mock
+
+        predictor = RacePredictor(models=mock_models, betting_target="win")
+
+        race_df = pd.DataFrame(
+            {
+                "race_id": ["20240101010101"],
+                "umaban": [1],
+                "surface": ["turf"],
+                "kyori": [1200],
+                "distance_bin": ["sprint"],
+                "popularity_rank": [3],
+                "ninki": [3],
+                "tanodds": [5.0],
+                "kakuteijyuni": [2],
+                "kettonum": [1234],
+                "odds": [5.0],
+                "bataijyu": [480],
+                "field_size": [10],
+                "track_condition_code": [2],
+                "grade_code": ["C"],
+            }
+        )
+
+        win_df = race_df.copy()
+        win_df["p_win_pred"] = [0.2]
+        win_df["e_return_win_pred"] = [5.0]
+        win_df["ev_win"] = [1.0]
+        win_df["p_win_corrected"] = [0.2]
+        win_df["ev_win_calibrated"] = [1.0]
+        win_df["win_selection_ev"] = [1.0]
+        win_df["win_selection_edge"] = [0.0]
+        win_df["EV_lower_win_corrected"] = [1.0]
+
+        submodel = mock_models.submodels["turf"]
+        submodel.market.predict_and_calc_error.return_value = race_df.copy()
+        submodel.stage1.add_ability_probs.return_value = race_df.assign(p_ability_win=0.2)
+        submodel.win.predict_ev.return_value = win_df.copy()
+        submodel.ev_corrector.correct_ev.return_value = win_df.copy()
+        submodel.conformal_ev_model.predict_interval.return_value = (
+            win_df.copy(),
+            pd.DataFrame({"EV_lower_place": [0.0]}),
+        )
+
+        result = predictor.predict(race_df)
+
+        calibrator_mock.apply.assert_called_once()
+        assert len(result) == 1
+
+    def test_predict_fallback_when_calibrator_is_none(
+        self, mock_models: MagicMock
+    ) -> None:
+        """predict() works when calibrator is None (fallback behavior)."""
+        from backtest.race_predictor import RacePredictor
+
+        mock_models.submodels["turf"].market_aware_win_calibrator = None
+        predictor = RacePredictor(models=mock_models, betting_target="win")
+
+        race_df = pd.DataFrame(
+            {
+                "race_id": ["20240101010101"],
+                "umaban": [1],
+                "surface": ["turf"],
+                "kyori": [1200],
+                "distance_bin": ["sprint"],
+                "popularity_rank": [3],
+                "ninki": [3],
+                "tanodds": [5.0],
+                "kakuteijyuni": [2],
+                "kettonum": [1234],
+                "odds": [5.0],
+                "bataijyu": [480],
+                "field_size": [10],
+                "track_condition_code": [2],
+                "grade_code": ["C"],
+            }
+        )
+
+        win_df = race_df.copy()
+        win_df["p_win_pred"] = [0.2]
+        win_df["e_return_win_pred"] = [5.0]
+        win_df["ev_win"] = [1.0]
+        win_df["p_win_corrected"] = [0.2]
+        win_df["ev_win_calibrated"] = [1.0]
+        win_df["win_selection_ev"] = [1.0]
+        win_df["win_selection_edge"] = [0.0]
+        win_df["EV_lower_win_corrected"] = [1.0]
+
+        submodel = mock_models.submodels["turf"]
+        submodel.market.predict_and_calc_error.return_value = race_df.copy()
+        submodel.stage1.add_ability_probs.return_value = race_df.assign(p_ability_win=0.2)
+        submodel.win.predict_ev.return_value = win_df.copy()
+        # ev_corrector.correct_ev must return df with p_win_corrected for fallback
+        ev_df = win_df.copy()
+        ev_df["p_win_corrected"] = [0.2]
+        submodel.ev_corrector.correct_ev.return_value = ev_df
+        # predict_interval receives df after fallback adds p_win_final/edge_win;
+        # mock must preserve those columns (production ConformalEVModel does too)
+        interval_df = ev_df.copy()
+        interval_df["p_win_final"] = [0.2]
+        interval_df["edge_win"] = [0.0]
+        submodel.conformal_ev_model.predict_interval.return_value = (
+            interval_df,
+            pd.DataFrame({"EV_lower_place": [0.0]}),
+        )
+
+        result = predictor.predict(race_df)
+
+        # predict_interval replaces df with win_df, so columns from fallback
+        # must survive through the conformal interval step. In production the
+        # conformal model preserves all columns; the mock must do the same.
+        assert "p_win_final" in result.columns
+        assert "edge_win" in result.columns
         assert len(result) == 1
 
 

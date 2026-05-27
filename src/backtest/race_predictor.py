@@ -150,19 +150,6 @@ class RacePredictor:
             return selector
         return None
 
-    def _get_win_segment_calibrator(self, race_df: pd.DataFrame) -> Any | None:
-        if race_df.empty or "surface" not in race_df.columns:
-            return None
-        surface_key = race_df["surface"].iloc[0]
-        submodels = getattr(self.models, "submodels", {})
-        submodel = submodels.get(surface_key)
-        if submodel is None:
-            return None
-        calibrator = getattr(submodel, "win_segment_calibrator", None)
-        if calibrator is not None and getattr(calibrator, "is_trained", False) is True:
-            return calibrator
-        return None
-
     def predict(
         self,
         race_df: pd.DataFrame,
@@ -278,16 +265,16 @@ class RacePredictor:
         # 6. EV補正 + Place推論
         df = submodel.ev_corrector.correct_ev(df)  # Win EV補正は維持
 
-        # --- Win Benter Combination + Race Normalization (D-11) ---
-        if getattr(submodel, "win_benter", None) is not None:
-            from models.win_benter_gate import WinBenterGate
-
-            win_gate = WinBenterGate(
-                benter=submodel.win_benter,
-                calibrator=getattr(submodel, "win_isotonic_calibrator", None),
-                temp_scaler=getattr(submodel, "win_temperature_scaler", None),
-            )
-            df = win_gate.apply(df)
+        # --- MarketAwareWinCalibrator (CAL-04: replaces WinBenterGate) ---
+        mawc = getattr(submodel, "market_aware_win_calibrator", None)
+        if mawc is not None and mawc.is_trained:
+            df = mawc.apply(df)
+        else:
+            # Fallback: compute p_win_final from p_win_corrected with race normalization
+            if "p_win_corrected" in df.columns:
+                p_sum = df.groupby("race_id", observed=True)["p_win_corrected"].transform("sum")
+                df["p_win_final"] = df["p_win_corrected"] / p_sum.clip(lower=1e-10)
+                df["edge_win"] = df["p_win_final"] * df["tanodds"] - 1.0
 
         # --- WinSelectionGate (SELC-01, D-14: after Benter, before Place) ---
         df_winsel = ensure_win_selection_columns(df)
@@ -654,30 +641,11 @@ class RacePredictor:
         else:
             prepared["_calibrated_edge"] = calibrated_edge
 
-        segment_calibrator = self._get_win_segment_calibrator(prepared)
-        if segment_calibrator is not None:
-            prepared = segment_calibrator.apply(prepared)
-            if "p_win_final" in prepared.columns:
-                prob_source_after_segment = pd.to_numeric(
-                    prepared["p_win_final"],
-                    errors="coerce",
-                )
-            else:
-                prob_source_after_segment = pd.to_numeric(
-                    prepared.get("win_selection_prob", pd.Series(np.nan, index=prepared.index)),
-                    errors="coerce",
-                )
-            if "win_selection_ev_tail_calibrated" in prepared.columns:
-                tail_ev = pd.to_numeric(
-                    prepared["win_selection_ev_tail_calibrated"],
-                    errors="coerce",
-                )
-            calibrated_edge = pd.to_numeric(prepared[edge_col], errors="coerce")
-        else:
-            prob_source_after_segment = None
-            prepared["win_segment_prob_factor"] = 1.0
-            prepared["win_segment_ev_factor"] = 1.0
-            prepared["win_segment_key"] = pd.NA
+        # WinSegmentCalibrator removed (CAL-04): segment factors are always neutral
+        prob_source_after_segment = None
+        prepared["win_segment_prob_factor"] = 1.0
+        prepared["win_segment_ev_factor"] = 1.0
+        prepared["win_segment_key"] = pd.NA
 
         # ROI診断で edge>0 ゲートが勝ち馬の約9割を落としていたため、
         # edge は購入条件ではなく診断・順位付け材料に留める。
