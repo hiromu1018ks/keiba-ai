@@ -1,69 +1,84 @@
-# Phase 37: EV Calibration Layers - Context
+# Phase 37: OOF Health Infrastructure - Context
 
-**Gathered:** 2026-05-20
+**Gathered:** 2026-05-27
 **Status:** Ready for planning
 
 <domain>
 ## Phase Boundary
 
-人気帯キャリブレーションとレジーム×サーフェスEV補正でEV精度を改善し、特に芝の中穴（人気4-12）のキャリブレーションratioを0.527から改善する。
+全OOF成果物が健全性検査を通過し、下流コンポーネント(Phase 38-40のキャリブレータ・ランカー)が信頼できるOOF予測を利用できる状態にする。fail-fast validationで異常なOOF artifactがパイプラインに流入するのを防ぐ。
 
 **In scope:**
-- CAL-01: 人気帯キャリブレーション (1-3, 4-6, 7-9, 10-12, 13+) のOOF residual ratio スケーリングを ev_correction_model.py に追加
-- CAL-02: 人気帯キャリブレーションに拡張ウィンドウOOF計算を適用し、ルックアヘッドバイアスを防止
-- CAL-03: EVCorrectionModel.FEATURE_COLS に regime_state, surface_x_popularity, market_entropy_x_surface を追加
-- CAL-04: regime_state を RacePredictor → EVCorrectionModel 間で伝播させる仕組みを実装
-- CAL-05: レジーム-EVフィードバックループの強制遷移テストを実装
-- Pop-bandスケール係数はsurface別（turf/dirt）に計算（5バンド×2サーフェス = 10係数）
-- Win + Place 両方に適用
-- 正味のEV補正パイプライン: P×E → Isotonic → Odds-band → Pop-band
+- OOF-01: 空OOF保存をfail-fastで禁止
+- OOF-02: race_id単位でtrain/valid重複検査（split metadata利用時）
+- OOF-03: top1 hit rate > 35% または top1 ROI > 200% の異常検出（profile依存）
+- OOF-04: OOF行数が期待行数の70%未満の場合に停止
+- OOF-05: fold数 < 3 の場合に停止
+- OOF-06: 同一race_idの複数fold混入検査
+- OOF-07: is_oof=Trueとfold列を必須化（OOF生成時に記録）
+- OOF-08: health manifest生成（artifact別JSON、XCT-08準拠）
+- XCT-05: 同一入力から決定的な出力保証
+- XCT-08: 全artifactにversion/schema hash/source OOF manifest path含める
+- 共通OOFHealthValidatorクラスの新設
+- 各OOF生成器へのfold列記録追加
+- artifact profile定義（oof_predictions / win_selection_oof）
 
 **Out of scope:**
-- 新特徴量の計算 (Phase 36)
-- バックテスト実行 (Phase 38)
+- 新特徴量の計算
+- バックテスト実行
 - モデル再学習・ハイパーパラメータチューニング
-- ワイドモデルへの適用 (スコープ外)
-- OddsBandFilterの再構築
+- InvestmentFeatureFrame設計 (Phase 38)
+- MarketAwareWinCalibrator設計 (Phase 39)
+- Race-Level Ranker設計 (Phase 40)
+- OOF drift detector / Reliability diagram (v2.1+)
 
 </domain>
 
 <decisions>
 ## Implementation Decisions
 
-### 人気帯キャリブレーション層の設計 (CAL-01)
-- **D-01:** Pop-bandキャリブレーションは Isotonic + Odds-band の **後**（最も外側の層）に適用。既存層の最終残差をターゲットにする。パイプライン: `P×E → Isotonic → Odds-band → Pop-band`
-- **D-02:** スケーリング係数は **Median residual ratio**（actual/calibratedの中央値）。既存Odds-bandスケーリングと同一方式。heavy-tail分布に対して頑健
-- **D-03:** 適用範囲は **Win + Place 両方**。PlaceEVCorrectionModelにも別のpop_band_scalesを計算
-- **D-04:** 5バンド固定境界 (1-3, 4-6, 7-9, 10-12, 13+)。スケール係数は **surface別**（turf/dirt）。5バンド×2サーフェス = 10係数。バンド境界は芝ダート共通、係数のみ別計算
-- **D-05:** PlaceEVCorrectionModelの既存 `_build_place_bucket_multiplier()` (ハードコードpenalty for pop>=12/15/18) は残差ベースpop-band scalingと共存させるか置き換えるかは実装時に判断
+### Health check対象範囲とアーキテクチャ
+- **D-01:** 共通`OOFHealthValidator`クラスを新設。全OOF検査(OOF-01~08)を統一的に実装
+- **D-02:** 各artifactはexplicit artifact profileで検査設定を定義。profileは enabled checks, required columns, score_col, return/odds columns, fold_col, expected row source, manifest path を含む
+- **D-03:** 常時有効な検査: OOF-01(empty), OOF-04(row coverage), OOF-05(min fold count), OOF-06(same race multiple fold), OOF-07(required metadata), OOF-08(manifest generation)
+- **D-04:** Profile依存の検査:
+  - OOF-02 (train/valid overlap): split metadataが利用可能な場合のみ有効。metadataが期待されるが存在しない場合はfail-fast
+  - OOF-03 (top1 hit rate/ROI): profileがscore_colとreturn/odds columnsを定義している場合のみ有効。win_selection_oofは`win_market_selection_score`、oof_predictionsは`p_win_final_oof`または`p_win_oof`を使用。有効なのに必須列が欠損している場合はfail-fast
 
-### 拡張ウィンドウOOF計算 (CAL-02)
-- **D-06:** **Expanding window 5-fold OOF** を適用。時系列ソート済みデータで各foldは「それ以前の全データ」で学習、「次のセグメント」で予測。ルックアヘッド完全防止
-- **D-07:** Pop-band scalesの計算は既存 `fit_ev_calibration()` 内に統合。同一OOFサイクル内でOdds-band scales + Pop-band scalesを同時計算。学習時間の追加なし
-- **D-08:** Pop-band scalesの格納形式: `ev_pop_band_scales: dict[str, dict[str, float]]`（key1=surface "turf"/"dirt", key2=band_name "1-3"/"4-6"/"7-9"/"10-12"/"13+"）
-- **D-09:** 最小サンプル閾値: 各band×surfaceでN件未満（Nは実装時決定、例: 30件）の場合、累積推定を使用（分散安定化）
+### fold列の追加
+- **D-05:** fold列はOOF生成時に各生成器でDataFrameに記録する。後からの推測・復元は禁止
+  - `AbilityModel.train_oof()` → `ability_oof_fold` 列を追加
+  - `generate_ev_oof_predictions()` → `ev_oof_fold` 列を追加
+  - `generate_win_oof_predictions()` → `win_oof_fold` / `win_selection_oof_fold` 列を整合的に記録
+- **D-06:** `_prepare_oof_artifact()`や`OOFHealthValidator`でのfold推測は禁止。後推測は実際の学習splitと不一致の可能性があり、偽の安全性を与える
+- **D-07:** レガシーartifact（fold列なし）はhealth validationでfail。明示的なone-time migrationコマンドでのみ受け入れ可能。migration時はartifactに`legacy/inferred`マークを付け、新calibrator/rankerの学習には使用不可
 
-### レジーム伝播アーキテクチャ (CAL-03/04)
-- **D-10:** regime_stateは **事前計算 → DataFrame列** としてpredict()に渡す。BacktestEngine.run()でRegimeDetector.detect()をpredict()の前に呼び、結果をdf["regime_state"]として追加。predict()は純粋関数のまま
-- **D-11:** regime_stateのエンコーディングは **Ordinal** (0=AGGRESSIVE, 1=CONSERVATIVE, 2=COLLAPSED)。自然な順序（リスク昇順）。RegimeState.valueが既にint
-- **D-12:** interaction featuresは **乗算相互作用**:
-  - `surface_x_popularity = surface * popularity_rank`
-  - `market_entropy_x_surface = market_entropy * surface`
-  - 計算場所: RacePredictor.predict()内でEV補正前に列を生成（interaction_features.pyではなくEV補正専用）
-  - 追加先: **EVCorrectionModel.FEATURE_COLSのみ**（全12モデルではなく）
+### Health manifest設計
+- **D-08:** JSON manifest。artifact別に個別ファイルで管理:
+  - `data/oof/manifests/oof_predictions.health.json`
+  - `data/oof/manifests/win_selection_oof.health.json`
+- **D-09:** Index file: `data/oof/manifests/index.json`。artifact_name → latest manifest path + artifact hash のマッピング
+- **D-10:** Manifest内容: artifact_name, artifact_path, artifact_hash, artifact_version, schema_hash, schema_dtype_hash, row_count, expected_row_count, row_coverage_ratio, race_count, horse_count, fold_col, fold_count, fold_row_counts, fold_race_counts, fold_race_id_uniqueness, train_valid_overlap_count, same_race_multiple_fold_count, top1_score_col, top1_hit_rate, top1_roi, return_col_used, date_min, date_max, train_date_range, source_model_hash, source_code_version/git_commit, generated_at, validator_version, status, failures, warnings
+- **D-11:** schema_hash計算: 2種のhashを使用
+  - `schema_hash`: 列名ソート→SHA256（既存feature_manifest.jsonと同じパターン）。mismatch時はvalidation fail
+  - `schema_dtype_hash`: sorted "column_name:dtype" pairs→SHA256。required列のmismatchはfail、optional列はwarning（profileでstrict指定時はfail）
+  - raw Parquet metadata hashは使用しない（圧縮/エンジンmetadataが意味的変更なしに変わる可能性があるため）
+- **D-12:** JSONが信頼できる唯一の情報源。Parquet metadataとMLflowは将来のoptional mirror
 
-### フィードバックループテスト (CAL-05)
-- **D-13:** **Regime independence test** を実装。同一レースに対してregime_state=0/1/2でcorrect_ev()を呼び、EV出力の相対変動率を検証
-- **D-14:** 検証基準: `max_diff(regime_states) / median_ev < 5%`。LightGBMがregime_stateに過度に依存していないことを確認
+### Health check実行ポイント（2段階validation戦略）
+- **D-13:** 生産者側（学習パイプライン内）: OOF artifact保存前に`OOFHealthValidator.validate()`を必須実行。validation fail時はartifactを書き込まない。保存後にartifact_hashを計算し、health manifestに`status=PASS`で書き込む
+- **D-14:** 消費者側（バックテスト/Phase 38/39/40）: artifact-specific manifestを読み込み、status=PASS, artifact_path, artifact_hash, schema_hash, validator_version, required profile を確認。いずれかの不整合やmanifest欠損でfail-fast。artifact_hash/schema_hashが一致する場合はfull validationをスキップ可能
+- **D-15:** デバッグ/CI用に`force_revalidate`オプションを提供
 
 ### Claude's Discretion
-- PlaceEVCorrectionModelの_build_place_bucket_multiplier()とpop-band scalingの共存/置き換え判断
-- Expanding window foldの具体的な分割ポイント（時系列の等分割 or 日付ベース）
-- 最小サンプル閾値Nの具体的な値
-- Pop-band scale係数の下限・上限クリッピング（外れ値防止）
-- テストケースの設計（regime independence testの具体的なテストデータ）
-- 初回200レースのregime未定義時のregime_stateデフォルト値
-- fit_ev_calibration()内でのexpanding window OOFの具体的な実装
+- OOFHealthValidatorの具体的なクラス構造（メソッド分割、profile class定義）
+- artifact_hashの計算方法（ファイル全体のSHA256、または特定の列のみ）
+- expected_row_countの計算方法（学習データ行数 × (1 - 1/n_folds) 前提）
+- fold_col名の統一命名規則（ability_oof_fold / ev_oof_fold / win_oof_fold でよいか）
+- 既存`_validate_win_selection_oof_health()`のOOFHealthValidatorへの移行方針
+- legacy migrationコマンドのインターフェース
+- OOFHealthValidatorのテストファイル配置（tests/test_oof_health_validator.py）
+- training_pipeline.py内の統合箇所（既存の`_validate_win_selection_oof_health()`呼び出し2箇所の置き換え）
 
 </decisions>
 
@@ -72,28 +87,23 @@
 
 **Downstream agents MUST read these before planning or implementing.**
 
-### EV補正モデル（主要変更対象）
-- `src/models/ev_correction_model.py` — EVCorrectionModel / PlaceEVCorrectionModel。FEATURE_COLS(72列)、correct_ev()、_build_place_bucket_multiplier()。Pop-band scaling追加とregime_state列追加の主要変更対象
-- `src/pipelines/training_pipeline.py` — fit_ev_calibration()（5-fold OOF isotonic + odds-band calibration）。Pop-band scales同時計算の拡張対象。lines 671-697
+### OOF生成・保存（主要変更対象）
+- `src/pipelines/training_pipeline.py` — `_prepare_oof_artifact()`(line 80), `_prepare_win_selection_oof_artifact()`(line 98), `_validate_win_selection_oof_health()`(line 237), `_walk_forward_race_splits()`(line 197), `generate_ev_oof_predictions()`(line 1701), OOF保存箇所(line 532-541, 543-559)。全てのOOF生成・保存・検証の拡張対象
+- `src/models/stage1_ability_model.py` — `train_oof()`(line 350)。fold列(ability_oof_fold)追加の対象
+- `src/models/win_benter_gate.py` — `generate_win_oof_predictions()`。win_oof_foldの整合的記録対象
 
-### レジーム検出・伝播
-- `src/models/regime_detector.py` — RegimeDetector。detect()、get_strategy_params()、FEATURE_COLS(51列)。regime_stateのordinal値ソース
-- `src/backtest/race_predictor.py` — predict()。EV補正フロー(line 161)。regime_state列追加 + interaction feature生成の実装場所
-- `src/backtest/engine.py` — BacktestEngine.run()。RegimeDetector.detect()の呼び出し箇所。regime_stateのdf列追加実装場所
-
-### 既存キャリブレーションパターン（参考）
-- `src/betting/odds_band_filter.py` — OddsBandFilter.BANDS（4バンド閾値）。Pop-band閾値定義の参考
-
-### テスト
-- `tests/test_ev_correction_model.py` — 既存テスト。Pop-band scalingのテスト追加先
-- `tests/test_post_race_leakage.py` — 3層CI漏洩検出テスト
+### 既存キャリブレーション・検査パターン（参考）
+- `src/pipelines/training_pipeline.py` — 定数定義: `WIN_SELECTION_OOF_MAX_TOP1_HIT_RATE=0.35`, `WIN_SELECTION_OOF_MAX_TOP1_ROI=2.0`, `WIN_SELECTION_OOF_MIN_GUARD_RACES=30` (lines 62-64)
+- `src/pipelines/training_pipeline.py` — `_win_selection_oof_return_unit()`(line 176)。ROI計算パターンの参考
+- `data/oof/oof_predictions.parquet` — メインOOF artifact（現在fold列なし）
+- `data/oof/win_selection_oof.parquet` — 単勝選定OOF artifact（fold列あり）
 
 ### 要件定義
-- `.planning/REQUIREMENTS.md` §CAL — CAL-01~05
+- `.planning/REQUIREMENTS.md` §OOF Health — OOF-01~08
+- `.planning/REQUIREMENTS.md` §Cross-Cutting — XCT-05, XCT-08
 
 ### Prior Phase Context
-- `.planning/phases/36-feature-computation/36-CONTEXT.md` — TRF/INT/HLF特徴量（23列）のEVCorrectionModel.FEATURE_COLS登録済み
-- `.planning/phases/34-validation-and-manifest-update/34-CONTEXT.md` — fit_ev_calibration()パターン、Odds-band residual scaling
+- `.planning/phases/34-validation-and-manifest-update/34-CONTEXT.md` — feature manifest SHA256パターン、GPD診断パターン
 
 </canonical_refs>
 
@@ -101,37 +111,39 @@
 ## Existing Code Insights
 
 ### Reusable Assets
-- `fit_ev_calibration()` (training_pipeline.py lines 671-697): 5-fold OOF → IsotonicRegression → odds-band residual scales。Pop-band scales計算の拡張基盤。既存OOF予測を再利用可能
-- `EVCorrectionModel.correct_ev()` (ev_correction_model.py lines 361-437): P補正 → E補正 → Isotonic → Odds-band のチェーン。Pop-bandステップを最後に追加するだけ
-- `OddsBandFilter.BANDS`: 4バンド閾値 `[1.0-3.0), [3.0-10.0), [10.0-30.0), [30.0+inf)`。Pop-band閾値定義のパターン参照
-- `RegimeState` enum (regime_detector.py): AGGRESSIVE=0, CONSERVATIVE=1, COLLAPSED=2。ordinal値としてそのままDataFrame列に使用可能
-- `BacktestEngine.run()`: regime_state検出ループが既に存在。predict()の前にdf列として追加するだけ
+- `_validate_win_selection_oof_health()` (training_pipeline.py:237): top1 hit rate/ROI検証の既存実装。OOFHealthValidatorに抽出・統合可能
+- `_walk_forward_race_splits()` (training_pipeline.py:197): race_id単位のexpanding walk-forward split。OOF-06(同一race_id複数fold検査)で利用
+- `_prepare_oof_artifact()` (training_pipeline.py:80): is_oof, oof_artifact_version, oof_row_idの付与パターン。OOF-07の拡張基盤
+- `_win_selection_oof_return_unit()` (training_pipeline.py:176): OOF ROI計算ヘルパー。OOFHealthValidatorで再利用可能
+- 既存SHA256 manifestパターン: strategy_manifest.json / feature_manifest.json と同じJSON + SHA256パターン
 
 ### Established Patterns
-- キャリブレーション層追加: コンストラクタに新しいcalibrator dictを追加 → correct_ev()に適用ステップを追加 → training_pipelineでOOF計算 → インジェクト
-- OOF residual ratio: `actual / predicted` をバンド別にgroupby → `.median()` → dict化
-- Feature列追加: FEATURE_COLS class-level listに追加 → `[c for c in FEATURE_COLS if c in df.columns]` で安全選択
-- Regime伝播: detect() → DataFrame列追加 → predict()内でFEATURE_COLSに含まれる → LightGBMが自動利用
+- Fail-fast validation: ValueError raise で異常時停止（既存の_validate_win_selection_oof_healthパターン）
+- Artifact versioning: `oof_artifact_version` 整数で管理。現在oof_predictions=1, win_selection_oof=4
+- JSON manifest: sort_keys=True + indent=2 でdeterministic。SHA256 hashでartifact integrity確認
+- OOF生成は各モデル内でwalk-forward K-fold。fold境界はrace_dateベースの等分割点
+- テストは全てmock使用（DB不要）。OOFHealthValidatorのテストもmockで実装可能
 
 ### Integration Points
-- `src/models/ev_correction_model.py::EVCorrectionModel.__init__()`: ev_pop_band_scales引数の追加
-- `src/models/ev_correction_model.py::EVCorrectionModel.correct_ev()`: Pop-band適用ステップの追加（Isotonic + Odds-bandの後）
-- `src/pipelines/training_pipeline.py::fit_ev_calibration()`: Pop-band scales同時計算の追加
-- `src/backtest/engine.py::run()`: regime_state列のdf追加（RegimeDetector.detect()直後）
-- `src/backtest/race_predictor.py::predict()`: regime_state列 + interaction features(surface_x_popularity, market_entropy_x_surface)の生成
-- 12モデルのFEATURE_COLS: EVCorrectionModel + PlaceEVCorrectionModelのみにregime_state + 2 interaction列を追加
+- `src/pipelines/training_pipeline.py` lines 532-541: oof_predictions保存直前 → OOFHealthValidator.validate()挿入
+- `src/pipelines/training_pipeline.py` lines 543-559: win_selection_oof保存直前 → 既存_validate呼び出しをOOFHealthValidatorに置き換え
+- `src/pipelines/training_pipeline.py` lines 1550: WinSelectionGate学習時の_validate呼び出し → OOFHealthValidator消費者側チェックに置き換え
+- `src/models/stage1_ability_model.py` train_oof(): fold番号記録の追加（oof_preds Seriesと同時にfold列を設定）
+- `src/pipelines/training_pipeline.py` generate_ev_oof_predictions(): fold番号記録の追加（splitsループ内でval_idxにfold番号を関連付け）
+- Phase 38/39/40でのOOF読込時: manifest-first消費者側チェックの追加ポイント
 
 </code_context>
 
 <specifics>
 ## Specific Ideas
 
-- Pop-band scale係数の計算はOdds-bandと同じmedian residual ratioパターン。`actual_ev / calibrated_ev` を人気帯×サーフェス別にgroupby→median
-- ev_pop_band_scalesの構造: `{"turf": {"1-3": 1.02, "4-6": 0.95, ...}, "dirt": {"1-3": 1.01, "4-6": 0.98, ...}}`。値1.0 = 補正なし
-- regime_stateはpredict()の入力DataFrameに列として追加される。BacktestEngine側で「現在のregime」を全馬に同じ値で設定。PaperPredictorでも同様
-- 初回200レース（regime未定義）のデフォルト値はCONSERVATIVE(1)が安全（リスク回避的）
-- Expanding window OOF: 時系列順に5分割。Fold1=train[0:20%]→test[20%:30%]、Fold2=train[0:30%]→test[30%:40%]...Fold4=train[0:70%]→test[70%:80%]、Fold5=train[0:80%]→test[80%:100%]
-- Feedback loop testはunittest mockでregime_stateを0/1/2に変更してcorrect_ev()を呼び、EV出力の相対変動が5%以内であることを検証
+- OOFHealthValidatorの配置: `src/validation/oof_health_validator.py` を新設。training_pipeline.pyからimport
+- artifact profileはdataclass or TypedDictで定義。OOFHealthValidatorProfile(protocol) + 具体profileクラス2つ
+- expected_row_countの計算: 学習データ行数 × (1 - 1/n_folds) を基準とし、70%を閾値とする
+- 生産者側validation flow: generate → validate(full) → save artifact → compute artifact_hash → write manifest(status=PASS)
+- 消費者側validation flow: load manifest → check status/artifact_hash/schema_hash → fail or proceed
+- 既存の3つの閾値定数(WIN_SELECTION_OOF_MAX_TOP1_HIT_RATE等)はartifact profileに移動し、OOFHealthValidator内部のハードコードを排除
+- AbilityModel.train_oof()のfold列追加: boundaries配列のindexをfold番号として、test_maskの行にfold番号を記録するpd.Seriesを返す
 
 </specifics>
 
@@ -144,5 +156,5 @@ None — discussion stayed within phase scope
 
 ---
 
-*Phase: 37-EV Calibration Layers*
-*Context gathered: 2026-05-20*
+*Phase: 37-OOF Health Infrastructure*
+*Context gathered: 2026-05-27*

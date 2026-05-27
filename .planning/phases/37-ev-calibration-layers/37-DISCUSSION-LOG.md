@@ -1,159 +1,101 @@
-# Phase 37: EV Calibration Layers - Discussion Log
+# Phase 37: OOF Health Infrastructure - Discussion Log
 
 > **Audit trail only.** Do not use as input to planning, research, or execution agents.
 > Decisions are captured in CONTEXT.md — this log preserves the alternatives considered.
 
-**Date:** 2026-05-20
-**Phase:** 37-EV Calibration Layers
-**Areas discussed:** Pop band calibration ordering, Extended-window OOF strategy, Regime propagation architecture, Feedback loop test design
+**Date:** 2026-05-27
+**Phase:** 37-OOF Health Infrastructure
+**Areas discussed:** Health check対象範囲, fold列の追加箇所, Health manifest設計, Health check実行ポイント
 
 ---
 
-## Pop band calibration ordering
+## Health check対象範囲
 
-### Q1: キャリブレーション層の挿入位置
-
-| Option | Description | Selected |
-|--------|-------------|----------|
-| Isotonic後 + Odds-band後 | P×E → Isotonic → Odds-band → Pop-band。最も外側で残差補正。 | ✓ |
-| Isotonic後 + Odds-band前 | P×E → Isotonic → Pop-band → Odds-band。2つの残差補正が直列で相互作用。 | |
-| Isotonic前 (生EVに対して) | P×E → Pop-band → Isotonic → Odds-band。Isotonic再学習が必要。 | |
-
-**User's choice:** ベストな方法を選定してくれ（Claude discretion → Isotonic後 + Odds-band後）
-**Notes:** Isotonic前だとOOF計算が複雑化。Odds-bandとPop-bandは独立した補正として最外層に配置。
-
-### Q2: スケーリング係数の計算方式
+### Q1: Health checkの適用対象
 
 | Option | Description | Selected |
 |--------|-------------|----------|
-| Median residual ratio | actual/calibratedの中央値。既存Odds-bandパターンと一致。外れ値に頑健。 | ✓ |
-| Mean residual ratio | actual/calibratedの平均値。分布の非対称性を反映。外れ値に弱い。 | |
-| Per-band LightGBM model | バンド別にLightGBM学習。データ不足リスク。 | |
+| 両方に適用 | oof_predictions + win_selection_oof 全health check適用 | ✓ |
+| oof_predictionsのみ | win_selection_oofは既存検査のまま | |
+| 共通基底クラス | 共通OOFHealthValidator + artifact固有サブクラス | |
 
-**User's choice:** ベストプラクティスを追求（Claude discretion → Median residual ratio）
+**User's choice:** 両方に適用。共通OOFHealthValidatorを作成し、空保存禁止/row/race/fold/schema/manifest検査は共通化。top1 hit rate/ROI等のartifact固有検査はprofileまたはサブクラスで分ける。Phase 38/39はoof_predictions(p_win_oof等)を、Phase 39/40はwin_selection_oof(選定/ranker学習用)を参照するため両artifactともhealth check対象。
 
-### Q3: 適用範囲
-
-| Option | Description | Selected |
-|--------|-------------|----------|
-| Win + Place 両方 | Placeのハードコードpenaltyを残差ベースに統合可能。 | ✓ |
-| Winのみ | 最小スコープ。Placeはスキップ。 | |
-| 全ベットタイプ | Win/Place/Wide。Wideはスコープ外。 | |
-
-**User's choice:** Win + Place 両方
-
-### Q4: バンド境界の決定方法
+### Q2: OOF-01~08の共通実装範囲
 
 | Option | Description | Selected |
 |--------|-------------|----------|
-| CAL-01の5バンド固定 | 1-3, 4-6, 7-9, 10-12, 13+。REQUIREMENTS指定。 | ✓ |
-| Surface別動的バンド | 芝/ダート別に最適境界を自動決定。 | |
-| データ駆動自動バンド | 分位点ベース等。解釈しにくい。 | |
+| OOF-01~06全て共通 | 全検査を共通validatorに実装 | |
+| 最小共通セット | 空OOF禁止と行数70%のみ共通 | |
+| 共通化 + 設定切替 | 全検査共通化 + 有効/無効設定ファイル | ✓ (custom) |
 
-**User's choice:** 実装難易度問わずベストプラクティス追求（Claude discretion → 5バンド固定境界 + surface別スケール係数）
+**User's choice:** 全OOF health checkを共通OOFHealthValidatorに実装。各artifactはexplicit profileで設定を定義。常時有効: OOF-01,04,05,06,07,08。Profile依存: OOF-02(split metadata必要時), OOF-03(score_col + return/odds列必要時)。欠損fold metadataはlegacy artifact failureとして扱い、事後推測で修復しない。
 
 ---
 
-## Extended-window OOF strategy
+## fold列の追加箇所
 
-### Q5: OOF計算アプローチ
-
-| Option | Description | Selected |
-|--------|-------------|----------|
-| Expanding window LOOC | 時系列expand。正確だが計算コスト高。 | ✓ |
-| 既存5-fold OOF流用 | シンプルだがfold境界でわずかなルックアヘッド。 | |
-| Rolling window OOF | 季節性対応。ウィンドウサイズチューニング必要。 | |
-
-**User's choice:** 実装難易度問わずベストプラクティス追求（Claude discretion → Expanding window 5-fold OOF）
-
-### Q6: Fold数
+### Q3: fold列の追加方法
 
 | Option | Description | Selected |
 |--------|-------------|----------|
-| 5 folds | 既存パターンと一貫。十分なサンプル数。 | ✓ |
-| 8 folds | より正確だがfoldごとサンプル減。 | |
-| 3 folds | foldごとサンプル多いが精度低下。 | |
+| OOF生成時に記録 | AbilityModel.train_oof/generate_ev_oof_predictionsでfold番号記録 | ✓ |
+| artifact準備時に推測 | _prepare_oof_artifact内で_walk_forward_race_splits再実行 | |
+| 検査時に復元 | OOFHealthValidator.validate()時に復元して検査 | |
 
-**User's choice:** 5 folds
-
-### Q7: fit_ev_calibration()との統合
-
-| Option | Description | Selected |
-|--------|-------------|----------|
-| 既存サイクル拡張 | 同一OOF内でOdds-band + Pop-band同時計算。コスト追加なし。 | ✓ |
-| 独立したOOFサイクル | 完全独立予測。学習時間倍増。 | |
-
-**User's choice:** 既存サイクル拡張
+**User's choice:** OOF生成時に記録。後推測は禁止。AbilityModel.train_oof()にability_oof_fold、generate_ev_oof_predictions()にev_oof_fold、generate_win_oof_predictions()にwin_oof_foldを整合的に記録。レガシーartifact（fold列なし）はhealth validation fail。one-time migrationコマンドのみlegacy/inferredマークで受け入れ。新calibrator/ranker学習には使用不可。
 
 ---
 
-## Regime propagation architecture
+## Health manifest設計
 
-### Q8: regime_stateの伝播方法
-
-| Option | Description | Selected |
-|--------|-------------|----------|
-| Pre-compute regime → df column | BacktestEngineで事前計算、DataFrame列として渡す。最小変更。 | ✓ |
-| predict()内でregime検出 | predict()にRegimeDetector注入。カプセル化。 | |
-| EV補正内でregime検出 | 密結合。単一責任原則違反。 | |
-
-**User's choice:** ベストプラクティスを追求（Claude discretion → Pre-compute regime → df column）
-
-### Q9: regime_stateのエンコーディング
+### Q4: manifest形式
 
 | Option | Description | Selected |
 |--------|-------------|----------|
-| Ordinal encoding (0/1/2) | 自然な順序。RegimeState.valueが既にint。 | ✓ |
-| One-hot encoding | 3バイナリ列。列数増加。 | |
-| Categorical type | LightGBM native categorical。順序仮定なし。 | |
+| JSON manifest | 既存strategy_manifest.jsonパターン。data/oof/manifests/に配置 | ✓ (custom) |
+| Parquetメタデータ埋め込み | 別ファイル不要だが可視性低い | |
+| MLflow artifact | 既存テストmock前提でテスト追加コスト高 | |
 
-**User's choice:** ベストな方法を選定（Claude discretion → Ordinal encoding）
+**User's choice:** JSON manifest。artifact別個別ファイル(oof_predictions.health.json, win_selection_oof.health.json) + index.json。30+フィールドのmanifest内容を定義。OOF消費者はartifact-specific manifestを読み込み、artifact_hash/schema_hashを検証してから使用。JSONが信頼できる唯一の情報源。
 
-### Q10: interaction featuresの計算方法
+### Q5: schema_hash計算方法
 
 | Option | Description | Selected |
 |--------|-------------|----------|
-| 乗算相互作用 | surface*popularity_rank, market_entropy*surface。既存INTパターン。 | ✓ |
-| カテゴリカル組み合わせ | surface×popularity_band(10パターン)。複雑。 | |
+| 列名ソート→SHA256 | 既存feature_manifest.jsonパターン。軽量高速 | ✓ (custom) |
+| 列名+dtype→SHA256 | より厳密。dtype変更でもmanifest無効 | |
+| Parquet raw metadata SHA256 | 最も厳密。圧縮設定で変わる可能性 | |
 
-**User's choice:** 実装難易度問わずベストプラクティス追求（Claude discretion → 乗算相互作用。EVCorrectionModel.FEATURE_COLSのみに追加）
+**User's choice:** 2種のhashを使用。schema_hash(列名ソート→SHA256)はmismatch時fail。schema_dtype_hash(sorted "col:dtype"→SHA256)はrequired列のみfail、optional列はwarning。raw Parquet metadata hashは使用しない。
 
 ---
 
-## Feedback loop test design
+## Health check実行ポイント
 
-### Q11: テスト範囲
-
-| Option | Description | Selected |
-|--------|-------------|----------|
-| Regime independence test | regime_stateを0/1/2に変更してEV出力比較。 | ✓ |
-| EV non-influence test | EV出力操作でregime検出が変化しないかテスト。 | |
-| 双方向テスト両方 | 完全な双方向検証。 | |
-
-**User's choice:** Regime independence test
-
-### Q12: 検証内容
+### Q6: validation実行タイミング
 
 | Option | Description | Selected |
 |--------|-------------|----------|
-| 相対変動率テスト | max_diff/median_ev < 5%。過度依存を検証。 | ✓ |
-| 順位安定性テスト | Spearman rho > 0.99。順位が変わらないことを確認。 | |
-| 両方 | より厳密。 | |
+| 学習直後に必須 | 保存前validate → failならsaveしない | |
+| 全消費ポイントで再検査 | 学習 + BT + Phase 38/39読込時 | |
+| 学習必須 + 消費時manifest確認 | 生産者full validate + 消費者はmanifest checkのみ | ✓ (custom) |
 
-**User's choice:** 相対変動率テスト
+**User's choice:** 2段階validation戦略。(1)生産者側: 保存前full validate必須、fail時は保存しない、保存後artifact_hash計算→manifest(status=PASS)書き込み。(2)消費者側: manifest読込→status/artifact_hash/schema_hash/validator_version/profile確認。不整合でfail-fast。hash一致時はfull validationスキップ可能。force_revalidateオプションでデバッグ/CI対応。
 
 ---
 
 ## Claude's Discretion
 
-- Q1: キャリブレーション層の挿入位置 → Isotonic後 + Odds-band後（最外層）
-- Q2: スケーリング係数 → Median residual ratio
-- Q4: バンド境界 → 5バンド固定 + surface別係数
-- Q5: OOF計算 → Expanding window 5-fold
-- Q8: regime伝播 → Pre-compute regime → DataFrame列
-- Q9: エンコーディング → Ordinal encoding (0/1/2)
-- Q10: interaction → 乗算相互作用、EVCorrectionModel.FEATURE_COLSのみ
+- OOFHealthValidatorのクラス構造（メソッド分割、profile class定義）
+- artifact_hash計算方法（ファイル全体SHA256 vs 特定列のみ）
+- expected_row_countの計算方法
+- fold_col名の統一命名規則
+- 既存_validate_win_selection_oof_health()の移行方針
+- legacy migrationコマンドのインターフェース
+- テストファイル配置
+- training_pipeline.py内の統合箇所
 
 ## Deferred Ideas
 
-None — all discussed items were within Phase 37 scope
+None — discussion stayed within phase scope
