@@ -70,6 +70,20 @@
 - **TDF-01**: 坂路調教タイム (37-HANRO) のETL・特徴量化
 - **TDF-02**: training_pipeline _build_race_level_features() rl_*列処理追加
 
+### Investment Feature Frame (Phase 38)
+
+- **IFF-01**: InvestmentFeatureFrameBuilder.build_frame(df, mode) が9カテゴリ(model_prob, market_prob, model_market_gap, race_relative, odds_band, late_odds, ability_form, course_pace, uncertainty) 90-130列の投資特徴量を生成
+- **IFF-02**: train modeはOOF-safe列(p_win_oof等)のみ使用、in-sample列(p_win_pred等)を拒否。infer modeは本番列を使用。両モード同一出力スキーマ
+- **IFF-03**: train/infer出力スキーマ同一性: 同一列名・列順・dtype。テストがアサート
+- **IFF-04**: InvestmentFeatureSpec frozen dataclassによるスキーマレジストリ。全特徴量にcategory, source columns, train/infer behavior, missing behavior, leakage class, dtype, stable output nameを定義
+- **IFF-05**: POST_RACE列非混入。漏洩テスト(VAL-01 scoped to InvestmentFeatureFrame)通過
+- **IFF-06**: Parquetキャッシュ + sidecar manifest JSON。決定性: 同一入力+同一builder_version→同一出力
+- **IFF-07**: artifact manifest: feature_version, schema_hash, source_artifact_hash, source OOF health manifest path, builder_version, mode, generated_at
+
+### Validation — Investment Frame (Phase 38)
+
+- **VAL-01**: 3層CI漏洩テストをInvestmentFeatureFrameに適用。POST_RACE除外、train mode OOF-safe確認、train/infer同一スキーマ
+
 ## Out of Scope
 
 | Feature | Reason |
@@ -81,6 +95,7 @@
 | 坂路調教タイム(37-HANRO) | 今回はレースハロンタイムに集中 |
 | 前処理パイプラインの大規模リファクタ | 既存パターンの拡張で対応可能 |
 | WF検証の実行 | PostgreSQL環境依存、別タイミングで実施 |
+| Regime-dependent calibration | v2.0全体でスコープ外。過去実験で信頼性未確認 |
 
 ## Traceability
 
@@ -103,23 +118,31 @@
 | INT-02 | Phase 36 | Pending |
 | INT-03 | Phase 36 | Pending |
 | INT-04 | Phase 36 | Pending |
-| CAL-01 | Phase 37 | Pending |
-| CAL-02 | Phase 37 | Pending |
-| CAL-03 | Phase 37 | Pending |
-| CAL-04 | Phase 37 | Pending |
-| CAL-05 | Phase 37 | Pending |
+| CAL-01 | Phase 39 | Pending |
+| CAL-02 | Phase 39 | Pending |
+| CAL-03 | Phase 39 | Pending |
+| CAL-04 | Retired | Regime-dependent calibration out of scope for v2.0 |
+| CAL-05 | Retired | Regime-dependent calibration out of scope for v2.0 |
+| IFF-01 | Phase 38 | Pending |
+| IFF-02 | Phase 38 | Pending |
+| IFF-03 | Phase 38 | Pending |
+| IFF-04 | Phase 38 | Pending |
+| IFF-05 | Phase 38 | Pending |
+| IFF-06 | Phase 38 | Pending |
+| IFF-07 | Phase 38 | Pending |
 | VAL-01 | Phase 38 | Pending |
-| VAL-02 | Phase 38 | Pending |
-| VAL-03 | Phase 38 | Pending |
-| VAL-04 | Phase 38 | Pending |
-| VAL-05 | Phase 38 | Pending |
-| VAL-06 | Phase 38 | Pending |
+| VAL-02 | Phase 39 | Pending |
+| VAL-03 | Phase 39 | Pending |
+| VAL-04 | Phase 39 | Pending |
+| VAL-05 | Phase 39 | Pending |
+| VAL-06 | Retired | Replaced by IFF-07 artifact manifest (v2.0) |
 
 **Coverage:**
-- v1.8 requirements: 28 total
-- Mapped to phases: 28
+- v1.8/v2.0 requirements: 35 total
+- Mapped to phases: 35
 - Unmapped: 0
+- Retired: 3 (CAL-04, CAL-05, VAL-06)
 
 ---
 *Requirements defined: 2026-05-19*
-*Last updated: 2026-05-19 after roadmap creation*
+*Last updated: 2026-05-27 after Phase 38 context — CAL regime retired, IFF requirements added, VAL redistributed*

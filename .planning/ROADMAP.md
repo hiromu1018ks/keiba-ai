@@ -208,11 +208,17 @@ Plans:
 - [x] 37-02-PLAN.md -- Pipeline integration + fold wiring + test updates
 
 ### Phase 38: InvestmentFeatureFrame
-**Goal**: 投資判断用統合特徴量フレーム (80-150列)
+**Goal**: 投資判断用統合特徴量フレーム (90-130列) を構築。モデル出力・市場データ・OOF予測を統合し、投資判断に特化した構造化特徴量を生成する
 **Depends on**: Phase 37
-**Requirements**: TBD
+**Requirements**: IFF-01, IFF-02, IFF-03, IFF-04, IFF-05, IFF-06, IFF-07
 **Success Criteria** (what must be TRUE):
-  1. TBD
+  1. InvestmentFeatureFrameBuilder.build_frame(df, mode="train"|"infer") が9カテゴリ90-130列の特徴量を生成 (IFF-01)
+  2. train modeはOOF-safe列のみ使用、p_win_pred等in-sample列を拒否。infer modeは本番列を使用 (IFF-02)
+  3. train/infer出力スキーマ同一(列名・列順・dtype同一)。テストが同一性をアサート (IFF-03)
+  4. InvestmentFeatureSpec frozen dataclassによるスキーマレジストリ。全特徴量にメタデータあり (IFF-04)
+  5. POST_RACE列非混入。漏洩テスト(VAL-01 scoped to frame)通過 (IFF-05)
+  6. Parquetキャッシュ + sidecar manifest。決定性出力(同一入力→同一出力) (IFF-06)
+  7. artifact manifest: feature_version, schema_hash, source_artifact_hash, OOF health manifest path, builder_version, mode, generated_at (IFF-07)
 **Plans**: TBD
 
 ## Progress
