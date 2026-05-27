@@ -1,17 +1,16 @@
 ---
 gsd_state_version: 1.0
-milestone: v2.0
-milestone_name: Investment Pipeline Restructuring
-status: shipped
-stopped_at: Milestone complete
-last_updated: "2026-05-27T20:00:00Z"
-last_activity: 2026-05-27 -- Milestone archived, ready for next
+milestone: v2.1
+milestone_name: MarketAware Calibration + Race-Level Ranker for ROI Recovery
+status: planning
+last_updated: "2026-05-27T12:25:45.241Z"
+last_activity: 2026-05-27
 progress:
-  total_phases: 38
-  completed_phases: 38
-  total_plans: 84
-  completed_plans: 84
-  percent: 100
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
@@ -25,12 +24,10 @@ See: .planning/PROJECT.md (updated 2026-05-27)
 
 ## Current Position
 
-Phase: 38 (all complete)
-Plan: All plans complete
-Status: Shipped
-Last activity: 2026-05-27
-
-Progress: [▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓] 100%
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-05-27 — Milestone v2.1 started
 
 ## Accumulated Context
 

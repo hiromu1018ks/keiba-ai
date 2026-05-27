@@ -76,16 +76,24 @@ MLflow で実験管理。PostgreSQL (EveryDB2/JRA-VAN DataLab) をデータソ�
 
 ### Active
 
-- 人気帯キャリブレーションレイヤー (OOF residual ratio 5段階スケーリング) — v2.1+
-- レジーム×サーフェスEV補正 (EV補正FEATURE_COLSにregime等追加) — v2.1+
-- BT ROI 100%超え達成 (現在87.8%、目標100%+) — v2.1+
-- 芝Stage1 IC b_difference正転換 — v2.1+
-- Turf conservative regime ROI改善 — v2.1+
+- MarketAwareWinCalibrator — Benter型 logit(p_model) + logit(p_market) ブレンド実装 — v2.1
+- 人気/オッズ/確率順位セグメント条件付け — キャリブレータ特徴量として統合 — v2.1
+- Race-Level Ranker — InvestmentFeatureFrame出力を活用 — v2.1
+- Baseline vs Shadow比較 (2024/2025) — 確率品質・選択馬変更・CLV・ROI・HR・DD評価 — v2.1
+- Shadow-first配備ゲート — 確率品質/ベット数維持/再現性/diagnostics全通過で配備 — v2.1
+- BT ROI 100%超え達成 (現在87.8%、目標100%+) — v2.1
 
-## Current Milestone: Planning Next
+## Current Milestone: v2.1 MarketAware Calibration + Race-Level Ranker for ROI Recovery
 
-**Shipped:** v1.8 Turf Precision Calibration + v2.0 Investment Pipeline Restructuring (2026-05-27)
-**Next:** v2.1+ planning — ROI recovery and calibration layers
+**Goal:** v1.7水準のROIを復旧させ、100%超えを目指す (v2.0基盤活用)
+
+**Target features:**
+- MarketAwareWinCalibrator — Benter型 logit(p_model) + logit(p_market) ブレンド
+- 人気/オッズ/確率順位セグメント条件付け — キャリブレータ特徴量として統合
+- Race-Level Ranker — InvestmentFeatureFrame出力を活用したレース内ランク付け
+- Baseline vs Shadow比較 — 2024/2025で確率品質・選択馬変更・CLV・ROI・HR・DDを評価
+
+**Deployment policy:** Shadow-first。確率品質ゲート + ベット数維持 + アーティファクト再現性 + baseline-vs-shadow診断が全て通過するまで新キャリブレータ/ランカーはベースラインを置き換えない。
 
 **BT ROI progress:** 84.4% (v1.5) → 85.7% (v1.6) → 97.8% (v1.7) → 87.8% (v2.0) → 目標 100%+
 
@@ -108,14 +116,14 @@ MLflow で実験管理。PostgreSQL (EveryDB2/JRA-VAN DataLab) をデータソ�
 
 ## Current State
 
-**Shipped:** v1.8 Turf Precision Calibration + v2.0 Investment Pipeline Restructuring (2026-05-27)
+**Shipped:** v2.0 Investment Pipeline Restructuring (2026-05-27)
 **Phases:** 38 total (v1.0-v2.0), all complete
 **LOC:** ~44,582 (src/) + ~38,319 (tests/) = 82,901 total
 **Tests:** 2,056 passed, 3 known failures
 **BT ROI:** 87.8% (v2.0 close), target 100%+
 **InvestmentFeatureFrame:** 94 specs, 9 categories, dual-mode builder with leakage guard
 **OOF Health:** OOFHealthValidator with fail-fast + SHA256 manifest + anomaly detection
-**Next:** v2.1+ planning — ROI recovery and calibration layers
+**Next:** v2.1 — MarketAware Calibration + Race-Level Ranker for ROI Recovery
 
 ## Context
 
@@ -226,4 +234,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-27 after v2.0 milestone completion*
+*Last updated: 2026-05-27 after v2.1 milestone start*
