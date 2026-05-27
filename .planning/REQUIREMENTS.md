@@ -7,11 +7,11 @@
 
 ### Calibration
 
-- [ ] **CAL-01**: MarketAwareWinCalibratorがBenter型 logit(p_model) + logit(p_market) ブレンドでセグメント条件付き確率を生成する
-- [ ] **CAL-02**: セグメント条件付けが人気順位/オッズバンド/確率順位をInvestmentFeatureFrame出力から取得し、キャリブレータ特徴量として統合される
-- [ ] **CAL-03**: セグメント効果は独立したper-segment係数ではなく、正則化された特徴量/交互作用としてグローバルキャリブレータに統合される(スパースsegment過学習防止)
-- [ ] **CAL-04**: MarketAwareWinCalibratorがWinBenterGate + WinSegmentCalibratorを置換し、二重補正を防止する
-- [ ] **CAL-05**: キャリブレータ出力が正規化後に確率品質(Brier/logloss/ECE)を維持し、sum-to-1.0制約を満たす
+- [x] **CAL-01**: MarketAwareWinCalibratorがBenter型 logit(p_model) + logit(p_market) ブレンドでセグメント条件付き確率を生成する
+- [x] **CAL-02**: セグメント条件付けが人気順位/オッズバンド/確率順位をInvestmentFeatureFrame出力から取得し、キャリブレータ特徴量として統合される
+- [x] **CAL-03**: セグメント効果は独立したper-segment係数ではなく、正則化された特徴量/交互作用としてグローバルキャリブレータに統合される(スパースsegment過学習防止)
+- [x] **CAL-04**: MarketAwareWinCalibratorがWinBenterGate + WinSegmentCalibratorを置換し、二重補正を防止する
+- [x] **CAL-05**: キャリブレータ出力が正規化後に確率品質(Brier/logloss/ECE)を維持し、sum-to-1.0制約を満たす
 
 ### Race-Level Ranker
 
@@ -56,11 +56,11 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| CAL-01 | Phase 39 | Pending |
-| CAL-02 | Phase 39 | Pending |
-| CAL-03 | Phase 39 | Pending |
-| CAL-04 | Phase 39 | Pending |
-| CAL-05 | Phase 39 | Pending |
+| CAL-01 | Phase 39 | Complete |
+| CAL-02 | Phase 39 | Complete |
+| CAL-03 | Phase 39 | Complete |
+| CAL-04 | Phase 39 | Complete |
+| CAL-05 | Phase 39 | Complete |
 | RNK-01 | Phase 40 | Pending |
 | RNK-02 | Phase 40 | Pending |
 | RNK-03 | Phase 40 | Pending |

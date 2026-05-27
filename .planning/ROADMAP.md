@@ -40,7 +40,7 @@ See `.planning/milestones/` for archived roadmaps.
 
 **Milestone Goal:** Recover BT ROI from 87.8% to 100%+ via MarketAwareWinCalibrator (replacing WinBenterGate + WinSegmentCalibrator) and learned Race-Level Ranker, validated by shadow comparison against baseline.
 
-- [ ] **Phase 39: MarketAwareWinCalibrator** - Replace WinBenterGate + WinSegmentCalibrator with Benter logit-blend calibrator producing segment-conditioned probabilities
+- [x] **Phase 39: MarketAwareWinCalibrator** - Replace WinBenterGate + WinSegmentCalibrator with Benter logit-blend calibrator producing segment-conditioned probabilities (completed 2026-05-27)
 - [ ] **Phase 40: Race-Level Ranker** - Learned ranker combining relevance (is_win/finishing-position) and value/mispricing signals into investment_score
 - [ ] **Phase 41: Shadow Comparison Framework** - Fixed-fold 2024/2025 baseline vs shadow comparison tracking probability quality, selection agreement, CLV, ROI
 - [ ] **Phase 42: Feature Routing Audit & Safety Gates** - Verify calibrator features do not pollute MarketModel/RaceQualityScreener, OOF health passes, deployment gate conditions met
@@ -61,7 +61,7 @@ See `.planning/milestones/` for archived roadmaps.
 Plans:
 - [x] 39-01-PLAN.md -- MarketAwareWinCalibrator class with feature encoding, training, inference, guards
 - [x] 39-02-PLAN.md -- TrainingPipeline integration + SubmodelSet field update
-- [ ] 39-03-PLAN.md -- RacePredictor + ModelLoader integration (remove old components)
+- [x] 39-03-PLAN.md -- RacePredictor + ModelLoader integration (remove old components)
 
 ### Phase 40: Race-Level Ranker
 **Goal**: A learned ranker orders horses within each race by combining relevance (win/finishing-position) and value/mispricing signals, producing an investment_score that replaces hand-tuned formulas
@@ -103,7 +103,7 @@ Phases execute in numeric order: 39 → 40 → 41 → 42
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
 | 1-38 | v1.0-v2.0 | 84/84 | Complete | 2026-05-27 |
-| 39. MarketAwareWinCalibrator | v2.1 | 2/3 | Executing | - |
+| 39. MarketAwareWinCalibrator | v2.1 | 3/3 | Complete    | 2026-05-27 |
 | 40. Race-Level Ranker | v2.1 | 0/? | Not started | - |
 | 41. Shadow Comparison | v2.1 | 0/? | Not started | - |
 | 42. Feature Routing Audit & Safety | v2.1 | 0/? | Not started | - |
