@@ -6,6 +6,7 @@ MLflow に実験を記録。
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
@@ -50,6 +51,11 @@ from models.two_stage_return_model import PlaceTwoStageModel, WinTwoStageModel
 from models.wide_pair_builder import WideJointPairBuilder
 from models.wide_two_stage_model import WideTwoStageModel
 from models.win_selection_gate import WinSelectionGateModel, ensure_win_selection_columns
+from validation.oof_health_validator import (
+    OOFHealthValidator,
+    OOF_PREDICTIONS_PROFILE,
+    _update_index,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -264,15 +270,56 @@ class TrainingPipelineV5:
                 len(full_features_df.columns),
             )
 
-            # 3c. OOF予測Parquet保存 (IC評価用, Phase 30)
-            oof_path = Path("data/oof/oof_predictions.parquet")
-            oof_path.parent.mkdir(parents=True, exist_ok=True)
-            full_features_df.to_parquet(oof_path, index=False)
-            logger.info(
-                "Saved OOF predictions: %d rows -> %s",
-                len(full_features_df),
-                oof_path,
-            )
+            # 3c. OOF予測Parquet保存 — producer-side validation (D-13)
+            if not full_features_df.empty and "race_date" in full_features_df.columns:
+                oof_path = Path("data/oof/oof_predictions.parquet")
+                oof_path.parent.mkdir(parents=True, exist_ok=True)
+
+                # D-13: validate before save
+                train_date_range = (
+                    str(full_features_df["race_date"].min()),
+                    str(full_features_df["race_date"].max()),
+                )
+                oof_validator = OOFHealthValidator()
+                oof_result = oof_validator.validate(
+                    full_features_df,
+                    OOF_PREDICTIONS_PROFILE,
+                    train_date_range=train_date_range,
+                    expected_row_count=len(full_features_df),
+                )
+                if oof_result["status"] != "PASS":
+                    raise ValueError(
+                        f"OOF health check failed for oof_predictions: "
+                        f"{oof_result['failures']}"
+                    )
+
+                full_features_df.to_parquet(oof_path, index=False)
+
+                # D-08: health manifest
+                artifact_hash = hashlib.sha256(oof_path.read_bytes()).hexdigest()
+                manifest = oof_validator.generate_manifest(
+                    full_features_df,
+                    OOF_PREDICTIONS_PROFILE,
+                    artifact_hash,
+                    train_date_range=train_date_range,
+                )
+                manifest_path = Path("data/oof/manifests/oof_predictions.health.json")
+                manifest_path.parent.mkdir(parents=True, exist_ok=True)
+                manifest_path.write_text(
+                    json.dumps(manifest, sort_keys=True, indent=2, ensure_ascii=False),
+                    encoding="utf-8",
+                )
+                _update_index("oof_predictions", str(manifest_path), artifact_hash)
+                logger.info(
+                    "Saved OOF predictions: %d rows -> %s (validated, manifest=%s)",
+                    len(full_features_df),
+                    oof_path,
+                    manifest_path,
+                )
+            else:
+                logger.info(
+                    "Skipping OOF predictions save: empty df or no race_date column"
+                )
 
         # 4. feat_df の object 数値列を float64 に統一
         for col in feat_df.columns:

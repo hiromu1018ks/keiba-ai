@@ -238,6 +238,11 @@ def _make_feature_df(n: int = 8000, n_races: int = 800) -> pd.DataFrame:
                     "rl_trio_odds_ratio": np.random.uniform(0.5, 2.0),
                     "rl_wide_harville_ratio": np.random.uniform(0.5, 2.0),
                     "race_date": f"2020-{(r // 28) % 12 + 1:02d}-{(r % 28) + 1:02d}",
+                    # OOF artifact columns (populated by _train_submodel)
+                    "is_oof": True,
+                    "oof_artifact_version": 1,
+                    "p_win_oof": np.random.uniform(0.01, 0.3),
+                    "ability_oof_fold": r % 5,
                 }
             )
     return pd.DataFrame(rows)
@@ -255,6 +260,7 @@ class TestTrainingPipelineV5:
         mock_store = _make_mock_store()
 
         feat_df = _make_feature_df(8000, 800)
+        mock_validator_result = {"status": "PASS", "failures": [], "warnings": []}
         with patch.object(FeatureEngine, "build_all", return_value=feat_df):
             with patch.object(
                 SubModelManager,
@@ -285,14 +291,24 @@ class TestTrainingPipelineV5:
                                         "db.readers.load_history_races",
                                         return_value=pd.DataFrame(),
                                     ):
-                                        pipeline = TrainingPipelineV5.__new__(TrainingPipelineV5)
-                                        pipeline.store = mock_store
-                                        pipeline.db = None
-                                        pipeline.feature_engine = FeatureEngine()
-                                        pipeline.submodel_mgr = SubModelManager()
-                                        pipeline.model_dir = Path("data/models")
+                                        with patch(
+                                            "pipelines.training_pipeline.OOFHealthValidator",
+                                        ) as mock_val_cls:
+                                            mock_val = MagicMock()
+                                            mock_val.validate.return_value = mock_validator_result
+                                            mock_val.generate_manifest.return_value = {"status": "PASS"}
+                                            mock_val_cls.return_value = mock_val
+                                            with patch(
+                                                "pipelines.training_pipeline._update_index",
+                                            ):
+                                                pipeline = TrainingPipelineV5.__new__(TrainingPipelineV5)
+                                                pipeline.store = mock_store
+                                                pipeline.db = None
+                                                pipeline.feature_engine = FeatureEngine()
+                                                pipeline.submodel_mgr = SubModelManager()
+                                                pipeline.model_dir = Path("data/models")
 
-                                        result = pipeline.run("2020-01-01", "2023-12-31")
+                                                result = pipeline.run("2020-01-01", "2023-12-31")
 
         assert isinstance(result, TrainedModelsV5)
         assert "turf" in result.submodels or "dirt" in result.submodels
@@ -310,6 +326,7 @@ class TestTrainingPipelineV5:
         feat_df.loc[4000:, "surface"] = "dirt"
 
         mock_store = _make_mock_store()
+        mock_validator_result = {"status": "PASS", "failures": [], "warnings": []}
 
         with patch.object(FeatureEngine, "build_all", return_value=feat_df):
             with patch.object(
@@ -341,14 +358,24 @@ class TestTrainingPipelineV5:
                                         "db.readers.load_history_races",
                                         return_value=pd.DataFrame(),
                                     ):
-                                        pipeline = TrainingPipelineV5.__new__(TrainingPipelineV5)
-                                        pipeline.store = mock_store
-                                        pipeline.db = None
-                                        pipeline.feature_engine = FeatureEngine()
-                                        pipeline.submodel_mgr = SubModelManager()
-                                        pipeline.model_dir = Path("data/models")
+                                        with patch(
+                                            "pipelines.training_pipeline.OOFHealthValidator",
+                                        ) as mock_val_cls:
+                                            mock_val = MagicMock()
+                                            mock_val.validate.return_value = mock_validator_result
+                                            mock_val.generate_manifest.return_value = {"status": "PASS"}
+                                            mock_val_cls.return_value = mock_val
+                                            with patch(
+                                                "pipelines.training_pipeline._update_index",
+                                            ):
+                                                pipeline = TrainingPipelineV5.__new__(TrainingPipelineV5)
+                                                pipeline.store = mock_store
+                                                pipeline.db = None
+                                                pipeline.feature_engine = FeatureEngine()
+                                                pipeline.submodel_mgr = SubModelManager()
+                                                pipeline.model_dir = Path("data/models")
 
-                                        result = pipeline.run("2020-01-01", "2023-12-31")
+                                                result = pipeline.run("2020-01-01", "2023-12-31")
 
         assert len(result.submodels) >= 1
 
@@ -361,6 +388,7 @@ class TestTrainingPipelineV5:
         mock_store = _make_mock_store()
 
         feat_df = _make_feature_df(8000, 800)
+        mock_validator_result = {"status": "PASS", "failures": [], "warnings": []}
         with patch.object(FeatureEngine, "build_all", return_value=feat_df):
             with patch.object(
                 SubModelManager,
@@ -391,14 +419,24 @@ class TestTrainingPipelineV5:
                                         "db.readers.load_history_races",
                                         return_value=pd.DataFrame(),
                                     ):
-                                        pipeline = TrainingPipelineV5.__new__(TrainingPipelineV5)
-                                        pipeline.store = mock_store
-                                        pipeline.db = None
-                                        pipeline.feature_engine = FeatureEngine()
-                                        pipeline.submodel_mgr = SubModelManager()
-                                        pipeline.model_dir = Path("data/models")
+                                        with patch(
+                                            "pipelines.training_pipeline.OOFHealthValidator",
+                                        ) as mock_val_cls:
+                                            mock_val = MagicMock()
+                                            mock_val.validate.return_value = mock_validator_result
+                                            mock_val.generate_manifest.return_value = {"status": "PASS"}
+                                            mock_val_cls.return_value = mock_val
+                                            with patch(
+                                                "pipelines.training_pipeline._update_index",
+                                            ):
+                                                pipeline = TrainingPipelineV5.__new__(TrainingPipelineV5)
+                                                pipeline.store = mock_store
+                                                pipeline.db = None
+                                                pipeline.feature_engine = FeatureEngine()
+                                                pipeline.submodel_mgr = SubModelManager()
+                                                pipeline.model_dir = Path("data/models")
 
-                                        pipeline.run("2020-01-01", "2023-12-31")
+                                                pipeline.run("2020-01-01", "2023-12-31")
 
         mock_mlflow.start_run.assert_called_once()
 
