@@ -56,28 +56,28 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| CAL-01 | TBD | Pending |
-| CAL-02 | TBD | Pending |
-| CAL-03 | TBD | Pending |
-| CAL-04 | TBD | Pending |
-| CAL-05 | TBD | Pending |
-| RNK-01 | TBD | Pending |
-| RNK-02 | TBD | Pending |
-| RNK-03 | TBD | Pending |
-| RNK-04 | TBD | Pending |
-| RNK-05 | TBD | Pending |
-| SHD-01 | TBD | Pending |
-| SHD-02 | TBD | Pending |
-| SHD-03 | TBD | Pending |
-| SAF-01 | TBD | Pending |
-| SAF-02 | TBD | Pending |
-| SAF-03 | TBD | Pending |
+| CAL-01 | Phase 39 | Pending |
+| CAL-02 | Phase 39 | Pending |
+| CAL-03 | Phase 39 | Pending |
+| CAL-04 | Phase 39 | Pending |
+| CAL-05 | Phase 39 | Pending |
+| RNK-01 | Phase 40 | Pending |
+| RNK-02 | Phase 40 | Pending |
+| RNK-03 | Phase 40 | Pending |
+| RNK-04 | Phase 40 | Pending |
+| RNK-05 | Phase 40 | Pending |
+| SHD-01 | Phase 41 | Pending |
+| SHD-02 | Phase 41 | Pending |
+| SHD-03 | Phase 41 | Pending |
+| SAF-01 | Phase 42 | Pending |
+| SAF-02 | Phase 42 | Pending |
+| SAF-03 | Phase 42 | Pending |
 
 **Coverage:**
 - v2.1 requirements: 16 total
-- Mapped to phases: 0
-- Unmapped: 16 ⚠️
+- Mapped to phases: 16
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-05-27*
-*Last updated: 2026-05-27 after initial definition*
+*Last updated: 2026-05-27 — roadmap created, traceability updated*

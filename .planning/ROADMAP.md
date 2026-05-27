@@ -1,15 +1,9 @@
 ---
 gsd_state_version: 1.0
-milestone: v2.0
-milestone_name: Investment Pipeline Restructuring
-status: shipped
-last_updated: "2026-05-27T20:00:00Z"
-progress:
-  total_phases: 38
-  completed_phases: 38
-  total_plans: 84
-  completed_plans: 84
-  percent: 100
+milestone: v2.1
+milestone_name: MarketAware Calibration + Race-Level Ranker for ROI Recovery
+status: planning
+last_updated: "2026-05-27T12:25:45.241Z"
 ---
 
 # Roadmap: keiba-ai Win Model Improvement
@@ -26,123 +20,85 @@ progress:
 - **v1.7 Market-Independent Edge Discovery** -- Phases 29-34 (shipped 2026-05-19)
 - **v1.8 Turf Precision Calibration** -- Phases 35-36.1.1 (shipped 2026-05-20)
 - **v2.0 Investment Pipeline Restructuring** -- Phases 37-38 (shipped 2026-05-27)
+- **v2.1 MarketAware Calibration + Race-Level Ranker** -- Phases 39-42 (in progress)
 
 ## Phases
 
-<details>
-<summary>v1.0 Win Model (Phases 1-4) — SHIPPED 2026-05-03</summary>
+**Phase Numbering:**
+- Integer phases: Planned milestone work
+- Decimal phases: Urgent insertions (marked with INSERTED)
 
-- [x] Phase 1: Feature Analysis & Enhancement (2/2 plans) -- completed 2026-05-02
-- [x] Phase 2: Win Benter Combination & Calibration (2/2 plans) -- completed 2026-05-02
-- [x] Phase 3: Selection Gate, Confidence & Betting (2/2 plans) -- completed 2026-05-02
-- [x] Phase 4: Walk-Forward Validation (1/1 plan) -- completed 2026-05-03
+<details>
+<summary>v1.0-v2.0 (Phases 1-38) — All Shipped</summary>
+
+Phases 1-38 complete across milestones v1.0 through v2.0.
+See `.planning/milestones/` for archived roadmaps.
 
 </details>
 
-<details>
-<summary>v1.1 ROI Advanced Model (Phases 5-7) — SHIPPED 2026-05-03</summary>
+### v2.1 MarketAware Calibration + Race-Level Ranker (In Progress)
 
-- [x] Phase 5: Foundation Features (2/2 plans) -- completed 2026-05-03
-- [x] Phase 6: Odds Deviation EV (1/1 plan) -- completed 2026-05-03
-- [x] Phase 7: Ensemble Enhancement (1/1 plan) -- completed 2026-05-03
+**Milestone Goal:** Recover BT ROI from 87.8% to 100%+ via MarketAwareWinCalibrator (replacing WinBenterGate + WinSegmentCalibrator) and learned Race-Level Ranker, validated by shadow comparison against baseline.
 
-</details>
+- [ ] **Phase 39: MarketAwareWinCalibrator** - Replace WinBenterGate + WinSegmentCalibrator with Benter logit-blend calibrator producing segment-conditioned probabilities
+- [ ] **Phase 40: Race-Level Ranker** - Learned ranker combining relevance (is_win/finishing-position) and value/mispricing signals into investment_score
+- [ ] **Phase 41: Shadow Comparison Framework** - Fixed-fold 2024/2025 baseline vs shadow comparison tracking probability quality, selection agreement, CLV, ROI
+- [ ] **Phase 42: Feature Routing Audit & Safety Gates** - Verify calibrator features do not pollute MarketModel/RaceQualityScreener, OOF health passes, deployment gate conditions met
 
-<details>
-<summary>v1.2 Win Backtest Validation (Phases 8-10) — SHIPPED 2026-05-04</summary>
+## Phase Details
 
-- [x] Phase 8: Win Backtest Core (2/2 plans) -- completed 2026-05-04
-- [x] Phase 9: Win Reporting (1/1 plan) -- completed 2026-05-04
-- [x] Phase 10: Pipeline Performance (2/2 plans) -- completed 2026-05-04
+### Phase 39: MarketAwareWinCalibrator
+**Goal**: Win probabilities are produced by a single MarketAwareWinCalibrator that blends model and market logits with segment-conditioned regularization, replacing the previous dual WinBenterGate + WinSegmentCalibrator chain and preventing double-correction
+**Depends on**: Phase 38 (InvestmentFeatureFrame provides segment keys)
+**Requirements**: CAL-01, CAL-02, CAL-03, CAL-04, CAL-05
+**Success Criteria** (what must be TRUE):
+  1. MarketAwareWinCalibrator produces calibrated win probabilities via Benter logit(p_model) + logit(p_market) blend, absorbing both WinBenterGate and WinSegmentCalibrator roles at the same pipeline position in RacePredictor.predict()
+  2. Segment conditioning uses popularity rank, odds band, and probability rank from InvestmentFeatureFrame output as regularized features/interactions in a global calibrator (not per-segment coefficients), preventing sparse segment overfitting
+  3. Calibrator output maintains probability quality (Brier, logloss, ECE) after normalization and satisfies sum-to-1.0 constraint per race
+  4. WinBenterGate and WinSegmentCalibrator are removed from the pipeline with no remaining call sites
+**Plans**: TBD
 
-</details>
+### Phase 40: Race-Level Ranker
+**Goal**: A learned ranker orders horses within each race by combining relevance (win/finishing-position) and value/mispricing signals, producing an investment_score that replaces hand-tuned formulas
+**Depends on**: Phase 39 (calibrated probabilities feed the ranker)
+**Requirements**: RNK-01, RNK-02, RNK-03, RNK-04, RNK-05
+**Success Criteria** (what must be TRUE):
+  1. A learned Win relevance ranker orders horses within each race using is_win and finishing-position relevance signals
+  2. A learned value/mispricing ranker detects mispriced horses using calibrated EV, model-vs-market gap, and CLV diagnostics (OOF-safe)
+  3. Win ranker and Value ranker outputs are combined into a single investment_score per horse
+  4. The ranker operates in shadow mode behind a feature flag, with baseline WinSelectionGate preserved and functional
+  5. One-bet-per-race baseline bet count is maintained without explicit approval to reduce it
+**Plans**: TBD
 
-<details>
-<summary>v1.3 Betting Strategy Optimization (Phases 11-13) — SHIPPED 2026-05-05</summary>
+### Phase 41: Shadow Comparison Framework
+**Goal**: The shadow pipeline (new calibrator + ranker) can be compared against baseline on 2024/2025 test periods with comprehensive metrics, enabling data-driven deployment decisions
+**Depends on**: Phase 39, Phase 40
+**Requirements**: SHD-01, SHD-02, SHD-03
+**Success Criteria** (what must be TRUE):
+  1. Shadow comparison runs BacktestEngine twice (baseline TrainedModelsV5 vs shadow TrainedModelsV5) on both 2024 and 2025 test periods with fixed folds
+  2. Comparison tracks Brier, logloss, ECE, selection agreement, CLV, ROI, HR, DD, and bet count for both baseline and shadow
+  3. Selection horse differences between baseline and shadow (selection agreement) are measured and explainable per-race
+**Plans**: TBD
 
-- [x] Phase 11: Bet Selection Filters (2/2 plans) -- completed 2026-05-04
-- [x] Phase 12: Stake Sizing Enhancement (2/2 plans) -- completed 2026-05-05
-- [x] Phase 13: Risk Calibration & Parameter Optimization (3/3 plans) -- completed 2026-05-05
-
-</details>
-
-<details>
-<summary>v1.4 Ensemble Filter Recalibration (Phases 14-18) — SHIPPED 2026-05-07</summary>
-
-- [x] Phase 14: Gate Recalibration (2/2 plans) -- completed 2026-05-06
-- [x] Phase 15: EV Filter Enhancement (2/2 plans) -- completed 2026-05-06
-- [x] Phase 16: Odds Band Rebuild (2/2 plans) -- completed 2026-05-06
-- [x] Phase 17: Optuna Optimization (2/2 plans) -- completed 2026-05-06
-- [x] Phase 18: Validation & Freeze (2/2 plans) -- completed 2026-05-07
-
-</details>
-
-<details>
-<summary>v1.5 Model Accuracy Improvement (Phases 19-22) — SHIPPED 2026-05-10</summary>
-
-- [x] Phase 19: EV推定キャリブレーション (2/2 plans) -- completed 2026-05-07
-- [x] Phase 19.1: バックテスト高速化 (5/5 plans) -- completed 2026-05-08
-- [x] Phase 20: 高オッズ的中パターン特徴量 (3/3 plans) -- completed 2026-05-09
-- [x] Phase 21: Conformal EV予測区間 (2/2 plans) -- completed 2026-05-09
-- [x] Phase 22: 統合検証とバックテスト (1/1 plan) -- completed 2026-05-10
-
-</details>
-
-<details>
-<summary>v1.6 Feature Engineering Overhaul (Phases 23-28) — SHIPPED 2026-05-17</summary>
-
-- [x] Phase 23: Safety Gate (2/2 plans) -- completed 2026-05-11
-- [x] Phase 24: Feature Audit & Pruning (2/2 plans) -- completed 2026-05-12
-- [x] Phase 25: Quick Win Wire Existing (2/2 plans) -- completed 2026-05-12
-- [x] Phase 26: EveryDB2 New Features (3/3 plans) -- completed 2026-05-14
-- [x] Phase 27: Feature Interactions (3/3 plans) -- completed 2026-05-15
-- [x] Phase 28: Validation & Freeze (2/2 plans) -- completed 2026-05-17
-
-</details>
-
-<details>
-<summary>v1.7 Market-Independent Edge Discovery (Phases 29-34) — SHIPPED 2026-05-19</summary>
-
-- [x] Phase 29: ETL Expansion (3/3 plans) -- completed 2026-05-17
-- [x] Phase 30: Residual IC Evaluation Framework (2/2 plans) -- completed 2026-05-18
-- [x] Phase 31: Race-Level Aggregation Features (2/2 plans) -- completed 2026-05-18
-- [x] Phase 32: Market Cross-Consistency Features (2/2 plans) -- completed 2026-05-18
-- [x] Phase 33: Gain per Depth Diagnostic (2/2 plans) -- completed 2026-05-18
-- [x] Phase 34: Validation and Manifest Update (4/4 plans) -- completed 2026-05-19
-
-</details>
-
-<details>
-<summary>v1.8 Turf Precision Calibration (Phases 35-36.1.1) — SHIPPED 2026-05-20</summary>
-
-- [x] Phase 35: ETL Data Foundation (2/2 plans) -- completed 2026-05-19
-- [x] Phase 36: Feature Computation (2/2 plans) -- completed 2026-05-20
-- [x] Phase 36.1: HaronTime L4/LapTime Redesign (2/2 plans) -- completed 2026-05-20
-- [x] Phase 36.1.1: MarketModel & RaceQuality配線修正 (4/4 plans) -- completed 2026-05-20
-
-</details>
-
-<details>
-<summary>v2.0 Investment Pipeline Restructuring (Phases 37-38) — SHIPPED 2026-05-27</summary>
-
-- [x] Phase 37: OOF Health Infrastructure (2/2 plans) -- completed 2026-05-27
-- [x] Phase 38: InvestmentFeatureFrame (3/3 plans) -- completed 2026-05-27
-
-</details>
+### Phase 42: Feature Routing Audit & Safety Gates
+**Goal**: All safety checks pass -- calibrator features do not leak into MarketModel/RaceQualityScreener, OOF health is clean, and the new pipeline only replaces baseline after meeting all quality gates
+**Depends on**: Phase 39, Phase 40, Phase 41
+**Requirements**: SAF-01, SAF-02, SAF-03
+**Success Criteria** (what must be TRUE):
+  1. Feature routing audit confirms calibrator features (segment conditioning inputs) are NOT registered in MarketModel or RaceQualityScreener FEATURE_COLS
+  2. OOFHealthValidator reports no anomalies when the full pipeline (new calibrator + ranker) runs end-to-end
+  3. The new calibrator/ranker does NOT replace baseline until probability quality gates + bet-count preservation + artifact reproducibility + all diagnostics pass
+**Plans**: TBD
 
 ## Progress
 
-**All milestones complete.** Next milestone planning starts with `/gsd:new-milestone`.
+**Execution Order:**
+Phases execute in numeric order: 39 → 40 → 41 → 42
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
-| 1-4 | v1.0 | 7/7 | Complete | 2026-05-03 |
-| 5-7 | v1.1 | 5/5 | Complete | 2026-05-03 |
-| 8-10 | v1.2 | 5/5 | Complete | 2026-05-04 |
-| 11-13 | v1.3 | 7/7 | Complete | 2026-05-05 |
-| 14-18 | v1.4 | 10/10 | Complete | 2026-05-07 |
-| 19-22 | v1.5 | 13/13 | Complete | 2026-05-10 |
-| 23-28 | v1.6 | 14/14 | Complete | 2026-05-17 |
-| 29-34 | v1.7 | 15/15 | Complete | 2026-05-19 |
-| 35-36.1.1 | v1.8 | 10/10 | Complete | 2026-05-20 |
-| 37-38 | v2.0 | 5/5 | Complete | 2026-05-27 |
+| 1-38 | v1.0-v2.0 | 84/84 | Complete | 2026-05-27 |
+| 39. MarketAwareWinCalibrator | v2.1 | 0/? | Not started | - |
+| 40. Race-Level Ranker | v2.1 | 0/? | Not started | - |
+| 41. Shadow Comparison | v2.1 | 0/? | Not started | - |
+| 42. Feature Routing Audit & Safety | v2.1 | 0/? | Not started | - |

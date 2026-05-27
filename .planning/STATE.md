@@ -6,7 +6,7 @@ status: planning
 last_updated: "2026-05-27T12:25:45.241Z"
 last_activity: 2026-05-27
 progress:
-  total_phases: 0
+  total_phases: 4
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -20,42 +20,53 @@ progress:
 See: .planning/PROJECT.md (updated 2026-05-27)
 
 **Core value:** 単勝モデルのバックテストROIを100%超えにすること
-**Current focus:** Planning next milestone (v2.1+)
+**Current focus:** Phase 39 — MarketAwareWinCalibrator
 
 ## Current Position
 
-Phase: Not started (defining requirements)
+Phase: 39 of 42 (MarketAwareWinCalibrator)
 Plan: —
-Status: Defining requirements
-Last activity: 2026-05-27 — Milestone v2.1 started
+Status: Ready to plan
+Last activity: 2026-05-27 — Roadmap created for v2.1
+
+Progress: [..........] 0%
+
+## Performance Metrics
+
+**Velocity:**
+- Total plans completed (all milestones): 84
+- v2.1 plans completed: 0
+
+**Recent Trend:**
+- v2.0 (Phases 37-38): 5 plans, all complete
+- Trend: Stable
 
 ## Accumulated Context
 
 ### Decisions
 
 Decisions are logged in PROJECT.md Key Decisions table.
-v2.0 key decisions:
+v2.1 key decisions:
 
-- Benter型市場ブレンド: logit(p_model)+logit(p_market)で市場を強い事前分布として扱う
-- Segment Calibration統合(Option B): WSCを単独モデルにせずMarketAwareWinCalibrator特徴量に統合
-- 配備条件=確率品質: ROIではなくBrier/logloss/ECE/actual-predで配備判定
-- レジーム非依存 + ベット数削減禁止
-- OOF health fail-fast at save point
-- InvestmentFeatureSpec frozen dataclass for schema safety
+- MarketAwareWinCalibrator REPLACES WinBenterGate + WinSegmentCalibrator (not augments)
+- Segment effects as regularized features/interactions in global calibrator (not per-segment coefficients)
+- Race-Level Ranker is a LEARNED ranker (not deterministic weighted sum)
+- Shadow comparison includes fixed-fold 2024/2025 validation
+- Regime-dependent calibration is OUT OF SCOPE
+- Selection agreement is a diagnostic metric, NOT a deployment gate
 
 ### Pending Todos
 
-None for v2.0.
+None for v2.1 yet.
 
 ### Blockers/Concerns
 
-- BT ROI 87.8% at v2.0 close, target 100%+ — v2.1+ structural reform needed
-- v1.7 ROI was 97.8% but degraded to 87.8% in v1.8 — Phase 36.1.1 fixes applied but not BT-validated
-- WF検証未実行 (~4h) — cross-cutting validation gap
+- BT ROI 87.8% at v2.0 close, target 100%+
+- v1.8 ROI collapse (97.8% to 87.8%) from feature routing -- SAF-01 audit essential
+- Normalization after calibration breaks probability quality -- must be addressed in Phase 39
+- Zero new pip dependencies required
 
 ### Deferred Items
-
-Items acknowledged and deferred at milestone close on 2026-05-27:
 
 | Category | Item | Status |
 |----------|------|--------|
@@ -63,16 +74,15 @@ Items acknowledged and deferred at milestone close on 2026-05-27:
 | UAT | Human UAT 5項目 (PostgreSQL依存) | Pending since v1.4 |
 | Bug | test_training_pipeline.py 3件既知失敗 | Pending since v1.6 |
 | Pipeline | _build_race_level_features() rl_*列処理 | Pending since v1.7 |
-| Feature | 人気帯キャリブレーション (CAL-01~03) | Deferred to Phase 39+ |
-| Feature | レジーム×サーフェスEV補正 (CAL-04~05 retired) | Deferred to Phase 39+ |
-| Validation | 芝IC b_difference正転換 (VAL-02~06) | Deferred to Phase 39+ |
+| Validation | 芝IC b_difference正転換 (VAL-02~06) | Deferred to v2.1+ |
 | Feature | コーナー通過順位展開特徴量 (HLF-06~08) | Future |
 | Feature | E-correction fundamental activation (EFA-01~03) | Future |
 | Feature | 坂路調教タイムETL (TDF-01) | Future |
-| Pipeline | CLV予測モデル / OOF drift detector | v2.1+ |
+| Optimization | Optuna 19次元パラメータ最適化 (DEP-02) | Deferred to v2.2 |
+| Automation | デプロイゲート自動判定 (DEP-01) | Deferred to v2.2 |
 
 ## Session Continuity
 
 Last session: 2026-05-27T20:00:00Z
-Stopped at: Milestone archived
-Next: `/gsd:new-milestone` to start v2.1+
+Stopped at: Roadmap created for v2.1 (Phases 39-42)
+Resume file: None
