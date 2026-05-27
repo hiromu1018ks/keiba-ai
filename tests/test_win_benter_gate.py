@@ -151,7 +151,7 @@ class TestApplyEdgeWin:
 
 
 class TestGenerateWinOofPredictions:
-    """OOF 予測生成が3つの整合配列を返す."""
+    """OOF 予測生成が DataFrame を返す."""
 
     def test_oof_output_shape(self) -> None:
         from models.win_benter_gate import generate_win_oof_predictions
@@ -161,6 +161,10 @@ class TestGenerateWinOofPredictions:
             {
                 "race_id": [f"R{i // 5}" for i in range(n)],
                 "race_date": pd.date_range("2020-01-01", periods=n, freq="D"),
+                "umaban": [i % 5 + 1 for i in range(n)],
+                "popularity_rank": [i % 5 + 1 for i in range(n)],
+                "field_size": [5] * n,
+                "surface": ["turf"] * n,
                 "p_win_pred": np.random.uniform(0.05, 0.4, n),
                 "tanodds": np.random.uniform(2.0, 20.0, n),
                 "kakuteijyuni": np.random.randint(1, 16, n),
@@ -196,19 +200,23 @@ class TestGenerateWinOofPredictions:
                 result["ev_win_corrected"] = result["p_win_corrected"] * result["tanodds"]
                 return result
 
-        p_fund, p_market, y = generate_win_oof_predictions(
+        result = generate_win_oof_predictions(
             df,
             win_model_cls=FakeWinTwoStageModel,
             ev_corrector=FakeEVCorrectionModel(),
             n_splits=5,
         )
 
-        assert len(p_fund) == len(p_market) == len(y)
-        assert len(p_fund) > 0
-        assert not np.any(np.isnan(p_fund))
-        assert not np.any(np.isnan(p_market))
-        # y should be binary (0 or 1)
-        assert set(np.unique(y)).issubset({0, 1})
+        assert isinstance(result, pd.DataFrame)
+        assert len(result) > 0
+        # Check required columns for MarketAwareWinCalibrator (D-18/D-19/D-20)
+        for col in [
+            "p_win_oof", "p_market_norm", "tanodds", "popularity_rank",
+            "field_size", "p_win_race_rank_pct", "race_id", "kakuteijyuni",
+        ]:
+            assert col in result.columns, f"Missing column: {col}"
+        assert not result["p_win_oof"].isna().any()
+        assert not result["p_market_norm"].isna().any()
 
 
 # ---------------------------------------------------------------------------
@@ -217,7 +225,7 @@ class TestGenerateWinOofPredictions:
 
 
 class TestSubmodelSetWinFields:
-    """SubmodelSet に win_benter, win_isotonic_calibrator, win_temperature_scaler がある."""
+    """SubmodelSet has market_aware_win_calibrator (Phase 39 CAL-04)."""
 
     def test_win_fields_exist(self) -> None:
         from dataclasses import fields as dc_fields
@@ -225,12 +233,15 @@ class TestSubmodelSetWinFields:
         from domain.models import SubmodelSet
 
         field_names = [f.name for f in dc_fields(SubmodelSet)]
-        assert "win_benter" in field_names
-        assert "win_isotonic_calibrator" in field_names
-        assert "win_temperature_scaler" in field_names
+        assert "market_aware_win_calibrator" in field_names
+        # Old fields removed (CAL-04)
+        assert "win_benter" not in field_names
+        assert "win_isotonic_calibrator" not in field_names
+        assert "win_temperature_scaler" not in field_names
+        assert "win_segment_calibrator" not in field_names
 
     def test_win_fields_default_none(self) -> None:
-        """win_* フィールドのデフォルト値が None であることを確認する."""
+        """market_aware_win_calibrator フィールドのデフォルト値が None であることを確認する."""
         # 他の必須フィールドはmockで埋める
         from domain.models import SubmodelSet
 
@@ -246,9 +257,7 @@ class TestSubmodelSetWinFields:
             wide=mock,
             conformal_ev_model=mock,
         )
-        assert sub.win_benter is None
-        assert sub.win_isotonic_calibrator is None
-        assert sub.win_temperature_scaler is None
+        assert sub.market_aware_win_calibrator is None
 
 
 # ---------------------------------------------------------------------------
