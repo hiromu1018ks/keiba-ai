@@ -56,7 +56,12 @@ See `.planning/milestones/` for archived roadmaps.
   2. Segment conditioning uses popularity rank, odds band, and probability rank from InvestmentFeatureFrame output as regularized features/interactions in a global calibrator (not per-segment coefficients), preventing sparse segment overfitting
   3. Calibrator output maintains probability quality (Brier, logloss, ECE) after normalization and satisfies sum-to-1.0 constraint per race
   4. WinBenterGate and WinSegmentCalibrator are removed from the pipeline with no remaining call sites
-**Plans**: TBD
+**Plans**: 3 plans
+
+Plans:
+- [ ] 39-01-PLAN.md -- MarketAwareWinCalibrator class with feature encoding, training, inference, guards
+- [ ] 39-02-PLAN.md -- TrainingPipeline integration + SubmodelSet field update
+- [ ] 39-03-PLAN.md -- RacePredictor + ModelLoader integration (remove old components)
 
 ### Phase 40: Race-Level Ranker
 **Goal**: A learned ranker orders horses within each race by combining relevance (win/finishing-position) and value/mispricing signals, producing an investment_score that replaces hand-tuned formulas
@@ -98,7 +103,7 @@ Phases execute in numeric order: 39 → 40 → 41 → 42
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
 | 1-38 | v1.0-v2.0 | 84/84 | Complete | 2026-05-27 |
-| 39. MarketAwareWinCalibrator | v2.1 | 0/? | Not started | - |
+| 39. MarketAwareWinCalibrator | v2.1 | 0/3 | Planning | - |
 | 40. Race-Level Ranker | v2.1 | 0/? | Not started | - |
 | 41. Shadow Comparison | v2.1 | 0/? | Not started | - |
 | 42. Feature Routing Audit & Safety | v2.1 | 0/? | Not started | - |
