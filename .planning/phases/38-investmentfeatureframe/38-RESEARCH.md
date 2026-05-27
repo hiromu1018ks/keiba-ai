@@ -692,14 +692,14 @@ def validate_schema_identity(
 | A5 | ConformalEVModel.FEATURE_COLSにPOST_RACE列が含まれない | Leakage Detection | LOW - test_post_race_leakage.pyで検証済み |
 | A6 | 派生特徴量の計算式(race-relative, uncertainty等)は具体的な設計で決定可能 | Claude's Discretion | LOW - 計算式は確定可能だが、最適な設計は実装時に検証が必要 |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **OOF EV補正の完全な伝播**
+1. **OOF EV補正の完全な伝播** (RESOLVED)
    - What we know: generate_ev_oof_predictions()はWinTwoStage→EVCorrectionのOOFチェーンを実行する (training_pipeline.py:1361-1404)
    - What's unclear: OOF fold内でIsotonic + band scale補正も実行されるか、それともev_win_correctedのみか。もしIsotonicがOOF内で適用されない場合、train modeではev_win_calibratedは利用できず、ev_win_correctedが上限となる
    - Recommendation: training_pipeline.py:1393を確認。ev_win_correctedはcorrect_ev()の直接出力であり、Isotonicは別途fit_ev_calibration()で適用される。したがってtrain modeのキャリブレーション済みEV相当列はev_win_correctedまで
 
-2. **Benter Gate OOF予測のtrain mode可用性**
+2. **Benter Gate OOF予測のtrain mode可用性** (RESOLVED)
    - What we know: generate_win_oof_predictions()でp_win_oofが生成される (win_benter_gate.py:130)
    - What's unclear: p_win_finalのOOF版(p_win_final_oof)が生成されるか。Benter combination自体は学習パイプライン内でOOF予測に対してfittingされるが、OOF予測にBenterを適用したp_win_final_oofが明示的に生成されるかは未確認
    - Recommendation: p_win_final_oofが存在しない場合、train modeではp_win_corrected(OOF)をif_p_win_finalのソースとする。これが最もOOF-safeなBenter前確率
