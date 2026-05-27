@@ -119,8 +119,8 @@ progress:
 - [x] **Phase 36: Feature Computation** - Turf relative features + conditional interactions + Haron/Lap PIT-safe (completed 2026-05-20)
 - [x] **Phase 36.1: HaronTime L4/LapTime Redesign** - クロスレベル派生特徴量 + BT hist_features修正 (completed 2026-05-20)
 - [x] **Phase 36.1.1: MarketModel & RaceQuality配線修正** - Phase36特徴量ルーティング修正 + EV Tail Calibration (INSERTED) (completed 2026-05-20)
-- [ ] **Phase 37: EV Calibration Layers** - Pop band calibration + regime x surface EV correction
-- [ ] **Phase 38: Integrated Validation** - CI leakage tests + IC confirmation + BT ROI 100% + Manifest freeze
+- [x] **Phase 37: OOF Health Infrastructure** - OOF成果物の健全性検査基盤 (fail-fast validation) (completed 2026-05-27)
+- [ ] **Phase 38: InvestmentFeatureFrame** - 投資判断用統合特徴量フレーム (80-150列)
 
 ## Phase Details
 
@@ -191,28 +191,28 @@ Plans:
 - [x] 36.1.1-03-PLAN.md -- EV Tail Calibration feature family合意度 (RTG-04)
 - [x] 36.1.1-04-PLAN.md -- v1.7 vs 現行 差分診断スクリプト (RTG-05)
 
-### Phase 37: EV Calibration Layers
-**Goal**: Popularity band calibration and regime-surface EV correction improve EV accuracy for turf middle-popularity horses
+### Phase 37: OOF Health Infrastructure
+**Goal**: 全OOF成果物が健全性検査を通過し、下流コンポーネント(キャリブレータ・ランカー)が信頼できるOOF予測を利用できる状態になる
 **Depends on**: Phase 36.1.1
-**Requirements**: CAL-01, CAL-02, CAL-03, CAL-04, CAL-05
+**Requirements**: OOF-01, OOF-02, OOF-03, OOF-04, OOF-05, OOF-06, OOF-07, OOF-08, XCT-05, XCT-08
 **Success Criteria** (what must be TRUE):
-  1. Popularity band calibration (5 bands: 1-3, 4-6, 7-9, 10-12, 13+) produces per-band EV scaling factors computed from OOF residuals with extended-window OOF to prevent look-ahead bias
-  2. EVCorrectionModel.FEATURE_COLS includes regime_state, surface_x_popularity, and market_entropy_x_surface columns
-  3. regime_state propagates from RacePredictor through to EVCorrectionModel without manual intervention during backtest
-  4. Regime-EV feedback loop forced-transition test passes (regime state cannot be gamed by EV outputs)
-**Plans**: TBD
+  1. 空OOF保存がfail-fastで異常終了し、空ファイルが下流パイプラインに流入しない
+  2. race_id単位でtrain/valid重複・同一race_idの複数fold混入が検出され、混入時は学習が停止する
+  3. OOF top1 hit rate > 35% または top1 ROI > 200% の異常値が検出され停止する
+  4. health manifestに行数、レース数、fold数、fold別race_id一意性、top1 hit rate/ROI、日付範囲、source model hashが記録され、同一入力から決定的な出力が生成される(XCT-05)
+  5. 全health manifest artifactにversion、schema hash、source OOF manifest path、train日付範囲が含まれる(XCT-08)
+**Plans:** 2 plans complete
 
-### Phase 38: Integrated Validation
-**Goal**: All v1.8 features and calibration layers are validated safe, turf IC is positive, and BT ROI exceeds 100%
+Plans:
+- [x] 37-01-PLAN.md -- OOFHealthValidator + artifact profiles + AbilityModel fold column
+- [x] 37-02-PLAN.md -- Pipeline integration + fold wiring + test updates
+
+### Phase 38: InvestmentFeatureFrame
+**Goal**: 投資判断用統合特徴量フレーム (80-150列)
 **Depends on**: Phase 37
-**Requirements**: VAL-01, VAL-02, VAL-03, VAL-04, VAL-05, VAL-06
+**Requirements**: TBD
 **Success Criteria** (what must be TRUE):
-  1. 3-layer CI leakage tests cover all new HLF/TRF/INT feature columns and all pass
-  2. Turf Stage1 IC b_difference is positive (was -0.004 in v1.7)
-  3. Turf pop 4-12 calibration ratio improves from 0.527
-  4. BT 2024 ROI exceeds 100% (was 97.8% in v1.7)
-  5. Turf conservative regime ROI improves (currently unprofitable)
-  6. Manifest v1.8 is frozen with SHA256 feature hashes for all 12 models
+  1. TBD
 **Plans**: TBD
 
 ## Progress
@@ -261,5 +261,5 @@ Phases execute in numeric order: 35 -> 36 -> 36.1 -> 36.1.1 -> 37 -> 38
 | 36. Feature Computation | v1.8 | 2/2 | Complete | 2026-05-20 |
 | 36.1. HaronTime L4/LapTime Redesign | v1.8 | 2/2 | Complete | 2026-05-20 |
 | 36.1.1. MarketModel & RaceQuality配線修正 | v1.8 | 4/4 | Complete    | 2026-05-20 |
-| 37. EV Calibration Layers | v1.8 | 0/? | Not started | - |
-| 38. Integrated Validation | v1.8 | 0/? | Not started | - |
+| 37. OOF Health Infrastructure | v2.0 | 2/2 | Complete | 2026-05-27 |
+| 38. InvestmentFeatureFrame | v2.0 | 0/? | Not started | - |
