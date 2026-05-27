@@ -91,7 +91,6 @@ class ModelLoader:
         from models.two_stage_return_model import PlaceTwoStageModel, WinTwoStageModel
         from models.wide_two_stage_model import WideTwoStageModel
         from models.win_profit_selector import WinProfitSelector
-        from models.win_segment_calibrator import WinSegmentCalibrator
         from models.win_selection_gate import WinSelectionGateModel
         from models.win_selection_policy import WinSelectionPolicy
 
@@ -217,24 +216,28 @@ class ModelLoader:
                     except Exception:
                         logger.warning("Failed to load WinProfitSelector for %s", surface)
 
-            # --- WinSegmentCalibrator (MLflow) ---
-            win_segment_calibrator = None
+            # --- MarketAwareWinCalibrator (MLflow) ---
+            market_aware_win_calibrator = None
             try:
-                wsc_dir = mlflow.artifacts.download_artifacts(
-                    f"runs:/{run_id}/win_segment_calibrator_{surface}"
+                mawc_dir = mlflow.artifacts.download_artifacts(
+                    f"runs:/{run_id}/market_aware_win_calibrator_{surface}"
                 )
             except Exception:
                 try:
-                    wsc_dir = self._find_artifact_dir(run_id, f"win_segment_calibrator_{surface}")
+                    mawc_dir = self._find_artifact_dir(
+                        run_id, f"market_aware_win_calibrator_{surface}"
+                    )
                 except Exception:
-                    wsc_dir = None
-            if wsc_dir is not None:
-                wsc_files = list(Path(wsc_dir).glob("*.joblib"))
-                if wsc_files:
+                    mawc_dir = None
+            if mawc_dir is not None:
+                mawc_files = list(Path(mawc_dir).glob("*.joblib"))
+                if mawc_files:
                     try:
-                        win_segment_calibrator = WinSegmentCalibrator.load(wsc_files[0])
+                        from models.market_aware_win_calibrator import MarketAwareWinCalibrator
+
+                        market_aware_win_calibrator = MarketAwareWinCalibrator.load(mawc_files[0])
                     except Exception:
-                        logger.warning("Failed to load WinSegmentCalibrator for %s", surface)
+                        logger.warning("Failed to load MarketAwareWinCalibrator for %s", surface)
 
             # PlaceAbilityModel (joblib artifact)
             pa = PlaceAbilityModel()
@@ -346,40 +349,6 @@ class ModelLoader:
             except Exception:
                 pass
 
-            # Win Benter Combination
-            win_benter = None
-            try:
-                wb_path = mlflow.artifacts.download_artifacts(
-                    f"runs:/{run_id}/benter_combo_win_{surface}.json"
-                )
-                from models.benter_combination import BenterCombination
-
-                win_benter = BenterCombination.load(Path(wb_path))
-            except Exception:
-                pass
-
-            # Win Calibrator (Beta or Isotonic)
-            win_isotonic_calibrator = None
-            try:
-                wiso_path = mlflow.artifacts.download_artifacts(
-                    f"runs:/{run_id}/isotonic_win_{surface}.joblib"
-                )
-                win_isotonic_calibrator = joblib.load(wiso_path)
-            except Exception:
-                pass
-
-            # Win Temperature Scaler
-            win_temperature_scaler = None
-            try:
-                wtemp_path = mlflow.artifacts.download_artifacts(
-                    f"runs:/{run_id}/temp_scale_win_{surface}.json"
-                )
-                from models.benter_combination import TemperatureScaling
-
-                win_temperature_scaler = TemperatureScaling.load(Path(wtemp_path))
-            except Exception:
-                pass
-
             # Phase 19: EV Isotonic Calibrator (MLflow)
             ev_isotonic_calibrator = None
             try:
@@ -422,13 +391,10 @@ class ModelLoader:
                 benter_combo=benter_combo,
                 isotonic_calibrator=isotonic_calibrator,
                 temperature_scaler=temperature_scaler,
-                win_benter=win_benter,
-                win_isotonic_calibrator=win_isotonic_calibrator,
-                win_temperature_scaler=win_temperature_scaler,
+                market_aware_win_calibrator=market_aware_win_calibrator,
                 win_selection_gate=win_selection_gate,
                 win_selection_policy=win_selection_policy,
                 win_profit_selector=win_profit_selector,
-                win_segment_calibrator=win_segment_calibrator,
                 ev_isotonic_calibrator=ev_isotonic_calibrator,
                 ev_odds_band_scales=ev_odds_band_scales,
             )
@@ -609,7 +575,6 @@ class ModelLoader:
         from models.two_stage_return_model import PlaceTwoStageModel, WinTwoStageModel
         from models.wide_two_stage_model import WideTwoStageModel
         from models.win_profit_selector import WinProfitSelector
-        from models.win_segment_calibrator import WinSegmentCalibrator
         from models.win_selection_gate import WinSelectionGateModel
         from models.win_selection_policy import WinSelectionPolicy
 
@@ -743,13 +708,16 @@ class ModelLoader:
                 except Exception:
                     logger.warning("Failed to load %s, skipping", wps_file)
 
-            win_segment_calibrator = None
-            wsc_file = models_dir / f"win_segment_calibrator_{surface}.joblib"
-            if wsc_file.is_file():
+            # --- MarketAwareWinCalibrator (local) ---
+            market_aware_win_calibrator = None
+            mawc_file = models_dir / f"market_aware_win_calibrator_{surface}.joblib"
+            if mawc_file.is_file():
                 try:
-                    win_segment_calibrator = WinSegmentCalibrator.load(wsc_file)
+                    from models.market_aware_win_calibrator import MarketAwareWinCalibrator
+
+                    market_aware_win_calibrator = MarketAwareWinCalibrator.load(mawc_file)
                 except Exception:
-                    logger.warning("Failed to load %s, skipping", wsc_file)
+                    logger.warning("Failed to load %s, skipping", mawc_file)
 
             # PlaceAbilityModel (joblib)
             pa = PlaceAbilityModel()
@@ -825,37 +793,6 @@ class ModelLoader:
                 except Exception:
                     logger.warning("Failed to load %s, skipping", temp_file)
 
-            # Win Benter Combination (JSON)
-            win_benter = None
-            win_benter_file = models_dir / f"benter_combo_win_{surface}.json"
-            if win_benter_file.is_file():
-                try:
-                    from models.benter_combination import BenterCombination
-
-                    win_benter = BenterCombination.load(win_benter_file)
-                except Exception:
-                    logger.warning("Failed to load %s, skipping", win_benter_file)
-
-            # Win Isotonic Calibrator (joblib)
-            win_isotonic_calibrator = None
-            win_iso_file = models_dir / f"isotonic_win_{surface}.joblib"
-            if win_iso_file.is_file():
-                try:
-                    win_isotonic_calibrator = joblib.load(win_iso_file)
-                except Exception:
-                    logger.warning("Failed to load %s, skipping", win_iso_file)
-
-            # Win Temperature Scaler (JSON)
-            win_temperature_scaler = None
-            win_temp_file = models_dir / f"temp_scale_win_{surface}.json"
-            if win_temp_file.is_file():
-                try:
-                    from models.benter_combination import TemperatureScaling
-
-                    win_temperature_scaler = TemperatureScaling.load(win_temp_file)
-                except Exception:
-                    logger.warning("Failed to load %s, skipping", win_temp_file)
-
             # Phase 19: EV Isotonic Calibrator (joblib)
             ev_isotonic_calibrator = None
             ev_iso_file = models_dir / f"ev_isotonic_{surface}.joblib"
@@ -903,13 +840,10 @@ class ModelLoader:
                 benter_combo=benter_combo,
                 isotonic_calibrator=isotonic_calibrator,
                 temperature_scaler=temperature_scaler,
-                win_benter=win_benter,
-                win_isotonic_calibrator=win_isotonic_calibrator,
-                win_temperature_scaler=win_temperature_scaler,
+                market_aware_win_calibrator=market_aware_win_calibrator,
                 win_selection_gate=win_selection_gate,
                 win_selection_policy=win_selection_policy,
                 win_profit_selector=win_profit_selector,
-                win_segment_calibrator=win_segment_calibrator,
                 ev_isotonic_calibrator=ev_isotonic_calibrator,
                 ev_odds_band_scales=ev_odds_band_scales,
                 target_encoder=target_encoder,
