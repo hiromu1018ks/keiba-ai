@@ -275,6 +275,10 @@ class TrainingPipelineV5:
                 oof_path = Path("data/oof/oof_predictions.parquet")
                 oof_path.parent.mkdir(parents=True, exist_ok=True)
 
+                # Add OOF metadata columns before validation
+                full_features_df["is_oof"] = True
+                full_features_df["oof_artifact_version"] = 1
+
                 # D-13: validate before save
                 train_date_range = (
                     str(full_features_df["race_date"].min()),

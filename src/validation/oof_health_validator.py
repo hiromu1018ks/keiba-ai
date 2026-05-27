@@ -176,11 +176,15 @@ class OOFHealthValidator:
     ) -> None:
         """OOF-03: check top1 hit rate and ROI for anomalies."""
         # Per-race top1: highest score_col horse
-        top1_rows = df.loc[
-            df.groupby("race_id", observed=True)[profile.score_col].idxmax()
-        ]
+        top1_idx = df.groupby("race_id", observed=True)[profile.score_col].idxmax()
+        top1_idx = top1_idx.dropna()
+        if len(top1_idx) == 0:
+            return
+        top1_rows = df.loc[top1_idx]
 
         n_races = len(top1_rows)
+        if n_races == 0:
+            return
 
         # Need kakuteijyuni for hit rate
         if "kakuteijyuni" not in top1_rows.columns:

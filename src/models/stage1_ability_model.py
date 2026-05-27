@@ -368,7 +368,9 @@ class AbilityModel:
         # データ不足時はフォールバック
         if n_dates < n_folds + 1:
             self.train(df, num_threads=num_threads)
-            return self.add_ability_probs(df)
+            df = self.add_ability_probs(df)
+            df["ability_oof_fold"] = pd.NA
+            return df
 
         # fold 境界: n_folds+1 個の等分割点
         boundaries = [dates[n_dates * (i + 1) // (n_folds + 1)] for i in range(n_folds)]
