@@ -1,230 +1,276 @@
 # Domain Pitfalls
 
-**Domain:** Horse racing prediction system (keiba-ai v5.5) -- adding 5 feature enhancements to an existing system that has already survived 8 milestones and 34 phases
-**Researched:** 2026-05-19
-**Context:** v1.8 Turf Precision Calibration -- haron/lap ETL, popularity band calibration, turf relative features, condition interactions, regime x surface EV correction
+**Domain:** Horse racing prediction -- Investment Pipeline Restructuring (v2.0)
+**Researched:** 2026-05-27
+**Context:** v2.0 milestone adding 5 components: OOF Health, InvestmentFeatureFrame, MarketAwareWinCalibrator, Segment Calibration integration, Race-Level Ranker. Built on existing system at 87.8% BT ROI (Phase #33), targeting 100%+.
 
 ## Critical Pitfalls
 
-Mistakes that cause model invalidation or silent data leakage.
+Mistakes that cause rewrites or major issues.
 
-### Pitfall 1: POST_RACE Leakage in Haron/Lap Time Features
+### Pitfall 1: Race Normalization Destroys Calibrated Probabilities
 
-**What goes wrong:** Using the *current race's* haron time (harontimel3/harontimel4) or lap times (LapTime1~25) as features for predicting the current race. These values are only known after the race finishes -- they are the outcome, not the input.
+**What goes wrong:** After Benter blending and calibration produce well-calibrated probabilities, race normalization (`p_win_final = p_combined / sum(race)`) recalibrates them relative to the race sum. If any single horse's probability is badly off (e.g., a scratched horse with stale odds still contributing 0.15), every other horse's probability shifts. The calibration you carefully built is gone.
 
-**Why it happens:** The haron/lap columns already exist in the entries Parquet alongside pre-race columns. When building history-based features (e.g., "average closing speed"), a careless implementation will merge the current race's data into the horse's history *before* computing aggregates, thereby including the outcome in the feature.
+**Why it happens:** The pipeline treats normalization as a harmless post-processing step. But normalization is itself a transformation that decouples output probabilities from the calibration mapping. Combined with a Benter blend where `beta` (market weight) is large, the market odds of one bad entry corrupt all others. The existing `WinBenterGate.apply()` normalizes after calibration (line 120), which is the vulnerable ordering.
 
-The existing PaceAptitudeFeatures.compute_batch() already uses `np.searchsorted(h_dates, target_dates, side='left')` for PIT safety (pace_aptitude_features.py line 232), but any new haron/lap feature module must independently replicate this pattern. There is no shared utility for PIT-safe history aggregation -- each feature module implements it independently.
-
-**Consequences:** Model shows artificially high backtest ROI (often 120%+), then collapses in live paper trading. The v1.6 milestone explicitly built a 3-layer CI detection system (test_post_race_leakage.py) to prevent this -- any new feature that bypasses it invalidates the entire validation framework.
+**Consequences:** Calibrated probabilities become uncalibrated. Brier score improvements from Benter blending vanish after normalization. EV estimates built on `p_win_final` are systematically wrong. The team sees calibration metrics improve but ROI does not, and cannot diagnose why.
 
 **Prevention:**
-1. Add `harontimel4` and all `LapTime*` columns to `POST_RACE_COLS` in `domain/types.py`. Currently only `harontimel3` is listed (line 45). The `harontimel4` column is already present in the ETL float rules (etl.py `_TABLE_TYPE_RULES`) but is NOT in POST_RACE_COLS -- a gap.
-2. When computing haron-based history features, use the same `searchsorted(h_dates, target_dates, side='left')` pattern as PaceAptitudeFeatures. The `side='left'` ensures the current race date is excluded.
-3. The ETL already converts harontimel3 to float in `_TABLE_TYPE_RULES` (etl.py line 97), but LapTime columns are NOT in any type conversion rule -- they must be added to the `"entries"` rules.
-4. Add new haron-derived feature column names to the 3-layer CI test (`test_post_race_leakage.py`) Layer 2 check, verifying they are not in any model's FEATURE_COLS.
+- Normalize before calibration, not after. For the new MarketAwareWinCalibrator, reverse the order: normalize raw probabilities to race sum, then calibrate the normalized values.
+- Alternatively, calibrate on race-normalized probabilities directly so the calibration mapping accounts for the normalization step.
+- Validate: compute ECE both before and after normalization. If ECE degrades by more than 10% after normalization, the ordering is wrong.
+- The new calibrator must produce `p_win_final` that sums to 1.0 per race. Build normalization into the calibrator itself rather than applying it as a separate step.
 
-**Detection:**
-- Run the existing 3-layer POST_RACE test suite after implementation.
-- Compare backtest ROI with and without haron features. If haron features boost ROI by >10pp in backtest but paper trading ROI stays flat, suspect leakage.
-- Check that new feature values for the last race in a horse's history are NaN (not the race outcome).
+**Detection:** ECE improves on `p_win_combined` but regresses on `p_win_final`. Calibration reliability diagram shows good calibration pre-normalization, poor calibration post-normalization. ROI does not track with calibration metric improvements.
 
-### Pitfall 2: Look-Ahead Bias in Popularity Band Calibration
+---
 
-**What goes wrong:** Computing popularity band calibration ratios using OOF residuals that include future data. If the calibration is computed globally (e.g., "horses ranked 1-3 popularity have average residual X") using all OOF data at once rather than in a time-ordered expanding window, it leaks information.
+### Pitfall 2: Post-Race Data Leakage in Feature Pipeline
 
-**Why it happens:** The existing EV calibration pipeline already uses K-fold OOF in `generate_ev_oof_predictions()` (training_pipeline.py line 1102), which is correct for the isotonic calibrator. But popularity band calibration is a *new* layer that segments by popularity rank and applies residual scaling. If this segmentation uses the full OOF residual distribution (including fold 4 residuals when calibrating fold 1), it leaks information.
+**What goes wrong:** InvestmentFeatureFrame includes features derived from data that is only available after the race finishes. The most dangerous sources: `confirmed_odds` (final odds, only known post-race), `kakuteijyuni` (finishing position), `harontime` (sectional times), `time` (finish time). Even indirect leakage through features like "jockey win rate at this meeting" computed using today's results is fatal.
 
-The v1.4 milestone already fixed this exact pattern in OddsBandFilter: the `calibrate()` method was changed to use `training_bet_history` generated with default parameters (v1.4 Key Decision). Popularity band calibration must follow the same discipline.
+**Why it happens:** During feature engineering, it is natural to use all available columns. The existing codebase already has `confirmed_odds` vs `tanodds` confusion -- `WinSegmentCalibrator.train()` line 153-158 explicitly falls back from `confirmed_odds` to `tanodds`, suggesting this has been a problem before. `EVCorrectionModel` uses `confirmed_odds` for training label construction, which is correct for training but becomes leakage if the same column is used as a feature.
 
-**Consequences:** Overconfident EV estimates in backtest that fail to reproduce in forward testing. The calibration appears to work because it "knows" which popularity bands were profitable in the test period.
+**Consequences:** Backtest shows inflated ROI that collapses in production. Model appears to predict outcomes but is actually reading the answer from leaked features. This is the single most common cause of betting system failures that look good in testing but fail in deployment.
 
 **Prevention:**
-1. Compute popularity band calibration ratios using ONLY expanding-window or rolling-window past data. The training_pipeline already sorts by race_date for PIT safety (line 240-241).
-2. If using OOF residuals for calibration, ensure the residual computation for each fold uses only data from *earlier* folds. This means popularity_band_calibration must be computed inside the OOF loop, not after.
-3. Alternative safe approach: compute band ratios on the training set only (before OOF), then apply to OOF predictions. This is less precise but guaranteed leak-free.
-4. The OddsBandFilter.calibrate() method already uses `bet_history` which is generated with default parameters to avoid look-ahead. Popularity band calibration must follow the same pattern.
+- Implement a strict feature allowlist. Only columns available at prediction time (before race start) may enter InvestmentFeatureFrame. `tanodds` (morning/early odds) is acceptable; `confirmed_odds` is not.
+- Use the existing `leakage_validators.py` framework to validate every new feature. Extend it with an explicit `PREDICTION_TIME_COLUMNS` allowlist.
+- For each feature, trace the data lineage: what column(s) is it derived from? When is that column populated? If any source column is populated after the race start bell, the feature is contaminated.
+- Late odds features (`tanoddslow`, `tanoddshigh`) are edge cases -- they are available during late betting but may not be available at the moment of prediction in a real-time system. Document the assumed data availability timestamp for each feature.
+- CI must fail if any feature column's lineage traces to post-race data.
 
-**Detection:**
-- Compare calibration ratios computed with expanding window vs. global computation. Large discrepancies indicate leakage.
-- Run the existing `test_ev_correction_odds_col_uses_pre_race_odds` test pattern to verify no post-race odds are used.
-- If popularity band calibration alone boosts ROI by >5pp, suspect leakage.
+**Detection:** Train with and without candidate features. If removing a feature causes ROI to drop by more than 30%, it may be leaking. Run feature importance -- any feature with importance >0.15 that derives from odds-related data is suspicious. Cross-validate with intentionally time-shifted features (shift odds by 1 race) -- if performance holds, the feature is likely genuine.
 
-### Pitfall 3: Regime-Surface Circular Dependency
+---
 
-**What goes wrong:** Adding `regime` state as a feature to the EV correction model creates a potential circular dependency: the EV model's output determines betting decisions, which affect recent race outcomes, which feed into RegimeDetector, which classifies the regime, which feeds back into the EV model.
+### Pitfall 3: LightGBM Ranker Group Parameter Misalignment
 
-**Why it happens:** The RegimeDetector.detect() method (regime_detector.py line 167) uses `recent_stats` -- aggregated statistics from recent races. During training, this is not a problem because regime is computed from market data (pre-race odds features only), not from model predictions. But during live inference, regime depends on recent results which may be influenced by the model's own betting behavior in paper trading.
+**What goes wrong:** The `group` parameter in LightGBM's lambdarank objective must exactly match race boundaries. If the data is not sorted by `race_id` with contiguous groups, or if the group sizes don't match the actual number of horses per race, the ranker learns from wrong query boundaries. Horses from different races get compared against each other during lambda construction.
 
-The current RegimeDetector.FEATURE_COLS (regime_detector.py lines 60-89) uses ONLY market-level pre-race features (market_error_std, overround_rolling, odds_skewness, rl_* race-level features, etc.). It does NOT use model outputs. This isolation is correct and must be maintained.
+**Why it happens:** The training pipeline filters rows (e.g., removing horses with missing features, filtering by surface, excluding `haronnashi` entries) after computing group sizes. The group array no longer matches the filtered data. This is especially likely when the InvestmentFeatureFrame produces NaN for some horses (e.g., first-time starters with no historical features), and those rows get dropped.
 
-**Consequences:** In live paper trading, the model may exhibit oscillating regime-dependent corrections. If regime shifts to AGGRESSIVE, EV corrections amplify, bets increase, losses accumulate, regime shifts to CONSERVATIVE, corrections shrink, bets decrease, losses recover, regime shifts back -- creating a feedback loop.
+**Consequences:** The ranker produces garbage rankings. It may appear to work on average metrics but fails at the race level. ROI is unpredictable. Debugging is extremely difficult because the model trains without error -- LightGBM does not validate group boundaries against data content.
 
 **Prevention:**
-1. When adding regime-derived features to EVCorrectionModel.FEATURE_COLS, ensure the regime value is the *market-derived* regime (computed from pre-race odds), NOT a feedback loop from betting results.
-2. The regime is already race-level (same for all horses in a race) -- verify that adding it to EV correction does not create per-horse regime interactions that could amplify feedback.
-3. Add regime to EVCorrectionModel.FEATURE_COLS only after the RegimeDetector is trained and its predictions are stable (i.e., regime is computed from market features that are independent of the EV model's output).
-4. Test: force regime transitions in backtest and check for ROI oscillation. If ROI swings >5pp per forced transition, the feedback is too strong.
+- Compute group sizes AFTER all filtering, immediately before passing to LightGBM.
+- Add a validation assertion: `sum(groups) == len(X_train)`. This must be checked every training run.
+- Sort by `race_id` before computing groups. Never assume data is already sorted.
+- Log race_id boundaries and group sizes during training for post-hoc validation.
+- When NaN-filled rows are kept (instead of dropped), the group computation is simpler but the model must handle NaN input -- LightGBM handles NaN natively, so this is the safer path.
 
-**Detection:**
-- Simulate regime transitions in backtest by forcing regime state changes. If ROI oscillates wildly with forced regime shifts, the feedback loop is too strong.
-- Check that regime detector's training features (line 60-89) have zero overlap with EV model outputs.
+**Detection:** Random spot-check: pick 5 races, verify the group boundaries align with race_id transitions. If average group size differs from expected field size (~12-18 horses), groups are wrong. Log per-race NDCG during validation -- if many races show NDCG=1.0, the ranker is not discriminating (possible sign of group misalignment or trivial labels).
 
-### Pitfall 4: HaronTimeL3/L4 Data Quality -- Sentinel Values (000/999)
+---
 
-**What goes wrong:** EveryDB2 stores measurement failures and special cases as 000 or 999 values in harontimel3/harontimel4 columns. Treating these as legitimate times (e.g., 0.0 seconds or 99.9 seconds) introduces extreme outliers that corrupt averages, z-scores, and any model that sees them.
+### Pitfall 4: Double-Correction from Cascading Calibration Layers
 
-**Why it happens:** The ETL pipeline currently converts harontimel3 to float via `_to_float()` (etl.py line 97) without any sentinel value handling. A value of "000" becomes 0.0, and "999" becomes 999.0. Both are physically impossible (normal haron times are 32-42 seconds for 3 furlongs). The existing PaceAptitudeFeatures (pace_aptitude_features.py line 270-273) uses `ht_valid_pace = ht_past[~np.isnan(ht_past)]` which catches NaN but NOT 0.0 or 999.0.
+**What goes wrong:** The existing pipeline already has multiple calibration points: `EVCorrectionModel` (P-correction + E-correction), `BenterCombination` (logit blend), `WinBenterGate` (calibration + temp scaling + normalization), `WinSegmentCalibrator` (segment-based shrinkage), and `WinSelectionPolicy` (score-based selection). Adding `MarketAwareWinCalibrator` as a new layer creates a chain where each layer assumes its input is the raw model output, but in reality each input is already calibrated by the previous layer. The compound effect is over-shrunk probabilities that never trigger bets.
 
-**Consequences:** "Average haron time" features get wildly wrong values. A single 0.0 value can pull the average below 30s, making a horse look like it has superhuman closing speed. A 999.0 value pushes averages above 100s. Both corrupt the model's learned relationship between haron time and winning probability.
+**Why it happens:** Each calibration layer is designed and tested in isolation. The BenterCombination blends model probability with market probability. The segment calibrator shrinks overconfident segments. The new MarketAwareWinCalibrator calibrates again. None of these layers communicate about what the previous layer already did.
+
+**Consequences:** Final probabilities are systematically biased toward the prior (market). Edge estimates (`p * odds - 1`) are compressed toward zero. Bet count drops below viable levels. ROI may improve slightly (fewer bad bets) but total return drops (too few bets). The system becomes effectively inert.
 
 **Prevention:**
-1. In the ETL pipeline, add sentinel value handling: replace harontimel3/harontimel4 values of 0.0 and >= 99.0 with NaN during `_apply_type_conversions()`.
-2. In feature computation, add an explicit validity check: `valid_mask = (haron > 30.0) & (haron < 50.0)` for harontimel3 (3 furlongs) and `valid_mask = (haron > 40.0) & (haron < 70.0)` for harontimel4 (4 furlongs).
-3. For LapTime features, JRA uses similar sentinel patterns. Each LapTime should be validated against a reasonable range (e.g., 10-20 seconds per furlong).
-4. Document the expected range for each column in the feature module's docstring.
+- Define a clear calibration pipeline with a single canonical ordering. Recommended order for v2.0: raw model -> P/E correction (existing) -> InvestmentFeatureFrame assembly -> MarketAwareWinCalibrator (new, replaces both BenterCombination and segment calibration for win probability) -> race normalization -> edge calculation.
+- The MarketAwareWinCalibrator must absorb the roles of both `WinBenterGate` and `WinSegmentCalibrator` for win probability. Do not run them in sequence.
+- Add a "calibration budget" test: after the full pipeline, check that the variance of `p_win_final` across all horses in a race is not compressed below 1.5x the variance of raw `1/tanodds`. If variance is too low, the pipeline is over-correcting.
+- Explicitly disable or bypass the existing `WinBenterGate` and `WinSegmentCalibrator` when the new calibrator is active. The ROI_IMPROVEMENT_PLAN.md Phase 3 already recommends Option B (integrate WSC as features into MarketAwareWinCalibrator), which is correct.
 
-**Detection:**
-- After ETL, check `data/raw/entries.parquet` for harontimel3 values outside [30, 50] range. Count should be 0 after sentinel handling.
-- In feature computation, log the percentage of valid haron values per horse. Horses with <50% valid history should get NaN features rather than unreliable averages.
-- Add a data quality assertion in tests: after ETL, assert harontimel3 is either NaN or in [30, 50].
+**Detection:** Compare variance of `p_win_final` vs `1/tanodds` across races. If the ratio is consistently below 1.5, over-correction is happening. Track bet count per race in backtest -- if it drops below 0.5 bets/race (from current ~1-2), the system is too conservative.
+
+---
+
+### Pitfall 5: OOF Contamination Across Temporal Boundaries
+
+**What goes wrong:** The OOF (out-of-fold) prediction generation uses expanding walk-forward splits, but if the data contains races from the same meeting in both train and validation folds, or if feature computation uses data from the validation period (e.g., rolling jockey stats computed across the fold boundary), the OOF predictions are contaminated. This makes all downstream calibration unreliable.
+
+**Why it happens:** `_walk_forward_race_splits()` in `win_benter_gate.py` splits by race index position, not by date boundary. If races are sorted by `race_date` but not by time-of-day within a date, races from the same day can straddle the split point. Additionally, feature computation (e.g., `expanding().mean()` stats) may include data from the validation period if computed before the split. The `KFold(n_splits=5, shuffle=False)` in `market_model.py` preserves time order but does not guarantee date-level separation.
+
+**Consequences:** OOF predictions appear better than they actually are. Benter blend weights are overfitted to contaminated data. Calibration metrics (ECE, Brier) are optimistic. When deployed, real out-of-sample performance is worse than expected.
+
+**Prevention:**
+- Split OOF by `race_date` with a 1-day gap between train and validation folds. Never allow same-date races in both folds.
+- Compute all features BEFORE splitting, using only expanding windows that strictly exclude the current row's data. The existing `leakage_validators.py` already provides this check -- extend it to OOF generation.
+- Add a validation check: for each fold, verify that `max(train_race_date) < min(val_race_date)`.
+- Replace `KFold(n_splits=5, shuffle=False)` in market_model.py with explicit date-based splits.
+
+**Detection:** Compare OOF-based metrics with truly held-out test metrics. If OOF Brier score is more than 10% better than test Brier score, contamination is likely. Check fold overlap: `set(train_race_dates) & set(val_race_dates)` must be empty.
+
+---
 
 ## Moderate Pitfalls
 
-### Pitfall 5: Overfitting with Interaction Features
+### Pitfall 6: Betting System Label Sparsity in Ranker Training
 
-**What goes wrong:** Adding too many interaction features (grade x form, distance x closing, etc.) for the dataset size. The system already has 12 interaction features (interaction_features.py) plus ~179 total features. Adding more interactions without pruning can exceed the model's effective dimensionality.
+**What goes wrong:** Only one horse per race wins (label=1 for exactly one entry). In an 18-horse field, the positive class ratio is ~5.5%. This extreme sparsity makes lambdarank training unstable -- the gradient signal is dominated by the vast majority of negative pairs. The ranker learns to predict "nobody wins" and converges to a trivial solution where all horses get similar scores.
 
-**Why it happens:** Interaction features multiply the feature space combinatorially. `grade_code` has ~8 unique values, form features are continuous -- their product creates ~8 new feature distributions. With a dataset of ~50K races (entries.parquet 2015-2025), adding 10+ interaction features with rare categories can leave some combinations with <100 samples.
-
-**Prevention:**
-1. Use the existing IC evaluation framework (B-difference / C-orthogonal / E-incremental) to validate each new interaction independently. Only keep interactions with E-incremental IC > 0.
-2. Limit interaction features to combinations with strong domain justification: grade x form (graded race form is more predictive); distance x closing (closing speed matters more in longer races).
-3. Apply the existing GPD diagnostics (FEATURE_CATEGORY_MAP) to track new interactions' contribution. If MDR/FAD metrics show no contribution, prune immediately.
-4. The existing system already has `feature_fraction=0.7` in LightGBM configs, which provides implicit feature selection. But this is insufficient if 90% of new features are noise.
-
-**Detection:**
-- Run IC evaluation before and after adding interactions. If E-incremental IC is negative, the interaction is hurting.
-- Check LightGBM feature importance: if new interactions consistently rank in the bottom 20%, they are noise.
-
-### Pitfall 6: Turf-Specific Features That Do Not Generalize to Dirt
-
-**What goes wrong:** Building features that work well for turf races (the majority in JRA) but actively harm dirt race predictions. The v1.8 milestone explicitly targets turf model improvement (turf b_difference is -0.004, target positive), but features must not harm dirt model performance (currently profitable at 107.4% ROI).
-
-**Why it happens:** Turf races in JRA have distinct characteristics: more distance variation, more pronounced track condition effects, different running styles. Features derived from these patterns (e.g., turf-specific closing speed rankings) may encode turf-specific biases that LightGBM cannot fully separate via the surface submodel.
+**Why it happens:** Binary win/loss labels provide minimal gradient signal per race. Lambdarank constructs pairwise gradients, but with only 1 positive per ~15-18 horses, most pairs have identical labels and contribute zero gradient.
 
 **Prevention:**
-1. Train and evaluate turf and dirt submodels separately (already done via SubModelManager). Ensure new features are evaluated on BOTH surfaces.
-2. For turf-specific features, add surface conditioning: `feature_value = np.where(surface == 'turf', computed_value, np.nan)`. This prevents dirt races from getting noisy turf-derived values.
-3. The existing `haron_x_distance` interaction (interaction_features.py line 114) is already surface-agnostic. New turf-specific interactions should explicitly include surface in the interaction.
-4. Monitor dirt ROI after each new feature addition. If dirt ROI drops below 100%, the feature is hurting and must be modified or gated.
+- Use graded relevance labels instead of binary win/loss. Map finishing position to relevance: 1st=5, 2nd=4, 3rd=3, 4th-5th=2, 6th-10th=1, rest=0. This provides much richer gradient signal.
+- Set `label_gain` in LightGBM lambdarank to match the relevance mapping.
+- Use `lambdarank_truncation_level=3` or `5` to focus learning on the top positions, which are most relevant for betting.
+- Ensure at least 10,000 races in the training set to provide sufficient positive examples (~10,000 winning samples).
 
-**Detection:**
-- Compare b_difference for turf and dirt separately after each feature addition.
-- Run the IC evaluation framework with surface stratification.
+### Pitfall 7: Segment Boundary Edge Effects in Calibration
 
-### Pitfall 7: Feature Cache Invalidation After ETL Schema Changes
+**What goes wrong:** The existing `WinSegmentCalibrator` bins odds into bands like [1-2), [2-5), [5-10), etc. A horse at odds 4.99 gets segment factor X, while a horse at odds 5.01 gets segment factor Y. If X and Y differ significantly (e.g., X=0.90, Y=0.95), a tiny odds movement causes a 5% probability shift. This creates discontinuous, unstable selection behavior.
 
-**What goes wrong:** The FeatureEngine uses a code-hash-based cache (feature_engine.py line 37-58). When new haron/lap ETL columns are added to the entries Parquet, the cache key includes input_paths timestamps and code_hash. If the ETL atomically replaces the parquet file (which it does -- etl.py line 122-124), the timestamp changes and cache invalidation works correctly. But if the entries.parquet gains new columns (harontimel4, LapTime) while the code has not been updated to reference them, the cache may serve features that include the new columns as unused NaN, masking the fact that the data is available.
-
-**Why it happens:** `compute_cache_key()` uses input_paths, date_range, feature_type, and code_hash. It does NOT include the schema (column list) of the source parquet files. If the entries.parquet gains new columns but the feature code has not changed, the code_hash stays the same and the cache key is identical -- but the data is different.
+**Why it happens:** Hard bin boundaries create artificial discontinuities. The Benter-style calibration is sensitive to input probability -- a 5% shift in probability at the segment boundary translates to a non-trivial change in edge calculation.
 
 **Prevention:**
-1. After ETL changes that add columns, explicitly delete the feature cache directory (`data/features/cache/`) before re-training.
-2. Add the entries.parquet schema (column list hash) to the cache key computation in `compute_cache_key()`.
-3. Add a cache validation check that verifies the cached DataFrame has all expected columns.
+- Use overlapping bins with soft boundaries instead of hard cuts. Apply a weighted average of adjacent segment factors for horses near bin edges.
+- The MarketAwareWinCalibrator should treat odds as a continuous feature rather than binning it. This is one reason Phase 3 recommends integrating WSC as features rather than using it standalone.
+- If bins must be used, validate that adjacent segments have factors within 0.03 of each other. Flag and investigate any segment pair where the gap exceeds this threshold.
 
-**Detection:**
-- After ETL + training, check the feature cache hit/miss log. A cache HIT immediately after ETL schema changes is suspicious.
-- Compare the number of columns in cached features vs. freshly computed features.
+### Pitfall 8: Feature Multicollinearity Between Model and Market Probabilities
 
-### Pitfall 8: Inference Path Missing New Feature Computation
+**What goes wrong:** InvestmentFeatureFrame includes both model-derived probabilities (`p_win_corrected`, `p_win_combined`) and market-derived probabilities (`1/tanodds`, overround). These are highly correlated (typically rho > 0.8). When fed into the MarketAwareWinCalibrator, the model cannot distinguish model information from market information, and the learned blend weights become unstable across training runs.
 
-**What goes wrong:** `FeatureEngine.build_features()` (the single-race inference method, feature_engine.py line 414) is a SEPARATE code path from `build_all()` (the batch training method). The inference path currently computes only basic features via `_map_basic_features()`, flb_slope, race_level_features, and market_cross_features. If new features (haron history, interactions, regime x surface) are added only to `build_all()` or the training pipeline's submodel path, they will be missing at inference time.
-
-**Why it happens:** The current design intentionally separates batch and inference paths. Haron/lap history features and interaction features are computed in the TrainingPipeline's `_train_submodel()` method (not in FeatureEngine at all). This means they are also missing from the BacktestEngine's inference path -- which is fine because backtest re-trains each year. But live paper trading via BettingOrchestrator calls `build_features()`, which would be missing new features.
+**Why it happens:** Model probability and market probability are both estimating the same underlying quantity (true win probability). High correlation is expected. But when both appear as raw features, the calibrator sees redundant information and its coefficients become ill-conditioned.
 
 **Prevention:**
-1. Any new feature computed in the training pipeline must also be computable in the inference path. For haron/lap history features, the inference path needs access to ParquetStore to load historical entries.
-2. Add an explicit test that verifies feature parity between training and inference paths for new columns.
-3. Consider refactoring: move feature computation from TrainingPipeline into FeatureEngine so both paths share the same code.
+- Construct features that capture the DIFFERENCE between model and market, not both raw values. Key features: `logit(p_model) - logit(p_market)` (the "edge" in logit space), `p_model / p_market` (relative confidence), `rank(p_model) - rank(p_market)` (ranking disagreement).
+- Use the raw model and market probabilities as inputs only, not as features for the calibrator. The calibrator's job is to produce a calibrated blend; the features should help it decide how to blend, not provide redundant copies of the inputs.
+- Check VIF (Variance Inflation Factor) for the feature set. Flag any feature with VIF > 10.
 
-**Detection:**
-- Live predictions producing different rankings than backtest predictions.
-- NaN values for new features in the inference path but not in training.
+### Pitfall 9: Regime-Dependent Calibration Instability
+
+**What goes wrong:** The calibrator is trained across all market regimes (aggressive, conservative, collapsed per the existing RegimeDetector). In collapsed markets (low liquidity, high overround), the market is noisy and the Benter blend should weight the model more heavily. In aggressive markets, the market is efficient and should get more weight. A single set of blend weights cannot handle both.
+
+**Why it happens:** The RegimeDetector uses market-level features (overround, favorite rate) to classify regimes. Each regime has different market efficiency characteristics. A calibrator trained on the full period learns average blend weights that are suboptimal for each individual regime.
+
+**Prevention:**
+- Include regime indicators as features in the MarketAwareWinCalibrator so it can adjust blend behavior by regime.
+- The ROI_IMPROVEMENT_PLAN.md already specifies "regime-independent structure" as a key decision, meaning the calibrator should not have separate branches per regime. Instead, regime information should flow as a continuous feature that the calibrator uses internally.
+- Validate calibration quality separately per regime. If ECE in collapsed regime is >2x ECE in aggressive regime, the calibrator is regime-blind and needs regime features.
+
+### Pitfall 10: Year-Over-Year Segment Effect Inversion
+
+**What goes wrong:** The existing `WinSegmentCalibrator` shows year-dependent effectiveness -- it helps 2025 turf, is neutral for 2024, and does not address 2025 dirt decline. If the new segment calibration (integrated into MarketAwareWinCalibrator) is trained on 2020-2024 data, the learned segment corrections may invert in 2025. A segment that was overconfident in the training period becomes underconfident in the test period, and the "correction" makes things worse.
+
+**Why it happens:** Betting market efficiency changes year over year. A segment that was mispriced in 2022 may be correctly priced in 2025 as the market adapts. Segment corrections based on historical residuals do not generalize.
+
+**Prevention:**
+- Use Bayesian shrinkage with strong priors (the existing `prior_strength=500` is a reasonable starting point). Strong priors prevent segments from deviating too far from the global mean.
+- Validate segment corrections on a held-out year. If any segment's correction flips sign between the last two training years, reduce that segment's prior or merge it with an adjacent segment.
+- The project constraint "bet count reduction forbidden" provides a natural check: if segment calibration reduces bet count by >10%, the corrections are too aggressive.
+
+### Pitfall 11: OOF Health Check False Positives Blocking Valid Models
+
+**What goes wrong:** The OOF health checks (Phase 0) include anomaly thresholds like "top1 hit rate >35% warning" and "top1 ROI >200% stop." In a small validation set or an unusual period (e.g., many favorites winning), a legitimate model can trigger these thresholds. The pipeline refuses to deploy a model that is actually fine, and the team wastes time investigating false alarms.
+
+**Why it happens:** Fixed thresholds do not account for sample size or distribution variation. A 35% top-1 hit rate is suspicious for 1000 races but normal for 50 races where a dominant favorite era occurred.
+
+**Prevention:**
+- Set thresholds based on statistical significance, not fixed values. Use confidence intervals: trigger a warning only if the metric is outside the 95th percentile of the expected distribution given the number of races.
+- Distinguish between "stop" conditions (genuine data corruption, like empty OOF arrays) and "warning" conditions (unusual but possible performance). Never block deployment on a warning; only block on a stop.
+- Log the exact threshold and the observed value when a check triggers, so the team can assess whether the trigger is reasonable.
+- The "OOF rows <70% expected" threshold is good (catches fold generation failures). The "folds <3 stop" threshold is good (catches insufficient data). The ROI-based thresholds need more nuance.
+
+### Pitfall 12: Market Model Rule 11 Violation in Calibrator Features
+
+**What goes wrong:** The existing `market_model.py` has a critical constraint (Rule 11): only `log_error` (signed/absolute) and rank are passed to Stage2, never `p_market_pred` directly. If the new MarketAwareWinCalibrator accidentally uses `p_market_pred` or `p_market_win_adj` as a feature, it violates this isolation principle and creates a different kind of leakage -- the model's own market prediction feeds back into the calibration.
+
+**Why it happens:** The InvestmentFeatureFrame assembles features from multiple sources. If market model outputs are included alongside raw market features (tanodds-derived), the calibrator may use both. The market model's prediction is already fitted to historical data and carries overfitting risk.
+
+**Prevention:**
+- InvestmentFeatureFrame must use raw market features (tanodds, implied probability, overround) but NOT market model outputs (`p_market_pred`, `p_market_win_adj`).
+- Document which columns are "raw market" vs "market model output" in the feature catalog.
+- Add a CI check: verify that no MarketAwareWinCalibrator feature column starts with `p_market`.
+
+---
 
 ## Minor Pitfalls
 
-### Pitfall 9: LapTime ETL Schema Discovery
+### Pitfall 13: LightGBM Ranker Position Bias
 
-**What goes wrong:** The `n_jyusyosiki` table in EveryDB2 contains lap time data (LapTime1~25), but the column names and count are not yet verified. If the table has fewer than 25 LapTime columns (shorter races have fewer laps), the ETL and feature code must handle variable column counts.
+**What goes wrong:** In lambdarank, the model implicitly learns that position 1 in the input order is more important. If horses are sorted by `umaban` (horse number) or starting gate position, the ranker learns gate-position bias rather than true ability.
 
-**Prevention:**
-1. Before implementing LapTime ETL, query EveryDB2 to discover the actual schema: `SELECT column_name FROM information_schema.columns WHERE table_name = 'n_jyusyosiki'`.
-2. Design the feature computation to handle variable LapTime counts per race.
-3. The `n_jyusyosiki` ETL config is already defined (etl_tables.yaml line 224-225) with `jyuni` as a positional column -- verify this matches the actual data structure.
+**Why it happens:** LambdaRank constructs pairwise gradients between positions. Without position bias regularization, the model can learn spurious correlations between input order and relevance.
 
-### Pitfall 10: Popularity Band Boundary Effects
+**Prevention:** Randomize horse order within each race before training. Or enable `lambdarank_position_bias_regularization` (LightGBM 4.1.0+) to explicitly model and reduce position bias.
 
-**What goes wrong:** The popularity band calibration uses fixed band boundaries (e.g., popularity rank 1-3, 4-6, 7-9, 10-12, 13+). Horses near the boundary get unstable calibration factors -- a horse ranked 3rd in popularity gets a very different correction than one ranked 4th, even though their actual winning probability differs only slightly.
+### Pitfall 14: Temperature Scaling Bounds Constriction
 
-**Prevention:**
-1. Use overlapping bands or smooth boundary transitions (e.g., triangular window centered on the boundary).
-2. Alternative: use continuous calibration based on popularity rank rather than discrete bands.
+**What goes wrong:** The existing `TemperatureScaling` bounds temperature to [0.3, 3.0]. In unusual market conditions (e.g., a strong model in an inefficient market), the optimal temperature might be outside this range. The bounded optimization finds a suboptimal solution at the boundary.
 
-### Pitfall 11: Interaction Feature NaN Propagation
+**Why it happens:** The bounds were set conservatively to prevent extreme temperature values that would collapse all probabilities to 0.5 or spread them to extremes. But the bounds may be too narrow for the new calibrator's input distribution.
 
-**What goes wrong:** New interaction features multiply two base features. If either base feature is NaN (which is common -- many features have 10-30% missing rates), the interaction becomes NaN. This can dramatically increase the NaN rate of the feature matrix, reducing effective training data.
+**Prevention:** Monitor how often the optimizer hits the bounds. If it hits bounds in >20% of training runs, widen them. Consider [0.1, 5.0] for the new calibrator.
 
-**Prevention:**
-1. The existing interaction_features.py already uses `.where()` with NaN checks (lines 57-59, 89-91, etc.). New interactions must follow the same pattern.
-2. For categorical interactions (string concatenation), handle NaN by producing "unknown_X" or "X_unknown" rather than NaN.
+### Pitfall 15: Race-Level Aggregation Window Mismatch
 
-### Pitfall 12: POST_RACE_COLS Whitelist Completeness
+**What goes wrong:** Features computed at the race level (e.g., "average model probability of top 3 horses in this race") require complete race data. If some horses are filtered out (e.g., missing features, surface filter removes wrong entries), the aggregation is based on a partial field and distorts the features for the remaining horses.
 
-**What goes wrong:** The POST_RACE_COLS list in domain/types.py (lines 38-55) is a whitelist that must be complete. If LapTime columns are added to the ETL but not to POST_RACE_COLS, the SAFE-01 guard in FeatureEngine.build_all() (line 393) will NOT drop them, and they could leak into features. Currently missing from POST_RACE_COLS: `harontimel4`, `dmjyuni`, `dmtime` (partially present), and all future LapTime columns.
+**Why it happens:** Data filtering happens at multiple stages. Race-level features computed before filtering include all horses; computed after filtering, they miss some. Neither is clearly correct.
 
-**Prevention:**
-1. When adding any new POST_RACE column to the ETL, immediately add it to POST_RACE_COLS.
-2. Add a CI test that verifies all columns in entries.parquet that are NOT in any model's FEATURE_COLS are either in POST_RACE_COLS or are explicitly documented as pre-race.
+**Prevention:** Compute race-level aggregations before filtering. Use NaN-safe aggregation (pandas `skipna=True`). Flag races where >30% of entries were excluded from aggregation.
+
+### Pitfall 16: EV Factor Compounding in Segment Calibration
+
+**What goes wrong:** The existing `WinSegmentCalibrator` can apply both `p_factor` (probability shrinkage) and `ev_factor` (EV shrinkage). When both are active, the effective edge is `p * odds * p_factor * ev_factor - 1`, which compounds two shrinkage factors. Even though `apply_ev_factor=False` by default, if it gets enabled, the double shrinkage can reduce edge below the betting threshold for marginal bets.
+
+**Why it happens:** The two factors were designed to correct different things (probability calibration vs EV calibration) but they compound multiplicatively on the edge.
+
+**Prevention:** The new MarketAwareWinCalibrator should apply a single correction factor, not separate p and EV corrections. If EV correction is needed, apply it as a post-processing step after the unified probability correction, not in parallel.
+
+### Pitfall 17: Deployment Gate Optimizing for Wrong Metric
+
+**What goes wrong:** The project mandates deployment decisions based on Brier/logloss/ECE, not ROI. But if the deployment gate implementation accidentally includes ROI as a criterion (or if the threshold tuning is done on ROI), the system will overfit to historical betting outcomes and deploy models that are lucky rather than calibrated.
+
+**Why it happens:** ROI is the business metric everyone watches. There is strong temptation to use it as a gate. But ROI is noisy (depends on which bets were selected) while calibration metrics directly measure probability quality.
+
+**Prevention:** Explicitly exclude ROI from the deployment decision function. The deployment gate should check: (1) Brier score improvement vs baseline, (2) logloss improvement vs baseline, (3) ECE improvement vs baseline, (4) no year-over-year regression in these metrics. ROI is reported but not a gate criterion.
+
+---
 
 ## Phase-Specific Warnings
 
-| Phase Topic | Likely Pitfall | Mitigation | Priority |
-|-------------|---------------|------------|----------|
-| A: HaronTime ETL | Pitfall 4 (sentinel values), Pitfall 12 (whitelist gap) | Add sentinel handling in ETL; add harontimel4 + LapTime to POST_RACE_COLS | CRITICAL |
-| A: LapTime ETL | Pitfall 9 (schema discovery), Pitfall 1 (leakage) | Query actual EveryDB2 schema first; add LapTime to POST_RACE_COLS | CRITICAL |
-| A: Haron/Lap feature computation | Pitfall 1 (leakage), Pitfall 4 (data quality) | Replicate PaceAptitudeFeatures PIT pattern; add range validation | CRITICAL |
-| B: Popularity band calibration | Pitfall 2 (look-ahead bias), Pitfall 10 (boundary effects) | Use expanding-window OOF calibration; consider continuous calibration | HIGH |
-| C: Turf relative features | Pitfall 6 (turf overfitting) | Evaluate on both surfaces; add surface conditioning | MEDIUM |
-| D: Condition interaction features | Pitfall 5 (overfitting), Pitfall 11 (NaN propagation) | Validate with E-incremental IC; use .where() for NaN safety | MEDIUM |
-| E: Regime x surface EV correction | Pitfall 3 (circular dependency) | Verify regime features are market-derived only; test forced regime transitions | HIGH |
-| All phases: Cache | Pitfall 7 (cache invalidation) | Delete feature cache after ETL schema changes; add schema hash to cache key | LOW |
-| All phases: Inference path | Pitfall 8 (missing inference features) | Verify feature parity between training and inference | HIGH |
-| All phases: CI tests | Pitfall 12 (test coverage gaps) | Add new feature column names to 3-layer POST_RACE test | CRITICAL |
+| Phase Topic | Likely Pitfall | Mitigation |
+|-------------|---------------|------------|
+| Phase 0: OOF Health | Empty OOF overwriting valid artifacts (false negative -- corrupted OOF passes) | Write OOF to temporary file first; validate before atomic rename to final path |
+| Phase 0: OOF Health | Same-date race leakage across folds | Split by race_date with 1-day gap; validate max(train_date) < min(val_date) |
+| Phase 0: OOF Health | Overly strict thresholds blocking valid models | Use statistical significance tests instead of fixed thresholds for warning-level checks |
+| Phase 1: InvestmentFeatureFrame | Post-race data in feature lineage | Feature allowlist + lineage tracing per feature + CI gate |
+| Phase 1: InvestmentFeatureFrame | NaN cascades from missing historical data | Default to population-level imputation; log NaN rates per feature per race |
+| Phase 1: InvestmentFeatureFrame | Late odds features unavailable at prediction time | Document data availability timestamp per feature; provide fallback to morning odds |
+| Phase 1: InvestmentFeatureFrame | Market model Rule 11 violation (using p_market_pred) | Explicit allowlist: raw market features only, never model outputs |
+| Phase 2: MarketAwareWinCalibrator | Double-correction with existing BenterCombination | Replace (not append to) WinBenterGate; disable old pipeline when new one is active |
+| Phase 2: MarketAwareWinCalibrator | Race normalization destroying calibration | Normalize before or during calibration, never after; validate ECE pre/post normalization |
+| Phase 2: MarketAwareWinCalibrator | Blend weight instability from multicollinear features | Use difference features (model-market) instead of raw duplicates; check VIF |
+| Phase 3: Segment Calibration | Year-dependent segment effect inversion | Strong Bayesian priors; validate sign stability across training years |
+| Phase 3: Segment Calibration | Segment boundary discontinuity | Use continuous features instead of hard bins; validate adjacent segment factor gap <0.03 |
+| Phase 3: Segment Calibration | Compounding p_factor and ev_factor | Single unified correction factor; avoid parallel shrinkage paths |
+| Phase 4: Race-Level Ranker | Group parameter misalignment with filtered data | Compute groups AFTER filtering; assert sum(groups)==len(X); sort by race_id |
+| Phase 4: Race-Level Ranker | Label sparsity (1 winner per ~15 horses) | Graded relevance labels; lambdarank_truncation_level=3; minimum 10K training races |
+| Phase 4: Race-Level Ranker | Position bias from input ordering | Randomize horse order within races or enable position bias regularization |
+| Phase 4: Race-Level Ranker | Optimizing for ROI instead of probability quality | Deployment gate checks Brier/logloss/ECE only; ROI is monitored but not a gate |
 
-## Critical Integration Checklist
+## Cross-Phase Integration Pitfalls
 
-Before merging any v1.8 feature, these checks MUST pass:
-
-1. **POST_RACE_COLS update:** Verify that harontimel4 and all LapTime columns are added to `domain/types.py` POST_RACE_COLS list.
-
-2. **3-layer CI test update:** Add new feature column names to `test_post_race_leakage.py` Layer 2 model coverage checks.
-
-3. **ETL type rules update:** Add LapTime columns to `_TABLE_TYPE_RULES["entries"]["float"]` in etl.py.
-
-4. **Sentinel value handling:** Verify that harontimel3/harontimel4 values of 0.0 and >=99.0 are replaced with NaN in ETL.
-
-5. **PIT pattern replication:** Any feature computed from horse history must use `searchsorted(dates, target_dates, side='left')` or equivalent to exclude the current race.
-
-6. **Surface submodel evaluation:** After each feature addition, evaluate both turf and dirt models separately. Dirt ROI must not drop below 100%.
-
-7. **Feature cache bust:** Delete `data/features/cache/` after any ETL schema change.
-
-8. **Inference path parity:** Verify `build_features()` and `build_all()` produce the same new columns for a single race.
+| Concern | Phases Involved | Risk | Mitigation |
+|---------|----------------|------|------------|
+| Cascading calibration over-correction | 2 + 3 | Critical | MarketAwareWinCalibrator absorbs WSC; old pipeline bypassed |
+| Feature availability at prediction time | 1 + 2 + 4 | Critical | Feature allowlist with data-availability timestamps; CI validation |
+| OOF quality affects all downstream calibration | 0 + 2 + 3 | Critical | Phase 0 must complete and pass all checks before Phase 2 begins |
+| Ranker training depends on calibrator output quality | 2 + 4 | Moderate | Freeze calibrator before training ranker; validate calibrator on ranker's training period |
+| Segment corrections conflicting with ranker preferences | 3 + 4 | Moderate | Train ranker with segment features already applied; do not apply segment corrections post-rank |
+| Market model Rule 11 isolation | 1 + 2 | Moderate | InvestmentFeatureFrame uses raw market features only; CI check for p_market_pred |
 
 ## Sources
 
-- Code analysis: `src/domain/types.py` (POST_RACE_COLS definition -- harontimel3 present, harontimel4 missing), `src/features/pace_aptitude_features.py` (PIT-safe history pattern via searchsorted side='left'), `src/models/regime_detector.py` (regime feature isolation from model outputs), `src/models/ev_correction_model.py` (FEATURE_COLS, isotonic calibration, odds band scaling), `src/features/interaction_features.py` (existing 12 interaction patterns with NaN-safe .where()), `src/db/etl.py` (type conversion rules -- harontimel3 float, no LapTime rules), `config/etl_tables.yaml` (n_jyusyosiki table definition), `tests/test_post_race_leakage.py` (3-layer CI test framework), `src/pipelines/training_pipeline.py` (OOF calibration, time-series split), `src/betting/odds_band_filter.py` (v1.4 look-ahead bias fix pattern)
-- Milestone history: v1.6 POST_RACE leakage prevention (3-layer CI), v1.4 look-ahead bias fix in OddsBandFilter, v1.7 race-level and market-cross feature patterns
-- Confidence: HIGH (all findings verified against source code)
+- Codebase analysis: `src/models/win_benter_gate.py` (race normalization ordering, OOF walk-forward splits)
+- Codebase analysis: `src/models/win_segment_calibrator.py` (segment calibration with Bayesian shrinkage, p_factor/ev_factor compounding)
+- Codebase analysis: `src/models/benter_combination.py` (logit-space blending, beta bounds [0.20, 5.0], temperature scaling bounds [0.3, 3.0])
+- Codebase analysis: `src/models/win_selection_policy.py` (surface-specific scoring, deployment conditions)
+- Codebase analysis: `src/models/market_model.py` (Rule 11: only log_error to Stage2, KFold OOF without date-level separation)
+- Codebase analysis: `src/models/ev_correction_model.py` (P/E decomposition, confirmed_odds usage for training labels)
+- Codebase analysis: `src/features/leakage_validators.py` (expanding feature validation framework)
+- LightGBM documentation: lambdarank parameters (group, label_gain, truncation_level, position_bias_regularization, min_data_per_group)
+- ROI_IMPROVEMENT_PLAN.md: Phase specifications, deployment conditions, segment calibration options
+- .planning/PROJECT.md: v2.0 milestone structure, key decisions (regime-independent, bet count reduction forbidden)
+- Benter (1994): "Computer Based Horse Race Handicapping and Wagering Systems" -- logit-space blending methodology
+- Confidence: HIGH for codebase-derived pitfalls (directly observed in source code), MEDIUM for LightGBM ranker pitfalls (documentation-verified but not yet tested in this specific codebase), MEDIUM for cross-phase integration pitfalls (predicted from code structure but not yet observed at runtime)
