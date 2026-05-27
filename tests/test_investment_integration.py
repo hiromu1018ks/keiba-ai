@@ -257,6 +257,10 @@ class TestRequiredOptionalBehavior:
                 )
                 return  # Found and verified one
 
+        pytest.fail(
+            "No optional spec with non-required sources found to verify"
+        )
+
     def test_optional_present_has_zero_indicator(self) -> None:
         """Optional feature with source present has missing_indicator=0."""
         df = _make_train_source_df()
