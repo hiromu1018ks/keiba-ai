@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: MarketAware Calibration + Race-Level Ranker for ROI Recovery
-status: planning
-stopped_at: Phase 39 context gathered
-last_updated: "2026-05-27T14:14:04.105Z"
-last_activity: 2026-05-27 — Roadmap created for v2.1
+status: executing
+stopped_at: Phase 39 Plan 02 complete
+last_updated: "2026-05-27T22:13:19Z"
+last_activity: 2026-05-27 -- Phase 39 Plan 39-02 completed
 progress:
   total_phases: 4
   completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
-  percent: 0
+  total_plans: 11
+  completed_plans: 2
+  percent: 18
 ---
 
 # Project State
@@ -21,16 +21,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-05-27)
 
 **Core value:** 単勝モデルのバックテストROIを100%超えにすること
-**Current focus:** Phase 39 — MarketAwareWinCalibrator
+**Current focus:** Phase 39 — marketawarewincalibrator
 
 ## Current Position
 
-Phase: 39 of 42 (MarketAwareWinCalibrator)
-Plan: —
-Status: Ready to plan
-Last activity: 2026-05-27 — Roadmap created for v2.1
+Phase: 39 (marketawarewincalibrator) — EXECUTING
+Plan: 3 of 3
+Status: Phase 39 Plan 02 complete, Plan 03 next
+Last activity: 2026-05-27 -- Phase 39 Plan 39-02 completed
 
-Progress: [..........] 0%
+Progress: [==........] 18%
 
 ## Performance Metrics
 
@@ -57,6 +57,7 @@ v2.1 key decisions:
 - Shadow comparison includes fixed-fold 2024/2025 validation
 - Regime-dependent calibration is OUT OF SCOPE
 - Selection agreement is a diagnostic metric, NOT a deployment gate
+- generate_win_oof_predictions() returns enriched DataFrame directly (no wrapper) for MarketAwareWinCalibrator training
 
 ### Pending Todos
 
@@ -86,6 +87,6 @@ None for v2.1 yet.
 
 ## Session Continuity
 
-Last session: 2026-05-27T14:14:04.096Z
-Stopped at: Phase 39 context gathered
-Resume file: .planning/phases/39-marketawarewincalibrator/39-CONTEXT.md
+Last session: 2026-05-27T22:13:19Z
+Stopped at: Phase 39 Plan 02 complete
+Resume file: .planning/phases/39-marketawarewincalibrator/39-03-PLAN.md

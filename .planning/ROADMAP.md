@@ -59,8 +59,8 @@ See `.planning/milestones/` for archived roadmaps.
 **Plans**: 3 plans
 
 Plans:
-- [ ] 39-01-PLAN.md -- MarketAwareWinCalibrator class with feature encoding, training, inference, guards
-- [ ] 39-02-PLAN.md -- TrainingPipeline integration + SubmodelSet field update
+- [x] 39-01-PLAN.md -- MarketAwareWinCalibrator class with feature encoding, training, inference, guards
+- [x] 39-02-PLAN.md -- TrainingPipeline integration + SubmodelSet field update
 - [ ] 39-03-PLAN.md -- RacePredictor + ModelLoader integration (remove old components)
 
 ### Phase 40: Race-Level Ranker
@@ -103,7 +103,7 @@ Phases execute in numeric order: 39 → 40 → 41 → 42
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
 | 1-38 | v1.0-v2.0 | 84/84 | Complete | 2026-05-27 |
-| 39. MarketAwareWinCalibrator | v2.1 | 0/3 | Planning | - |
+| 39. MarketAwareWinCalibrator | v2.1 | 2/3 | Executing | - |
 | 40. Race-Level Ranker | v2.1 | 0/? | Not started | - |
 | 41. Shadow Comparison | v2.1 | 0/? | Not started | - |
 | 42. Feature Routing Audit & Safety | v2.1 | 0/? | Not started | - |
