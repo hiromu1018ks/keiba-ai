@@ -263,9 +263,11 @@ class MarketAwareWinCalibrator:
                 "Use OOF predictions (p_win_oof or p_model) for calibrator training. (D-22)"
             )
 
+        # Unconditional copy to avoid mutating caller DataFrame (CR-02)
+        df = df.copy()
+
         # Resolve p_model column
         if "p_model" not in df.columns and "p_win_oof" in df.columns:
-            df = df.copy()
             df["p_model"] = df["p_win_oof"]
 
         # Extract target
