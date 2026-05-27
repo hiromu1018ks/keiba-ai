@@ -143,7 +143,10 @@ progress:
   3. OOF top1 hit rate > 35% または top1 ROI > 200% の異常値が検出され停止する
   4. health manifestに行数、レース数、fold数、fold別race_id一意性、top1 hit rate/ROI、日付範囲、source model hashが記録され、同一入力から決定的な出力が生成される(XCT-05)
   5. 全health manifest artifactにversion、schema hash、source OOF manifest path、train日付範囲が含まれる(XCT-08)
-**Plans**: TBD
+**Plans:** 2 plans
+Plans:
+- [ ] 37-01-PLAN.md -- OOFHealthValidator + artifact profiles + AbilityModel fold column
+- [ ] 37-02-PLAN.md -- Pipeline integration + fold wiring + test updates
 
 ### Phase 38: InvestmentFeatureFrame
 **Goal**: キャリブレータとランカーが一貫した80-150列の投資判断用特徴量にアクセスでき、学習用FrameはOOF-safe列のみで構成される
@@ -227,7 +230,7 @@ Phases execute in numeric order: 37 -> 38 -> 39 -> 40
 | 36. Feature Computation | v1.8 | 2/2 | Complete | 2026-05-20 |
 | 36.1. HaronTime L4/LapTime Redesign | v1.8 | 2/2 | Complete | 2026-05-20 |
 | 36.1.1. MarketModel & RaceQuality配線修正 | v1.8 | 4/4 | Complete | 2026-05-20 |
-| 37. OOF Health Infrastructure | v2.0 | 0/? | Not started | - |
+| 37. OOF Health Infrastructure | v2.0 | 0/2 | Not started | - |
 | 38. InvestmentFeatureFrame | v2.0 | 0/? | Not started | - |
 | 39. MarketAwareWinCalibrator + Segment | v2.0 | 0/? | Not started | - |
 | 40. Race-Level Ranker | v2.0 | 0/? | Not started | - |
