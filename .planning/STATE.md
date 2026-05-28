@@ -2,9 +2,9 @@
 gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: MarketAware Calibration + Race-Level Ranker for ROI Recovery
-status: executing
-stopped_at: Phase 40 complete
-last_updated: "2026-05-28T07:45:00.000Z"
+status: Phase 40 fully executed, ready for Phase 41
+stopped_at: Phase 41 context gathered
+last_updated: "2026-05-28T09:05:26.572Z"
 last_activity: 2026-05-28
 progress:
   total_phases: 4
@@ -87,6 +87,6 @@ None for v2.1 yet.
 
 ## Session Continuity
 
-Last session: 2026-05-28T07:45:00.000Z
-Stopped at: Phase 40 complete
-Resume file: None (Phase 41 planning needed)
+Last session: 2026-05-28T09:05:26.563Z
+Stopped at: Phase 41 context gathered
+Resume file: .planning/phases/41-shadow-comparison-framework/41-CONTEXT.md
