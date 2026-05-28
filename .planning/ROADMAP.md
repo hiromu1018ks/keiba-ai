@@ -77,7 +77,7 @@ Plans:
 
 Plans:
 - [x] 40-01-PLAN.md -- RaceLevelRanker class with Ridge training, scoring, shadow mode, persistence (Wave 1)
-- [ ] 40-02-PLAN.md -- OOF extension + TrainingPipeline ranker integration (Wave 2, depends on 40-01)
+- [x] 40-02-PLAN.md -- OOF extension + TrainingPipeline ranker integration (Wave 2, depends on 40-01)
 - [ ] 40-03-PLAN.md -- RacePredictor + ModelLoader integration (Wave 3, depends on 40-02)
 
 ### Phase 41: Shadow Comparison Framework
