@@ -18,6 +18,7 @@ if TYPE_CHECKING:
     from models.market_model import MarketModel
     from models.place_ability_model import PlaceAbilityModel
     from models.place_selection_gate import PlaceSelectionGateModel
+    from models.race_level_ranker import RaceLevelRanker
     from models.race_quality_screener import RaceQualityScreener
     from models.regime_detector import RegimeDetector
     from models.stage1_ability_model import AbilityModel
@@ -259,6 +260,8 @@ class SubmodelSet:
     win_profit_selector: WinProfitSelector | None = None
     # Phase 39: MarketAwareWinCalibrator replaces WinBenterGate + WinSegmentCalibrator (CAL-04)
     market_aware_win_calibrator: MarketAwareWinCalibrator | None = None
+    # Phase 40: Race-Level Ranker (RNK-01/02/03)
+    win_race_level_ranker: RaceLevelRanker | None = None
     # EV_lower dynamic threshold (D-01/D-02, EVF-01)
     ev_lower_threshold_turf: float = 1.0
     ev_lower_threshold_dirt: float = 1.0
