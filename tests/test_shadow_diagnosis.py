@@ -11,7 +11,6 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-import pytest
 
 from backtest.shadow_diagnosis import (
     CalibrationResult,
@@ -22,7 +21,6 @@ from backtest.shadow_diagnosis import (
     ShadowDiagnosis,
     ShadowDiagnosisResult,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -49,7 +47,6 @@ def _make_horse_df(
         race_id = f"2024{r + 1:02d}010101"
         for h in range(horses_per_race):
             umaban = h + 1
-            is_win = 1 if h == 0 else 0  # umaban=1 が勝者
             row: dict = {
                 "race_id": race_id,
                 "umaban": umaban,
@@ -276,8 +273,7 @@ class TestShadowDiagnosis:
 
     # Test 4: キャリブレーションステップ
     def test_step3_calibration(self, tmp_path: Path) -> None:
-        """step3 で popularity_band / probability_rank_band / odds_band / surface / selected_changed 別の
-        actual/predicted 比率と ECE を検証."""
+        """step3 でセグメント別 actual/predicted 比率と ECE を検証."""
         input_dir = _setup_input_dir(tmp_path)
         diag = ShadowDiagnosis(input_dir)
         result = diag.run()
