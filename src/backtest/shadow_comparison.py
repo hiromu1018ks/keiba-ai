@@ -8,8 +8,11 @@ D-01~D-06, D-12~D-15, D-18~D-19, D-21 を実装。
 
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -17,6 +20,299 @@ import numpy as np
 import pandas as pd
 
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Output artifact helpers (D-08, D-10, D-11, D-13, D-20, D-22)
+# ---------------------------------------------------------------------------
+
+
+def _compute_sha256(path: Path) -> str:
+    """ファイルのSHA256ハッシュを計算."""
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _metrics_to_dict(m: ComparisonMetrics) -> dict[str, Any]:
+    """ComparisonMetrics を JSON 互換 dict に変換."""
+    return {
+        "brier": m.brier,
+        "logloss": m.logloss,
+        "ece": m.ece,
+        "roi": m.roi,
+        "hit_rate": m.hit_rate,
+        "bet_count": m.bet_count,
+        "avg_odds": m.avg_odds,
+        "max_drawdown": m.max_drawdown,
+        "clv": m.clv,
+        "clv_available": m.clv_available,
+        "selection_agreement": m.selection_agreement,
+        "avg_investment_score": m.avg_investment_score,
+        "actual_predicted_ratio": m.actual_predicted_ratio,
+    }
+
+
+def save_results(
+    comparison_results: list[ShadowComparisonResult],
+    output_dir: Path,
+) -> dict[str, Path]:
+    """全 fold の比較結果を出力 (D-08, D-10, D-11, D-13).
+
+    Returns:
+        artifact name -> Path のマッピング.
+    """
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    # --- 1. shadow_comparison_result.json ---
+    folds_data: dict[str, Any] = {}
+    all_race_dfs: list[pd.DataFrame] = []
+    all_horse_dfs: list[pd.DataFrame] = []
+
+    for cr in comparison_results:
+        year_str = str(cr.fold.year)
+        fold_entry: dict[str, Any] = {
+            "metrics": {vname: _metrics_to_dict(m) for vname, m in cr.metrics.items()},
+        }
+
+        # -- Grouped metrics (D-13) --
+        if not cr.horse_diff.empty:
+            # Dummy framework instance for compute_metrics (no state dependency)
+            _fw = ShadowComparisonFramework(variants=[])
+
+            # by surface
+            if "surface" in cr.horse_diff.columns:
+                surface_groups: dict[str, dict[str, Any]] = {}
+                for surf_val, surf_df in cr.horse_diff.groupby("surface", observed=True):
+                    surface_groups[str(surf_val)] = {
+                        vname: _metrics_to_dict(
+                            _fw.compute_metrics(
+                                pd.DataFrame(), surf_df, vname, [],
+                            )
+                        )
+                        for vname in cr.metrics
+                    }
+                fold_entry["metrics_by_surface"] = surface_groups
+
+            # by odds_band
+            odds_groups = _fw.compute_metrics_by_group(
+                cr.horse_diff, "odds_band",
+            )
+            if odds_groups:
+                fold_entry["metrics_by_odds_band"] = {
+                    k: _metrics_to_dict(v) for k, v in odds_groups.items()
+                }
+
+            # by prob_rank_band
+            prob_groups = _fw.compute_metrics_by_group(
+                cr.horse_diff, "prob_rank_band",
+            )
+            if prob_groups:
+                fold_entry["metrics_by_prob_rank_band"] = {
+                    k: _metrics_to_dict(v) for k, v in prob_groups.items()
+                }
+
+            # by value_score_band (if investment_score exists)
+            inv_cols = [c for c in cr.horse_diff.columns if "investment_score" in c]
+            if inv_cols:
+                for inv_col in inv_cols:
+                    inv_vals = pd.to_numeric(cr.horse_diff[inv_col], errors="coerce")
+                    if inv_vals.notna().any():
+                        band_df = cr.horse_diff.copy()
+                        band_df["value_score_band"] = pd.cut(
+                            inv_vals,
+                            bins=[0, 0.3, 0.5, 0.7, 1.0, float("inf")],
+                            labels=["0-0.3", "0.3-0.5", "0.5-0.7", "0.7-1.0", "1.0+"],
+                        )
+                        vs_groups: dict[str, dict[str, Any]] = {}
+                        for band_val, band_df_sub in band_df.groupby(
+                            "value_score_band", observed=True,
+                        ):
+                            vs_groups[str(band_val)] = {
+                                vname: _metrics_to_dict(
+                                    _fw.compute_metrics(
+                                        pd.DataFrame(), band_df_sub, vname, [],
+                                    )
+                                )
+                                for vname in cr.metrics
+                            }
+                        if vs_groups:
+                            fold_entry["metrics_by_value_score_band"] = vs_groups
+                        break  # Use first investment_score column found
+
+        # by selected_changed (D-13)
+        if not cr.race_diff.empty and "selected_changed" in cr.race_diff.columns:
+            changed_groups: dict[str, dict[str, Any]] = {}
+            for changed_val, changed_df in cr.race_diff.groupby(
+                "selected_changed", observed=True,
+            ):
+                label = "changed" if changed_val else "unchanged"
+                changed_groups[label] = {
+                    vname: _metrics_to_dict(m)
+                    for vname, m in cr.metrics.items()
+                }
+            fold_entry["metrics_by_selected_changed"] = changed_groups
+
+        # selection agreement
+        if not cr.race_diff.empty and "selected_changed" in cr.race_diff.columns:
+            fold_entry["selection_agreement"] = float(
+                1.0 - cr.race_diff["selected_changed"].mean()
+            )
+        else:
+            fold_entry["selection_agreement"] = None
+
+        # bet counts
+        fold_entry["bet_counts"] = {
+            vname: m.bet_count for vname, m in cr.metrics.items()
+        }
+
+        folds_data[year_str] = fold_entry
+
+        # Collect DataFrames for concatenation
+        if not cr.race_diff.empty:
+            rd = cr.race_diff.copy()
+            rd["fold_year"] = cr.fold.year
+            all_race_dfs.append(rd)
+        if not cr.horse_diff.empty:
+            hd = cr.horse_diff.copy()
+            hd["fold_year"] = cr.fold.year
+            all_horse_dfs.append(hd)
+
+    # Overall metrics (aggregate across folds)
+    overall_metrics: dict[str, Any] = {}
+    all_variant_names: set[str] = set()
+    for cr in comparison_results:
+        all_variant_names.update(cr.metrics.keys())
+
+    for vname in sorted(all_variant_names):
+        # Pool bet_history across folds
+        pooled_bh: list[dict] = []
+        pooled_dd: list[float] = []
+        for cr in comparison_results:
+            vr = cr.variants.get(vname)
+            if vr is not None:
+                pooled_bh.extend(vr.backtest_result.bet_history)
+                pooled_dd.append(vr.backtest_result.max_drawdown)
+
+        if pooled_bh:
+            _fw_overall = ShadowComparisonFramework(variants=[])
+            overall_metrics[vname] = _metrics_to_dict(
+                _fw_overall.compute_metrics(
+                    pd.DataFrame(), pd.DataFrame(), vname, pooled_bh,
+                )
+            )
+            overall_metrics[vname]["max_drawdown"] = max(pooled_dd) if pooled_dd else 0.0
+
+    # Build final JSON structure
+    result_json: dict[str, Any] = {
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "folds": folds_data,
+        "overall": {
+            "metrics": overall_metrics,
+        },
+    }
+
+    metrics_path = output_dir / "shadow_comparison_result.json"
+    metrics_path.write_text(
+        json.dumps(result_json, indent=2, sort_keys=True, default=str, ensure_ascii=False),
+        encoding="utf-8",
+    )
+
+    # --- 2. shadow_race_diff.parquet + .csv ---
+    race_diff_path = output_dir / "shadow_race_diff.parquet"
+    csv_path = output_dir / "shadow_race_diff.csv"
+
+    if all_race_dfs:
+        combined_race = pd.concat(all_race_dfs, ignore_index=True)
+        combined_race.to_parquet(race_diff_path, index=False, engine="pyarrow")
+        combined_race.to_csv(csv_path, index=False, encoding="utf-8-sig")
+    else:
+        pd.DataFrame().to_parquet(race_diff_path, index=False, engine="pyarrow")
+        pd.DataFrame().to_csv(csv_path, index=False, encoding="utf-8-sig")
+
+    # --- 3. shadow_horse_diff.parquet ---
+    horse_diff_path = output_dir / "shadow_horse_diff.parquet"
+    if all_horse_dfs:
+        combined_horse = pd.concat(all_horse_dfs, ignore_index=True)
+        combined_horse.to_parquet(horse_diff_path, index=False, engine="pyarrow")
+    else:
+        pd.DataFrame().to_parquet(horse_diff_path, index=False, engine="pyarrow")
+
+    return {
+        "metrics_json": metrics_path,
+        "race_diff_parquet": race_diff_path,
+        "race_diff_csv": csv_path,
+        "horse_diff_parquet": horse_diff_path,
+    }
+
+
+def save_manifest(
+    comparison_results: list[ShadowComparisonResult],
+    variant_configs: list[VariantConfig],
+    output_dir: Path,
+    artifact_paths: dict[str, Path],
+) -> Path:
+    """shadow_manifest.json を書き出す (D-20, D-22)."""
+    manifest: dict[str, Any] = {
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "framework_version": "1.0",
+        "variants": [],
+        "folds": [],
+        "artifacts": {},
+        "metric_definitions": {
+            "brier": "mean((p_win_final - is_win)^2)",
+            "logloss": "mean(-y*log(p) - (1-y)*log(1-p))",
+            "ece": "Expected Calibration Error, 10-bin equal width",
+            "selection_agreement": "fraction of races where same horse selected",
+            "clv": "closing_odds / betting_odds - 1 (diagnostic only)",
+        },
+    }
+
+    # Variants
+    for vc in variant_configs:
+        variant_entry: dict[str, Any] = {
+            "variant_name": vc.variant_name,
+            "model_dir": str(vc.model_dir),
+            "flag_states": {
+                "enable_market_aware_calibrator": vc.enable_market_aware_calibrator,
+                "enable_race_level_ranker": vc.enable_race_level_ranker,
+            },
+        }
+        if vc.variant_name == "baseline":
+            variant_entry["baseline_definition"] = (
+                "MAWC/ranker disabled, existing p_win_final + existing selector stack (D-22)"
+            )
+        manifest["variants"].append(variant_entry)
+
+    # Folds
+    for cr in comparison_results:
+        manifest["folds"].append({
+            "year": cr.fold.year,
+            "train_start": cr.fold.train_start,
+            "train_end": cr.fold.train_end,
+            "test_start": cr.fold.test_start,
+            "test_end": cr.fold.test_end,
+        })
+
+    # Artifacts with SHA256
+    artifact_key_to_filename: dict[str, str] = {
+        "metrics_json": "shadow_comparison_result.json",
+        "race_diff_parquet": "shadow_race_diff.parquet",
+        "race_diff_csv": "shadow_race_diff.csv",
+        "horse_diff_parquet": "shadow_horse_diff.parquet",
+    }
+    for key, filename in artifact_key_to_filename.items():
+        path = artifact_paths.get(key)
+        if path and path.exists():
+            manifest["artifacts"][key] = {
+                "path": filename,
+                "sha256": _compute_sha256(path),
+            }
+
+    manifest_path = output_dir / "shadow_manifest.json"
+    manifest_path.write_text(
+        json.dumps(manifest, indent=2, sort_keys=True, default=str, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    return manifest_path
 
 
 # ---------------------------------------------------------------------------

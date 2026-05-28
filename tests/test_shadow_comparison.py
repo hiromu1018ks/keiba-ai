@@ -919,3 +919,375 @@ class TestRunFoldIntegration:
         results = framework.run(folds=custom_folds)
         assert len(results) == 1
         assert results[0].fold.year == 2023
+
+
+# ===================================================================
+# Task 1 (Plan 41-02): Output artifact methods
+# ===================================================================
+
+
+def _make_comparison_result(
+    fold_year: int = 2024,
+    *,
+    n_races: int = 3,
+    n_horses_per_race: int = 4,
+) -> "ShadowComparisonResult":
+    """Build a synthetic ShadowComparisonResult for artifact tests."""
+    from backtest.shadow_comparison import (
+        ComparisonMetrics,
+        FoldDefinition,
+        ShadowComparisonResult,
+        VariantResult,
+    )
+
+    fold = FoldDefinition(
+        year=fold_year,
+        train_start=f"{fold_year - 4}-01-01",
+        train_end=f"{fold_year - 1}-12-31",
+        test_start=f"{fold_year}-01-01",
+        test_end=f"{fold_year}-12-31",
+    )
+
+    # Build bet histories for baseline and shadow
+    race_ids = [f"R{i}" for i in range(n_races)]
+    baseline_bh = _make_bet_history(
+        race_ids, [1] * n_races, [5.0] * n_races, [500.0] + [0.0] * (n_races - 1),
+    )
+    shadow_bh = _make_bet_history(
+        race_ids, [2] * n_races, [6.0] * n_races, [600.0] + [0.0] * (n_races - 1),
+    )
+
+    baseline_bt = _make_backtest_result(baseline_bh)
+    shadow_bt = _make_backtest_result(shadow_bh)
+
+    # Build race_diff DataFrame
+    race_rows: list[dict] = []
+    for i, rid in enumerate(race_ids):
+        race_rows.append({
+            "race_id": rid,
+            "baseline_selected_umaban": 1,
+            "shadow_selected_umaban": 2 if i == 0 else 1,
+            "selected_changed": i == 0,
+            "baseline_tanodds": 5.0,
+            "shadow_tanodds": 6.0,
+            "baseline_p_win_final": 0.25,
+            "shadow_p_win_final": 0.20,
+            "baseline_result": baseline_bh[i]["result"],
+            "shadow_result": shadow_bh[i]["result"],
+            "baseline_stake": 100.0,
+            "shadow_stake": 100.0,
+        })
+    race_diff = pd.DataFrame(race_rows)
+
+    # Build horse_diff DataFrame
+    horse_rows: list[dict] = []
+    for i, rid in enumerate(race_ids):
+        for umaban in range(1, n_horses_per_race + 1):
+            horse_rows.append({
+                "race_id": rid,
+                "umaban": umaban,
+                "baseline_p_win_final": 0.25 if umaban == 1 else 0.1,
+                "shadow_p_win_final": 0.20 if umaban == 2 else 0.1,
+                "baseline_investment_score": 0.5 if umaban == 1 else 0.2,
+                "shadow_investment_score": 0.6 if umaban == 2 else 0.2,
+                "baseline_selected": umaban == 1,
+                "shadow_selected": umaban == 2,
+                "closing_win_odds": 5.0 + umaban,
+                "kakuteijyuni": 1 if umaban == 1 else umaban,
+                "surface": "turf",
+            })
+    horse_diff = pd.DataFrame(horse_rows)
+
+    metrics = {
+        "baseline": ComparisonMetrics(
+            brier=0.18, logloss=0.65, ece=0.04, roi=0.67,
+            hit_rate=0.33, bet_count=n_races, avg_odds=5.0,
+            max_drawdown=0.10, clv=0.05, clv_available=True,
+            selection_agreement=0.67, avg_investment_score=0.4,
+            actual_predicted_ratio=1.0,
+        ),
+        "shadow": ComparisonMetrics(
+            brier=0.16, logloss=0.60, ece=0.03, roi=0.80,
+            hit_rate=0.33, bet_count=n_races, avg_odds=6.0,
+            max_drawdown=0.08, clv=0.06, clv_available=True,
+            selection_agreement=0.67, avg_investment_score=0.45,
+            actual_predicted_ratio=1.0,
+        ),
+    }
+
+    return ShadowComparisonResult(
+        fold=fold,
+        variants={
+            "baseline": VariantResult("baseline", baseline_bt, {
+                "enable_market_aware_calibrator": False,
+                "enable_race_level_ranker": False,
+            }),
+            "shadow": VariantResult("shadow", shadow_bt, {
+                "enable_market_aware_calibrator": True,
+                "enable_race_level_ranker": True,
+            }),
+        },
+        race_diff=race_diff,
+        horse_diff=horse_diff,
+        metrics=metrics,
+        alignment_succeeded=True,
+    )
+
+
+class TestSaveResults:
+    """Tests for save_results() output artifact generation."""
+
+    def test_save_results_creates_json_metrics(self, tmp_path: Path) -> None:
+        from backtest.shadow_comparison import save_results
+
+        results = [_make_comparison_result(2024)]
+        paths = save_results(results, tmp_path)
+
+        assert "metrics_json" in paths
+        assert paths["metrics_json"].exists()
+        import json
+        data = json.loads(paths["metrics_json"].read_text(encoding="utf-8"))
+        assert "folds" in data
+        assert "2024" in data["folds"]
+        assert "overall" in data
+        assert "generated_at" in data
+
+    def test_save_results_json_contains_metrics(self, tmp_path: Path) -> None:
+        from backtest.shadow_comparison import save_results
+
+        results = [_make_comparison_result(2024)]
+        paths = save_results(results, tmp_path)
+
+        import json
+        data = json.loads(paths["metrics_json"].read_text(encoding="utf-8"))
+        fold_data = data["folds"]["2024"]
+        assert "metrics" in fold_data
+        assert "baseline" in fold_data["metrics"]
+        assert "shadow" in fold_data["metrics"]
+        assert "brier" in fold_data["metrics"]["baseline"]
+        assert "roi" in fold_data["metrics"]["baseline"]
+
+    def test_save_results_creates_race_diff_parquet(self, tmp_path: Path) -> None:
+        from backtest.shadow_comparison import save_results
+
+        results = [_make_comparison_result(2024)]
+        paths = save_results(results, tmp_path)
+
+        assert "race_diff_parquet" in paths
+        assert paths["race_diff_parquet"].exists()
+        df = pd.read_parquet(paths["race_diff_parquet"])
+        assert "race_id" in df.columns
+        assert "fold_year" in df.columns
+        assert "baseline_selected_umaban" in df.columns
+
+    def test_save_results_creates_race_diff_csv(self, tmp_path: Path) -> None:
+        from backtest.shadow_comparison import save_results
+
+        results = [_make_comparison_result(2024)]
+        paths = save_results(results, tmp_path)
+
+        assert "race_diff_csv" in paths
+        assert paths["race_diff_csv"].exists()
+        df = pd.read_csv(paths["race_diff_csv"], encoding="utf-8-sig")
+        assert len(df) > 0
+        # CSV row count matches Parquet
+        df_pq = pd.read_parquet(paths["race_diff_parquet"])
+        assert len(df) == len(df_pq)
+
+    def test_save_results_creates_horse_diff_parquet(self, tmp_path: Path) -> None:
+        from backtest.shadow_comparison import save_results
+
+        results = [_make_comparison_result(2024)]
+        paths = save_results(results, tmp_path)
+
+        assert "horse_diff_parquet" in paths
+        assert paths["horse_diff_parquet"].exists()
+        df = pd.read_parquet(paths["horse_diff_parquet"])
+        assert "race_id" in df.columns
+        assert "umaban" in df.columns
+        assert "baseline_p_win_final" in df.columns
+        assert "shadow_p_win_final" in df.columns
+
+    def test_save_results_multi_fold(self, tmp_path: Path) -> None:
+        from backtest.shadow_comparison import save_results
+
+        results = [
+            _make_comparison_result(2024),
+            _make_comparison_result(2025),
+        ]
+        paths = save_results(results, tmp_path)
+
+        import json
+        data = json.loads(paths["metrics_json"].read_text(encoding="utf-8"))
+        assert "2024" in data["folds"]
+        assert "2025" in data["folds"]
+        assert "overall" in data
+
+        # Parquet contains data from both folds
+        df = pd.read_parquet(paths["race_diff_parquet"])
+        assert set(df["fold_year"].unique()) == {2024, 2025}
+
+    def test_save_results_json_has_grouped_metrics(self, tmp_path: Path) -> None:
+        from backtest.shadow_comparison import save_results
+
+        results = [_make_comparison_result(2024)]
+        paths = save_results(results, tmp_path)
+
+        import json
+        data = json.loads(paths["metrics_json"].read_text(encoding="utf-8"))
+        fold_data = data["folds"]["2024"]
+        # Grouped metrics dimensions per D-13
+        assert "metrics_by_surface" in fold_data
+        assert "metrics_by_odds_band" in fold_data
+        assert "metrics_by_selected_changed" in fold_data
+
+
+class TestSaveManifest:
+    """Tests for save_manifest() manifest generation."""
+
+    def test_save_manifest_creates_file(self, tmp_path: Path) -> None:
+        from backtest.shadow_comparison import (
+            VariantConfig,
+            save_manifest,
+            save_results,
+        )
+
+        results = [_make_comparison_result(2024)]
+        artifact_paths = save_results(results, tmp_path)
+        variant_configs = [
+            VariantConfig("baseline", Path("data/bt"), False, False),
+            VariantConfig("shadow", Path("data/shadow"), True, True),
+        ]
+        manifest_path = save_manifest(
+            results, variant_configs, tmp_path, artifact_paths,
+        )
+        assert manifest_path.exists()
+
+    def test_save_manifest_has_variants(self, tmp_path: Path) -> None:
+        from backtest.shadow_comparison import (
+            VariantConfig,
+            save_manifest,
+            save_results,
+        )
+
+        results = [_make_comparison_result(2024)]
+        artifact_paths = save_results(results, tmp_path)
+        variant_configs = [
+            VariantConfig("baseline", Path("data/bt"), False, False),
+            VariantConfig("shadow", Path("data/shadow"), True, True),
+        ]
+        manifest_path = save_manifest(
+            results, variant_configs, tmp_path, artifact_paths,
+        )
+
+        import json
+        data = json.loads(manifest_path.read_text(encoding="utf-8"))
+        assert "variants" in data
+        assert len(data["variants"]) == 2
+        assert data["variants"][0]["variant_name"] == "baseline"
+        assert data["variants"][0]["flag_states"]["enable_market_aware_calibrator"] is False
+        assert data["variants"][1]["variant_name"] == "shadow"
+        assert data["variants"][1]["flag_states"]["enable_market_aware_calibrator"] is True
+
+    def test_save_manifest_has_sha256_hashes(self, tmp_path: Path) -> None:
+        import hashlib
+
+        from backtest.shadow_comparison import (
+            VariantConfig,
+            save_manifest,
+            save_results,
+        )
+
+        results = [_make_comparison_result(2024)]
+        artifact_paths = save_results(results, tmp_path)
+        variant_configs = [
+            VariantConfig("baseline", Path("data/bt"), False, False),
+            VariantConfig("shadow", Path("data/shadow"), True, True),
+        ]
+        manifest_path = save_manifest(
+            results, variant_configs, tmp_path, artifact_paths,
+        )
+
+        import json
+        data = json.loads(manifest_path.read_text(encoding="utf-8"))
+        assert "artifacts" in data
+        for key in ["metrics_json", "race_diff_parquet", "race_diff_csv", "horse_diff_parquet"]:
+            assert key in data["artifacts"]
+            assert "sha256" in data["artifacts"][key]
+            # Verify SHA256 matches actual file
+            actual_path = tmp_path / data["artifacts"][key]["path"]
+            expected_hash = hashlib.sha256(actual_path.read_bytes()).hexdigest()
+            assert data["artifacts"][key]["sha256"] == expected_hash
+
+    def test_save_manifest_has_fold_definitions(self, tmp_path: Path) -> None:
+        from backtest.shadow_comparison import (
+            VariantConfig,
+            save_manifest,
+            save_results,
+        )
+
+        results = [
+            _make_comparison_result(2024),
+            _make_comparison_result(2025),
+        ]
+        artifact_paths = save_results(results, tmp_path)
+        variant_configs = [
+            VariantConfig("baseline", Path("data/bt"), False, False),
+        ]
+        manifest_path = save_manifest(
+            results, variant_configs, tmp_path, artifact_paths,
+        )
+
+        import json
+        data = json.loads(manifest_path.read_text(encoding="utf-8"))
+        assert "folds" in data
+        assert len(data["folds"]) == 2
+        assert data["folds"][0]["year"] == 2024
+        assert data["folds"][1]["year"] == 2025
+
+    def test_save_manifest_has_baseline_definition(self, tmp_path: Path) -> None:
+        from backtest.shadow_comparison import (
+            VariantConfig,
+            save_manifest,
+            save_results,
+        )
+
+        results = [_make_comparison_result(2024)]
+        artifact_paths = save_results(results, tmp_path)
+        variant_configs = [
+            VariantConfig("baseline", Path("data/bt"), False, False),
+            VariantConfig("shadow", Path("data/shadow"), True, True),
+        ]
+        manifest_path = save_manifest(
+            results, variant_configs, tmp_path, artifact_paths,
+        )
+
+        import json
+        data = json.loads(manifest_path.read_text(encoding="utf-8"))
+        # Baseline variant should have baseline_definition per D-22
+        baseline_variant = data["variants"][0]
+        assert "baseline_definition" in baseline_variant
+        assert "MAWC" in baseline_variant["baseline_definition"] or "disabled" in baseline_variant["baseline_definition"]
+
+    def test_save_manifest_has_metric_definitions(self, tmp_path: Path) -> None:
+        from backtest.shadow_comparison import (
+            VariantConfig,
+            save_manifest,
+            save_results,
+        )
+
+        results = [_make_comparison_result(2024)]
+        artifact_paths = save_results(results, tmp_path)
+        variant_configs = [
+            VariantConfig("baseline", Path("data/bt"), False, False),
+        ]
+        manifest_path = save_manifest(
+            results, variant_configs, tmp_path, artifact_paths,
+        )
+
+        import json
+        data = json.loads(manifest_path.read_text(encoding="utf-8"))
+        assert "metric_definitions" in data
+        assert "brier" in data["metric_definitions"]
+        assert "logloss" in data["metric_definitions"]
+        assert "ece" in data["metric_definitions"]
