@@ -19,7 +19,7 @@ A learned ranker orders horses within each race by combining relevance (win/fini
 ### Ranker Model Architecture
 
 - **D-01:** Two separate Ridge/regularized linear models: `relevance_scorer` (learns win relevance) and `value_scorer` (learns value/mispricing). Each model is a per-surface independent scorer stored in SubmodelSet.
-- **D-02:** LightGBM LambdaRank trained as shadow benchmark only — not the default deployable model. Do not deploy LightGBM in v2.1 unless it clearly improves OOF/WF metrics without worsening year/surface reliability, bet count, or drawdown.
+- **D-02:** ~~LightGBM LambdaRank trained as shadow benchmark only~~ **DEFERRED to Phase 41** — Phase 40 focuses on Ridge primary ranker only. LightGBM shadow benchmark will be added in Phase 41 Shadow Comparison Framework once Ridge path and diagnostics are stable.
 - **D-03:** Combination formula: `investment_score = 0.35 * relevance_score_pct + 0.35 * value_score_pct + 0.20 * calibrated_log_ev_pct - 0.10 * uncertainty_penalty_pct`. All components are race-level robust percentile ranks before combination.
 - **D-04:** Weights are pre-declared and NOT optimized on 2024/2025. OOF/WF diagnostics may report sensitivity for alternative weight sets, but deployment does not select weights by maximizing ROI on test periods.
 - **D-05:** Report each component separately in shadow diagnostics so selection changes are explainable (relevance_pct, value_pct, log_ev_pct, uncertainty_pct, and final investment_score).
@@ -73,7 +73,7 @@ A learned ranker orders horses within each race by combining relevance (win/fini
 ### Claude's Discretion
 
 - Exact feature matrix construction and missing-feature handling within IFF schema rules.
-- LightGBM LambdaRank shadow training configuration (objective, hyperparameters).
+- LightGBM LambdaRank shadow training configuration — **DEFERRED to Phase 41** (see D-02).
 - SubmodelSet field naming for ranker models (follow existing pattern).
 - Test structure and naming within existing conventions.
 - Model serialization format (joblib consistent with existing patterns).
@@ -157,7 +157,7 @@ A learned ranker orders horses within each race by combining relevance (win/fini
 <deferred>
 ## Deferred Ideas
 
-None — discussion stayed within phase scope.
+- **D-02 (LightGBM LambdaRank shadow):** Deferred to Phase 41 Shadow Comparison Framework. Phase 40 focuses on deployable Ridge primary ranker. LightGBM shadow will be added once Ridge path and diagnostics are stable. Not dropped — recorded for Phase 41 scope.
 </deferred>
 
 ---

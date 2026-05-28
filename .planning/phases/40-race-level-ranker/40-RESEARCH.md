@@ -567,22 +567,19 @@ if rlr_file.is_file():
 | A4 | LightGBM lambdarank objective is available as `objective="lambdarank"` in version 4.6.0 | Shadow Model | API may differ; needs verification |
 | A5 | rel_p_ability_win_rank/zscore can be added to IFF schema or computed at ranker level | Features | If neither is possible, relevance scorer loses one useful feature |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **OOF Data Construction Strategy**
-   - What we know: D-12 says extend `generate_win_oof_predictions()`, D-14 says build from multiple sources (OOF artifacts + IFF train-mode + MAWC outputs).
-   - What's unclear: Whether the OOF loop should run MAWC per fold (expensive) or whether MAWC OOF outputs can be joined post-hoc by race_id/umaban.
-   - Recommendation: Join MAWC OOF outputs post-hoc. The MAWC is already trained on the same data -- its OOF outputs from Phase 39's training can be reused. This avoids the expensive per-fold MAWC retraining.
+1. **OOF Data Construction Strategy — RESOLVED: Post-hoc join**
+   - Decision: Join MAWC OOF outputs post-hoc by race_id/umaban. Do NOT run MAWC per fold inside the OOF loop.
+   - Rationale: MAWC is already trained on the same data. Its OOF outputs from Phase 39 training can be reused. Avoids expensive per-fold MAWC retraining.
 
-2. **Feature Schema Extensions**
-   - What we know: Several D-23/D-24 features don't exist as `if_*` features. Some exist as non-IF columns (rel_p_ability_win_rank).
-   - What's unclear: Whether to add missing features to IFF schema_registry or compute them inside the ranker class.
-   - Recommendation: Claude's discretion area. Adding to IFF schema is cleaner but increases Phase scope. Computing inside ranker keeps changes localized. Recommend computing inside ranker for features that are simple derivations (odds_rank, late_odds_drop_z) and using existing IFF features for everything else.
+2. **Feature Schema Extensions — RESOLVED: Compute inside ranker**
+   - Decision: Compute missing features (odds_rank, late_odds_drop_z, etc.) inside the ranker class, not by adding to IFF schema_registry.
+   - Rationale: Simple derivations (groupby rank, z-score) keep changes localized. Use existing IFF features for everything else. Feature availability audit table above documents all substitutions.
 
-3. **RacePredictor Integration Timing**
-   - What we know: D-20 says after MAWC, before final sort. MAWC runs at line ~271 in predict(). Final sort is in get_win_candidates() at line ~967.
-   - What's unclear: Whether ranker scoring should happen inside predict() (where df has all model outputs but not IFF features) or at the beginning of get_win_candidates() (where IFF features are available).
-   - Recommendation: The ranker needs IFF features, which are built in BacktestEngine before calling RacePredictor. The most natural integration point is at the beginning of get_win_candidates() where the DataFrame already has all model outputs + IFF features. Alternatively, add a separate method `ranker.score(df)` that can be called from either predict() or get_win_candidates().
+3. **RacePredictor Integration Timing — RESOLVED: score() callable from get_win_candidates()**
+   - Decision: Add `ranker.score(df)` as a separate method callable from `get_win_candidates()` where the DataFrame already has all model outputs + IFF features.
+   - Rationale: IFF features are built in BacktestEngine before calling RacePredictor. `get_win_candidates()` is the natural integration point where all required columns are available.
 
 ## Environment Availability
 
