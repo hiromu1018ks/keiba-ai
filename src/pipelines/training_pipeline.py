@@ -1286,6 +1286,7 @@ class TrainingPipelineV5:
 
         # 5c. MarketAwareWinCalibrator (Phase 39, CAL-01/CAL-03/CAL-04)
         market_aware_calibrator = None
+        oof_cal_df: pd.DataFrame | None = None
         if "tanodds" in df_oof.columns and len(df_oof) >= 500:
             from models.market_aware_win_calibrator import MarketAwareWinCalibrator
             from models.win_benter_gate import generate_win_oof_predictions
@@ -1320,7 +1321,38 @@ class TrainingPipelineV5:
         else:
             logger.info("tanodds not in df_oof or df too small, skipping MarketAwareWinCalibrator")
 
-        # 5a. Place EV補正 (P/E decomposition)
+        # Phase 40: Race-Level Ranker (RNK-01/02/03, shadow mode per D-16)
+        win_race_level_ranker: RaceLevelRanker | None = None
+        if oof_cal_df is not None and len(oof_cal_df) >= 500:
+            from investment.feature_frame import InvestmentFeatureFrameBuilder
+            from models.race_level_ranker import RaceLevelRanker
+
+            with TimingContext(f"{surface}/race_level_ranker"):
+                # Step 1: Join OOF data with IFF train-mode features (RESEARCH OQ#1)
+                # oof_cal_df has OOF predictions (p_win_oof, p_market_norm,
+                # calibrated_ev_oof, kakuteijyuni).
+                # IFF build_frame(mode="train") resolves to OOF-safe feature sources.
+                iff_builder = InvestmentFeatureFrameBuilder()
+                iff_df = iff_builder.build_frame(oof_cal_df, mode="train")
+                ranker_train_df = oof_cal_df.merge(
+                    iff_df,
+                    on=["race_id", "umaban"],
+                    how="left",
+                    suffixes=("", "_iff"),
+                )
+
+                # Step 2: Train ranker on joined data
+                win_race_level_ranker = RaceLevelRanker()
+                win_race_level_ranker.train(ranker_train_df)
+
+            logger.info(
+                "RaceLevelRanker trained for %s: is_trained=%s summary=%s",
+                surface,
+                win_race_level_ranker.is_trained,
+                win_race_level_ranker.training_summary,
+            )
+        else:
+            logger.info("OOF data insufficient for RaceLevelRanker, skipping")
         place_ev_corrector: PlaceEVCorrectionModel | None = None
         if betting_target != "win":
             with TimingContext(f"{surface}/place_ev_correction"):
@@ -1505,6 +1537,7 @@ class TrainingPipelineV5:
             win_selection_policy=win_selection_policy,
             win_profit_selector=win_profit_selector,
             market_aware_win_calibrator=market_aware_calibrator,
+            win_race_level_ranker=win_race_level_ranker,
             ev_lower_threshold_turf=ev_threshold_turf,
             ev_lower_threshold_dirt=ev_threshold_dirt,
             ev_isotonic_calibrator=ev_isotonic_calibrator,
@@ -2154,6 +2187,24 @@ class TrainingPipelineV5:
                         if mawc_tmp and os.path.exists(mawc_tmp):
                             os.unlink(mawc_tmp)
 
+                # Phase 40: RaceLevelRanker (MLflow artifact)
+                if (
+                    sub.win_race_level_ranker is not None
+                    and sub.win_race_level_ranker.is_trained
+                ):
+                    rlr_tmp: str | None = None
+                    try:
+                        with tempfile.NamedTemporaryFile(
+                            suffix=".joblib",
+                            delete=False,
+                        ) as rlr_file:
+                            rlr_tmp = rlr_file.name
+                        sub.win_race_level_ranker.save(Path(rlr_tmp))
+                        mlflow.log_artifact(rlr_tmp, f"win_race_level_ranker_{surface}")
+                    finally:
+                        if rlr_tmp and os.path.exists(rlr_tmp):
+                            os.unlink(rlr_tmp)
+
                 # PlaceTwoStageModel
                 if sub.place is not None:
                     if sub.use_ensemble:
@@ -2328,6 +2379,15 @@ class TrainingPipelineV5:
             ):
                 sub.market_aware_win_calibrator.save(
                     models_dir / f"market_aware_win_calibrator_{surface}.joblib"
+                )
+
+            # Phase 40: RaceLevelRanker (local save)
+            if (
+                sub.win_race_level_ranker is not None
+                and sub.win_race_level_ranker.is_trained
+            ):
+                sub.win_race_level_ranker.save(
+                    models_dir / f"win_race_level_ranker_{surface}.joblib"
                 )
 
             # Benter Combination (JSON)
