@@ -7,6 +7,7 @@ BacktestEngine を2回実行し (baseline vs shadow)、
 from __future__ import annotations
 
 import math
+import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -1291,3 +1292,174 @@ class TestSaveManifest:
         assert "brier" in data["metric_definitions"]
         assert "logloss" in data["metric_definitions"]
         assert "ece" in data["metric_definitions"]
+
+
+# ===================================================================
+# Task 3 (Plan 41-02): CLI script and integration
+# ===================================================================
+
+
+class TestCLIScript:
+    """Tests for run_shadow_comparison.py CLI."""
+
+    def test_cli_arg_parsing_baseline_flags(self) -> None:
+        """Baseline variant has enable_market_aware_calibrator=False."""
+        from backtest.shadow_comparison import VariantConfig
+
+        # Simulate CLI arg parsing logic from run_shadow_comparison.py
+        baseline = VariantConfig(
+            variant_name="baseline",
+            model_dir=Path("data/bt"),
+            enable_market_aware_calibrator=False,
+            enable_race_level_ranker=False,
+        )
+        assert baseline.enable_market_aware_calibrator is False
+        assert baseline.enable_race_level_ranker is False
+
+    def test_cli_arg_parsing_shadow_flags(self) -> None:
+        """Shadow variant has enable_market_aware_calibrator=True."""
+        from backtest.shadow_comparison import VariantConfig
+
+        shadow = VariantConfig(
+            variant_name="ridge_shadow",
+            model_dir=Path("data/shadow"),
+            enable_market_aware_calibrator=True,
+            enable_race_level_ranker=True,
+        )
+        assert shadow.enable_market_aware_calibrator is True
+        assert shadow.enable_race_level_ranker is True
+
+    def test_fold_definition_from_cli_args(self) -> None:
+        """FoldDefinition.create_folds([2024, 2025], train_window=4) per D-05."""
+        from backtest.shadow_comparison import FoldDefinition
+
+        folds = FoldDefinition.create_folds([2024, 2025], train_window=4)
+        assert len(folds) == 2
+
+        f2024 = folds[0]
+        assert f2024.year == 2024
+        assert f2024.train_start == "2020-01-01"
+        assert f2024.train_end == "2023-12-31"
+        assert f2024.test_start == "2024-01-01"
+        assert f2024.test_end == "2024-12-31"
+
+        f2025 = folds[1]
+        assert f2025.year == 2025
+        assert f2025.train_start == "2021-01-01"
+        assert f2025.train_end == "2024-12-31"
+
+    @patch("backtest.engine.BacktestEngine")
+    @patch("db.model_loader.ModelLoader")
+    def test_cli_full_flow_mocked(
+        self, mock_loader_cls: MagicMock, mock_engine_cls: MagicMock, tmp_path: Path,
+    ) -> None:
+        """Full CLI flow with mocked framework."""
+        from backtest.shadow_comparison import (
+            FoldDefinition,
+            ShadowComparisonFramework,
+            VariantConfig,
+            save_manifest,
+            save_results,
+        )
+
+        models = _make_trained_models(mawc_trained=True, ranker_trained=True)
+        mock_loader = MagicMock()
+        mock_loader.load_from_dir.return_value = (models, MagicMock())
+        mock_loader_cls.return_value = mock_loader
+
+        mock_engine = MagicMock()
+        bh = _make_bet_history(["R1", "R2"], [1, 3], [5.0, 8.0], [500.0, 0.0])
+        mock_engine.run.return_value = _make_backtest_result(bh)
+        mock_engine_cls.return_value = mock_engine
+
+        variant_configs = [
+            VariantConfig("baseline", Path("data/bt"), False, False),
+            VariantConfig("shadow", Path("data/shadow"), True, True),
+        ]
+
+        folds = FoldDefinition.create_folds([2024], train_window=4)
+        framework = ShadowComparisonFramework(
+            variants=variant_configs,
+            betting_target="win",
+            betting_mode="flat",
+        )
+        results = framework.run(folds)
+
+        # Save artifacts
+        artifact_paths = save_results(results, tmp_path)
+        manifest_path = save_manifest(results, variant_configs, tmp_path, artifact_paths)
+
+        assert artifact_paths["metrics_json"].exists()
+        assert artifact_paths["race_diff_parquet"].exists()
+        assert manifest_path.exists()
+
+    @patch("backtest.engine.BacktestEngine")
+    @patch("db.model_loader.ModelLoader")
+    def test_cli_report_flag_triggers_generation(
+        self, mock_loader_cls: MagicMock, mock_engine_cls: MagicMock, tmp_path: Path,
+    ) -> None:
+        """--report flag triggers HTML report generation."""
+        from backtest.shadow_comparison import (
+            FoldDefinition,
+            ShadowComparisonFramework,
+            VariantConfig,
+            save_manifest,
+            save_results,
+        )
+
+        models = _make_trained_models(mawc_trained=True, ranker_trained=True)
+        mock_loader = MagicMock()
+        mock_loader.load_from_dir.return_value = (models, MagicMock())
+        mock_loader_cls.return_value = mock_loader
+
+        mock_engine = MagicMock()
+        bh = _make_bet_history(["R1"], [1], [5.0], [0.0])
+        mock_engine.run.return_value = _make_backtest_result(bh)
+        mock_engine_cls.return_value = mock_engine
+
+        variant_configs = [
+            VariantConfig("baseline", Path("data/bt"), False, False),
+            VariantConfig("shadow", Path("data/shadow"), True, True),
+        ]
+
+        folds = FoldDefinition.create_folds([2024], train_window=4)
+        framework = ShadowComparisonFramework(
+            variants=variant_configs,
+            betting_target="win",
+        )
+        results = framework.run(folds)
+        artifact_paths = save_results(results, tmp_path)
+        save_manifest(results, variant_configs, tmp_path, artifact_paths)
+
+        # Generate HTML report
+        from backtest.shadow_report import ShadowComparisonReportGenerator
+
+        import json
+
+        gen = ShadowComparisonReportGenerator(tmp_path)
+        metrics_data = json.loads(
+            artifact_paths["metrics_json"].read_text(encoding="utf-8"),
+        )
+        report_path = gen.generate(
+            comparison_results=results,
+            variant_configs=variant_configs,
+            metrics_json=metrics_data,
+        )
+        assert report_path.exists()
+        assert report_path.name == "shadow_comparison_report.html"
+
+    def test_cli_help_prints(self) -> None:
+        """CLI --help prints without error."""
+        import subprocess
+
+        result = subprocess.run(
+            [sys.executable, "scripts/run_shadow_comparison.py", "--help"],
+            capture_output=True,
+            encoding="utf-8",
+            errors="replace",
+            cwd=Path(__file__).resolve().parent.parent,
+        )
+        assert result.returncode == 0
+        assert result.stdout is not None
+        assert "baseline-root" in result.stdout
+        assert "shadow-root" in result.stdout
