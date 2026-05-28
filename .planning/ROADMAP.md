@@ -102,7 +102,12 @@ Plans:
   1. Feature routing audit confirms calibrator features (segment conditioning inputs) are NOT registered in MarketModel or RaceQualityScreener FEATURE_COLS
   2. OOFHealthValidator reports no anomalies when the full pipeline (new calibrator + ranker) runs end-to-end
   3. The new calibrator/ranker does NOT replace baseline until probability quality gates + bet-count preservation + artifact reproducibility + all diagnostics pass
-**Plans**: TBD
+**Plans**: 3 plans
+
+Plans:
+- [ ] 42-01-PLAN.md -- Feature routing audit registry, fail-fast tests, diff tests, CLI audit script (Wave 1, SAF-01)
+- [ ] 42-02-PLAN.md -- OOF artifact profiles for MAWC and Ranker with mock-based tests (Wave 1, SAF-02)
+- [ ] 42-03-PLAN.md -- DeploymentGateEvaluator with GatePolicy, gate condition tests (Wave 1, SAF-03)
 
 ## Progress
 
@@ -115,4 +120,4 @@ Phases execute in numeric order: 39 → 40 → 41 → 42
 | 39. MarketAwareWinCalibrator | v2.1 | 3/3 | Complete    | 2026-05-27 |
 | 40. Race-Level Ranker | v2.1 | 3/3 | Complete | 2026-05-28 |
 | 41. Shadow Comparison | v2.1 | 2/2 | Complete    | 2026-05-28 |
-| 42. Feature Routing Audit & Safety | v2.1 | 0/? | Not started | - |
+| 42. Feature Routing Audit & Safety | v2.1 | 0/3 | Planned | - |
