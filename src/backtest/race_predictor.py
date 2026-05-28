@@ -105,6 +105,8 @@ class RacePredictor:
         dd_controller: DrawdownController | None = None,
         alpha: float = 0.4,
         betting_target: str = "place",
+        enable_market_aware_calibrator: bool = True,
+        enable_race_level_ranker: bool = True,
     ) -> None:
         if betting_target not in ("win", "place", "wide"):
             raise ValueError(
@@ -119,6 +121,23 @@ class RacePredictor:
             raise ValueError(f"alpha must be in [0, 1], got {alpha}")
         self.alpha = alpha  # kept for backwards compatibility / fallback
         self._win_tail_calibrator = EVTtailCalibrator()
+
+        # D-18/D-19: Feature flags for MAWC and ranker control.
+        # Default True for backward compatibility.
+        self.enable_market_aware_calibrator = enable_market_aware_calibrator
+        self.enable_race_level_ranker = enable_race_level_ranker
+
+        # D-19: _shadow_flags propagation from TrainedModelsV5
+        # ShadowComparisonFramework injects flags via models._shadow_flags
+        # before constructing BacktestEngine (which creates RacePredictor).
+        shadow_flags = getattr(models, "_shadow_flags", None)
+        if shadow_flags is not None:
+            self.enable_market_aware_calibrator = shadow_flags.get(
+                "enable_market_aware_calibrator", enable_market_aware_calibrator,
+            )
+            self.enable_race_level_ranker = shadow_flags.get(
+                "enable_race_level_ranker", enable_race_level_ranker,
+            )
 
     @staticmethod
     def _build_place_selection_ev(df: pd.DataFrame) -> pd.Series:
@@ -266,11 +285,18 @@ class RacePredictor:
         df = submodel.ev_corrector.correct_ev(df)  # Win EV補正は維持
 
         # --- MarketAwareWinCalibrator (CAL-04: replaces WinBenterGate) ---
+        # D-18/D-19: Feature flag controls whether MAWC is applied.
         mawc = getattr(submodel, "market_aware_win_calibrator", None)
-        if mawc is not None and mawc.is_trained:
+        if self.enable_market_aware_calibrator and mawc is not None and mawc.is_trained:
             df = mawc.apply(df)
+        elif not self.enable_market_aware_calibrator:
+            # D-18: Baseline path — compute p_win_final from p_win_corrected
+            if "p_win_corrected" in df.columns:
+                p_sum = df.groupby("race_id", observed=True)["p_win_corrected"].transform("sum")
+                df["p_win_final"] = df["p_win_corrected"] / p_sum.clip(lower=1e-10)
+                df["edge_win"] = df["p_win_final"] * df["tanodds"] - 1.0
         else:
-            # Fallback: compute p_win_final from p_win_corrected with race normalization
+            # Fallback: MAWC not trained, use existing normalization
             if "p_win_corrected" in df.columns:
                 p_sum = df.groupby("race_id", observed=True)["p_win_corrected"].transform("sum")
                 df["p_win_final"] = df["p_win_corrected"] / p_sum.clip(lower=1e-10)
@@ -280,8 +306,9 @@ class RacePredictor:
         # Score ALL runners (not restricted to gate-passed horses per D-20).
         # investment_score is a diagnostic column ONLY -- it does NOT alter
         # win_market_selection_score or baseline selection logic (D-21, T-40-08).
+        # D-18/D-19: Feature flag controls whether ranker is applied.
         ranker = getattr(submodel, "win_race_level_ranker", None)
-        if ranker is not None and ranker.is_trained:
+        if self.enable_race_level_ranker and ranker is not None and ranker.is_trained:
             df = ranker.score(df)
 
         # --- WinSelectionGate (SELC-01, D-14: after Benter, before Place) ---
