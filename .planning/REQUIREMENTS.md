@@ -15,11 +15,11 @@
 
 ### Race-Level Ranker
 
-- [ ] **RNK-01**: 学習型Win relevance rankerがis_win / finishing-position関連度でレース内馬を順位付けする
-- [ ] **RNK-02**: 学習型Value/mispricing rankerがキャリブレーション済みEV、model-vs-market gap、CLV診断(OOF安全)で価値誤評価を検出する
-- [ ] **RNK-03**: Win ranker + Value ranker出力がinvestment_scoreに結合される
-- [ ] **RNK-04**: Rankerがshadow modeで動作し、feature flagでbaseline WinSelectionGateを保持する
-- [ ] **RNK-05**: One-bet-per-race baseline bet countが維持される(明示的承認なしに削減しない)
+- [x] **RNK-01**: 学習型Win relevance rankerがis_win / finishing-position関連度でレース内馬を順位付けする
+- [x] **RNK-02**: 学習型Value/mispricing rankerがキャリブレーション済みEV、model-vs-market gap、CLV診断(OOF安全)で価値誤評価を検出する
+- [x] **RNK-03**: Win ranker + Value ranker出力がinvestment_scoreに結合される
+- [x] **RNK-04**: Rankerがshadow modeで動作し、feature flagでbaseline WinSelectionGateを保持する
+- [x] **RNK-05**: One-bet-per-race baseline bet countが維持される(明示的承認なしに削減しない)
 
 ### Shadow Comparison
 
@@ -61,11 +61,11 @@
 | CAL-03 | Phase 39 | Complete |
 | CAL-04 | Phase 39 | Complete |
 | CAL-05 | Phase 39 | Complete |
-| RNK-01 | Phase 40 | Pending |
-| RNK-02 | Phase 40 | Pending |
-| RNK-03 | Phase 40 | Pending |
-| RNK-04 | Phase 40 | Pending |
-| RNK-05 | Phase 40 | Pending |
+| RNK-01 | Phase 40 | Complete |
+| RNK-02 | Phase 40 | Complete |
+| RNK-03 | Phase 40 | Complete |
+| RNK-04 | Phase 40 | Complete |
+| RNK-05 | Phase 40 | Complete |
 | SHD-01 | Phase 41 | Complete |
 | SHD-02 | Phase 41 | Complete |
 | SHD-03 | Phase 41 | Complete |

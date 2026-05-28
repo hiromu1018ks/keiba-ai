@@ -450,22 +450,19 @@ def apply(self, df: pd.DataFrame) -> pd.DataFrame:
 | A4 | sklearn 1.8 default LogisticRegression (no penalty param, l1_ratio=0.0) produces identical L2 regularization behavior | Standard Stack | Verified via runtime test -- default produces non-zero coefficients scaled by C |
 | A5 | No new pip dependencies needed -- sklearn 1.8.0 already installed | Standard Stack | If sklearn missing, `pip install -e ".[dev]"` covers it |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **Beta_market guard interpretation (D-03)**
-   - What we know: beta_market >= 0.20 is required; enforce via coefficient inspection
-   - What's unclear: Is "effective contribution" measured as (coef_market / coef_model) >= 0.20, or as coef_market * mean(|logit_market|) >= 0.20 * mean(|logit_model|)?
-   - Recommendation: Implement as relative coefficient check: coef_market / (coef_model + coef_market) >= 0.20, matching BenterCombination's alpha/beta semantics
+1. **Beta_market guard interpretation (D-03)** — RESOLVED
+   - Decision: Implement as relative coefficient check: `abs(coef_market) / (abs(coef_model) + abs(coef_market)) >= 0.20`, matching BenterCombination's alpha/beta semantics.
+   - Rationale: This matches the Benter alpha/beta ratio interpretation and is invariant to coefficient scale.
 
-2. **p_win_race_rank_pct computation at inference time**
-   - What we know: D-19 says p_win_race_rank_pct must be recomputed from OOF predictions during training
-   - What's unclear: At inference time, should p_win_race_rank_pct be computed from p_win_corrected (pre-calibrator) or from model raw p_win_pred?
-   - Recommendation: Compute from p_win_corrected at inference time (same source used for logit_model), since calibrator hasn't been applied yet
+2. **p_win_race_rank_pct computation at inference time** — RESOLVED
+   - Decision: Compute from `p_win_corrected` at inference time (same source used for `logit_model`), since calibrator hasn't been applied yet.
+   - Rationale: p_win_corrected is the best available probability estimate before calibration; using raw p_win_pred would be inconsistent with the logit_model input.
 
-3. **Standardization of non-logit features**
-   - What we know: CONTEXT.md delegates this to Claude's discretion
-   - What's unclear: Whether log_odds, popularity_rank_pct, p_win_race_rank_pct, field_size should be standardized
-   - Recommendation: Logit features are already on similar scale (~[-5, 5]). For non-logit features: log_odds is ~[0, 5], popularity_rank_pct and p_win_race_rank_pct are ~[0, 1], field_size is ~[8, 18]. L2 regularization makes standardization unnecessary for a small fixed feature set with known ranges. Skip standardization for simplicity.
+3. **Standardization of non-logit features** — RESOLVED
+   - Decision: Skip standardization. L2 regularization handles the small fixed feature set with known ranges. Logit features ~[-5,5], log_odds ~[0,5], pct features ~[0,1], field_size ~[8,18].
+   - Rationale: Adding StandardScaler would introduce an extra serialization step and fold-dependent scaling, complicating save/load for negligible benefit with ~51 features.
 
 ## Environment Availability
 
