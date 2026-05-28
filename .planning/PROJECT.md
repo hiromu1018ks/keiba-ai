@@ -82,13 +82,34 @@ MLflow で実験管理。PostgreSQL (EveryDB2/JRA-VAN DataLab) をデータソ�
 
 ### Active
 
-- BT ROI 100%超え達成 (現在87.8%、目標100%+) — 次マイルストーンの主要目標
-- デプロイゲート自動判定 (DEP-01) — v2.2+
-- Optuna 19次元パラメータ最適化 (DEP-02) — v2.2+
+- v2.2: ROI劣化原因特定と構造的修正 (v1.7: 97.8% → v2.0: 87.8%)
+- デプロイゲート自動判定 (DEP-01) — v2.3+
+- Optuna 19次元パラメータ最適化 (DEP-02) — v2.3+
 
-## Current Milestone: Planning Next
+## Current Milestone: v2.2 ROI Recovery Analysis
 
-**Goal:** 次マイルストーン (v2.2) の要件定義・ロードマップ作成
+**Goal:** v2.1のShadow Comparison Framework + DeploymentGateEvaluatorを用いて、v1.7(97.8%)→v2.0(87.8%)のROI劣化原因を特定し、OOF/WFで説明できる構造的修正のみを適用してROI回復を図る
+
+**Target features:**
+- 確率品質差分分析 (Brier/logloss/ECE、2024/2025固定fold baseline vs shadow)
+- 選定差分分析 (RaceLevelRanker選定パターン比較、的中/不的中パターン)
+- フェーズ単位ROI劣化ビセクション (v1.7→v2.0/v2.1)
+- 原因特定後の限定構造的修正
+
+**Success criteria:**
+- ROI回復傾向 (87.8%から上方改善)
+- Brier/logloss/ECE 非悪化 (baseline比較)
+- actual/predicted比率の悪化なし
+- ベット数維持 (baseline比較)
+- OOFHealthValidator PASS
+- FeatureRoutingAudit PASS
+- DeploymentGateEvaluator PASS
+
+**Exclusions:**
+- ROI単独最適化 (品質指標とのトレードオフ不可)
+- 2024/2025固有係数チューニング (汎化性担保)
+- ベット数削減 (品質による自然除外のみ)
+- レジーム依存ロジック変更
 
 ### Out of Scope
 
@@ -101,6 +122,8 @@ MLflow で実験管理。PostgreSQL (EveryDB2/JRA-VAN DataLab) をデータソ�
 | LSTM/Transformer時系列モデリング | 過去5-15走では過学習リスク高 |
 | 複雑メタラーナー(GBM/NN) | 特徴量3個ではRidgeが最適 |
 | オッズ特徴量の除去 | Echo Chamber脱却 = 追加アプローチ。除去はC直交ICを悪化させる |
+| 新特徴量追加 | 劣化分析が先、追加はv2.3+で検討 |
+| レジーム別パラメータ調整 | 構造的修正に集中 |
 
 ## Current State
 
@@ -108,7 +131,7 @@ MLflow で実験管理。PostgreSQL (EveryDB2/JRA-VAN DataLab) をデータソ�
 **Phases:** 42 total (v1.0-v2.1), all complete
 **Tests:** 2,056+ passed, 3 known failures
 **BT ROI:** 87.8% (v2.0 close), target 100%+
-**Next:** v2.2 planning via `/gsd:new-milestone`
+**Next:** v2.2 ROI Recovery Analysis
 
 ## Context
 

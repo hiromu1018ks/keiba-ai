@@ -1,10 +1,15 @@
 ---
 gsd_state_version: 1.0
-milestone: none
-milestone_name: Planning Next
+milestone: v2.2
+milestone_name: ROI Recovery Analysis
 status: planning
-last_updated: "2026-05-28T14:30:00.000Z"
+last_updated: "2026-05-28T15:00:00.000Z"
 last_activity: 2026-05-28
+progress:
+  phases_total: 0
+  phases_complete: 0
+  plans_total: 0
+  plans_complete: 0
 ---
 
 # Project State
@@ -14,13 +19,14 @@ last_activity: 2026-05-28
 See: .planning/PROJECT.md (updated 2026-05-28)
 
 **Core value:** 単勝モデルのバックテストROIを100%超えにすること
-**Current focus:** Planning next milestone (v2.2)
+**Current focus:** v2.2 ROI Recovery Analysis
 
 ## Current Position
 
-Phase: None (milestone v2.1 shipped)
-Status: Planning next milestone
-Last activity: 2026-05-28
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-05-28 — Milestone v2.2 started
 
 ## Completed Milestone: v2.1
 
@@ -36,8 +42,8 @@ Last activity: 2026-05-28
 | UAT | Human UAT 5項目 (PostgreSQL依存) | Pending since v1.4 |
 | Bug | test_training_pipeline.py 3件既知失敗 | Pending since v1.6 |
 | Cleanup | WinSegmentCalibrator dead code removal (WRN-01) | Pending since v2.1 |
-| Optimization | Optuna 19次元パラメータ最適化 (DEP-02) | Deferred to v2.2 |
-| Automation | デプロイゲート自動判定 (DEP-01) | Deferred to v2.2 |
+| Optimization | Optuna 19次元パラメータ最適化 (DEP-02) | Deferred to v2.3+ |
+| Automation | デプロイゲート自動判定 (DEP-01) | Deferred to v2.3+ |
 
 ## Session Continuity
 
