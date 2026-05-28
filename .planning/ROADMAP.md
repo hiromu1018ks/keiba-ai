@@ -41,7 +41,7 @@ See `.planning/milestones/` for archived roadmaps.
 **Milestone Goal:** Recover BT ROI from 87.8% to 100%+ via MarketAwareWinCalibrator (replacing WinBenterGate + WinSegmentCalibrator) and learned Race-Level Ranker, validated by shadow comparison against baseline.
 
 - [x] **Phase 39: MarketAwareWinCalibrator** - Replace WinBenterGate + WinSegmentCalibrator with Benter logit-blend calibrator producing segment-conditioned probabilities (completed 2026-05-27)
-- [ ] **Phase 40: Race-Level Ranker** - Learned ranker combining relevance (is_win/finishing-position) and value/mispricing signals into investment_score
+- [x] **Phase 40: Race-Level Ranker** - Learned ranker combining relevance (is_win/finishing-position) and value/mispricing signals into investment_score (completed 2026-05-28)
 - [ ] **Phase 41: Shadow Comparison Framework** - Fixed-fold 2024/2025 baseline vs shadow comparison tracking probability quality, selection agreement, CLV, ROI
 - [ ] **Phase 42: Feature Routing Audit & Safety Gates** - Verify calibrator features do not pollute MarketModel/RaceQualityScreener, OOF health passes, deployment gate conditions met
 
