@@ -35,7 +35,7 @@ See `.planning/milestones/` for archived roadmaps.
 
 ### v2.2 ROI Recovery Analysis (In Progress)
 
-- [ ] **Phase 43: Shadow Diagnosis** -- 確率品質・選定差分の全面比較 (DIAG-01~03)
+- [x] **Phase 43: Shadow Diagnosis** -- 確率品質・選定差分の全面比較 (DIAG-01~03) (completed 2026-05-29)
 - [ ] **Phase 44: ROI Bisect** -- フェーズ単位劣化ビセクション + 特徴量寄与分析 (BISECT-01~02)
 - [ ] **Phase 45: Structural Fix** -- 診断結果に基づく構造的修正と汎化確認 (FIX-01~02)
 - [ ] **Phase 46: Quality Gate Verification** -- 全品質ゲートPASS確認 (QUAL-01~04)
@@ -53,8 +53,8 @@ See `.planning/milestones/` for archived roadmaps.
 **Plans**: 2 plans
 
 Plans:
-- [ ] 43-01-PLAN.md -- ShadowDiagnosis クラス実装 (3ステップ段階的除外診断ロジック + テスト)
-- [ ] 43-02-PLAN.md -- CLI + HTML レポート + Markdown 要約 (D-04 出力フォーマット)
+- [x] 43-01-PLAN.md -- ShadowDiagnosis クラス実装 (3ステップ段階的除外診断ロジック + テスト)
+- [x] 43-02-PLAN.md -- CLI + HTML レポート + Markdown 要約 (D-04 出力フォーマット)
 
 ### Phase 44: ROI Bisect
 **Goal**: v1.7(Phase 34)からv2.0(Phase 38)間でROI劣化を引き起こしたフェーズを特定し、そのフェーズの特徴量寄与度変化を明らかにする
@@ -96,7 +96,7 @@ Phases execute in numeric order: 43 -> 44 -> 45 -> 46
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
 | 1-42 | v1.0-v2.1 | 85/85 | Complete | 2026-05-28 |
-| 43. Shadow Diagnosis | v2.2 | 0/2 | Planned | - |
+| 43. Shadow Diagnosis | v2.2 | 2/2 | Complete | 2026-05-29 |
 | 44. ROI Bisect | v2.2 | 0/? | Not started | - |
 | 45. Structural Fix | v2.2 | 0/? | Not started | - |
 | 46. Quality Gate Verification | v2.2 | 0/? | Not started | - |

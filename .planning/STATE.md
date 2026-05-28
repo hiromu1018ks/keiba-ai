@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v2.2
 milestone_name: ROI Recovery Analysis
-status: ready_to_execute
-last_updated: "2026-05-28T17:00:00.000Z"
-last_activity: 2026-05-28 — Phase 43 planned (2 plans in 2 waves)
+status: phase_complete
+last_updated: "2026-05-29T01:00:00.000Z"
+last_activity: 2026-05-29 — Phase 43 complete, verified, ready for Phase 44
 progress:
   total_phases: 4
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 2
-  completed_plans: 0
-  percent: 0
+  completed_plans: 2
+  percent: 25
 ---
 
 # Project State
@@ -24,12 +24,12 @@ See: .planning/PROJECT.md (updated 2026-05-28)
 
 ## Current Position
 
-Phase: 43 of 46 (Shadow Diagnosis)
-Plan: 2 plans (Wave 1: 43-01, Wave 2: 43-02)
-Status: Ready to execute
-Last activity: 2026-05-28 — Phase 43 planned (2 plans in 2 waves)
+Phase: 44 of 46 (ROI Bisect) — next up
+Previous: 43 complete (2/2 plans)
+Status: Ready for discuss/plan
+Last activity: 2026-05-29 — Phase 43 complete, verified, ready for Phase 44
 
-Progress: [░░░░░░░░░░] 0%
+Progress: [█████░░░░░] 25%
 
 ## Deferred Items
 
