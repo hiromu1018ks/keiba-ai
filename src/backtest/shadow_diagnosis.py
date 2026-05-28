@@ -16,6 +16,7 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
+from jinja2 import Environment, FileSystemLoader
 
 from backtest.shadow_comparison import ShadowComparisonFramework
 
@@ -528,3 +529,265 @@ class ShadowDiagnosis:
                 ))
 
         return CalibrationResult(segments=segments)
+
+
+# ---------------------------------------------------------------------------
+# Output: save_diagnosis_results (D-04)
+# ---------------------------------------------------------------------------
+
+
+def _result_to_dict(result: ShadowDiagnosisResult) -> dict[str, Any]:
+    """ShadowDiagnosisResult を JSON 可能な dict に変換."""
+    return {
+        "generated_at": result.generated_at,
+        "variant_names": result.variant_names,
+        "missing_inputs": result.missing_inputs,
+        "step1_probability_quality": {
+            "baseline": {
+                "brier": result.step1.baseline_brier,
+                "logloss": result.step1.baseline_logloss,
+                "ece": result.step1.baseline_ece,
+                "actual_predicted_ratio": result.step1.baseline_apr,
+                "n_horses": result.step1.baseline_n_horses,
+            },
+            "shadow": {
+                "brier": result.step1.shadow_brier,
+                "logloss": result.step1.shadow_logloss,
+                "ece": result.step1.shadow_ece,
+                "actual_predicted_ratio": result.step1.shadow_apr,
+                "n_horses": result.step1.shadow_n_horses,
+            },
+            "delta": {
+                "brier": result.step1.delta_brier,
+                "logloss": result.step1.delta_logloss,
+                "ece": result.step1.delta_ece,
+                "actual_predicted_ratio": result.step1.delta_apr,
+            },
+        },
+        "step2_selection_pattern": {
+            "changed": {
+                "roi": result.step2.changed.roi,
+                "hit_rate": result.step2.changed.hit_rate,
+                "avg_odds": result.step2.changed.avg_odds,
+                "actual_predicted_ratio": result.step2.changed.actual_predicted_ratio,
+                "bet_count": result.step2.changed.bet_count,
+                "n_races": result.step2.changed.n_races,
+            },
+            "unchanged": {
+                "roi": result.step2.unchanged.roi,
+                "hit_rate": result.step2.unchanged.hit_rate,
+                "avg_odds": result.step2.unchanged.avg_odds,
+                "actual_predicted_ratio": result.step2.unchanged.actual_predicted_ratio,
+                "bet_count": result.step2.unchanged.bet_count,
+                "n_races": result.step2.unchanged.n_races,
+            },
+            "delta": {
+                "roi": result.step2.delta_roi,
+                "hit_rate": result.step2.delta_hit_rate,
+            },
+            "n_changed_races": result.step2.n_changed_races,
+            "n_unchanged_races": result.step2.n_unchanged_races,
+        },
+        "step3_calibration": {
+            "segments": [
+                {
+                    "segment_name": seg.segment_name,
+                    "segment_value": seg.segment_value,
+                    "n_samples": seg.n_samples,
+                    "baseline_apr": seg.actual_predicted_ratio_baseline,
+                    "shadow_apr": seg.actual_predicted_ratio_shadow,
+                    "baseline_ece": seg.ece_baseline,
+                    "shadow_ece": seg.ece_shadow,
+                    "delta_apr": seg.delta_apr,
+                    "delta_ece": seg.delta_ece,
+                }
+                for seg in result.step3.segments
+            ],
+        },
+        "recommendations": [],
+    }
+
+
+def save_diagnosis_results(
+    diagnosis_result: ShadowDiagnosisResult,
+    output_dir: Path,
+) -> dict[str, Path]:
+    """診断結果を JSON + Markdown で出力 (D-04).
+
+    Args:
+        diagnosis_result: ShadowDiagnosis.run() の戻り値.
+        output_dir: 出力ディレクトリ.
+
+    Returns:
+        出力ファイルパスの dict {"result_json": Path, "summary_md": Path}.
+    """
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    # JSON 出力
+    result_dict = _result_to_dict(diagnosis_result)
+    result_json_path = output_dir / "shadow_diagnosis_result.json"
+    result_json_path.write_text(
+        json.dumps(result_dict, indent=2, ensure_ascii=False),
+        encoding="utf-8",
+    )
+
+    # Markdown 要約出力
+    summary_path = output_dir / "shadow_diagnosis_summary.md"
+    summary_lines = _build_summary_md(diagnosis_result)
+    summary_path.write_text("\n".join(summary_lines), encoding="utf-8")
+
+    return {"result_json": result_json_path, "summary_md": summary_path}
+
+
+def _build_summary_md(result: ShadowDiagnosisResult) -> list[str]:
+    """ShadowDiagnosisResult から Markdown 要約を生成."""
+    def _md_row(label: str, bl: str, sh: str, delta: str) -> str:
+        return f"| {label} | {bl} | {sh} | {delta} |"
+
+    lines: list[str] = [
+        "# Phase 43: Shadow Diagnosis Summary",
+        "",
+        f"**Generated:** {result.generated_at}",
+        f"**Variants:** {', '.join(result.variant_names)}",
+        "",
+    ]
+
+    # セクション1: Probability Quality
+    s1 = result.step1
+    lines += [
+        "## 1. Probability Quality",
+        "",
+        "| Metric | Baseline | Shadow | Delta |",
+        "|--------|----------|--------|-------|",
+        (
+            _md_row("Brier", f"{s1.baseline_brier:.4f}",
+                    f"{s1.shadow_brier:.4f}", f"{s1.delta_brier:+.4f}")
+        ),
+        (
+            _md_row("Logloss", f"{s1.baseline_logloss:.4f}",
+                    f"{s1.shadow_logloss:.4f}", f"{s1.delta_logloss:+.4f}")
+        ),
+        _md_row("ECE", f"{s1.baseline_ece:.4f}", f"{s1.shadow_ece:.4f}", f"{s1.delta_ece:+.4f}"),
+        _md_row("APR", f"{s1.baseline_apr:.4f}", f"{s1.shadow_apr:.4f}", f"{s1.delta_apr:+.4f}"),
+        "",
+    ]
+
+    # セクション2: Selection Pattern
+    s2 = result.step2
+    lines += [
+        "## 2. Selection Pattern",
+        "",
+        f"**Changed races:** {s2.n_changed_races}"
+        f" | **Unchanged races:** {s2.n_unchanged_races}",
+        "",
+        "| Group | ROI | Hit Rate | Avg Odds | APR | Bet Count |",
+        "|-------|-----|----------|----------|-----|-----------|",
+        (
+            f"| Changed | {s2.changed.roi:.4f} | {s2.changed.hit_rate:.4f}"
+            f" | {s2.changed.avg_odds:.2f}"
+            f" | {s2.changed.actual_predicted_ratio:.4f}"
+            f" | {s2.changed.bet_count} |"
+        ),
+        (
+            f"| Unchanged | {s2.unchanged.roi:.4f} | {s2.unchanged.hit_rate:.4f}"
+            f" | {s2.unchanged.avg_odds:.2f}"
+            f" | {s2.unchanged.actual_predicted_ratio:.4f}"
+            f" | {s2.unchanged.bet_count} |"
+        ),
+        "",
+        (
+            f"**Delta ROI:** {s2.delta_roi:+.4f} | "
+            f"**Delta Hit Rate:** {s2.delta_hit_rate:+.4f}"
+        ),
+        "",
+    ]
+
+    # セクション3: Top Calibration Gaps (|delta_apr|+|delta_ece| 降順上位5件)
+    sorted_segments = sorted(
+        result.step3.segments,
+        key=lambda s: abs(s.delta_apr) + abs(s.delta_ece),
+        reverse=True,
+    )
+    lines += [
+        "## 3. Top Calibration Gaps",
+        "",
+        "| Segment | Value | N | BL APR | SH APR | D APR | BL ECE | SH ECE | D ECE |",
+        "|---------|-------|---|--------|--------|-------|--------|--------|-------|",
+    ]
+    for seg in sorted_segments[:5]:
+        lines.append(
+            f"| {seg.segment_name} | {seg.segment_value} | {seg.n_samples}"
+            f" | {seg.actual_predicted_ratio_baseline:.4f}"
+            f" | {seg.actual_predicted_ratio_shadow:.4f}"
+            f" | {seg.delta_apr:+.4f}"
+            f" | {seg.ece_baseline:.4f}"
+            f" | {seg.ece_shadow:.4f}"
+            f" | {seg.delta_ece:+.4f} |"
+        )
+    lines.append("")
+
+    # セクション4: Missing Inputs
+    lines += [
+        "## 4. Missing Inputs",
+        "",
+    ]
+    if result.missing_inputs:
+        for inp in result.missing_inputs:
+            lines.append(f"- {inp}")
+    else:
+        lines.append("None")
+    lines.append("")
+
+    # セクション5: Recommendations (Phase 44で活用)
+    lines += [
+        "## 5. Recommendations for Phase 44/45",
+        "",
+        "(To be populated by Phase 44 analysis)",
+        "",
+    ]
+
+    return lines
+
+
+# ---------------------------------------------------------------------------
+# Output: ShadowDiagnosisReportGenerator (D-04 HTML)
+# ---------------------------------------------------------------------------
+
+
+class ShadowDiagnosisReportGenerator:
+    """Shadow Diagnosis HTML レポート生成 (D-04).
+
+    Phase 41 ShadowComparisonReportGenerator パターンに従う。
+    """
+
+    def __init__(self, output_dir: Path) -> None:
+        self.output_dir = output_dir
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+        self.template_dir = Path(__file__).parent / "templates"
+
+    def generate(self, diagnosis_result: ShadowDiagnosisResult) -> Path:
+        """HTML レポートを生成し、ファイルパスを返す."""
+        env = Environment(
+            loader=FileSystemLoader(str(self.template_dir)),
+            autoescape=True,
+        )
+        template = env.get_template("shadow_diagnosis_report.html")
+
+        # context 構築
+        context: dict[str, Any] = {
+            "generated_at": diagnosis_result.generated_at,
+            "variant_names": diagnosis_result.variant_names,
+            "missing_inputs": diagnosis_result.missing_inputs,
+            # Step 1
+            "step1": diagnosis_result.step1,
+            # Step 2
+            "step2": diagnosis_result.step2,
+            # Step 3 segments
+            "step3_segments": diagnosis_result.step3.segments,
+        }
+
+        html = template.render(**context)
+
+        outpath = self.output_dir / "shadow_diagnosis_report.html"
+        outpath.write_text(html, encoding="utf-8")
+        return outpath
