@@ -217,7 +217,7 @@ class TestRaceLevelRankerScore:
             rows.append({
                 "race_id": "R_SCORE_01",
                 "umaban": h + 1,
-                "surface": 0.0,
+                "if_surface": 0.0,
                 "if_p_win_final": rng.uniform(0.02, 0.25),
                 "if_p_win_race_rank": rng.uniform(0.0, 1.0),
                 "if_p_ability_win": rng.uniform(0.02, 0.30),
@@ -267,7 +267,7 @@ class TestRaceLevelRankerScore:
             rows.append({
                 "race_id": "R_FORMULA_01",
                 "umaban": h + 1,
-                "surface": 0.0,
+                "if_surface": 0.0,
                 "if_p_win_final": rng.uniform(0.02, 0.25),
                 "if_p_win_race_rank": rng.uniform(0.0, 1.0),
                 "if_p_ability_win": rng.uniform(0.02, 0.30),
@@ -384,11 +384,13 @@ class TestRaceLevelRankerPersistence:
         return rlr
 
     def test_save_load_roundtrip(self, trained_ranker: "RaceLevelRanker") -> None:
+        from models.race_level_ranker import RaceLevelRanker as _RLR
+
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "race_level_ranker.joblib"
             trained_ranker.save(path)
 
-            loaded = RaceLevelRanker.load(path)
+            loaded = _RLR.load(path)
             assert loaded.is_trained is True
             assert loaded.relevance_scorer_turf is not None
             assert loaded.relevance_scorer_dirt is not None
