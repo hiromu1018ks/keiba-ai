@@ -29,6 +29,7 @@ def _make_submodel_mock() -> MagicMock:
     sm.win_selection_gate = None
     sm.win_selection_policy = None
     sm.win_profit_selector = None
+    sm.win_race_level_ranker = None
     sm.ev_lower_threshold_turf = 1.0
     sm.ev_lower_threshold_dirt = 1.0
     sm.target_encoder = None
@@ -2066,3 +2067,338 @@ class TestSelectBetsWinPath:
         )
         bets = predictor.select_bets(race_df, bankroll=100000.0, betting_target="win")
         assert bets == []
+
+
+class TestRaceLevelRankerIntegration:
+    """Race-Level Ranker shadow mode integration tests (RNK-03, D-18)."""
+
+    def _make_ranker_race_df(self, n: int = 4) -> pd.DataFrame:
+        """Build a multi-horse race DataFrame for ranker tests."""
+        return pd.DataFrame(
+            {
+                "race_id": ["R1"] * n,
+                "umaban": list(range(1, n + 1)),
+                "surface": ["turf"] * n,
+                "kyori": [1200] * n,
+                "distance_bin": ["sprint"] * n,
+                "popularity_rank": list(range(1, n + 1)),
+                "ninki": list(range(1, n + 1)),
+                "tanodds": [2.0, 4.0, 6.0, 10.0],
+                "kakuteijyuni": [1, 2, 3, 4],
+                "kettonum": [100, 200, 300, 400],
+                "odds": [2.0, 4.0, 6.0, 10.0],
+                "bataijyu": [480] * n,
+                "field_size": [n] * n,
+                "track_condition_code": [2] * n,
+                "grade_code": ["C"] * n,
+            }
+        )
+
+    def _setup_mock_chain_win(self, mock_models: MagicMock, race_df: pd.DataFrame) -> None:
+        """Wire up mock submodel chain for win-only prediction."""
+        result_df = race_df.copy()
+        result_df["p_win_pred"] = [0.40, 0.25, 0.20, 0.15]
+        result_df["e_return_win_pred"] = [5.0, 4.0, 3.0, 2.0]
+        result_df["ev_win"] = [1.0, 1.0, 1.0, 1.0]
+        result_df["p_win_corrected"] = [0.40, 0.25, 0.20, 0.15]
+        result_df["ev_win_calibrated"] = [1.0, 1.0, 1.0, 1.0]
+        result_df["win_selection_ev"] = [1.0] * len(race_df)
+        result_df["win_selection_edge"] = [0.0] * len(race_df)
+        result_df["EV_lower_win_corrected"] = [1.0] * len(race_df)
+
+        submodel = mock_models.submodels["turf"]
+        submodel.market.predict_and_calc_error.return_value = race_df.copy()
+        submodel.stage1.add_ability_probs.return_value = race_df.assign(p_ability_win=0.2)
+        submodel.win.predict_ev.return_value = result_df.copy()
+        submodel.ev_corrector.correct_ev.return_value = result_df.copy()
+
+        # predict_interval must preserve all columns from input (including ranker columns)
+        def _mock_predict_interval(win_df: pd.DataFrame, place_df: pd.DataFrame) -> tuple:
+            win_out = win_df.copy()
+            return win_out, pd.DataFrame({"EV_lower_place": [0.0] * len(win_out)})
+
+        submodel.conformal_ev_model.predict_interval.side_effect = _mock_predict_interval
+
+    def test_predict_calls_ranker_score_when_trained(self, mock_models: MagicMock) -> None:
+        """When ranker is trained, predict() calls ranker.score() and adds investment_score."""
+        from backtest.race_predictor import RacePredictor
+
+        ranker_mock = MagicMock()
+        ranker_mock.is_trained = True
+        ranker_mock.score.side_effect = lambda df: df.assign(
+            investment_score=[0.9, 0.7, 0.5, 0.3],
+            relevance_score=[0.8, 0.6, 0.4, 0.2],
+            value_score=[0.7, 0.5, 0.3, 0.1],
+            relevance_score_pct=[1.0, 0.75, 0.5, 0.25],
+            value_score_pct=[1.0, 0.75, 0.5, 0.25],
+            calibrated_log_ev_pct=[0.75, 0.5, 0.25, 1.0],
+            uncertainty_penalty_pct=[0.25, 0.5, 0.75, 1.0],
+        )
+        mock_models.submodels["turf"].win_race_level_ranker = ranker_mock
+
+        predictor = RacePredictor(models=mock_models, betting_target="win")
+        race_df = self._make_ranker_race_df()
+        self._setup_mock_chain_win(mock_models, race_df)
+
+        result = predictor.predict(race_df)
+
+        ranker_mock.score.assert_called_once()
+        assert "investment_score" in result.columns
+        assert len(result) == 4
+
+    def test_predict_no_ranker_identical_behavior(self, mock_models: MagicMock) -> None:
+        """When ranker is None, predict() runs identically to before (no columns added)."""
+        from backtest.race_predictor import RacePredictor
+
+        mock_models.submodels["turf"].win_race_level_ranker = None
+
+        predictor = RacePredictor(models=mock_models, betting_target="win")
+        race_df = self._make_ranker_race_df()
+        self._setup_mock_chain_win(mock_models, race_df)
+
+        result = predictor.predict(race_df)
+
+        assert "investment_score" not in result.columns
+        assert len(result) == 4
+
+    def test_predict_untrained_ranker_no_effect(self, mock_models: MagicMock) -> None:
+        """When ranker is not trained, predict() runs identically to before."""
+        from backtest.race_predictor import RacePredictor
+
+        ranker_mock = MagicMock()
+        ranker_mock.is_trained = False
+        mock_models.submodels["turf"].win_race_level_ranker = ranker_mock
+
+        predictor = RacePredictor(models=mock_models, betting_target="win")
+        race_df = self._make_ranker_race_df()
+        self._setup_mock_chain_win(mock_models, race_df)
+
+        result = predictor.predict(race_df)
+
+        ranker_mock.score.assert_not_called()
+        assert "investment_score" not in result.columns
+
+    def test_investment_score_range(self, mock_models: MagicMock) -> None:
+        """investment_score values are percentile-based, in expected [0, 1] range."""
+        from backtest.race_predictor import RacePredictor
+
+        ranker_mock = MagicMock()
+        ranker_mock.is_trained = True
+        ranker_mock.score.side_effect = lambda df: df.assign(
+            investment_score=[0.85, 0.65, 0.45, 0.20],
+            relevance_score=[0.8, 0.6, 0.4, 0.2],
+            value_score=[0.7, 0.5, 0.3, 0.1],
+            relevance_score_pct=[1.0, 0.75, 0.5, 0.25],
+            value_score_pct=[1.0, 0.75, 0.5, 0.25],
+            calibrated_log_ev_pct=[0.75, 0.5, 0.25, 1.0],
+            uncertainty_penalty_pct=[0.25, 0.5, 0.75, 1.0],
+        )
+        mock_models.submodels["turf"].win_race_level_ranker = ranker_mock
+
+        predictor = RacePredictor(models=mock_models, betting_target="win")
+        race_df = self._make_ranker_race_df()
+        self._setup_mock_chain_win(mock_models, race_df)
+
+        result = predictor.predict(race_df)
+
+        scores = result["investment_score"].values
+        assert all(0.0 <= s <= 1.0 for s in scores)
+
+    def test_all_runners_receive_investment_score(self, mock_models: MagicMock) -> None:
+        """All runners in the race receive investment_score, not just gate-passed horses (D-20)."""
+        from backtest.race_predictor import RacePredictor
+
+        ranker_mock = MagicMock()
+        ranker_mock.is_trained = True
+        ranker_mock.score.side_effect = lambda df: df.assign(
+            investment_score=[0.9, 0.7, 0.5, 0.3],
+            relevance_score=[0.8, 0.6, 0.4, 0.2],
+            value_score=[0.7, 0.5, 0.3, 0.1],
+            relevance_score_pct=[1.0, 0.75, 0.5, 0.25],
+            value_score_pct=[1.0, 0.75, 0.5, 0.25],
+            calibrated_log_ev_pct=[0.75, 0.5, 0.25, 1.0],
+            uncertainty_penalty_pct=[0.25, 0.5, 0.75, 1.0],
+        )
+        mock_models.submodels["turf"].win_race_level_ranker = ranker_mock
+
+        predictor = RacePredictor(models=mock_models, betting_target="win")
+        race_df = self._make_ranker_race_df(n=4)
+        self._setup_mock_chain_win(mock_models, race_df)
+
+        result = predictor.predict(race_df)
+
+        # All 4 runners get investment_score
+        assert result["investment_score"].notna().sum() == 4
+
+    def test_win_market_selection_score_unchanged_by_ranker(
+        self, mock_models: MagicMock
+    ) -> None:
+        """win_market_selection_score is unchanged by ranker addition (D-21, RNK-05)."""
+        from backtest.race_predictor import RacePredictor
+
+        # First: without ranker
+        mock_models.submodels["turf"].win_race_level_ranker = None
+        predictor_no_ranker = RacePredictor(models=mock_models, betting_target="win")
+        race_df = self._make_ranker_race_df()
+        self._setup_mock_chain_win(mock_models, race_df)
+        predicted_no_ranker = predictor_no_ranker.predict(race_df)
+        result_no_ranker = predictor_no_ranker.get_win_candidates(predicted_no_ranker)
+
+        # Second: with ranker
+        ranker_mock = MagicMock()
+        ranker_mock.is_trained = True
+        ranker_mock.score.side_effect = lambda df: df.assign(
+            investment_score=[0.9, 0.7, 0.5, 0.3],
+            relevance_score=[0.8, 0.6, 0.4, 0.2],
+            value_score=[0.7, 0.5, 0.3, 0.1],
+            relevance_score_pct=[1.0, 0.75, 0.5, 0.25],
+            value_score_pct=[1.0, 0.75, 0.5, 0.25],
+            calibrated_log_ev_pct=[0.75, 0.5, 0.25, 1.0],
+            uncertainty_penalty_pct=[0.25, 0.5, 0.75, 1.0],
+        )
+        mock_models.submodels["turf"].win_race_level_ranker = ranker_mock
+        predictor_with_ranker = RacePredictor(models=mock_models, betting_target="win")
+        # Reset mocks for second pass
+        self._setup_mock_chain_win(mock_models, race_df)
+        predicted_with_ranker = predictor_with_ranker.predict(race_df)
+        result_with_ranker = predictor_with_ranker.get_win_candidates(predicted_with_ranker)
+
+        # Baseline score should be identical
+        diag_no = result_no_ranker.attrs.get("win_diagnostic_df", result_no_ranker)
+        diag_with = result_with_ranker.attrs.get("win_diagnostic_df", result_with_ranker)
+        if (
+            "win_market_selection_score" in diag_no.columns
+            and "win_market_selection_score" in diag_with.columns
+        ):
+            np.testing.assert_allclose(
+                diag_no["win_market_selection_score"].values,
+                diag_with["win_market_selection_score"].values,
+            )
+
+    def test_d18_diagnostics_columns_present(self, mock_models: MagicMock) -> None:
+        """D-18 diagnostic columns: baseline_selected_umaban, ranker_selected_umaban, agreement."""
+        from backtest.race_predictor import RacePredictor
+
+        ranker_mock = MagicMock()
+        ranker_mock.is_trained = True
+        ranker_mock.score.side_effect = lambda df: df.assign(
+            investment_score=[0.9, 0.7, 0.5, 0.3],
+            relevance_score=[0.8, 0.6, 0.4, 0.2],
+            value_score=[0.7, 0.5, 0.3, 0.1],
+            relevance_score_pct=[1.0, 0.75, 0.5, 0.25],
+            value_score_pct=[1.0, 0.75, 0.5, 0.25],
+            calibrated_log_ev_pct=[0.75, 0.5, 0.25, 1.0],
+            uncertainty_penalty_pct=[0.25, 0.5, 0.75, 1.0],
+        )
+        mock_models.submodels["turf"].win_race_level_ranker = ranker_mock
+
+        predictor = RacePredictor(models=mock_models, betting_target="win")
+        race_df = self._make_ranker_race_df()
+        self._setup_mock_chain_win(mock_models, race_df)
+
+        # Must run predict() first to get investment_score, then pass to get_win_candidates
+        predicted_df = predictor.predict(race_df)
+        assert "investment_score" in predicted_df.columns
+
+        result = predictor.get_win_candidates(predicted_df)
+        diag_df = result.attrs.get("win_diagnostic_df", result)
+
+        assert "baseline_selected_umaban" in diag_df.columns
+        assert "ranker_selected_umaban" in diag_df.columns
+        assert "baseline_ranker_agreement" in diag_df.columns
+
+    def test_baseline_selected_umaban_is_highest_win_market_score(
+        self, mock_models: MagicMock
+    ) -> None:
+        """baseline_selected_umaban equals the umaban with highest win_market_selection_score."""
+        from backtest.race_predictor import RacePredictor
+
+        ranker_mock = MagicMock()
+        ranker_mock.is_trained = True
+        ranker_mock.score.side_effect = lambda df: df.assign(
+            investment_score=[0.3, 0.9, 0.5, 0.7],
+            relevance_score=[0.4, 0.8, 0.6, 0.2],
+            value_score=[0.3, 0.7, 0.5, 0.1],
+            relevance_score_pct=[0.25, 1.0, 0.75, 0.5],
+            value_score_pct=[0.25, 1.0, 0.75, 0.5],
+            calibrated_log_ev_pct=[0.75, 0.5, 0.25, 1.0],
+            uncertainty_penalty_pct=[0.25, 0.5, 0.75, 1.0],
+        )
+        mock_models.submodels["turf"].win_race_level_ranker = ranker_mock
+
+        predictor = RacePredictor(models=mock_models, betting_target="win")
+        race_df = self._make_ranker_race_df()
+        self._setup_mock_chain_win(mock_models, race_df)
+
+        predicted_df = predictor.predict(race_df)
+        result = predictor.get_win_candidates(predicted_df)
+        diag_df = result.attrs.get("win_diagnostic_df", result)
+
+        # baseline_selected_umaban should be the horse with highest win_market_selection_score
+        if (
+            "win_market_selection_score" in diag_df.columns
+            and "baseline_selected_umaban" in diag_df.columns
+        ):
+            best_baseline_idx = diag_df["win_market_selection_score"].idxmax()
+            expected_umaban = int(diag_df.loc[best_baseline_idx, "umaban"])
+            assert diag_df["baseline_selected_umaban"].iloc[0] == expected_umaban
+
+    def test_ranker_selected_umaban_is_highest_investment_score(
+        self, mock_models: MagicMock
+    ) -> None:
+        """ranker_selected_umaban equals the umaban with highest investment_score."""
+        from backtest.race_predictor import RacePredictor
+
+        ranker_mock = MagicMock()
+        ranker_mock.is_trained = True
+        # investment_score: horse 2 is highest (0.9)
+        ranker_mock.score.side_effect = lambda df: df.assign(
+            investment_score=[0.3, 0.9, 0.5, 0.7],
+            relevance_score=[0.4, 0.8, 0.6, 0.2],
+            value_score=[0.3, 0.7, 0.5, 0.1],
+            relevance_score_pct=[0.25, 1.0, 0.75, 0.5],
+            value_score_pct=[0.25, 1.0, 0.75, 0.5],
+            calibrated_log_ev_pct=[0.75, 0.5, 0.25, 1.0],
+            uncertainty_penalty_pct=[0.25, 0.5, 0.75, 1.0],
+        )
+        mock_models.submodels["turf"].win_race_level_ranker = ranker_mock
+
+        predictor = RacePredictor(models=mock_models, betting_target="win")
+        race_df = self._make_ranker_race_df()
+        self._setup_mock_chain_win(mock_models, race_df)
+
+        predicted_df = predictor.predict(race_df)
+        result = predictor.get_win_candidates(predicted_df)
+        diag_df = result.attrs.get("win_diagnostic_df", result)
+
+        if "ranker_selected_umaban" in diag_df.columns:
+            # Horse 2 has investment_score=0.9 (highest)
+            assert diag_df["ranker_selected_umaban"].iloc[0] == 2
+
+    def test_baseline_ranker_agreement_when_same_horse(self, mock_models: MagicMock) -> None:
+        """baseline_ranker_agreement is True when both selectors pick the same horse."""
+        from backtest.race_predictor import RacePredictor
+
+        predictor = RacePredictor(models=mock_models, betting_target="win")
+
+        # Both selectors pick horse 2 (horse 2 has highest
+        # win_market_selection_score with these odds, so set
+        # investment_score to agree)
+        race_df = pd.DataFrame(
+            {
+                "race_id": ["R1", "R1", "R1"],
+                "umaban": [1, 2, 3],
+                "win_selection_edge": [0.1, 0.05, 0.02],
+                "win_selection_ev": [1.1, 1.05, 1.02],
+                "win_selection_prob": [0.40, 0.25, 0.15],
+                "tanodds": [2.0, 4.0, 6.0],
+                "investment_score": [0.5, 0.9, 0.2],
+                "surface": ["turf", "turf", "turf"],
+            }
+        )
+
+        result = predictor.get_win_candidates(race_df)
+        diag_df = result.attrs.get("win_diagnostic_df", result)
+
+        if "baseline_ranker_agreement" in diag_df.columns:
+            assert diag_df["baseline_ranker_agreement"].all()

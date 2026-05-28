@@ -276,6 +276,14 @@ class RacePredictor:
                 df["p_win_final"] = df["p_win_corrected"] / p_sum.clip(lower=1e-10)
                 df["edge_win"] = df["p_win_final"] * df["tanodds"] - 1.0
 
+        # --- Race-Level Ranker (RNK-03, shadow mode per D-20/D-21) ---
+        # Score ALL runners (not restricted to gate-passed horses per D-20).
+        # investment_score is a diagnostic column ONLY -- it does NOT alter
+        # win_market_selection_score or baseline selection logic (D-21, T-40-08).
+        ranker = getattr(submodel, "win_race_level_ranker", None)
+        if ranker is not None and ranker.is_trained:
+            df = ranker.score(df)
+
         # --- WinSelectionGate (SELC-01, D-14: after Benter, before Place) ---
         df_winsel = ensure_win_selection_columns(df)
         if "win_selection_ev" not in df.columns:
@@ -848,6 +856,33 @@ class RacePredictor:
             .groupby(race_key, observed=True)
             .rank(method="first", ascending=False)
         )
+
+        # D-18: Shadow diagnostics -- baseline vs ranker per-race comparison
+        # investment_score is set by RaceLevelRanker.score() in predict().
+        # This comparison happens AFTER win_market_selection_score is computed.
+        if "investment_score" in prepared.columns:
+            def _pick_selected_by_score(row_group: pd.DataFrame, score_col: str) -> int:
+                """Return umaban of the horse with highest score in this race."""
+                idx = row_group[score_col].idxmax()
+                return int(row_group.loc[idx, "umaban"])
+
+            diag_groups = prepared.groupby(race_key, observed=True)
+            baseline_picks = diag_groups.apply(  # type: ignore[misc]
+                lambda g: _pick_selected_by_score(g, "win_market_selection_score")
+            )
+            ranker_picks = diag_groups.apply(  # type: ignore[misc]
+                lambda g: _pick_selected_by_score(g, "investment_score")
+            )
+            prepared["baseline_selected_umaban"] = prepared["race_id"].map(
+                baseline_picks
+            )
+            prepared["ranker_selected_umaban"] = prepared["race_id"].map(
+                ranker_picks
+            )
+            prepared["baseline_ranker_agreement"] = (
+                prepared["baseline_selected_umaban"] == prepared["ranker_selected_umaban"]
+            )
+
         win_profit_selector = self._get_win_profit_selector(prepared)
         profit_selector_enabled = False
         profit_max_per_race = 1
