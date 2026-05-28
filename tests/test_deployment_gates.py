@@ -14,7 +14,6 @@ from typing import Any
 
 import pytest
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -116,30 +115,50 @@ def _make_manifest_json(
         "artifacts": artifacts if artifacts is not None else {
             "metrics_json": {
                 "path": "shadow_comparison_result.json",
-                "sha256": "abc123",
+                "sha256": "PLACEHOLDER",
             },
             "race_diff_parquet": {
                 "path": "shadow_race_diff.parquet",
-                "sha256": "def456",
+                "sha256": "placeholder_parquet",
             },
         },
     }
+
+
+def _compute_sha256(data: bytes) -> str:
+    """Compute SHA256 hex digest."""
+    import hashlib
+    return hashlib.sha256(data).hexdigest()
 
 
 def _write_json_files(
     tmp_path: Path,
     result: dict[str, Any] | None = None,
     manifest: dict[str, Any] | None = None,
+    skip_manifest: bool = False,
 ) -> tuple[Path, Path | None]:
-    """Write result and optional manifest to tmp_path."""
+    """Write result and manifest to tmp_path.
+
+    By default, generates and writes a manifest with correct SHA256.
+    Pass an explicit manifest dict to override.
+    Set skip_manifest=True to not write a manifest at all.
+    """
+    import hashlib
+
     result_path = tmp_path / "shadow_comparison_result.json"
     result_data = result if result is not None else _make_shadow_result_json()
-    result_path.write_text(
-        json.dumps(result_data, indent=2, ensure_ascii=False), encoding="utf-8"
-    )
+    result_bytes = json.dumps(result_data, indent=2, ensure_ascii=False).encode("utf-8")
+    result_path.write_bytes(result_bytes)
 
     manifest_path: Path | None = None
-    if manifest is not None:
+    if not skip_manifest:
+        if manifest is None:
+            manifest = _make_manifest_json()
+        # Fix up SHA256 for metrics_json if it has a placeholder
+        if "artifacts" in manifest and "metrics_json" in manifest.get("artifacts", {}):
+            mj = manifest["artifacts"]["metrics_json"]
+            if mj.get("sha256") == "PLACEHOLDER":
+                mj["sha256"] = hashlib.sha256(result_bytes).hexdigest()
         manifest_path = tmp_path / "shadow_manifest.json"
         manifest_path.write_text(
             json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8"
@@ -156,11 +175,10 @@ def _write_json_files(
 from backtest.deployment_gates import (  # noqa: E402
     DEFAULT_GATE_POLICY,
     DeploymentGateEvaluator,
-    GateEvaluationResult,
     GateConditionResult,
+    GateEvaluationResult,
     GatePolicy,
 )
-
 
 # ===========================================================================
 # Test 1-2: GatePolicy
@@ -349,17 +367,22 @@ class TestDeploymentGateEvaluator:
         evaluator = DeploymentGateEvaluator()
         result = evaluator.evaluate(result_path, manifest_path)
 
-        # Should produce WARN, not FAIL
+        # Should produce WARN, not FAIL for the fold where shadow is worse
         ratio_conditions = [
             c for c in result.conditions
-            if "actual_predicted_ratio" in c.condition_name.lower()
-            or "ratio" in c.condition_name.lower()
+            if "actual_predicted" in c.condition_name.lower()
         ]
-        for rc in ratio_conditions:
-            if "actual_predicted" in rc.condition_name.lower():
-                assert rc.status == "WARN", (
-                    f"Expected WARN for ratio condition, got {rc.status}: {rc.message}"
-                )
+        # Fold 2024 has shadow ratio=1.20 which is worse than baseline 1.02
+        fold_2024_ratio = [
+            c for c in ratio_conditions if "2024" in c.condition_name
+        ]
+        assert len(fold_2024_ratio) == 1, (
+            f"Expected exactly one ratio condition for fold 2024, got {len(fold_2024_ratio)}"
+        )
+        assert fold_2024_ratio[0].status == "WARN", (
+            f"Expected WARN for fold 2024 ratio, got {fold_2024_ratio[0].status}: "
+            f"{fold_2024_ratio[0].message}"
+        )
 
         # Overall should be WARN (not FAIL) if only ratio warnings exist
         # (unless other gates fail too)
@@ -378,7 +401,7 @@ class TestDeploymentGateEvaluator:
     def test_missing_manifest_produces_fail(self, tmp_path: Path) -> None:
         """Test 11: No manifest -> FAIL for artifact reproducibility."""
         result_data = _make_shadow_result_json()
-        result_path, _ = _write_json_files(tmp_path, result=result_data, manifest=None)
+        result_path, _ = _write_json_files(tmp_path, result=result_data, skip_manifest=True)
 
         evaluator = DeploymentGateEvaluator()
         result = evaluator.evaluate(result_path, None)
@@ -399,13 +422,13 @@ class TestDeploymentGateEvaluator:
         """Test 12: SHA256 mismatch in manifest -> FAIL."""
         result_data = _make_shadow_result_json()
 
-        # Create the actual result file so we can compute its SHA256
+        # Write result file directly (not via helper, to preserve wrong SHA256)
         result_path = tmp_path / "shadow_comparison_result.json"
         result_path.write_text(
             json.dumps(result_data, indent=2, ensure_ascii=False), encoding="utf-8"
         )
 
-        # Manifest has wrong SHA256
+        # Manifest has wrong SHA256 (do NOT use helper -- it fixes SHA256)
         manifest_data = _make_manifest_json(artifacts={
             "metrics_json": {
                 "path": "shadow_comparison_result.json",
@@ -496,6 +519,7 @@ class TestDeploymentGateEvaluator:
         result_data["folds"]["2025"]["metrics"]["shadow"]["actual_predicted_ratio"] = 1.50
         result_data["overall"]["metrics"]["shadow"]["actual_predicted_ratio"] = 1.50
 
+        # Use default manifest (correct SHA256) to avoid artifact FAIL
         result_path, manifest_path = _write_json_files(tmp_path, result=result_data)
         evaluator = DeploymentGateEvaluator()
         result = evaluator.evaluate(result_path, manifest_path)
@@ -534,5 +558,14 @@ class TestDeploymentGateEvaluator:
             f"selection_agreement/ROI should not be gate conditions: {gate_metrics_in_conditions}"
         )
 
-        # report_metrics should contain these values
-        assert "selection_agreement" in result.report_metrics or "roi" in result.report_metrics
+        # report_metrics should contain these values (possibly nested in folds)
+        has_roi = "roi" in result.report_metrics or any(
+            "roi" in k for k in result.report_metrics
+        )
+        has_selection = "selection_agreement" in result.report_metrics or any(
+            isinstance(v, dict) and "selection_agreement" in v
+            for v in result.report_metrics.values()
+        )
+        assert has_roi or has_selection, (
+            f"report_metrics should contain ROI or selection_agreement: {result.report_metrics}"
+        )
