@@ -46,23 +46,23 @@ Requirements for ROI recovery via structural diagnosis and targeted fix.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| DIAG-01 | — | Pending |
-| DIAG-02 | — | Pending |
-| DIAG-03 | — | Pending |
-| BISECT-01 | — | Pending |
-| BISECT-02 | — | Pending |
-| FIX-01 | — | Pending |
-| FIX-02 | — | Pending |
-| QUAL-01 | — | Pending |
-| QUAL-02 | — | Pending |
-| QUAL-03 | — | Pending |
-| QUAL-04 | — | Pending |
+| DIAG-01 | Phase 43 | Pending |
+| DIAG-02 | Phase 43 | Pending |
+| DIAG-03 | Phase 43 | Pending |
+| BISECT-01 | Phase 44 | Pending |
+| BISECT-02 | Phase 44 | Pending |
+| FIX-01 | Phase 45 | Pending |
+| FIX-02 | Phase 45 | Pending |
+| QUAL-01 | Phase 46 | Pending |
+| QUAL-02 | Phase 46 | Pending |
+| QUAL-03 | Phase 46 | Pending |
+| QUAL-04 | Phase 46 | Pending |
 
 **Coverage:**
 - v2.2 requirements: 11 total
-- Mapped to phases: 0
-- Unmapped: 11 ⚠️
+- Mapped to phases: 11
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-05-28*
-*Last updated: 2026-05-28 after initial definition*
+*Last updated: 2026-05-28 after roadmap creation*
