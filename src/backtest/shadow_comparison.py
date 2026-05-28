@@ -140,15 +140,25 @@ def save_results(
 
         # by selected_changed (D-13)
         if not cr.race_diff.empty and "selected_changed" in cr.race_diff.columns:
+            _fw_sc = ShadowComparisonFramework(variants=[])
             changed_groups: dict[str, dict[str, Any]] = {}
             for changed_val, changed_df in cr.race_diff.groupby(
                 "selected_changed", observed=True,
             ):
                 label = "changed" if changed_val else "unchanged"
-                changed_groups[label] = {
-                    vname: _metrics_to_dict(m)
-                    for vname, m in cr.metrics.items()
-                }
+                group_race_ids = set(changed_df["race_id"])
+                group_metrics: dict[str, dict[str, Any]] = {}
+                for vname, vr in cr.variants.items():
+                    group_bh = [
+                        b for b in vr.backtest_result.bet_history
+                        if b.get("race_id") in group_race_ids
+                    ]
+                    group_metrics[vname] = _metrics_to_dict(
+                        _fw_sc.compute_metrics(
+                            pd.DataFrame(), pd.DataFrame(), vname, group_bh,
+                        )
+                    )
+                changed_groups[label] = group_metrics
             fold_entry["metrics_by_selected_changed"] = changed_groups
 
         # selection agreement
@@ -497,7 +507,7 @@ class ShadowComparisonFramework:
             self._validate_artifacts(variant_cfg.variant_name, loaded_models, model_dir)
 
             # D-19: _shadow_flags を注入 (RacePredictor が読み取る)
-            loaded_models._shadow_flags = {  # type: ignore[attr-defined]
+            loaded_models._shadow_flags = {
                 "enable_market_aware_calibrator": variant_cfg.enable_market_aware_calibrator,
                 "enable_race_level_ranker": variant_cfg.enable_race_level_ranker,
             }
@@ -686,10 +696,10 @@ class ShadowComparisonFramework:
             shadow_subset = shadow_df[key_cols].copy()
             for col in align_cols:
                 if col in shadow_df.columns:
-                    shadow_subset[f"shadow_{col}"] = shadow_df[col].values
+                    shadow_subset[f"{vname}_{col}"] = shadow_df[col].values
                 else:
-                    shadow_subset[f"shadow_{col}"] = np.nan
-            shadow_subset["shadow_selected"] = (
+                    shadow_subset[f"{vname}_{col}"] = np.nan
+            shadow_subset[f"{vname}_selected"] = (
                 shadow_df["stake"].astype(float) > 0
                 if "stake" in shadow_df.columns
                 else False
@@ -750,9 +760,6 @@ class ShadowComparisonFramework:
 
         # --- Probability quality metrics (horse-level) ---
         p_col = f"{variant_name}_p_win_final"
-        if p_col not in aligned_horse.columns and "baseline_p_win_final" in aligned_horse.columns:
-            # Use baseline columns for single-variant metrics
-            p_col = "baseline_p_win_final"
 
         if not aligned_horse.empty and p_col in aligned_horse.columns:
             p_vals = pd.to_numeric(aligned_horse[p_col], errors="coerce")
@@ -792,11 +799,6 @@ class ShadowComparisonFramework:
 
         # --- Investment score average ---
         inv_col = f"{variant_name}_investment_score"
-        if (
-            inv_col not in aligned_horse.columns
-            and "baseline_investment_score" in aligned_horse.columns
-        ):
-            inv_col = "baseline_investment_score"
         if not aligned_horse.empty and inv_col in aligned_horse.columns:
             inv_vals = pd.to_numeric(aligned_horse[inv_col], errors="coerce")
             if inv_vals.notna().any():
@@ -897,7 +899,10 @@ class ShadowComparisonFramework:
             return 0.0
 
         for i in range(n_bins):
-            mask = (y_pred >= bin_boundaries[i]) & (y_pred < bin_boundaries[i + 1])
+            if i == n_bins - 1:
+                mask = (y_pred >= bin_boundaries[i]) & (y_pred <= bin_boundaries[i + 1])
+            else:
+                mask = (y_pred >= bin_boundaries[i]) & (y_pred < bin_boundaries[i + 1])
             n_in_bin = mask.sum()
             if n_in_bin == 0:
                 continue

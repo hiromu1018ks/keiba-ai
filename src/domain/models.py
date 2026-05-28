@@ -284,6 +284,7 @@ class TrainedModelsV5:
     quality_screener: RaceQualityScreener
     regime_detector: RegimeDetector
     train_period: tuple[str, str] = field(default=("2020-01-01", "2023-12-31"))
+    _shadow_flags: dict[str, bool] | None = field(default=None, repr=False)
 
 
 @dataclass
