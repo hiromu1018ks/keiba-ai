@@ -239,6 +239,29 @@ class ModelLoader:
                     except Exception:
                         logger.warning("Failed to load MarketAwareWinCalibrator for %s", surface)
 
+            # --- RaceLevelRanker (MLflow) ---
+            win_race_level_ranker = None
+            try:
+                rlr_dir = mlflow.artifacts.download_artifacts(
+                    f"runs:/{run_id}/win_race_level_ranker_{surface}"
+                )
+            except Exception:
+                try:
+                    rlr_dir = self._find_artifact_dir(
+                        run_id, f"win_race_level_ranker_{surface}"
+                    )
+                except Exception:
+                    rlr_dir = None
+            if rlr_dir is not None:
+                rlr_files = list(Path(rlr_dir).glob("*.joblib"))
+                if rlr_files:
+                    try:
+                        from models.race_level_ranker import RaceLevelRanker
+
+                        win_race_level_ranker = RaceLevelRanker.load(rlr_files[0])
+                    except Exception:
+                        logger.warning("Failed to load RaceLevelRanker for %s", surface)
+
             # PlaceAbilityModel (joblib artifact)
             pa = PlaceAbilityModel()
             try:
@@ -403,6 +426,7 @@ class ModelLoader:
                 isotonic_calibrator=isotonic_calibrator,
                 temperature_scaler=temperature_scaler,
                 market_aware_win_calibrator=market_aware_win_calibrator,
+                win_race_level_ranker=win_race_level_ranker,
                 win_selection_gate=win_selection_gate,
                 win_selection_policy=win_selection_policy,
                 win_profit_selector=win_profit_selector,
@@ -731,6 +755,17 @@ class ModelLoader:
                 except Exception:
                     logger.warning("Failed to load %s, skipping", mawc_file)
 
+            # --- RaceLevelRanker (local) ---
+            win_race_level_ranker = None
+            rlr_file = models_dir / f"win_race_level_ranker_{surface}.joblib"
+            if rlr_file.is_file():
+                try:
+                    from models.race_level_ranker import RaceLevelRanker
+
+                    win_race_level_ranker = RaceLevelRanker.load(rlr_file)
+                except Exception:
+                    logger.warning("Failed to load %s, skipping", rlr_file)
+
             # PlaceAbilityModel (joblib)
             pa = PlaceAbilityModel()
             pa_file = models_dir / f"place_ability_{surface}.joblib"
@@ -853,6 +888,7 @@ class ModelLoader:
                 isotonic_calibrator=isotonic_calibrator,
                 temperature_scaler=temperature_scaler,
                 market_aware_win_calibrator=market_aware_win_calibrator,
+                win_race_level_ranker=win_race_level_ranker,
                 win_selection_gate=win_selection_gate,
                 win_selection_policy=win_selection_policy,
                 win_profit_selector=win_profit_selector,
