@@ -43,7 +43,7 @@ See `.planning/milestones/` for archived roadmaps.
 - [x] **Phase 39: MarketAwareWinCalibrator** - Replace WinBenterGate + WinSegmentCalibrator with Benter logit-blend calibrator producing segment-conditioned probabilities (completed 2026-05-27)
 - [x] **Phase 40: Race-Level Ranker** - Learned ranker combining relevance (is_win/finishing-position) and value/mispricing signals into investment_score (completed 2026-05-28)
 - [x] **Phase 41: Shadow Comparison Framework** - Fixed-fold 2024/2025 baseline vs shadow comparison tracking probability quality, selection agreement, CLV, ROI (completed 2026-05-28)
-- [ ] **Phase 42: Feature Routing Audit & Safety Gates** - Verify calibrator features do not pollute MarketModel/RaceQualityScreener, OOF health passes, deployment gate conditions met
+- [x] **Phase 42: Feature Routing Audit & Safety Gates** - Verify calibrator features do not pollute MarketModel/RaceQualityScreener, OOF health passes, deployment gate conditions met (completed 2026-05-28)
 
 ## Phase Details
 
@@ -107,7 +107,7 @@ Plans:
 Plans:
 - [x] 42-01-PLAN.md -- Feature routing audit registry, fail-fast tests, diff tests, CLI audit script (Wave 1, SAF-01)
 - [x] 42-02-PLAN.md -- OOF artifact profiles for MAWC and Ranker with mock-based tests (Wave 1, SAF-02)
-- [ ] 42-03-PLAN.md -- DeploymentGateEvaluator with GatePolicy, gate condition tests (Wave 1, SAF-03)
+- [x] 42-03-PLAN.md -- DeploymentGateEvaluator with GatePolicy, gate condition tests (Wave 1, SAF-03)
 
 ## Progress
 
@@ -120,4 +120,4 @@ Phases execute in numeric order: 39 → 40 → 41 → 42
 | 39. MarketAwareWinCalibrator | v2.1 | 3/3 | Complete    | 2026-05-27 |
 | 40. Race-Level Ranker | v2.1 | 3/3 | Complete | 2026-05-28 |
 | 41. Shadow Comparison | v2.1 | 2/2 | Complete    | 2026-05-28 |
-| 42. Feature Routing Audit & Safety | v2.1 | 2/3 | In Progress | - |
+| 42. Feature Routing Audit & Safety | v2.1 | 3/3 | Complete | 2026-05-28 |

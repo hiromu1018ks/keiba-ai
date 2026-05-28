@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: MarketAware Calibration + Race-Level Ranker for ROI Recovery
 status: executing
-stopped_at: Phase 42 Plan 02 complete
-last_updated: "2026-05-28T12:40:00Z"
+stopped_at: Phase 42 Plan 03 complete
+last_updated: "2026-05-28T12:47:00Z"
 last_activity: 2026-05-28
 progress:
   total_phases: 4
@@ -26,18 +26,26 @@ See: .planning/PROJECT.md (updated 2026-05-27)
 ## Current Position
 
 Phase: 42
-Plan: 02 complete (SAF-02 OOF Artifact Profiles)
-Status: Executing — Plan 02 done, Plan 03 next
+Plan: 03 complete (SAF-03 Deployment Gate Evaluator)
+Status: Executing — Plan 03 done, Phase 42 complete
 Last activity: 2026-05-28
 
 Progress: [=========] 100%
+
+## Completed Plans
+
+| Plan | Name | Commit |
+|------|------|--------|
+| 42-01 | Feature Routing Audit (SAF-01) | fc567f |
+| 42-02 | OOF Artifact Profiles (SAF-02) | 46622fa |
+| 42-03 | Deployment Gate Evaluator (SAF-03) | 6ee4ec7 |
 
 ## Performance Metrics
 
 **Velocity:**
 
 - Total plans completed (all milestones): 85
-- v2.1 plans completed: 10 (planned: 11)
+- v2.1 plans completed: 11 (planned: 11)
 
 **Recent Trend:**
 
@@ -55,6 +63,10 @@ v2.1 key decisions:
 - Advisory model class names corrected to match actual codebase (SAF-01)
 - Artifact profiles use regular classes with validate() method, PROFILES dict for plugin discovery (SAF-02)
 - Rank determinism check emits WARNING (not failure) for duplicated investment_scores (SAF-02)
+- GatePolicy frozen dataclass with explicit thresholds for deployment gate evaluation (SAF-03)
+- Actual/predicted ratio degradation is WARN not FAIL per D-11 (SAF-03)
+- OOF/audit diagnostic gates are SKIP placeholders requiring manual runs per D-05 (SAF-03)
+- Variant names identified from manifest flag_states for Pitfall 4 safety (SAF-03)
 
 - MarketAwareWinCalibrator REPLACES WinBenterGate + WinSegmentCalibrator (not augments)
 - Segment effects as regularized features/interactions in global calibrator (not per-segment coefficients)
@@ -92,6 +104,6 @@ None for v2.1 yet.
 
 ## Session Continuity
 
-Last session: 2026-05-28T12:40:00Z
-Stopped at: Phase 42 Plan 02 complete (SAF-02), Plan 03 next
-Resume file: .planning/phases/42-feature-routing-audit-safety-gates/42-02-SUMMARY.md
+Last session: 2026-05-28T12:47:00Z
+Stopped at: Phase 42 Plan 03 complete (SAF-03), Phase 42 complete
+Resume file: .planning/phases/42-feature-routing-audit-safety-gates/42-03-SUMMARY.md
