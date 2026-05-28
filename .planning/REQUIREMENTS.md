@@ -29,7 +29,7 @@
 
 ### Safety
 
-- [ ] **SAF-01**: 特徴量ルーティング監査でキャリブレータ特徴量がMarketModel/RaceQualityScreenerに登録されないことを確認する
+- [x] **SAF-01**: 特徴量ルーティング監査でキャリブレータ特徴量がMarketModel/RaceQualityScreenerに登録されないことを確認する
 - [ ] **SAF-02**: OOFHealthValidator異常なしで全コンポーネントが動作する
 - [ ] **SAF-03**: 新キャリブレータ/ランカーは確率品質ゲート + ベット数維持 + アーティファクト再現性 + diagnostics全通過までベースラインを置き換えない
 
@@ -69,7 +69,7 @@
 | SHD-01 | Phase 41 | Complete |
 | SHD-02 | Phase 41 | Complete |
 | SHD-03 | Phase 41 | Complete |
-| SAF-01 | Phase 42 | Pending |
+| SAF-01 | Phase 42 | Complete |
 | SAF-02 | Phase 42 | Pending |
 | SAF-03 | Phase 42 | Pending |
 

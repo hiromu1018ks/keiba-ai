@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: MarketAware Calibration + Race-Level Ranker for ROI Recovery
-status: planning
-stopped_at: Phase 42 planned
-last_updated: "2026-05-28T14:00:00.000Z"
+status: executing
+stopped_at: Phase 42 Plan 01 complete
+last_updated: "2026-05-28T12:34:18Z"
 last_activity: 2026-05-28
 progress:
   total_phases: 4
   completed_phases: 3
   total_plans: 8
-  completed_plans: 8
+  completed_plans: 9
   percent: 100
 ---
 
@@ -26,8 +26,8 @@ See: .planning/PROJECT.md (updated 2026-05-27)
 ## Current Position
 
 Phase: 42
-Plan: 3 plans (Wave 1)
-Status: Planned — Ready to execute
+Plan: 01 complete (SAF-01 Feature Routing Audit)
+Status: Executing — Plan 01 done, Plan 02 next
 Last activity: 2026-05-28
 
 Progress: [=========] 100%
@@ -37,7 +37,7 @@ Progress: [=========] 100%
 **Velocity:**
 
 - Total plans completed (all milestones): 85
-- v2.1 plans completed: 1 (planned: 3)
+- v2.1 plans completed: 9 (planned: 11)
 
 **Recent Trend:**
 
@@ -50,6 +50,9 @@ Progress: [=========] 100%
 
 Decisions are logged in PROJECT.md Key Decisions table.
 v2.1 key decisions:
+
+- field_size excluded from FORBIDDEN_CALIBRATOR_FEATURES as raw input (Pitfall 3, SAF-01)
+- Advisory model class names corrected to match actual codebase (SAF-01)
 
 - MarketAwareWinCalibrator REPLACES WinBenterGate + WinSegmentCalibrator (not augments)
 - Segment effects as regularized features/interactions in global calibrator (not per-segment coefficients)
@@ -87,6 +90,6 @@ None for v2.1 yet.
 
 ## Session Continuity
 
-Last session: 2026-05-28T14:00:00.000Z
-Stopped at: Phase 42 planned (3 plans, Wave 1)
-Resume file: .planning/phases/42-feature-routing-audit-safety-gates/42-CONTEXT.md
+Last session: 2026-05-28T12:34:18Z
+Stopped at: Phase 42 Plan 01 complete (SAF-01), Plan 02 next
+Resume file: .planning/phases/42-feature-routing-audit-safety-gates/42-01-SUMMARY.md
