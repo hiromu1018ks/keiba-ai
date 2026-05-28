@@ -23,9 +23,9 @@
 
 ### Shadow Comparison
 
-- [ ] **SHD-01**: Shadow比較フレームワークが2024/2025テスト期間でbaseline TrainedModelsV5 vs shadow TrainedModelsV5を実行する(固定fold検証を含む)
-- [ ] **SHD-02**: 比較指標: Brier, logloss, ECE, 選択一致率, CLV, ROI, HR, DD, bet countを追跡する
-- [ ] **SHD-03**: キャリブレータとランカーの変更による選択馬の差分(選択一致率)が測定・説明可能である
+- [x] **SHD-01**: Shadow比較フレームワークが2024/2025テスト期間でbaseline TrainedModelsV5 vs shadow TrainedModelsV5を実行する(固定fold検証を含む)
+- [x] **SHD-02**: 比較指標: Brier, logloss, ECE, 選択一致率, CLV, ROI, HR, DD, bet countを追跡する
+- [x] **SHD-03**: キャリブレータとランカーの変更による選択馬の差分(選択一致率)が測定・説明可能である
 
 ### Safety
 
@@ -66,9 +66,9 @@
 | RNK-03 | Phase 40 | Pending |
 | RNK-04 | Phase 40 | Pending |
 | RNK-05 | Phase 40 | Pending |
-| SHD-01 | Phase 41 | Pending |
-| SHD-02 | Phase 41 | Pending |
-| SHD-03 | Phase 41 | Pending |
+| SHD-01 | Phase 41 | Complete |
+| SHD-02 | Phase 41 | Complete |
+| SHD-03 | Phase 41 | Complete |
 | SAF-01 | Phase 42 | Pending |
 | SAF-02 | Phase 42 | Pending |
 | SAF-03 | Phase 42 | Pending |

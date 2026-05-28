@@ -114,5 +114,5 @@ Phases execute in numeric order: 39 → 40 → 41 → 42
 | 1-38 | v1.0-v2.0 | 84/84 | Complete | 2026-05-27 |
 | 39. MarketAwareWinCalibrator | v2.1 | 3/3 | Complete    | 2026-05-27 |
 | 40. Race-Level Ranker | v2.1 | 3/3 | Complete | 2026-05-28 |
-| 41. Shadow Comparison | v2.1 | 2/2 | Complete   | 2026-05-28 |
+| 41. Shadow Comparison | v2.1 | 2/2 | Complete    | 2026-05-28 |
 | 42. Feature Routing Audit & Safety | v2.1 | 0/? | Not started | - |
