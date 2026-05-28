@@ -62,9 +62,10 @@
         <span>Variants: {{ variant_names | join(', ') }}</span>
     </div>
 
-    <!-- Placeholder — will be expanded in Task 2 -->
+    <!-- Step 1: Probability Quality -->
     <div class="section">
         <h2>Step 1: Probability Quality</h2>
+        <p>Baseline horses: {{ step1.baseline_n_horses }} | Shadow horses: {{ step1.shadow_n_horses }}</p>
         <table>
             <thead>
                 <tr><th>Metric</th><th>Baseline</th><th>Shadow</th><th>Delta</th></tr>
@@ -74,44 +75,122 @@
                     <td>Brier</td>
                     <td>{{ "%.4f" | format(step1.baseline_brier) }}</td>
                     <td>{{ "%.4f" | format(step1.shadow_brier) }}</td>
-                    <td>{{ "%+.4f" | format(step1.delta_brier) }}</td>
+                    <td class="{{ 'negative' if step1.delta_brier > 0 }}">{{ "%+.4f" | format(step1.delta_brier) }}</td>
                 </tr>
                 <tr>
                     <td>Logloss</td>
                     <td>{{ "%.4f" | format(step1.baseline_logloss) }}</td>
                     <td>{{ "%.4f" | format(step1.shadow_logloss) }}</td>
-                    <td>{{ "%+.4f" | format(step1.delta_logloss) }}</td>
+                    <td class="{{ 'negative' if step1.delta_logloss > 0 }}">{{ "%+.4f" | format(step1.delta_logloss) }}</td>
                 </tr>
                 <tr>
                     <td>ECE</td>
                     <td>{{ "%.4f" | format(step1.baseline_ece) }}</td>
                     <td>{{ "%.4f" | format(step1.shadow_ece) }}</td>
-                    <td>{{ "%+.4f" | format(step1.delta_ece) }}</td>
+                    <td class="{{ 'negative' if step1.delta_ece > 0 }}">{{ "%+.4f" | format(step1.delta_ece) }}</td>
                 </tr>
                 <tr>
                     <td>APR</td>
                     <td>{{ "%.4f" | format(step1.baseline_apr) }}</td>
                     <td>{{ "%.4f" | format(step1.shadow_apr) }}</td>
-                    <td>{{ "%+.4f" | format(step1.delta_apr) }}</td>
+                    <td class="{{ 'negative' if step1.delta_apr < 0 }}">{{ "%+.4f" | format(step1.delta_apr) }}</td>
                 </tr>
             </tbody>
         </table>
     </div>
 
+    <!-- Step 2: Selection Pattern -->
     <div class="section">
         <h2>Step 2: Selection Pattern</h2>
-        <p>Changed: {{ step2.n_changed_races }} races | Unchanged: {{ step2.n_unchanged_races }} races</p>
+        <p>
+            Changed: {{ step2.n_changed_races }} races |
+            Unchanged: {{ step2.n_unchanged_races }} races
+        </p>
+        <table>
+            <thead>
+                <tr>
+                    <th>Group</th>
+                    <th>ROI</th>
+                    <th>Hit Rate</th>
+                    <th>Avg Odds</th>
+                    <th>APR</th>
+                    <th>Bet Count</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>Changed</td>
+                    <td>{{ "%.4f" | format(step2.changed.roi) }}</td>
+                    <td>{{ "%.4f" | format(step2.changed.hit_rate) }}</td>
+                    <td>{{ "%.2f" | format(step2.changed.avg_odds) }}</td>
+                    <td>{{ "%.4f" | format(step2.changed.actual_predicted_ratio) }}</td>
+                    <td>{{ step2.changed.bet_count }}</td>
+                </tr>
+                <tr>
+                    <td>Unchanged</td>
+                    <td>{{ "%.4f" | format(step2.unchanged.roi) }}</td>
+                    <td>{{ "%.4f" | format(step2.unchanged.hit_rate) }}</td>
+                    <td>{{ "%.2f" | format(step2.unchanged.avg_odds) }}</td>
+                    <td>{{ "%.4f" | format(step2.unchanged.actual_predicted_ratio) }}</td>
+                    <td>{{ step2.unchanged.bet_count }}</td>
+                </tr>
+            </tbody>
+        </table>
+        <p>
+            <strong>Delta ROI:</strong>
+            <span class="{{ 'negative' if step2.delta_roi < 0 }}">{{ "%+.4f" | format(step2.delta_roi) }}</span>
+            |
+            <strong>Delta Hit Rate:</strong>
+            <span class="{{ 'negative' if step2.delta_hit_rate < 0 }}">{{ "%+.4f" | format(step2.delta_hit_rate) }}</span>
+        </p>
     </div>
 
+    <!-- Step 3: Calibration by Segment -->
     <div class="section">
-        <h2>Step 3: Calibration</h2>
+        <h2>Step 3: Calibration by Segment</h2>
         {% if step3_segments %}
-        <p>{{ step3_segments | length }} segments analyzed</p>
+        {% for seg in step3_segments %}
+        {% if loop.first or seg.segment_name != loop.previtem.segment_name %}
+        {% if not loop.first %}
+        </table>
+        {% endif %}
+        <h3>{{ seg.segment_name }}</h3>
+        <table>
+            <thead>
+                <tr>
+                    <th>Value</th>
+                    <th>N</th>
+                    <th>BL APR</th>
+                    <th>SH APR</th>
+                    <th>Delta APR</th>
+                    <th>BL ECE</th>
+                    <th>SH ECE</th>
+                    <th>Delta ECE</th>
+                </tr>
+            </thead>
+            <tbody>
+        {% endif %}
+                <tr>
+                    <td>{{ seg.segment_value }}</td>
+                    <td>{{ seg.n_samples }}</td>
+                    <td>{{ "%.4f" | format(seg.actual_predicted_ratio_baseline) }}</td>
+                    <td>{{ "%.4f" | format(seg.actual_predicted_ratio_shadow) }}</td>
+                    <td class="{{ 'negative' if seg.delta_apr < 0 }}">{{ "%+.4f" | format(seg.delta_apr) }}</td>
+                    <td>{{ "%.4f" | format(seg.ece_baseline) }}</td>
+                    <td>{{ "%.4f" | format(seg.ece_shadow) }}</td>
+                    <td class="{{ 'negative' if seg.delta_ece > 0 }}">{{ "%+.4f" | format(seg.delta_ece) }}</td>
+                </tr>
+        {% if loop.last %}
+            </tbody>
+        </table>
+        {% endif %}
+        {% endfor %}
         {% else %}
-        <p>No calibration segments</p>
+        <p style="color: var(--text-muted); font-style: italic;">No calibration segments available</p>
         {% endif %}
     </div>
 
+    <!-- Missing Inputs -->
     <div class="section">
         <h2>Missing Inputs</h2>
         {% if missing_inputs %}
@@ -121,7 +200,7 @@
             {% endfor %}
         </ul>
         {% else %}
-        <p>None detected</p>
+        <p style="color: var(--text-muted); font-style: italic;">None detected</p>
         {% endif %}
     </div>
 
