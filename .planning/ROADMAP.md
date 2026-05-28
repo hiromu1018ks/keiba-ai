@@ -78,7 +78,7 @@ Plans:
 Plans:
 - [x] 40-01-PLAN.md -- RaceLevelRanker class with Ridge training, scoring, shadow mode, persistence (Wave 1)
 - [x] 40-02-PLAN.md -- OOF extension + TrainingPipeline ranker integration (Wave 2, depends on 40-01)
-- [ ] 40-03-PLAN.md -- RacePredictor + ModelLoader integration (Wave 3, depends on 40-02)
+- [x] 40-03-PLAN.md -- RacePredictor + ModelLoader integration (Wave 3, depends on 40-02)
 
 ### Phase 41: Shadow Comparison Framework
 **Goal**: The shadow pipeline (new calibrator + ranker) can be compared against baseline on 2024/2025 test periods with comprehensive metrics, enabling data-driven deployment decisions
@@ -109,6 +109,6 @@ Phases execute in numeric order: 39 → 40 → 41 → 42
 |-------|-----------|----------------|--------|-----------|
 | 1-38 | v1.0-v2.0 | 84/84 | Complete | 2026-05-27 |
 | 39. MarketAwareWinCalibrator | v2.1 | 3/3 | Complete    | 2026-05-27 |
-| 40. Race-Level Ranker | v2.1 | 1/3 | In progress | - |
+| 40. Race-Level Ranker | v2.1 | 3/3 | Complete | 2026-05-28 |
 | 41. Shadow Comparison | v2.1 | 0/? | Not started | - |
 | 42. Feature Routing Audit & Safety | v2.1 | 0/? | Not started | - |
