@@ -454,7 +454,7 @@ class ShadowDiagnosis:
                         labels=ODDS_BAND_NAMES,
                         right=True,
                     ).astype(str)
-            if "closing_win_odds" not in self.horse_diff.columns:
+            if "closing_win_odds" not in horse_work.columns:
                 if "closing_win_odds" not in self.missing_inputs:
                     self.missing_inputs.append("closing_win_odds")
 
@@ -472,6 +472,8 @@ class ShadowDiagnosis:
 
         # --- selected_changed ---
         if not self.race_diff.empty and "selected_changed" in self.race_diff.columns:
+            if "selected_changed" in horse_work.columns:
+                horse_work = horse_work.drop(columns=["selected_changed"])
             sc_lookup = self.race_diff[["race_id", "selected_changed"]].drop_duplicates(
                 subset=["race_id"]
             )
