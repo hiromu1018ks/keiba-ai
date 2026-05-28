@@ -42,7 +42,7 @@ See `.planning/milestones/` for archived roadmaps.
 
 - [x] **Phase 39: MarketAwareWinCalibrator** - Replace WinBenterGate + WinSegmentCalibrator with Benter logit-blend calibrator producing segment-conditioned probabilities (completed 2026-05-27)
 - [x] **Phase 40: Race-Level Ranker** - Learned ranker combining relevance (is_win/finishing-position) and value/mispricing signals into investment_score (completed 2026-05-28)
-- [ ] **Phase 41: Shadow Comparison Framework** - Fixed-fold 2024/2025 baseline vs shadow comparison tracking probability quality, selection agreement, CLV, ROI
+- [x] **Phase 41: Shadow Comparison Framework** - Fixed-fold 2024/2025 baseline vs shadow comparison tracking probability quality, selection agreement, CLV, ROI (completed 2026-05-28)
 - [ ] **Phase 42: Feature Routing Audit & Safety Gates** - Verify calibrator features do not pollute MarketModel/RaceQualityScreener, OOF health passes, deployment gate conditions met
 
 ## Phase Details
@@ -91,8 +91,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 41-01-PLAN.md -- Core framework, dataclasses, feature flag injection, alignment, metrics engine (Wave 1)
-- [ ] 41-02-PLAN.md -- Output artifacts, HTML report, CLI script (Wave 2, depends on 41-01)
+- [x] 41-01-PLAN.md -- Core framework, dataclasses, feature flag injection, alignment, metrics engine (Wave 1)
+- [x] 41-02-PLAN.md -- Output artifacts, HTML report, CLI script (Wave 2, depends on 41-01)
 
 ### Phase 42: Feature Routing Audit & Safety Gates
 **Goal**: All safety checks pass -- calibrator features do not leak into MarketModel/RaceQualityScreener, OOF health is clean, and the new pipeline only replaces baseline after meeting all quality gates
@@ -114,5 +114,5 @@ Phases execute in numeric order: 39 → 40 → 41 → 42
 | 1-38 | v1.0-v2.0 | 84/84 | Complete | 2026-05-27 |
 | 39. MarketAwareWinCalibrator | v2.1 | 3/3 | Complete    | 2026-05-27 |
 | 40. Race-Level Ranker | v2.1 | 3/3 | Complete | 2026-05-28 |
-| 41. Shadow Comparison | v2.1 | 0/2 | Planned | - |
+| 41. Shadow Comparison | v2.1 | 2/2 | Complete   | 2026-05-28 |
 | 42. Feature Routing Audit & Safety | v2.1 | 0/? | Not started | - |
