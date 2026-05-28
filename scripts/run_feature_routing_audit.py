@@ -63,11 +63,6 @@ def run_audit(output_dir: Path) -> dict:
 
     results["generated_at"] = generated_at
 
-    # -- Verify registry version if specified --
-    if "--registry-version" in sys.argv:
-        # Already validated by argparse above; just log
-        pass
-
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # -- JSON report --

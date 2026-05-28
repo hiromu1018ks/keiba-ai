@@ -32,7 +32,7 @@ class CalibratorArtifactProfile:
     def __init__(
         self,
         required_columns: tuple[str, ...] = (
-            "race_id", "p_win_combined", "p_win_final", "fold",
+            "race_id", "p_win_combined", "p_win_final",
         ),
         forbidden_columns: tuple[str, ...] = ("p_win_pred",),
         probability_columns: tuple[str, ...] = ("p_win_combined", "p_win_final"),
@@ -141,7 +141,7 @@ class RankerArtifactProfile:
     def __init__(
         self,
         required_columns: tuple[str, ...] = (
-            "race_id", "investment_score", "fold",
+            "race_id", "investment_score",
         ),
         score_columns: tuple[str, ...] = (
             "investment_score", "relevance_score", "value_score",

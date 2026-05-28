@@ -48,7 +48,7 @@ class GatePolicy:
 DEFAULT_GATE_POLICY = GatePolicy()
 
 
-@dataclass
+@dataclass(frozen=True)
 class GateConditionResult:
     """Single gate condition evaluation result."""
 
@@ -58,15 +58,15 @@ class GateConditionResult:
     details: dict[str, Any] = field(default_factory=dict)
 
 
-@dataclass
+@dataclass(frozen=True)
 class GateEvaluationResult:
     """Overall gate evaluation result."""
 
     overall_status: str  # "PASS", "FAIL", "WARN"
     policy: GatePolicy
-    conditions: list[GateConditionResult]
-    report_metrics: dict[str, Any]
     generated_at: str
+    conditions: list[GateConditionResult] = field(default_factory=list)
+    report_metrics: dict[str, Any] = field(default_factory=dict)
 
 
 # ---------------------------------------------------------------------------
@@ -784,9 +784,10 @@ def run_deployment_gates(
     manifest_path: str | None = None,
     output_dir: str | None = None,
 ) -> GateEvaluationResult:
-    """CLI entry function for deployment gate evaluation.
+    """Run deployment gate evaluation and write reports.
 
-    Evaluates gates, writes JSON + Markdown reports, and exits non-zero on FAIL.
+    Evaluates gates, writes JSON + Markdown reports if output_dir provided.
+    Callers should check result.overall_status and handle FAIL as needed.
 
     Args:
         result_path: Path to shadow_comparison_result.json.
@@ -820,9 +821,8 @@ def run_deployment_gates(
         sum(1 for c in result.conditions if c.status == "SKIP"),
     )
 
-    # D-12: Exit non-zero on FAIL
+    # D-12: CLI callers should exit non-zero on FAIL
     if result.overall_status == "FAIL":
         logger.error("Deployment gate evaluation FAILED -- see report for details")
-        sys.exit(1)
 
     return result
