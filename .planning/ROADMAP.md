@@ -50,7 +50,11 @@ See `.planning/milestones/` for archived roadmaps.
   1. 2024/2025固定foldのBrier/logloss/ECEがbaseline vs shadowで数値比較され、劣化维度(確率精度 vs 選定 vs キャリブレーション)が特定されている
   2. RaceLevelRankerの選定パターン差分(的中/不的中レース構造、選定変更レース一覧)がレポート化されている
   3. surface/odds_band/popularity_band/probability_rank_band/selected_changed別のactual/predicted比率乖離箇所が特定されている
-**Plans**: TBD
+**Plans**: 2 plans
+
+Plans:
+- [ ] 43-01-PLAN.md -- ShadowDiagnosis クラス実装 (3ステップ段階的除外診断ロジック + テスト)
+- [ ] 43-02-PLAN.md -- CLI + HTML レポート + Markdown 要約 (D-04 出力フォーマット)
 
 ### Phase 44: ROI Bisect
 **Goal**: v1.7(Phase 34)からv2.0(Phase 38)間でROI劣化を引き起こしたフェーズを特定し、そのフェーズの特徴量寄与度変化を明らかにする
@@ -92,7 +96,7 @@ Phases execute in numeric order: 43 -> 44 -> 45 -> 46
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
 | 1-42 | v1.0-v2.1 | 85/85 | Complete | 2026-05-28 |
-| 43. Shadow Diagnosis | v2.2 | 0/? | Not started | - |
+| 43. Shadow Diagnosis | v2.2 | 0/2 | Planned | - |
 | 44. ROI Bisect | v2.2 | 0/? | Not started | - |
 | 45. Structural Fix | v2.2 | 0/? | Not started | - |
 | 46. Quality Gate Verification | v2.2 | 0/? | Not started | - |

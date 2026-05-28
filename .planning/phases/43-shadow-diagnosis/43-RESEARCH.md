@@ -358,17 +358,17 @@ def build_parser() -> argparse.ArgumentParser:
 | A4 | Phase 41 の variant 名は manifest の flag_states から特定可能 | Pitfall 5 | variant 名をハードコードする必要が生じる |
 | A5 | `ShadowComparisonFramework(variants=[])` で stateless に compute_metrics / _compute_ece を利用可能 | Pattern 3 | 計算ロジックを独自実装する必要が生じる |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **horse_diff の実際の列構成**
+1. **horse_diff の実際の列構成** — RESOLVED
    - What we know: `_align_horse_level()` は `align_cols = ["p_win_final", "investment_score", "stake", "win_market_selection_score"]` のみをマージ。`kakuteijyuni` は baseline_df から別途マージ。
    - What's unclear: Phase 41 実行時に bet_history に含まれる他の列（popularity, surface, tanodds 等）が、DataFrame 変換時に暗黙的に horse_diff に含まれるか。baseline_df は `pd.DataFrame(bt_result.bet_history)` で作成されるため、bet_history の全列が baseline_df に含まれるが、_align_horse_level は `baseline_df[key_cols].copy()` で key_cols のみをベースにマージする。
-   - Recommendation: Phase 41 実行後の実際の parquet ファイルを確認。存在しない列は missing_inputs に記録。
+   - RESOLVED: Phase 41 実行後の実際の parquet ファイルを確認。存在しない列は `_detect_missing_inputs()` で検出し missing_inputs に記録。Plan 01 の `_step3` でフォールバック処理を実装済み。
 
-2. **race_diff に含まれる列の完全リスト**
+2. **race_diff に含まれる列の完全リスト** — RESOLVED
    - What we know: `_align_race_level()` は `diff_row` に `race_id`, `baseline_selected_umaban`, `shadow_selected_umaban`, `selected_changed`, および `baseline_/shadow_` prefix 付きの `tanodds`, `p_win_final`, `win_selection_ev`, `win_market_selection_score`, `result`, `stake`, `closing_win_odds`, `investment_score` を含む。
    - What's unclear: race_diff に `surface` が含まれるか（Phase 41 のコードを見る限り含まれない）。
-   - Recommendation: race_diff に surface が無い場合、horse_diff か manifest の fold 情報から推定するか、missing_inputs に記録。
+   - RESOLVED: race_diff に surface が無い場合、`_detect_missing_inputs()` で missing_inputs に記録。surface セグメントは horse_diff に surface があればそちらから取得し、両方に無ければ `unknown` にフォールバック。
 
 ## Environment Availability
 
