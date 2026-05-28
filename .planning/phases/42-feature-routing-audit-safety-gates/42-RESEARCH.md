@@ -492,17 +492,11 @@ if self.enable_race_level_ranker and ranker is not None and ranker.is_trained:
 | A4 | OOFHealthValidator profiles can be extended without modifying the core validate() method | Pattern 2 | LOW -- D-06 decision explicitly states this |
 | A5 | shadow_comparison_result.json uses variant names as dict keys under "metrics" per fold | Code Examples | LOW -- verified by reading save_results() in shadow_comparison.py |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **MAWC OOF fold column name**
-   - What we know: TrainingPipeline calls `generate_win_oof_predictions()` which returns df with `p_win_oof` column. MAWC train() uses this as p_model input. The OOF DataFrame passed to MAWC comes from `generate_win_oof_predictions()` which adds `ability_oof_fold` column.
-   - What's unclear: Does the MAWC-specific OOF artifact have its own fold column, or does it reuse `ability_oof_fold`?
-   - Recommendation: Check `generate_win_oof_predictions()` output columns. For the artifact profile, require a fold column (configurable name, default "ability_oof_fold").
+1. **MAWC OOF fold column name** -- RESOLVED: Configurable fold_col with default `"ability_oof_fold"` per `generate_win_oof_predictions()` output. Plan 42-02 CalibratorArtifactProfile implements exactly this.
 
-2. **Ranker OOF fold column name**
-   - What we know: Ranker training receives `oof_cal_df` which already has fold information. Ranker.train() uses `_walk_forward_race_splits()` internally for alpha selection, but the OOF artifact for validation would need a fold column.
-   - What's unclear: Does the ranker produce a separate OOF artifact, or is it validated as part of the MAWC OOF pipeline?
-   - Recommendation: The artifact profile should check for a fold column in whatever OOF DataFrame the ranker produces. Profile can be flexible on the exact column name.
+2. **Ranker OOF fold column name** -- RESOLVED: Same approach -- configurable fold_col with default `"ability_oof_fold"`. Ranker OOF shares the same pipeline fold column. Plan 42-02 RankerArtifactProfile implements this.
 
 ## Environment Availability
 

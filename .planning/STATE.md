@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: MarketAware Calibration + Race-Level Ranker for ROI Recovery
 status: planning
-stopped_at: Phase 42 context gathered
-last_updated: "2026-05-28T12:05:41.658Z"
+stopped_at: Phase 42 planned
+last_updated: "2026-05-28T14:00:00.000Z"
 last_activity: 2026-05-28
 progress:
   total_phases: 4
@@ -21,13 +21,13 @@ progress:
 See: .planning/PROJECT.md (updated 2026-05-27)
 
 **Core value:** 単勝モデルのバックテストROIを100%超えにすること
-**Current focus:** Phase 41 — shadow-comparison-framework
+**Current focus:** Phase 42 — feature-routing-audit-safety-gates
 
 ## Current Position
 
 Phase: 42
-Plan: Not started
-Status: Ready to plan
+Plan: 3 plans (Wave 1)
+Status: Planned — Ready to execute
 Last activity: 2026-05-28
 
 Progress: [=========] 100%
@@ -37,7 +37,7 @@ Progress: [=========] 100%
 **Velocity:**
 
 - Total plans completed (all milestones): 85
-- v2.1 plans completed: 1
+- v2.1 plans completed: 1 (planned: 3)
 
 **Recent Trend:**
 
@@ -87,6 +87,6 @@ None for v2.1 yet.
 
 ## Session Continuity
 
-Last session: 2026-05-28T12:05:41.648Z
-Stopped at: Phase 42 context gathered
+Last session: 2026-05-28T14:00:00.000Z
+Stopped at: Phase 42 planned (3 plans, Wave 1)
 Resume file: .planning/phases/42-feature-routing-audit-safety-gates/42-CONTEXT.md
