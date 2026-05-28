@@ -8,6 +8,8 @@ POST_RACE情報漏洩完全排除(3層CI検出)、100+特徴量Tier分類監査�
 Race-level集約特徴量6 + 市場クロス整合性特徴量5 (Harville公式) + 芝レース相対特徴量 + クロスレベル派生特徴量 で市場独立性を獲得。
 OOF健全性検査基盤(OOFHealthValidator + fail-fast validation + SHA256 manifest) + 投資判断用統合特徴量フレーム(94 specs / 9 categories / dual-mode builder)を搭載。
 IC評価フレームワーク + Gain-per-Depth診断システム搭載。
+MarketAwareWinCalibrator (Benter logit-blend + 51-dim segment conditioning) + RaceLevelRanker (Ridge relevance/value scoring + investment_score) 搭載。
+Shadow Comparison Framework (2024/2025 fixed-fold baseline vs shadow) + DeploymentGateEvaluator (frozen GatePolicy) + Feature Routing Audit基盤搭載。
 3段階ベットフィルター(動的EV_lower/OddsBand/COLLAPSED skip)、レジーム別Kellyサイジング、DD%のみ3段階制御、Optuna TPE 16次元パラメータ最適化 + multi-seed安定性検証、SHA256特徴量凍結manifestを搭載。
 MLflow で実験管理。PostgreSQL (EveryDB2/JRA-VAN DataLab) をデータソースとする。
 
@@ -73,29 +75,20 @@ MLflow で実験管理。PostgreSQL (EveryDB2/JRA-VAN DataLab) をデータソ�
 - ✓ MarketModel/RaceQuality配線修正 + EV Tail Calibration — v1.8 Phase 36.1.1
 - ✓ OOF健全性検査基盤 (OOFHealthValidator + fail-fast + SHA256 manifest) — v2.0 Phase 37
 - ✓ 投資判断用統合特徴量フレーム (94 specs / 9 categories / dual-mode) — v2.0 Phase 38
+- ✓ MarketAwareWinCalibrator — Benter logit-blend + 51-dim segment conditioning (WinBenterGate + WinSegmentCalibrator置換) — v2.1 Phase 39
+- ✓ RaceLevelRanker — Ridge relevance/value scoring + investment_score (shadow mode) — v2.1 Phase 40
+- ✓ Shadow Comparison Framework — 2024/2025 fixed-fold baseline vs shadow + HTML report — v2.1 Phase 41
+- ✓ Feature Routing Audit + DeploymentGateEvaluator — 確率品質/ベット数維持/再現性/diagnostics安全基盤 — v2.1 Phase 42
 
 ### Active
 
-- MarketAwareWinCalibrator — Benter型 logit(p_model) + logit(p_market) ブレンド実装 — v2.1
-- 人気/オッズ/確率順位セグメント条件付け — キャリブレータ特徴量として統合 — v2.1
-- Race-Level Ranker — InvestmentFeatureFrame出力を活用 — v2.1
-- Baseline vs Shadow比較 (2024/2025) — 確率品質・選択馬変更・CLV・ROI・HR・DD評価 — v2.1
-- Shadow-first配備ゲート — 確率品質/ベット数維持/再現性/diagnostics全通過で配備 — v2.1
-- BT ROI 100%超え達成 (現在87.8%、目標100%+) — v2.1
+- BT ROI 100%超え達成 (現在87.8%、目標100%+) — 次マイルストーンの主要目標
+- デプロイゲート自動判定 (DEP-01) — v2.2+
+- Optuna 19次元パラメータ最適化 (DEP-02) — v2.2+
 
-## Current Milestone: v2.1 MarketAware Calibration + Race-Level Ranker for ROI Recovery
+## Current Milestone: Planning Next
 
-**Goal:** v1.7水準のROIを復旧させ、100%超えを目指す (v2.0基盤活用)
-
-**Target features:**
-- MarketAwareWinCalibrator — Benter型 logit(p_model) + logit(p_market) ブレンド
-- 人気/オッズ/確率順位セグメント条件付け — キャリブレータ特徴量として統合
-- Race-Level Ranker — InvestmentFeatureFrame出力を活用したレース内ランク付け
-- Baseline vs Shadow比較 — 2024/2025で確率品質・選択馬変更・CLV・ROI・HR・DDを評価
-
-**Deployment policy:** Shadow-first。確率品質ゲート + ベット数維持 + アーティファクト再現性 + baseline-vs-shadow診断が全て通過するまで新キャリブレータ/ランカーはベースラインを置き換えない。
-
-**BT ROI progress:** 84.4% (v1.5) → 85.7% (v1.6) → 97.8% (v1.7) → 87.8% (v2.0) → 目標 100%+
+**Goal:** 次マイルストーン (v2.2) の要件定義・ロードマップ作成
 
 ### Out of Scope
 
@@ -105,25 +98,17 @@ MLflow で実験管理。PostgreSQL (EveryDB2/JRA-VAN DataLab) をデータソ�
 | 新データ源の導入 | 既存EveryDB2データで十分 |
 | 実馬券購入機能 | ペーパートレードまで |
 | Web UI | CLIベースで十分 |
-| リアルタイムオッズ収集の改善 | 既存機能をそのまま使用 |
 | LSTM/Transformer時系列モデリング | 過去5-15走では過学習リスク高 |
 | 複雑メタラーナー(GBM/NN) | 特徴量3個ではRidgeが最適 |
-| sklearn StackingClassifier | ネイティブブースティングAPIとPIT安全フォールドに非対応 |
-| 外部Kellyライブラリ導入 | 既存StakeCalculatorで十分、JRA固有制約はカスタム実装が必要 |
-| モデル再学習 | 既存3モデルスタッキングをそのまま使用 |
-| オッズ特徴量の除去 | Echo Chamber脱却 = 追加アプローチ。除去はC直交ICを悪化させる (実証済み) |
-| Stern/Heneryモデル | Harvilleで90%+のシグナルを捕捉。複雑モデルは利益逓減 |
+| オッズ特徴量の除去 | Echo Chamber脱却 = 追加アプローチ。除去はC直交ICを悪化させる |
 
 ## Current State
 
-**Shipped:** v2.0 Investment Pipeline Restructuring (2026-05-27)
-**Phases:** 38 total (v1.0-v2.0), all complete
-**LOC:** ~44,582 (src/) + ~38,319 (tests/) = 82,901 total
-**Tests:** 2,056 passed, 3 known failures
+**Shipped:** v2.1 MarketAware Calibration + Race-Level Ranker (2026-05-28)
+**Phases:** 42 total (v1.0-v2.1), all complete
+**Tests:** 2,056+ passed, 3 known failures
 **BT ROI:** 87.8% (v2.0 close), target 100%+
-**InvestmentFeatureFrame:** 94 specs, 9 categories, dual-mode builder with leakage guard
-**OOF Health:** OOFHealthValidator with fail-fast + SHA256 manifest + anomaly detection
-**Next:** v2.1 — Phase 39 complete, Phase 40 next (Race-Level Ranker)
+**Next:** v2.2 planning via `/gsd:new-milestone`
 
 ## Context
 
@@ -215,6 +200,12 @@ MLflow で実験管理。PostgreSQL (EveryDB2/JRA-VAN DataLab) をデータソ�
 | InvestmentFeatureSpec frozen dataclass | コンパイル時スキーマ安全 + dual-mode source resolution | ✓ Good (v2.0) |
 | Benter型市場ブレンド | logit(p_model) + logit(p_market)で強い事前分布 | ✓ Good (v2.0) |
 | 配備条件=確率品質 | ROIではなくBrier/logloss/ECEで判定 | ✓ Good (v2.0) |
+| MAWC replaces WinBenterGate + WinSegmentCalibrator | Benter logit-blend単一キャリブレータで二重補正防止 | ✓ Good (v2.1) |
+| Segment effects as regularized features | per-segment係数ではなくL2正則化でsparse overfitting防止 | ✓ Good (v2.1) |
+| Race-Level Ranker with Ridge | 特徴量3-5個ではRidgeが最適、shadow modeで安全導入 | ✓ Good (v2.1) |
+| Shadow-first deployment policy | 確率品質/ベット数/再現性/診断全通過まで新パイプライン不活性 | ✓ Good (v2.1) |
+| Feature routing audit registry | 50+28禁止特徴量のCI安全監査でリーク検出 | ✓ Good (v2.1) |
+| DeploymentGateEvaluator report-only | deployment_statusを変更せず判定レポートのみ出力 | ✓ Good (v2.1) |
 
 ## Evolution
 
@@ -234,4 +225,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-27 after v2.1 milestone start*
+*Last updated: 2026-05-28 after v2.1 milestone shipped*
