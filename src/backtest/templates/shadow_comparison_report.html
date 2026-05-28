@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Shadow Comparison Report</title>
+    <style>
+        :root {
+            --primary: #2563eb;
+            --success: #16a34a;
+            --danger: #dc2626;
+            --bg: #f8fafc;
+            --card-bg: #ffffff;
+            --text: #1e293b;
+            --text-muted: #64748b;
+            --border: #e2e8f0;
+        }
+        * { box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: var(--bg); color: var(--text);
+            margin: 0; padding: 20px;
+        }
+        .container { max-width: 1200px; margin: 0 auto; }
+        h1 { text-align: center; margin-bottom: 5px; font-size: 1.8em; }
+        .subtitle { text-align: center; color: var(--text-muted); margin-bottom: 30px; }
+        .meta {
+            display: flex; justify-content: space-between; flex-wrap: wrap; gap: 10px;
+            margin-bottom: 20px; font-size: 13px; color: var(--text-muted);
+        }
+        .section {
+            background: var(--card-bg); border-radius: 8px; padding: 20px;
+            margin-bottom: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        .section h2 {
+            margin-top: 0; border-bottom: 2px solid var(--primary); padding-bottom: 10px;
+            font-size: 1.3em;
+        }
+        .section h3 { font-size: 1.1em; margin-top: 20px; margin-bottom: 10px; }
+        table {
+            width: 100%; border-collapse: collapse; margin-top: 10px;
+        }
+        th, td {
+            padding: 8px 12px; text-align: left; border-bottom: 1px solid var(--border);
+        }
+        th { background: var(--bg); font-weight: 600; font-size: 13px; }
+        td { font-size: 13px; }
+        .positive { color: var(--success); }
+        .negative { color: var(--danger); }
+        .highlight-positive { background-color: #dcfce7; }
+        .highlight-negative { background-color: #fee2e2; }
+        .footer {
+            text-align: center; color: var(--text-muted);
+            font-size: 12px; margin-top: 30px; padding: 10px;
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>Shadow Comparison Report</h1>
+    <p class="subtitle">Baseline vs Shadow Comparison</p>
+
+    <div class="meta">
+        <span>Generated: {{ generated_at }}</span>
+        <span>Commit: {{ commit_hash }}</span>
+    </div>
+
+    <!-- Variants Section -->
+    <div class="section">
+        <h2>Variants</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>Variant</th>
+                    <th>Model Dir</th>
+                    <th>MAWC</th>
+                    <th>Ranker</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for v in variants_info %}
+                <tr>
+                    <td>{{ v.variant_name }}</td>
+                    <td>{{ v.model_dir }}</td>
+                    <td>{{ "ON" if v.flag_states.enable_market_aware_calibrator else "OFF" }}</td>
+                    <td>{{ "ON" if v.flag_states.enable_race_level_ranker else "OFF" }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <!-- Overall Summary -->
+    <div class="section">
+        <h2>Overall Summary</h2>
+        {% if overall_metrics %}
+        <table>
+            <thead>
+                <tr>
+                    <th>Metric</th>
+                    {% for vname in overall_metrics.keys() %}
+                    <th>{{ vname }}</th>
+                    {% endfor %}
+                </tr>
+            </thead>
+            <tbody>
+                {% for metric_key in ["roi", "hit_rate", "bet_count", "avg_odds", "max_drawdown", "brier", "logloss", "ece", "clv", "selection_agreement", "avg_investment_score"] %}
+                <tr>
+                    <td>{{ metric_key }}</td>
+                    {% for vname, vmetrics in overall_metrics.items() %}
+                    <td>
+                        {% if metric_key in vmetrics %}
+                            {% if metric_key == "roi" or metric_key == "hit_rate" or metric_key == "max_drawdown" %}
+                                {{ "%.2f%%"|format((vmetrics[metric_key] or 0) * 100) }}
+                            {% elif metric_key == "brier" or metric_key == "logloss" or metric_key == "ece" or metric_key == "clv" or metric_key == "avg_investment_score" or metric_key == "selection_agreement" %}
+                                {{ "%.4f"|format(vmetrics[metric_key] or 0) }}
+                            {% else %}
+                                {{ vmetrics[metric_key] }}
+                            {% endif %}
+                        {% else %}
+                            -
+                        {% endif %}
+                    </td>
+                    {% endfor %}
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p style="color: var(--text-muted); font-style: italic;">No overall metrics available</p>
+        {% endif %}
+    </div>
+
+    <!-- Per-Fold Breakdown -->
+    <div class="section">
+        <h2>Fold Breakdown</h2>
+        {% for fold_year, fold_data in folds_section.items() %}
+        <h3>Fold {{ fold_year }}</h3>
+        {% set fold_metrics = fold_data.get("metrics", {}) %}
+        {% if fold_metrics %}
+        <table>
+            <thead>
+                <tr>
+                    <th>Metric</th>
+                    {% for vname in fold_metrics.keys() %}
+                    <th>{{ vname }}</th>
+                    {% endfor %}
+                </tr>
+            </thead>
+            <tbody>
+                {% for metric_key in ["roi", "hit_rate", "bet_count", "avg_odds", "max_drawdown", "brier", "logloss", "ece"] %}
+                <tr>
+                    <td>{{ metric_key }}</td>
+                    {% for vname, vmetrics in fold_metrics.items() %}
+                    <td>
+                        {% if metric_key in vmetrics %}
+                            {% if metric_key == "roi" or metric_key == "hit_rate" or metric_key == "max_drawdown" %}
+                                {{ "%.2f%%"|format((vmetrics[metric_key] or 0) * 100) }}
+                            {% elif metric_key == "brier" or metric_key == "logloss" or metric_key == "ece" %}
+                                {{ "%.4f"|format(vmetrics[metric_key] or 0) }}
+                            {% else %}
+                                {{ vmetrics[metric_key] }}
+                            {% endif %}
+                        {% else %}
+                            -
+                        {% endif %}
+                    </td>
+                    {% endfor %}
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% endif %}
+
+        {% if fold_data.get("selection_agreement") is not none %}
+        <p><strong>Selection Agreement:</strong> {{ "%.1f%%"|format(fold_data.selection_agreement * 100) }}</p>
+        {% endif %}
+        {% endfor %}
+    </div>
+
+    <!-- Grouped Metrics: Surface -->
+    <div class="section">
+        <h2>Surface Breakdown</h2>
+        {% set ns_surface = namespace(has_data=false) %}
+        {% for fold_year, fold_data in folds_section.items() %}
+            {% if fold_data.get("metrics_by_surface") %}
+                {% set ns_surface.has_data = true %}
+            {% endif %}
+        {% endfor %}
+        {% if ns_surface.has_data %}
+        {% for fold_year, fold_data in folds_section.items() %}
+            {% if fold_data.get("metrics_by_surface") %}
+            <h3>Fold {{ fold_year }}</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Surface</th>
+                        {% set first_variant = fold_data.metrics_by_surface.values() | first %}
+                        {% for vname in first_variant.keys() %}
+                        <th>{{ vname }}</th>
+                        {% endfor %}
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for surface, surface_metrics in fold_data.metrics_by_surface.items() %}
+                    <tr>
+                        <td>{{ surface }}</td>
+                        {% for vname, vmetrics in surface_metrics.items() %}
+                        <td>ROI: {{ "%.2f%%"|format((vmetrics.get("roi", 0) or 0) * 100) }}, Brier: {{ "%.4f"|format(vmetrics.get("brier", 0) or 0) }}</td>
+                        {% endfor %}
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% endif %}
+        {% endfor %}
+        {% else %}
+        <p style="color: var(--text-muted); font-style: italic;">No surface breakdown available</p>
+        {% endif %}
+    </div>
+
+    <!-- Odds Band Breakdown -->
+    <div class="section">
+        <h2>Odds Band Breakdown</h2>
+        {% set ns_odds = namespace(has_data=false) %}
+        {% for fold_year, fold_data in folds_section.items() %}
+            {% if fold_data.get("metrics_by_odds_band") %}
+                {% set ns_odds.has_data = true %}
+            {% endif %}
+        {% endfor %}
+        {% if ns_odds.has_data %}
+        {% for fold_year, fold_data in folds_section.items() %}
+            {% if fold_data.get("metrics_by_odds_band") %}
+            <h3>Fold {{ fold_year }}</h3>
+            <table>
+                <thead>
+                    <tr><th>Odds Band</th><th>Metrics</th></tr>
+                </thead>
+                <tbody>
+                    {% for band, band_metrics in fold_data.metrics_by_odds_band.items() %}
+                    <tr>
+                        <td>{{ band }}</td>
+                        <td>{{ band_metrics }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% endif %}
+        {% endfor %}
+        {% else %}
+        <p style="color: var(--text-muted); font-style: italic;">No odds band breakdown available</p>
+        {% endif %}
+    </div>
+
+    <!-- Selection Agreement -->
+    <div class="section">
+        <h2>Selection Agreement</h2>
+        {% if selection_agreement is not none %}
+        <p><strong>Overall Agreement:</strong> {{ "%.1f%%"|format(selection_agreement * 100) }} ({{ changed_races }} / {{ total_races }} races changed)</p>
+        {% else %}
+        <p style="color: var(--text-muted); font-style: italic;">No selection agreement data</p>
+        {% endif %}
+
+        {% if selection_examples %}
+        <h3>Top Selection-Change Examples</h3>
+        <table>
+            <thead>
+                <tr>
+                    <th>Race ID</th>
+                    <th>Baseline</th>
+                    <th>Shadow</th>
+                    <th>Baseline Odds</th>
+                    <th>Shadow Odds</th>
+                    <th>Baseline Result</th>
+                    <th>Shadow Result</th>
+                    <th>Fold</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for ex in selection_examples[:20] %}
+                <tr>
+                    <td>{{ ex.race_id }}</td>
+                    <td>{{ ex.baseline_umaban }}</td>
+                    <td>{{ ex.shadow_umaban }}</td>
+                    <td>{{ ex.baseline_odds }}</td>
+                    <td>{{ ex.shadow_odds }}</td>
+                    <td class="{{ 'positive' if ex.baseline_result > 0 else 'negative' }}">{{ ex.baseline_result }}</td>
+                    <td class="{{ 'positive' if ex.shadow_result > 0 else 'negative' }}">{{ ex.shadow_result }}</td>
+                    <td>{{ ex.fold_year }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% endif %}
+    </div>
+
+    <!-- Calibration Metrics -->
+    <div class="section">
+        <h2>Calibration Metrics</h2>
+        {% if calibration_data %}
+        <table>
+            <thead>
+                <tr>
+                    <th>Metric</th>
+                    {% for vname in calibration_data.keys() %}
+                    <th>{{ vname }}</th>
+                    {% endfor %}
+                </tr>
+            </thead>
+            <tbody>
+                {% for metric_key in ["brier", "logloss", "ece"] %}
+                <tr>
+                    <td>{{ metric_key }}</td>
+                    {% for vname, vmetrics in calibration_data.items() %}
+                    <td>{{ "%.4f"|format(vmetrics.get(metric_key, 0) or 0) }}</td>
+                    {% endfor %}
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p style="color: var(--text-muted); font-style: italic;">No calibration data available</p>
+        {% endif %}
+    </div>
+
+    <div class="footer">
+        <p>JSON/Parquet are source of truth. HTML is for human review only (D-17).</p>
+        <p>Generated by keiba-ai shadow comparison report generator | commit: {{ commit_hash }}</p>
+    </div>
+</div>
+</body>
+</html>
