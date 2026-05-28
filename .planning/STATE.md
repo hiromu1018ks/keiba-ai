@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: MarketAware Calibration + Race-Level Ranker for ROI Recovery
 status: executing
-stopped_at: Phase 42 Plan 01 complete
-last_updated: "2026-05-28T12:34:18Z"
+stopped_at: Phase 42 Plan 02 complete
+last_updated: "2026-05-28T12:40:00Z"
 last_activity: 2026-05-28
 progress:
   total_phases: 4
   completed_phases: 3
   total_plans: 8
-  completed_plans: 9
+  completed_plans: 10
   percent: 100
 ---
 
@@ -26,8 +26,8 @@ See: .planning/PROJECT.md (updated 2026-05-27)
 ## Current Position
 
 Phase: 42
-Plan: 01 complete (SAF-01 Feature Routing Audit)
-Status: Executing — Plan 01 done, Plan 02 next
+Plan: 02 complete (SAF-02 OOF Artifact Profiles)
+Status: Executing — Plan 02 done, Plan 03 next
 Last activity: 2026-05-28
 
 Progress: [=========] 100%
@@ -37,7 +37,7 @@ Progress: [=========] 100%
 **Velocity:**
 
 - Total plans completed (all milestones): 85
-- v2.1 plans completed: 9 (planned: 11)
+- v2.1 plans completed: 10 (planned: 11)
 
 **Recent Trend:**
 
@@ -53,6 +53,8 @@ v2.1 key decisions:
 
 - field_size excluded from FORBIDDEN_CALIBRATOR_FEATURES as raw input (Pitfall 3, SAF-01)
 - Advisory model class names corrected to match actual codebase (SAF-01)
+- Artifact profiles use regular classes with validate() method, PROFILES dict for plugin discovery (SAF-02)
+- Rank determinism check emits WARNING (not failure) for duplicated investment_scores (SAF-02)
 
 - MarketAwareWinCalibrator REPLACES WinBenterGate + WinSegmentCalibrator (not augments)
 - Segment effects as regularized features/interactions in global calibrator (not per-segment coefficients)
@@ -90,6 +92,6 @@ None for v2.1 yet.
 
 ## Session Continuity
 
-Last session: 2026-05-28T12:34:18Z
-Stopped at: Phase 42 Plan 01 complete (SAF-01), Plan 02 next
-Resume file: .planning/phases/42-feature-routing-audit-safety-gates/42-01-SUMMARY.md
+Last session: 2026-05-28T12:40:00Z
+Stopped at: Phase 42 Plan 02 complete (SAF-02), Plan 03 next
+Resume file: .planning/phases/42-feature-routing-audit-safety-gates/42-02-SUMMARY.md
