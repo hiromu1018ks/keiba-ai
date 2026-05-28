@@ -3,7 +3,7 @@ gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: MarketAware Calibration + Race-Level Ranker for ROI Recovery
 status: planning
-last_updated: "2026-05-27T12:25:45.241Z"
+last_updated: "2026-05-28T12:00:00.000Z"
 ---
 
 # Roadmap: keiba-ai Win Model Improvement
@@ -88,7 +88,11 @@ Plans:
   1. Shadow comparison runs BacktestEngine twice (baseline TrainedModelsV5 vs shadow TrainedModelsV5) on both 2024 and 2025 test periods with fixed folds
   2. Comparison tracks Brier, logloss, ECE, selection agreement, CLV, ROI, HR, DD, and bet count for both baseline and shadow
   3. Selection horse differences between baseline and shadow (selection agreement) are measured and explainable per-race
-**Plans**: TBD
+**Plans**: 2 plans
+
+Plans:
+- [ ] 41-01-PLAN.md -- Core framework, dataclasses, feature flag injection, alignment, metrics engine (Wave 1)
+- [ ] 41-02-PLAN.md -- Output artifacts, HTML report, CLI script (Wave 2, depends on 41-01)
 
 ### Phase 42: Feature Routing Audit & Safety Gates
 **Goal**: All safety checks pass -- calibrator features do not leak into MarketModel/RaceQualityScreener, OOF health is clean, and the new pipeline only replaces baseline after meeting all quality gates
@@ -110,5 +114,5 @@ Phases execute in numeric order: 39 → 40 → 41 → 42
 | 1-38 | v1.0-v2.0 | 84/84 | Complete | 2026-05-27 |
 | 39. MarketAwareWinCalibrator | v2.1 | 3/3 | Complete    | 2026-05-27 |
 | 40. Race-Level Ranker | v2.1 | 3/3 | Complete | 2026-05-28 |
-| 41. Shadow Comparison | v2.1 | 0/? | Not started | - |
+| 41. Shadow Comparison | v2.1 | 0/2 | Planned | - |
 | 42. Feature Routing Audit & Safety | v2.1 | 0/? | Not started | - |
