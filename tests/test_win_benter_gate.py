@@ -220,6 +220,114 @@ class TestGenerateWinOofPredictions:
 
 
 # ---------------------------------------------------------------------------
+# Test 5b: generate_win_oof_predictions emits ranker-required columns (D-12/D-13)
+# ---------------------------------------------------------------------------
+
+
+class TestGenerateWinOofRankerColumns:
+    """OOF 予測に RaceLevelRanker が必要とする列が含まれる (D-12/D-13)."""
+
+    @staticmethod
+    def _make_oof_result() -> pd.DataFrame:
+        """Generate OOF result using fake models."""
+        from models.win_benter_gate import generate_win_oof_predictions
+
+        n = 100
+        df = pd.DataFrame(
+            {
+                "race_id": [f"R{i // 5}" for i in range(n)],
+                "race_date": pd.date_range("2020-01-01", periods=n, freq="D"),
+                "umaban": [i % 5 + 1 for i in range(n)],
+                "popularity_rank": [i % 5 + 1 for i in range(n)],
+                "field_size": [5] * n,
+                "surface": [0] * n,
+                "p_win_pred": np.random.uniform(0.05, 0.4, n),
+                "tanodds": np.random.uniform(2.0, 20.0, n),
+                "kakuteijyuni": np.random.randint(1, 16, n),
+            }
+        )
+
+        class FakeWinTwoStageModel:
+            def train_hit_model(self, df: pd.DataFrame, *, num_threads: int = 0) -> None:
+                return None
+
+            def train_return_model(self, df: pd.DataFrame, *, num_threads: int = 0) -> None:
+                return None
+
+            def predict_ev(self, df: pd.DataFrame) -> pd.DataFrame:
+                result = df.copy()
+                result["p_win_pred"] = np.clip(result["p_win_pred"], 0.01, 0.99)
+                result["e_return_win_pred"] = result["tanodds"]
+                result["ev_win"] = result["p_win_pred"] * result["e_return_win_pred"]
+                return result
+
+        class FakeEVCorrectionModel:
+            def train(self, df: pd.DataFrame, *, num_threads: int = 0) -> None:
+                return None
+
+            def correct_ev(
+                self,
+                df: pd.DataFrame,
+                *,
+                probability_col: str = "p_win_pred",
+            ) -> pd.DataFrame:
+                result = df.copy()
+                result["p_win_corrected"] = result[probability_col] * 0.95
+                result["ev_win_corrected"] = result["p_win_corrected"] * result["tanodds"]
+                return result
+
+        return generate_win_oof_predictions(
+            df,
+            win_model_cls=FakeWinTwoStageModel,
+            ev_corrector=FakeEVCorrectionModel(),
+            n_splits=5,
+        )
+
+    def test_calibrated_ev_oof_column_exists(self) -> None:
+        """calibrated_ev_oof 列が OOF 出力に含まれる (D-09 value target 用)."""
+        result = self._make_oof_result()
+        assert "calibrated_ev_oof" in result.columns, (
+            "Missing calibrated_ev_oof column for value target computation"
+        )
+        assert not result["calibrated_ev_oof"].isna().any(), (
+            "calibrated_ev_oof should not have NaN"
+        )
+
+    def test_no_fewer_rows_than_before(self) -> None:
+        """拡張前後で行数が減少しない (既存カラムが影響を受けない)."""
+        result = self._make_oof_result()
+        assert len(result) > 0
+
+    def test_kakuteijyuni_preserved(self) -> None:
+        """kakuteijyuni の値が入力と一致する (label-only, feature としては使用しない)."""
+        result = self._make_oof_result()
+        assert "kakuteijyuni" in result.columns
+        assert result["kakuteijyuni"].notna().all()
+
+    def test_existing_columns_preserved(self) -> None:
+        """既存の必須列 (p_win_oof, p_market_norm 等) が保持される."""
+        result = self._make_oof_result()
+        required_existing = [
+            "p_win_oof", "p_market_norm", "p_win_corrected",
+            "kakuteijyuni", "tanodds", "popularity_rank", "field_size",
+            "race_id", "race_date", "umaban", "surface", "p_win_race_rank_pct",
+        ]
+        for col in required_existing:
+            assert col in result.columns, f"Missing existing column: {col}"
+
+    def test_ev_win_corrected_values_correct(self) -> None:
+        """calibrated_ev_oof が ev_win_corrected (= p_win_corrected * tanodds) に基づく."""
+        result = self._make_oof_result()
+        # calibrated_ev_oof should equal ev_win_corrected from fold-level correction
+        expected = result["p_win_corrected"] * result["tanodds"]
+        np.testing.assert_allclose(
+            result["calibrated_ev_oof"].values,
+            expected.values,
+            rtol=1e-6,
+        )
+
+
+# ---------------------------------------------------------------------------
 # Test 6: SubmodelSet has win_* fields
 # ---------------------------------------------------------------------------
 

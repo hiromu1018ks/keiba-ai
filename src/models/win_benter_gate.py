@@ -106,7 +106,7 @@ def generate_win_oof_predictions(
     Returns:
         DataFrame with columns: p_win_oof, p_market_norm, tanodds, popularity_rank,
         field_size, p_win_race_rank_pct, race_id, race_date, umaban, kakuteijyuni,
-        surface, p_win_corrected (D-18/D-19/D-20).
+        surface, p_win_corrected, calibrated_ev_oof (D-12/D-18/D-19/D-20).
         Rows with NaN in core columns are dropped.
     """
     sort_cols = [col for col in ["race_date", "race_id", "umaban"] if col in df.columns]
@@ -120,6 +120,8 @@ def generate_win_oof_predictions(
     oof_p_market_norm = pd.Series(np.nan, index=df.index, dtype=float)
     oof_kakuteijyuni = pd.Series(np.nan, index=df.index, dtype=float)
     oof_p_win_oof = pd.Series(np.nan, index=df.index, dtype=float)
+    # Phase 40: OOF-safe calibrated EV for ranker value target (D-09, D-12)
+    oof_calibrated_ev = pd.Series(np.nan, index=df.index, dtype=float)
 
     n_failed = 0
     for train_idx, val_idx in splits:
@@ -164,6 +166,11 @@ def generate_win_oof_predictions(
         oof_p_win_oof.iloc[val_idx] = pd.to_numeric(
             fold_val["p_win_oof"], errors="coerce"
         ).values
+        # Phase 40: capture fold-level EV correction for ranker value target (D-12)
+        if "ev_win_corrected" in fold_val.columns:
+            oof_calibrated_ev.iloc[val_idx] = pd.to_numeric(
+                fold_val["ev_win_corrected"], errors="coerce"
+            ).values
 
     # Build result DataFrame with all columns needed by MarketAwareWinCalibrator
     result = df[[]].copy()
@@ -171,6 +178,8 @@ def generate_win_oof_predictions(
     result["p_win_oof"] = oof_p_win_oof
     result["p_market_norm"] = oof_p_market_norm
     result["kakuteijyuni"] = oof_kakuteijyuni
+    # Phase 40: OOF-safe calibrated EV for ranker value target (D-09, D-12)
+    result["calibrated_ev_oof"] = oof_calibrated_ev
 
     # Copy market/static columns from source df (D-20)
     for col in [
