@@ -23,6 +23,164 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# ---------------------------------------------------------------------------
+# Comprehensive column audit for IFF build_frame(mode="train") compatibility.
+#
+# The OOF result DataFrame must contain every column listed in
+# schema_registry.py train_sources for REQUIRED specs, plus all columns
+# that derived features reference (e.g. race_id for groupby).
+#
+# Columns are split into two groups:
+#   FOLD_GENERATED -- produced by predict_ev() or correct_ev() during each
+#                     fold and must be captured per-fold into OOF Series.
+#   STATIC_PASSTHROUGH -- already present in the source df and simply copied.
+# ---------------------------------------------------------------------------
+
+# Columns generated inside each fold by predict_ev / correct_ev.
+# These must be captured into OOF Series because fold models differ.
+_FOLD_GENERATED_COLS: tuple[str, ...] = (
+    "ev_win_corrected",
+    "p_x_e_interaction",
+    "p_minus_e_gap",
+)
+
+# Static columns that IFF build_frame(mode="train") may resolve.
+# Covers every train_sources entry in schema_registry.py FEATURE_SPECS
+# plus auxiliary columns needed by derived feature computations.
+_STATIC_PASSTHROUGH_COLS: tuple[str, ...] = (
+    # Market / odds (already present, extend list)
+    "tanodds",
+    "popularity_rank",
+    "field_size",
+    "race_id",
+    "race_date",
+    "umaban",
+    "surface",
+    # IFF required: model_prob sources
+    "p_ability_win",
+    "p_ability_place",
+    # IFF required: market_prob sources
+    "p_market_win_adj",
+    "overround",
+    "market_entropy",
+    "odds_skewness",
+    "implied_prob_hhi",
+    # IFF required: model_market_gap sources
+    "signed_log_error_win",
+    "abs_log_error_win",
+    "deviation_rank",
+    "deviation_zscore",
+    "odds_to_ability_ratio",
+    "market_error_rank_in_race",
+    # IFF required: race_relative sources
+    "rl_n_horses",
+    "form_trend_race_rank",
+    "blood_total_wr_race_rank",
+    "closing_index_avg",
+    # IFF required: odds_band sources (tanodds already listed above)
+    # IFF required: late_odds sources
+    "odds_drop_rate_60_10",
+    "odds_drop_rate_30_10",
+    "odds_velocity",
+    "odds_volatility",
+    "odds_acceleration",
+    "odds_direction_consistency",
+    "popularity_change_30_10",
+    # IFF required: ability_form sources
+    "norm_finish_logit_avg",
+    "harontimel5_zscore",
+    "form_trend",
+    "form_consistency",
+    "blood_surface_wr",
+    "blood_total_wr",
+    "sire_wr",
+    "jockey_wr_overall",
+    "trainer_wr_overall",
+    "jt_combo_wr",
+    "class_level_current",
+    "weighted_recent_form_finish",
+    "grade_x_form_trend",
+    "distance_x_closing_index",
+    "dm_time_rank",
+    "class_move",
+    # IFF required: course_pace sources
+    "closing_speed_ratio_avg",
+    "haron_race_gap_avg",
+    "pace_ratio_avg",
+    "distance_bin",
+    "grade_code",
+    "track_condition_code",
+    "course_wr",
+    "pace_aptitude",
+    "haron_zscore_trend",
+    "pace_early_avg",
+    "pace_late_avg",
+    "closing_speed_ratio_avg_race_rank",
+    # IFF required: uncertainty sources
+    "EV_lower_win_corrected",
+    "EV_upper_win_corrected",
+    "conformal_confidence_score",
+    "market_log_error_win",
+    "isotonic_residual_win",
+)
+
+# ---------------------------------------------------------------------------
+# String-to-numeric encoding for categorical columns that IFF expects as float.
+#
+# The training pipeline stores surface/distance_bin/grade_code as strings
+# (LightGBM handles them as categorical). IFF schema_registry declares these
+# as dtype="float64" and RaceLevelRanker expects numeric values.
+# This encoding is applied after passthrough copy to ensure numeric output.
+# ---------------------------------------------------------------------------
+_STRING_COL_ENCODINGS: dict[str, dict[str, float]] = {
+    # surface: 0=turf, 1=dirt (matches RaceLevelRanker convention at line 525)
+    "surface": {"turf": 0, "dirt": 1},
+    # distance_bin: ordinal encoding by distance range
+    "distance_bin": {"sprint": 0, "mile": 1, "intermediate": 2, "long": 3, "unknown": -1},
+    # grade_code: JRA gradecd letter codes (A=G1, B=G2, C=G3, etc.)
+    # Scale matches features/race_class.py GRADE_LEVEL_MAP.
+    "grade_code": {
+        "X": 0.0,   # ungraded
+        "H": 5.0,   # other
+        "E": 5.0,   # Open/special
+        "D": 5.5,   # non-graded stakes
+        "G": 5.5,   # jump graded
+        "L": 5.5,   # Listed
+        "C": 6.0,   # G3
+        "B": 7.0,   # G2
+        "A": 8.0,   # G1
+        "": 0.0,    # empty/missing
+    },
+}
+
+
+def _encode_string_columns(result: pd.DataFrame) -> None:
+    """Encode string categorical columns to numeric in-place.
+
+    For columns listed in _STRING_COL_ENCODINGS, if the column contains
+    string values, map them to numeric. Already-numeric columns are left
+    unchanged (passthrough when the source df already converted them).
+    """
+    for col, mapping in _STRING_COL_ENCODINGS.items():
+        if col not in result.columns:
+            continue
+        series = result[col]
+        # Skip if already numeric (e.g. test data or pre-converted pipeline)
+        if pd.api.types.is_numeric_dtype(series):
+            continue
+        # Map string values to numeric; unmapped values get NaN
+        result[col] = series.map(mapping).astype(float)
+        unmapped_count = result[col].isna().sum()
+        if unmapped_count > 0:
+            logger.warning(
+                "String column '%s' had %d unmapped values after encoding. "
+                "Mapping: %s. Sample unmapped: %s",
+                col,
+                unmapped_count,
+                mapping,
+                series.dropna().unique()[:5] if series.notna().any() else [],
+            )
+
 
 class WinBenterGate:
     """Win-specific Benter combination gate.
@@ -104,9 +262,8 @@ def generate_win_oof_predictions(
         num_threads: LightGBM thread count.
 
     Returns:
-        DataFrame with columns: p_win_oof, p_market_norm, tanodds, popularity_rank,
-        field_size, p_win_race_rank_pct, race_id, race_date, umaban, kakuteijyuni,
-        surface, p_win_corrected, calibrated_ev_oof (D-12/D-18/D-19/D-20).
+        DataFrame with OOF predictions plus all columns needed by
+        IFF build_frame(mode="train") and MarketAwareWinCalibrator.
         Rows with NaN in core columns are dropped.
     """
     sort_cols = [col for col in ["race_date", "race_id", "umaban"] if col in df.columns]
@@ -115,13 +272,20 @@ def generate_win_oof_predictions(
     )
     splits = _walk_forward_race_splits(df, n_splits=n_splits)
 
-    # Initialize output columns with NaN
+    # Initialize OOF Series for fold-generated columns
     oof_p_win_corrected = pd.Series(np.nan, index=df.index, dtype=float)
     oof_p_market_norm = pd.Series(np.nan, index=df.index, dtype=float)
     oof_kakuteijyuni = pd.Series(np.nan, index=df.index, dtype=float)
     oof_p_win_oof = pd.Series(np.nan, index=df.index, dtype=float)
     # Phase 40: OOF-safe calibrated EV for ranker value target (D-09, D-12)
     oof_calibrated_ev = pd.Series(np.nan, index=df.index, dtype=float)
+    # OOF e_return_win_pred for IFF build_frame (if_e_return requires it in train mode)
+    oof_e_return_win_pred = pd.Series(np.nan, index=df.index, dtype=float)
+    # Additional fold-generated columns for IFF compatibility
+    oof_fold_cols: dict[str, pd.Series] = {
+        col: pd.Series(np.nan, index=df.index, dtype=float)
+        for col in _FOLD_GENERATED_COLS
+    }
 
     n_failed = 0
     for train_idx, val_idx in splits:
@@ -171,8 +335,19 @@ def generate_win_oof_predictions(
             oof_calibrated_ev.iloc[val_idx] = pd.to_numeric(
                 fold_val["ev_win_corrected"], errors="coerce"
             ).values
+        # Capture e_return_win_pred for IFF train-mode resolution
+        if "e_return_win_pred" in fold_val.columns:
+            oof_e_return_win_pred.iloc[val_idx] = pd.to_numeric(
+                fold_val["e_return_win_pred"], errors="coerce"
+            ).values
+        # Capture additional fold-generated columns for IFF compatibility
+        for col in _FOLD_GENERATED_COLS:
+            if col in fold_val.columns:
+                oof_fold_cols[col].iloc[val_idx] = pd.to_numeric(
+                    fold_val[col], errors="coerce"
+                ).values
 
-    # Build result DataFrame with all columns needed by MarketAwareWinCalibrator
+    # Build result DataFrame with all columns needed by downstream consumers
     result = df[[]].copy()
     result["p_win_corrected"] = oof_p_win_corrected
     result["p_win_oof"] = oof_p_win_oof
@@ -180,14 +355,21 @@ def generate_win_oof_predictions(
     result["kakuteijyuni"] = oof_kakuteijyuni
     # Phase 40: OOF-safe calibrated EV for ranker value target (D-09, D-12)
     result["calibrated_ev_oof"] = oof_calibrated_ev
+    # e_return_win_pred for IFF build_frame train mode
+    result["e_return_win_pred"] = oof_e_return_win_pred
+    # Additional fold-generated columns
+    for col, series in oof_fold_cols.items():
+        result[col] = series
 
-    # Copy market/static columns from source df (D-20)
-    for col in [
-        "tanodds", "popularity_rank", "field_size", "race_id",
-        "race_date", "umaban", "surface",
-    ]:
+    # Copy all static/passthrough columns from source df
+    for col in _STATIC_PASSTHROUGH_COLS:
         if col in df.columns:
             result[col] = df[col].values
+
+    # Encode string categorical columns to numeric for IFF / RaceLevelRanker.
+    # The training pipeline stores surface/distance_bin/grade_code as strings
+    # (LightGBM handles them as categorical), but IFF expects float64.
+    _encode_string_columns(result)
 
     # Compute p_win_race_rank_pct from OOF predictions (D-19)
     valid_oof_mask = result["p_win_oof"].notna()

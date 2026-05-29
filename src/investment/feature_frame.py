@@ -7,6 +7,7 @@ IFF-01, IFF-02, IFF-03.
 
 from __future__ import annotations
 
+import logging
 from typing import Any, Literal
 
 import numpy as np
@@ -30,12 +31,61 @@ BUILDERS_VERSION = "1.0.0"
 # Logit helper
 _CLIP_EPS = 1e-15
 
+logger = logging.getLogger(__name__)
+
+# String-to-numeric encoding for source columns that IFF resolves as float64.
+# These columns (surface, distance_bin, grade_code) are stored as strings
+# in the training pipeline (LightGBM handles categoricals natively) but
+# IFF specs declare dtype="float64". This mapping converts them before
+# the .astype(spec.dtype) call. Must stay in sync with
+# win_benter_gate._STRING_COL_ENCODINGS.
+_STRING_COL_ENCODINGS: dict[str, dict[str, float]] = {
+    "surface": {"turf": 0.0, "dirt": 1.0},
+    "distance_bin": {"sprint": 0.0, "mile": 1.0, "intermediate": 2.0, "long": 3.0, "unknown": -1.0},
+    "grade_code": {
+        "X": 0.0,
+        "H": 5.0,
+        "E": 5.0,
+        "D": 5.5,
+        "G": 5.5,
+        "L": 5.5,
+        "C": 6.0,
+        "B": 7.0,
+        "A": 8.0,
+        "": 0.0,
+    },
+}
+
 
 def _logit(p: pd.Series | np.ndarray) -> np.ndarray:
     """Compute logit(p) with edge case clipping."""
     p_arr = np.asarray(p, dtype=np.float64)
     p_clipped = np.clip(p_arr, _CLIP_EPS, 1.0 - _CLIP_EPS)
     return np.log(p_clipped / (1.0 - p_clipped))
+
+
+def _encode_string_source(series: pd.Series, dtype: str) -> pd.Series:
+    """Encode string categorical series to numeric before dtype conversion.
+
+    If the series contains string values and the target dtype is float64,
+    apply the mapping from _STRING_COL_ENCODINGS. Already-numeric series
+    are returned unchanged.
+    """
+    if dtype != "float64":
+        return series
+    if pd.api.types.is_numeric_dtype(series):
+        return series
+    # Infer which source column this is by checking mapping keys.
+    # We try all mappings and apply the first that covers the observed values.
+    for _col, mapping in _STRING_COL_ENCODINGS.items():
+        unique_vals = series.dropna().unique()
+        if len(unique_vals) == 0:
+            continue
+        # Apply mapping if all non-NaN values are keys in this mapping
+        if all(v in mapping for v in unique_vals):
+            return series.map(mapping).astype(float)
+    # No mapping matched -- return as-is and let .astype() raise if needed
+    return series
 
 
 class InvestmentFeatureFrameBuilder:
@@ -274,6 +324,10 @@ class InvestmentFeatureFrameBuilder:
 
                 # Resolve from source columns
                 series = self._resolve_source(df, spec, mode)
+                # Encode string categorical values to numeric before dtype cast.
+                # Source columns like 'surface', 'distance_bin', 'grade_code' may
+                # contain strings ("turf"/"dirt") that cannot be cast to float64.
+                series = _encode_string_source(series, spec.dtype)
                 columns[spec.name] = series.astype(spec.dtype).values
 
                 if spec.missing_indicator is not None:

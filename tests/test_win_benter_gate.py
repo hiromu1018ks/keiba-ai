@@ -46,6 +46,143 @@ def _make_race_df(
     )
 
 
+def _make_full_oof_df(n: int = 100) -> pd.DataFrame:
+    """Build a DataFrame simulating the full feature set that training_pipeline
+    would pass to generate_win_oof_predictions, including all IFF source columns."""
+    rng = np.random.RandomState(42)
+    return pd.DataFrame(
+        {
+            "race_id": [f"R{i // 5}" for i in range(n)],
+            "race_date": pd.date_range("2020-01-01", periods=n, freq="D"),
+            "umaban": [i % 5 + 1 for i in range(n)],
+            "popularity_rank": [i % 5 + 1 for i in range(n)],
+            "field_size": [5] * n,
+            "surface": [0] * n,
+            "p_win_pred": rng.uniform(0.05, 0.4, n),
+            "tanodds": rng.uniform(2.0, 20.0, n),
+            "kakuteijyuni": rng.randint(1, 16, n),
+            # IFF required sources -- model_prob
+            "p_ability_win": rng.uniform(0.05, 0.4, n),
+            "p_ability_place": rng.uniform(0.1, 0.6, n),
+            # IFF required sources -- market_prob
+            "p_market_win_adj": rng.uniform(0.05, 0.4, n),
+            "overround": rng.uniform(0.1, 0.3, n),
+            "market_entropy": rng.uniform(1.5, 3.0, n),
+            "odds_skewness": rng.uniform(-1.0, 1.0, n),
+            "implied_prob_hhi": rng.uniform(0.05, 0.3, n),
+            # IFF required sources -- model_market_gap
+            "signed_log_error_win": rng.uniform(-0.5, 0.5, n),
+            "abs_log_error_win": rng.uniform(0.0, 0.5, n),
+            "deviation_rank": rng.uniform(1, 5, n),
+            "deviation_zscore": rng.uniform(-2.0, 2.0, n),
+            "odds_to_ability_ratio": rng.uniform(0.5, 2.0, n),
+            "market_error_rank_in_race": rng.uniform(1, 5, n),
+            # IFF required sources -- race_relative
+            "rl_n_horses": [5.0] * n,
+            "form_trend_race_rank": rng.uniform(0.0, 1.0, n),
+            "blood_total_wr_race_rank": rng.uniform(0.0, 1.0, n),
+            "closing_index_avg": rng.uniform(-1.0, 1.0, n),
+            # IFF required sources -- late_odds
+            "odds_drop_rate_60_10": rng.uniform(-0.1, 0.1, n),
+            "odds_drop_rate_30_10": rng.uniform(-0.1, 0.1, n),
+            "odds_velocity": rng.uniform(-0.05, 0.05, n),
+            "odds_volatility": rng.uniform(0.0, 0.1, n),
+            "odds_acceleration": rng.uniform(-0.02, 0.02, n),
+            "odds_direction_consistency": rng.uniform(0.0, 1.0, n),
+            "popularity_change_30_10": rng.uniform(-2.0, 2.0, n),
+            # IFF required sources -- ability_form
+            "norm_finish_logit_avg": rng.uniform(-1.0, 1.0, n),
+            "harontimel5_zscore": rng.uniform(-2.0, 2.0, n),
+            "form_trend": rng.uniform(-1.0, 1.0, n),
+            "form_consistency": rng.uniform(0.0, 1.0, n),
+            "blood_surface_wr": rng.uniform(0.0, 0.3, n),
+            "blood_total_wr": rng.uniform(0.0, 0.3, n),
+            "sire_wr": rng.uniform(0.0, 0.3, n),
+            "jockey_wr_overall": rng.uniform(0.0, 0.3, n),
+            "trainer_wr_overall": rng.uniform(0.0, 0.3, n),
+            "jt_combo_wr": rng.uniform(0.0, 0.3, n),
+            "class_level_current": rng.uniform(1, 5, n),
+            "weighted_recent_form_finish": rng.uniform(1, 10, n),
+            "grade_x_form_trend": rng.uniform(-1.0, 1.0, n),
+            "distance_x_closing_index": rng.uniform(-1.0, 1.0, n),
+            "dm_time_rank": rng.uniform(1, 5, n),
+            "class_move": rng.uniform(-2, 2, n),
+            # IFF required sources -- course_pace
+            "closing_speed_ratio_avg": rng.uniform(0.5, 1.5, n),
+            "haron_race_gap_avg": rng.uniform(-1.0, 1.0, n),
+            "pace_ratio_avg": rng.uniform(0.5, 1.5, n),
+            "distance_bin": [2] * n,
+            "grade_code": [0] * n,
+            "track_condition_code": [1] * n,
+            "course_wr": rng.uniform(0.0, 0.3, n),
+            "pace_aptitude": rng.uniform(0.0, 1.0, n),
+            "haron_zscore_trend": rng.uniform(-1.0, 1.0, n),
+            "pace_early_avg": rng.uniform(12.0, 14.0, n),
+            "pace_late_avg": rng.uniform(12.0, 14.0, n),
+            "closing_speed_ratio_avg_race_rank": rng.uniform(0.0, 1.0, n),
+            # IFF required sources -- uncertainty
+            "EV_lower_win_corrected": rng.uniform(0.5, 1.5, n),
+            "EV_upper_win_corrected": rng.uniform(1.5, 5.0, n),
+            "conformal_confidence_score": rng.uniform(0.0, 1.0, n),
+            "market_log_error_win": rng.uniform(-0.5, 0.5, n),
+            "isotonic_residual_win": rng.uniform(-0.3, 0.3, n),
+        }
+    )
+
+
+def _make_full_oof_df_with_strings(n: int = 100) -> pd.DataFrame:
+    """Build a DataFrame with STRING surface/distance_bin/grade_code, matching
+    the real training pipeline where LightGBM uses them as categorical features."""
+    df = _make_full_oof_df(n)
+    # Replace numeric values with the actual string values from the pipeline
+    df["surface"] = ["turf"] * n
+    df["distance_bin"] = ["sprint"] * n
+    df["grade_code"] = ["A"] * n  # G1 grade
+    return df
+
+
+class FakeWinTwoStageModel:
+    """Fake model that generates p_win_pred, e_return_win_pred, ev_win."""
+
+    def train_hit_model(self, df: pd.DataFrame, *, num_threads: int = 0) -> None:
+        return None
+
+    def train_return_model(self, df: pd.DataFrame, *, num_threads: int = 0) -> None:
+        return None
+
+    def predict_ev(self, df: pd.DataFrame) -> pd.DataFrame:
+        result = df.copy()
+        result["p_win_pred"] = np.clip(result["p_win_pred"], 0.01, 0.99)
+        result["e_return_win_pred"] = result["tanodds"]
+        result["ev_win"] = result["p_win_pred"] * result["e_return_win_pred"]
+        return result
+
+
+class FakeEVCorrectionModel:
+    """Fake corrector that generates p_win_corrected, ev_win_corrected, and interactions."""
+
+    def train(self, df: pd.DataFrame, *, num_threads: int = 0) -> None:
+        return None
+
+    def correct_ev(
+        self,
+        df: pd.DataFrame,
+        *,
+        probability_col: str = "p_win_pred",
+    ) -> pd.DataFrame:
+        result = df.copy()
+        result["p_win_corrected"] = result[probability_col] * 0.95
+        result["e_return_win_corrected"] = result["e_return_win_pred"] * 1.02
+        result["ev_win_corrected"] = result["p_win_corrected"] * result["e_return_win_corrected"]
+        result["ev_win_calibrated"] = result["ev_win_corrected"].copy()
+        # Interaction features generated by _add_interaction_features
+        result["p_x_e_interaction"] = result[probability_col] * result["e_return_win_pred"]
+        result["p_minus_e_gap"] = np.abs(
+            np.log(result[probability_col] + 1e-8) - np.log(result["e_return_win_pred"] + 1e-8)
+        )
+        return result
+
+
 # ---------------------------------------------------------------------------
 # Test 1: extract_market_probability
 # ---------------------------------------------------------------------------
@@ -171,35 +308,6 @@ class TestGenerateWinOofPredictions:
             }
         )
 
-        class FakeWinTwoStageModel:
-            def train_hit_model(self, df: pd.DataFrame, *, num_threads: int = 0) -> None:
-                return None
-
-            def train_return_model(self, df: pd.DataFrame, *, num_threads: int = 0) -> None:
-                return None
-
-            def predict_ev(self, df: pd.DataFrame) -> pd.DataFrame:
-                result = df.copy()
-                result["p_win_pred"] = np.clip(result["p_win_pred"], 0.01, 0.99)
-                result["e_return_win_pred"] = result["tanodds"]
-                result["ev_win"] = result["p_win_pred"] * result["e_return_win_pred"]
-                return result
-
-        class FakeEVCorrectionModel:
-            def train(self, df: pd.DataFrame, *, num_threads: int = 0) -> None:
-                return None
-
-            def correct_ev(
-                self,
-                df: pd.DataFrame,
-                *,
-                probability_col: str = "p_win_pred",
-            ) -> pd.DataFrame:
-                result = df.copy()
-                result["p_win_corrected"] = result[probability_col] * 0.95
-                result["ev_win_corrected"] = result["p_win_corrected"] * result["tanodds"]
-                return result
-
         result = generate_win_oof_predictions(
             df,
             win_model_cls=FakeWinTwoStageModel,
@@ -247,35 +355,6 @@ class TestGenerateWinOofRankerColumns:
             }
         )
 
-        class FakeWinTwoStageModel:
-            def train_hit_model(self, df: pd.DataFrame, *, num_threads: int = 0) -> None:
-                return None
-
-            def train_return_model(self, df: pd.DataFrame, *, num_threads: int = 0) -> None:
-                return None
-
-            def predict_ev(self, df: pd.DataFrame) -> pd.DataFrame:
-                result = df.copy()
-                result["p_win_pred"] = np.clip(result["p_win_pred"], 0.01, 0.99)
-                result["e_return_win_pred"] = result["tanodds"]
-                result["ev_win"] = result["p_win_pred"] * result["e_return_win_pred"]
-                return result
-
-        class FakeEVCorrectionModel:
-            def train(self, df: pd.DataFrame, *, num_threads: int = 0) -> None:
-                return None
-
-            def correct_ev(
-                self,
-                df: pd.DataFrame,
-                *,
-                probability_col: str = "p_win_pred",
-            ) -> pd.DataFrame:
-                result = df.copy()
-                result["p_win_corrected"] = result[probability_col] * 0.95
-                result["ev_win_corrected"] = result["p_win_corrected"] * result["tanodds"]
-                return result
-
         return generate_win_oof_predictions(
             df,
             win_model_cls=FakeWinTwoStageModel,
@@ -316,15 +395,199 @@ class TestGenerateWinOofRankerColumns:
             assert col in result.columns, f"Missing existing column: {col}"
 
     def test_ev_win_corrected_values_correct(self) -> None:
-        """calibrated_ev_oof が ev_win_corrected (= p_win_corrected * tanodds) に基づく."""
+        """calibrated_ev_oof が ev_win_corrected (= p_win_corrected * e_return_win_corrected) に基づく."""
         result = self._make_oof_result()
         # calibrated_ev_oof should equal ev_win_corrected from fold-level correction
-        expected = result["p_win_corrected"] * result["tanodds"]
+        expected = result["p_win_corrected"] * result["e_return_win_pred"] * 1.02
         np.testing.assert_allclose(
             result["calibrated_ev_oof"].values,
             expected.values,
             rtol=1e-6,
         )
+
+
+# ---------------------------------------------------------------------------
+# Test 5c: IFF build_frame(mode="train") column audit
+# ---------------------------------------------------------------------------
+
+
+class TestOofIFFColumnAudit:
+    """OOF output contains all columns required by IFF build_frame(mode="train").
+
+    This test validates the comprehensive fix for the systematic missing-columns
+    pattern where generate_win_oof_predictions() was missing columns that
+    InvestmentFeatureFrameBuilder.build_frame() requires in train mode.
+    """
+
+    @staticmethod
+    def _make_oof_result_with_full_features() -> pd.DataFrame:
+        """Generate OOF result with a full feature DataFrame simulating training_pipeline."""
+        from models.win_benter_gate import generate_win_oof_predictions
+
+        df = _make_full_oof_df(n=100)
+
+        return generate_win_oof_predictions(
+            df,
+            win_model_cls=FakeWinTwoStageModel,
+            ev_corrector=FakeEVCorrectionModel(),
+            n_splits=5,
+        )
+
+    def test_fold_generated_ev_win_corrected(self) -> None:
+        """ev_win_corrected is captured from fold predictions."""
+        result = self._make_oof_result_with_full_features()
+        assert "ev_win_corrected" in result.columns, (
+            "Missing ev_win_corrected -- required by if_ev_corrected train source"
+        )
+        assert result["ev_win_corrected"].notna().any()
+
+    def test_fold_generated_interaction_cols(self) -> None:
+        """p_x_e_interaction and p_minus_e_gap are captured from fold predictions."""
+        result = self._make_oof_result_with_full_features()
+        for col in ["p_x_e_interaction", "p_minus_e_gap"]:
+            assert col in result.columns, f"Missing fold-generated column: {col}"
+
+    def test_required_iff_sources_present(self) -> None:
+        """All IFF REQUIRED train_sources columns are present in the OOF output."""
+        from investment.schema_registry import FEATURE_SPECS
+
+        result = self._make_oof_result_with_full_features()
+        result_cols = set(result.columns)
+
+        missing_required: list[str] = []
+        for spec in FEATURE_SPECS.values():
+            if not spec.required:
+                continue
+            if not spec.train_sources:
+                continue  # derived feature, no source needed
+            found = any(src in result_cols for src in spec.train_sources)
+            if not found:
+                missing_required.append(
+                    f"{spec.name} needs {spec.train_sources}"
+                )
+
+        assert not missing_required, (
+            f"Missing required IFF source columns: {missing_required}"
+        )
+
+    def test_static_passthrough_ability_cols(self) -> None:
+        """p_ability_win and p_ability_place are passed through from source df."""
+        result = self._make_oof_result_with_full_features()
+        assert "p_ability_win" in result.columns
+        assert result["p_ability_win"].notna().any()
+
+    def test_static_passthrough_market_cols(self) -> None:
+        """Market-related columns are passed through from source df."""
+        result = self._make_oof_result_with_full_features()
+        for col in ["p_market_win_adj", "overround", "market_entropy",
+                     "signed_log_error_win", "abs_log_error_win"]:
+            assert col in result.columns, f"Missing market column: {col}"
+
+    def test_static_passthrough_race_level_cols(self) -> None:
+        """Race-level columns (rl_n_horses, distance_bin, etc.) are passed through."""
+        result = self._make_oof_result_with_full_features()
+        for col in ["rl_n_horses", "distance_bin", "grade_code",
+                     "track_condition_code"]:
+            assert col in result.columns, f"Missing race-level column: {col}"
+
+    def test_static_passthrough_uncertainty_cols(self) -> None:
+        """Uncertainty columns are passed through from source df."""
+        result = self._make_oof_result_with_full_features()
+        for col in ["EV_lower_win_corrected", "EV_upper_win_corrected",
+                     "conformal_confidence_score"]:
+            assert col in result.columns, f"Missing uncertainty column: {col}"
+
+
+# ---------------------------------------------------------------------------
+# Test 5d: String column encoding for IFF compatibility
+# ---------------------------------------------------------------------------
+
+
+class TestStringColumnEncoding:
+    """OOF output encodes string categorical columns to numeric for IFF.
+
+    The training pipeline stores surface/distance_bin/grade_code as strings
+    (LightGBM uses them as categorical features), but IFF expects float64.
+    This tests the fix for: could not convert string to float: 'turf'
+    """
+
+    @staticmethod
+    def _make_oof_result_with_strings() -> pd.DataFrame:
+        """Generate OOF result using string categorical columns (real pipeline behavior)."""
+        from models.win_benter_gate import generate_win_oof_predictions
+
+        df = _make_full_oof_df_with_strings(n=100)
+        return generate_win_oof_predictions(
+            df,
+            win_model_cls=FakeWinTwoStageModel,
+            ev_corrector=FakeEVCorrectionModel(),
+            n_splits=5,
+        )
+
+    def test_surface_encoded_to_numeric(self) -> None:
+        """surface 'turf' is encoded to numeric 0 in OOF output."""
+        result = self._make_oof_result_with_strings()
+        assert "surface" in result.columns
+        assert pd.api.types.is_numeric_dtype(result["surface"]), (
+            f"surface should be numeric, got dtype={result['surface'].dtype}"
+        )
+        assert (result["surface"] == 0).all(), (
+            f"'turf' should encode to 0, got values: {result['surface'].unique()}"
+        )
+
+    def test_distance_bin_encoded_to_numeric(self) -> None:
+        """distance_bin 'sprint' is encoded to numeric 0 in OOF output."""
+        result = self._make_oof_result_with_strings()
+        assert "distance_bin" in result.columns
+        assert pd.api.types.is_numeric_dtype(result["distance_bin"]), (
+            f"distance_bin should be numeric, got dtype={result['distance_bin'].dtype}"
+        )
+        assert (result["distance_bin"] == 0).all(), (
+            f"'sprint' should encode to 0, got values: {result['distance_bin'].unique()}"
+        )
+
+    def test_grade_code_encoded_to_numeric(self) -> None:
+        """grade_code 'A' (G1) is encoded to numeric 8.0 in OOF output."""
+        result = self._make_oof_result_with_strings()
+        assert "grade_code" in result.columns
+        assert pd.api.types.is_numeric_dtype(result["grade_code"]), (
+            f"grade_code should be numeric, got dtype={result['grade_code'].dtype}"
+        )
+        assert (result["grade_code"] == 8.0).all(), (
+            f"'A' (G1) should encode to 8.0, got values: {result['grade_code'].unique()}"
+        )
+
+    def test_iff_build_frame_succeeds_with_string_source(self) -> None:
+        """IFF build_frame(mode="train") succeeds without ValueError when
+        source DataFrame had string surface/distance_bin/grade_code.
+
+        This is the actual bug scenario: IFF calls .astype('float64') on
+        these columns and 'turf' cannot be converted to float.
+        """
+        from investment.feature_frame import InvestmentFeatureFrameBuilder
+
+        result = self._make_oof_result_with_strings()
+        # This should NOT raise ValueError: could not convert string to float: 'turf'
+        iff_builder = InvestmentFeatureFrameBuilder()
+        iff_df = iff_builder.build_frame(result, mode="train")
+        assert len(iff_df) > 0
+        assert "if_surface" in iff_df.columns
+        assert pd.api.types.is_numeric_dtype(iff_df["if_surface"])
+
+    def test_numeric_surface_passthrough(self) -> None:
+        """When surface is already numeric (e.g. 0/1), it passes through unchanged."""
+        from models.win_benter_gate import generate_win_oof_predictions
+
+        df = _make_full_oof_df(n=100)  # uses numeric surface=0
+        result = generate_win_oof_predictions(
+            df,
+            win_model_cls=FakeWinTwoStageModel,
+            ev_corrector=FakeEVCorrectionModel(),
+            n_splits=5,
+        )
+        assert "surface" in result.columns
+        assert pd.api.types.is_numeric_dtype(result["surface"])
+        assert (result["surface"] == 0).all()
 
 
 # ---------------------------------------------------------------------------

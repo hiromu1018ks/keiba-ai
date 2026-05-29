@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -54,7 +54,7 @@ OOF_PREDICTIONS_PROFILE = OOFHealthProfile(
     artifact_name="oof_predictions",
     required_columns=("race_id", "race_date", "is_oof", "oof_artifact_version"),
     fold_col="ability_oof_fold",
-    score_col="p_win_oof",
+    score_col="p_ability_win",
     return_cols=("confirmed_odds", "tanodds"),
     manifest_path="data/oof/manifests/oof_predictions.health.json",
 )
@@ -190,17 +190,34 @@ class OOFHealthValidator:
         if "kakuteijyuni" not in top1_rows.columns:
             return
 
-        hit_rate = float((top1_rows["kakuteijyuni"] == 1).sum() / n_races)
+        hit = pd.to_numeric(top1_rows["kakuteijyuni"], errors="coerce").eq(1)
+        hit_rate = float(hit.sum() / n_races)
         metrics["top1_hit_rate"] = hit_rate
         metrics["top1_score_col"] = profile.score_col
 
-        # ROI calculation using first return_col as return_unit
+        # ROI calculation using first return_col as return_unit. Some profiles
+        # provide realized returns (win_return_unit/win_return), while generic
+        # OOF artifacts only have odds columns. Odds must be counted only when
+        # the selected horse actually won.
         return_col = profile.return_cols[0] if profile.return_cols else None
-        odds_col = "confirmed_odds" if "confirmed_odds" in top1_rows.columns else None
 
         roi = 0.0
         if return_col and return_col in top1_rows.columns:
-            total_return = top1_rows[return_col].sum()
+            raw_return = (
+                pd.to_numeric(top1_rows[return_col], errors="coerce")
+                .clip(lower=0.0)
+                .fillna(0.0)
+            )
+            if return_col in {"confirmed_odds", "tanodds", "odds"}:
+                if raw_return.dropna().quantile(0.75) > 100.0:
+                    raw_return = raw_return / 100.0
+                unit_return = raw_return.where(hit, 0.0)
+            elif return_col == "win_return":
+                unit_return = raw_return / 100.0
+            else:
+                unit_return = raw_return
+
+            total_return = unit_return.sum()
             total_bets = n_races
             roi = float(total_return / total_bets) if total_bets > 0 else 0.0
             metrics["top1_roi"] = roi

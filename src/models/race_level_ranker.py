@@ -31,6 +31,17 @@ from utils.wf_splits import walk_forward_race_splits as _walk_forward_race_split
 
 logger = logging.getLogger(__name__)
 
+# Mapping from surface values to canonical surface names.
+# Supports numeric (0/1 from _encode_string_columns) and string ("turf"/"dirt").
+# Note: Python treats 0 == 0.0 and hash(0) == hash(0.0), so a single key
+# covers both int and float inputs.
+_SURFACE_NAME_MAP: dict[object, str] = {
+    0: "turf",
+    1: "dirt",
+    "turf": "turf",
+    "dirt": "dirt",
+}
+
 
 @dataclass
 class RaceLevelRanker:
@@ -261,8 +272,22 @@ class RaceLevelRanker:
         """
         df = df.copy()
 
-        surfaces: list[tuple[str, int]] = [("turf", 0), ("dirt", 1)]
-        for surface_name, surface_val in surfaces:
+        # Discover surfaces present in the data rather than iterating a
+        # hardcoded list. The pipeline trains each surface submodel
+        # independently, so df contains rows from a single surface only.
+        # Iterating [("turf", 0), ("dirt", 1)] produced a spurious
+        # "Insufficient data for dirt" warning inside the turf submodel.
+        unique_surfaces = df["surface"].dropna().unique()
+        for surface_val in unique_surfaces:
+            surface_name = _SURFACE_NAME_MAP.get(surface_val)
+            if surface_name is None:
+                logger.warning(
+                    "Unknown surface value %r, skipping (%d rows)",
+                    surface_val,
+                    (df["surface"] == surface_val).sum(),
+                )
+                continue
+
             mask = df["surface"] == surface_val
             df_surf = df.loc[mask].copy()
             # Reset index so positional indexing matches numpy array indices
@@ -286,10 +311,7 @@ class RaceLevelRanker:
             ridge_rel = Ridge(alpha=best_alpha_rel)
             ridge_rel.fit(rel_X, rel_y)
 
-            if surface_name == "turf":
-                self.relevance_scorer_turf = ridge_rel
-            else:
-                self.relevance_scorer_dirt = ridge_rel
+            setattr(self, f"relevance_scorer_{surface_name}", ridge_rel)
 
             self.relevance_feature_names = rel_features
             self.training_summary[f"relevance_best_alpha_{surface_name}"] = best_alpha_rel
@@ -305,10 +327,7 @@ class RaceLevelRanker:
             ridge_val = Ridge(alpha=best_alpha_val)
             ridge_val.fit(val_X, val_y)
 
-            if surface_name == "turf":
-                self.value_scorer_turf = ridge_val
-            else:
-                self.value_scorer_dirt = ridge_val
+            setattr(self, f"value_scorer_{surface_name}", ridge_val)
 
             self.value_feature_names = val_features
             self.training_summary[f"value_best_alpha_{surface_name}"] = best_alpha_val

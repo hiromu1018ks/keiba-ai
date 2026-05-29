@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime
 from unittest.mock import MagicMock, patch
 
 import numpy as np
@@ -11,10 +12,10 @@ import pytest
 
 from validation.oof_health_validator import (
     OOF_PREDICTIONS_PROFILE,
+    WIN_SELECTION_OOF_PROFILE,
     OOFHealthProfile,
     OOFHealthValidator,
     ValidationResult,
-    WIN_SELECTION_OOF_PROFILE,
     load_validated_oof,
 )
 
@@ -44,7 +45,7 @@ def _make_valid_oof_df(
     )
 
     if include_score:
-        df["p_win_oof"] = rng.uniform(0.01, 0.3, n_rows)
+        df["p_ability_win"] = rng.uniform(0.01, 0.3, n_rows)
         df["confirmed_odds"] = rng.uniform(2.0, 50.0, n_rows)
         df["tanodds"] = df["confirmed_odds"]
         df["kakuteijyuni"] = rng.integers(1, horses_per_race + 1, n_rows)
@@ -63,6 +64,7 @@ def _make_win_selection_oof_df(
 
     race_ids = [f"R{i:04d}" for i in range(n_races) for _ in range(horses_per_race)]
     fold_assignments = [i % n_folds for i in range(n_races) for _ in range(horses_per_race)]
+    confirmed_odds = rng.uniform(2.0, 50.0, n_rows)
 
     df = pd.DataFrame(
         {
@@ -75,8 +77,8 @@ def _make_win_selection_oof_df(
             "win_market_selection_score": rng.uniform(0.01, 0.3, n_rows),
             "win_return_unit": rng.uniform(0.0, 1.0, n_rows),
             "win_return": rng.uniform(0.0, 100.0, n_rows),
-            "confirmed_odds": rng.uniform(2.0, 50.0, n_rows),
-            "tanodds": df["confirmed_odds"] if "confirmed_odds" in pd.DataFrame() else rng.uniform(2.0, 50.0, n_rows),
+            "confirmed_odds": confirmed_odds,
+            "tanodds": confirmed_odds,
             "umaban": [j + 1 for _ in range(n_races) for j in range(horses_per_race)],
         }
     )
@@ -282,7 +284,13 @@ class TestOOF03Top1Anomaly:
 
         profile = OOFHealthProfile(
             artifact_name="test",
-            required_columns=("race_id", "race_date", "is_oof", "oof_artifact_version", "kakuteijyuni"),
+            required_columns=(
+                "race_id",
+                "race_date",
+                "is_oof",
+                "oof_artifact_version",
+                "kakuteijyuni",
+            ),
             fold_col="win_selection_oof_fold",
             score_col="win_market_selection_score",
             return_cols=("win_return_unit", "win_return", "confirmed_odds", "tanodds"),
@@ -321,6 +329,52 @@ class TestOOF03Top1Anomaly:
         validator = OOFHealthValidator()
         with pytest.raises(ValueError, match="score_col|OOF-03"):
             validator.validate(df, profile)
+
+    def test_raw_odds_are_counted_only_for_winners(self) -> None:
+        """confirmed_odds/tanoddsは的中時だけ払戻として扱う."""
+        n_races = 50
+        horses_per_race = 4
+        rows = []
+        for race_idx in range(n_races):
+            race_id = f"R{race_idx:04d}"
+            top_is_winner = race_idx < 10
+            for horse_idx in range(horses_per_race):
+                is_top = horse_idx == 0
+                rows.append(
+                    {
+                        "race_id": race_id,
+                        "race_date": pd.Timestamp("2020-01-01"),
+                        "is_oof": True,
+                        "oof_artifact_version": 1,
+                        "ability_oof_fold": race_idx % 3,
+                        "umaban": horse_idx + 1,
+                        "p_ability_win": 0.9 if is_top else 0.1,
+                        "kakuteijyuni": 1 if (is_top and top_is_winner) else 2,
+                        "confirmed_odds": 3.0 if (is_top and top_is_winner) else 100.0,
+                        "tanodds": 3.0 if (is_top and top_is_winner) else 100.0,
+                    }
+                )
+        df = pd.DataFrame(rows)
+        profile = OOFHealthProfile(
+            artifact_name="test",
+            required_columns=(
+                "race_id",
+                "race_date",
+                "is_oof",
+                "oof_artifact_version",
+                "kakuteijyuni",
+            ),
+            fold_col="ability_oof_fold",
+            score_col="p_ability_win",
+            return_cols=("confirmed_odds", "tanodds"),
+            max_top1_hit_rate=0.35,
+            max_top1_roi=2.0,
+            min_guard_races=30,
+        )
+        result = OOFHealthValidator().validate(df, profile)
+        assert result["status"] == "PASS"
+        assert result["top1_hit_rate"] == pytest.approx(0.2)
+        assert result["top1_roi"] == pytest.approx(0.6)
 
 
 class TestOOF02TrainValidOverlap:
@@ -425,7 +479,7 @@ class TestXCT05DeterministicManifest:
 
 
 class TestXCT08ManifestFields:
-    """XCT-08: manifest must contain artifact_version, schema_hash, source_oof_manifest_path, train_date_range."""
+    """XCT-08: manifest must contain required provenance fields."""
 
     def test_manifest_has_required_fields(self) -> None:
         df = _make_valid_oof_df(n_races=20, n_folds=3)
@@ -537,9 +591,13 @@ class TestConcreteProfiles:
     def test_oof_predictions_profile(self) -> None:
         assert OOF_PREDICTIONS_PROFILE.artifact_name == "oof_predictions"
         assert OOF_PREDICTIONS_PROFILE.fold_col == "ability_oof_fold"
-        assert OOF_PREDICTIONS_PROFILE.score_col == "p_win_oof"
+        assert OOF_PREDICTIONS_PROFILE.score_col == "p_ability_win"
         assert "race_id" in OOF_PREDICTIONS_PROFILE.required_columns
         assert "confirmed_odds" in OOF_PREDICTIONS_PROFILE.return_cols
+
+    def test_oof_predictions_profile_does_not_use_in_sample_win_prediction(self) -> None:
+        """oof_predictionsの健全性チェックでin-sample p_win_predを使わない."""
+        assert OOF_PREDICTIONS_PROFILE.score_col != "p_win_pred"
 
     def test_win_selection_oof_profile(self) -> None:
         assert WIN_SELECTION_OOF_PROFILE.artifact_name == "win_selection_oof"

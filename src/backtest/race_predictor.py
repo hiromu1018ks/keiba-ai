@@ -43,6 +43,11 @@ WIN_MAX_RELIABLE_TAIL_EV: float = 1.5
 WIN_LONGSHOT_ODDS: float = 10.0
 WIN_LONGSHOT_MIN_PROB: float = 0.05
 
+# String-to-numeric encoding for IFF columns needed by RaceLevelRanker.
+# Must match feature_frame._STRING_COL_ENCODINGS and
+# win_benter_gate._STRING_COL_ENCODINGS.
+_SURFACE_ENCODING: dict[str, float] = {"turf": 0.0, "dirt": 1.0}
+
 
 def _safe_float(val: Any, default: float = 0.0) -> float:
     """Convert *val* to float, returning *default* when val is pd.NA or NaN."""
@@ -92,6 +97,25 @@ def _compute_phase36_aggregates(race_df: pd.DataFrame) -> dict[str, float]:
         result["phase36_weighted_form_mean"] = 0.0
 
     return result
+
+
+def _ensure_if_surface(df: pd.DataFrame) -> None:
+    """Ensure `if_surface` column exists for RaceLevelRanker.score().
+
+    During the prediction (test) pipeline, IFF build_frame() is not called
+    before ranker scoring. The ranker expects `if_surface` (float64, 0=turf,
+    1=dirt) but the DataFrame only has `surface` (string "turf"/"dirt").
+    This function creates `if_surface` in-place when missing.
+    """
+    if "if_surface" in df.columns:
+        return
+    if "surface" not in df.columns:
+        return
+    series = df["surface"]
+    if pd.api.types.is_numeric_dtype(series):
+        df["if_surface"] = series.astype(float)
+    else:
+        df["if_surface"] = series.map(_SURFACE_ENCODING).astype(float)
 
 
 class RacePredictor:
@@ -307,6 +331,11 @@ class RacePredictor:
         # D-18/D-19: Feature flag controls whether ranker is applied.
         ranker = getattr(submodel, "win_race_level_ranker", None)
         if self.enable_race_level_ranker and ranker is not None and ranker.is_trained:
+            # Ensure IFF columns needed by ranker exist. During the prediction
+            # pipeline, build_frame() is not called before scoring, so the
+            # ranker would fail with KeyError on 'if_surface'. We create the
+            # minimal IFF columns in-place from raw source columns.
+            _ensure_if_surface(df)
             df = ranker.score(df)
 
         # --- WinSelectionGate (SELC-01, D-14: after Benter, before Place) ---
@@ -651,7 +680,7 @@ class RacePredictor:
         if has_raw_ev_col:
             high_ev_mask = selection_ev_raw.ge(1.5) & selection_ev_raw.lt(5.0)
         else:
-            high_ev_mask = selection_edge_raw.ge(1.5) & selection_ev_raw.lt(5.0)
+            high_ev_mask = selection_edge_raw.ge(1.5) & selection_edge_raw.lt(5.0)
         tail_calibrator = getattr(self, "_win_tail_calibrator", None)
         if tail_calibrator is None:
             tail_calibrator = EVTtailCalibrator()

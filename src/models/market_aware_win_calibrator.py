@@ -226,6 +226,10 @@ class MarketAwareWinCalibrator:
         if "p_model" not in df.columns and "p_win_oof" in df.columns:
             df["p_model"] = df["p_win_oof"]
 
+        # Resolve p_market column
+        if "p_market" not in df.columns and "p_market_norm" in df.columns:
+            df["p_market"] = df["p_market_norm"]
+
         # Extract target
         y = (df["kakuteijyuni"] == 1).astype(int).values
 
