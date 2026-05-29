@@ -1,110 +1,250 @@
-# 競馬AI予測システム v5.5
+# keiba-ai
 
-過去のレースデータから学習し、投票の「期待値」を計算するオープンソースの競馬予測システムです。
+[![Python 3.11](https://img.shields.io/badge/Python-3.11-blue.svg)](https://www.python.org/downloads/release/python-3110/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![Tests](https://img.shields.io/badge/Tests-2000%2B%20passed-brightgreen.svg)]()
+[![Code Style: Ruff](https://img.shields.io/badge/Code%20Style-Ruff-orange.svg)]()
+
+**JRA競馬AI予測システム** -- 過去のレースデータから機械学習で期待値(EV)を計算し、 statistical edge に基づく投資判断を行うオープンソースシステム。
+
+LightGBM + XGBoost + CatBoost の3モデルスタッキング、2段階予測モデル (P(hit) x E(odds|hit))、Fractional Kellyサイジング、市場レジーム検知を搭載。
+
+---
+
+## 目次
+
+- [特徴](#特徴)
+- [システムアーキテクチャ](#システムアーキテクチャ)
+- [必要条件](#必要条件)
+- [クイックスタート](#クイックスタート)
+- [使い方](#使い方)
+  - [ETL (データ抽出)](#1-etl-データ抽出)
+  - [モデル学習](#2-モデル学習)
+  - [バックテスト](#3-バックテスト)
+  - [ウォークフォワード検証](#4-ウォークフォワード検証)
+  - [ハイパーパラメータチューニング](#5-ハイパーパラメータチューニング)
+  - [戦略パラメータ最適化](#6-戦略パラメータ最適化)
+  - [ペーパートレード (リアルタイム予測)](#7-ペーパートレード-リアルタイム予測)
+  - [診断・分析ツール](#8-診断分析ツール)
+- [プロジェクト構成](#プロジェクト構成)
+- [設定](#設定)
+- [開発ガイド](#開発ガイド)
+- [技術スタック](#技術スタック)
+- [免責事項](#免責事項)
+- [ライセンス](#ライセンス)
+
+---
 
 ## 特徴
 
-- **2段階AI予測** — 「当たる確率」と「当たった時の払戻し額」を別々に学習することで、予測精度を高めています
-- **自動資金管理** — ドローダウン（資金の減少）を自動検知し、投資額を安全に調整します
-- **市場状態検知** — オッズの動きから「人気馬が勝ちやすい日」や「荒れやすい日」を見分けます
-- **厳密な検証** — ウォークフォワード検証とホールドアウト検証の2段階で、過去データへの過学習を防ぎます
+- **2段階AI予測** -- 「的中確率 P(hit)」と「的中時払戻額 E(odds|hit)」を別モデルで学習。ゼロインフレーション問題を回避し、EV = P x E で期待値を算出
+- **3モデルスタッキング** -- LightGBM + XGBoost + CatBoost -> Ridge メタラーナー。Optuna で多様性を強制し、相関ペナルティで過学習を防止
+- **市場ブレンドキャリブレーション** -- MarketAwareWinCalibrator: モデル確率とオッズ暗示確率をBenter (1994) logit-blend。51次元セグメント条件付けで人気帯別バイアスを補正
+- **レースレベルランキング** -- RaceLevelRanker: Ridge relevance/value scoring で馬の投資スコア (investment_score) を算出し、shadow modeで安全導入
+- **100+特徴量** -- 過去成績、血統、騎手・調教師コンテキスト、オッズ動態、市場バイアス、情報非対称性、相対比較、交互作用項等14モジュールから生成
+- **Conformal EV区間** -- CQR (Conformalized Quantile Regression) で80%/90%信頼区間を算出し、不確実性を定量化
+- **自動資金管理** -- 3段階ドローダウン制御 (NORMAL/REDUCED/STOP) + ヒステリシス + Fractional Kelly サイジング
+- **市場レジーム検知** -- 3状態 (AGGRESSIVE/CONSERVATIVE/COLLAPSED) LightGBM多クラス分類でオッズ分布から市場の荒れ具合を検知
+- **厳密な検証基盤** -- Walk-forward CV、Shadow Comparison Framework、DeploymentGateEvaluator、OOFHealthValidator、Feature Routing Audit で安全性を保証
+- **ペーパートレード** -- レース当日にリアルタイム推論、Slack通知、結果照合、HTMLレポート生成
 
-## 全体フロー
+## システムアーキテクチャ
 
-```mermaid
-flowchart LR
-    A[レースデータ] --> B[特徴量エンジン]
-    B --> C[AI予測モデル]
-    C --> D[EV補正]
-    D --> E[投資戦略]
-    E --> F[投票]
-    G[オッズ収集] --> B
-    G --> D
 ```
+┌─────────────────────────────────────────────────────────────────┐
+│                     Data Sources                                 │
+│                                                                  │
+│  EveryDB2 (PostgreSQL)          JV-Link SDK (Windows)            │
+│  JRA-VAN DataLab                オッズ時系列 (s_jodds_*)          │
+└───────────┬─────────────────────────────────┬───────────────────┘
+            │ ETL (run_etl.py)                │
+            ▼                                 │
+┌───────────────────────┐                     │
+│  Parquet Files         │◄────────────────────┘
+│  (data/raw, data/odds) │
+│  races, entries,       │
+│  payouts, odds_ts,     │
+│  horse_career, sire    │
+└───────────┬───────────┘
+            │ DataRepository / ParquetStore
+            ▼
+┌───────────────────────────────────────────────────────────────────┐
+│                      Feature Engineering                          │
+│                                                                    │
+│  ┌──────────┐ ┌───────────┐ ┌──────────┐ ┌──────────┐           │
+│  │ Horse    │ │ Bloodline │ │ Odds     │ │ Market   │           │
+│  │ History  │ │ /Sire/Dam │ │ Dynamics │ │ Bias     │           │
+│  └────┬─────┘ └─────┬─────┘ └────┬─────┘ └────┬─────┘           │
+│       │             │            │             │                   │
+│  ┌────┴─────┐ ┌─────┴─────┐ ┌───┴──────┐ ┌───┴──────┐          │
+│  │ Jockey/  │ │ Form      │ │ Race     │ │ Relative │          │
+│  │ Trainer  │ │ Cycle     │ │ Level    │ │ /Intra   │          │
+│  └────┬─────┘ └─────┬─────┘ └────┬─────┘ └────┬─────┘          │
+│       │             │            │             │                   │
+│  ┌────┴─────────────┴────────────┴─────────────┴────┐            │
+│  │          Interaction / Cross Features             │            │
+│  │    Target Encoding (3-fold expanding window)      │            │
+│  └───────────────────────┬───────────────────────────┘            │
+│                          │                                        │
+│              FeatureEngine.build_all()                            │
+│              ~100+ features, cache with code-hash                 │
+└──────────────────────────┬───────────────────────────────────────┘
+                           │
+                           ▼
+┌───────────────────────────────────────────────────────────────────┐
+│                      Model Pipeline (TrainingPipelineV5)          │
+│                                                                    │
+│  ┌──────────────────────────────────────────────┐                 │
+│  │ Surface Split: Turf / Dirt (SubModelManager) │                 │
+│  └──────────────────┬───────────────────────────┘                 │
+│                     │                                              │
+│  Stage 1: AbilityModel (LambdaRank) ── softmax ──> p_ability     │
+│                     │                                              │
+│  Market: MarketModel ──> p_market, log_error_delta               │
+│                     │                                              │
+│  Stage 2: WinTwoStageModel ──> P(win_hit) x E(win_return)        │
+│          PlaceTwoStageModel ──> P(place_hit) x E(place_return)    │
+│                     │                                              │
+│  EV Correction: EVCorrectionModel (P/E decomposition)            │
+│          ConformalEVModel (CQR 80%/90% intervals)                 │
+│                     │                                              │
+│  Calibrator: MarketAwareWinCalibrator (logit-blend + segments)   │
+│  Ranker:    RaceLevelRanker (Ridge relevance + value scoring)     │
+│                     │                                              │
+│  Safety: RaceQualityScreener, RegimeDetector (3-state)            │
+│  Gates:  WinSelectionGate, PlaceSelectionGate, WinProfitSelector  │
+│  Policy: WinSelectionPolicy (surface-aware final ranking)         │
+│                     │                                              │
+│  Stacked Ensemble: LGBM + XGB + CB -> Ridge (optional --ensemble)│
+│  All models save to MLflow + local directory                      │
+└─────────────────────┬─────────────────────────────────────────────┘
+                      │
+                      ▼
+┌───────────────────────────────────────────────────────────────────┐
+│                    Betting & Execution                             │
+│                                                                    │
+│  RacePredictor (shared by BacktestEngine + PaperPredictor)        │
+│      │                                                             │
+│      ├── RegimeDetector.detect() ──> strategy_params              │
+│      ├── EV prediction + correction + conformal intervals         │
+│      ├── SelectionGate -> ProfitSelector -> SelectionPolicy       │
+│      ├── EVTtailCalibrator (feature family consensus)             │
+│      └── LateMoneyFilter (t-3min judgment)                        │
+│      │                                                             │
+│  BettingOrchestrator                                               │
+│      ├── WinStrategy / PlaceStrategy / WideStrategy               │
+│      ├── StakeCalculator (Fractional Kelly)                       │
+│      ├── DrawdownController (3-tier NORMAL/REDUCED/STOP)          │
+│      ├── GateKeeper (edge threshold filter)                       │
+│      └── MetaSwitcher (regime-linked params)                      │
+│                                                                    │
+│  ───> Bet objects with stake, EV, confidence                      │
+└───────────────────────────────────────────────────────────────────┘
+                      │
+          ┌───────────┴───────────┐
+          ▼                       ▼
+  ┌──────────────┐       ┌──────────────┐
+  │ BacktestEngine│      │ Paper Trading │
+  │ (simulation)  │      │ (live)        │
+  └──────────────┘       └──────────────┘
+```
+
+---
+
+## 必要条件
+
+| 要件 | バージョン |
+|------|-----------|
+| Python | 3.11 (mise推奨) |
+| PostgreSQL | EveryDB2 (JRA-VAN DataLab) |
+| OS | Windows / Linux / macOS |
+
+**Python依存関係** (pyproject.tomlで管理):
+
+```
+pandas>=2.2, numpy>=1.26, scikit-learn>=1.4, lightgbm>=4.3,
+xgboost>=2.0, catboost>=1.2, optuna>=3.5, psycopg2-binary>=2.9,
+sqlalchemy>=2.0, pyarrow>=14.0, pyyaml>=6.0, mlflow>=2.12,
+tqdm>=4.66, jinja2>=3.1
+```
+
+**開発用追加依存**: `ruff>=0.4`, `mypy>=1.10`, `ipykernel>=6.29`
+
+---
 
 ## クイックスタート
 
 ```bash
-# 1. Python 3.11 をインストール・アクティベート
-mise install && mise activate
+# 1. リポジトリをクローン
+git clone <repository-url>
+cd keiba-ai
 
-# 2. 依存パッケージをインストール
+# 2. Python 3.11 をインストール・アクティベート (mise使用)
+mise install
+mise activate
+
+# 3. 依存パッケージをインストール
 pip install -e ".[dev]"
 
-# 3. テストを実行して動作確認
+# 4. テストを実行して動作確認 (DB不要、全テストmock使用)
 python -m pytest tests/ -v
 ```
 
-データベースのセットアップや各機能の詳細な使い方は [Getting Started](docs/guide/04_getting_started.md) をご覧ください。
+詳細なセットアップ手順は [Getting Started](docs/guide/04_getting_started.md) を参照してください。
 
-## パイプライン実行方法
+---
+
+## 使い方
 
 PostgreSQL (EveryDB2) が `localhost:5432` で稼働している前提です。
+
+### 1. ETL (データ抽出)
+
+EveryDB2 (PostgreSQL) からParquetファイルへのETL。103テーブル対応。
 
 ```bash
 # 環境変数の設定
 export PGPASSWORD=<your_password>
 
-# Step 0: 馬キャリア統計の事前計算（horse_career_stats.py を変更した場合のみ必要）
-python scripts/precompute_career_stats.py
-
-# Step 1: ETL — EveryDB2のデータをParquetにエクスポート
+# 全量抽出 (初回のみ、約10分)
 python scripts/run_etl.py --mode full --start 20140101 --end 20251231
 
-# Step 2: 学習 — 特徴量生成 + LightGBMモデルの学習（4年ウィンドウ推奨）
-python scripts/run_train.py --start 20220101 --end 20251231
-
-# Step 3: バックテスト — 学習+テスト期間の投資シミュレーション
-python scripts/run_backtest.py \
-  --train-start 20220101 --train-end 20251231 \
-  --test-start 20260101 --test-end 20261231
-```
-
-### スクリプト一覧
-
-| スクリプト | 役割 | 所要時間 |
-|-----------|------|---------|
-| `scripts/precompute_career_stats.py` | 各馬×各レース時点での累積成績を事前計算（PIT安全） | ~2分 |
-| `scripts/run_etl.py` | PostgreSQL (EveryDB2) → Parquetファイル群へのETL | ~10分 (full) |
-| `scripts/run_train.py` | HorseHistoryFeatures生成 + LightGBM Ranker + 補正モデル学習 | ~17分 |
-| `scripts/run_backtest.py` | 学習→バックテスト（単一年度/マルチ年度、アンサンブル/Kelly/manifest対応） | ~57分/年 |
-| `scripts/run_wf_validation.py` | 2-fold ウォークフォワード検証（過学習検出 + feature importance安定性） | ~4時間 |
-| `scripts/run_strategy_optimization.py` | Optuna 16次元戦略パラメータ最適化（multi-seed安定性検証対応） | ~2.5h/trial |
-| `scripts/run_paper_trading.py` | リアルタイム予測・結果照合（setup/predict/reconcile/dry-run） | ~25秒/日 |
-| `scripts/run_tuning.py` | Optuna によるハイパーパラメータチューニング | ~30分 (50trials) |
-
-### スクリプト引数詳細
-
-#### run_etl.py
-
-```bash
-python scripts/run_etl.py --mode full --start 20140101 --end 20251231  # 全量抽出
-python scripts/run_etl.py --mode delta                                 # 差分マージ
+# 差分マージ (2回目以降、高速)
+python scripts/run_etl.py --mode delta
 ```
 
 | 引数 | 型 | デフォルト | 説明 |
 |------|-----|-----------|------|
 | `--mode` | `full`\|`delta` | **必須** | `full`=全量抽出、`delta`=差分マージ |
-| `--start` | YYYYMMDD | — | 開始日 (`full`で必須) |
-| `--end` | YYYYMMDD | — | 終了日 (`full`で必須) |
-| `--tables` | list[str] | — | 対象テーブル (省略時は全テーブル) |
+| `--start` | YYYYMMDD | -- | 開始日 (`full`で必須) |
+| `--end` | YYYYMMDD | -- | 終了日 (`full`で必須) |
+| `--tables` | list[str] | -- | 対象テーブル (省略時は全テーブル) |
 
-#### run_train.py
+### 2. モデル学習
+
+特徴量生成 + 全モデル学習。4年学習ウィンドウ推奨。
 
 ```bash
-python scripts/run_train.py --start 20200101 --end 20231231 --ensemble
+# 基本学習 (約17分)
+python scripts/run_train.py --start 20220101 --end 20251231
+
+# アンサンブル有効 (LGBM+XGB+CB->Ridge)
+python scripts/run_train.py --start 20220101 --end 20251231 --ensemble
+
+# MLflow実験名指定
+python scripts/run_train.py --start 20220101 --end 20251231 --experiment keiba-v5
 ```
 
 | 引数 | 型 | デフォルト | 説明 |
 |------|-----|-----------|------|
 | `--start` | YYYYMMDD | **必須** | 学習開始日 |
 | `--end` | YYYYMMDD | **必須** | 学習終了日 |
-| `--ensemble` | flag | False | StackedEnsemble有効化 (LGBM+XGB+CB→Ridge) |
+| `--ensemble` | flag | False | StackedEnsemble有効化 |
 | `--experiment` | str | `keiba-v5` | MLflow実験名 |
 
-#### run_backtest.py
+### 3. バックテスト
 
-学習→テスト期間の投資シミュレーション。毎回学習し直す設計（再現性保証）。モデルは `data/models-backtest/` に保存。
+学習→テスト期間の投資シミュレーション。毎回学習し直す設計で再現性を保証。
 
 ```bash
 # 単一年度
@@ -112,7 +252,7 @@ python scripts/run_backtest.py \
   --train-start 20200101 --train-end 20231231 \
   --test-start 20240101 --test-end 20241231 --ensemble
 
-# マルチ年度
+# マルチ年度 (推奨)
 python scripts/run_backtest.py --years 2023 2024 2025 --train-window 4 --ensemble
 
 # Optuna最適化済みパラメータで検証
@@ -120,30 +260,33 @@ python scripts/run_backtest.py \
   --ensemble --strategy-manifest data/strategy_manifest.json \
   --train-start 20200101 --train-end 20231231 \
   --test-start 20240101 --test-end 20241231
+
+# Kelly基準 + HTMLレポート
+python scripts/run_backtest.py \
+  --years 2024 2025 --train-window 4 --ensemble \
+  --betting-mode kelly --report
 ```
 
 | 引数 | 型 | デフォルト | 説明 |
 |------|-----|-----------|------|
-| `--train-start` | YYYYMMDD | — | 学習開始日 (単一年度モード) |
-| `--train-end` | YYYYMMDD | — | 学習終了日 (単一年度モード) |
-| `--test-start` | YYYYMMDD | — | テスト開始日 (単一年度モード) |
-| `--test-end` | YYYYMMDD | — | テスト終了日 (単一年度モード) |
-| `--years` | list[int] | — | テスト年度リスト (マルチ年度モード) |
-| `--train-window` | int | 4 | 学習年数 (マルチ年度モード) |
-| `--ensemble` | flag | False | アンサンブルモデル有効化 |
-| `--betting-mode` | `flat`\|`kelly` | `flat` | `flat`=100円固定、`kelly`=Fractional Kelly |
+| `--train-start` | YYYYMMDD | -- | 学習開始日 (単一年度) |
+| `--train-end` | YYYYMMDD | -- | 学習終了日 (単一年度) |
+| `--test-start` | YYYYMMDD | -- | テスト開始日 (単一年度) |
+| `--test-end` | YYYYMMDD | -- | テスト終了日 (単一年度) |
+| `--years` | list[int] | -- | テスト年度リスト (マルチ年度) |
+| `--train-window` | int | 4 | 学習年数 (マルチ年度) |
+| `--ensemble` | flag | False | アンサンブル有効化 |
+| `--betting-mode` | `flat`\|`kelly` | `flat` | 100円固定 or Fractional Kelly |
 | `--betting-target` | `win`\|`place`\|`wide` | `win` | 投票対象 |
-| `--report` | flag | False | HTMLレポート + parquet出力 |
-| `--skip-train` | flag | False | 学習スキップ (キャッシュモデル使用、`--ensemble`必須) |
-| `--profile` | flag | False | pyinstrumentプロファイリング (`data/profiles/`) |
-| `--strategy-manifest` | str | — | Optuna最適化済みmanifest JSON (`--ensemble`必須) |
-| `--calibration-bt` | flag | False | OddsBandFilter キャリブレーション用軽量BT (直近12ヶ月) |
+| `--report` | flag | False | HTMLレポート出力 |
+| `--skip-train` | flag | False | 学習スキップ (キャッシュ使用) |
+| `--profile` | flag | False | pyinstrumentプロファイリング |
+| `--strategy-manifest` | str | -- | Optuna最適化済みmanifest JSON |
+| `--calibration-bt` | flag | False | OddsBandFilterキャリブレーションBT |
 
-**キャリブレーションBT:** `--calibration-bt` 指定時のみ直近12ヶ月の軽量BTを実行（~57分、ROI改善）。未指定時はスキップ（~41分）。`--strategy-manifest` とは独立して動作。
-**モード切替:** `--years`指定→マルチ年度、4つのtrain/test指定→単一年度。いずれか必須。
-**出力:** `backtest_result.json`、`data/validation/validation_report.json`、`data/backtest/bt_{year}_*.{csv,parquet}`
+所要時間: 約41分/年 (manifestなし), 約57分/年 (manifestあり)
 
-#### run_wf_validation.py
+### 4. ウォークフォワード検証
 
 2-fold WF検証で過学習を検出。Feature importance安定性 (Spearman rho) とROI gapを測定。
 
@@ -153,15 +296,30 @@ python scripts/run_wf_validation.py --ensemble
 
 | 引数 | 型 | デフォルト | 説明 |
 |------|-----|-----------|------|
-| `--ensemble` | flag | False | アンサンブルモデル有効化 |
+| `--ensemble` | flag | False | アンサンブル有効化 |
 | `--betting-target` | `win`\|`place`\|`wide` | `win` | 投票対象 |
-| `--profile` | flag | False | pyinstrumentプロファイリング |
+| `--profile` | flag | False | プロファイリング |
 
-**Fold定義 (ハードコード):** Fold0=train 2020-2023/test 2024、Fold1=train 2021-2024/test 2025
-**出力:** `data/backtest/wf_validation_result.json`
-**判定:** `roi_gap_verdict`, `consistency_verdict`, `stability_verdict`, `overall_verdict`
+Fold定義: Fold0 = train 2020-2023 / test 2024, Fold1 = train 2021-2024 / test 2025
 
-#### run_strategy_optimization.py
+### 5. ハイパーパラメータチューニング
+
+Optunaで個別モデルのハイパーパラメータを最適化。
+
+```bash
+python scripts/run_tuning.py --model win_hit --start 20200101 --end 20231231 --trials 50
+```
+
+| 引数 | 型 | デフォルト | 説明 |
+|------|-----|-----------|------|
+| `--model` | `win_hit`\|`win_return`\|`place_hit`\|`place_return`\|`ability` | **必須** | 対象モデル |
+| `--start` | YYYYMMDD | **必須** | 学習開始日 |
+| `--end` | YYYYMMDD | **必須** | 学習終了日 |
+| `--trials` | int | 50 | Optuna試行回数 |
+
+所要時間: 約30分 (50 trials)
+
+### 6. 戦略パラメータ最適化
 
 学習済みモデルに対して16次元戦略パラメータをOptuna TPEで最適化。
 
@@ -181,426 +339,483 @@ python scripts/run_strategy_optimization.py \
 | 引数 | 型 | デフォルト | 説明 |
 |------|-----|-----------|------|
 | `--n-trials` | int | 100 | Optuna試行回数 |
-| `--seed` | int | 42 | TPESampler乱数シード (単一seed時) |
+| `--seed` | int | 42 | TPESampler乱数シード |
 | `--models-dir` | str | `data/models` | 学習済みモデルディレクトリ |
 | `--output` | str | `data/strategy_manifest.json` | 出力manifestパス |
-| `--min-bets` | int | 1000 | 1foldあたりの最低ベット数 |
-| `--seeds` | str | — | multi-seed安定性検証 (カンマ区切り、例: `42,43,44`) |
+| `--seeds` | str | -- | multi-seed安定性検証 (例: `42,43,44`) |
 
-**16次元:** fk_aggressive/conservative, ev_aggressive/conservative, edge_aggressive/conservative, dd_threshold_1/2, multiplier_reduced, rolling_window, min_stay_races, target_ev, max_scale, roi_threshold, ev_lower_threshold_turf/dirt
+16次元: Kelly fraction, EV/edge閾値, DD閾値, rolling window等。4fold WF + MedianPruner。
 
-#### run_tuning.py
+### 7. ペーパートレード (リアルタイム予測)
 
-```bash
-python scripts/run_tuning.py --model win_hit --start 20200101 --end 20231231 --trials 50
-```
-
-| 引数 | 型 | デフォルト | 説明 |
-|------|-----|-----------|------|
-| `--model` | `win_hit`\|`win_return`\|`place_hit`\|`place_return`\|`ability` | **必須** | 対象モデル |
-| `--start` | YYYYMMDD | **必須** | 学習開始日 |
-| `--end` | YYYYMMDD | **必須** | 学習終了日 |
-| `--trials` | int | 50 | Optuna試行回数 |
-
-### precompute_career_stats.py について
-
-`src/features/horse_career_stats.py` を変更した場合（馬場状態別列の追加など）、**必ず事前計算を再実行**してください。このスクリプトは各馬×各レース時点での累積成績を Point-in-Time 安全に計算し、`data/raw/horse_career_stats.parquet` に出力します。
+学習済みモデルで実際のレース当日にリアルタイム推論。
 
 ```bash
-# 実行例（出力: data/raw/horse_career_stats.parquet）
-python scripts/precompute_career_stats.py
-# => Career stats: 546266 entries, 60254 horses
-```
-
-**PIT安全性:** `shift(1).fillna(0).cumsum()` パターンにより、当日のレース結果が特徴量に混入しないことを保証しています。`run_train.py` や `run_backtest.py` は内部でこの parquet を読み込むため、事前計算が完了していないと新しい特徴量列は NaN になります。
-
-### バックテスト結果（学習期間比較: 2023-2025テスト）
-
-| 指標 | 3年学習 | **4年学習 (推奨)** | 5年学習 |
-|------|---------|-------------------|---------|
-| 全体ROI | 113.6% | **123.2%** | 121.7% |
-| 総利益 | +¥259,590 | **+¥436,700** | +¥412,450 |
-
-年度別ROI:
-
-| テスト年 | 3年 | **4年** | 5年 |
-|----------|-----|---------|-----|
-| 2023 | 97.3% (赤字) | **112.0%** | 117.4% |
-| 2024 | 112.1% | **127.8%** | 131.1% |
-| 2025 | 132.5% | **130.3%** | 117.2% |
-
-> **4年学習が最適**: 全年度黒字でROI最高。3年はデータ不足で不安定、5年は古いデータがノイズになる。
-
-## B群モデル改善
-
-A群改善 (リーク修正・体重特徴量・休養期間) に続き、予測精度をさらに向上させる4つの改善を追加しました。
-
-### 追加した改善
-
-| 改善 | 内容 | ファイル |
-|------|------|---------|
-| **B3: 過去走拡張** | 過去走参照を3→5走に拡張 + フォームサイクル特徴量 (form_trend, form_consistency, form_peak_flag) | `src/features/form_cycle_features.py` |
-| **B4: コンビ特徴量** | 騎手-調教師コンビの過去実績 (Beta平滑) | `src/features/jockey_trainer_combo.py` |
-| **B1: アンサンブル** | LightGBM + XGBoost + CatBoost → Ridge メタラーナー | `src/models/stacked_ensemble.py` |
-| **B2: Optunaチューニング** | ハイパーパラメータ最適化 CLI | `src/tuning/optuna_tuner.py`, `scripts/run_tuning.py` |
-
-### バックテスト結果 (2025年テスト, 学習: 2021-2024)
-
-| 指標 | A群 (Before) | B群のみ | **B群+アンサンブル** | **B群+Ens+Kelly** |
-|------|-------------|---------|---------------------|-------------------|
-| ROI | 129.9% | 138.0% | **221.2%** | **229.4%** |
-| 利益 | +¥185,200 | +¥232,630 | +¥249,250 | **+¥7,904,130** |
-| 最大DD | 7.3% | 4.1% | 0.6% | 9.0% |
-| ベット数 | 6,199 | 6,121 | 2,056 | 2,056 |
-| 複勝的中率 | — | — | **48.2%** | — |
-
-> アンサンブルによりベット数が減少 (より厳選) しつつ、ROIと的中率が大幅に向上。
-
-### 実行コマンド
-
-```bash
-# バックテスト (アンサンブル有効)
-python scripts/run_backtest.py \
-  --train-start 20210101 --train-end 20241231 \
-  --test-start 20250101 --test-end 20251231 \
-  --betting-mode flat --ensemble --report
-
-# バックテストの出力ファイル:
-#   data/backtest/bt_{year}_horse_features.parquet — 全馬の特徴量+予測値 (乖離分析用)
-#   data/backtest/bt_{year}_horse_diagnostics.csv   — 診断ログ
-#   data/backtest/backtest_result.json               — ROI等のサマリー
-
-# バックテスト (アンサンブル + Kelly)
-python scripts/run_backtest.py \
-  --train-start 20210101 --train-end 20241231 \
-  --test-start 20250101 --test-end 20251231 \
-  --betting-mode kelly --ensemble
-
-# Optunaハイパーパラメータチューニング
-python scripts/run_tuning.py --model win_hit --start 20210101 --end 20241231 --trials 50
-
-# ペーパートレード (アンサンブル有効)
-python scripts/run_paper_trading.py --mode predict --date 2026-04-12 --ensemble
-```
-
-## Paper Trading（ペーパートレード）
-
-学習済みモデルを使って、**実際のレース当日にリアルタイムで予測を出力する**システムです。実際の投票は行わず、予測結果と実際のレース結果を比較してモデルの精度を検証します。
-
-### 追加した機能
-
-- **リアルタイム予測** — レース出走前にモデルがベット対象を自動判定
-- **Slack通知** — 予測結果・ベット対象・日次サマリーをSlackに通知
-- **自動確定処理** — レース結果取得後にベットの勝敗を自動計算（冪等設計）
-- **HTMLレポート** — 日次のベット履歴・ROI・ドローダウンをHTMLで可視化
-- **ドライラン** — 過去のレースデータを使って一連の流れをシミュレーション
-- **特徴量診断出力** — 全馬の特徴量+予測値を parquet に出力（バックテストとの乖離分析用）
-
-### アーキテクチャ
-
-```
-PaperTradingConfig（設定管理）
-       │
-ModelLoader（MLflow → 学習済みモデルを読み込み）
-       │
-RacePredictor（共通推論パイプライン: BacktestEngine + PaperPredictor共用）
-       │
-PaperPredictor（setup: 特徴量事前計算 → predict_race: リアルタイム予測）
-       │
-RaceWatcher（レース時刻待機 + リトライ + Slack通知）
-       │
-PaperReconciler（ベット確定・ROI計算・冪等性保証）
-       │
-PaperTradingReport（HTMLレポート生成: Jinja2）
-```
-
-### 実行方法
-
-```bash
-# 環境変数の設定
 export PGPASSWORD=<your_password>
 export SLACK_WEBHOOK_URL=<your_slack_webhook_url>
 
-# Setup — 当日のレース一覧を確認
-python scripts/run_paper_trading.py --mode setup --date 2026-04-04
+# Setup -- 当日のレース一覧を確認
+python scripts/run_paper_trading.py --mode setup --date 2026-04-12
 
-# Predict — アンサンブル有効で予測
-python scripts/run_paper_trading.py --mode predict --date 2026-04-04 --ensemble
+# Predict -- 発走5分前に実行 (約25秒)
+python scripts/run_paper_trading.py --mode predict --date 2026-04-12 --ensemble
 
-# Reconcile — レース結果を取得してベットの勝敗を確定
-python scripts/run_paper_trading.py --mode reconcile --date 2026-04-04
+# Reconcile -- レース結果を取得して勝敗を確定
+python scripts/run_paper_trading.py --mode reconcile --date 2026-04-12
 
-# Dry-run — 過去データで一連の流れをシミュレーション
+# Dry-run -- 過去データでシミュレーション
 python scripts/run_paper_trading.py --mode dry-run --date 2024-07-13
 ```
 
-> **Windows PowerShell の場合:** `PGPASSWORD=xxx command` 構文は使えません。事前に `$env:PGPASSWORD = "xxx"` を実行してください。
+| モード | 内容 | タイミング |
+|--------|------|-----------|
+| `setup` | 当日のレース一覧・出走馬を取得 | レース前 |
+| `predict` | 特徴量生成 -> AI推論 -> ベット判定 -> Slack通知 | 発走5分前 |
+| `reconcile` | レース結果取得 -> 勝敗計算 -> HTMLレポート生成 | レース終了後 |
+| `dry-run` | 過去データで一括シミュレーション | いつでも |
 
-### 各モードの説明
+### 8. 診断・分析ツール
 
-| モード | やること | タイミング |
-|--------|---------|-----------|
-| `setup` | EveryDB2から当日のレース一覧・出走馬を取得し、スケジュールを保存 | レース前 |
-| `predict` | EveryDB2から最新データを取得し、特徴量生成→AI推論→ベット判定→結果保存 | レース当日（発走直前推奨） |
-| `reconcile` | レース結果を取得し、未確定ベットの勝敗を計算してHTMLレポート生成 | レース終了後 |
-| `dry-run` | 過去データで predict と同じパイプラインを一括シミュレーション | いつでも |
+本番運用には不要だが、モデル開発・分析に有用なツール群。
 
-### `predict` モードの詳細
-
-`PGPASSWORD=aa8940aa python scripts/run_paper_trading.py --mode predict --date 2026-04-04`
-
-このコマンドは以下のパイプラインを一括実行する:
-
-```
-1. EveryDB2 (PostgreSQL) から当日データを直接取得
-   ├── s_race / n_race          → レース情報 (距離、コース、馬場状態 etc.)
-   ├── s_uma_race / n_uma_race  → 出走馬 (馬名、馬体重、騎手 etc.)
-   ├── s_jodds_tanpuku          → 最新オッズスナップショット (各馬の最新 tanodds, fukuoddslow)
-   └── s_jodds_tanpuku          → オッズ時系列 (前日からのオッズ変遷)
-
-2. readers.py パイプラインで型変換
-   ├── _apply_type_conversions() — ETLルールに従い数値変換 (odds10: tanodds, fukuoddslow を÷10)
-   ├── _compute_race_date()     — year + monthday → datetime
-   ├── _compute_race_id()       — year+monthday+jyocd+kaiji+nichiji+racenum → race_id
-   ├── _coerce_types()          — 文字列列以外を pd.to_numeric で数値化
-   └── _exclude_steeple()       — 障害レース (trackcd 51-59) を除外
-
-3. 特徴量生成 (FeatureEngine + 各特徴量モジュール)
-   ├── FeatureEngine.build_all()      — 基本特徴量 + オッズ特徴量 + 市場特徴量
-   ├── SubModelManager.add_distance_band_features() — 距離帯特徴量
-   ├── HorseHistoryFeatures.compute() — 過去走行データ (Parquet 5年分)
-   ├── JockeyContextFeatures.compute() — 騎手コンテキスト
-   ├── TrainerContextFeatures.compute() — 調教師コンテキスト
-   ├── JockeyTrainerComboFeatures.compute() — 騎手-調教師コンビ実績
-   └── BloodlineFeatures.compute()    — 血統特徴量
-
-4. AI推論 (WinTwoStageModel / PlaceTwoStageModel)
-   ├── Stage1 (能力モデル) — p_place_pred: 複勝的中確率
-   ├── Stage2 (返還モデル) — e_return_place_pred: 的中時払戻予測
-   └── EV = p_place_pred × e_return_place_pred
-
-5. ベット選択 (RacePredictor)
-   ├── should_bet() — EV >= 1.0 の馬のみベット対象
-   └── select_bets() — EV上位2頭を複勝100円でベット
-
-6. 結果保存
-   ├── data/paper_trading/predictions/YYYYMMDD.parquet  — ベット履歴
-   ├── data/paper_trading/bets.parquet                  — 累積ベット
-   ├── data/paper_trading/diag_YYYYMMDD_horse_features.parquet  — 全馬の特徴量+予測値
-   └── data/paper_trading/diag_YYYYMMDD_*_diagnostics.csv       — 診断ログ
-```
-
-**出力例 (2026-04-04 阪神9R アザレア賞):**
-
-| 馬番 | 馬名 | 複勝オッズ | EV |
-|------|------|-----------|-----|
-| 9 | タガノアルトゥーラ | 1.7倍 | 3.66 |
-| 5 | サントルドパリ | 4.3倍 | 3.80 |
-
-### EveryDB2 オッズ取得の設計 (2026-04-04 修正)
-
-**問題:** `s_odds_tanpuku` は初回発売時のスナップショットのまま更新されず、netkeibaの実際のオッズと乖離があった。
-
-| 馬番 | s_odds_tanpuku (古い) | netkeiba実際 |
-|------|---------------------|-------------|
-| 5 | 複勝2.1倍 | 複勝4.2-15.4 |
-| 9 | 複勝2.6倍 | 複勝1.6-5.1 |
-
-**修正:** `get_odds_snapshots()` を `s_odds_tanpuku` → `s_jodds_tanpuku` (時系列テーブル) に変更し、`DISTINCT ON` で各馬の最新エントリを取得するようにした。
-
-```sql
-SELECT DISTINCT ON (year, monthday, jyocd, kaiji, nichiji, racenum, umaban)
-    *
-FROM s_jodds_tanpuku
-WHERE year || monthday = %s
-ORDER BY year, monthday, jyocd, kaiji, nichiji, racenum, umaban, happyotime DESC
-```
-
-**修正後のオッズ:** netkeibaの複勝下限とほぼ一致。
-
-| 馬番 | 修正後 | netkeiba複勝下限 |
-|------|--------|---------------|
-| 5 | 複勝4.3倍 | 4.2 |
-| 9 | 複勝1.7倍 | 1.6 |
-
-**その他の修正:**
-- `_connect()` に `set_client_encoding("UTF8")` を追加し、Windows環境での日本語文字化けを解消
-
-### 週末予想ワークフロー（推奨）
-
-学習期間の多年度バックテスト (2023-2025テスト) の結果に基づく、**4年学習**をベースとした運用手順です。
-
-#### 学習期間の設計指針
-
-```
-予想対象年の前年から4年遡る:
-
-  2026年の予想 → 学習: 2022-01-01 ~ 2025-12-31 (4年)
-  2027年の予想 → 学習: 2023-01-01 ~ 2026-12-31 (4年)
-```
-
-- **学習データは完結した年次を使用** (2026年の予想なら2025年末まで)
-- **特徴量は最新**: 予測時に HorseHistoryFeatures 等が Parquet 全期間データから直近成績を計算するため、学習終了日より後のデータも特徴量として反映される
-- **月1回の再学習で十分**: LightGBM は4年分のデータでロバスト。週次再学習は不要
-
-#### Phase 0: 初回セットアップ (初回のみ)
+#### Shadow Comparison (ベースライン vs シャドウモデル比較)
 
 ```bash
-export PGPASSWORD=<your_password>
-
-# 全量ETL (初回のみ。以降はdeltaで更新)
-python scripts/run_etl.py --mode full --start 20140101 --end 20251231
-
-# 4年ウィンドウで学習 (約17分)
-python scripts/run_train.py --start 20220101 --end 20251231 --experiment keiba-v5
+python scripts/run_shadow_comparison.py \
+  --baseline-root data/models-backtest \
+  --shadow-root data/models-backtest \
+  --folds 2024 2025 --report
 ```
 
-#### Phase 1: データ更新 (予想のたびに)
+#### Shadow Diagnosis (3段階プログレッシブ診断)
 
 ```bash
-# delta ETL — 前回以降のレース結果・オッズをParquetに反映
-python scripts/run_etl.py --mode delta
+python scripts/run_shadow_diagnosis.py \
+  --input-dir data/backtest/shadow --report
 ```
 
-delta ETLは差分のみ更新するため高速です。これにより HorseHistoryFeatures 等の特徴量計算に直近のレース結果が反映されます。
-
-#### Phase 2: 週末予想
+#### Feature Routing Audit (特徴量リーク検査)
 
 ```bash
-# Setup — 当日のレース一覧・出走馬を確認
-python scripts/run_paper_trading.py --mode setup --date 2026-04-11
-python scripts/run_paper_trading.py --mode setup --date 2026-04-12
-
-# Predict — 発走5分前に実行 (データ取得+特徴量生成+推論 ≈ 25秒)
-python scripts/run_paper_trading.py --mode predict --date 2026-04-11
-python scripts/run_paper_trading.py --mode predict --date 2026-04-12
+python scripts/run_feature_routing_audit.py --output-dir data/audit
 ```
 
-**発走5分前**が最適なタイミング。JRAは前レース発走時に当該レースの投票が締め切られるため、5分前にはオッズがほぼ安定しています。
-
-#### Phase 3: レース後の照合
+#### 特徴量重要度分析
 
 ```bash
-# Reconcile — 全レース確定後に実行
-python scripts/run_paper_trading.py --mode reconcile --date 2026-04-11
-python scripts/run_paper_trading.py --mode reconcile --date 2026-04-12
+python scripts/analyze_feature_importance.py --all-models --tier-report
 ```
 
-#### Phase R: 再学習 (月1回 or トリガーベース)
-
-再学習は以下のいずれかのタイミングで実施します:
-
-| トリガー | 例 | 理由 |
-|----------|-----|------|
-| 月1回の定期 | 毎月1回 | 新しい月のデータを学習に反映 |
-| 累積ROI低下 | 直近4週ROI < 100% | モデルの劣化兆候 |
-| 大規模レース後 | GI週の後 | 新しいパターンの学習 |
+#### IC評価 (Information Coefficient)
 
 ```bash
-# 再学習 (学習期間は毎年初めにスライド)
-python scripts/run_train.py --start 20220101 --end 20251231 --experiment keiba-v5
+python scripts/run_ic_eval.py data/oof/oof_predictions.parquet --mlflow
 ```
 
-> 学習期間の更新は年末年始の中山GIシリーズ終了後が自然です。2027年の予想からは `--start 20230101 --end 20261231` にスライドします。
+#### Gain-per-Depth診断
 
-#### 週次ワークフローの全体像
+```bash
+python scripts/run_gpd.py --ensemble
+```
+
+#### その他の分析ツール
+
+| スクリプト | 内容 |
+|-----------|------|
+| `scripts/analyze_odds_movement.py` | オッズ変動分析 (Steamer/Stable/Drifter) |
+| `scripts/analyze_high_odds.py` | 高オッズ的中パターン分析 (Cohen's d + TreeSHAP) |
+| `scripts/analyze_loss_segments.py` | バックテスト損失12次元セグメント分析 |
+| `scripts/analysis_distribution_shift.py` | 学習/BT特徴量分布シフト検出 |
+| `scripts/compare_bt_pt_features.py` | バックテスト vs ペーパートレード特徴量比較 |
+| `scripts/prune_noise_features.py` | Tier 1ノイズ特徴量プルーニング |
+| `scripts/freeze_feature_manifest.py` | 全モデルFEATURE_COLS SHA256凍結 |
+| `scripts/precompute_career_stats.py` | Point-in-Time馬キャリア統計事前計算 |
+| `scripts/precompute_sire_stats.py` | Point-in-Time種牡馬統計事前計算 |
+| `scripts/diagnose_phase36_diff.py` | ベースライン vs カレントBT差分診断 |
+| `scripts/scrape_everydb2_manual.py` | EveryDB2データフォーマット定義スクレイピング |
+
+---
+
+## プロジェクト構成
 
 ```
-月例再学習が必要か確認
+keiba-ai/
+├── src/                          # メインソースコード
+│   ├── domain/                   # ドメイン型・データクラス
+│   │   ├── types.py              # Enum: Surface, BetType, RegimeState, POST_RACE_COLS
+│   │   └── models.py             # Dataclass: Race, Entry, Bet, TrainedModelsV5 等
+│   │
+│   ├── db/                       # データアクセス層
+│   │   ├── parquet_store.py      # Parquet読み書き (pyarrow述語プッシュダウン)
+│   │   ├── repository.py         # MLパイプラインデータアクセス窓口
+│   │   ├── readers.py            # 各種データロードヘルパー
+│   │   ├── connection.py         # PostgreSQL接続 (ETL専用)
+│   │   ├── etl.py                # ETLエンジン (EveryDB2 -> Parquet)
+│   │   ├── everydb2_queries.py   # EveryDB2直接クエリ
+│   │   ├── odds_extractor.py     # 発走前オッズスナップショット抽出
+│   │   ├── model_loader.py       # MLflow/ローカル -> TrainedModelsV5 復元
+│   │   └── schema.py             # PostgreSQL DDL定義
+│   │
+│   ├── features/                 # 特徴量生成 (14モジュール, 100+列)
+│   │   ├── feature_engine.py     # 特徴量オーケストレータ (キャッシュ付き)
+│   │   ├── horse_history_features.py   # 過去成績
+│   │   ├── bloodline_features.py       # 血統 (種牡馬/BMS)
+│   │   ├── sire_features.py            # 種牡馬産駒統計
+│   │   ├── dam_pedigree_features.py     # 母系統
+│   │   ├── odds_dynamics_features.py   # オッズ変動 (drop_rate, velocity)
+│   │   ├── market_bias_features.py     # 市場バイアス (entropy, overround)
+│   │   ├── intra_race_features.py      # レース内相対特徴量
+│   │   ├── info_asymmetry_features.py  # 情報非対称性
+│   │   ├── race_difficulty_model.py    # レース難易度スコア
+│   │   ├── race_level_features.py      # レースレベル集約特徴量
+│   │   ├── market_cross_features.py    # 市場クロス整合性 (Harville)
+│   │   ├── form_cycle_features.py      # フォームサイクル
+│   │   ├── pace_aptitude_features.py   # ペース適性
+│   │   ├── course_features.py          # コース適性
+│   │   ├── jockey_context_features.py  # 騎手コンテキスト
+│   │   ├── trainer_context_features.py # 調教師コンテキスト
+│   │   ├── jockey_trainer_combo.py     # 騎手-調教師コンビ
+│   │   ├── odds_deviation_features.py  # オッズ乖離
+│   │   ├── high_odds_features.py       # 高オッズ特化
+│   │   ├── interaction_features.py     # 交互作用項
+│   │   ├── relative_features.py        # 相対比較特徴量
+│   │   ├── record_features.py          # コースレコード
+│   │   ├── mining_features.py          # n_mining予測
+│   │   ├── target_encoding.py          # ターゲットエンコーディング
+│   │   ├── horse_career_stats.py       # キャリア統計計算
+│   │   ├── leakage_validators.py       # リーク検証
+│   │   └── win_feature_analysis.py     # 特徴量分析ユーティリティ
+│   │
+│   ├── models/                   # 予測モデル群 (28ファイル)
+│   │   ├── stage1_ability_model.py      # Stage1 能力モデル (LambdaRank)
+│   │   ├── market_model.py             # 市場確率予測
+│   │   ├── two_stage_return_model.py   # Stage2 Win/Place (PxE)
+│   │   ├── ev_correction_model.py      # EV補正 (P/E decomposition)
+│   │   ├── conformal_ev_model.py       # CQR Conformal EV区間
+│   │   ├── regime_detector.py          # 市場レジーム検知 (3状態)
+│   │   ├── race_quality_screener.py    # レース品質スクリーニング
+│   │   ├── place_ability_model.py      # 複勝的中確率
+│   │   ├── stacked_ensemble.py         # 3モデルスタッキング
+│   │   ├── benter_combination.py       # Benter (1994) logitブレンド
+│   │   ├── market_aware_win_calibrator.py  # 市場ブレンドキャリブレータ
+│   │   ├── race_level_ranker.py        # レースレベルランキング
+│   │   ├── win_selection_gate.py       # 単勝選択ゲート
+│   │   ├── win_profit_selector.py      # 利益指向候補セレクタ
+│   │   ├── win_selection_policy.py     # 最終単勝選択ポリシー
+│   │   ├── place_selection_gate.py     # 複勝選択ゲート
+│   │   ├── wide_two_stage_model.py     # ワイド2段階モデル
+│   │   ├── wide_pair_builder.py        # ワイドペアビルダー
+│   │   ├── walk_forward_cv.py          # Walk-forward CV
+│   │   ├── submodel_manager.py         # 芝/ダート分割管理
+│   │   ├── reproducibility.py          # 再現性設定 (seed固定)
+│   │   ├── ic_evaluator.py             # IC評価フレームワーク
+│   │   ├── drift_diagnostics.py        # 分布ドリフト診断
+│   │   ├── ev_diagnostics.py           # EV推定精度診断
+│   │   └── gpd_diagnostics.py          # Gain-per-Depth診断
+│   │
+│   ├── betting/                  # 投票戦略・資金管理 (13ファイル)
+│   │   ├── orchestrator.py       # 投票オーケストレータ
+│   │   ├── stake_calculator.py   # Fractional Kelly
+│   │   ├── drawdown_controller.py # 3段階DD制御
+│   │   ├── win_strategy.py       # 単勝戦略
+│   │   ├── place_strategy.py     # 複勝戦略
+│   │   ├── wide_strategy.py      # ワイド戦略
+│   │   ├── gate_keeper.py        # エッジ閾値フィルタ
+│   │   ├── meta_switcher.py      # レジーム連動パラメータ
+│   │   ├── late_money_filter.py  # t-3min判定
+│   │   ├── odds_band_filter.py   # オッズ帯別ROIフィルタ
+│   │   ├── ev_tail_calibration.py # EVテールキャリブレーション
+│   │   └── default_strategy.py   # デフォルト戦略ビルダー
+│   │
+│   ├── backtest/                 # バックテスト・検証 (12ファイル)
+│   │   ├── engine.py             # BacktestEngine (投資シミュレーション)
+│   │   ├── race_predictor.py     # 共通推論パイプライン
+│   │   ├── validation_suite.py   # バックテスト検証スイート
+│   │   ├── parameter_freeze_protocol.py # パラメータ凍結プロトコル
+│   │   ├── diagnostic_logger.py  # レース診断ログ
+│   │   ├── report.py             # HTMLレポート生成
+│   │   ├── validation_report.py  # 検証結果JSON
+│   │   ├── shadow_comparison.py  # Shadow Comparison Framework
+│   │   ├── shadow_diagnosis.py   # 3段階プログレッシブ診断
+│   │   ├── shadow_report.py      # Shadow HTMLレポート
+│   │   └── deployment_gates.py   # デプロイメントゲート評価
+│   │
+│   ├── pipelines/                # パイプライン
+│   │   └── training_pipeline.py  # 学習パイプライン v5.4
+│   │
+│   ├── tuning/                   # ハイパーパラメータ最適化
+│   │   ├── optuna_tuner.py       # モデルHPチューナー
+│   │   └── strategy_optimizer.py # 16次元戦略パラメータ最適化
+│   │
+│   ├── investment/               # 投資特徴量フレーム
+│   │   ├── schema_registry.py   # 94仕様/9カテゴリスキーマ定義
+│   │   ├── feature_frame.py     # dual-mode特徴量ビルダー
+│   │   ├── leakage.py           # リーク検証
+│   │   ├── cache.py             # Parquet + sidecar manifest
+│   │   └── manifest.py          # SHA256スキーマハッシュ
+│   │
+│   ├── validation/               # 検証基盤
+│   │   ├── oof_health_validator.py  # OOF健全性 fail-fast検証
+│   │   └── artifact_profiles.py     # アーティファクトプロファイル
+│   │
+│   ├── audit/                    # 監査基盤
+│   │   └── feature_routing_registry.py  # 特徴量ルーティング監査レジストリ
+│   │
+│   ├── ingestion/                # データ取得
+│   │   ├── jvlink_fetcher.py     # JV-Linkデータ取得
+│   │   └── odds_collector.py     # オッズ時系列収集
+│   │
+│   ├── paper_trading/            # ペーパートレード (6ファイル)
+│   │   ├── config.py             # 設定管理
+│   │   ├── predictor.py          # 予測ロジック
+│   │   ├── watcher.py            # レース監視
+│   │   ├── reconciler.py         # 結果照合
+│   │   └── report.py             # HTMLレポート
+│   │
+│   ├── automation/               # 自動化
+│   │   ├── scheduler.py          # レース日スケジューラ
+│   │   ├── safety_guard.py       # バンクロール安全ガード
+│   │   └── pat_voter.py          # JRA-IPAT自動投票インターフェース
+│   │
+│   ├── monitoring/               # 監視
+│   │   ├── model_monitor.py      # モデル性能モニタリング
+│   │   ├── notifier.py           # Slack通知
+│   │   └── auto_retrain_trigger.py # 自動再学習トリガー
+│   │
+│   └── utils/                    # ユーティリティ
+│       ├── timing.py             # 実行時間計測
+│       ├── profiling.py          # pyinstrumentプロファイリング
+│       └── wf_splits.py          # Walk-forward分割ユーティリティ
+│
+├── scripts/                      # CLIスクリプト (24ファイル)
+├── tests/                        # テスト (143ファイル, 2000+テスト)
+├── config/                       # 設定ファイル
+│   ├── settings.yaml             # メイン設定
+│   ├── backtest_config.yaml      # バックテスト設定
+│   └── etl_tables.yaml           # ETLテーブルマッピング (103テーブル)
+├── data/                         # データディレクトリ (gitignore)
+│   ├── raw/                      # 生データ Parquet
+│   ├── odds/                     # オッズ Parquet
+│   ├── features/                 # 特徴量キャッシュ
+│   ├── models/                   # 学習済みモデル
+│   ├── backtest/                 # バックテスト結果
+│   └── paper_trading/            # ペーパートレード結果
+├── docs/                         # ドキュメント
+│   ├── guide/                    # 入門ガイド
+│   ├── concepts/                 # 概念説明
+│   └── reference/                # リファレンス
+└── pyproject.toml                # プロジェクト設定
+```
+
+---
+
+## 設定
+
+### config/settings.yaml
+
+```yaml
+database:
+  host: "localhost"
+  port: 5432
+  dbname: "everydb2"
+  user: "postgres"
+  password: ""               # 環境変数 PGPASSWORD で上書き
+
+feature_engine:
+  exclude_steeple: true      # 障害レース (TrackCD 51-59) を除外
+
+late_money:
+  cancel_threshold: 0.25     # オッズ25%以上急落 -> キャンセル
+  add_rise_threshold: 0.30   # オッズ30%以上急騰 -> 追加候補
+  cancel_time_minutes: 3     # t-3min で判定
+
+submodel:
+  surfaces: ["turf", "dirt"]
+  distance_bands:            # 距離帯定義 (芝/ダート別)
+    turf:
+      sprint: [0, 1400]
+      mile: [1401, 1700]
+      intermediate: [1701, 2100]
+      long: [2101, 9999]
+
+betting_strategy:
+  default_fractional_kelly: 0.5
+  kelly_fraction_cap: 0.25
+  target_ev: 1.10
+  max_scale: 2.0
+  regime_fractions:
+    aggressive: 0.50
+    conservative: 0.25
+    collapsed: 0.00
+```
+
+### 環境変数
+
+| 変数 | 説明 |
+|------|------|
+| `PGPASSWORD` | PostgreSQLパスワード (settings.yamlのpasswordより優先) |
+| `SLACK_WEBHOOK_URL` | ペーパートレードSlack通知用Webhook URL |
+
+---
+
+## 開発ガイド
+
+### テスト
+
+全テストは`unittest.mock`を使用し、データベース不要で実行可能。
+
+```bash
+# 全テスト実行
+python -m pytest tests/ -v
+
+# 単一テストファイル
+python -m pytest tests/test_domain.py -v
+
+# カバレッジ付き
+python -m pytest tests/ -v --cov=src --cov-report=term-missing
+```
+
+### リント・フォーマット
+
+```bash
+# リント (Ruff)
+ruff check src/ tests/
+
+# フォーマットチェック
+ruff format --check src/ tests/
+
+# フォーマット適用
+ruff format src/ tests/
+```
+
+### 型チェック
+
+```bash
+# Mypy (strict mode: 全関数に型アノテーション必須)
+mypy src/
+```
+
+### コーディング規約
+
+- **Ruff**: target py311, line-length=100, rules=E/F/I/N/W
+- **Mypy**: `disallow_untyped_defs = true` (全関数に型アノテーション必須)
+- **コミットメッセージ**: Conventional Commits (日本語)
+- **インポートパス**: `pythonpath = [".", "src"]` 設定済み
+
+```python
+# 主要インポートパス
+from db.repository import DataRepository
+from db.parquet_store import ParquetStore
+from db.connection import DatabaseConnection           # ETL専用
+from domain.types import Surface, BetType, RegimeState
+from domain.models import TrainedModelsV5, Race, Entry
+from models.market_aware_win_calibrator import MarketAwareWinCalibrator
+from backtest.race_predictor import RacePredictor
+from validation.oof_health_validator import OOFHealthValidator
+from audit.feature_routing_registry import run_feature_audit
+```
+
+---
+
+## マイルストーン履歴
+
+| Milestone | Phases | ROI | Key Deliverable | Status |
+|-----------|--------|-----|----------------|--------|
+| v1.0 | 1-4 | -- | Win Model: SHAP分析 + Benter補正 + Selection Gate + WF検証 | ✅ Shipped |
+| v1.1 | 5-7 | -- | ROI Advanced: EMA特徴量 + オッズ偏差 + 3-model stacking | ✅ Shipped |
+| v1.2 | 8-10 | -- | Win Backtest: 精算修正 + ベット履歴 + パイプライン最適化 | ✅ Shipped |
+| v1.3 | 11-13 | 91.6% | Betting Strategy: EV_lower + OddsBandFilter + DD制御 + Optuna 16-dim | ✅ Shipped |
+| v1.4 | 14-18 | 83.1% | Ensemble Filter: WinSelectionGate再学習 + 動的EV_lower + ドリフト診断 | ✅ Shipped |
+| v1.5 | 19-22 | 84.4% | Model Accuracy: Isotonic EV補正 + 高オッズ18特徴量 + CQR区間 | ✅ Shipped |
+| v1.6 | 23-28 | 85.7% | Feature Overhaul: POST_RACE漏洩排除 + 22新特徴量 + Target Encoding | ✅ Shipped |
+| v1.7 | 29-34 | **97.8%** | Market-Independent: レースレベル6特徴量 + Harville cross + IC/GPD | ✅ Shipped |
+| v1.8 | 35-36.1.1 | -- | Turf Precision: haron/lap特徴量 + MarketModel修正 | ✅ Shipped |
+| v2.0 | 37-38 | 87.8% | Investment Pipeline: OOFHealthValidator + InvestmentFeatureFrame | ✅ Shipped |
+| v2.1 | 39-42 | TBD | MAWC + Ranker (shadow mode) + Shadow Comparison + Deployment Gates | ✅ Shipped |
+| v2.2 | 43-46 | **進行中** | ROI Recovery Analysis: 診断 → ビセクション → 構造的修正 → 品質ゲート | 🔄 In Progress |
+
+> **ROI推移:** v1.7で97.8%（最高）→ v2.0で87.8%に回帰（Phase 36の強特徴量がMarketModelに副作用）→ v2.2で回復を目指す
+
+---
+
+## 週末予想ワークフロー (推奨運用)
+
+```
+月例再学習判定
   │
-  ├─ YES → run_train.py (4年ウィンドウで学習、約17分)
+  +-- YES --> run_train.py (4年ウィンドウ、約17分)
   │
-  └─ NO ↓
-      │
-delta ETL (直近データをParquetに反映)
-      │
-setup → レース一覧確認
-      │
-predict → 発走5分前にベット生成 (各レース25秒)
-      │
-レース終了後 → reconcile → 結果記録・HTMLレポート更新
+  +-- NO ----+
+             │
+      delta ETL (直近データをParquetに反映)
+             │
+      setup --> レース一覧確認
+             │
+      predict --> 発走5分前にベット生成 (約25秒/レース)
+             │
+      レース終了後 --> reconcile --> 結果記録・HTMLレポート更新
 ```
 
-#### 自動化イメージ (cron)
+**学習期間設計**: 予想対象年の前年から4年遡る。
 
-```
-月1回 日曜 22:00  run_train.py (再学習判定あり)
-毎週 金曜 22:00   run_etl.py --mode delta
-毎日 09:00        run_etl.py --mode delta (当日分の登録馬・馬体重を更新)
-毎日 発走5分前    run_paper_trading.py --mode predict
-毎日 19:00        run_paper_trading.py --mode reconcile
-```
+| 予想年 | 学習期間 |
+|--------|---------|
+| 2026 | 2022-01-01 ~ 2025-12-31 |
+| 2027 | 2023-01-01 ~ 2026-12-31 |
 
-### 追加ファイル一覧
+月1回の再学習で十分。LightGBMは4年分のデータでロバストな性能を発揮する。
 
-| ファイル | 役割 |
-|----------|------|
-| `src/paper_trading/config.py` | PaperTradingConfig 設定クラス |
-| `src/paper_trading/predictor.py` | setup/predict_race オーケストレーション |
-| `src/paper_trading/reconciler.py` | 冪等性保証のベット確定処理 |
-| `src/paper_trading/watcher.py` | レース時刻待機 + リトライロジック |
-| `src/paper_trading/report.py` | HTMLレポート生成（Jinja2） |
-| `src/backtest/race_predictor.py` | BacktestEngineと共用の推論パイプライン |
-| `src/db/model_loader.py` | MLflow → TrainedModelsV5 復元 |
-| `src/db/everydb2_queries.py` | EveryDB2 PostgreSQL クエリラッパー |
-| `src/monitoring/notifier.py` | Slack通知機能 |
-| `src/pipelines/training_pipeline.py` | MLflow ログ拡張 |
-| `scripts/run_paper_trading.py` | CLI エントリーポイント |
-| `src/features/form_cycle_features.py` | フォームサイクル特徴量 (好調/不調トレンド) |
-| `src/features/jockey_trainer_combo.py` | 騎手-調教師コンビ実績特徴量 |
-| `src/models/stacked_ensemble.py` | スタックド・アンサンブル (LGBM+XGB+CB→Ridge) |
-| `src/tuning/optuna_tuner.py` | Optunaハイパーパラメータチューナー |
-| `src/tuning/__init__.py` | パッケージ初期化 |
-| `scripts/run_tuning.py` | Optunaチューニング CLI |
+---
 
 ## ドキュメントマップ
 
-知識レベルに合わせてお好きなところから読めます。
+### 入門編
 
-### 入門編（競馬やAIの基礎から）
+- [競馬の基礎知識](docs/guide/01_keiba_basics.md) -- 競馬のルールとデータの見方
+- [AI予測の基礎](docs/guide/02_ai_prediction_basics.md) -- AIはどうやって予測しているのか
+- [システム全体像](docs/guide/03_system_overview.md) -- このシステムがやっていることの全体像
+- [はじめ方](docs/guide/04_getting_started.md) -- 環境構築から最初の予測まで
+- [ワークフロー](docs/guide/05_workflow.md) -- 週末予想の具体的な手順
 
-- [競馬の基礎知識](docs/guide/01_keiba_basics.md) — 競馬のルールとデータの見方
-- [AI予測の基礎](docs/guide/02_ai_prediction_basics.md) — AIはどうやって予測しているのか
-- [システム全体像](docs/guide/03_system_overview.md) — このシステムがやっていることの全体像
-- [はじめ方](docs/guide/04_getting_started.md) — 環境構築から最初の予測まで
+### 中級編
 
-### 中級編（各モジュールの仕組み）
+- [データパイプライン](docs/concepts/01_data_pipeline.md) -- データ収集から特徴量生成まで
+- [予測モデル](docs/concepts/02_prediction_models.md) -- 2段階モデルの仕組み
+- [高度なモデル手法](docs/concepts/03_advanced_models.md) -- EV補正・レジーム検知・市場モデル
+- [投票戦略](docs/concepts/04_betting_strategy.md) -- 資金管理とDDコントローラー
+- [バックテストと検証](docs/concepts/05_backtest_validation.md) -- ウォークフォワード検証の設計
 
-- [データパイプライン](docs/concepts/01_data_pipeline.md) — データ収集から特徴量生成まで
-- [予測モデル](docs/concepts/02_prediction_models.md) — 2段階モデルの仕組みと学習方法
-- [高度なモデル手法](docs/concepts/03_advanced_models.md) — EV補正・レジーム検知・市場モデル
-- [投票戦略](docs/concepts/04_betting_strategy.md) — 資金管理とDDコントローラー
-- [バックテストと検証](docs/concepts/05_backtest_validation.md) — ウォークフォワード検証の設計
+### 上級編
 
-### 上級編（開発・運用の詳細）
+- [アーキテクチャ](docs/reference/01_architecture.md) -- 全体設計と設計判断の理由
+- [コード構成](docs/reference/02_code_structure.md) -- ディレクトリ構造と主要モジュール
+- [設定ファイル](docs/reference/03_configuration.md) -- settings.yamlの全項目解説
+- [コントリビューション](docs/reference/04_contributing.md) -- 開発参加の手引き
 
-- [アーキテクチャ](docs/reference/01_architecture.md) — 全体設計と設計判断の理由
-- [コード構成](docs/reference/02_code_structure.md) — ディレクトリ構造と主要モジュール
-- [設定ファイル](docs/reference/03_configuration.md) — settings.yaml の全項目解説
-- [コントリビューション](docs/reference/04_contributing.md) — 開発参加の手引き
-
-## 期待できる成果とリスク
-
-| 項目 | 目標 | 現状 (B群+アンサンブル) |
-|------|------|---------------|
-| 回収率 | **101%以上**（100円賭けて平均101円以上の払戻し） | 229.4% (アンサンブル+Kelly) / 221.2% (アンサンブル+flat) |
-| 年度別ROI | 全年度黒字 | 2025: 221% (アンサンブル+flat) |
-
-> **注意:** バックテストの良好な結果は将来の成績を保証するものではありません。競馬は不確実性の高いギャンブルであり、本システムを使用して生じた損失について、開発者は一切の責任を負いません。
-
-## 免責事項
-
-本システムは**学習・研究目的**で公開されているオープンソースソフトウェアです。実際の投票に使用するかどうかは自己責任でお願いします。ギャンブルには依存リスクがあり、法的に制限されている地域もあります。健全な範囲で楽しみましょう。
+---
 
 ## 技術スタック
 
 | カテゴリ | 技術 |
 |----------|------|
 | 言語 | Python 3.11 |
-| 機械学習 | LightGBM, XGBoost, CatBoost, scikit-learn, Optuna |
-| データベース | PostgreSQL (EveryDB2 / JRA-VAN DataLab) |
-| 実験管理 | MLflow |
-| 品質ツール | Ruff (lint/format), Mypy (型チェック), pytest (テスト) |
+| 機械学習 | LightGBM 4.3+, XGBoost 2.0+, CatBoost 1.2+ |
+| メタラーナー | Ridge regression (sklearn) |
+| キャリブレーション | IsotonicRegression, LogisticRegression (sklearn) |
+| 確率区間 | CQR Conformal Quantile Regression (LightGBM quantile) |
+| 最適化 | Optuna 3.5+ (TPE sampler, MedianPruner) |
+| データ処理 | pandas 2.2+, numpy 1.26+, pyarrow 14.0+ |
+| データベース | PostgreSQL (EveryDB2 / JRA-VAN DataLab), SQLAlchemy |
+| 実験管理 | MLflow 2.12+ |
+| レポート | Jinja2 (HTML), matplotlib (charts) |
+| 品質ツール | Ruff (lint/format), Mypy (strict型チェック), pytest |
+| 統計検定 | scipy (KS test, Spearman, Wasserstein), sklearn metrics |
+
+---
+
+## 免責事項
+
+本システムは**学習・研究目的**で公開されているオープンソースソフトウェアです。バックテストの良好な結果は将来の成績を保証するものではありません。競馬は不確実性の高いギャンブルであり、本システムを使用して生じた損失について、開発者は一切の責任を負いません。実際の投票に使用するかどうかは自己責任でお願いします。ギャンブルには依存リスクがあり、法的に制限されている地域もあります。健全な範囲で楽しみましょう。
 
 ## ライセンス
 
