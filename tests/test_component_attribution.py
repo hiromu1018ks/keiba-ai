@@ -8,6 +8,7 @@ Also tests coefficient analysis for MAWC (51-dim) and Ranker (Ridge) models.
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -590,3 +591,197 @@ class TestFullAttribution:
 
         # Should have documented upstream anomaly check result
         assert result.upstream_anomaly_check != ""
+
+
+# ---------------------------------------------------------------------------
+# Test 9: save_attribution_results JSON output
+# ---------------------------------------------------------------------------
+
+
+class TestSaveAttributionResultsJSON:
+    """Test save_attribution_results() bisect_result.json output."""
+
+    @patch("backtest.component_attribution.joblib.load")
+    def test_creates_bisect_result_json(self, mock_load, tmp_path: Path) -> None:
+        mock_load.side_effect = lambda p: (
+            _make_mawc_state() if "calibrator" in str(p) else _make_ranker_state()
+        )
+
+        from backtest.component_attribution import save_attribution_results
+
+        input_dir = _setup_input_dir(tmp_path)
+        ca = ComponentAttribution(input_dir=input_dir)
+        result = ca.run_full_attribution()
+
+        output_dir = tmp_path / "bisect_output"
+        paths = save_attribution_results(result, output_dir)
+
+        assert paths["bisect_result"].exists()
+        data = json.loads(paths["bisect_result"].read_text(encoding="utf-8"))
+        assert "generated_at" in data
+        assert "ece_attribution" in data
+        assert "apr_attribution" in data
+        assert "bet_count_attribution" in data
+        assert "coefficient_analysis_summary" in data
+        assert "upstream_anomaly_check" in data
+        assert "recommendations" in data
+
+    @patch("backtest.component_attribution.joblib.load")
+    def test_bisect_result_coefficient_summary_condensed(
+        self, mock_load, tmp_path: Path
+    ) -> None:
+        mock_load.side_effect = lambda p: (
+            _make_mawc_state() if "calibrator" in str(p) else _make_ranker_state()
+        )
+
+        from backtest.component_attribution import save_attribution_results
+
+        input_dir = _setup_input_dir(tmp_path)
+        ca = ComponentAttribution(input_dir=input_dir)
+        result = ca.run_full_attribution()
+
+        output_dir = tmp_path / "bisect_output"
+        paths = save_attribution_results(result, output_dir)
+
+        data = json.loads(paths["bisect_result"].read_text(encoding="utf-8"))
+        coef_summary = data["coefficient_analysis_summary"]
+        assert "mawc_top5" in coef_summary
+        assert len(coef_summary["mawc_top5"]) <= 5
+        assert "ranker_relevance_top5" in coef_summary
+        assert "ranker_value_top5" in coef_summary
+
+
+# ---------------------------------------------------------------------------
+# Test 10: save_coefficient_analysis JSON output
+# ---------------------------------------------------------------------------
+
+
+class TestSaveCoefficientAnalysisJSON:
+    """Test save_attribution_results() coefficient_analysis.json output."""
+
+    @patch("backtest.component_attribution.joblib.load")
+    def test_creates_coefficient_analysis_json(
+        self, mock_load, tmp_path: Path
+    ) -> None:
+        mock_load.side_effect = lambda p: (
+            _make_mawc_state() if "calibrator" in str(p) else _make_ranker_state()
+        )
+
+        from backtest.component_attribution import save_attribution_results
+
+        input_dir = _setup_input_dir(tmp_path)
+        ca = ComponentAttribution(input_dir=input_dir)
+        result = ca.run_full_attribution()
+
+        output_dir = tmp_path / "bisect_output"
+        paths = save_attribution_results(result, output_dir)
+
+        assert paths["coefficient_analysis"].exists()
+        data = json.loads(paths["coefficient_analysis"].read_text(encoding="utf-8"))
+        assert "mawc" in data
+        assert "ranker" in data
+        assert "segment_contribution" in data
+        assert "upstream_anomaly_check" in data
+
+    @patch("backtest.component_attribution.joblib.load")
+    def test_coefficient_analysis_mawc_structure(
+        self, mock_load, tmp_path: Path
+    ) -> None:
+        mock_load.side_effect = lambda p: (
+            _make_mawc_state() if "calibrator" in str(p) else _make_ranker_state()
+        )
+
+        from backtest.component_attribution import save_attribution_results
+
+        input_dir = _setup_input_dir(tmp_path)
+        ca = ComponentAttribution(input_dir=input_dir)
+        result = ca.run_full_attribution()
+
+        output_dir = tmp_path / "bisect_output"
+        paths = save_attribution_results(result, output_dir)
+
+        data = json.loads(paths["coefficient_analysis"].read_text(encoding="utf-8"))
+        mawc = data["mawc"]
+        assert "per_feature" in mawc
+        assert "per_segment" in mawc
+        assert len(mawc["per_feature"]) == 51
+
+    @patch("backtest.component_attribution.joblib.load")
+    def test_coefficient_analysis_ranker_structure(
+        self, mock_load, tmp_path: Path
+    ) -> None:
+        mock_load.side_effect = lambda p: (
+            _make_mawc_state() if "calibrator" in str(p) else _make_ranker_state()
+        )
+
+        from backtest.component_attribution import save_attribution_results
+
+        input_dir = _setup_input_dir(tmp_path)
+        ca = ComponentAttribution(input_dir=input_dir)
+        result = ca.run_full_attribution()
+
+        output_dir = tmp_path / "bisect_output"
+        paths = save_attribution_results(result, output_dir)
+
+        data = json.loads(paths["coefficient_analysis"].read_text(encoding="utf-8"))
+        ranker = data["ranker"]
+        assert "relevance" in ranker
+        assert "value" in ranker
+
+
+# ---------------------------------------------------------------------------
+# Test 11: save_attribution_summary_md output
+# ---------------------------------------------------------------------------
+
+
+class TestSaveAttributionSummaryMD:
+    """Test save_attribution_results() bisect_summary.md output."""
+
+    @patch("backtest.component_attribution.joblib.load")
+    def test_creates_summary_md_with_6_sections(
+        self, mock_load, tmp_path: Path
+    ) -> None:
+        mock_load.side_effect = lambda p: (
+            _make_mawc_state() if "calibrator" in str(p) else _make_ranker_state()
+        )
+
+        from backtest.component_attribution import save_attribution_results
+
+        input_dir = _setup_input_dir(tmp_path)
+        ca = ComponentAttribution(input_dir=input_dir)
+        result = ca.run_full_attribution()
+
+        output_dir = tmp_path / "bisect_output"
+        paths = save_attribution_results(result, output_dir)
+
+        assert paths["summary_md"].exists()
+        content = paths["summary_md"].read_text(encoding="utf-8")
+
+        # Verify all 6 sections present
+        assert "## 1. ECE Attribution" in content
+        assert "## 2. APR Attribution" in content
+        assert "## 3. Bet Count Attribution" in content
+        assert "## 4. Coefficient Analysis" in content
+        assert "## 5. Historical Context" in content
+        assert "## 6. Recommendations for Phase 45" in content
+
+
+# ---------------------------------------------------------------------------
+# Test 12: CLI dry-run (--help)
+# ---------------------------------------------------------------------------
+
+
+class TestCLIDryRun:
+    """Test CLI script --help exits cleanly."""
+
+    def test_help_exits_zero(self) -> None:
+        import subprocess
+
+        result = subprocess.run(
+            [sys.executable, "scripts/run_component_attribution.py", "--help"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        assert result.returncode == 0
+        assert "Component Attribution" in result.stdout

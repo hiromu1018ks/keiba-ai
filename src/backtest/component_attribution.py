@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -21,6 +22,7 @@ import joblib
 import numpy as np
 import pandas as pd
 
+from backtest.historical_bisect import HistoricalBisectResult
 from backtest.shadow_comparison import ShadowComparisonFramework
 from backtest.shadow_diagnosis import (
     ODDS_BAND_EDGES,
@@ -953,3 +955,269 @@ class ComponentAttribution:
         mean_actual = float(y_vals[valid].mean())
         mean_pred = float(p_vals[valid].mean())
         return mean_actual / mean_pred if mean_pred > 0 else 0.0
+
+
+# ---------------------------------------------------------------------------
+# Output: save_attribution_results
+# ---------------------------------------------------------------------------
+
+
+def _build_bisect_result_dict(result: ComponentAttributionResult) -> dict[str, Any]:
+    """Convert ComponentAttributionResult to bisect_result.json dict.
+
+    The coefficient_analysis_summary is a condensed version (top-5 per component)
+    while full details go to coefficient_analysis.json.
+    """
+    coef = result.coefficient_analysis
+    coef_summary: dict[str, Any] = {}
+    if coef is not None:
+        mawc = coef.mawc_coef_analysis
+        ranker = coef.ranker_coef_analysis
+
+        coef_summary = {
+            "mawc_top5": (
+                mawc.get("top_features", [])[:5]
+                if "top_features" in mawc else []
+            ),
+            "mawc_beta_market_contribution": mawc.get(
+                "beta_market_contribution", 0.0
+            ),
+            "ranker_relevance_top5": ranker.get("relevance_top_features", [])[:5],
+            "ranker_value_top5": ranker.get("value_top_features", [])[:5],
+        }
+
+    return {
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "ece_attribution": result.ece_attribution,
+        "apr_attribution": result.apr_attribution,
+        "bet_count_attribution": result.bet_count_attribution,
+        "coefficient_analysis_summary": coef_summary,
+        "upstream_anomaly_check": result.upstream_anomaly_check,
+        "recommendations": result.recommendations,
+    }
+
+
+def _build_coefficient_analysis_dict(
+    result: ComponentAttributionResult,
+) -> dict[str, Any]:
+    """Convert CoefficientAnalysisResult to coefficient_analysis.json dict."""
+    coef = result.coefficient_analysis
+    if coef is None:
+        return {"error": "No coefficient analysis available"}
+
+    mawc = coef.mawc_coef_analysis
+    ranker = coef.ranker_coef_analysis
+    seg_contrib = coef.segment_contribution_comparison
+
+    return {
+        "mawc": {
+            "per_feature": mawc.get("feature_coefficients", []),
+            "per_segment": [
+                {"segment": k, "contribution": v}
+                for k, v in mawc.get("segment_contributions", {}).items()
+            ],
+        },
+        "ranker": {
+            "relevance": ranker.get("relevance_coefficients", []),
+            "value": ranker.get("value_coefficients", []),
+        },
+        "segment_contribution": seg_contrib,
+        "upstream_anomaly_check": coef.upstream_anomaly_check,
+    }
+
+
+def _build_bisect_summary_md(
+    result: ComponentAttributionResult,
+    historical_result: HistoricalBisectResult | None = None,
+) -> list[str]:
+    """Build bisect_summary.md content with 6 sections."""
+    lines: list[str] = [
+        "# Phase 44: Component Attribution Bisect Summary",
+        "",
+    ]
+
+    # Section 1: ECE Attribution
+    lines.append("## 1. ECE Attribution")
+    lines.append("")
+    ece = result.ece_attribution
+    ece_segments = ece.get("segments", [])
+    if ece_segments:
+        # Show worst segments
+        worst = sorted(
+            ece_segments, key=lambda s: s.get("delta_ece", 0), reverse=True
+        )[:5]
+        lines.append("| Segment | Value | N | BL ECE | SH ECE | Delta ECE | Attribution |")
+        lines.append("|---------|-------|---|--------|--------|-----------|-------------|")
+        for seg in worst:
+            delta = seg.get("delta_ece", 0)
+            lines.append(
+                f"| {seg.get('segment_name', '')} | {seg.get('segment_value', '')}"
+                f" | {seg.get('n_samples', 0)}"
+                f" | {seg.get('baseline_ece', 0):.4f}"
+                f" | {seg.get('shadow_ece', 0):.4f}"
+                f" | {delta:+.4f}"
+                f" | "
+                f"{'MAWC direct' if abs(seg.get('mean_p_win_shift', 0)) > 0.005 else 'Selection'} |"
+            )
+        lines.append("")
+
+        # MAWC effect summary
+        ece_attr = ece.get("attribution", [])
+        if ece_attr:
+            lines.append("**Attribution:**")
+            for attr in ece_attr[:3]:
+                lines.append(f"- {attr}")
+            lines.append("")
+    else:
+        lines.append("No ECE degradation detected.")
+        lines.append("")
+
+    # Section 2: APR Attribution
+    lines.append("## 2. APR Attribution")
+    lines.append("")
+    apr = result.apr_attribution
+    all_apr = apr.get("all_horse_apr", {})
+    sel_apr = apr.get("selected_horse_apr", {})
+    lines.append(f"- All-horse APR: baseline={all_apr.get('baseline_apr', 0):.4f}"
+                 f" shadow={all_apr.get('shadow_apr', 0):.4f}"
+                 f" delta={all_apr.get('delta_apr', 0):+.4f}")
+    lines.append(f"- Selected-horse APR: baseline={sel_apr.get('baseline_apr', 0):.4f}"
+                 f" shadow={sel_apr.get('shadow_apr', 0):.4f}"
+                 f" delta={sel_apr.get('delta_apr', 0):+.4f}")
+    apr_attr = apr.get("attribution", [])
+    if apr_attr:
+        for attr in apr_attr:
+            lines.append(f"- {attr}")
+    lines.append("")
+
+    # Section 3: Bet Count Attribution
+    lines.append("## 3. Bet Count Attribution")
+    lines.append("")
+    bc = result.bet_count_attribution
+    lines.append(f"- Baseline bets: {bc.get('baseline_bet_count', 0)}")
+    lines.append(f"- Shadow bets: {bc.get('shadow_bet_count', 0)}")
+    lines.append(f"- Gap: {bc.get('gap', 0)}")
+    ranker_excl = bc.get("ranker_exclusion", {})
+    lines.append(f"- Ranker excluded: {ranker_excl.get('excluded_by_ranker', 0)}")
+    obf = bc.get("obf_analysis", {})
+    if obf.get("method"):
+        lines.append(f"- OBF analysis: {obf.get('method', '')}")
+    lines.append("")
+
+    # Section 4: Coefficient Analysis
+    lines.append("## 4. Coefficient Analysis")
+    lines.append("")
+    coef = result.coefficient_analysis
+    if coef is not None:
+        mawc = coef.mawc_coef_analysis
+        ranker = coef.ranker_coef_analysis
+
+        # MAWC top features
+        top_feats = mawc.get("top_features", [])[:5]
+        if top_feats:
+            lines.append("### MAWC Top Features")
+            lines.append("")
+            lines.append("| Feature | Coefficient | |Coef| |")
+            lines.append("|---------|-------------|--------|")
+            for f in top_feats:
+                lines.append(
+                    f"| {f['feature']} | {f['coefficient']:.4f}"
+                    f" | {f['abs_coefficient']:.4f} |"
+                )
+            lines.append("")
+            beta = mawc.get("beta_market_contribution", 0)
+            lines.append(f"MAWC beta_market_contribution: {beta:.4f}")
+            lines.append("")
+
+        # Ranker top features
+        rel_top = ranker.get("relevance_top_features", [])[:3]
+        val_top = ranker.get("value_top_features", [])[:3]
+        if rel_top or val_top:
+            lines.append("### Ranker Feature Weights")
+            lines.append("")
+            if rel_top:
+                lines.append("**Relevance:**")
+                for f in rel_top:
+                    lines.append(f"- {f['feature']}: {f['coefficient']:.4f}")
+            if val_top:
+                lines.append("**Value:**")
+                for f in val_top:
+                    lines.append(f"- {f['feature']}: {f['coefficient']:.4f}")
+            lines.append("")
+    else:
+        lines.append("No coefficient analysis available.")
+        lines.append("")
+
+    # Section 5: Historical Context
+    lines.append("## 5. Historical Context")
+    lines.append("")
+    if historical_result is not None:
+        lines.append(f"- v1.7 reference ROI: "
+                     f"{historical_result.v17_reference_metrics.get('roi', 0):.4f}")
+        lines.append(f"- Current baseline ROI: "
+                     f"{historical_result.baseline_metrics.get('overall_roi', 0):.4f}")
+        lines.append(f"- Total degradation: {historical_result.total_degradation:+.4f}")
+        lines.append(f"- Estimated source: "
+                     f"{historical_result.estimated_degradation_phase}")
+        lines.append(f"- Confidence: {historical_result.confidence}")
+        for finding in historical_result.auxiliary_findings:
+            lines.append(f"- {finding}")
+    else:
+        lines.append("Historical bisect not run (auxiliary).")
+    lines.append("")
+
+    # Section 6: Recommendations for Phase 45
+    lines.append("## 6. Recommendations for Phase 45")
+    lines.append("")
+    for i, rec in enumerate(result.recommendations, 1):
+        lines.append(f"{i}. {rec}")
+    if not result.recommendations:
+        lines.append("No specific recommendations.")
+    lines.append("")
+
+    return lines
+
+
+def save_attribution_results(
+    result: ComponentAttributionResult,
+    output_dir: Path,
+    historical_result: HistoricalBisectResult | None = None,
+) -> dict[str, Path]:
+    """Save attribution results to JSON + Markdown files.
+
+    Args:
+        result: ComponentAttribution.run_full_attribution() result.
+        output_dir: Output directory.
+        historical_result: Optional HistoricalBisect result for context.
+
+    Returns:
+        Dict of output file paths.
+    """
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    # 1. bisect_result.json
+    result_dict = _build_bisect_result_dict(result)
+    bisect_json_path = output_dir / "bisect_result.json"
+    bisect_json_path.write_text(
+        json.dumps(result_dict, indent=2, ensure_ascii=False, default=str),
+        encoding="utf-8",
+    )
+
+    # 2. coefficient_analysis.json
+    coef_dict = _build_coefficient_analysis_dict(result)
+    coef_json_path = output_dir / "coefficient_analysis.json"
+    coef_json_path.write_text(
+        json.dumps(coef_dict, indent=2, ensure_ascii=False, default=str),
+        encoding="utf-8",
+    )
+
+    # 3. bisect_summary.md
+    summary_lines = _build_bisect_summary_md(result, historical_result)
+    summary_path = output_dir / "bisect_summary.md"
+    summary_path.write_text("\n".join(summary_lines), encoding="utf-8")
+
+    return {
+        "bisect_result": bisect_json_path,
+        "coefficient_analysis": coef_json_path,
+        "summary_md": summary_path,
+    }
