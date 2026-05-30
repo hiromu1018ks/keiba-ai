@@ -1,5 +1,8 @@
 """RacePredictor のテスト"""
 
+from __future__ import annotations
+
+import logging
 from unittest.mock import MagicMock
 
 import numpy as np
@@ -2402,3 +2405,52 @@ class TestRaceLevelRankerIntegration:
 
         if "baseline_ranker_agreement" in diag_df.columns:
             assert diag_df["baseline_ranker_agreement"].all()
+
+
+class TestWideScoringLogOnce:
+    """Wide scoring failure の log-once 動作テスト"""
+
+    def test_wide_scoring_failure_warns_once(self, mock_models: MagicMock, caplog) -> None:
+        """WideTwoStageModel scoring失敗が複数レースで発生してもwarningが1回のみ"""
+        from backtest.race_predictor import RacePredictor
+        from domain.models import Bet, BetType
+
+        predictor = RacePredictor(models=mock_models, betting_target="place")
+        submodel = mock_models.submodels["turf"]
+
+        # Wide model exists but predict_score fails
+        submodel.wide.hit_model = MagicMock()
+        submodel.wide.return_model = MagicMock()
+        submodel.wide.predict_score.side_effect = RuntimeError("scoring failed")
+
+        race_df = pd.DataFrame(
+            {
+                "race_id": ["R1", "R1", "R1"],
+                "umaban": [1, 2, 3],
+                "surface": ["turf", "turf", "turf"],
+                "place_selection_edge": [0.10, 0.05, 0.08],
+                "fukuoddslow": [2.0, 3.0, 4.0],
+            }
+        )
+
+        place_bets = [
+            Bet(
+                race_id="R1",
+                umaban=1,
+                bet_type=BetType.PLACE,
+                odds=2.0,
+                ev_lower_corrected=1.2,
+                stake=100,
+                edge=0.2,
+            ),
+        ]
+
+        with caplog.at_level(logging.DEBUG, logger="backtest.race_predictor"):
+            predictor._select_wide_bets(race_df, 10000.0, place_bets)
+            predictor._select_wide_bets(race_df, 10000.0, place_bets)
+            predictor._select_wide_bets(race_df, 10000.0, place_bets)
+
+        warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+        assert len(warnings) == 1, f"Expected 1 warning, got {len(warnings)}"
+        assert "WideTwoStageModel scoring failed" in warnings[0].message
+        assert predictor._wide_scoring_failure_count == 3

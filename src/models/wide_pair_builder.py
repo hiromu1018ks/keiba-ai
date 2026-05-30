@@ -122,5 +122,5 @@ class WideJointPairBuilder:
             return pd.DataFrame()
 
         pair_df = pd.DataFrame(all_pairs)
-        logger.info(f"Built {len(pair_df)} pairs from {entry_df['race_id'].nunique()} races")
+        logger.debug(f"Built {len(pair_df)} pairs from {entry_df['race_id'].nunique()} races")
         return pair_df

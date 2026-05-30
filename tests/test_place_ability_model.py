@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+
 import numpy as np
 import pandas as pd
 
@@ -169,3 +171,22 @@ class TestPlaceAbilityModel:
         df = _make_train_df(n_races=50)
         model = PlaceAbilityModel()
         model.train(df)  # 内部で時系列分割がエラーなく完了することを確認
+
+    def test_untrained_predict_warns_once(self, caplog):
+        """未学習predictを複数回呼んでもwarningが1回のみ (log-once)"""
+        from models.place_ability_model import PlaceAbilityModel
+
+        model = PlaceAbilityModel()
+        df = pd.DataFrame({"race_id": ["r1"], "umaban": [1]})
+
+        with caplog.at_level(logging.WARNING, logger="models.place_ability_model"):
+            result1 = model.predict(df)
+            result2 = model.predict(df)
+            result3 = model.predict(df)
+
+        warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+        assert len(warnings) == 1, f"Expected 1 warning, got {len(warnings)}"
+        assert "PlaceAbilityModel not trained" in warnings[0].message
+        # NaN フォールバックが動作することも確認
+        assert result1["p_ability_place"].isna().all()
+        assert result2["p_ability_place"].isna().all()

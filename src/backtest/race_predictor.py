@@ -151,6 +151,10 @@ class RacePredictor:
         self.enable_market_aware_calibrator = enable_market_aware_calibrator
         self.enable_race_level_ranker = enable_race_level_ranker
 
+        # Wide scoring failure log-once tracking
+        self._wide_scoring_failure_warned: bool = False
+        self._wide_scoring_failure_count: int = 0
+
         # D-19: _shadow_flags propagation from TrainedModelsV5
         # ShadowComparisonFramework injects flags via models._shadow_flags
         # before constructing BacktestEngine (which creates RacePredictor).
@@ -1458,7 +1462,14 @@ class RacePredictor:
                         for _, row in top.iterrows()
                     ]
             except Exception:
-                logger.warning("WideTwoStageModel scoring failed; falling back to place-edge wide")
+                self._wide_scoring_failure_count += 1
+                if not self._wide_scoring_failure_warned:
+                    self._wide_scoring_failure_warned = True
+                    logger.warning(
+                        "WideTwoStageModel scoring failed; falling back to place-edge wide. "
+                        "Further failures suppressed."
+                    )
+                logger.debug("WideTwoStageModel scoring failed", exc_info=True)
 
         # 行データを収集
         rows_map: dict[int, pd.Series] = {}

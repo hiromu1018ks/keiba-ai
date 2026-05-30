@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -261,6 +263,15 @@ class TestWideJointPairBuilder:
         pairs = builder.build(df)
         assert "kyakusitukubun_cd_combo" in pairs.columns
         assert (pairs["kyakusitukubun_cd_combo"] == 0).all()
+
+    def test_build_does_not_emit_info(self, sample_entries: pd.DataFrame, caplog) -> None:
+        """build() が INFO レベルのログを出さない (DEBUG のみ)"""
+        builder = WideJointPairBuilder()
+        with caplog.at_level(logging.INFO, logger="models.wide_pair_builder"):
+            pairs = builder.build(sample_entries)
+        assert len(pairs) > 0  # build actually produced output
+        info_logs = [r for r in caplog.records if r.levelno == logging.INFO]
+        assert len(info_logs) == 0, f"Expected no INFO logs, got {len(info_logs)}"
 
 
 class TestWideTwoStageModelTraining:

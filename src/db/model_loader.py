@@ -262,20 +262,25 @@ class ModelLoader:
                     except Exception:
                         logger.warning("Failed to load RaceLevelRanker for %s", surface)
 
-            # PlaceAbilityModel (joblib artifact)
-            pa = PlaceAbilityModel()
+            # PlaceAbilityModel (joblib artifact, optional — None when no artifact exists)
+            pa: PlaceAbilityModel | None = None
             try:
                 pa_dir = mlflow.artifacts.download_artifacts(
                     f"runs:/{run_id}/place_ability_{surface}"
                 )
             except Exception:
-                # Fallback: ファイルシステムから直接読み込み
-                pa_dir = self._find_artifact_dir(run_id, f"place_ability_{surface}")
-            pa_files = list(Path(pa_dir).glob("*.joblib"))
-            if pa_files:
-                pa._calibrated = joblib.load(pa_files[0])
-            else:
-                logger.warning("PlaceAbilityModel artifact not found for %s", surface)
+                try:
+                    pa_dir = self._find_artifact_dir(run_id, f"place_ability_{surface}")
+                except Exception:
+                    pa_dir = None
+            if pa_dir is not None:
+                pa_files = list(Path(pa_dir).glob("*.joblib"))
+                if pa_files:
+                    try:
+                        pa = PlaceAbilityModel()
+                        pa._calibrated = joblib.load(pa_files[0])
+                    except Exception:
+                        logger.debug("Failed to load PlaceAbilityModel artifact for %s", surface)
 
             # WideTwoStageModel
             wide = WideTwoStageModel()
@@ -766,11 +771,12 @@ class ModelLoader:
                 except Exception:
                     logger.warning("Failed to load %s, skipping", rlr_file)
 
-            # PlaceAbilityModel (joblib)
-            pa = PlaceAbilityModel()
+            # PlaceAbilityModel (joblib, optional — None when no artifact exists)
+            pa: PlaceAbilityModel | None = None
             pa_file = models_dir / f"place_ability_{surface}.joblib"
             if pa_file.is_file():
                 try:
+                    pa = PlaceAbilityModel()
                     pa._calibrated = joblib.load(pa_file)
                 except Exception:
                     logger.warning("Failed to load %s, skipping", pa_file)
@@ -785,7 +791,7 @@ class ModelLoader:
                 wide.hit_model = self._load_lgbm(str(wide_hit_file))
                 wide.return_model = self._load_lgbm(str(wide_ret_file))
             else:
-                logger.info(
+                logger.debug(
                     "Wide model files not found for %s, skipping (betting_target=win?)",
                     surface,
                 )

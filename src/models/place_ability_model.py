@@ -163,6 +163,7 @@ class PlaceAbilityModel:
     def __init__(self) -> None:
         self._model: lgb.LGBMClassifier | None = None
         self._calibrated: CalibratedClassifierCV | None = None
+        self._warned_not_trained: bool = False
 
     def train(self, df: pd.DataFrame, *, n_jobs: int = 0) -> None:
         """学習 + Isotonic校正（時系列分割）"""
@@ -255,7 +256,14 @@ class PlaceAbilityModel:
             raw_p = self._model.predict_proba(X)[:, 1]
         else:
             # 未学習時: p_ability_place を NaN で設定し、後段モデルがフォールバックする
-            logger.warning("PlaceAbilityModel not trained, setting p_ability_place to NaN")
+            if not self._warned_not_trained:
+                self._warned_not_trained = True
+                logger.warning(
+                    "PlaceAbilityModel not trained, setting p_ability_place to NaN. "
+                    "Further warnings suppressed."
+                )
+            else:
+                logger.debug("PlaceAbilityModel not trained, setting p_ability_place to NaN")
             df["p_ability_place_raw"] = np.nan
             df["p_ability_place"] = np.nan
             return df
