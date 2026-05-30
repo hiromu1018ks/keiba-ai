@@ -289,6 +289,9 @@ class ComponentAttribution:
         baseline_bet_count = 0
         shadow_bet_count = 0
 
+        bl_stake: str | None = None
+        sh_stake: str | None = None
+
         if not self.race_diff.empty:
             bl_stake = self._resolve_col(
                 self.race_diff, self.baseline_name, "stake"
@@ -868,13 +871,9 @@ class ComponentAttribution:
         metric: str,
     ) -> str | None:
         """Resolve variant-prefixed column name in DataFrame."""
-        candidates = [
-            f"{variant_name}_{metric}",
-            f"shadow_{metric}",
-        ]
-        for c in candidates:
-            if c in df.columns:
-                return c
+        col = f"{variant_name}_{metric}"
+        if col in df.columns:
+            return col
         return None
 
     def _add_segment_columns(self, df: pd.DataFrame) -> pd.DataFrame:
