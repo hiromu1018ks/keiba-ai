@@ -657,7 +657,11 @@ class ShadowComparisonFramework:
         self,
         results: dict[str, Any],
     ) -> pd.DataFrame:
-        """race_id + umaban ごとに baseline vs shadow をアライメント (D-03)."""
+        """race_id + umaban ごとに baseline vs shadow をアライメント (D-03).
+
+        Phase 43.5 FIX (P0-4): kakuteijyuni を全 variant DataFrames からマージ。
+        Phase 43.5 FIX (P0-5): surface, tanodds, closing_win_odds, popularity を追加。
+        """
         variant_names = list(results.keys())
         if len(variant_names) < 2:
             return pd.DataFrame()
@@ -713,10 +717,39 @@ class ShadowComparisonFramework:
                 how="outer",
             )
 
-        # kakuteijyuni があればマージ
-        if "kakuteijyuni" in baseline_df.columns:
-            kakutei = baseline_df[key_cols + ["kakuteijyuni"]].drop_duplicates(subset=key_cols)
-            merged = merged.merge(kakutei, on=key_cols, how="left")
+        # Phase 43.5 FIX (P0-4): kakuteijyuni を全 variant DataFrames からマージ。
+        # baseline 側に NaN がある場合 (outer join で shadow-only 馬)、shadow から補完。
+        kakutei_parts: list[pd.DataFrame] = []
+        for vname, vdf in dfs.items():
+            if "kakuteijyuni" in vdf.columns:
+                part = vdf[key_cols + ["kakuteijyuni"]].drop_duplicates(subset=key_cols)
+                kakutei_parts.append(part)
+        if kakutei_parts:
+            # 最初の non-NaN 値で補完するため、全 variant を結合して dropna
+            combined_kakutei = pd.concat(kakutei_parts, ignore_index=True)
+            combined_kakutei = combined_kakutei.dropna(subset=["kakuteijyuni"])
+            combined_kakutei = combined_kakutei.drop_duplicates(subset=key_cols, keep="first")
+            if "kakuteijyuni" in merged.columns:
+                merged = merged.drop(columns=["kakuteijyuni"])
+            merged = merged.merge(combined_kakutei, on=key_cols, how="left")
+
+        # Phase 43.5 FIX (P0-5 rev2): surface, tanodds, closing_win_odds, popularity を追加。
+        # baseline_df のみから取得すると shadow-only 馬 (outer join で追加された馬) が NaN になる。
+        # kakuteijyuni と同様に、全 variant DataFrames から concat して first non-null で補完。
+        extra_cols = ["surface", "tanodds", "closing_win_odds", "popularity"]
+        for col in extra_cols:
+            parts: list[pd.DataFrame] = []
+            for vname, vdf in dfs.items():
+                if col in vdf.columns:
+                    part = vdf[key_cols + [col]].drop_duplicates(subset=key_cols)
+                    parts.append(part)
+            if parts:
+                combined = pd.concat(parts, ignore_index=True)
+                combined = combined.dropna(subset=[col])
+                combined = combined.drop_duplicates(subset=key_cols, keep="first")
+                if col in merged.columns:
+                    merged = merged.drop(columns=[col])
+                merged = merged.merge(combined, on=key_cols, how="left")
 
         return merged
 

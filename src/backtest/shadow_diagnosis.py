@@ -84,6 +84,9 @@ class SelectionPatternResult:
     n_unchanged_races: int = 0
     delta_roi: float = 0.0
     delta_hit_rate: float = 0.0
+    # Phase 43.5 (P0-3): shadow variant metrics
+    changed_shadow: SelectionGroupMetrics = field(default_factory=SelectionGroupMetrics)
+    unchanged_shadow: SelectionGroupMetrics = field(default_factory=SelectionGroupMetrics)
 
 
 @dataclass(frozen=True)
@@ -276,8 +279,14 @@ class ShadowDiagnosis:
     def _compute_group_metrics(
         self,
         group_race_ids: set[str],
+        variant_prefix: str = 'baseline',
     ) -> SelectionGroupMetrics:
-        """レースグループの ROI/HR/avg_odds/APR を計算."""
+        """レースグループの ROI/HR/avg_odds/APR を指定variantで計算.
+
+        Phase 43.5 FIX (P0-3): variant_prefix で baseline/shadow 両方の
+        メトリクスを個別に計算可能。race_diff の {prefix}_stake,
+        {prefix}_result, {prefix}_tanodds 列を使用。
+        """
         if not group_race_ids or self.race_diff.empty:
             return SelectionGroupMetrics()
 
@@ -287,25 +296,29 @@ class ShadowDiagnosis:
             return SelectionGroupMetrics()
 
         # ROI: total_result / total_stake - 1
-        bl_stake = group_race.get("baseline_stake", pd.Series(dtype=float))
-        bl_result = group_race.get("baseline_result", pd.Series(dtype=float))
+        stake_col = f"{variant_prefix}_stake"
+        result_col = f"{variant_prefix}_result"
 
-        total_stake = float(pd.to_numeric(bl_stake, errors="coerce").fillna(0).sum())
-        total_return = float(pd.to_numeric(bl_result, errors="coerce").fillna(0).sum())
+        v_stake = group_race.get(stake_col, pd.Series(dtype=float))
+        v_result = group_race.get(result_col, pd.Series(dtype=float))
+
+        total_stake = float(pd.to_numeric(v_stake, errors="coerce").fillna(0).sum())
+        total_return = float(pd.to_numeric(v_result, errors="coerce").fillna(0).sum())
 
         roi = total_return / total_stake - 1.0 if total_stake > 0 else 0.0
 
         # Hit rate
-        n_hits = int((pd.to_numeric(bl_result, errors="coerce").fillna(0) > 0).sum())
-        bet_count = int((pd.to_numeric(bl_stake, errors="coerce").fillna(0) > 0).sum())
+        n_hits = int((pd.to_numeric(v_result, errors="coerce").fillna(0) > 0).sum())
+        bet_count = int((pd.to_numeric(v_stake, errors="coerce").fillna(0) > 0).sum())
         hit_rate = n_hits / bet_count if bet_count > 0 else 0.0
 
         # Average odds
-        bl_odds = pd.to_numeric(
-            group_race.get("baseline_tanodds", pd.Series(dtype=float)),
+        odds_col = f"{variant_prefix}_tanodds"
+        v_odds = pd.to_numeric(
+            group_race.get(odds_col, pd.Series(dtype=float)),
             errors="coerce",
         )
-        avg_odds = float(bl_odds.mean()) if bl_odds.notna().any() else 0.0
+        avg_odds = float(v_odds.mean()) if v_odds.notna().any() else 0.0
 
         # Actual/predicted ratio from horse_diff
         apr = 0.0
@@ -313,7 +326,9 @@ class ShadowDiagnosis:
             group_horse = self.horse_diff[
                 self.horse_diff["race_id"].isin(group_race_ids)
             ]
-            p_col = f"{self.baseline_name}_p_win_final"
+            # variant_prefix が 'baseline' の時は baseline_name を使用
+            vp = self.baseline_name if variant_prefix == "baseline" else variant_prefix
+            p_col = f"{vp}_p_win_final"
             if "kakuteijyuni" in group_horse.columns and p_col in group_horse.columns:
                 p_vals = pd.to_numeric(group_horse[p_col], errors="coerce")
                 y_vals = (group_horse["kakuteijyuni"] == 1).astype(float)
@@ -347,6 +362,14 @@ class ShadowDiagnosis:
         changed_metrics = self._compute_group_metrics(changed_ids)
         unchanged_metrics = self._compute_group_metrics(unchanged_ids)
 
+        # Phase 43.5 (P0-3): compute shadow variant metrics for comparison
+        shadow_changed_metrics = self._compute_group_metrics(
+            changed_ids, variant_prefix=self.shadow_name,
+        )
+        shadow_unchanged_metrics = self._compute_group_metrics(
+            unchanged_ids, variant_prefix=self.shadow_name,
+        )
+
         return SelectionPatternResult(
             changed=changed_metrics,
             unchanged=unchanged_metrics,
@@ -354,6 +377,9 @@ class ShadowDiagnosis:
             n_unchanged_races=len(unchanged_ids),
             delta_roi=changed_metrics.roi - unchanged_metrics.roi,
             delta_hit_rate=changed_metrics.hit_rate - unchanged_metrics.hit_rate,
+            # Phase 43.5 (P0-3): shadow variant metrics
+            changed_shadow=shadow_changed_metrics,
+            unchanged_shadow=shadow_unchanged_metrics,
         )
 
     # ------------------------------------------------------------------
@@ -589,6 +615,22 @@ def _result_to_dict(result: ShadowDiagnosisResult) -> dict[str, Any]:
             },
             "n_changed_races": result.step2.n_changed_races,
             "n_unchanged_races": result.step2.n_unchanged_races,
+            "changed_shadow": {
+                "roi": result.step2.changed_shadow.roi,
+                "hit_rate": result.step2.changed_shadow.hit_rate,
+                "avg_odds": result.step2.changed_shadow.avg_odds,
+                "actual_predicted_ratio": result.step2.changed_shadow.actual_predicted_ratio,
+                "bet_count": result.step2.changed_shadow.bet_count,
+                "n_races": result.step2.changed_shadow.n_races,
+            },
+            "unchanged_shadow": {
+                "roi": result.step2.unchanged_shadow.roi,
+                "hit_rate": result.step2.unchanged_shadow.hit_rate,
+                "avg_odds": result.step2.unchanged_shadow.avg_odds,
+                "actual_predicted_ratio": result.step2.unchanged_shadow.actual_predicted_ratio,
+                "bet_count": result.step2.unchanged_shadow.bet_count,
+                "n_races": result.step2.unchanged_shadow.n_races,
+            },
         },
         "step3_calibration": {
             "segments": [
@@ -674,7 +716,7 @@ def _build_summary_md(result: ShadowDiagnosisResult) -> list[str]:
         "",
     ]
 
-    # セクション2: Selection Pattern
+    # セクション2: Selection Pattern (baseline + shadow metrics)
     s2 = result.step2
     lines += [
         "## 2. Selection Pattern",
@@ -682,19 +724,38 @@ def _build_summary_md(result: ShadowDiagnosisResult) -> list[str]:
         f"**Changed races:** {s2.n_changed_races}"
         f" | **Unchanged races:** {s2.n_unchanged_races}",
         "",
-        "| Group | ROI | Hit Rate | Avg Odds | APR | Bet Count |",
-        "|-------|-----|----------|----------|-----|-----------|",
+        "### Changed Races",
+        "",
+        "| Variant | ROI | Hit Rate | Avg Odds | APR | Bet Count |",
+        "|---------|-----|----------|----------|-----|-----------|",
         (
-            f"| Changed | {s2.changed.roi:.4f} | {s2.changed.hit_rate:.4f}"
+            f"| Baseline | {s2.changed.roi:.4f} | {s2.changed.hit_rate:.4f}"
             f" | {s2.changed.avg_odds:.2f}"
             f" | {s2.changed.actual_predicted_ratio:.4f}"
             f" | {s2.changed.bet_count} |"
         ),
         (
-            f"| Unchanged | {s2.unchanged.roi:.4f} | {s2.unchanged.hit_rate:.4f}"
+            f"| Shadow | {s2.changed_shadow.roi:.4f} | {s2.changed_shadow.hit_rate:.4f}"
+            f" | {s2.changed_shadow.avg_odds:.2f}"
+            f" | {s2.changed_shadow.actual_predicted_ratio:.4f}"
+            f" | {s2.changed_shadow.bet_count} |"
+        ),
+        "",
+        "### Unchanged Races",
+        "",
+        "| Variant | ROI | Hit Rate | Avg Odds | APR | Bet Count |",
+        "|---------|-----|----------|----------|-----|-----------|",
+        (
+            f"| Baseline | {s2.unchanged.roi:.4f} | {s2.unchanged.hit_rate:.4f}"
             f" | {s2.unchanged.avg_odds:.2f}"
             f" | {s2.unchanged.actual_predicted_ratio:.4f}"
             f" | {s2.unchanged.bet_count} |"
+        ),
+        (
+            f"| Shadow | {s2.unchanged_shadow.roi:.4f} | {s2.unchanged_shadow.hit_rate:.4f}"
+            f" | {s2.unchanged_shadow.avg_odds:.2f}"
+            f" | {s2.unchanged_shadow.actual_predicted_ratio:.4f}"
+            f" | {s2.unchanged_shadow.bet_count} |"
         ),
         "",
         (

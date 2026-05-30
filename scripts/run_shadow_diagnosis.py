@@ -114,18 +114,23 @@ def main(args: argparse.Namespace) -> None:
         f"  delta={s1.delta_apr:+.4f}"
     )
 
-    # Step 2: Selection Pattern
+    # Step 2: Selection Pattern (baseline + shadow)
     s2 = diagnosis_result.step2
     print("Step 2: Selection Pattern")
     print(
-        f"  Changed:   {s2.n_changed_races} races, ROI={s2.changed.roi:.4f},"
-        f" HR={s2.changed.hit_rate:.4f}"
+        f"  Changed:   {s2.n_changed_races} races"
+        f" | BL ROI={s2.changed.roi:.4f}, HR={s2.changed.hit_rate:.4f}"
+        f" | SH ROI={s2.changed_shadow.roi:.4f}, HR={s2.changed_shadow.hit_rate:.4f}"
     )
     print(
-        f"  Unchanged: {s2.n_unchanged_races} races, ROI={s2.unchanged.roi:.4f},"
-        f" HR={s2.unchanged.hit_rate:.4f}"
+        f"  Unchanged: {s2.n_unchanged_races} races"
+        f" | BL ROI={s2.unchanged.roi:.4f}, HR={s2.unchanged.hit_rate:.4f}"
+        f" | SH ROI={s2.unchanged_shadow.roi:.4f}, HR={s2.unchanged_shadow.hit_rate:.4f}"
     )
-    print(f"  Delta ROI: {s2.delta_roi:+.4f}")
+    print(
+        f"  Delta ROI: {s2.delta_roi:+.4f}"
+        f" | Delta HR: {s2.delta_hit_rate:+.4f}"
+    )
 
     # Step 3: Top calibration gaps
     s3 = diagnosis_result.step3

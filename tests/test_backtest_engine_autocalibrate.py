@@ -3,8 +3,6 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 
 class TestGenerateTrainingBetHistory:
     """_generate_training_bet_history()単体テスト"""
@@ -34,16 +32,17 @@ class TestGenerateTrainingBetHistory:
         mock_result.total_roi = 0.95
         mock_result.bet_history = [{"odds": 5.0, "result": 500, "stake": 100}]
 
-        with patch("backtest.engine.BacktestEngine") as MockEngine:
+        with patch("backtest.engine.BacktestEngine") as MockEngine:  # noqa: N806
             MockEngine.return_value.run.return_value = mock_result
-            result = engine._generate_training_bet_history()
+            engine._generate_training_bet_history()
 
             # 内部エンジンのrun()がtrain_periodの値で呼ばれることを確認
             inner_run_call = MockEngine.return_value.run
             inner_run_call.assert_called_once_with("2019-06-01", "2023-05-31")
 
-    def test_uses_place_target_to_prevent_recursion(self):
-        """Pitfall 3: 内部エンジンはbetting_target='place'で構築"""
+    def test_uses_same_betting_target_to_generate_bets(self):
+        """Phase 43.5 FIX: 内部エンジンは同じbetting_targetで構築し、
+        _skip_odds_band_calibration=Trueで再帰防止"""
         engine = self._make_mock_engine()
 
         mock_result = MagicMock()
@@ -51,15 +50,21 @@ class TestGenerateTrainingBetHistory:
         mock_result.total_roi = 0.90
         mock_result.bet_history = []
 
-        with patch("backtest.engine.BacktestEngine") as MockEngine:
+        with patch("backtest.engine.BacktestEngine") as MockEngine:  # noqa: N806
             MockEngine.return_value.run.return_value = mock_result
             engine._generate_training_bet_history()
 
             inner_call = MockEngine.call_args
-            assert inner_call.kwargs["betting_target"] == "place"
+            # Phase 43.5: 同じbetting_targetを使用 (0 bets問題を回避)
+            assert inner_call.kwargs["betting_target"] == "win"
+            # strategy_params=None でデフォルトOddsBandFilter
+            assert inner_call.kwargs["strategy_params"] is None
+            # _skip_odds_band_calibration が設定されることを確認
+            inner_instance = MockEngine.return_value
+            assert inner_instance._skip_odds_band_calibration is True
 
-    def test_uses_default_config(self):
-        """_generate_training_bet_history()がデフォルトパラメータを使用する"""
+    def test_uses_no_strategy_params_for_inner_engine(self):
+        """Phase 43.5: 内部エンジンはstrategy_params=Noneで構築"""
         engine = self._make_mock_engine()
 
         mock_result = MagicMock()
@@ -67,20 +72,19 @@ class TestGenerateTrainingBetHistory:
         mock_result.total_roi = 0.92
         mock_result.bet_history = []
 
-        with patch("backtest.engine.BacktestEngine") as MockEngine:
+        with patch("backtest.engine.BacktestEngine") as MockEngine:  # noqa: N806
             MockEngine.return_value.run.return_value = mock_result
             engine._generate_training_bet_history()
 
             inner_call = MockEngine.call_args
-            used_params = inner_call.kwargs["strategy_params"]
-            assert used_params["fractional_kelly"] == 0.25  # CONSERVATIVE値
-            assert used_params["target_ev"] == 1.10
+            # strategy_params=None → デフォルト roi_threshold=1.0
+            assert inner_call.kwargs["strategy_params"] is None
 
     def test_returns_none_on_failure(self):
         """_generate_training_bet_history()が失敗時にNoneを返す"""
         engine = self._make_mock_engine()
 
-        with patch("backtest.engine.BacktestEngine") as MockEngine:
+        with patch("backtest.engine.BacktestEngine") as MockEngine:  # noqa: N806
             MockEngine.side_effect = RuntimeError("test failure")
             result = engine._generate_training_bet_history()
             assert result is None
@@ -96,16 +100,17 @@ class TestGenerateTrainingBetHistory:
         mock_result.total_roi = 0.88
         mock_result.bet_history = []
 
-        with patch("backtest.engine.BacktestEngine") as MockEngine:
+        with patch("backtest.engine.BacktestEngine") as MockEngine:  # noqa: N806
             MockEngine.return_value.run.return_value = mock_result
-            result = engine._generate_training_bet_history()
+            engine._generate_training_bet_history()
 
             inner_run_call = MockEngine.return_value.run
             inner_run_call.assert_called_once_with("2020-01-01", "2023-12-31")
 
 
 class TestAutoCalibrateE2E:
-    """E2E: _calibrate_odds_band_filter() -> _generate_training_bet_history() -> calibrate() フロー検証
+    """E2E: _calibrate_odds_band_filter() -> _generate_training_bet_history()
+    -> calibrate() フロー検証
 
     実際のengineメソッド (_calibrate_odds_band_filter) を呼び出し、
     side effect を patch.object で検証する。
@@ -176,3 +181,17 @@ class TestAutoCalibrateE2E:
 
             mock_gen.assert_called_once()
             mock_filter.calibrate.assert_not_called()
+
+    def test_skip_flag_prevents_calibration(self):
+        """Phase 43.5: _skip_odds_band_calibration=Trueの場合、
+        _calibrate_odds_band_filter()は即座にNoneを返す"""
+        engine = self._make_mock_engine()
+        engine._skip_odds_band_calibration = True
+
+        with patch.object(engine, "_generate_training_bet_history") as mock_gen, \
+             patch.object(engine, "_odds_band_filter") as mock_filter:
+            result = engine._calibrate_odds_band_filter(training_bet_history=None)
+
+            mock_gen.assert_not_called()
+            mock_filter.calibrate.assert_not_called()
+            assert result is None

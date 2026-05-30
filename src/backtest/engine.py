@@ -530,6 +530,9 @@ class BacktestEngine:
         self._pfp: ParameterFreezeProtocol | None = None
         self._preloaded_odds_ts = preloaded_odds_ts  # P1: odds時系列データ受け渡し
         self._min_bets_per_year = min_bets_per_year
+        # Phase 43.5: 内部エンジンフラグ — OddsBandFilterキャリブレーションを
+        # スキップし、再帰的な _generate_training_bet_history 呼び出しを防止する。
+        self._skip_odds_band_calibration: bool = False
 
         # Phase 11: Bet selection filters
         self._odds_band_filter: OddsBandFilter | None = None
@@ -573,27 +576,26 @@ class BacktestEngine:
 
         D-05/D-06: run()内でtraining_bet_historyがNoneの場合に自動呼び出し。
         D-07: トレーニング期間はself.models.train_periodから取得 (test_start/test_endは使用しない)。
-        Pitfall 3回避: 内部BacktestEngineはbetting_target="place"で構築し、
-        OddsBandFilterを持たせない（再帰calibrate防止）。
+        Phase 43.5 FIX: 内部エンジンは同じbetting_targetを使用し、
+        _skip_odds_band_calibration=Trueで再帰calibrate防止。
         """
-        from betting.default_strategy import build_default_strategy_config
-
         try:
             # D-07: models.train_periodからトレーニング期間を取得
             # TrainedModelsV5.train_period = (train_start, train_end)
             train_start, train_end = self.models.train_period
-            default_config = build_default_strategy_config()
-            # Pitfall 3: 内部エンジンはOddsBandFilterを持たない
-            # betting_target="place"を指定して_odds_band_filter=Noneにする
+            # Phase 43.5 FIX: 内部エンジンは同じbetting_targetで生成し、
+            # _skip_odds_band_calibration=TrueでOddsBandFilterキャリブレーションを
+            # スキップ (再帰防止)。これによりwin-onlyモデルでもbetが生成される。
             inner_engine = BacktestEngine(
                 models=self.models,
                 initial_bankroll=self.initial_bankroll,
                 store=self.store,
                 betting_mode=self.betting_mode,
                 diag_prefix=f"{self.diag_prefix}_train",
-                betting_target="place",  # OddsBandFilterはwin専用 -> 再帰防止
-                strategy_params=default_config,
+                betting_target=self.betting_target,
+                strategy_params=None,  # default OddsBandFilter (roi_threshold=1.0)
             )
+            inner_engine._skip_odds_band_calibration = True  # noqa: SLF001
             train_result = inner_engine.run(train_start, train_end)
             logger.info(
                 "自動training_bet_history生成完了: %d bets, ROI=%.1f%% (%s ~ %s)",
@@ -626,6 +628,9 @@ class BacktestEngine:
         Returns:
             キャリブレーションに使用したtraining_bet_history、またはNone
         """
+        # Phase 43.5: 内部エンジンからの再帰呼び出しをスキップ
+        if self._skip_odds_band_calibration:
+            return None
         if self._odds_band_filter is not None:
             if training_bet_history is None:
                 # D-05: run()内で自動的にtraining_bet_historyを生成

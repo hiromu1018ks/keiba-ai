@@ -99,17 +99,19 @@
         </table>
     </div>
 
-    <!-- Step 2: Selection Pattern -->
+    <!-- Step 2: Selection Pattern (baseline + shadow comparison) -->
     <div class="section">
         <h2>Step 2: Selection Pattern</h2>
         <p>
             Changed: {{ step2.n_changed_races }} races |
             Unchanged: {{ step2.n_unchanged_races }} races
         </p>
+
+        <h3>Changed Races</h3>
         <table>
             <thead>
                 <tr>
-                    <th>Group</th>
+                    <th>Variant</th>
                     <th>ROI</th>
                     <th>Hit Rate</th>
                     <th>Avg Odds</th>
@@ -119,7 +121,7 @@
             </thead>
             <tbody>
                 <tr>
-                    <td>Changed</td>
+                    <td>Baseline</td>
                     <td>{{ "%.4f" | format(step2.changed.roi) }}</td>
                     <td>{{ "%.4f" | format(step2.changed.hit_rate) }}</td>
                     <td>{{ "%.2f" | format(step2.changed.avg_odds) }}</td>
@@ -127,20 +129,69 @@
                     <td>{{ step2.changed.bet_count }}</td>
                 </tr>
                 <tr>
-                    <td>Unchanged</td>
+                    <td>Shadow</td>
+                    <td>{{ "%.4f" | format(step2.changed_shadow.roi) }}</td>
+                    <td>{{ "%.4f" | format(step2.changed_shadow.hit_rate) }}</td>
+                    <td>{{ "%.2f" | format(step2.changed_shadow.avg_odds) }}</td>
+                    <td>{{ "%.4f" | format(step2.changed_shadow.actual_predicted_ratio) }}</td>
+                    <td>{{ step2.changed_shadow.bet_count }}</td>
+                </tr>
+                <tr>
+                    <td><strong>Delta</strong></td>
+                    <td class="{{ 'negative' if (step2.changed_shadow.roi - step2.changed.roi) < 0 }}">{{ "%+.4f" | format(step2.changed_shadow.roi - step2.changed.roi) }}</td>
+                    <td class="{{ 'negative' if (step2.changed_shadow.hit_rate - step2.changed.hit_rate) < 0 }}">{{ "%+.4f" | format(step2.changed_shadow.hit_rate - step2.changed.hit_rate) }}</td>
+                    <td>{{ "%+.2f" | format(step2.changed_shadow.avg_odds - step2.changed.avg_odds) }}</td>
+                    <td class="{{ 'negative' if (step2.changed_shadow.actual_predicted_ratio - step2.changed.actual_predicted_ratio) < 0 }}">{{ "%+.4f" | format(step2.changed_shadow.actual_predicted_ratio - step2.changed.actual_predicted_ratio) }}</td>
+                    <td>{{ step2.changed_shadow.bet_count - step2.changed.bet_count }}</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <h3>Unchanged Races</h3>
+        <table>
+            <thead>
+                <tr>
+                    <th>Variant</th>
+                    <th>ROI</th>
+                    <th>Hit Rate</th>
+                    <th>Avg Odds</th>
+                    <th>APR</th>
+                    <th>Bet Count</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>Baseline</td>
                     <td>{{ "%.4f" | format(step2.unchanged.roi) }}</td>
                     <td>{{ "%.4f" | format(step2.unchanged.hit_rate) }}</td>
                     <td>{{ "%.2f" | format(step2.unchanged.avg_odds) }}</td>
                     <td>{{ "%.4f" | format(step2.unchanged.actual_predicted_ratio) }}</td>
                     <td>{{ step2.unchanged.bet_count }}</td>
                 </tr>
+                <tr>
+                    <td>Shadow</td>
+                    <td>{{ "%.4f" | format(step2.unchanged_shadow.roi) }}</td>
+                    <td>{{ "%.4f" | format(step2.unchanged_shadow.hit_rate) }}</td>
+                    <td>{{ "%.2f" | format(step2.unchanged_shadow.avg_odds) }}</td>
+                    <td>{{ "%.4f" | format(step2.unchanged_shadow.actual_predicted_ratio) }}</td>
+                    <td>{{ step2.unchanged_shadow.bet_count }}</td>
+                </tr>
+                <tr>
+                    <td><strong>Delta</strong></td>
+                    <td class="{{ 'negative' if (step2.unchanged_shadow.roi - step2.unchanged.roi) < 0 }}">{{ "%+.4f" | format(step2.unchanged_shadow.roi - step2.unchanged.roi) }}</td>
+                    <td class="{{ 'negative' if (step2.unchanged_shadow.hit_rate - step2.unchanged.hit_rate) < 0 }}">{{ "%+.4f" | format(step2.unchanged_shadow.hit_rate - step2.unchanged.hit_rate) }}</td>
+                    <td>{{ "%+.2f" | format(step2.unchanged_shadow.avg_odds - step2.unchanged.avg_odds) }}</td>
+                    <td class="{{ 'negative' if (step2.unchanged_shadow.actual_predicted_ratio - step2.unchanged.actual_predicted_ratio) < 0 }}">{{ "%+.4f" | format(step2.unchanged_shadow.actual_predicted_ratio - step2.unchanged.actual_predicted_ratio) }}</td>
+                    <td>{{ step2.unchanged_shadow.bet_count - step2.unchanged.bet_count }}</td>
+                </tr>
             </tbody>
         </table>
+
         <p>
-            <strong>Delta ROI:</strong>
+            <strong>Overall Delta ROI:</strong>
             <span class="{{ 'negative' if step2.delta_roi < 0 }}">{{ "%+.4f" | format(step2.delta_roi) }}</span>
             |
-            <strong>Delta Hit Rate:</strong>
+            <strong>Overall Delta Hit Rate:</strong>
             <span class="{{ 'negative' if step2.delta_hit_rate < 0 }}">{{ "%+.4f" | format(step2.delta_hit_rate) }}</span>
         </p>
     </div>
