@@ -785,3 +785,110 @@ class TestCLIDryRun:
         )
         assert result.returncode == 0
         assert "Component Attribution" in result.stdout
+
+
+# ---------------------------------------------------------------------------
+# Test 13: HTML report generator
+# ---------------------------------------------------------------------------
+
+
+class TestReportGeneratorHTML:
+    """Test ComponentAttributionReportGenerator HTML output."""
+
+    @patch("backtest.component_attribution.joblib.load")
+    def test_generates_non_empty_html(self, mock_load, tmp_path: Path) -> None:
+        mock_load.side_effect = lambda p: (
+            _make_mawc_state() if "calibrator" in str(p) else _make_ranker_state()
+        )
+
+        from backtest.component_attribution_report import (
+            ComponentAttributionReportGenerator,
+        )
+
+        input_dir = _setup_input_dir(tmp_path)
+        ca = ComponentAttribution(input_dir=input_dir)
+        result = ca.run_full_attribution()
+
+        output_dir = tmp_path / "html_output"
+        gen = ComponentAttributionReportGenerator(output_dir)
+        report_path = gen.generate(result)
+
+        assert report_path.exists()
+        html = report_path.read_text(encoding="utf-8")
+        assert len(html) > 100
+
+    @patch("backtest.component_attribution.joblib.load")
+    def test_html_contains_required_sections(
+        self, mock_load, tmp_path: Path
+    ) -> None:
+        mock_load.side_effect = lambda p: (
+            _make_mawc_state() if "calibrator" in str(p) else _make_ranker_state()
+        )
+
+        from backtest.component_attribution_report import (
+            ComponentAttributionReportGenerator,
+        )
+
+        input_dir = _setup_input_dir(tmp_path)
+        ca = ComponentAttribution(input_dir=input_dir)
+        result = ca.run_full_attribution()
+
+        output_dir = tmp_path / "html_output"
+        gen = ComponentAttributionReportGenerator(output_dir)
+        report_path = gen.generate(result)
+
+        html = report_path.read_text(encoding="utf-8")
+        assert "ECE Attribution" in html
+        assert "APR Attribution" in html
+        assert "Bet Count Attribution" in html
+        assert "Coefficient Analysis" in html
+        assert "Recommendations for Phase 45" in html
+
+    @patch("backtest.component_attribution.joblib.load")
+    def test_html_contains_upstream_anomaly_check(
+        self, mock_load, tmp_path: Path
+    ) -> None:
+        mock_load.side_effect = lambda p: (
+            _make_mawc_state() if "calibrator" in str(p) else _make_ranker_state()
+        )
+
+        from backtest.component_attribution_report import (
+            ComponentAttributionReportGenerator,
+        )
+
+        input_dir = _setup_input_dir(tmp_path)
+        ca = ComponentAttribution(input_dir=input_dir)
+        result = ca.run_full_attribution()
+
+        output_dir = tmp_path / "html_output"
+        gen = ComponentAttributionReportGenerator(output_dir)
+        report_path = gen.generate(result)
+
+        html = report_path.read_text(encoding="utf-8")
+        assert "Upstream Check" in html
+        # Should contain the anomaly check text
+        assert result.upstream_anomaly_check in html
+
+    @patch("backtest.component_attribution.joblib.load")
+    def test_html_negative_class_for_degradation(
+        self, mock_load, tmp_path: Path
+    ) -> None:
+        mock_load.side_effect = lambda p: (
+            _make_mawc_state() if "calibrator" in str(p) else _make_ranker_state()
+        )
+
+        from backtest.component_attribution_report import (
+            ComponentAttributionReportGenerator,
+        )
+
+        input_dir = _setup_input_dir(tmp_path)
+        ca = ComponentAttribution(input_dir=input_dir)
+        result = ca.run_full_attribution()
+
+        output_dir = tmp_path / "html_output"
+        gen = ComponentAttributionReportGenerator(output_dir)
+        report_path = gen.generate(result)
+
+        html = report_path.read_text(encoding="utf-8")
+        # Should contain .negative CSS class usage (delta_ece > 0 highlighted)
+        assert "negative" in html

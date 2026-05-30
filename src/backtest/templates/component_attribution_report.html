@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Component Attribution Report</title>
+    <style>
+        :root {
+            --primary: #2563eb;
+            --success: #16a34a;
+            --danger: #dc2626;
+            --warning: #d97706;
+            --bg: #f8fafc;
+            --card-bg: #ffffff;
+            --text: #1e293b;
+            --text-muted: #64748b;
+            --border: #e2e8f0;
+        }
+        * { box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: var(--bg); color: var(--text);
+            margin: 0; padding: 20px;
+        }
+        .container { max-width: 1200px; margin: 0 auto; }
+        h1 { text-align: center; margin-bottom: 5px; font-size: 1.8em; }
+        .subtitle { text-align: center; color: var(--text-muted); margin-bottom: 30px; }
+        .meta {
+            display: flex; justify-content: space-between; flex-wrap: wrap; gap: 10px;
+            margin-bottom: 20px; font-size: 13px; color: var(--text-muted);
+        }
+        .section {
+            background: var(--card-bg); border-radius: 8px; padding: 20px;
+            margin-bottom: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        .section h2 {
+            margin-top: 0; border-bottom: 2px solid var(--primary); padding-bottom: 10px;
+            font-size: 1.3em;
+        }
+        .section h3 { font-size: 1.1em; margin-top: 20px; margin-bottom: 10px; }
+        table {
+            width: 100%; border-collapse: collapse; margin-top: 10px;
+        }
+        th, td {
+            padding: 8px 12px; text-align: left; border-bottom: 1px solid var(--border);
+        }
+        th { background: var(--bg); font-weight: 600; font-size: 13px; }
+        td { font-size: 13px; }
+        .negative { color: var(--danger); }
+        .positive { color: var(--success); }
+        .callout {
+            padding: 12px 16px; border-radius: 6px; margin: 10px 0;
+            font-size: 13px;
+        }
+        .callout-success {
+            background: #f0fdf4; border-left: 4px solid var(--success); color: #166534;
+        }
+        .callout-warning {
+            background: #fffbeb; border-left: 4px solid var(--warning); color: #92400e;
+        }
+        .callout-info {
+            background: #eff6ff; border-left: 4px solid var(--primary); color: #1e40af;
+        }
+        .recommendation {
+            background: #faf5ff; border-left: 4px solid #7c3aed;
+            padding: 12px 16px; margin: 8px 0; border-radius: 4px;
+            font-size: 14px;
+        }
+        .recommendation strong { color: #6d28d9; }
+        .footer {
+            text-align: center; color: var(--text-muted);
+            font-size: 12px; margin-top: 30px; padding: 10px;
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>Component Attribution Report</h1>
+    <p class="subtitle">DeploymentGate FAIL Component Bisect Analysis</p>
+
+    <!-- Section 1: ECE Attribution -->
+    <div class="section">
+        <h2>1. ECE Attribution</h2>
+        {% set ece_segs = ece_attribution.get('segments', []) %}
+        {% if ece_segs %}
+        <table>
+            <thead>
+                <tr>
+                    <th>Segment</th>
+                    <th>Value</th>
+                    <th>N</th>
+                    <th>BL ECE</th>
+                    <th>SH ECE</th>
+                    <th>Delta ECE</th>
+                    <th>p_win Shift</th>
+                    <th>Attribution</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for seg in ece_segs %}
+                {% set delta_ece = seg.get('delta_ece', 0) %}
+                {% set p_shift = seg.get('mean_p_win_shift', 0) %}
+                <tr>
+                    <td>{{ seg.get('segment_name', '') }}</td>
+                    <td>{{ seg.get('segment_value', '') }}</td>
+                    <td>{{ seg.get('n_samples', 0) }}</td>
+                    <td>{{ "%.4f" | format(seg.get('baseline_ece', 0)) }}</td>
+                    <td>{{ "%.4f" | format(seg.get('shadow_ece', 0)) }}</td>
+                    <td class="{{ 'negative' if delta_ece > 0 }}">{{ "%+.4f" | format(delta_ece) }}</td>
+                    <td>{{ "%+.4f" | format(p_shift) }}</td>
+                    <td>{{ 'MAWC direct' if p_shift | abs > 0.005 else 'Selection effect' }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% endif %}
+
+        {% set ece_attrs = ece_attribution.get('attribution', []) %}
+        {% if ece_attrs %}
+        <h3>Attribution Summary</h3>
+        <ul>
+            {% for attr in ece_attrs[:5] %}
+            <li>{{ attr }}</li>
+            {% endfor %}
+        </ul>
+        {% endif %}
+    </div>
+
+    <!-- Section 2: APR Attribution -->
+    <div class="section">
+        <h2>2. APR Attribution</h2>
+        {% set all_apr = apr_attribution.get('all_horse_apr', {}) %}
+        {% set sel_apr = apr_attribution.get('selected_horse_apr', {}) %}
+        <h3>All-Horse vs Selected-Horse APR</h3>
+        <table>
+            <thead>
+                <tr><th>Group</th><th>BL APR</th><th>SH APR</th><th>Delta APR</th></tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>All Horses</td>
+                    <td>{{ "%.4f" | format(all_apr.get('baseline_apr', 0)) }}</td>
+                    <td>{{ "%.4f" | format(all_apr.get('shadow_apr', 0)) }}</td>
+                    <td class="{{ 'negative' if all_apr.get('delta_apr', 0) < 0 }}">{{ "%+.4f" | format(all_apr.get('delta_apr', 0)) }}</td>
+                </tr>
+                <tr>
+                    <td>Selected Horses</td>
+                    <td>{{ "%.4f" | format(sel_apr.get('baseline_apr', 0)) }}</td>
+                    <td>{{ "%.4f" | format(sel_apr.get('shadow_apr', 0)) }}</td>
+                    <td class="{{ 'negative' if sel_apr.get('delta_apr', 0) < 0 }}">{{ "%+.4f" | format(sel_apr.get('delta_apr', 0)) }}</td>
+                </tr>
+            </tbody>
+        </table>
+
+        {% set apr_attrs = apr_attribution.get('attribution', []) %}
+        {% if apr_attrs %}
+        <h3>Dominant Cause</h3>
+        <ul>
+            {% for attr in apr_attrs %}
+            <li>{{ attr }}</li>
+            {% endfor %}
+        </ul>
+        {% endif %}
+    </div>
+
+    <!-- Section 3: Bet Count Attribution -->
+    <div class="section">
+        <h2>3. Bet Count Attribution</h2>
+        {% set bc = bet_count_attribution %}
+        <h3>Bet Count Decomposition</h3>
+        <table>
+            <thead>
+                <tr><th>Component</th><th>Count</th><th>Contribution</th></tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>Baseline Bets</td>
+                    <td>{{ bc.get('baseline_bet_count', 0) }}</td>
+                    <td>-</td>
+                </tr>
+                <tr>
+                    <td>Shadow Bets</td>
+                    <td>{{ bc.get('shadow_bet_count', 0) }}</td>
+                    <td>-</td>
+                </tr>
+                <tr>
+                    <td><strong>Total Gap</strong></td>
+                    <td><strong>{{ bc.get('gap', 0) }}</strong></td>
+                    <td class="negative">{{ "%d" | format(bc.get('gap', 0)) }}</td>
+                </tr>
+            </tbody>
+        </table>
+
+        {% set re = bc.get('ranker_exclusion', {}) %}
+        {% if re %}
+        <h3>Ranker Exclusion</h3>
+        <table>
+            <thead>
+                <tr><th>Metric</th><th>Value</th></tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>Selection Changed Races</td>
+                    <td>{{ bc.get('selection_changed_count', 0) }}</td>
+                </tr>
+                <tr>
+                    <td>Baseline Bets in Changed Races</td>
+                    <td>{{ re.get('changed_baseline_bets', 0) }}</td>
+                </tr>
+                <tr>
+                    <td>Shadow Bets in Changed Races</td>
+                    <td>{{ re.get('changed_shadow_bets', 0) }}</td>
+                </tr>
+                <tr>
+                    <td>Excluded by Ranker</td>
+                    <td class="negative">{{ re.get('excluded_by_ranker', 0) }}</td>
+                </tr>
+            </tbody>
+        </table>
+        {% endif %}
+
+        {% set obf = bc.get('obf_analysis', {}) %}
+        {% if obf and obf.get('method') %}
+        <h3>OddsBandFilter Analysis</h3>
+        <p>Method: {{ obf.get('method', '') }}</p>
+        {% if obf.get('note') %}
+        <div class="callout callout-info">{{ obf.get('note', '') }}</div>
+        {% endif %}
+        {% endif %}
+    </div>
+
+    <!-- Section 4: Coefficient Analysis -->
+    <div class="section">
+        <h2>4. Coefficient Analysis</h2>
+
+        {% if coefficient_analysis %}
+        {% set mawc = coefficient_analysis.mawc_coef_analysis %}
+        {% set ranker = coefficient_analysis.ranker_coef_analysis %}
+
+        {# Upstream anomaly check callout #}
+        {% if upstream_anomaly_check %}
+        {% if 'no anomalies' in upstream_anomaly_check %}
+        <div class="callout callout-success">
+            <strong>Upstream Check:</strong> {{ upstream_anomaly_check }}
+        </div>
+        {% else %}
+        <div class="callout callout-warning">
+            <strong>Upstream Check:</strong> {{ upstream_anomaly_check }}
+        </div>
+        {% endif %}
+        {% endif %}
+
+        {# MAWC top features #}
+        {% set mawc_top = mawc.get('top_features', [])[:15] %}
+        {% if mawc_top %}
+        <h3>MAWC Top Features (by |coefficient|)</h3>
+        <table>
+            <thead>
+                <tr><th>Feature</th><th>Coefficient</th><th>|Coef|</th></tr>
+            </thead>
+            <tbody>
+                {% for feat in mawc_top %}
+                <tr>
+                    <td>{{ feat.get('feature', '') }}</td>
+                    <td>{{ "%.4f" | format(feat.get('coefficient', 0)) }}</td>
+                    <td>{{ "%.4f" | format(feat.get('abs_coefficient', 0)) }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% endif %}
+
+        {% set beta = mawc.get('beta_market_contribution', 0) %}
+        {% if beta %}
+        <p>MAWC beta_market_contribution: <strong>{{ "%.4f" | format(beta) }}</strong></p>
+        {% endif %}
+
+        {# Ranker feature weights #}
+        {% set rel_top = ranker.get('relevance_top_features', []) %}
+        {% set val_top = ranker.get('value_top_features', []) %}
+        {% if rel_top or val_top %}
+        <h3>Ranker Feature Weights</h3>
+        <div style="display: flex; gap: 20px; flex-wrap: wrap;">
+            {% if rel_top %}
+            <div style="flex: 1; min-width: 250px;">
+                <h4>Relevance</h4>
+                <table>
+                    <thead><tr><th>Feature</th><th>Weight</th></tr></thead>
+                    <tbody>
+                        {% for feat in rel_top %}
+                        <tr>
+                            <td>{{ feat.get('feature', '') }}</td>
+                            <td>{{ "%.4f" | format(feat.get('coefficient', 0)) }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% endif %}
+            {% if val_top %}
+            <div style="flex: 1; min-width: 250px;">
+                <h4>Value</h4>
+                <table>
+                    <thead><tr><th>Feature</th><th>Weight</th></tr></thead>
+                    <tbody>
+                        {% for feat in val_top %}
+                        <tr>
+                            <td>{{ feat.get('feature', '') }}</td>
+                            <td>{{ "%.4f" | format(feat.get('coefficient', 0)) }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% endif %}
+        </div>
+        {% endif %}
+
+        {# Segment contribution comparison #}
+        {% set seg_contrib = coefficient_analysis.segment_contribution_comparison %}
+        {% if seg_contrib %}
+        <h3>Segment Contribution Comparison</h3>
+        <table>
+            <thead>
+                <tr><th>Group</th><th>Mean p_win Delta</th><th>Std</th><th>N Races</th></tr>
+            </thead>
+            <tbody>
+                {% for group_name in ['changed', 'dropped', 'retained'] %}
+                {% set grp = seg_contrib.get(group_name, {}) %}
+                <tr>
+                    <td>{{ group_name | capitalize }}</td>
+                    <td>{{ "%+.4f" | format(grp.get('mean_p_win_delta', 0)) }}</td>
+                    <td>{{ "%.4f" | format(grp.get('std_p_win_delta', 0)) }}</td>
+                    <td>{{ grp.get('n_races', 0) }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% endif %}
+
+        {% else %}
+        <p style="color: var(--text-muted); font-style: italic;">No coefficient analysis available</p>
+        {% endif %}
+    </div>
+
+    <!-- Historical Context (auxiliary) -->
+    {% if historical_result %}
+    <div class="section">
+        <h2>Historical Context (v1.7 to v2.0)</h2>
+        <table>
+            <thead>
+                <tr><th>Metric</th><th>Value</th></tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>v1.7 Reference ROI</td>
+                    <td>{{ "%.4f" | format(historical_result.v17_reference_metrics.get('roi', 0)) }}</td>
+                </tr>
+                <tr>
+                    <td>Current Baseline ROI</td>
+                    <td>{{ "%.4f" | format(historical_result.baseline_metrics.get('overall_roi', 0)) }}</td>
+                </tr>
+                <tr>
+                    <td>Total Degradation</td>
+                    <td class="negative">{{ "%+.4f" | format(historical_result.total_degradation) }}</td>
+                </tr>
+                <tr>
+                    <td>Estimated Source</td>
+                    <td>{{ historical_result.estimated_degradation_phase[:80] }}{% if historical_result.estimated_degradation_phase | length > 80 %}...{% endif %}</td>
+                </tr>
+                <tr>
+                    <td>Confidence</td>
+                    <td>{{ historical_result.confidence }}</td>
+                </tr>
+            </tbody>
+        </table>
+        {% if historical_result.auxiliary_findings %}
+        <h3>Auxiliary Findings</h3>
+        <ul>
+            {% for finding in historical_result.auxiliary_findings %}
+            <li>{{ finding }}</li>
+            {% endfor %}
+        </ul>
+        {% endif %}
+    </div>
+    {% endif %}
+
+    <!-- Recommendations -->
+    <div class="section">
+        <h2>Recommendations for Phase 45</h2>
+        {% if recommendations %}
+        {% for rec in recommendations %}
+        <div class="recommendation">
+            <strong>{{ loop.index }}.</strong> {{ rec }}
+        </div>
+        {% endfor %}
+        {% else %}
+        <p style="color: var(--text-muted); font-style: italic;">No specific recommendations</p>
+        {% endif %}
+    </div>
+
+    <div class="footer">
+        <p>Generated by ComponentAttributionReportGenerator v1.0</p>
+    </div>
+</div>
+</body>
+</html>
