@@ -321,22 +321,21 @@ results = framework.run(folds=FoldDefinition.create_folds([2024, 2025]))
 | A4 | Post-hoc 分析で MAWC の p_win 変化を直接測定できる（baseline_p_win_final vs ridge_shadow_p_win_final の差分） | Architecture | MAWC 適用後の p_win 変化が他要因と混在している可能性 |
 | A5 | MAWC training_summary.beta_market_contribution=0.90 が logit(p_market) の過大寄与を示唆している | Common Pitfalls | 必ずしも過大とは限らない（market 自体が正確な場合も） |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **MAWC なし→MAWC ありの純粋な p_win 変化をどう測るか**
-   - What we know: horse_diff に baseline_p_win_final と ridge_shadow_p_win_final があるが、shadow 側は MAWC+Ranker 両方の効果が混在
-   - What's unclear: MAWC のみの純粋効果を post-hoc で分離できるか
-   - Recommendation: horse_diff の馬について、baseline_p_win_corrected と ridge_shadow_p_win_final の差を「MAWC 効果 + race normalization 効果」として扱い、Ranker は selection 層の効果として分離する（D-01/D-02 の逐次分析アプローチ）
+> All open questions resolved during plan revision. Resolution notes inline.
 
-2. **OddsBandFilter の excluded_bands を baseline/shadow で直接比較する方法**
-   - What we know: OBF は BacktestEngine 内部で _generate_training_bet_history から calibrate される
-   - What's unclear: 各 variant の OBF excluded_bands を外部から取得する手段が無い
-   - Recommendation: ablation 実行時に BacktestEngine のログまたは bet_history から band 別除外を抽出。または post-hoc で bet_history の tanodds 分布から推定
+1. **MAWC なし→MAWC ありの純粋な p_win 変化をどう測るか** — RESOLVED
+   - Resolution: D-01/D-02 の逐次分析アプローチで決定。horse_diff の baseline_p_win_final と ridge_shadow_p_win_final の差を「MAWC 効果 + race normalization 効果」として扱い、Ranker は selection 層の効果として分離する。Plan 44-01 Task 1 の ComponentAttribution で実装。
+   - Ref: 44-01-PLAN.md Task 1 Step 1 (attribute_ece_degradation)
 
-3. **investment_score NaN の実態**
-   - What we know: horse_diff の ridge_shadow_investment_score に NaN が多い
-   - What's unclear: Ranker が全馬に適用されたか、turf のみか、IFF 列不足で skip されたか
-   - Recommendation: Phase 44 実装時に NaN 率を surface 別に確認
+2. **OddsBandFilter の excluded_bands を baseline/shadow で直接比較する方法** — RESOLVED
+   - Resolution: Per D-04, OBF は bet_count 分析に統合。Post-hoc で bet_history の stake>0 フィルタリングから band 別通過率を推定。Ablation が必要な場合は ShadowComparisonFramework で OBF off/on variant を追加。
+   - Ref: 44-01-PLAN.md Task 1 Step 3 (attribute_bet_count_loss)
+
+3. **investment_score NaN の実態** — RESOLVED
+   - Resolution: Per RESEARCH Pitfall 3+4, Ranker は turf-only で、NaN =「ranker 未適用」。Phase 44 実装時に surface 別 NaN 率を確認し、NaN と 0.0 を明確に区別する。
+   - Ref: 44-01-PLAN.md Task 1 (NaN handling in coefficient analysis)
 
 ## Environment Availability
 

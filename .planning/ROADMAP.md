@@ -67,8 +67,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 44-01-PLAN.md -- ComponentAttribution post-hoc分析エンジン (ECE→APR→bet_count→OBF 逐次帰属 + MAWC/Ranker係数分析 + テスト)
-- [ ] 44-02-PLAN.md -- CLI + JSON/MD/HTML出力 (Phase 45消費可能な帰属成果物 + レポート)
+- [ ] 44-01-PLAN.md -- ComponentAttribution分析エンジン (逐次帰属 + 係数分析 + 条件付き上流SHAP) + HistoricalBisect (補助的v1.7→v2.0比較)
+- [ ] 44-02-PLAN.md -- CLI + JSON/MD/HTML出力 (ReportGenerator分離モジュール + Phase 45消費可能な帰属成果物)
 
 ### Phase 45: Structural Fix
 **Goal**: ビセクション・診断結果に基づく最小限の構造的修正を適用し、その汎化性を確認する
