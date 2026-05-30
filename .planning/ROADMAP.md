@@ -3,7 +3,7 @@ gsd_state_version: 1.0
 milestone: v2.2
 milestone_name: ROI Recovery Analysis
 status: planning
-last_updated: "2026-05-28T16:00:00.000Z"
+last_updated: "2026-05-30T16:00:00.000Z"
 ---
 
 # Roadmap: keiba-ai Win Model Improvement
@@ -36,7 +36,7 @@ See `.planning/milestones/` for archived roadmaps.
 ### v2.2 ROI Recovery Analysis (In Progress)
 
 - [x] **Phase 43: Shadow Diagnosis** -- 確率品質・選定差分の全面比較 (DIAG-01~03) (completed 2026-05-29)
-- [ ] **Phase 44: ROI Bisect** -- フェーズ単位劣化ビセクション + 特徴量寄与分析 (BISECT-01~02)
+- [ ] **Phase 44: ROI Bisect** -- DeploymentGate FAILのコンポーネント帰属 + MAWC/Ranker係数分析 (BISECT-01~02)
 - [ ] **Phase 45: Structural Fix** -- 診断結果に基づく構造的修正と汎化確認 (FIX-01~02)
 - [ ] **Phase 46: Quality Gate Verification** -- 全品質ゲートPASS確認 (QUAL-01~04)
 
@@ -57,14 +57,18 @@ Plans:
 - [x] 43-02-PLAN.md -- CLI + HTML レポート + Markdown 要約 (D-04 出力フォーマット)
 
 ### Phase 44: ROI Bisect
-**Goal**: v1.7(Phase 34)からv2.0(Phase 38)間でROI劣化を引き起こしたフェーズを特定し、そのフェーズの特徴量寄与度変化を明らかにする
+**Goal**: DeploymentGate FAILの直接原因をコンポーネント単位(MAWC/Ranker/OBF/Selection)で帰属し、MAWC/Ranker係数分析で悪化寄与特徴量を特定する
 **Depends on**: Phase 43
 **Requirements**: BISECT-01, BISECT-02
 **Success Criteria** (what must be TRUE):
   1. Phase 34→38間のartifact-level bisectで、ROI劣化を引き起こしたフェーズ(またはフェーズ群)が特定されている
   2. 再現不能なフェーズはgit差分・OOF/BTログ・既存成果物から原因推定が文書化されている
   3. 劣化フェーズのOOF特徴量寄与度(SHAP/gain)がbaseline vs当該フェーズで比較され、ROI悪化に寄与した特徴量・パラメータが特定されている
-**Plans**: TBD
+**Plans**: 2 plans
+
+Plans:
+- [ ] 44-01-PLAN.md -- ComponentAttribution post-hoc分析エンジン (ECE→APR→bet_count→OBF 逐次帰属 + MAWC/Ranker係数分析 + テスト)
+- [ ] 44-02-PLAN.md -- CLI + JSON/MD/HTML出力 (Phase 45消費可能な帰属成果物 + レポート)
 
 ### Phase 45: Structural Fix
 **Goal**: ビセクション・診断結果に基づく最小限の構造的修正を適用し、その汎化性を確認する
@@ -97,6 +101,6 @@ Phases execute in numeric order: 43 -> 44 -> 45 -> 46
 |-------|-----------|----------------|--------|-----------|
 | 1-42 | v1.0-v2.1 | 85/85 | Complete | 2026-05-28 |
 | 43. Shadow Diagnosis | v2.2 | 2/2 | Complete | 2026-05-29 |
-| 44. ROI Bisect | v2.2 | 0/? | Not started | - |
+| 44. ROI Bisect | v2.2 | 0/2 | Planned | - |
 | 45. Structural Fix | v2.2 | 0/? | Not started | - |
 | 46. Quality Gate Verification | v2.2 | 0/? | Not started | - |
