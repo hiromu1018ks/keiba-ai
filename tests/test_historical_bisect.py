@@ -13,8 +13,10 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pandas as pd
 
-from backtest.historical_bisect import HistoricalBisect, HistoricalBisectResult
-
+from backtest.historical_bisect import (
+    HistoricalBisect,
+    HistoricalBisectResult,
+)
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -210,7 +212,7 @@ class TestRunHistoricalComparison:
 
         assert isinstance(result, HistoricalBisectResult)
         assert result.baseline_metrics is not None
-        assert result.v17_reference_roi == 0.978
+        assert result.v17_reference_metrics.get("roi") == 0.978
         assert result.total_degradation > 0
         assert isinstance(result.estimated_degradation_phase, str)
         assert result.confidence in ("LOW", "MEDIUM", "HIGH")
@@ -235,4 +237,5 @@ class TestRunHistoricalComparison:
         result = hb.run_historical_comparison()
 
         # Should estimate degradation phase (v1.7 Phase 34 -> v2.0 Phase 38)
-        assert "Phase" in result.estimated_degradation_phase or "phase" in result.estimated_degradation_phase.lower()
+        phase_est = result.estimated_degradation_phase.lower()
+        assert "phase" in phase_est
