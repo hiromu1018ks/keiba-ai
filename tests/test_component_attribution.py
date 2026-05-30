@@ -13,10 +13,8 @@ from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pandas as pd
-import pytest
 
 from backtest.component_attribution import (
-    CoefficientAnalysisResult,
     ComponentAttribution,
     ComponentAttributionResult,
 )
