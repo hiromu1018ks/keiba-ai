@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v2.2
 milestone_name: ROI Recovery Analysis
-status: Ready for discuss/plan
-last_updated: "2026-05-30T11:38:34.615Z"
-last_activity: 2026-05-29 — Phase 43 complete, verified, ready for Phase 44
+status: Executing Phase 44
+last_updated: "2026-05-30T13:11:22Z"
+last_activity: 2026-05-30 — Phase 44 Plan 01 complete (ComponentAttribution + HistoricalBisect)
 progress:
   total_phases: 4
   completed_phases: 1
   total_plans: 2
-  completed_plans: 2
-  percent: 100
+  completed_plans: 1
+  percent: 50
 ---
 
 # Project State
@@ -20,14 +20,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-05-28)
 
 **Core value:** 単勝モデルのバックテストROIを100%超えにすること
-**Current focus:** Phase 43 Shadow Diagnosis
+**Current focus:** Phase 44 ROI Bisect
 
 ## Current Position
 
-Phase: 44 of 46 (ROI Bisect) — next up
+Phase: 44 of 46 (ROI Bisect) — executing
 Previous: 43 complete (2/2 plans)
-Status: Ready for discuss/plan
-Last activity: 2026-05-29 — Phase 43 complete, verified, ready for Phase 44
+Status: Plan 44-01 complete, Plan 44-02 next
+Last activity: 2026-05-30 — Phase 44 Plan 01 complete
 
 Progress: [█████░░░░░] 25%
 

@@ -67,7 +67,7 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 44-01-PLAN.md -- ComponentAttribution分析エンジン (逐次帰属 + 係数分析 + 条件付き上流SHAP) + HistoricalBisect (補助的v1.7→v2.0比較)
+- [x] 44-01-PLAN.md -- ComponentAttribution分析エンジン (逐次帰属 + 係数分析 + 条件付き上流SHAP) + HistoricalBisect (補助的v1.7→v2.0比較)
 - [ ] 44-02-PLAN.md -- CLI + JSON/MD/HTML出力 (ReportGenerator分離モジュール + Phase 45消費可能な帰属成果物)
 
 ### Phase 45: Structural Fix
@@ -101,6 +101,6 @@ Phases execute in numeric order: 43 -> 44 -> 45 -> 46
 |-------|-----------|----------------|--------|-----------|
 | 1-42 | v1.0-v2.1 | 85/85 | Complete | 2026-05-28 |
 | 43. Shadow Diagnosis | v2.2 | 2/2 | Complete | 2026-05-29 |
-| 44. ROI Bisect | v2.2 | 0/2 | Planned | - |
+| 44. ROI Bisect | v2.2 | 1/2 | In progress | - |
 | 45. Structural Fix | v2.2 | 0/? | Not started | - |
 | 46. Quality Gate Verification | v2.2 | 0/? | Not started | - |
