@@ -15,8 +15,8 @@ Requirements for ROI recovery via structural diagnosis and targeted fix.
 
 ### Bisect — フェーズ単位ROI劣化ビセクション
 
-- [ ] **BISECT-01**: v1.7(Phase 34)→v2.0(Phase 38)間でartifact-level bisectを実施し、ROI劣化を引き起こしたフェーズを特定する。フェーズ別コミット/タグ/成果物が残っている範囲で比較し、再現不能なフェーズは既存成果物・git差分・OOF/BTログから原因推定に留める
-- [ ] **BISECT-02**: 劣化フェーズのOOF特徴量寄与度(SHAP/gain)を比較し、ROI悪化に寄与した特徴量・パラメータを特定する
+- [x] **BISECT-01**: v1.7(Phase 34)→v2.0(Phase 38)間でartifact-level bisectを実施し、ROI劣化を引き起こしたフェーズを特定する。フェーズ別コミット/タグ/成果物が残っている範囲で比較し、再現不能なフェーズは既存成果物・git差分・OOF/BTログから原因推定に留める
+- [x] **BISECT-02**: 劣化フェーズのOOF特徴量寄与度(SHAP/gain)を比較し、ROI悪化に寄与した特徴量・パラメータを特定する
 
 ### Fix — 構造的修正
 
@@ -49,8 +49,8 @@ Requirements for ROI recovery via structural diagnosis and targeted fix.
 | DIAG-01 | Phase 43 | Pending |
 | DIAG-02 | Phase 43 | Pending |
 | DIAG-03 | Phase 43 | Pending |
-| BISECT-01 | Phase 44 | Pending |
-| BISECT-02 | Phase 44 | Pending |
+| BISECT-01 | Phase 44 | Complete |
+| BISECT-02 | Phase 44 | Complete |
 | FIX-01 | Phase 45 | Pending |
 | FIX-02 | Phase 45 | Pending |
 | QUAL-01 | Phase 46 | Pending |

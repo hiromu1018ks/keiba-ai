@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v2.2
 milestone_name: ROI Recovery Analysis
 status: Executing Phase 44
-last_updated: "2026-05-30T13:11:22Z"
-last_activity: 2026-05-30 — Phase 44 Plan 01 complete (ComponentAttribution + HistoricalBisect)
+last_updated: "2026-05-30T13:19:42Z"
+last_activity: 2026-05-30 — Phase 44 Plan 02 complete (CLI + Report output layer)
 progress:
   total_phases: 4
   completed_phases: 1
   total_plans: 2
-  completed_plans: 1
-  percent: 50
+  completed_plans: 2
+  percent: 100
 ---
 
 # Project State
@@ -26,10 +26,10 @@ See: .planning/PROJECT.md (updated 2026-05-28)
 
 Phase: 44 of 46 (ROI Bisect) — executing
 Previous: 43 complete (2/2 plans)
-Status: Plan 44-01 complete, Plan 44-02 next
-Last activity: 2026-05-30 — Phase 44 Plan 01 complete
+Status: Plan 44-02 complete, Phase 44 complete
+Last activity: 2026-05-30 — Phase 44 Plan 02 complete
 
-Progress: [█████░░░░░] 25%
+Progress: [██████████] 50%
 
 ## Deferred Items
 
@@ -44,5 +44,5 @@ Progress: [█████░░░░░] 25%
 
 ## Session Continuity
 
-Last session: 2026-05-30T11:38:34.605Z
+Last session: 2026-05-30T13:19:42Z
 Resume file: .planning/phases/44-roi-bisect/44-CONTEXT.md

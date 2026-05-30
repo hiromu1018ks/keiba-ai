@@ -36,7 +36,7 @@ See `.planning/milestones/` for archived roadmaps.
 ### v2.2 ROI Recovery Analysis (In Progress)
 
 - [x] **Phase 43: Shadow Diagnosis** -- 確率品質・選定差分の全面比較 (DIAG-01~03) (completed 2026-05-29)
-- [ ] **Phase 44: ROI Bisect** -- DeploymentGate FAILのコンポーネント帰属 + MAWC/Ranker係数分析 (BISECT-01~02)
+- [x] **Phase 44: ROI Bisect** -- DeploymentGate FAILのコンポーネント帰属 + MAWC/Ranker係数分析 (BISECT-01~02) (completed 2026-05-30)
 - [ ] **Phase 45: Structural Fix** -- 診断結果に基づく構造的修正と汎化確認 (FIX-01~02)
 - [ ] **Phase 46: Quality Gate Verification** -- 全品質ゲートPASS確認 (QUAL-01~04)
 
@@ -68,7 +68,7 @@ Plans:
 
 Plans:
 - [x] 44-01-PLAN.md -- ComponentAttribution分析エンジン (逐次帰属 + 係数分析 + 条件付き上流SHAP) + HistoricalBisect (補助的v1.7→v2.0比較)
-- [ ] 44-02-PLAN.md -- CLI + JSON/MD/HTML出力 (ReportGenerator分離モジュール + Phase 45消費可能な帰属成果物)
+- [x] 44-02-PLAN.md -- CLI + JSON/MD/HTML出力 (ReportGenerator分離モジュール + Phase 45消費可能な帰属成果物)
 
 ### Phase 45: Structural Fix
 **Goal**: ビセクション・診断結果に基づく最小限の構造的修正を適用し、その汎化性を確認する
@@ -101,6 +101,6 @@ Phases execute in numeric order: 43 -> 44 -> 45 -> 46
 |-------|-----------|----------------|--------|-----------|
 | 1-42 | v1.0-v2.1 | 85/85 | Complete | 2026-05-28 |
 | 43. Shadow Diagnosis | v2.2 | 2/2 | Complete | 2026-05-29 |
-| 44. ROI Bisect | v2.2 | 1/2 | In progress | - |
+| 44. ROI Bisect | v2.2 | 2/2 | Complete | 2026-05-30 |
 | 45. Structural Fix | v2.2 | 0/? | Not started | - |
 | 46. Quality Gate Verification | v2.2 | 0/? | Not started | - |
