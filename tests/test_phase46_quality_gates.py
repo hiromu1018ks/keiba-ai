@@ -8,13 +8,10 @@ from __future__ import annotations
 
 import argparse
 import json
-import subprocess
-import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -96,11 +93,18 @@ def _make_shadow_result(
             },
         },
         "variants": [
-            {"variant_name": "baseline", "flag_states": {"enable_market_aware_calibrator": False}},
-            {"variant_name": "mawc_conservative", "flag_states": {"enable_market_aware_calibrator": True}},
+            {
+                "variant_name": "baseline",
+                "flag_states": {"enable_market_aware_calibrator": False},
+            },
+            {
+                "variant_name": "mawc_conservative",
+                "flag_states": {"enable_market_aware_calibrator": True},
+            },
         ],
     }
-    (output_dir / "shadow_manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+    manifest_json = json.dumps(manifest, indent=2)
+    (output_dir / "shadow_manifest.json").write_text(manifest_json, encoding="utf-8")
 
     return output_dir
 
@@ -187,14 +191,21 @@ class TestRunStage1:
         """Test 6: _run_stage1() invokes subprocess with correct arguments."""
         from run_phase46_quality_gates import QualityGateOrchestrator
 
-        mock_run.return_value = MagicMock(returncode=0, stderr="")
         conservative_root = tmp_path / "conservative"
         conservative_root.mkdir()
-        args = _make_args(conservative_root=conservative_root, oof_path=Path("data/oof/oof.parquet"))
+        args = _make_args(
+            conservative_root=conservative_root,
+            oof_path=Path("data/oof/oof.parquet"),
+        )
+
+        # Create manifest inside mock side_effect (simulates subprocess creating it)
+        def _create_manifest(*a: object, **kw: object) -> MagicMock:
+            _make_manifest(conservative_root, deployed=True)
+            return MagicMock(returncode=0, stderr="")
+
+        mock_run.side_effect = _create_manifest
 
         orch = QualityGateOrchestrator()
-        # Pre-create manifest so _check_manifest_deployed can read it
-        _make_manifest(conservative_root, deployed=True)
 
         result = orch._run_stage1(args)
 
@@ -406,7 +417,7 @@ class TestComputeDeploymentVerdict:
         assert orch._compute_deployment_verdict("PASS", "recovered") == "deployable"
 
     def test_returns_manual_review_when_pass_and_not_recovered(self) -> None:
-        """Test 17: _compute_deployment_verdict() returns 'manual_review' when PASS + not_recovered."""
+        """Test 17: manual_review when PASS + not_recovered."""
         from run_phase46_quality_gates import QualityGateOrchestrator
 
         orch = QualityGateOrchestrator()
@@ -498,7 +509,8 @@ class TestStage2Orchestration:
         assert stage_results["stage2"]["deployment_gates"]["status"] == "PASS"
 
         # Aggregate results
-        result = orch._aggregate_results(stage_results, shadow_dir / "shadow_comparison_result.json")
+        shadow_result_path = shadow_dir / "shadow_comparison_result.json"
+        result = orch._aggregate_results(stage_results, shadow_result_path)
         assert result["quality_gate"] == "PASS"
         assert result["roi_trend"] == "recovered"
         assert result["deployment"] == "deployable"
@@ -707,8 +719,7 @@ class TestMainExitCodes:
 class TestMarkdownSummary:
     """Tests for Markdown summary content."""
 
-    @patch("run_phase46_quality_gates.QualityGateOrchestrator")
-    def test_summary_contains_all_sections(self, mock_cls: MagicMock, tmp_path: Path) -> None:
+    def test_summary_contains_all_sections(self, tmp_path: Path) -> None:
         """Test 9 (Task 2): Markdown summary contains all required sections."""
         from run_phase46_quality_gates import QualityGateOrchestrator
 
@@ -723,7 +734,11 @@ class TestMarkdownSummary:
             "deployment": "deployable",
             "baseline_roi": 87.8,
             "shadow_roi": 92.0,
-            "stage1": {"status": "COMPLETE", "manifest_path": "/path/manifest.json", "deployed_surfaces": ["turf", "dirt"]},
+            "stage1": {
+                "status": "COMPLETE",
+                "manifest_path": "/path/manifest.json",
+                "deployed_surfaces": ["turf", "dirt"],
+            },
             "stage2": {
                 "feature_audit": {"status": "PASS"},
                 "oof_validation": {"status": "PASS"},
@@ -744,8 +759,7 @@ class TestMarkdownSummary:
         assert "Stage 1" in content
         assert "Stage 2" in content or "Quality Gate Steps" in content
 
-    @patch("run_phase46_quality_gates.QualityGateOrchestrator")
-    def test_summary_records_fail_step_clearly(self, mock_cls: MagicMock, tmp_path: Path) -> None:
+    def test_summary_records_fail_step_clearly(self, tmp_path: Path) -> None:
         """Test 10 (Task 2): Markdown summary records FAIL step with reason."""
         from run_phase46_quality_gates import QualityGateOrchestrator
 
@@ -760,9 +774,16 @@ class TestMarkdownSummary:
             "deployment": "not_deployable",
             "baseline_roi": 87.8,
             "shadow_roi": 85.0,
-            "stage1": {"status": "COMPLETE", "manifest_path": "/path/manifest.json", "deployed_surfaces": []},
+            "stage1": {
+                "status": "COMPLETE",
+                "manifest_path": "/path/manifest.json",
+                "deployed_surfaces": [],
+            },
             "stage2": {
-                "feature_audit": {"status": "FAIL", "failures": ["MarketModel has forbidden features"]},
+                "feature_audit": {
+                    "status": "FAIL",
+                    "failures": ["MarketModel has forbidden features"],
+                },
             },
             "artifacts": {"result_json": "/path/result.json"},
         }
