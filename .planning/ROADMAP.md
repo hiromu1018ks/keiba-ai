@@ -97,8 +97,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 46-01-PLAN.md -- Orchestration CLI (Stage 1/2 2段階実行 + skip/resume + 3-label判定 + JSON/Markdown集約)
-- [ ] 46-02-PLAN.md -- RUNBOOK + VERIFICATION + v2.2 Milestone Summary (手動再現手順 + 品質検証レポート + マイルストーン完了証明)
+- [x] 46-01-PLAN.md -- QualityGateOrchestrator (Stage 1/2 orchestration CLI + skip/resume + 3-label aggregation + 30+ tests)
+- [ ] 46-02-PLAN.md -- RUNBOOK + VERIFICATION + v2.2 Milestone Summary (手動再現runbook + 品質検証レポート + マイルストーン完了証明)
 
 ## Progress
 
@@ -111,4 +111,4 @@ Phases execute in numeric order: 43 -> 44 -> 45 -> 46
 | 43. Shadow Diagnosis | v2.2 | 2/2 | Complete | 2026-05-29 |
 | 44. ROI Bisect | v2.2 | 2/2 | Complete | 2026-05-30 |
 | 45. Structural Fix | v2.2 | 2/2 | Complete | 2026-05-31 |
-| 46. Quality Gate Verification | v2.2 | 0/2 | Planned | - |
+| 46. Quality Gate Verification | v2.2 | 1/2 | In Progress | - |
