@@ -812,3 +812,206 @@ class MawcConservativeRetrainer:
         manifest = self.generate_manifest(all_results, source_model_dir, target_root, years)
 
         return manifest
+
+
+# ---------------------------------------------------------------------------
+# Output functions (manifest JSON + retrain summary Markdown)
+# ---------------------------------------------------------------------------
+
+
+def save_retrain_results(
+    manifest: dict,
+    retrain_results: list[ConservativeRetrainResult],
+    target_root: Path,
+) -> tuple[Path, Path]:
+    """Save manifest.json and retrain_summary.md to target_root.
+
+    Args:
+        manifest: Manifest dict from generate_manifest().
+        retrain_results: All ConservativeRetrainResult across surfaces.
+        target_root: Output directory (e.g., data/models-backtest-mawc-conservative).
+
+    Returns:
+        (manifest_path, summary_path) paths to written files.
+    """
+    import json as json_mod
+
+    target_root.mkdir(parents=True, exist_ok=True)
+
+    # 1. manifest.json
+    manifest_path = target_root / "manifest.json"
+    with open(manifest_path, "w", encoding="utf-8") as f:
+        json_mod.dump(manifest, f, indent=2, ensure_ascii=False, sort_keys=True)
+    logger.info("Manifest saved to %s", manifest_path)
+
+    # 2. retrain_summary.md
+    summary_path = target_root / "retrain_summary.md"
+    _write_retrain_summary(manifest, retrain_results, summary_path)
+    logger.info("Summary saved to %s", summary_path)
+
+    return manifest_path, summary_path
+
+
+def _write_retrain_summary(
+    manifest: dict,
+    retrain_results: list[ConservativeRetrainResult],
+    outpath: Path,
+) -> None:
+    """Write human-readable Markdown summary with 6 sections."""
+    lines: list[str] = []
+
+    lines.append("# MAWC Conservative Retrain Summary")
+    lines.append("")
+    lines.append(f"Generated: {manifest.get('generated_at', 'N/A')}")
+    lines.append("")
+
+    # Section 1: Configuration
+    lines.append("## Configuration")
+    lines.append("")
+    c_grid = manifest.get("C_grid", [])
+    lines.append(f"- **C Grid**: `{c_grid}`")
+    removed = manifest.get("removed_interactions", [])
+    lines.append(f"- **Removed Interactions ({len(removed)} items)**:")
+    for name in removed:
+        lines.append(f"  - `{name}`")
+    lines.append(f"- **Feature Dimensions**: {manifest.get('original_feature_dim', '?')} -> "
+                 f"{manifest.get('feature_dim', '?')}")
+    lines.append(f"- **Years**: {', '.join(manifest.get('years', []))}")
+    lines.append(f"- **OOF Data Source**: {manifest.get('source_model_dir', 'N/A')}")
+    lines.append("")
+
+    # Section 2: Per-Surface Results
+    lines.append("## Per-Surface Results")
+    lines.append("")
+    per_surface = manifest.get("per_surface", {})
+    lines.append("| Surface | Best C | Deployed | Beta Market | N Candidates | N Passing |")
+    lines.append("|---------|--------|----------|-------------|-------------|-----------|")
+    for surface, data in per_surface.items():
+        best_c = data.get("best_c", "N/A")
+        if best_c is not None:
+            best_c = f"{best_c:.4f}"
+        deployed = data.get("deployed", False)
+        beta = data.get("beta_market_contribution")
+        beta_str = f"{beta:.4f}" if beta is not None else "N/A"
+        n_cand = data.get("n_candidates", 0)
+        n_pass = data.get("n_passing", 0)
+        dep_str = "**Yes**" if deployed else "No"
+        lines.append(f"| {surface} | {best_c} | {dep_str} | {beta_str} | {n_cand} | {n_pass} |")
+    lines.append("")
+
+    # Section 3: Quality Gate Details
+    lines.append("## Quality Gate Details")
+    lines.append("")
+    for result in retrain_results:
+        gate = result.best_candidate.quality_gate if result.best_candidate else None
+        if gate is None:
+            lines.append(f"### {result.surface}: No quality gate data (not_deployed)")
+            lines.append("")
+            continue
+        lines.append(f"### {result.surface}")
+        lines.append("")
+        lines.append("| Metric | Baseline | Conservative | Delta | Pass |")
+        lines.append("|--------|----------|-------------|-------|------|")
+        for metric_name, cons_val, base_val, passed in [
+            ("Brier", gate.overall_brier, gate.baseline_brier, gate.brier_non_degraded),
+            ("Logloss", gate.overall_logloss, gate.baseline_logloss, gate.logloss_non_degraded),
+            ("ECE", gate.overall_ece, gate.baseline_ece, gate.ece_non_degraded),
+        ]:
+            delta = cons_val - base_val
+            pass_str = "PASS" if passed else "FAIL"
+            lines.append(
+                f"| {metric_name} | {base_val:.4f} | {cons_val:.4f} | {delta:+.4f} | {pass_str} |"
+            )
+        lines.append("")
+
+        # Year-level sub-table
+        if gate.year_level_metrics:
+            lines.append(f"**Year-level ({result.surface}):**")
+            lines.append("")
+            lines.append("| Year | Brier | Logloss | ECE |")
+            lines.append("|------|-------|---------|-----|")
+            for yr, metrics in sorted(gate.year_level_metrics.items()):
+                lines.append(
+                    f"| {yr} | {metrics['brier']:.4f} | {metrics['logloss']:.4f} | "
+                    f"{metrics['ece']:.4f} |"
+                )
+            lines.append(f"Year-level passed: {'Yes' if gate.year_level_passed else 'No'}")
+            lines.append("")
+
+    # Section 4: Favorite Band Guard (Odds 1-3)
+    lines.append("## Favorite Band Guard (Odds 1-3)")
+    lines.append("")
+    for result in retrain_results:
+        gate = result.best_candidate.quality_gate if result.best_candidate else None
+        if gate is None:
+            lines.append(f"### {result.surface}: No data (not_deployed)")
+            lines.append("")
+            continue
+        fbg = gate.favorite_band_guard
+        lines.append(f"### {result.surface}")
+        lines.append("")
+        lines.append("| Guard Metric | Baseline | Conservative | Threshold | Pass |")
+        lines.append("|-------------|----------|-------------|-----------|------|")
+        lines.append(
+            f"| ECE | {fbg.ece_baseline:.4f} | {fbg.ece_conservative:.4f} | "
+            f"delta <= {(fbg.ece_baseline * 1.10):.4f} | "
+            f"{'PASS' if fbg.ece_passed else 'FAIL'} |"
+        )
+        lines.append(
+            f"| P Compression Ratio | - | {fbg.p_compression_ratio:.4f} | "
+            f">= 0.90 | {'PASS' if fbg.p_compression_passed else 'FAIL'} |"
+        )
+        lines.append(
+            f"| EV Pass Rate | {fbg.ev_pass_rate_baseline:.4f} | "
+            f"{fbg.ev_pass_rate_conservative:.4f} | "
+            f">= {fbg.ev_pass_rate_baseline * 0.90:.4f} | "
+            f"{'PASS' if fbg.ev_pass_rate_passed else 'FAIL'} |"
+        )
+        lines.append(
+            f"| **Overall** | | | | "
+            f"**{'PASS' if fbg.overall_passed else 'FAIL'}** |"
+        )
+        lines.append(f"- N horses in odds 1-3: {fbg.n_horses}")
+        lines.append("")
+
+    # Section 5: C Grid Candidates
+    lines.append("## C Grid Candidates")
+    lines.append("")
+    for result in retrain_results:
+        lines.append(f"### {result.surface}")
+        lines.append("")
+        lines.append("| C Value | Brier | Logloss | ECE | Gate Pass |")
+        lines.append("|---------|-------|---------|-----|-----------|")
+        for cand in result.all_candidates:
+            g = cand.quality_gate
+            pass_str = "PASS" if g.all_gates_passed else "FAIL"
+            lines.append(
+                f"| {cand.c_value:.4f} | {g.overall_brier:.4f} | {g.overall_logloss:.4f} | "
+                f"{g.overall_ece:.4f} | {pass_str} |"
+            )
+        lines.append("")
+
+    # Section 6: Phase 46 Next Steps
+    lines.append("## Phase 46 Next Steps")
+    lines.append("")
+    lines.append("Run Shadow Comparison with conservative variant:")
+    lines.append("```bash")
+    lines.append(
+        "python scripts/run_shadow_comparison.py \\"
+    )
+    lines.append(
+        "  --baseline-root data/models-backtest \\"
+    )
+    shadow_root = manifest.get(
+        "target_variant_dir", "data/models-backtest-mawc-conservative",
+    )
+    lines.append(
+        f"  --shadow-root {shadow_root} \\"
+    )
+    lines.append(
+        "  --folds 2024 2025 --report"
+    )
+    lines.append("```")
+    lines.append("")
+
+    outpath.write_text("\n".join(lines), encoding="utf-8")

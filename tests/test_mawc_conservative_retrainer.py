@@ -8,6 +8,8 @@ quality gate evaluation (Brier/logloss/ECE + favorite band guard), and C selecti
 from __future__ import annotations
 
 import json
+import os
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -24,6 +26,9 @@ from models.mawc_conservative_retrainer import (
     QualityGateResult,
     _compute_ece,
 )
+
+# Project root for CLI tests
+ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -772,4 +777,128 @@ class TestRunFullPipeline:
 
         # Verify variant directory was created
         assert (target_root / "2024" / "meta.json").is_file()
+
+
+# ---------------------------------------------------------------------------
+# Task 1 Tests (Plan 02): save_retrain_results + CLI output tests
+# ---------------------------------------------------------------------------
+
+
+class TestSaveRetrainResults:
+    """Test save_retrain_results produces manifest.json + retrain_summary.md."""
+
+    def _setup_full_pipeline(self, tmp_path: Path) -> tuple[dict, list, Path]:
+        """Run pipeline and return (manifest, results, target_root)."""
+        from models.mawc_conservative_retrainer import MawcConservativeRetrainer
+
+        turf_df = _make_oof_df(n=100, surface="turf")
+        dirt_df = _make_oof_df(n=80, surface="dirt")
+        combined = pd.concat([turf_df, dirt_df], ignore_index=True)
+        oof_path = tmp_path / "oof_predictions.parquet"
+        combined.to_parquet(oof_path)
+
+        source_dir = _setup_source_year_dir(tmp_path, year=2024)
+        target_root = tmp_path / "models-backtest-mawc-conservative"
+
+        trainer = MawcConservativeRetrainer()
+        manifest = trainer.run_full_pipeline(
+            oof_path=oof_path,
+            source_model_dir=source_dir.parent,
+            target_root=target_root,
+            years=[2024],
+        )
+
+        # Also collect results for summary (use prepared DataFrames)
+        turf_prepared, dirt_prepared = trainer.prepare_oof_data(oof_path)
+        surface_dfs = {"turf": turf_prepared, "dirt": dirt_prepared}
+        all_results: list[ConservativeRetrainResult] = []
+        for surface in ["turf", "dirt"]:
+            baseline_path = source_dir / f"market_aware_win_calibrator_{surface}.joblib"
+            if baseline_path.is_file():
+                result = trainer.run_retrain(
+                    surface,
+                    surface_dfs[surface],
+                    baseline_path,
+                )
+                all_results.append(result)
+
+        return manifest, all_results, target_root
+
+    def test_save_manifest_json(self, tmp_path: Path) -> None:
+        """save_retrain_results creates manifest.json with expected keys."""
+        from models.mawc_conservative_retrainer import save_retrain_results
+
+        manifest, results, target_root = self._setup_full_pipeline(tmp_path)
+        manifest_path, _ = save_retrain_results(manifest, results, target_root)
+
+        assert manifest_path.is_file()
+        with open(manifest_path) as f:
+            data = json.load(f)
+
+        # Verify expected keys
+        assert "mawc_fix_version" in data
+        assert "per_surface" in data
+        assert "C_grid" in data
+        assert "removed_interactions" in data
+        assert "feature_dim" in data
+        assert "original_feature_dim" in data
+        assert "generated_at" in data
+        assert data["mawc_fix_version"] == "45-conservative"
+
+    def test_save_retrain_summary_md(self, tmp_path: Path) -> None:
+        """save_retrain_results creates retrain_summary.md with 6 required sections."""
+        from models.mawc_conservative_retrainer import save_retrain_results
+
+        manifest, results, target_root = self._setup_full_pipeline(tmp_path)
+        _, summary_path = save_retrain_results(manifest, results, target_root)
+
+        assert summary_path.is_file()
+        content = summary_path.read_text(encoding="utf-8")
+
+        # Verify 6 required sections
+        assert "## Configuration" in content
+        assert "## Per-Surface Results" in content
+        assert "## Quality Gate Details" in content
+        assert "## Favorite Band Guard (Odds 1-3)" in content
+        assert "## C Grid Candidates" in content
+        assert "## Phase 46 Next Steps" in content
+
+        # Verify content substance
+        assert "C Grid" in content
+        assert "run_shadow_comparison.py" in content
+        assert "mawc-conservative" in content  # Shadow root path in command
+
+
+class TestCLIHelp:
+    """Test CLI --help exits cleanly."""
+
+    def test_cli_help_exits_zero(self) -> None:
+        """CLI --help exits with code 0."""
+        import subprocess
+
+        result = subprocess.run(
+            [sys.executable, "scripts/run_mawc_conservative_retrain.py", "--help"],
+            capture_output=True,
+            text=True,
+            cwd=ROOT_DIR,
+        )
+        assert result.returncode == 0
+        assert "--oof-path" in result.stdout
+        assert "--source-model-dir" in result.stdout
+        assert "--target-root" in result.stdout
+        assert "--years" in result.stdout
+        assert "--report" in result.stdout
+
+    def test_cli_dry_run_help(self) -> None:
+        """CLI can be invoked with --help without import errors."""
+        import subprocess
+
+        result = subprocess.run(
+            [sys.executable, "scripts/run_mawc_conservative_retrain.py", "--help"],
+            capture_output=True,
+            text=True,
+            cwd=ROOT_DIR,
+        )
+        assert result.returncode == 0
+        assert "MAWC Conservative Retrain" in result.stdout
 
