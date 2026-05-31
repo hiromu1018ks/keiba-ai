@@ -3,7 +3,7 @@ gsd_state_version: 1.0
 milestone: v2.2
 milestone_name: ROI Recovery Analysis
 status: planning
-last_updated: "2026-05-31T08:00:00.000Z"
+last_updated: "2026-05-31T16:00:00.000Z"
 ---
 
 # Roadmap: keiba-ai Win Model Improvement
@@ -63,7 +63,7 @@ Plans:
 **Success Criteria** (what must be TRUE):
   1. Phase 34→38間のartifact-level bisectで、ROI劣化を引き起こしたフェーズ(またはフェーズ群)が特定されている
   2. 再現不能なフェーズはgit差分・OOF/BTログ・既存成果物から原因推定が文書化されている
-  3. 劣化フェーズのOOF特徴量寄与度(SHAP/gain)がbaseline vs当該フェーズで比較され、ROI悪化に寄与した特徴量・パラメータが特定されている
+  3. 劣化フェーズのOOF特徴量寄与度(SHAP/gain)をbaseline vs当該フェーズで比較し、ROI悪化に寄与した特徴量・パラメータが特定されている
 **Plans**: 2 plans
 
 Plans:
@@ -94,7 +94,11 @@ Plans:
   3. DeploymentGateEvaluatorがPASSしている(確率品質・ベット数維持・再現性・診断の4ゲート)
   4. Brier/logloss/ECEがbaselineに対して非悪化、actual/predicted比率が非悪化、ベット数が維持されている
   5. ROIが87.8%(v2.0)から回復傾向を示している
-**Plans**: TBD
+**Plans**: 2 plans
+
+Plans:
+- [ ] 46-01-PLAN.md -- Orchestration CLI (Stage 1/2 2段階実行 + skip/resume + 3-label判定 + JSON/Markdown集約)
+- [ ] 46-02-PLAN.md -- RUNBOOK + VERIFICATION + v2.2 Milestone Summary (手動再現手順 + 品質検証レポート + マイルストーン完了証明)
 
 ## Progress
 
@@ -106,5 +110,5 @@ Phases execute in numeric order: 43 -> 44 -> 45 -> 46
 | 1-42 | v1.0-v2.1 | 85/85 | Complete | 2026-05-28 |
 | 43. Shadow Diagnosis | v2.2 | 2/2 | Complete | 2026-05-29 |
 | 44. ROI Bisect | v2.2 | 2/2 | Complete | 2026-05-30 |
-| 45. Structural Fix | v2.2 | 0/2 | Planned | - |
-| 46. Quality Gate Verification | v2.2 | 0/? | Not started | - |
+| 45. Structural Fix | v2.2 | 2/2 | Complete | 2026-05-31 |
+| 46. Quality Gate Verification | v2.2 | 0/2 | Planned | - |
