@@ -3,7 +3,7 @@ gsd_state_version: 1.0
 milestone: v2.2
 milestone_name: ROI Recovery Analysis
 status: planning
-last_updated: "2026-05-30T16:00:00.000Z"
+last_updated: "2026-05-31T08:00:00.000Z"
 ---
 
 # Roadmap: keiba-ai Win Model Improvement
@@ -78,7 +78,11 @@ Plans:
   1. 診断・ビセクションで特定された構造的欠陥(特徴量ルーティング、キャリブレーション設定等)に対する修正が実装されている
   2. 修正がOOF/WF指標で説明可能であることが確認されている
   3. 修正内容が2024/2025固有係数に依存せず、OOF指標で汎化性が確認されている
-**Plans**: TBD
+**Plans**: 2 plans
+
+Plans:
+- [ ] 45-01-PLAN.md -- MawcConservativeRetrainer (36-dim特徴量 + C grid探索 + 品質ゲート + variant保存 + manifest生成)
+- [ ] 45-02-PLAN.md -- CLI + JSON/MD/HTML出力 (ReportGenerator分離モジュール + Phase 46消費可能なmanifest)
 
 ### Phase 46: Quality Gate Verification
 **Goal**: 全修正が安全ゲートを通過し、ROI回復傾向と品質指標非悪化が確認されている
@@ -102,5 +106,5 @@ Phases execute in numeric order: 43 -> 44 -> 45 -> 46
 | 1-42 | v1.0-v2.1 | 85/85 | Complete | 2026-05-28 |
 | 43. Shadow Diagnosis | v2.2 | 2/2 | Complete | 2026-05-29 |
 | 44. ROI Bisect | v2.2 | 2/2 | Complete | 2026-05-30 |
-| 45. Structural Fix | v2.2 | 0/? | Not started | - |
+| 45. Structural Fix | v2.2 | 0/2 | Planned | - |
 | 46. Quality Gate Verification | v2.2 | 0/? | Not started | - |
