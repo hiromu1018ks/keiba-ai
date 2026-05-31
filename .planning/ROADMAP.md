@@ -38,7 +38,7 @@ See `.planning/milestones/` for archived roadmaps.
 - [x] **Phase 43: Shadow Diagnosis** -- 確率品質・選定差分の全面比較 (DIAG-01~03) (completed 2026-05-29)
 - [x] **Phase 44: ROI Bisect** -- DeploymentGate FAILのコンポーネント帰属 + MAWC/Ranker係数分析 (BISECT-01~02) (completed 2026-05-30)
 - [x] **Phase 45: Structural Fix** -- 診断結果に基づく構造的修正と汎化確認 (FIX-01~02) (completed 2026-05-31)
-- [x] **Phase 46: Quality Gate Verification** -- 全品質ゲートPASS確認 (QUAL-01~04) (completed 2026-05-31)
+- [ ] **Phase 46: Quality Gate Verification** -- 全品質ゲートPASS確認 (QUAL-01~04)
 
 ## Phase Details
 
@@ -111,4 +111,4 @@ Phases execute in numeric order: 43 -> 44 -> 45 -> 46
 | 43. Shadow Diagnosis | v2.2 | 2/2 | Complete | 2026-05-29 |
 | 44. ROI Bisect | v2.2 | 2/2 | Complete | 2026-05-30 |
 | 45. Structural Fix | v2.2 | 2/2 | Complete | 2026-05-31 |
-| 46. Quality Gate Verification | v2.2 | 2/2 | Complete | 2026-05-31 |
+| 46. Quality Gate Verification | v2.2 | 2/2 | In Progress (runtime verification pending) | - |
