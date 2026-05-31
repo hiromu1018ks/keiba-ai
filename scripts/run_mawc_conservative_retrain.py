@@ -107,7 +107,7 @@ def main(args: argparse.Namespace) -> None:
 
     # Run full pipeline
     trainer = MawcConservativeRetrainer()
-    manifest = trainer.run_full_pipeline(
+    manifest, all_results = trainer.run_full_pipeline(
         oof_path=args.oof_path,
         source_model_dir=args.source_model_dir,
         target_root=args.target_root,
@@ -115,35 +115,6 @@ def main(args: argparse.Namespace) -> None:
     )
 
     # Save manifest + summary
-    from models.mawc_conservative_retrainer import ConservativeRetrainResult
-
-    # Collect retrain results from manifest per_surface for summary writing.
-    # We reconstruct minimal results from manifest data; the full results
-    # were processed during run_full_pipeline. We need to re-run to get
-    # full objects for the summary. Instead, we pass an empty list and
-    # rely on the manifest dict for summary generation.
-    # Better approach: run_full_pipeline should return both manifest and results.
-    # For now, we restructure to collect results during pipeline execution.
-
-    # Re-run the pipeline to get the actual retrain results objects
-    # (the manifest was already generated, but we need ConservativeRetrainResult
-    # objects for the summary markdown). This is acceptable since the pipeline
-    # is the CLI entry point and re-running is cheap (LogisticRegression).
-    turf_df, dirt_df = trainer.prepare_oof_data(args.oof_path)
-    surface_dfs = {"turf": turf_df, "dirt": dirt_df}
-
-    all_results: list[ConservativeRetrainResult] = []
-    for year in years:
-        for surface in ["turf", "dirt"]:
-            baseline_path = (
-                args.source_model_dir / str(year)
-                / f"market_aware_win_calibrator_{surface}.joblib"
-            )
-            if not baseline_path.is_file():
-                continue
-            result = trainer.run_retrain(surface, surface_dfs[surface], baseline_path)
-            all_results.append(result)
-
     manifest_path, summary_path = save_retrain_results(
         manifest, all_results, args.target_root,
     )
@@ -163,7 +134,10 @@ def main(args: argparse.Namespace) -> None:
     print(f"Target: {args.target_root}")
     print(f"Years: {years}")
 
-    per_surface = manifest.get("per_surface", {})
+    per_year_surface = manifest.get("per_year_surface", {})
+    # Show last year's metrics for each surface as summary
+    last_year = str(years[-1]) if years else ""
+    per_surface = per_year_surface.get(last_year, {})
     for surface, data in per_surface.items():
         best_c = data.get("best_c")
         deployed = data.get("deployed", False)

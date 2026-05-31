@@ -129,6 +129,7 @@
         <table>
             <thead>
                 <tr>
+                    <th>Year</th>
                     <th>Surface</th>
                     <th>Best C</th>
                     <th>Deployed</th>
@@ -138,11 +139,13 @@
                 </tr>
             </thead>
             <tbody>
-                {% for surface, data in per_surface.items() %}
+                {% for year_key, surfaces in per_surface.items() %}
+                {% for surface, data in surfaces.items() %}
                 {% set best_c = data.get('best_c') %}
                 {% set deployed = data.get('deployed', False) %}
                 {% set beta = data.get('beta_market_contribution') %}
                 <tr>
+                    <td>{{ year_key }}</td>
                     <td>{{ surface }}</td>
                     <td>{{ "%.4f" | format(best_c) if best_c is not none else "N/A" }}</td>
                     <td class="{{ 'status-deployed' if deployed else 'status-not-deployed' }}">
@@ -152,6 +155,7 @@
                     <td>{{ data.get('n_candidates', 0) }}</td>
                     <td>{{ data.get('n_passing', 0) }}</td>
                 </tr>
+                {% endfor %}
                 {% endfor %}
             </tbody>
         </table>

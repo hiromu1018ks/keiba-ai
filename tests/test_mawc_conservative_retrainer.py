@@ -662,7 +662,7 @@ class TestGenerateManifest:
     """Test manifest JSON generation."""
 
     def test_produces_complete_manifest(self, tmp_path: Path) -> None:
-        """Manifest has all required keys and per-surface results."""
+        """Manifest has all required keys and per_year_surface results."""
         df = _make_oof_df(n=50, surface="turf")
         df["p_model"] = df["p_win_corrected"]
         df["p_market"] = np.clip(1.0 / df["tanodds"].values, 0.01, 0.99)
@@ -675,7 +675,7 @@ class TestGenerateManifest:
         baseline_path = source_dir / "market_aware_win_calibrator_turf.joblib"
 
         trainer = MawcConservativeRetrainer()
-        result = trainer.run_retrain("turf", df, baseline_path)
+        result = trainer.run_retrain("turf", df, baseline_path, year=2024)
 
         manifest = trainer.generate_manifest(
             [result], source_model_dir=source_dir.parent,
@@ -691,11 +691,13 @@ class TestGenerateManifest:
         assert manifest["feature_dim"] == 36
         assert manifest["original_feature_dim"] == 51
         assert "2024" in manifest["years"]
-        assert "turf" in manifest["per_surface"]
+        assert "per_year_surface" in manifest
+        assert "2024" in manifest["per_year_surface"]
+        assert "turf" in manifest["per_year_surface"]["2024"]
         assert "generated_at" in manifest
 
         # Per-surface keys
-        turf_entry = manifest["per_surface"]["turf"]
+        turf_entry = manifest["per_year_surface"]["2024"]["turf"]
         assert "best_c" in turf_entry
         assert "deployed" in turf_entry
         assert "n_candidates" in turf_entry
@@ -731,7 +733,7 @@ class TestGenerateManifest:
             ],
             deployed=False, feature_names=[f"f{i}" for i in range(36)],
             n_samples=100, removed_interactions=MawcConservativeRetrainer.REMOVED_INTERACTIONS,
-            manifest_metadata={"surface": "dirt", "deployed": False},
+            manifest_metadata={"surface": "dirt", "year": 2024, "deployed": False},
         )
 
         trainer = MawcConservativeRetrainer()
@@ -740,8 +742,8 @@ class TestGenerateManifest:
             target_root=Path("data/models-backtest-mawc-conservative"), years=[2024],
         )
 
-        assert manifest["per_surface"]["dirt"]["deployed"] is False
-        assert manifest["per_surface"]["dirt"]["best_c"] is None
+        assert manifest["per_year_surface"]["2024"]["dirt"]["deployed"] is False
+        assert manifest["per_year_surface"]["2024"]["dirt"]["best_c"] is None
 
 
 class TestRunFullPipeline:
@@ -763,7 +765,7 @@ class TestRunFullPipeline:
         target_root = tmp_path / "models-backtest-mawc-conservative"
 
         trainer = MawcConservativeRetrainer()
-        manifest = trainer.run_full_pipeline(
+        manifest, all_results = trainer.run_full_pipeline(
             oof_path=oof_path,
             source_model_dir=source_dir.parent,
             target_root=target_root,
@@ -772,8 +774,15 @@ class TestRunFullPipeline:
 
         # Verify manifest structure
         assert manifest["mawc_fix_version"] == "45-conservative"
-        assert "turf" in manifest["per_surface"]
-        assert "dirt" in manifest["per_surface"]
+        assert "per_year_surface" in manifest
+        assert "2024" in manifest["per_year_surface"]
+        assert "turf" in manifest["per_year_surface"]["2024"]
+        assert "dirt" in manifest["per_year_surface"]["2024"]
+
+        # Verify results were returned
+        assert len(all_results) == 2  # turf + dirt
+        surfaces = {r.surface for r in all_results}
+        assert surfaces == {"turf", "dirt"}
 
         # Verify variant directory was created
         assert (target_root / "2024" / "meta.json").is_file()
@@ -801,26 +810,12 @@ class TestSaveRetrainResults:
         target_root = tmp_path / "models-backtest-mawc-conservative"
 
         trainer = MawcConservativeRetrainer()
-        manifest = trainer.run_full_pipeline(
+        manifest, all_results = trainer.run_full_pipeline(
             oof_path=oof_path,
             source_model_dir=source_dir.parent,
             target_root=target_root,
             years=[2024],
         )
-
-        # Also collect results for summary (use prepared DataFrames)
-        turf_prepared, dirt_prepared = trainer.prepare_oof_data(oof_path)
-        surface_dfs = {"turf": turf_prepared, "dirt": dirt_prepared}
-        all_results: list[ConservativeRetrainResult] = []
-        for surface in ["turf", "dirt"]:
-            baseline_path = source_dir / f"market_aware_win_calibrator_{surface}.joblib"
-            if baseline_path.is_file():
-                result = trainer.run_retrain(
-                    surface,
-                    surface_dfs[surface],
-                    baseline_path,
-                )
-                all_results.append(result)
 
         return manifest, all_results, target_root
 
@@ -837,7 +832,7 @@ class TestSaveRetrainResults:
 
         # Verify expected keys
         assert "mawc_fix_version" in data
-        assert "per_surface" in data
+        assert "per_year_surface" in data
         assert "C_grid" in data
         assert "removed_interactions" in data
         assert "feature_dim" in data
@@ -927,24 +922,12 @@ class TestReportGenerator:
         target_root = tmp_path / "models-backtest-mawc-conservative"
 
         trainer = MawcConservativeRetrainer()
-        manifest = trainer.run_full_pipeline(
+        manifest, all_results = trainer.run_full_pipeline(
             oof_path=oof_path,
             source_model_dir=source_dir.parent,
             target_root=target_root,
             years=[2024],
         )
-
-        # Collect results for report
-        turf_prepared, dirt_prepared = trainer.prepare_oof_data(oof_path)
-        surface_dfs = {"turf": turf_prepared, "dirt": dirt_prepared}
-        all_results: list[ConservativeRetrainResult] = []
-        for surface in ["turf", "dirt"]:
-            baseline_path = source_dir / f"market_aware_win_calibrator_{surface}.joblib"
-            if baseline_path.is_file():
-                result = trainer.run_retrain(
-                    surface, surface_dfs[surface], baseline_path,
-                )
-                all_results.append(result)
 
         return manifest, all_results
 

@@ -563,6 +563,7 @@ class MawcConservativeRetrainer:
         surface: str,
         df: pd.DataFrame,
         baseline_mawc_path: Path,
+        year: int | None = None,
     ) -> ConservativeRetrainResult:
         """Orchestrate full conservative retrain for one surface.
 
@@ -570,6 +571,7 @@ class MawcConservativeRetrainer:
             surface: "turf" or "dirt".
             df: Prepared OOF DataFrame for this surface.
             baseline_mawc_path: Path to baseline MAWC joblib.
+            year: Optional year for manifest metadata.
 
         Returns:
             ConservativeRetrainResult with best C and metadata.
@@ -587,6 +589,7 @@ class MawcConservativeRetrainer:
         n_passing = sum(1 for c in candidates if c.quality_gate.all_gates_passed)
         metadata = {
             "surface": surface,
+            "year": year,
             "best_c": best.c_value if best else None,
             "n_candidates": len(candidates),
             "n_passing": n_passing,
@@ -670,9 +673,8 @@ class MawcConservativeRetrainer:
                 )
 
         # Verify meta.json exists (ModelLoader requirement)
-        assert (target_dir / "meta.json").is_file(), (
-            f"meta.json missing in {target_dir} after copy"
-        )
+        if not (target_dir / "meta.json").is_file():
+            raise FileNotFoundError(f"meta.json missing in {target_dir} after copy")
 
         return target_dir
 
@@ -689,6 +691,11 @@ class MawcConservativeRetrainer:
     ) -> dict:
         """Generate manifest JSON dict for Phase 46 consumption.
 
+        Per-surface results are keyed as ``per_year_surface["2024"]["turf"]`` to
+        preserve year-specific quality gate data rather than silently overwriting
+        earlier years (CR-01 fix).  A top-level ``per_surface`` aggregate is also
+        provided for convenience (uses the last year's metrics per surface).
+
         Args:
             retrain_results: All ConservativeRetrainResult across surfaces and years.
             source_model_dir: e.g., Path("data/models-backtest").
@@ -698,10 +705,11 @@ class MawcConservativeRetrainer:
         Returns:
             JSON-serializable manifest dict.
         """
-        per_surface: dict[str, dict] = {}
+        per_year_surface: dict[str, dict[str, dict]] = {}
         for result in retrain_results:
             gate = result.best_candidate.quality_gate if result.best_candidate else None
-            per_surface[result.surface] = {
+            year_key = str(result.manifest_metadata.get("year", "unknown"))
+            surface_entry = {
                 "best_c": result.best_c,
                 "deployed": result.deployed,
                 "n_candidates": len(result.all_candidates),
@@ -725,6 +733,9 @@ class MawcConservativeRetrainer:
                     ),
                 },
             }
+            if year_key not in per_year_surface:
+                per_year_surface[year_key] = {}
+            per_year_surface[year_key][result.surface] = surface_entry
 
         manifest = {
             "mawc_fix_version": "45-conservative",
@@ -735,7 +746,7 @@ class MawcConservativeRetrainer:
             "feature_dim": 36,
             "original_feature_dim": 51,
             "years": [str(y) for y in years],
-            "per_surface": per_surface,
+            "per_year_surface": per_year_surface,
             "generated_at": datetime.now(timezone.utc).isoformat(),
         }
 
@@ -751,7 +762,7 @@ class MawcConservativeRetrainer:
         source_model_dir: Path,
         target_root: Path,
         years: list[int],
-    ) -> dict:
+    ) -> tuple[dict, list[ConservativeRetrainResult]]:
         """Run full conservative MAWC retraining pipeline.
 
         1. Prepare OOF data
@@ -766,7 +777,8 @@ class MawcConservativeRetrainer:
             years: Years to create variants for (e.g., [2024, 2025]).
 
         Returns:
-            Manifest dict (caller serializes to JSON).
+            (manifest_dict, all_results) -- caller serializes manifest to JSON
+            and passes all_results to save_retrain_results().
         """
         # Step 1: Prepare OOF data
         turf_df, dirt_df = self.prepare_oof_data(oof_path)
@@ -791,7 +803,9 @@ class MawcConservativeRetrainer:
                     )
                     continue
 
-                result = self.run_retrain(surface, surface_dfs[surface], baseline_path)
+                result = self.run_retrain(
+                    surface, surface_dfs[surface], baseline_path, year=year,
+                )
                 year_results.append(result)
                 all_results.append(result)
 
@@ -811,7 +825,7 @@ class MawcConservativeRetrainer:
         # Step 4: Generate manifest
         manifest = self.generate_manifest(all_results, source_model_dir, target_root, years)
 
-        return manifest
+        return manifest, all_results
 
 
 # ---------------------------------------------------------------------------
@@ -880,23 +894,27 @@ def _write_retrain_summary(
     lines.append(f"- **OOF Data Source**: {manifest.get('source_model_dir', 'N/A')}")
     lines.append("")
 
-    # Section 2: Per-Surface Results
+    # Section 2: Per-Surface Results (deduplicated -- one row per surface across years)
     lines.append("## Per-Surface Results")
     lines.append("")
-    per_surface = manifest.get("per_surface", {})
-    lines.append("| Surface | Best C | Deployed | Beta Market | N Candidates | N Passing |")
-    lines.append("|---------|--------|----------|-------------|-------------|-----------|")
-    for surface, data in per_surface.items():
-        best_c = data.get("best_c", "N/A")
-        if best_c is not None:
-            best_c = f"{best_c:.4f}"
-        deployed = data.get("deployed", False)
-        beta = data.get("beta_market_contribution")
-        beta_str = f"{beta:.4f}" if beta is not None else "N/A"
-        n_cand = data.get("n_candidates", 0)
-        n_pass = data.get("n_passing", 0)
-        dep_str = "**Yes**" if deployed else "No"
-        lines.append(f"| {surface} | {best_c} | {dep_str} | {beta_str} | {n_cand} | {n_pass} |")
+    per_year_surface = manifest.get("per_year_surface", {})
+    lines.append("| Year | Surface | Best C | Deployed | Beta Market | N Candidates | N Passing |")
+    lines.append("|------|---------|--------|----------|-------------|-------------|-----------|")
+    for year_key in sorted(per_year_surface.keys()):
+        for surface, data in per_year_surface[year_key].items():
+            best_c = data.get("best_c", "N/A")
+            if best_c is not None:
+                best_c = f"{best_c:.4f}"
+            deployed = data.get("deployed", False)
+            beta = data.get("beta_market_contribution")
+            beta_str = f"{beta:.4f}" if beta is not None else "N/A"
+            n_cand = data.get("n_candidates", 0)
+            n_pass = data.get("n_passing", 0)
+            dep_str = "**Yes**" if deployed else "No"
+            lines.append(
+                f"| {year_key} | {surface} | {best_c} | "
+                f"{dep_str} | {beta_str} | {n_cand} | {n_pass} |"
+            )
     lines.append("")
 
     # Section 3: Quality Gate Details
@@ -904,11 +922,13 @@ def _write_retrain_summary(
     lines.append("")
     for result in retrain_results:
         gate = result.best_candidate.quality_gate if result.best_candidate else None
+        year_label = result.manifest_metadata.get("year", "unknown")
+        label = f"{result.surface} ({year_label})"
         if gate is None:
-            lines.append(f"### {result.surface}: No quality gate data (not_deployed)")
+            lines.append(f"### {label}: No quality gate data (not_deployed)")
             lines.append("")
             continue
-        lines.append(f"### {result.surface}")
+        lines.append(f"### {label}")
         lines.append("")
         lines.append("| Metric | Baseline | Conservative | Delta | Pass |")
         lines.append("|--------|----------|-------------|-------|------|")
@@ -943,12 +963,14 @@ def _write_retrain_summary(
     lines.append("")
     for result in retrain_results:
         gate = result.best_candidate.quality_gate if result.best_candidate else None
+        year_label = result.manifest_metadata.get("year", "unknown")
+        label = f"{result.surface} ({year_label})"
         if gate is None:
-            lines.append(f"### {result.surface}: No data (not_deployed)")
+            lines.append(f"### {label}: No data (not_deployed)")
             lines.append("")
             continue
         fbg = gate.favorite_band_guard
-        lines.append(f"### {result.surface}")
+        lines.append(f"### {label}")
         lines.append("")
         lines.append("| Guard Metric | Baseline | Conservative | Threshold | Pass |")
         lines.append("|-------------|----------|-------------|-----------|------|")
@@ -978,7 +1000,8 @@ def _write_retrain_summary(
     lines.append("## C Grid Candidates")
     lines.append("")
     for result in retrain_results:
-        lines.append(f"### {result.surface}")
+        year_label = result.manifest_metadata.get("year", "unknown")
+        lines.append(f"### {result.surface} ({year_label})")
         lines.append("")
         lines.append("| C Value | Brier | Logloss | ECE | Gate Pass |")
         lines.append("|---------|-------|---------|-----|-----------|")

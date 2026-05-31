@@ -61,7 +61,7 @@ class MawcConservativeReportGenerator:
         context: dict[str, Any] = {
             "manifest": manifest,
             "retrain_results": retrain_results,
-            "per_surface": manifest.get("per_surface", {}),
+            "per_surface": manifest.get("per_year_surface", {}),
         }
 
         html = template.render(**context)
