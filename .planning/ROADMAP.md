@@ -37,7 +37,7 @@ See `.planning/milestones/` for archived roadmaps.
 
 - [x] **Phase 43: Shadow Diagnosis** -- 確率品質・選定差分の全面比較 (DIAG-01~03) (completed 2026-05-29)
 - [x] **Phase 44: ROI Bisect** -- DeploymentGate FAILのコンポーネント帰属 + MAWC/Ranker係数分析 (BISECT-01~02) (completed 2026-05-30)
-- [ ] **Phase 45: Structural Fix** -- 診断結果に基づく構造的修正と汎化確認 (FIX-01~02)
+- [x] **Phase 45: Structural Fix** -- 診断結果に基づく構造的修正と汎化確認 (FIX-01~02) (completed 2026-05-31)
 - [ ] **Phase 46: Quality Gate Verification** -- 全品質ゲートPASS確認 (QUAL-01~04)
 
 ## Phase Details
@@ -81,8 +81,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 45-01-PLAN.md -- MawcConservativeRetrainer (36-dim特徴量 + C grid探索 + 品質ゲート + variant保存 + manifest生成)
-- [ ] 45-02-PLAN.md -- CLI + JSON/MD/HTML出力 (ReportGenerator分離モジュール + Phase 46消費可能なmanifest)
+- [x] 45-01-PLAN.md -- MawcConservativeRetrainer (36-dim特徴量 + C grid探索 + 品質ゲート + variant保存 + manifest生成)
+- [x] 45-02-PLAN.md -- CLI + JSON/MD/HTML出力 (ReportGenerator分離モジュール + Phase 46消費可能なmanifest)
 
 ### Phase 46: Quality Gate Verification
 **Goal**: 全修正が安全ゲートを通過し、ROI回復傾向と品質指標非悪化が確認されている
