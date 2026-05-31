@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MAWC Conservative Retrain Report</title>
+    <style>
+        :root {
+            --primary: #2563eb;
+            --success: #16a34a;
+            --danger: #dc2626;
+            --warning: #d97706;
+            --bg: #f8fafc;
+            --card-bg: #ffffff;
+            --text: #1e293b;
+            --text-muted: #64748b;
+            --border: #e2e8f0;
+        }
+        * { box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: var(--bg); color: var(--text);
+            margin: 0; padding: 20px;
+        }
+        .container { max-width: 1200px; margin: 0 auto; }
+        h1 { text-align: center; margin-bottom: 5px; font-size: 1.8em; }
+        .subtitle { text-align: center; color: var(--text-muted); margin-bottom: 30px; }
+        .meta {
+            display: flex; justify-content: space-between; flex-wrap: wrap; gap: 10px;
+            margin-bottom: 20px; font-size: 13px; color: var(--text-muted);
+        }
+        .section {
+            background: var(--card-bg); border-radius: 8px; padding: 20px;
+            margin-bottom: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        .section h2 {
+            margin-top: 0; border-bottom: 2px solid var(--primary); padding-bottom: 10px;
+            font-size: 1.3em;
+        }
+        .section h3 { font-size: 1.1em; margin-top: 20px; margin-bottom: 10px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+        th, td { padding: 8px 12px; text-align: left; border-bottom: 1px solid var(--border); }
+        th { background: var(--bg); font-weight: 600; font-size: 13px; }
+        td { font-size: 13px; }
+        .negative { color: var(--danger); font-weight: 600; }
+        .positive { color: var(--success); font-weight: 600; }
+        .callout {
+            padding: 12px 16px; border-radius: 6px; margin: 10px 0; font-size: 13px;
+        }
+        .callout-success {
+            background: #f0fdf4; border-left: 4px solid var(--success); color: #166534;
+        }
+        .callout-warning {
+            background: #fffbeb; border-left: 4px solid var(--warning); color: #92400e;
+        }
+        .callout-info {
+            background: #eff6ff; border-left: 4px solid var(--primary); color: #1e40af;
+        }
+        code {
+            background: #f1f5f9; padding: 2px 6px; border-radius: 3px; font-size: 12px;
+        }
+        .removed-list {
+            display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 4px; margin-top: 8px;
+        }
+        .removed-item { font-size: 12px; font-family: monospace; color: var(--danger); }
+        .footer {
+            text-align: center; color: var(--text-muted);
+            font-size: 12px; margin-top: 30px; padding: 10px;
+        }
+        .status-deployed {
+            color: var(--success); font-weight: 700;
+        }
+        .status-not-deployed {
+            color: var(--danger); font-weight: 700;
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>MAWC Conservative Retrain Report</h1>
+    <p class="subtitle">Phase 45 Structural Fix -- MarketAwareWinCalibrator Conservative Variant</p>
+
+    <div class="meta">
+        <span>Generated: {{ manifest.get('generated_at', 'N/A') }}</span>
+        <span>Version: {{ manifest.get('mawc_fix_version', 'N/A') }}</span>
+    </div>
+
+    <!-- Section 1: Configuration -->
+    <div class="section">
+        <h2>1. Configuration</h2>
+        <table>
+            <thead><tr><th>Parameter</th><th>Value</th></tr></thead>
+            <tbody>
+                <tr>
+                    <td>C Grid</td>
+                    <td><code>{{ manifest.get('C_grid', []) }}</code></td>
+                </tr>
+                <tr>
+                    <td>Feature Dimensions</td>
+                    <td>{{ manifest.get('original_feature_dim', '?') }} &rarr; {{ manifest.get('feature_dim', '?') }}</td>
+                </tr>
+                <tr>
+                    <td>Removed Interactions</td>
+                    <td>{{ manifest.get('removed_interactions', []) | length }} terms</td>
+                </tr>
+                <tr>
+                    <td>Years</td>
+                    <td>{{ manifest.get('years', []) | join(', ') }}</td>
+                </tr>
+                <tr>
+                    <td>Source Model Dir</td>
+                    <td><code>{{ manifest.get('source_model_dir', 'N/A') }}</code></td>
+                </tr>
+            </tbody>
+        </table>
+
+        <h3>Removed Interaction Terms ({{ manifest.get('removed_interactions', []) | length }})</h3>
+        <div class="removed-list">
+            {% for name in manifest.get('removed_interactions', []) %}
+            <span class="removed-item">{{ name }}</span>
+            {% endfor %}
+        </div>
+    </div>
+
+    <!-- Section 2: Per-Surface Results -->
+    <div class="section">
+        <h2>2. Per-Surface Results</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>Surface</th>
+                    <th>Best C</th>
+                    <th>Deployed</th>
+                    <th>Beta Market</th>
+                    <th>N Candidates</th>
+                    <th>N Passing</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for surface, data in per_surface.items() %}
+                {% set best_c = data.get('best_c') %}
+                {% set deployed = data.get('deployed', False) %}
+                {% set beta = data.get('beta_market_contribution') %}
+                <tr>
+                    <td>{{ surface }}</td>
+                    <td>{{ "%.4f" | format(best_c) if best_c is not none else "N/A" }}</td>
+                    <td class="{{ 'status-deployed' if deployed else 'status-not-deployed' }}">
+                        {{ "DEPLOYED" if deployed else "not_deployed" }}
+                    </td>
+                    <td>{{ "%.4f" | format(beta) if beta is not none else "N/A" }}</td>
+                    <td>{{ data.get('n_candidates', 0) }}</td>
+                    <td>{{ data.get('n_passing', 0) }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <!-- Section 3: Quality Gate Comparison -->
+    <div class="section">
+        <h2>3. Quality Gate Comparison</h2>
+        {% for result in retrain_results %}
+        {% set gate = result.best_candidate.quality_gate if result.best_candidate else None %}
+        {% if gate is none %}
+        <h3>{{ result.surface }}</h3>
+        <p style="color: var(--text-muted); font-style: italic;">No quality gate data (not_deployed)</p>
+        {% else %}
+        <h3>{{ result.surface }}</h3>
+        <table>
+            <thead>
+                <tr>
+                    <th>Metric</th>
+                    <th>Baseline</th>
+                    <th>Conservative</th>
+                    <th>Delta</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% set delta_brier = gate.overall_brier - gate.baseline_brier %}
+                <tr>
+                    <td>Brier</td>
+                    <td>{{ "%.4f" | format(gate.baseline_brier) }}</td>
+                    <td>{{ "%.4f" | format(gate.overall_brier) }}</td>
+                    <td class="{{ 'negative' if delta_brier > 0 else 'positive' }}">
+                        {{ "%+.4f" | format(delta_brier) }}
+                    </td>
+                    <td class="{{ 'positive' if gate.brier_non_degraded else 'negative' }}">
+                        {{ "PASS" if gate.brier_non_degraded else "FAIL" }}
+                    </td>
+                </tr>
+                {% set delta_logloss = gate.overall_logloss - gate.baseline_logloss %}
+                <tr>
+                    <td>Logloss</td>
+                    <td>{{ "%.4f" | format(gate.baseline_logloss) }}</td>
+                    <td>{{ "%.4f" | format(gate.overall_logloss) }}</td>
+                    <td class="{{ 'negative' if delta_logloss > 0 else 'positive' }}">
+                        {{ "%+.4f" | format(delta_logloss) }}
+                    </td>
+                    <td class="{{ 'positive' if gate.logloss_non_degraded else 'negative' }}">
+                        {{ "PASS" if gate.logloss_non_degraded else "FAIL" }}
+                    </td>
+                </tr>
+                {% set delta_ece = gate.overall_ece - gate.baseline_ece %}
+                <tr>
+                    <td>ECE</td>
+                    <td>{{ "%.4f" | format(gate.baseline_ece) }}</td>
+                    <td>{{ "%.4f" | format(gate.overall_ece) }}</td>
+                    <td class="{{ 'negative' if delta_ece > 0 else 'positive' }}">
+                        {{ "%+.4f" | format(delta_ece) }}
+                    </td>
+                    <td class="{{ 'positive' if gate.ece_non_degraded else 'negative' }}">
+                        {{ "PASS" if gate.ece_non_degraded else "FAIL" }}
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+
+        {# Year-level sub-table #}
+        {% if gate.year_level_metrics %}
+        <h4>Year-Level Metrics ({{ result.surface }})</h4>
+        <table>
+            <thead>
+                <tr><th>Year</th><th>Brier</th><th>Logloss</th><th>ECE</th></tr>
+            </thead>
+            <tbody>
+                {% for yr, metrics in gate.year_level_metrics.items() | sort %}
+                <tr>
+                    <td>{{ yr }}</td>
+                    <td>{{ "%.4f" | format(metrics.get('brier', 0)) }}</td>
+                    <td>{{ "%.4f" | format(metrics.get('logloss', 0)) }}</td>
+                    <td>{{ "%.4f" | format(metrics.get('ece', 0)) }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        <p>Year-level passed:
+            <span class="{{ 'positive' if gate.year_level_passed else 'negative' }}">
+                {{ "Yes" if gate.year_level_passed else "No" }}
+            </span>
+        </p>
+        {% endif %}
+        {% endif %}
+        {% endfor %}
+    </div>
+
+    <!-- Section 4: Favorite Band Guard (Odds 1-3) -->
+    <div class="section">
+        <h2>4. Favorite Band Guard (Odds 1-3)</h2>
+        {% for result in retrain_results %}
+        {% set gate = result.best_candidate.quality_gate if result.best_candidate else None %}
+        {% if gate is none %}
+        <h3>{{ result.surface }}</h3>
+        <p style="color: var(--text-muted); font-style: italic;">No data (not_deployed)</p>
+        {% else %}
+        {% set fbg = gate.favorite_band_guard %}
+        <h3>{{ result.surface }}</h3>
+        <table>
+            <thead>
+                <tr>
+                    <th>Guard Metric</th>
+                    <th>Baseline</th>
+                    <th>Conservative</th>
+                    <th>Threshold</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>ECE</td>
+                    <td>{{ "%.4f" | format(fbg.ece_baseline) }}</td>
+                    <td>{{ "%.4f" | format(fbg.ece_conservative) }}</td>
+                    <td>delta &lt;= {{ "%.4f" | format(fbg.ece_baseline * 1.10) }}</td>
+                    <td class="{{ 'positive' if fbg.ece_passed else 'negative' }}">
+                        {{ "PASS" if fbg.ece_passed else "FAIL" }}
+                    </td>
+                </tr>
+                <tr>
+                    <td>P Compression Ratio</td>
+                    <td>-</td>
+                    <td>{{ "%.4f" | format(fbg.p_compression_ratio) }}</td>
+                    <td>&gt;= 0.90</td>
+                    <td class="{{ 'positive' if fbg.p_compression_passed else 'negative' }}">
+                        {{ "PASS" if fbg.p_compression_passed else "FAIL" }}
+                    </td>
+                </tr>
+                <tr>
+                    <td>EV Pass Rate</td>
+                    <td>{{ "%.4f" | format(fbg.ev_pass_rate_baseline) }}</td>
+                    <td>{{ "%.4f" | format(fbg.ev_pass_rate_conservative) }}</td>
+                    <td>&gt;= {{ "%.4f" | format(fbg.ev_pass_rate_baseline * 0.90) }}</td>
+                    <td class="{{ 'positive' if fbg.ev_pass_rate_passed else 'negative' }}">
+                        {{ "PASS" if fbg.ev_pass_rate_passed else "FAIL" }}
+                    </td>
+                </tr>
+                <tr style="font-weight: 600;">
+                    <td>Overall</td>
+                    <td></td><td></td><td></td>
+                    <td class="{{ 'positive' if fbg.overall_passed else 'negative' }}">
+                        {{ "PASS" if fbg.overall_passed else "FAIL" }}
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+        <p style="font-size: 12px; color: var(--text-muted);">
+            N horses in odds 1-3: {{ fbg.n_horses }}
+        </p>
+        {% endif %}
+        {% endfor %}
+    </div>
+
+    <!-- Section 5: C Grid Candidates -->
+    <div class="section">
+        <h2>5. C Grid Candidates</h2>
+        {% for result in retrain_results %}
+        <h3>{{ result.surface }}</h3>
+        <table>
+            <thead>
+                <tr>
+                    <th>C Value</th>
+                    <th>Brier</th>
+                    <th>Logloss</th>
+                    <th>ECE</th>
+                    <th>Gate Status</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for cand in result.all_candidates %}
+                {% set g = cand.quality_gate %}
+                <tr>
+                    <td>{{ "%.4f" | format(cand.c_value) }}</td>
+                    <td>{{ "%.4f" | format(g.overall_brier) }}</td>
+                    <td>{{ "%.4f" | format(g.overall_logloss) }}</td>
+                    <td>{{ "%.4f" | format(g.overall_ece) }}</td>
+                    <td class="{{ 'positive' if g.all_gates_passed else 'negative' }}">
+                        {{ "PASS" if g.all_gates_passed else "FAIL" }}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% endfor %}
+    </div>
+
+    <!-- Footer: Phase 46 Next Steps -->
+    <div class="section">
+        <h2>Phase 46 Next Steps</h2>
+        <div class="callout callout-info">
+            <strong>Shadow Comparison Command:</strong><br>
+            <code>
+                python scripts/run_shadow_comparison.py \
+                --baseline-root data/models-backtest \
+                --shadow-root {{ manifest.get('target_variant_dir', 'data/models-backtest-mawc-conservative') }} \
+                --folds 2024 2025 --report
+            </code>
+        </div>
+    </div>
+
+    <div class="footer">
+        <p>Generated by MawcConservativeReportGenerator v1.0 (Phase 45)</p>
+    </div>
+</div>
+</body>
+</html>

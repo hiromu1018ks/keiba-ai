@@ -902,3 +902,87 @@ class TestCLIHelp:
         assert result.returncode == 0
         assert "MAWC Conservative Retrain" in result.stdout
 
+
+# ---------------------------------------------------------------------------
+# Task 2 Tests (Plan 02): HTML report generator
+# ---------------------------------------------------------------------------
+
+
+class TestReportGenerator:
+    """Test MawcConservativeReportGenerator HTML output."""
+
+    def _setup_results(
+        self, tmp_path: Path,
+    ) -> tuple[dict, list[ConservativeRetrainResult]]:
+        """Create manifest and retrain results for report generation."""
+        from models.mawc_conservative_retrainer import MawcConservativeRetrainer
+
+        turf_df = _make_oof_df(n=100, surface="turf")
+        dirt_df = _make_oof_df(n=80, surface="dirt")
+        combined = pd.concat([turf_df, dirt_df], ignore_index=True)
+        oof_path = tmp_path / "oof_predictions.parquet"
+        combined.to_parquet(oof_path)
+
+        source_dir = _setup_source_year_dir(tmp_path, year=2024)
+        target_root = tmp_path / "models-backtest-mawc-conservative"
+
+        trainer = MawcConservativeRetrainer()
+        manifest = trainer.run_full_pipeline(
+            oof_path=oof_path,
+            source_model_dir=source_dir.parent,
+            target_root=target_root,
+            years=[2024],
+        )
+
+        # Collect results for report
+        turf_prepared, dirt_prepared = trainer.prepare_oof_data(oof_path)
+        surface_dfs = {"turf": turf_prepared, "dirt": dirt_prepared}
+        all_results: list[ConservativeRetrainResult] = []
+        for surface in ["turf", "dirt"]:
+            baseline_path = source_dir / f"market_aware_win_calibrator_{surface}.joblib"
+            if baseline_path.is_file():
+                result = trainer.run_retrain(
+                    surface, surface_dfs[surface], baseline_path,
+                )
+                all_results.append(result)
+
+        return manifest, all_results
+
+    def test_report_generator_html(self, tmp_path: Path) -> None:
+        """MawcConservativeReportGenerator.generate() returns non-empty HTML."""
+        from models.mawc_conservative_report import MawcConservativeReportGenerator
+
+        manifest, results = self._setup_results(tmp_path)
+        output_dir = tmp_path / "report_output"
+        gen = MawcConservativeReportGenerator(output_dir)
+        report_path = gen.generate(manifest, results)
+
+        assert report_path.is_file()
+        html = report_path.read_text(encoding="utf-8")
+        assert len(html) > 0
+        # Verify section headings
+        assert "Configuration" in html
+        assert "Quality Gate Comparison" in html
+        assert "Favorite Band Guard" in html
+        assert "C Grid Candidates" in html
+        assert "Per-Surface Results" in html
+        # Verify Phase 46 next steps
+        assert "Phase 46 Next Steps" in html
+        assert "run_shadow_comparison.py" in html
+
+    def test_report_has_css_classes(self, tmp_path: Path) -> None:
+        """HTML report contains negative/positive CSS classes."""
+        from models.mawc_conservative_report import MawcConservativeReportGenerator
+
+        manifest, results = self._setup_results(tmp_path)
+        output_dir = tmp_path / "report_output2"
+        gen = MawcConservativeReportGenerator(output_dir)
+        report_path = gen.generate(manifest, results)
+
+        html = report_path.read_text(encoding="utf-8")
+        # Verify CSS classes exist
+        assert ".negative" in html
+        assert ".positive" in html
+        # Verify at least one negative or positive class is used
+        assert 'class="positive"' in html or 'class="negative"' in html
+
