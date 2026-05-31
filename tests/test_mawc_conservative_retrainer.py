@@ -633,7 +633,8 @@ class TestCreateConservativeVariant:
                     quality_gate=failing_gate, beta_market_contribution=0.30,
                 ),
             ],
-            deployed=False, feature_names=[f"f{i}" for i in range(36)],
+            deployed=False, deployment_status="rejected",
+            feature_names=[f"f{i}" for i in range(36)],
             n_samples=100, removed_interactions=MawcConservativeRetrainer.REMOVED_INTERACTIONS,
             manifest_metadata={"surface": "turf", "deployed": False},
         )
@@ -731,7 +732,8 @@ class TestGenerateManifest:
                     beta_market_contribution=0.30,
                 ),
             ],
-            deployed=False, feature_names=[f"f{i}" for i in range(36)],
+            deployed=False, deployment_status="rejected",
+            feature_names=[f"f{i}" for i in range(36)],
             n_samples=100, removed_interactions=MawcConservativeRetrainer.REMOVED_INTERACTIONS,
             manifest_metadata={"surface": "dirt", "year": 2024, "deployed": False},
         )
@@ -968,4 +970,248 @@ class TestReportGenerator:
         assert ".positive" in html
         # Verify at least one negative or positive class is used
         assert 'class="positive"' in html or 'class="negative"' in html
+
+
+# ---------------------------------------------------------------------------
+# Phase 45/46 fix tests: shadow_only candidate handling
+# ---------------------------------------------------------------------------
+
+
+class TestShadowOnlyCandidateHandling:
+    """Tests for shadow_only deployment status and candidate saving.
+
+    Verifies that candidates which fail the ECE gate but pass sanity guards
+    are saved as shadow_only and can be used for Shadow Comparison.
+    """
+
+    def test_ece_fail_brier_logloss_pass_saves_shadow_only(self) -> None:
+        """Candidate with ECE fail but Brier/Logloss/fav-band pass → shadow_only."""
+        # ECE fails (0.08 > 0.05 * 1.10 = 0.055)
+        gate = QualityGateResult(
+            overall_brier=0.15, overall_logloss=0.45, overall_ece=0.08,
+            baseline_brier=0.20, baseline_logloss=0.50, baseline_ece=0.05,
+            brier_non_degraded=True, logloss_non_degraded=True,
+            ece_non_degraded=False,  # ECE fails
+            favorite_band_guard=FavoriteBandGuardResult(
+                odds_band="1-3", n_horses=100,
+                ece_baseline=0.04, ece_conservative=0.06, ece_delta=0.02,
+                ece_passed=True,
+                p_compression_ratio=0.95, p_compression_passed=True,
+                ev_pass_rate_baseline=0.5, ev_pass_rate_conservative=0.48,
+                ev_pass_rate_passed=True,
+                overall_passed=True,
+            ),
+            year_level_metrics={}, year_level_passed=True,
+            all_gates_passed=False,  # ECE fails → all_gates = False
+        )
+
+        assert gate.is_shadow_candidate is True
+        assert gate.all_gates_passed is False
+
+    def test_brier_fail_rejected(self) -> None:
+        """Candidate with Brier degradation → rejected."""
+        gate = QualityGateResult(
+            overall_brier=0.25, overall_logloss=0.60, overall_ece=0.08,
+            baseline_brier=0.20, baseline_logloss=0.50, baseline_ece=0.05,
+            brier_non_degraded=False, logloss_non_degraded=False,
+            ece_non_degraded=False,
+            favorite_band_guard=FavoriteBandGuardResult(
+                odds_band="1-3", n_horses=100,
+                ece_baseline=0.04, ece_conservative=0.08, ece_delta=0.04,
+                ece_passed=False,
+                p_compression_ratio=0.85, p_compression_passed=False,
+                ev_pass_rate_baseline=0.5, ev_pass_rate_conservative=0.3,
+                ev_pass_rate_passed=False,
+                overall_passed=False,
+            ),
+            year_level_metrics={}, year_level_passed=False,
+            all_gates_passed=False,
+        )
+
+        assert gate.is_shadow_candidate is False
+
+    def test_select_best_for_shadow_returns_shadow_only(self) -> None:
+        """select_best_for_shadow returns shadow_only when ECE fails."""
+        shadow_gate = QualityGateResult(
+            overall_brier=0.15, overall_logloss=0.45, overall_ece=0.08,
+            baseline_brier=0.20, baseline_logloss=0.50, baseline_ece=0.05,
+            brier_non_degraded=True, logloss_non_degraded=True,
+            ece_non_degraded=False,
+            favorite_band_guard=FavoriteBandGuardResult(
+                odds_band="1-3", n_horses=100,
+                ece_baseline=0.04, ece_conservative=0.06, ece_delta=0.02,
+                ece_passed=True,
+                p_compression_ratio=0.95, p_compression_passed=True,
+                ev_pass_rate_baseline=0.5, ev_pass_rate_conservative=0.48,
+                ev_pass_rate_passed=True,
+                overall_passed=True,
+            ),
+            year_level_metrics={}, year_level_passed=True,
+            all_gates_passed=False,
+        )
+        candidates = [
+            CGridCandidateResult(
+                c_value=0.003, mawc=_make_fitted_mawc(n_features=36),
+                quality_gate=shadow_gate, beta_market_contribution=0.30,
+            ),
+            CGridCandidateResult(
+                c_value=0.005, mawc=_make_fitted_mawc(n_features=36),
+                quality_gate=shadow_gate, beta_market_contribution=0.35,
+            ),
+        ]
+
+        trainer = MawcConservativeRetrainer()
+        best, status = trainer.select_best_for_shadow(candidates)
+
+        assert best is not None
+        assert status == "shadow_only"
+        assert best.c_value == 0.003  # Minimum C among shadow candidates
+
+    def test_select_best_for_shadow_all_rejected(self) -> None:
+        """select_best_for_shadow returns None when all candidates rejected."""
+        rejected_gate = QualityGateResult(
+            overall_brier=0.25, overall_logloss=0.60, overall_ece=0.08,
+            baseline_brier=0.20, baseline_logloss=0.50, baseline_ece=0.05,
+            brier_non_degraded=False, logloss_non_degraded=False,
+            ece_non_degraded=False,
+            favorite_band_guard=FavoriteBandGuardResult(
+                odds_band="1-3", n_horses=100,
+                ece_baseline=0.04, ece_conservative=0.08, ece_delta=0.04,
+                ece_passed=False,
+                p_compression_ratio=0.85, p_compression_passed=False,
+                ev_pass_rate_baseline=0.5, ev_pass_rate_conservative=0.3,
+                ev_pass_rate_passed=False,
+                overall_passed=False,
+            ),
+            year_level_metrics={}, year_level_passed=False,
+            all_gates_passed=False,
+        )
+        candidates = [
+            CGridCandidateResult(
+                c_value=0.003, mawc=_make_fitted_mawc(n_features=36),
+                quality_gate=rejected_gate, beta_market_contribution=0.30,
+            ),
+        ]
+
+        trainer = MawcConservativeRetrainer()
+        best, status = trainer.select_best_for_shadow(candidates)
+
+        assert best is None
+        assert status == "rejected"
+
+    def test_shadow_only_candidate_saved_to_variant(self, tmp_path: Path) -> None:
+        """shadow_only candidate MAWC is saved to variant directory."""
+        source_dir = _setup_source_year_dir(tmp_path)
+        target_root = tmp_path / "models-backtest-mawc-conservative"
+
+        # Create shadow_only result
+        shadow_gate = QualityGateResult(
+            overall_brier=0.15, overall_logloss=0.45, overall_ece=0.08,
+            baseline_brier=0.20, baseline_logloss=0.50, baseline_ece=0.05,
+            brier_non_degraded=True, logloss_non_degraded=True,
+            ece_non_degraded=False,
+            favorite_band_guard=FavoriteBandGuardResult(
+                odds_band="1-3", n_horses=100,
+                ece_baseline=0.04, ece_conservative=0.06, ece_delta=0.02,
+                ece_passed=True,
+                p_compression_ratio=0.95, p_compression_passed=True,
+                ev_pass_rate_baseline=0.5, ev_pass_rate_conservative=0.48,
+                ev_pass_rate_passed=True,
+                overall_passed=True,
+            ),
+            year_level_metrics={}, year_level_passed=True,
+            all_gates_passed=False,
+        )
+        result = ConservativeRetrainResult(
+            surface="turf", best_c=0.003,
+            best_candidate=CGridCandidateResult(
+                c_value=0.003, mawc=_make_fitted_mawc(n_features=36),
+                quality_gate=shadow_gate, beta_market_contribution=0.30,
+            ),
+            all_candidates=[
+                CGridCandidateResult(
+                    c_value=0.003, mawc=_make_fitted_mawc(n_features=36),
+                    quality_gate=shadow_gate, beta_market_contribution=0.30,
+                ),
+            ],
+            deployed=False, deployment_status="shadow_only",
+            feature_names=[f"f{i}" for i in range(36)],
+            n_samples=100, removed_interactions=MawcConservativeRetrainer.REMOVED_INTERACTIONS,
+            manifest_metadata={"surface": "turf", "deployed": False},
+        )
+
+        trainer = MawcConservativeRetrainer()
+        target_dir = trainer.create_conservative_variant(
+            [result], source_dir, target_root, year=2024,
+        )
+
+        # MAWC joblib should be saved (not original)
+        mawc_path = target_dir / "market_aware_win_calibrator_turf.joblib"
+        assert mawc_path.is_file()
+
+        # Verify it's the shadow_only MAWC (36-dim features)
+        from models.market_aware_win_calibrator import MarketAwareWinCalibrator
+        loaded = MarketAwareWinCalibrator.load(mawc_path)
+        assert len(loaded.feature_names) == 36
+        assert loaded.training_summary.get("deployment_status") == "shadow_only"
+
+    def test_manifest_records_deployment_status(self, tmp_path: Path) -> None:
+        """Manifest records deployment_status and shadow_candidate_saved."""
+        source_dir = _setup_source_year_dir(tmp_path)
+        df = _make_oof_df(n=50, surface="turf")
+        df["p_model"] = df["p_win_corrected"]
+        df["p_market"] = np.clip(1.0 / df["tanodds"].values, 0.01, 0.99)
+        df["p_win_race_rank_pct"] = df.groupby("race_id", observed=True)["p_model"].rank(
+            pct=True, method="min", ascending=False,
+        )
+        df["popularity_rank_pct"] = df["popularity_rank"] / df["field_size"].clip(lower=1)
+
+        baseline_path = source_dir / "market_aware_win_calibrator_turf.joblib"
+        trainer = MawcConservativeRetrainer()
+        result = trainer.run_retrain("turf", df, baseline_path, year=2024)
+
+        manifest = trainer.generate_manifest(
+            [result], source_model_dir=source_dir.parent,
+            target_root=tmp_path / "conservative", years=[2024],
+        )
+
+        turf_entry = manifest["per_year_surface"]["2024"]["turf"]
+        assert "deployment_status" in turf_entry
+        assert turf_entry["deployment_status"] in ("deployed", "shadow_only", "rejected")
+        assert "shadow_candidate_saved" in turf_entry
+        assert isinstance(turf_entry["shadow_candidate_saved"], bool)
+
+    def test_manifest_records_oof_date_range(self, tmp_path: Path) -> None:
+        """Manifest records oof_date_range when provided."""
+        manifest = MawcConservativeRetrainer().generate_manifest(
+            [], source_model_dir=Path("data/models-backtest"),
+            target_root=Path("data/conservative"), years=[2024],
+            oof_date_range={"min": "2020-01-01", "max": "2024-12-31", "n_rows": 50000},
+        )
+        assert "oof_date_range" in manifest
+        assert manifest["oof_date_range"]["min"] == "2020-01-01"
+        assert manifest["oof_date_range"]["max"] == "2024-12-31"
+
+    def test_full_pipeline_sets_deployment_status(self, tmp_path: Path) -> None:
+        """run_full_pipeline sets deployment_status on all results."""
+        turf_df = _make_oof_df(n=100, surface="turf")
+        dirt_df = _make_oof_df(n=80, surface="dirt")
+        combined = pd.concat([turf_df, dirt_df], ignore_index=True)
+        oof_path = tmp_path / "oof_predictions.parquet"
+        combined.to_parquet(oof_path)
+
+        source_dir = _setup_source_year_dir(tmp_path, year=2024)
+        target_root = tmp_path / "models-backtest-mawc-conservative"
+
+        trainer = MawcConservativeRetrainer()
+        _, all_results = trainer.run_full_pipeline(
+            oof_path=oof_path,
+            source_model_dir=source_dir.parent,
+            target_root=target_root,
+            years=[2024],
+        )
+
+        for result in all_results:
+            assert hasattr(result, "deployment_status")
+            assert result.deployment_status in ("deployed", "shadow_only", "rejected")
 

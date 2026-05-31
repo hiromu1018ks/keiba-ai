@@ -107,6 +107,23 @@ class QualityGateResult:
     year_level_passed: bool
     all_gates_passed: bool
 
+    @property
+    def is_shadow_candidate(self) -> bool:
+        """Sanity guard for shadow comparison (ECE excluded).
+
+        A candidate qualifies for shadow_only when Brier/logloss are non-degraded
+        and the favorite band guard (p_compression + EV pass rate) passes.
+        ECE is intentionally excluded because the baseline ECE (~0.003) with a 10%
+        relative tolerance makes the gate structurally impossible for conservative
+        candidates (ECE 0.012-0.023).  Final ECE evaluation belongs in Phase 46
+        DeploymentGateEvaluator.
+        """
+        return (
+            self.brier_non_degraded
+            and self.logloss_non_degraded
+            and self.favorite_band_guard.overall_passed
+        )
+
 
 @dataclass
 class CGridCandidateResult:
@@ -127,6 +144,7 @@ class ConservativeRetrainResult:
     best_candidate: CGridCandidateResult | None
     all_candidates: list[CGridCandidateResult]
     deployed: bool  # False if all candidates failed
+    deployment_status: str  # "deployed" | "shadow_only" | "rejected"
     feature_names: list[str]  # 36-dim feature names
     n_samples: int
     removed_interactions: list[str]  # the 15 removed logit_model_x_* names
@@ -554,6 +572,33 @@ class MawcConservativeRetrainer:
         # Return minimum C (strongest regularization) among passing candidates
         return min(passing, key=lambda c: c.c_value)
 
+    def select_best_for_shadow(
+        self,
+        candidates: list[CGridCandidateResult],
+    ) -> tuple[CGridCandidateResult | None, str]:
+        """Select best candidate with 3-level deployment status.
+
+        Priority:
+        1. "deployed" -- all gates passed (ECE + Brier + Logloss + fav band)
+        2. "shadow_only" -- sanity guards passed (Brier + Logloss + fav band, ECE excluded)
+        3. "rejected" -- even sanity guards failed
+
+        Returns:
+            (best_candidate, deployment_status).  candidate is None when rejected.
+        """
+        # 1. Try fully passing candidates
+        passing = [c for c in candidates if c.quality_gate.all_gates_passed]
+        if passing:
+            return min(passing, key=lambda c: c.c_value), "deployed"
+
+        # 2. Try shadow candidates (ECE excluded from sanity guard)
+        shadow = [c for c in candidates if c.quality_gate.is_shadow_candidate]
+        if shadow:
+            return min(shadow, key=lambda c: c.c_value), "shadow_only"
+
+        # 3. All rejected
+        return None, "rejected"
+
     # ------------------------------------------------------------------
     # Full retrain orchestration
     # ------------------------------------------------------------------
@@ -582,8 +627,8 @@ class MawcConservativeRetrainer:
         # C grid search
         candidates = self.retrain_with_c_grid(df, baseline_mawc)
 
-        # Select best C
-        best = self.select_best_c(candidates)
+        # Select best candidate with 3-level deployment status
+        best, deployment_status = self.select_best_for_shadow(candidates)
 
         # Build manifest metadata
         n_passing = sum(1 for c in candidates if c.quality_gate.all_gates_passed)
@@ -593,7 +638,8 @@ class MawcConservativeRetrainer:
             "best_c": best.c_value if best else None,
             "n_candidates": len(candidates),
             "n_passing": n_passing,
-            "deployed": best is not None,
+            "deployed": deployment_status == "deployed",
+            "deployment_status": deployment_status,
             "removed_interactions": self.REMOVED_INTERACTIONS,
             "feature_dim": 36,
         }
@@ -603,7 +649,8 @@ class MawcConservativeRetrainer:
             best_c=best.c_value if best else None,
             best_candidate=best,
             all_candidates=candidates,
-            deployed=best is not None,
+            deployed=deployment_status == "deployed",
+            deployment_status=deployment_status,
             feature_names=candidates[0].mawc.feature_names if candidates else [],
             n_samples=len(df),
             removed_interactions=list(self.REMOVED_INTERACTIONS),
@@ -647,12 +694,19 @@ class MawcConservativeRetrainer:
         # Copy entire directory (dirs_exist_ok allows re-copy for multi-surface)
         shutil.copytree(source_year_dir, target_dir, dirs_exist_ok=True)
 
-        # Replace MAWC joblib only for deployed surfaces
+        # Replace MAWC joblib for deployed and shadow_only surfaces
         for result in retrain_results:
-            if result.deployed and result.best_candidate is not None:
+            has_candidate = (
+                result.deployment_status in ("deployed", "shadow_only")
+                and result.best_candidate is not None
+            )
+            if has_candidate:
                 mawc = result.best_candidate.mawc
                 # Add deployment metadata to training_summary
-                mawc.training_summary["deployment_status"] = "deployed_conservative"
+                mawc.training_summary["deployment_status"] = (
+                    "deployed_conservative" if result.deployment_status == "deployed"
+                    else "shadow_only"
+                )
                 mawc.training_summary["fix_version"] = "45-conservative"
                 mawc.training_summary["removed_interactions"] = result.removed_interactions
                 mawc.training_summary["original_feature_dim"] = 51
@@ -664,12 +718,13 @@ class MawcConservativeRetrainer:
                 mawc_path = target_dir / f"market_aware_win_calibrator_{result.surface}.joblib"
                 mawc.save(mawc_path)
                 logger.info(
-                    "Saved conservative MAWC for surface=%s, C=%.4f to %s",
-                    result.surface, result.best_c, mawc_path,
+                    "Saved %s MAWC for surface=%s, C=%.4f to %s",
+                    result.deployment_status, result.surface, result.best_c, mawc_path,
                 )
             else:
                 logger.warning(
-                    "Surface %s: not_deployed, keeping original MAWC", result.surface,
+                    "Surface %s: %s, keeping original MAWC",
+                    result.surface, result.deployment_status,
                 )
 
         # Verify meta.json exists (ModelLoader requirement)
@@ -688,6 +743,7 @@ class MawcConservativeRetrainer:
         source_model_dir: Path,
         target_root: Path,
         years: list[int],
+        oof_date_range: dict[str, str] | None = None,
     ) -> dict:
         """Generate manifest JSON dict for Phase 46 consumption.
 
@@ -701,6 +757,7 @@ class MawcConservativeRetrainer:
             source_model_dir: e.g., Path("data/models-backtest").
             target_root: e.g., Path("data/models-backtest-mawc-conservative").
             years: Years included in this variant.
+            oof_date_range: Optional {"min": "YYYY-MM-DD", "max": "YYYY-MM-DD"}.
 
         Returns:
             JSON-serializable manifest dict.
@@ -712,6 +769,8 @@ class MawcConservativeRetrainer:
             surface_entry = {
                 "best_c": result.best_c,
                 "deployed": result.deployed,
+                "deployment_status": result.deployment_status,
+                "shadow_candidate_saved": result.deployment_status in ("deployed", "shadow_only"),
                 "n_candidates": len(result.all_candidates),
                 "n_passing": sum(
                     1 for c in result.all_candidates if c.quality_gate.all_gates_passed
@@ -737,7 +796,7 @@ class MawcConservativeRetrainer:
                 per_year_surface[year_key] = {}
             per_year_surface[year_key][result.surface] = surface_entry
 
-        manifest = {
+        manifest: dict = {
             "mawc_fix_version": "45-conservative",
             "source_model_dir": str(source_model_dir),
             "target_variant_dir": str(target_root),
@@ -749,6 +808,9 @@ class MawcConservativeRetrainer:
             "per_year_surface": per_year_surface,
             "generated_at": datetime.now(timezone.utc).isoformat(),
         }
+
+        if oof_date_range:
+            manifest["oof_date_range"] = oof_date_range
 
         return manifest
 
@@ -783,6 +845,21 @@ class MawcConservativeRetrainer:
         # Step 1: Prepare OOF data
         turf_df, dirt_df = self.prepare_oof_data(oof_path)
         surface_dfs = {"turf": turf_df, "dirt": dirt_df}
+
+        # Record OOF date range for manifest transparency
+        oof_date_range: dict[str, str] | None = None
+        all_oof = pd.concat([turf_df, dirt_df], ignore_index=True)
+        if "race_date" in all_oof.columns:
+            dates = pd.to_datetime(all_oof["race_date"])
+            oof_date_range = {
+                "min": str(dates.min().date()),
+                "max": str(dates.max().date()),
+                "n_rows": len(all_oof),
+            }
+            logger.info(
+                "OOF date range: %s to %s (%d rows)",
+                oof_date_range["min"], oof_date_range["max"], len(all_oof),
+            )
 
         all_results: list[ConservativeRetrainResult] = []
 
@@ -823,7 +900,10 @@ class MawcConservativeRetrainer:
                     )
 
         # Step 4: Generate manifest
-        manifest = self.generate_manifest(all_results, source_model_dir, target_root, years)
+        manifest = self.generate_manifest(
+            all_results, source_model_dir, target_root, years,
+            oof_date_range=oof_date_range,
+        )
 
         return manifest, all_results
 
@@ -898,14 +978,22 @@ def _write_retrain_summary(
     lines.append("## Per-Surface Results")
     lines.append("")
     per_year_surface = manifest.get("per_year_surface", {})
-    lines.append("| Year | Surface | Best C | Deployed | Beta Market | N Candidates | N Passing |")
-    lines.append("|------|---------|--------|----------|-------------|-------------|-----------|")
+    lines.append(
+        "| Year | Surface | Best C | Deployed (Status) "
+        "| Beta Market | N Cands | N Pass | Shadow |"
+    )
+    lines.append(
+        "|------|---------|--------|-------------------"
+        "|-------------|---------|--------|---------|"
+    )
     for year_key in sorted(per_year_surface.keys()):
         for surface, data in per_year_surface[year_key].items():
             best_c = data.get("best_c", "N/A")
             if best_c is not None:
                 best_c = f"{best_c:.4f}"
             deployed = data.get("deployed", False)
+            dep_status = data.get("deployment_status", "unknown")
+            shadow_saved = data.get("shadow_candidate_saved", False)
             beta = data.get("beta_market_contribution")
             beta_str = f"{beta:.4f}" if beta is not None else "N/A"
             n_cand = data.get("n_candidates", 0)
@@ -913,7 +1001,8 @@ def _write_retrain_summary(
             dep_str = "**Yes**" if deployed else "No"
             lines.append(
                 f"| {year_key} | {surface} | {best_c} | "
-                f"{dep_str} | {beta_str} | {n_cand} | {n_pass} |"
+                f"{dep_str} ({dep_status}) | {beta_str} | {n_cand} | {n_pass} | "
+                f"{'Yes' if shadow_saved else 'No'} |"
             )
     lines.append("")
 

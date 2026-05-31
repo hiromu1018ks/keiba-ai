@@ -71,8 +71,9 @@ class QualityGateOrchestrator:
     Per D-03: 3-label framework. Per D-04: no retry.
     """
 
-    BASELINE_ROI_THRESHOLD: float = 87.8
-    RECOVERED_THRESHOLD: float = 90.0
+    # ROI thresholds in decimal form (e.g., 87.8% -> -0.122, 90% -> -0.10)
+    BASELINE_ROI_DECIMAL: float = -0.122
+    RECOVERED_ROI_DECIMAL: float = -0.10
     BET_COUNT_RATIO_THRESHOLD: float = 0.95
 
     def _should_run(self, output_path: Path, force: bool) -> bool:
@@ -84,18 +85,27 @@ class QualityGateOrchestrator:
             return False
         return True
 
-    def _check_manifest_deployed(self, manifest_path: Path) -> bool:
-        """Check if at least one surface is deployed in manifest.json."""
+    def _check_manifest_has_candidates(self, manifest_path: Path) -> bool:
+        """Check if at least one surface has a saved shadow candidate.
+
+        A candidate is usable when deployment_status is 'deployed' or 'shadow_only'.
+        'rejected' surfaces are not usable for shadow comparison.
+        """
         with open(manifest_path, encoding="utf-8") as f:
             manifest = json.load(f)
 
         per_year_surface = manifest.get("per_year_surface", {})
         for year_data in per_year_surface.values():
             for surface_data in year_data.values():
-                if surface_data.get("deployed", False):
+                status = surface_data.get("deployment_status", "")
+                shadow_saved = surface_data.get("shadow_candidate_saved", False)
+                if status in ("deployed", "shadow_only") or shadow_saved:
                     return True
 
-        logger.error("No surfaces deployed in conservative variant")
+        logger.error(
+            "No shadow candidates saved in conservative variant. "
+            "All surfaces rejected -- Stage 2 cannot proceed."
+        )
         return False
 
     def _run_stage1(self, args: argparse.Namespace) -> Path:
@@ -128,8 +138,8 @@ class QualityGateOrchestrator:
             logger.error("Stage 1 FAILED: manifest.json not created")
             sys.exit(1)
 
-        if not self._check_manifest_deployed(manifest_path):
-            logger.error("Stage 1 FAILED: No surfaces deployed")
+        if not self._check_manifest_has_candidates(manifest_path):
+            logger.error("Stage 1 FAILED: No shadow candidates saved")
             sys.exit(1)
 
         logger.info("Stage 1 COMPLETE: %s", manifest_path)
@@ -164,6 +174,10 @@ class QualityGateOrchestrator:
         if not self._should_run(result_path, args.force):
             return result_path
 
+        # Remove stale result when --force to prevent stale-success
+        if args.force and result_path.exists():
+            result_path.unlink(missing_ok=True)
+
         cmd = [
             sys.executable,
             "scripts/run_shadow_comparison.py",
@@ -179,7 +193,11 @@ class QualityGateOrchestrator:
             cmd.append("--report")
 
         # Long-running: do NOT capture output so user sees progress
-        subprocess.run(cmd, cwd=ROOT)  # noqa: S603
+        proc = subprocess.run(cmd, cwd=ROOT)  # noqa: S603
+
+        if proc.returncode != 0:
+            logger.error("Shadow Comparison FAILED: exit code %d", proc.returncode)
+            sys.exit(1)
 
         if not result_path.exists():
             logger.error("Shadow Comparison FAILED: result not created")
@@ -223,10 +241,13 @@ class QualityGateOrchestrator:
         }
 
     def _compute_roi_trend(self, shadow_result: dict[str, Any]) -> str:
-        """Compute ROI trend label from shadow comparison result."""
+        """Compute ROI trend label from shadow comparison result.
+
+        ROI from ShadowComparison is a decimal (e.g., -0.04 = 96% recovery).
+        Thresholds: recovered >= -0.10 (90%), weak_recovery >= -0.122 (87.8%).
+        """
         try:
             overall = shadow_result["overall"]["metrics"]
-            # Try shadow variant name first, then generic
             shadow_roi = None
             for key in ("mawc_conservative", "shadow"):
                 if key in overall:
@@ -236,9 +257,9 @@ class QualityGateOrchestrator:
                 logger.warning("Could not extract shadow ROI from result")
                 return "unknown"
 
-            if shadow_roi >= self.RECOVERED_THRESHOLD:
+            if shadow_roi >= self.RECOVERED_ROI_DECIMAL:
                 return "recovered"
-            if shadow_roi >= self.BASELINE_ROI_THRESHOLD:
+            if shadow_roi >= self.BASELINE_ROI_DECIMAL:
                 return "weak_recovery"
             return "not_recovered"
         except (KeyError, TypeError) as e:
@@ -451,6 +472,14 @@ class QualityGateOrchestrator:
         # Notes
         lines.append("## Notes")
         lines.append("")
+        # OOF fold/year integrity warning
+        lines.append(
+            "**OOF Integrity Warning:** The conservative MAWC was trained on ALL OOF data, "
+            "not per-fold/year subsets. This means the OOF quality metrics are proxy metrics, "
+            "not fold-isolated. The actual per-fold comparison is done by Shadow Comparison "
+            "in Stage 2."
+        )
+        lines.append("")
         if result.get("quality_gate") == "FAIL":
             for step_name, step_result in stage2.items():
                 if isinstance(step_result, dict) and step_result.get("status") == "FAIL":
@@ -553,21 +582,36 @@ def main(args: argparse.Namespace) -> None:
         print(f"\nStage 1 complete. Manifest: {manifest_path}")
         return
 
-    if args.stage is None:
-        # Auto-detect: skip Stage 1 if manifest exists
-        manifest_path = args.conservative_root / "manifest.json"
+    # Stage 2 requires manifest with at least one shadow candidate
+    manifest_path = args.conservative_root / "manifest.json"
+
+    if args.stage == 2:
+        # --stage 2: manifest must already exist and have candidates
+        if not manifest_path.exists():
+            logger.error("Stage 2 requires manifest from Stage 1. Run --stage 1 first.")
+            sys.exit(1)
+        if not orch._check_manifest_has_candidates(manifest_path):
+            logger.error("Stage 2 BLOCKED: no shadow candidates in manifest")
+            sys.exit(1)
+        stage_results["stage1"] = {
+            "status": "SKIP",
+            "manifest_path": str(manifest_path),
+        }
+    elif args.stage is None:
+        # Auto-detect: run Stage 1 if needed, then verify candidates
         if manifest_path.exists() and not args.force:
             logger.info("Stage 1 SKIP: manifest already exists")
-            stage_results["stage1"] = {
-                "status": "SKIP",
-                "manifest_path": str(manifest_path),
-            }
         else:
             manifest_path = orch._run_stage1(args)
-            stage_results["stage1"] = {
-                "status": "COMPLETE",
-                "manifest_path": str(manifest_path),
-            }
+
+        if not orch._check_manifest_has_candidates(manifest_path):
+            logger.error("Stage 2 BLOCKED: no shadow candidates in manifest")
+            sys.exit(1)
+
+        stage_results["stage1"] = {
+            "status": "SKIP" if (manifest_path.exists() and not args.force) else "COMPLETE",
+            "manifest_path": str(manifest_path),
+        }
 
     # Stage 2
     stage2_results = orch._run_stage2(args)

@@ -25,14 +25,32 @@ def _make_manifest(
 ) -> Path:
     """Create a synthetic manifest.json for testing."""
     if per_year_surface is None:
+        dep_status = "deployed" if deployed else "rejected"
+        shadow_saved = deployed
         per_year_surface = {
             "2024": {
-                "turf": {"best_c": 0.01, "deployed": deployed},
-                "dirt": {"best_c": 0.03, "deployed": deployed},
+                "turf": {
+                    "best_c": 0.01, "deployed": deployed,
+                    "deployment_status": dep_status,
+                    "shadow_candidate_saved": shadow_saved,
+                },
+                "dirt": {
+                    "best_c": 0.03, "deployed": deployed,
+                    "deployment_status": dep_status,
+                    "shadow_candidate_saved": shadow_saved,
+                },
             },
             "2025": {
-                "turf": {"best_c": 0.005, "deployed": deployed},
-                "dirt": {"best_c": 0.01, "deployed": deployed},
+                "turf": {
+                    "best_c": 0.005, "deployed": deployed,
+                    "deployment_status": dep_status,
+                    "shadow_candidate_saved": shadow_saved,
+                },
+                "dirt": {
+                    "best_c": 0.01, "deployed": deployed,
+                    "deployment_status": dep_status,
+                    "shadow_candidate_saved": shadow_saved,
+                },
             },
         }
     manifest = {
@@ -50,8 +68,8 @@ def _make_manifest(
 
 def _make_shadow_result(
     tmp_path: Path,
-    shadow_roi: float = 92.0,
-    baseline_roi: float = 87.8,
+    shadow_roi: float = -0.04,
+    baseline_roi: float = -0.122,
 ) -> Path:
     """Create a synthetic shadow_comparison_result.json for testing."""
     result = {
@@ -161,24 +179,65 @@ class TestShouldRun:
         assert orch._should_run(artifact, force=False) is True
 
 
-class TestCheckManifestDeployed:
-    """Tests for _check_manifest_deployed()."""
+class TestCheckManifestHasCandidates:
+    """Tests for _check_manifest_has_candidates()."""
 
     def test_returns_true_when_at_least_one_surface_deployed(self, tmp_path: Path) -> None:
-        """Test 4: _check_manifest_deployed() returns True when surfaces deployed."""
+        """Test 4: _check_manifest_has_candidates() returns True when surfaces deployed."""
         from run_phase46_quality_gates import QualityGateOrchestrator
 
         orch = QualityGateOrchestrator()
         manifest_path = _make_manifest(tmp_path, deployed=True)
-        assert orch._check_manifest_deployed(manifest_path) is True
+        assert orch._check_manifest_has_candidates(manifest_path) is True
 
     def test_returns_false_when_no_surfaces_deployed(self, tmp_path: Path) -> None:
-        """Test 5: _check_manifest_deployed() returns False when no surfaces deployed."""
+        """Test 5: _check_manifest_has_candidates() returns False when no surfaces deployed."""
         from run_phase46_quality_gates import QualityGateOrchestrator
 
         orch = QualityGateOrchestrator()
         manifest_path = _make_manifest(tmp_path, deployed=False)
-        assert orch._check_manifest_deployed(manifest_path) is False
+        assert orch._check_manifest_has_candidates(manifest_path) is False
+
+    def test_returns_true_when_shadow_only(self, tmp_path: Path) -> None:
+        """shadow_only candidates are accepted for Stage 2."""
+        from run_phase46_quality_gates import QualityGateOrchestrator
+
+        orch = QualityGateOrchestrator()
+        per_year_surface = {
+            "2024": {
+                "turf": {
+                    "best_c": 0.01, "deployed": False,
+                    "deployment_status": "shadow_only",
+                    "shadow_candidate_saved": True,
+                },
+                "dirt": {
+                    "best_c": None, "deployed": False,
+                    "deployment_status": "rejected",
+                    "shadow_candidate_saved": False,
+                },
+            },
+        }
+        manifest_path = _make_manifest(tmp_path, per_year_surface=per_year_surface, deployed=False)
+        assert orch._check_manifest_has_candidates(manifest_path) is True
+
+    def test_returns_false_when_all_rejected(self, tmp_path: Path) -> None:
+        """All-rejected manifest blocks Stage 2."""
+        from run_phase46_quality_gates import QualityGateOrchestrator
+
+        orch = QualityGateOrchestrator()
+        rejected_surface = {
+            "best_c": None, "deployed": False,
+            "deployment_status": "rejected",
+            "shadow_candidate_saved": False,
+        }
+        per_year_surface = {
+            "2024": {
+                "turf": rejected_surface,
+                "dirt": rejected_surface,
+            },
+        }
+        manifest_path = _make_manifest(tmp_path, per_year_surface=per_year_surface, deployed=False)
+        assert orch._check_manifest_has_candidates(manifest_path) is False
 
 
 class TestRunStage1:
@@ -296,9 +355,10 @@ class TestRunShadowComparison:
         )
 
         # Create the result file after subprocess completes
-        def _create_result(*a: object, **kw: object) -> None:
+        def _create_result(*a: object, **kw: object) -> MagicMock:
             shadow_dir.mkdir(parents=True, exist_ok=True)
             (shadow_dir / "shadow_comparison_result.json").write_text("{}", encoding="utf-8")
+            return MagicMock(returncode=0)
 
         mock_run.side_effect = _create_result
 
@@ -373,35 +433,35 @@ class TestRunDeploymentGates:
 
 
 class TestComputeRoiTrend:
-    """Tests for _compute_roi_trend()."""
+    """Tests for _compute_roi_trend() with decimal ROI values."""
 
-    def test_returns_recovered_when_roi_ge_90(self) -> None:
-        """Test 13: _compute_roi_trend() returns 'recovered' when shadow ROI >= 90%."""
+    def test_returns_recovered_when_roi_ge_minus_0_10(self) -> None:
+        """ROI >= -0.10 (90%) → recovered."""
         from run_phase46_quality_gates import QualityGateOrchestrator
 
         orch = QualityGateOrchestrator()
         shadow_result = {
-            "overall": {"metrics": {"mawc_conservative": {"roi": 90.0}}},
+            "overall": {"metrics": {"mawc_conservative": {"roi": -0.04}}},
         }
         assert orch._compute_roi_trend(shadow_result) == "recovered"
 
-    def test_returns_weak_recovery_when_roi_between_87_8_and_90(self) -> None:
-        """Test 14: _compute_roi_trend() returns 'weak_recovery' when 87.8% <= ROI < 90%."""
+    def test_returns_weak_recovery_between_thresholds(self) -> None:
+        """-0.122 (87.8%) <= ROI < -0.10 (90%) → weak_recovery."""
         from run_phase46_quality_gates import QualityGateOrchestrator
 
         orch = QualityGateOrchestrator()
         shadow_result = {
-            "overall": {"metrics": {"mawc_conservative": {"roi": 89.9}}},
+            "overall": {"metrics": {"mawc_conservative": {"roi": -0.11}}},
         }
         assert orch._compute_roi_trend(shadow_result) == "weak_recovery"
 
-    def test_returns_not_recovered_when_roi_lt_87_8(self) -> None:
-        """Test 15: _compute_roi_trend() returns 'not_recovered' when ROI < 87.8%."""
+    def test_returns_not_recovered_below_baseline(self) -> None:
+        """ROI < -0.122 (87.8%) → not_recovered."""
         from run_phase46_quality_gates import QualityGateOrchestrator
 
         orch = QualityGateOrchestrator()
         shadow_result = {
-            "overall": {"metrics": {"mawc_conservative": {"roi": 85.0}}},
+            "overall": {"metrics": {"mawc_conservative": {"roi": -0.15}}},
         }
         assert orch._compute_roi_trend(shadow_result) == "not_recovered"
 
