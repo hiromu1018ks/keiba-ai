@@ -9,9 +9,9 @@ Requirements for ROI recovery via structural diagnosis and targeted fix.
 
 ### Analysis — 確率品質・選定差分分析
 
-- [ ] **DIAG-01**: Shadow Comparisonで2024/2025固定foldのbaseline vs shadow確率品質(Brier/logloss/ECE)を比較し、劣化维度を特定する
-- [ ] **DIAG-02**: RaceLevelRankerの選定パターン(baseline vs shadow)を比較し、的中/不的中レースの差分構造を明らかにする
-- [ ] **DIAG-03**: actual/predicted比率をsurface、odds_band、popularity_band、probability_rank_band、selected_changed別に比較し、確率キャリブレーションの乖離箇所を特定する。レジーム別分析・レジーム別補正は対象外
+- [x] **DIAG-01**: Shadow Comparisonで2024/2025固定foldのbaseline vs shadow確率品質(Brier/logloss/ECE)を比較し、劣化维度を特定する
+- [x] **DIAG-02**: RaceLevelRankerの選定パターン(baseline vs shadow)を比較し、的中/不的中レースの差分構造を明らかにする
+- [x] **DIAG-03**: actual/predicted比率をsurface、odds_band、popularity_band、probability_rank_band、selected_changed別に比較し、確率キャリブレーションの乖離箇所を特定する。レジーム別分析・レジーム別補正は対象外
 
 ### Bisect — フェーズ単位ROI劣化ビセクション
 
@@ -20,8 +20,8 @@ Requirements for ROI recovery via structural diagnosis and targeted fix.
 
 ### Fix — 構造的修正
 
-- [ ] **FIX-01**: ビセクション・診断結果に基づき、OOF/WFで説明できる構造的欠陥(特徴量ルーティング、キャリブレーション設定等)を修正する
-- [ ] **FIX-02**: 修正内容が2024/2025固有係数に依存せず、汎化可能であることをOOF指標で確認する
+- [x] **FIX-01**: ビセクション・診断結果に基づき、OOF/WFで説明できる構造的欠陥(特徴量ルーティング、キャリブレーション設定等)を修正する
+- [x] **FIX-02**: 修正内容が2024/2025固有係数に依存せず、汎化可能であることをOOF指標で確認する
 
 ### Quality — 品質ゲート検証
 
@@ -46,13 +46,13 @@ Requirements for ROI recovery via structural diagnosis and targeted fix.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| DIAG-01 | Phase 43 | Pending |
-| DIAG-02 | Phase 43 | Pending |
-| DIAG-03 | Phase 43 | Pending |
+| DIAG-01 | Phase 43 | Complete |
+| DIAG-02 | Phase 43 | Complete |
+| DIAG-03 | Phase 43 | Complete |
 | BISECT-01 | Phase 44 | Complete |
 | BISECT-02 | Phase 44 | Complete |
-| FIX-01 | Phase 45 | Pending |
-| FIX-02 | Phase 45 | Pending |
+| FIX-01 | Phase 45 | Complete |
+| FIX-02 | Phase 45 | Complete |
 | QUAL-01 | Phase 46 | Pending |
 | QUAL-02 | Phase 46 | Pending |
 | QUAL-03 | Phase 46 | Pending |

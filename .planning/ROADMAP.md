@@ -21,7 +21,7 @@ last_updated: "2026-05-31T16:00:00.000Z"
 - **v1.8 Turf Precision Calibration** -- Phases 35-36.1.1 (shipped 2026-05-20)
 - **v2.0 Investment Pipeline Restructuring** -- Phases 37-38 (shipped 2026-05-27)
 - **v2.1 MarketAware Calibration + Race-Level Ranker** -- Phases 39-42 (shipped 2026-05-28)
-- **v2.2 ROI Recovery Analysis** -- Phases 43-46 (in progress)
+- **v2.2 ROI Recovery Analysis** -- Phases 43-46 (shipped 2026-05-31)
 
 ## Phases
 
@@ -38,7 +38,7 @@ See `.planning/milestones/` for archived roadmaps.
 - [x] **Phase 43: Shadow Diagnosis** -- 確率品質・選定差分の全面比較 (DIAG-01~03) (completed 2026-05-29)
 - [x] **Phase 44: ROI Bisect** -- DeploymentGate FAILのコンポーネント帰属 + MAWC/Ranker係数分析 (BISECT-01~02) (completed 2026-05-30)
 - [x] **Phase 45: Structural Fix** -- 診断結果に基づく構造的修正と汎化確認 (FIX-01~02) (completed 2026-05-31)
-- [ ] **Phase 46: Quality Gate Verification** -- 全品質ゲートPASS確認 (QUAL-01~04)
+- [x] **Phase 46: Quality Gate Verification** -- 全品質ゲートPASS確認 (QUAL-01~04) (completed 2026-05-31)
 
 ## Phase Details
 
@@ -98,7 +98,7 @@ Plans:
 
 Plans:
 - [x] 46-01-PLAN.md -- QualityGateOrchestrator (Stage 1/2 orchestration CLI + skip/resume + 3-label aggregation + 30+ tests)
-- [ ] 46-02-PLAN.md -- RUNBOOK + VERIFICATION + v2.2 Milestone Summary (手動再現runbook + 品質検証レポート + マイルストーン完了証明)
+- [x] 46-02-PLAN.md -- RUNBOOK + VERIFICATION + v2.2 Milestone Summary (手動再現runbook + 品質検証レポート + マイルストーン完了証明)
 
 ## Progress
 
@@ -111,4 +111,4 @@ Phases execute in numeric order: 43 -> 44 -> 45 -> 46
 | 43. Shadow Diagnosis | v2.2 | 2/2 | Complete | 2026-05-29 |
 | 44. ROI Bisect | v2.2 | 2/2 | Complete | 2026-05-30 |
 | 45. Structural Fix | v2.2 | 2/2 | Complete | 2026-05-31 |
-| 46. Quality Gate Verification | v2.2 | 1/2 | In Progress | - |
+| 46. Quality Gate Verification | v2.2 | 2/2 | Complete | 2026-05-31 |
