@@ -13,7 +13,9 @@ Evaluates quality gates per C value and selects minimum passing C for deployment
 from __future__ import annotations
 
 import logging
+import shutil
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import ClassVar
 
@@ -604,3 +606,209 @@ class MawcConservativeRetrainer:
             removed_interactions=list(self.REMOVED_INTERACTIONS),
             manifest_metadata=metadata,
         )
+
+    # ------------------------------------------------------------------
+    # Conservative variant directory creation
+    # ------------------------------------------------------------------
+
+    def create_conservative_variant(
+        self,
+        retrain_results: list[ConservativeRetrainResult],
+        source_year_dir: Path,
+        target_root: Path,
+        year: int,
+    ) -> Path:
+        """Copy year model directory and replace MAWC joblib for deployed surfaces.
+
+        For surfaces where deployed=False, the original MAWC is preserved (not replaced).
+
+        Args:
+            retrain_results: ConservativeRetrainResult for each surface.
+            source_year_dir: e.g., Path("data/models-backtest/2024").
+            target_root: e.g., Path("data/models-backtest-mawc-conservative").
+            year: Year for the variant (e.g., 2024).
+
+        Returns:
+            Path to the created variant directory.
+
+        Raises:
+            FileNotFoundError: If source_year_dir does not exist.
+        """
+        if not source_year_dir.is_dir():
+            raise FileNotFoundError(
+                f"Source model directory not found: {source_year_dir}"
+            )
+
+        target_dir = target_root / str(year)
+
+        # Copy entire directory (dirs_exist_ok allows re-copy for multi-surface)
+        shutil.copytree(source_year_dir, target_dir, dirs_exist_ok=True)
+
+        # Replace MAWC joblib only for deployed surfaces
+        for result in retrain_results:
+            if result.deployed and result.best_candidate is not None:
+                mawc = result.best_candidate.mawc
+                # Add deployment metadata to training_summary
+                mawc.training_summary["deployment_status"] = "deployed_conservative"
+                mawc.training_summary["fix_version"] = "45-conservative"
+                mawc.training_summary["removed_interactions"] = result.removed_interactions
+                mawc.training_summary["original_feature_dim"] = 51
+                mawc.training_summary["conservative_feature_dim"] = 36
+                mawc.training_summary["beta_market_contribution"] = (
+                    result.best_candidate.beta_market_contribution
+                )
+
+                mawc_path = target_dir / f"market_aware_win_calibrator_{result.surface}.joblib"
+                mawc.save(mawc_path)
+                logger.info(
+                    "Saved conservative MAWC for surface=%s, C=%.4f to %s",
+                    result.surface, result.best_c, mawc_path,
+                )
+            else:
+                logger.warning(
+                    "Surface %s: not_deployed, keeping original MAWC", result.surface,
+                )
+
+        # Verify meta.json exists (ModelLoader requirement)
+        assert (target_dir / "meta.json").is_file(), (
+            f"meta.json missing in {target_dir} after copy"
+        )
+
+        return target_dir
+
+    # ------------------------------------------------------------------
+    # Manifest generation
+    # ------------------------------------------------------------------
+
+    def generate_manifest(
+        self,
+        retrain_results: list[ConservativeRetrainResult],
+        source_model_dir: Path,
+        target_root: Path,
+        years: list[int],
+    ) -> dict:
+        """Generate manifest JSON dict for Phase 46 consumption.
+
+        Args:
+            retrain_results: All ConservativeRetrainResult across surfaces and years.
+            source_model_dir: e.g., Path("data/models-backtest").
+            target_root: e.g., Path("data/models-backtest-mawc-conservative").
+            years: Years included in this variant.
+
+        Returns:
+            JSON-serializable manifest dict.
+        """
+        per_surface: dict[str, dict] = {}
+        for result in retrain_results:
+            gate = result.best_candidate.quality_gate if result.best_candidate else None
+            per_surface[result.surface] = {
+                "best_c": result.best_c,
+                "deployed": result.deployed,
+                "n_candidates": len(result.all_candidates),
+                "n_passing": sum(
+                    1 for c in result.all_candidates if c.quality_gate.all_gates_passed
+                ),
+                "beta_market_contribution": (
+                    result.best_candidate.beta_market_contribution
+                    if result.best_candidate
+                    else None
+                ),
+                "quality_gate_summary": {
+                    "overall_brier": gate.overall_brier if gate else None,
+                    "overall_logloss": gate.overall_logloss if gate else None,
+                    "overall_ece": gate.overall_ece if gate else None,
+                    "favorite_band_ece_delta": (
+                        gate.favorite_band_guard.ece_delta if gate else None
+                    ),
+                    "p_compression_ratio": (
+                        gate.favorite_band_guard.p_compression_ratio if gate else None
+                    ),
+                },
+            }
+
+        manifest = {
+            "mawc_fix_version": "45-conservative",
+            "source_model_dir": str(source_model_dir),
+            "target_variant_dir": str(target_root),
+            "C_grid": self.CONSERVATIVE_C_GRID,
+            "removed_interactions": list(self.REMOVED_INTERACTIONS),
+            "feature_dim": 36,
+            "original_feature_dim": 51,
+            "years": [str(y) for y in years],
+            "per_surface": per_surface,
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+        }
+
+        return manifest
+
+    # ------------------------------------------------------------------
+    # Full pipeline (top-level orchestration)
+    # ------------------------------------------------------------------
+
+    def run_full_pipeline(
+        self,
+        oof_path: Path,
+        source_model_dir: Path,
+        target_root: Path,
+        years: list[int],
+    ) -> dict:
+        """Run full conservative MAWC retraining pipeline.
+
+        1. Prepare OOF data
+        2. For each year x surface: retrain and collect results
+        3. Create conservative variant directories
+        4. Generate manifest
+
+        Args:
+            oof_path: Path to oof_predictions.parquet.
+            source_model_dir: e.g., Path("data/models-backtest").
+            target_root: e.g., Path("data/models-backtest-mawc-conservative").
+            years: Years to create variants for (e.g., [2024, 2025]).
+
+        Returns:
+            Manifest dict (caller serializes to JSON).
+        """
+        # Step 1: Prepare OOF data
+        turf_df, dirt_df = self.prepare_oof_data(oof_path)
+        surface_dfs = {"turf": turf_df, "dirt": dirt_df}
+
+        all_results: list[ConservativeRetrainResult] = []
+
+        # Step 2: For each year, retrain per surface and create variant
+        for year in years:
+            year_results: list[ConservativeRetrainResult] = []
+
+            for surface in ["turf", "dirt"]:
+                baseline_path = (
+                    source_model_dir / str(year)
+                    / f"market_aware_win_calibrator_{surface}.joblib"
+                )
+
+                if not baseline_path.is_file():
+                    logger.warning(
+                        "Baseline MAWC not found for year=%d surface=%s, skipping",
+                        year, surface,
+                    )
+                    continue
+
+                result = self.run_retrain(surface, surface_dfs[surface], baseline_path)
+                year_results.append(result)
+                all_results.append(result)
+
+                logger.info(
+                    "Year %d surface %s: deployed=%s best_c=%s",
+                    year, surface, result.deployed, result.best_c,
+                )
+
+            # Step 3: Create conservative variant for this year
+            if year_results:
+                source_year_dir = source_model_dir / str(year)
+                if source_year_dir.is_dir():
+                    self.create_conservative_variant(
+                        year_results, source_year_dir, target_root, year,
+                    )
+
+        # Step 4: Generate manifest
+        manifest = self.generate_manifest(all_results, source_model_dir, target_root, years)
+
+        return manifest

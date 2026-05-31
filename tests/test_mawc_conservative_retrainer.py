@@ -7,10 +7,12 @@ quality gate evaluation (Brier/logloss/ECE + favorite band guard), and C selecti
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import pytest
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import brier_score_loss, log_loss
 
@@ -520,3 +522,254 @@ class TestConstants:
     def test_bet_count_tolerance(self) -> None:
         """Bet count tolerance = 0.10."""
         assert MawcConservativeRetrainer.BET_COUNT_TOLERANCE == 0.10
+
+
+# ---------------------------------------------------------------------------
+# Task 2 Tests: Conservative variant creation + manifest generation
+# ---------------------------------------------------------------------------
+
+
+def _setup_source_year_dir(tmp_path: Path, year: int = 2024) -> Path:
+    """Create a mock source year directory with meta.json and MAWC joblib."""
+    source_dir = tmp_path / "models-backtest" / str(year)
+    source_dir.mkdir(parents=True, exist_ok=True)
+
+    # meta.json
+    meta = {
+        "train_start": "2020-01-01",
+        "train_end": "2023-12-31",
+        "surfaces": ["turf", "dirt"],
+        "quality_threshold": 1.5,
+        "use_ensemble": True,
+    }
+    with open(source_dir / "meta.json", "w") as f:
+        json.dump(meta, f)
+
+    # MAWC joblib files for both surfaces
+    for surface in ["turf", "dirt"]:
+        mawc = _make_fitted_mawc(n_features=51)
+        mawc.save(source_dir / f"market_aware_win_calibrator_{surface}.joblib")
+
+    # Dummy model file to test copytree completeness
+    (source_dir / "race_quality.lgb").write_text("dummy_lgb_model")
+
+    return source_dir
+
+
+class TestCreateConservativeVariant:
+    """Test conservative variant directory creation."""
+
+    def test_copies_all_files_and_replaces_mawc(self, tmp_path: Path) -> None:
+        """create_conservative_variant copies all files, replaces only MAWC joblib."""
+        source_dir = _setup_source_year_dir(tmp_path)
+        target_root = tmp_path / "models-backtest-mawc-conservative"
+
+        # Create a deployed result with a real MAWC
+        df = _make_oof_df(n=50, surface="turf")
+        df["p_model"] = df["p_win_corrected"]
+        df["p_market"] = np.clip(1.0 / df["tanodds"].values, 0.01, 0.99)
+        df["p_win_race_rank_pct"] = df.groupby("race_id", observed=True)["p_model"].rank(
+            pct=True, method="min", ascending=False,
+        )
+        df["popularity_rank_pct"] = df["popularity_rank"] / df["field_size"].clip(lower=1)
+
+        trainer = MawcConservativeRetrainer()
+        baseline_path = source_dir / "market_aware_win_calibrator_turf.joblib"
+        result = trainer.run_retrain("turf", df, baseline_path)
+
+        target_dir = trainer.create_conservative_variant(
+            [result], source_dir, target_root, year=2024,
+        )
+
+        # meta.json preserved
+        assert (target_dir / "meta.json").is_file()
+        with open(target_dir / "meta.json") as f:
+            meta = json.load(f)
+        assert meta["train_start"] == "2020-01-01"
+        assert meta["use_ensemble"] is True
+
+        # Other model files copied
+        assert (target_dir / "race_quality.lgb").is_file()
+
+        # MAWC joblib replaced for deployed surface
+        assert (target_dir / "market_aware_win_calibrator_turf.joblib").is_file()
+
+    def test_preserves_meta_json_unchanged(self, tmp_path: Path) -> None:
+        """meta.json is preserved unchanged after copy."""
+        source_dir = _setup_source_year_dir(tmp_path)
+        target_root = tmp_path / "models-backtest-mawc-conservative"
+
+        # Read original meta
+        with open(source_dir / "meta.json") as f:
+            original_meta = json.load(f)
+
+        # Create not_deployed result
+        failing_gate = QualityGateResult(
+            overall_brier=0.25, overall_logloss=0.60, overall_ece=0.08,
+            baseline_brier=0.20, baseline_logloss=0.50, baseline_ece=0.05,
+            brier_non_degraded=False, logloss_non_degraded=False, ece_non_degraded=False,
+            favorite_band_guard=FavoriteBandGuardResult(
+                odds_band="1-3", n_horses=100,
+                ece_baseline=0.04, ece_conservative=0.08, ece_delta=0.04,
+                ece_passed=False,
+                p_compression_ratio=0.85, p_compression_passed=False,
+                ev_pass_rate_baseline=0.5, ev_pass_rate_conservative=0.3,
+                ev_pass_rate_passed=False,
+                overall_passed=False,
+            ),
+            year_level_metrics={}, year_level_passed=False, all_gates_passed=False,
+        )
+
+        not_deployed_result = ConservativeRetrainResult(
+            surface="turf", best_c=None, best_candidate=None,
+            all_candidates=[
+                CGridCandidateResult(
+                    c_value=0.003, mawc=_make_fitted_mawc(n_features=36),
+                    quality_gate=failing_gate, beta_market_contribution=0.30,
+                ),
+            ],
+            deployed=False, feature_names=[f"f{i}" for i in range(36)],
+            n_samples=100, removed_interactions=MawcConservativeRetrainer.REMOVED_INTERACTIONS,
+            manifest_metadata={"surface": "turf", "deployed": False},
+        )
+
+        trainer = MawcConservativeRetrainer()
+        trainer.create_conservative_variant(
+            [not_deployed_result], source_dir, target_root, year=2024,
+        )
+
+        # Check meta.json is unchanged
+        target_dir = target_root / "2024"
+        with open(target_dir / "meta.json") as f:
+            copied_meta = json.load(f)
+        assert copied_meta == original_meta
+
+    def test_raises_file_not_found_for_missing_source(self, tmp_path: Path) -> None:
+        """Raises FileNotFoundError if source dir does not exist."""
+        trainer = MawcConservativeRetrainer()
+        with pytest.raises(FileNotFoundError, match="Source model directory not found"):
+            trainer.create_conservative_variant(
+                [], tmp_path / "nonexistent", tmp_path / "target", year=2024,
+            )
+
+
+class TestGenerateManifest:
+    """Test manifest JSON generation."""
+
+    def test_produces_complete_manifest(self, tmp_path: Path) -> None:
+        """Manifest has all required keys and per-surface results."""
+        df = _make_oof_df(n=50, surface="turf")
+        df["p_model"] = df["p_win_corrected"]
+        df["p_market"] = np.clip(1.0 / df["tanodds"].values, 0.01, 0.99)
+        df["p_win_race_rank_pct"] = df.groupby("race_id", observed=True)["p_model"].rank(
+            pct=True, method="min", ascending=False,
+        )
+        df["popularity_rank_pct"] = df["popularity_rank"] / df["field_size"].clip(lower=1)
+
+        source_dir = _setup_source_year_dir(tmp_path)
+        baseline_path = source_dir / "market_aware_win_calibrator_turf.joblib"
+
+        trainer = MawcConservativeRetrainer()
+        result = trainer.run_retrain("turf", df, baseline_path)
+
+        manifest = trainer.generate_manifest(
+            [result], source_model_dir=source_dir.parent,
+            target_root=tmp_path / "conservative", years=[2024],
+        )
+
+        # Required keys
+        assert manifest["mawc_fix_version"] == "45-conservative"
+        assert "source_model_dir" in manifest
+        assert "target_variant_dir" in manifest
+        assert manifest["C_grid"] == [0.003, 0.005, 0.01, 0.03]
+        assert len(manifest["removed_interactions"]) == 15
+        assert manifest["feature_dim"] == 36
+        assert manifest["original_feature_dim"] == 51
+        assert "2024" in manifest["years"]
+        assert "turf" in manifest["per_surface"]
+        assert "generated_at" in manifest
+
+        # Per-surface keys
+        turf_entry = manifest["per_surface"]["turf"]
+        assert "best_c" in turf_entry
+        assert "deployed" in turf_entry
+        assert "n_candidates" in turf_entry
+        assert "n_passing" in turf_entry
+        assert "quality_gate_summary" in turf_entry
+
+    def test_records_not_deployed_for_surface(self, tmp_path: Path) -> None:
+        """Manifest records not_deployed for a surface where deployed=False."""
+        not_deployed_result = ConservativeRetrainResult(
+            surface="dirt", best_c=None, best_candidate=None,
+            all_candidates=[
+                CGridCandidateResult(
+                    c_value=0.003, mawc=_make_fitted_mawc(n_features=36),
+                    quality_gate=QualityGateResult(
+                        overall_brier=0.25, overall_logloss=0.60, overall_ece=0.08,
+                        baseline_brier=0.20, baseline_logloss=0.50, baseline_ece=0.05,
+                        brier_non_degraded=False, logloss_non_degraded=False,
+                        ece_non_degraded=False,
+                        favorite_band_guard=FavoriteBandGuardResult(
+                            odds_band="1-3", n_horses=50,
+                            ece_baseline=0.04, ece_conservative=0.08, ece_delta=0.04,
+                            ece_passed=False,
+                            p_compression_ratio=0.85, p_compression_passed=False,
+                            ev_pass_rate_baseline=0.5, ev_pass_rate_conservative=0.3,
+                            ev_pass_rate_passed=False,
+                            overall_passed=False,
+                        ),
+                        year_level_metrics={}, year_level_passed=False,
+                        all_gates_passed=False,
+                    ),
+                    beta_market_contribution=0.30,
+                ),
+            ],
+            deployed=False, feature_names=[f"f{i}" for i in range(36)],
+            n_samples=100, removed_interactions=MawcConservativeRetrainer.REMOVED_INTERACTIONS,
+            manifest_metadata={"surface": "dirt", "deployed": False},
+        )
+
+        trainer = MawcConservativeRetrainer()
+        manifest = trainer.generate_manifest(
+            [not_deployed_result], source_model_dir=Path("data/models-backtest"),
+            target_root=Path("data/models-backtest-mawc-conservative"), years=[2024],
+        )
+
+        assert manifest["per_surface"]["dirt"]["deployed"] is False
+        assert manifest["per_surface"]["dirt"]["best_c"] is None
+
+
+class TestRunFullPipeline:
+    """Test full pipeline orchestration."""
+
+    def test_full_pipeline_produces_manifest(
+        self, tmp_path: Path,
+    ) -> None:
+        """run_full_pipeline orchestrates prepare -> retrain -> variant -> manifest."""
+        # Create synthetic OOF data with both surfaces
+        turf_df = _make_oof_df(n=100, surface="turf")
+        dirt_df = _make_oof_df(n=80, surface="dirt")
+        combined = pd.concat([turf_df, dirt_df], ignore_index=True)
+        oof_path = tmp_path / "oof_predictions.parquet"
+        combined.to_parquet(oof_path)
+
+        # Create source model directory with MAWC
+        source_dir = _setup_source_year_dir(tmp_path, year=2024)
+        target_root = tmp_path / "models-backtest-mawc-conservative"
+
+        trainer = MawcConservativeRetrainer()
+        manifest = trainer.run_full_pipeline(
+            oof_path=oof_path,
+            source_model_dir=source_dir.parent,
+            target_root=target_root,
+            years=[2024],
+        )
+
+        # Verify manifest structure
+        assert manifest["mawc_fix_version"] == "45-conservative"
+        assert "turf" in manifest["per_surface"]
+        assert "dirt" in manifest["per_surface"]
+
+        # Verify variant directory was created
+        assert (target_root / "2024" / "meta.json").is_file()
+
