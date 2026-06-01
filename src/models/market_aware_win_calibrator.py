@@ -23,6 +23,7 @@ import numpy as np
 import pandas as pd
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import brier_score_loss, log_loss
+
 from utils.wf_splits import walk_forward_race_splits as _walk_forward_race_splits
 
 logger = logging.getLogger(__name__)
@@ -425,7 +426,13 @@ class MarketAwareWinCalibrator:
             pct=True, method="min", ascending=False,
         )
 
-        X, _ = self.build_feature_matrix(df)
+        X, all_feature_names = self.build_feature_matrix(df)
+
+        # Conservative variant: calibrator may expect fewer features (36 vs 51).
+        # Select only the columns matching self.feature_names.
+        if len(self.feature_names) < len(all_feature_names):
+            indices = [all_feature_names.index(n) for n in self.feature_names]
+            X = X[:, indices]
 
         # Predict calibrated probabilities
         p_raw = self.calibrator.predict_proba(X)[:, 1]

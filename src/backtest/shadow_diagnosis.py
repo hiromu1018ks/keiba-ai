@@ -276,6 +276,35 @@ class ShadowDiagnosis:
     # Step 2: 選定パターン差分 (DIAG-02)
     # ------------------------------------------------------------------
 
+    @staticmethod
+    def _resolve_variant_col(
+        df: pd.DataFrame,
+        variant_name: str,
+        metric: str,
+    ) -> str | None:
+        """race_diff / horse_diff 内の variant 列名を解決.
+
+        Shadow Comparison の _align_race_level() は ``shadow_*`` プレフィックス、
+        _align_horse_level() は ``{variant_name}_*`` プレフィックスを使用するため、
+        両方の候補を順にチェックして存在する列名を返す。
+
+        Args:
+            df: 検索対象 DataFrame (race_diff or horse_diff)
+            variant_name: バリアント名 (例: "ridge_shadow")
+            metric: メトリクス名 (例: "stake", "result", "tanodds")
+
+        Returns:
+            見つかった列名、または None
+        """
+        candidates = [
+            f"{variant_name}_{metric}",   # horse_diff 形式 (ridge_shadow_stake)
+            f"shadow_{metric}",           # race_diff 形式 (shadow_stake)
+        ]
+        for c in candidates:
+            if c in df.columns:
+                return c
+        return None
+
     def _compute_group_metrics(
         self,
         group_race_ids: set[str],
@@ -286,6 +315,9 @@ class ShadowDiagnosis:
         Phase 43.5 FIX (P0-3): variant_prefix で baseline/shadow 両方の
         メトリクスを個別に計算可能。race_diff の {prefix}_stake,
         {prefix}_result, {prefix}_tanodds 列を使用。
+
+        Phase 43.5 FIX (P0-6): race_diff と horse_diff で列プレフィックスが
+        異なる問題を _resolve_variant_col() で動的に解決する。
         """
         if not group_race_ids or self.race_diff.empty:
             return SelectionGroupMetrics()
@@ -296,11 +328,17 @@ class ShadowDiagnosis:
             return SelectionGroupMetrics()
 
         # ROI: total_result / total_stake - 1
-        stake_col = f"{variant_prefix}_stake"
-        result_col = f"{variant_prefix}_result"
+        stake_col = self._resolve_variant_col(group_race, variant_prefix, "stake")
+        result_col = self._resolve_variant_col(group_race, variant_prefix, "result")
 
-        v_stake = group_race.get(stake_col, pd.Series(dtype=float))
-        v_result = group_race.get(result_col, pd.Series(dtype=float))
+        v_stake = (
+            pd.to_numeric(group_race[stake_col], errors="coerce").fillna(0)
+            if stake_col else pd.Series(dtype=float)
+        )
+        v_result = (
+            pd.to_numeric(group_race[result_col], errors="coerce").fillna(0)
+            if result_col else pd.Series(dtype=float)
+        )
 
         total_stake = float(pd.to_numeric(v_stake, errors="coerce").fillna(0).sum())
         total_return = float(pd.to_numeric(v_result, errors="coerce").fillna(0).sum())
@@ -313,10 +351,10 @@ class ShadowDiagnosis:
         hit_rate = n_hits / bet_count if bet_count > 0 else 0.0
 
         # Average odds
-        odds_col = f"{variant_prefix}_tanodds"
-        v_odds = pd.to_numeric(
-            group_race.get(odds_col, pd.Series(dtype=float)),
-            errors="coerce",
+        odds_col = self._resolve_variant_col(group_race, variant_prefix, "tanodds")
+        v_odds = (
+            pd.to_numeric(group_race[odds_col], errors="coerce")
+            if odds_col else pd.Series(dtype=float)
         )
         avg_odds = float(v_odds.mean()) if v_odds.notna().any() else 0.0
 

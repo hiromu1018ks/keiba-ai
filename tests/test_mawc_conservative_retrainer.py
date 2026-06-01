@@ -1008,6 +1008,75 @@ class TestShadowOnlyCandidateHandling:
         assert gate.is_shadow_candidate is True
         assert gate.all_gates_passed is False
 
+    def test_fav_band_ece_fail_with_p_compression_ev_pass_is_shadow(self) -> None:
+        """Favorite band ECE fail + p_compression/ev_pass pass → is_shadow_candidate=True."""
+        gate = QualityGateResult(
+            overall_brier=0.038, overall_logloss=0.137, overall_ece=0.020,
+            baseline_brier=0.060, baseline_logloss=0.210, baseline_ece=0.003,
+            brier_non_degraded=True, logloss_non_degraded=True,
+            ece_non_degraded=False,  # overall ECE 0.020 >> 0.003 * 1.10
+            favorite_band_guard=FavoriteBandGuardResult(
+                odds_band="1-3", n_horses=500,
+                ece_baseline=0.003, ece_conservative=0.014, ece_delta=0.011,
+                ece_passed=False,  # fav band ECE fail
+                p_compression_ratio=0.95, p_compression_passed=True,
+                ev_pass_rate_baseline=0.50, ev_pass_rate_conservative=0.48,
+                ev_pass_rate_passed=True,
+                overall_passed=False,  # ece_passed=False → overall=False
+            ),
+            year_level_metrics={}, year_level_passed=True,
+            all_gates_passed=False,
+        )
+
+        assert gate.is_shadow_candidate is True
+        assert gate.favorite_band_guard.ece_passed is False
+        assert gate.favorite_band_guard.p_compression_passed is True
+        assert gate.favorite_band_guard.ev_pass_rate_passed is True
+
+    def test_p_compression_fail_rejected_as_shadow(self) -> None:
+        """p_compression_passed=False → is_shadow_candidate=False, even if ev passes."""
+        gate = QualityGateResult(
+            overall_brier=0.038, overall_logloss=0.137, overall_ece=0.020,
+            baseline_brier=0.060, baseline_logloss=0.210, baseline_ece=0.003,
+            brier_non_degraded=True, logloss_non_degraded=True,
+            ece_non_degraded=False,
+            favorite_band_guard=FavoriteBandGuardResult(
+                odds_band="1-3", n_horses=500,
+                ece_baseline=0.003, ece_conservative=0.014, ece_delta=0.011,
+                ece_passed=False,
+                p_compression_ratio=0.75, p_compression_passed=False,
+                ev_pass_rate_baseline=0.50, ev_pass_rate_conservative=0.48,
+                ev_pass_rate_passed=True,
+                overall_passed=False,
+            ),
+            year_level_metrics={}, year_level_passed=True,
+            all_gates_passed=False,
+        )
+
+        assert gate.is_shadow_candidate is False
+
+    def test_ev_pass_rate_fail_rejected_as_shadow(self) -> None:
+        """ev_pass_rate_passed=False → is_shadow_candidate=False, even if p_compression passes."""
+        gate = QualityGateResult(
+            overall_brier=0.038, overall_logloss=0.137, overall_ece=0.020,
+            baseline_brier=0.060, baseline_logloss=0.210, baseline_ece=0.003,
+            brier_non_degraded=True, logloss_non_degraded=True,
+            ece_non_degraded=False,
+            favorite_band_guard=FavoriteBandGuardResult(
+                odds_band="1-3", n_horses=500,
+                ece_baseline=0.003, ece_conservative=0.014, ece_delta=0.011,
+                ece_passed=False,
+                p_compression_ratio=0.95, p_compression_passed=True,
+                ev_pass_rate_baseline=0.50, ev_pass_rate_conservative=0.30,
+                ev_pass_rate_passed=False,
+                overall_passed=False,
+            ),
+            year_level_metrics={}, year_level_passed=True,
+            all_gates_passed=False,
+        )
+
+        assert gate.is_shadow_candidate is False
+
     def test_brier_fail_rejected(self) -> None:
         """Candidate with Brier degradation → rejected."""
         gate = QualityGateResult(

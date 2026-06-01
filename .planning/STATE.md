@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v2.2
 milestone_name: ROI Recovery Analysis
-status: In Progress -- runtime verification pending
-last_updated: "2026-06-01T00:00:00Z"
-last_activity: 2026-06-01 — Phase 46 implementation done, runtime quality gate verification pending
+status: Closed -- not_deployable
+last_updated: "2026-06-02T00:00:00Z"
+last_activity: 2026-06-02 — v2.2 runtime verification closed; conservative MAWC rejected
 progress:
   total_phases: 4
-  completed_phases: 3
+  completed_phases: 4
   total_plans: 6
   completed_plans: 6
-  percent: 75
+  percent: 100
 ---
 
 # Project State
@@ -20,16 +20,29 @@ progress:
 See: .planning/PROJECT.md (updated 2026-05-28)
 
 **Core value:** 単勝モデルのバックテストROIを100%超えにすること
-**Current focus:** Phase 46 Quality Gate Verification (runtime verification pending)
+**Current focus:** v2.2 closed; next milestone should decide v2.3 direction
 
 ## Current Position
 
-Phase: 46 of 46 (Quality Gate Verification) -- runtime verification pending
-Previous: 45 complete (2/2 plans, verified passed)
-Status: In Progress -- implementation done, QUAL-01~04 runtime verification pending
-Last activity: 2026-06-01 -- Running quality gate verification
+Phase: v2.2 closed after Phase 46 runtime verification
+Previous: Phase 46 runtime verification complete
+Status: Closed -- conservative MAWC failed deployment gates and is not deployable
+Last activity: 2026-06-02 -- Archiving v2.2 as not_deployable
 
-Progress: [████████░░] 75%
+Progress: [██████████] 100%
+
+## v2.2 Final Runtime Result
+
+| Item | Result |
+|------|--------|
+| Candidate | MAWC conservative variant (36-dim, C=0.003, shadow_only) |
+| Quality Gate | FAIL |
+| Deployment | not_deployable |
+| Baseline test ROI | -8.0% |
+| Conservative test ROI | -11.3% |
+| Decision | Do not replace baseline MAWC |
+
+The original 51-dim MAWC remains the baseline path. The conservative variant is kept only as an experimental artifact under `data/models-backtest-mawc-conservative/`.
 
 ## Deferred Items
 
@@ -41,8 +54,9 @@ Progress: [████████░░] 75%
 | Cleanup | WinSegmentCalibrator dead code removal (WRN-01) | Pending since v2.1 |
 | Optimization | Optuna 19次元パラメータ最適化 (DEP-02) | Deferred to v2.3+ |
 | Automation | デプロイゲート自動判定 (DEP-01) | Deferred to v2.3+ |
+| Calibration | Conservative MAWC redesign / selective interaction experiment | Deferred to v2.3+ |
 
 ## Session Continuity
 
-Last session: 2026-06-01T00:00:00Z
-Resume file: .planning/phases/46-quality-gate-verification/46-02-SUMMARY.md
+Last session: 2026-06-02T00:00:00Z
+Resume file: .planning/v2.2-MILESTONE-SUMMARY.md

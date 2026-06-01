@@ -222,3 +222,42 @@ Known deferred items at close: 8
 - VAL-02~06 validation metrics deferred to Phase 39+
 
 Known deferred items at close: 12 (see STATE.md Deferred Items)
+
+### Archive
+
+- `.planning/milestones/v2.0-ROADMAP.md`
+- `.planning/milestones/v2.0-REQUIREMENTS.md`
+
+## v2.2 ROI Recovery Analysis — 2026-06-02
+
+**Status:** Closed — not_deployable
+**Phases:** 4 (43-46) | **Plans:** 8
+
+### Key Accomplishments
+
+1. Shadow Diagnosis — 2024/2025 fixed-foldでbaseline vs shadowのBrier/logloss/ECE、選定差分、APR乖離を分析
+2. ROI Bisect — MAWC/Ranker/OBF/Selectionの帰属分析により、MAWCキャリブレーションを主要原因として特定
+3. Structural Fix — 36-dim conservative MAWC variantを実装し、既存モデルを上書きせず別variantとして保存
+4. Quality Gate Verification — Phase 46 runtimeでOOFHealthValidator/FeatureRoutingAuditはPASS、DeploymentGateEvaluatorはFAIL
+
+### Final Runtime Verdict
+
+| Item | Result |
+|------|--------|
+| Quality Gate | FAIL |
+| Deployment | not_deployable |
+| Baseline test ROI | -8.0% |
+| Conservative MAWC test ROI | -11.3% |
+| Decision | Do not replace baseline 51-dim MAWC |
+
+### Known Deferred Items
+
+- Conservative MAWCの全交互作用削除は過剰だったため、v2.3+で選択的interaction維持を検討
+- DeploymentGateEvaluatorのoverall metric 0.0集計はtech debtとして見直し候補
+- Ranker/OBF/selection thresholdはv2.2では変更せず、必要なら別マイルストーンで扱う
+
+### Archive
+
+- `.planning/milestones/v2.2-ROADMAP.md`
+- `.planning/milestones/v2.2-REQUIREMENTS.md`
+- `.planning/milestones/v2.2-MILESTONE-SUMMARY.md`

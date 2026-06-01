@@ -497,22 +497,13 @@ data/models-backtest/
 
 **Note on A1:** p_win_corrected is the EV-corrected OOF prediction. In the original MAWC training flow, generate_win_oof_predictions sets p_win_oof = fold_val["p_win_pred"] (the uncorrected prediction from the fold model), then corrects EV and stores as p_win_corrected. The MAWC train method resolves p_model from p_win_oof (not p_win_corrected). This means p_win_corrected in oof_predictions.parquet may differ from the p_win_oof used in the original MAWC training. However, for retraining purposes, using p_win_corrected (which includes EV correction) is a reasonable choice since it represents the best available OOF estimate of the model's probability.
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **Should p_model use p_win_corrected or p_win_pred?**
-   - What we know: oof_predictions.parquet has both. MAWC train resolves from p_win_oof (uncorrected) or p_model. In the original flow, p_win_oof = p_win_pred (before EV correction).
-   - What's unclear: Whether using p_win_corrected (post-EV-correction) vs p_win_pred (pre-EV-correction) makes a meaningful difference for MAWC training.
-   - Recommendation: Use p_win_corrected as it is the higher-quality OOF estimate. If quality gates fail, try p_win_pred as fallback.
+1. **Should p_model use p_win_corrected or p_win_pred?** -- RESOLVED: Use p_win_corrected (higher-quality OOF estimate). Implemented in Plan 01 Task 1 (prepare_oof_data: p_model = p_win_corrected).
 
-2. **Should we retrain for both 2024 and 2025 test years?**
-   - What we know: Backtest models exist for 2024 and 2025, each with their own MAWC. Phase 46 Shadow Comparison tests both years.
-   - What's unclear: Whether the planner should create conservative variants for both years or just 2024 first.
-   - Recommendation: Create for both years using the same conservative MAWC configuration. The MAWC is retrained per-surface on the full OOF data, then saved into both year directories.
+2. **Should we retrain for both 2024 and 2025 test years?** -- RESOLVED: Yes, both years. Implemented in Plan 01 Task 2 (run_full_pipeline iterates years parameter).
 
-3. **Favorite band guard threshold specifics**
-   - What we know: CONTEXT says odds 1-3 ECE should not worsen, bet_count should not drop significantly, APR should not degrade. The specifics suggest mean(p_conservative/p_model) >= 0.90 for odds 1-3.
-   - What's unclear: Exact numerical thresholds for "significant" bet_count drop and "large" APR degradation.
-   - Recommendation: Use relative thresholds: ECE degradation > 10% relative, bet_count drop > 10%, APR degradation > 5 percentage points. These are conservative but not overly restrictive.
+3. **Favorite band guard threshold specifics** -- RESOLVED: ECE_DEGRADATION_TOLERANCE=0.10, BET_COUNT_TOLERANCE=0.10, P_COMPRESSION_FLOOR=0.90. Implemented in Plan 01 Task 1 (evaluate_quality_gates).
 
 ## Environment Availability
 

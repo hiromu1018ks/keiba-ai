@@ -121,7 +121,8 @@ class QualityGateResult:
         return (
             self.brier_non_degraded
             and self.logloss_non_degraded
-            and self.favorite_band_guard.overall_passed
+            and self.favorite_band_guard.p_compression_passed
+            and self.favorite_band_guard.ev_pass_rate_passed
         )
 
 

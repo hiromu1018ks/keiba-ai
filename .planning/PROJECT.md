@@ -82,28 +82,26 @@ MLflow で実験管理。PostgreSQL (EveryDB2/JRA-VAN DataLab) をデータソ�
 
 ### Active
 
-- v2.2: ROI劣化原因特定と構造的修正 (v1.7: 97.8% → v2.0: 87.8%)
+- v2.3候補: v2.2で棄却されたConservative MAWCの教訓を踏まえた、より小さいキャリブレーション再設計
 - デプロイゲート自動判定 (DEP-01) — v2.3+
 - Optuna 19次元パラメータ最適化 (DEP-02) — v2.3+
 
-## Current Milestone: v2.2 ROI Recovery Analysis
+## Last Closed Milestone: v2.2 ROI Recovery Analysis
 
-**Goal:** v2.1のShadow Comparison Framework + DeploymentGateEvaluatorを用いて、v1.7(97.8%)→v2.0(87.8%)のROI劣化原因を特定し、OOF/WFで説明できる構造的修正のみを適用してROI回復を図る
+**Result:** closed as not_deployable. v2.2 identified MAWC calibration as the main failure path and tested a conservative MAWC variant, but Phase 46 runtime gates rejected it.
 
-**Target features:**
+**Delivered:**
 - 確率品質差分分析 (Brier/logloss/ECE、2024/2025固定fold baseline vs shadow)
 - 選定差分分析 (RaceLevelRanker選定パターン比較、的中/不的中パターン)
 - フェーズ単位ROI劣化ビセクション (v1.7→v2.0/v2.1)
-- 原因特定後の限定構造的修正
+- 原因特定後の限定構造的修正 (36-dim conservative MAWC) と実測ゲート検証
 
-**Success criteria:**
-- ROI回復傾向 (87.8%から上方改善)
-- Brier/logloss/ECE 非悪化 (baseline比較)
-- actual/predicted比率の悪化なし
-- ベット数維持 (baseline比較)
+**Runtime outcome:**
 - OOFHealthValidator PASS
 - FeatureRoutingAudit PASS
-- DeploymentGateEvaluator PASS
+- DeploymentGateEvaluator FAIL (2024/2025 per-fold Brier/logloss/ECE悪化)
+- Conservative MAWC test ROI -11.3% vs baseline -8.0%
+- Deployment verdict: not_deployable
 
 **Exclusions:**
 - ROI単独最適化 (品質指標とのトレードオフ不可)
@@ -127,11 +125,12 @@ MLflow で実験管理。PostgreSQL (EveryDB2/JRA-VAN DataLab) をデータソ�
 
 ## Current State
 
-**Shipped:** v2.1 MarketAware Calibration + Race-Level Ranker (2026-05-28)
-**Phases:** 42 total (v1.0-v2.1), all complete
-**Tests:** 2,056+ passed, 3 known failures
-**BT ROI:** 87.8% (v2.0 close), target 100%+
-**Next:** v2.2 ROI Recovery Analysis
+**Closed:** v2.2 ROI Recovery Analysis (2026-06-02, not_deployable)
+**Phases:** 46 total (v1.0-v2.2), all executed
+**Tests:** 2,343+ passed, 3 known failures
+**BT ROI reference:** v2.0 close 87.8%, v1.7 reference 97.8%, target 100%+
+**Latest runtime:** baseline test ROI -8.0%, conservative MAWC test ROI -11.3% (rejected)
+**Next:** v2.3 planning; do not replace baseline MAWC with conservative variant
 
 ## Context
 
