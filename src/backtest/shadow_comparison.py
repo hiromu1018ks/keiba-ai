@@ -490,9 +490,24 @@ class ShadowComparisonFramework:
         """単一 fold で N-way 比較を実行 (D-01, D-02, D-03)."""
         from backtest.engine import BacktestEngine
         from db.model_loader import ModelLoader
+        from db.parquet_store import ParquetStore
+        from db.readers import load_odds_time_series_range
 
         results: dict[str, Any] = {}  # variant_name -> BacktestResult
         variant_results: dict[str, VariantResult] = {}
+
+        # P1: odds時系列データ事前ロード — fold単位で1回だけロードし全variantで共有
+        store = self.store or ParquetStore()
+        preloaded_odds_ts = load_odds_time_series_range(
+            store,
+            fold.test_start.replace("-", ""),
+            fold.test_end.replace("-", ""),
+        )
+        logger.info(
+            "odds時系列データ事前ロード完了 (fold %d): %d行",
+            fold.year,
+            len(preloaded_odds_ts),
+        )
 
         for variant_cfg in self.variants:
             # D-05: model_dir / year でロード
@@ -514,11 +529,13 @@ class ShadowComparisonFramework:
 
             engine = BacktestEngine(
                 models=loaded_models,
+                store=store,
                 betting_mode=self.betting_mode,
                 betting_target=self.betting_target,
                 strategy_params=self.strategy_params,
                 diag_prefix=f"shadow_{variant_cfg.variant_name}",
                 min_bets_per_year=self.min_bets_per_year,
+                preloaded_odds_ts=preloaded_odds_ts,
             )
             bt_result = engine.run(
                 test_start=fold.test_start,

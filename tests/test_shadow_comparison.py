@@ -590,11 +590,19 @@ class TestNWayFramework:
 
     @patch("backtest.engine.BacktestEngine")
     @patch("db.model_loader.ModelLoader")
-    def test_three_variant_alignment(self, mock_loader_cls: MagicMock, mock_engine_cls: MagicMock) -> None:
+    @patch("db.readers.load_odds_time_series_range")
+    def test_three_variant_alignment(
+        self,
+        mock_load_odds: MagicMock,
+        mock_loader_cls: MagicMock,
+        mock_engine_cls: MagicMock,
+    ) -> None:
         from backtest.shadow_comparison import (
             ShadowComparisonFramework,
             VariantConfig,
         )
+
+        mock_load_odds.return_value = pd.DataFrame()
 
         models = _make_trained_models(mawc_trained=True, ranker_trained=True)
         mock_loader = MagicMock()
@@ -620,7 +628,7 @@ class TestNWayFramework:
             VariantConfig("shadow_a", Path("data/shadow_a"), True, True),
             VariantConfig("shadow_b", Path("data/shadow_b"), True, False),
         ]
-        framework = ShadowComparisonFramework(variants=variants)
+        framework = ShadowComparisonFramework(variants=variants, store=MagicMock())
         fold = MagicMock()
         fold.year = 2024
         fold.test_start = "2024-01-01"
@@ -795,13 +803,20 @@ class TestRunFoldIntegration:
 
     @patch("backtest.engine.BacktestEngine")
     @patch("db.model_loader.ModelLoader")
+    @patch("db.readers.load_odds_time_series_range")
     def test_run_fold_loads_models_and_injects_flags(
-        self, mock_loader_cls: MagicMock, mock_engine_cls: MagicMock,
+        self,
+        mock_load_odds: MagicMock,
+        mock_loader_cls: MagicMock,
+        mock_engine_cls: MagicMock,
     ) -> None:
         from backtest.shadow_comparison import (
             ShadowComparisonFramework,
             VariantConfig,
         )
+
+        # P1: preload用モック — 空DataFrameを返す
+        mock_load_odds.return_value = pd.DataFrame()
 
         models = _make_trained_models(mawc_trained=True, ranker_trained=True)
         mock_loader = MagicMock()
@@ -813,6 +828,7 @@ class TestRunFoldIntegration:
         mock_engine.run.return_value = _make_backtest_result(bh)
         mock_engine_cls.return_value = mock_engine
 
+        mock_store = MagicMock()
         variants = [
             VariantConfig("baseline", Path("data/bt"), False, False),
             VariantConfig("shadow", Path("data/shadow"), True, True),
@@ -820,6 +836,7 @@ class TestRunFoldIntegration:
         framework = ShadowComparisonFramework(
             variants=variants,
             betting_target="win",
+            store=mock_store,
         )
         from backtest.shadow_comparison import FoldDefinition
 
@@ -856,13 +873,19 @@ class TestRunFoldIntegration:
 
     @patch("backtest.engine.BacktestEngine")
     @patch("db.model_loader.ModelLoader")
+    @patch("db.readers.load_odds_time_series_range")
     def test_run_default_folds(
-        self, mock_loader_cls: MagicMock, mock_engine_cls: MagicMock,
+        self,
+        mock_load_odds: MagicMock,
+        mock_loader_cls: MagicMock,
+        mock_engine_cls: MagicMock,
     ) -> None:
         from backtest.shadow_comparison import (
             ShadowComparisonFramework,
             VariantConfig,
         )
+
+        mock_load_odds.return_value = pd.DataFrame()
 
         models = _make_trained_models(mawc_trained=True, ranker_trained=True)
         mock_loader = MagicMock()
@@ -875,10 +898,11 @@ class TestRunFoldIntegration:
         )
         mock_engine_cls.return_value = mock_engine
 
+        mock_store = MagicMock()
         variants = [
             VariantConfig("baseline", Path("data/bt"), False, False),
         ]
-        framework = ShadowComparisonFramework(variants=variants)
+        framework = ShadowComparisonFramework(variants=variants, store=mock_store)
         results = framework.run()
 
         # Default: 2 folds (2024, 2025)
@@ -886,14 +910,20 @@ class TestRunFoldIntegration:
 
     @patch("backtest.engine.BacktestEngine")
     @patch("db.model_loader.ModelLoader")
+    @patch("db.readers.load_odds_time_series_range")
     def test_run_custom_fold_list(
-        self, mock_loader_cls: MagicMock, mock_engine_cls: MagicMock,
+        self,
+        mock_load_odds: MagicMock,
+        mock_loader_cls: MagicMock,
+        mock_engine_cls: MagicMock,
     ) -> None:
         from backtest.shadow_comparison import (
             FoldDefinition,
             ShadowComparisonFramework,
             VariantConfig,
         )
+
+        mock_load_odds.return_value = pd.DataFrame()
 
         models = _make_trained_models(mawc_trained=True, ranker_trained=True)
         mock_loader = MagicMock()
@@ -906,10 +936,11 @@ class TestRunFoldIntegration:
         )
         mock_engine_cls.return_value = mock_engine
 
+        mock_store = MagicMock()
         variants = [
             VariantConfig("baseline", Path("data/bt"), False, False),
         ]
-        framework = ShadowComparisonFramework(variants=variants)
+        framework = ShadowComparisonFramework(variants=variants, store=mock_store)
         custom_folds = [FoldDefinition(
             year=2023,
             train_start="2019-01-01",
@@ -1350,8 +1381,13 @@ class TestCLIScript:
 
     @patch("backtest.engine.BacktestEngine")
     @patch("db.model_loader.ModelLoader")
+    @patch("db.readers.load_odds_time_series_range")
     def test_cli_full_flow_mocked(
-        self, mock_loader_cls: MagicMock, mock_engine_cls: MagicMock, tmp_path: Path,
+        self,
+        mock_load_odds: MagicMock,
+        mock_loader_cls: MagicMock,
+        mock_engine_cls: MagicMock,
+        tmp_path: Path,
     ) -> None:
         """Full CLI flow with mocked framework."""
         from backtest.shadow_comparison import (
@@ -1361,6 +1397,8 @@ class TestCLIScript:
             save_manifest,
             save_results,
         )
+
+        mock_load_odds.return_value = pd.DataFrame()
 
         models = _make_trained_models(mawc_trained=True, ranker_trained=True)
         mock_loader = MagicMock()
@@ -1382,6 +1420,7 @@ class TestCLIScript:
             variants=variant_configs,
             betting_target="win",
             betting_mode="flat",
+            store=MagicMock(),
         )
         results = framework.run(folds)
 
@@ -1395,8 +1434,13 @@ class TestCLIScript:
 
     @patch("backtest.engine.BacktestEngine")
     @patch("db.model_loader.ModelLoader")
+    @patch("db.readers.load_odds_time_series_range")
     def test_cli_report_flag_triggers_generation(
-        self, mock_loader_cls: MagicMock, mock_engine_cls: MagicMock, tmp_path: Path,
+        self,
+        mock_load_odds: MagicMock,
+        mock_loader_cls: MagicMock,
+        mock_engine_cls: MagicMock,
+        tmp_path: Path,
     ) -> None:
         """--report flag triggers HTML report generation."""
         from backtest.shadow_comparison import (
@@ -1406,6 +1450,8 @@ class TestCLIScript:
             save_manifest,
             save_results,
         )
+
+        mock_load_odds.return_value = pd.DataFrame()
 
         models = _make_trained_models(mawc_trained=True, ranker_trained=True)
         mock_loader = MagicMock()
@@ -1426,6 +1472,7 @@ class TestCLIScript:
         framework = ShadowComparisonFramework(
             variants=variant_configs,
             betting_target="win",
+            store=MagicMock(),
         )
         results = framework.run(folds)
         artifact_paths = save_results(results, tmp_path)
