@@ -107,6 +107,12 @@ def build_parser() -> argparse.ArgumentParser:
         default="flat",
         help="Betting mode: flat or kelly (default: flat)",
     )
+    parser.add_argument(
+        "--calibration-bt",
+        action="store_true",
+        default=False,
+        help="Run calibration BT on training period (default: skip, matching run_backtest.py)",
+    )
     return parser
 
 
@@ -146,10 +152,15 @@ def main(args: argparse.Namespace) -> None:
     )
 
     # Create framework and run
+    logger.info(
+        "Shadow calibration BT: %s",
+        "enabled" if args.calibration_bt else "disabled",
+    )
     framework = ShadowComparisonFramework(
         variants=variant_configs,
         betting_target=args.betting_target,
         betting_mode=args.betting_mode,
+        run_calibration_bt=args.calibration_bt,
     )
 
     t0 = time.time()
@@ -159,7 +170,10 @@ def main(args: argparse.Namespace) -> None:
 
     # Save artifacts
     artifact_paths = save_results(results, args.output_dir)
-    save_manifest(results, variant_configs, args.output_dir, artifact_paths)
+    save_manifest(
+        results, variant_configs, args.output_dir, artifact_paths,
+        calibration_bt=args.calibration_bt,
+    )
     logger.info("Artifacts saved to %s", args.output_dir)
 
     # Generate HTML report if requested

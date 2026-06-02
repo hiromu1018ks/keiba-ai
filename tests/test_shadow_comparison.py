@@ -880,6 +880,7 @@ class TestRunFoldIntegration:
         assert mock_engine.run.call_count == 2
         mock_engine.run.assert_any_call(
             test_start="2024-01-01", test_end="2024-12-31",
+            training_bet_history=[],
         )
 
         # P1 + P2: constructor が全preloaded kwargs + 同一storeを受けていること
@@ -901,6 +902,10 @@ class TestRunFoldIntegration:
         assert isinstance(result.horse_diff, pd.DataFrame)
         assert "baseline" in result.metrics
         assert "shadow" in result.metrics
+
+        # Verify default: training_bet_history=[] (skip calibration BT)
+        for call in mock_engine.run.call_args_list:
+            assert call.kwargs.get("training_bet_history") == []
 
     @patch("backtest.engine.BacktestEngine")
     @patch("db.model_loader.ModelLoader")
@@ -1006,6 +1011,71 @@ class TestRunFoldIntegration:
         results = framework.run(folds=custom_folds)
         assert len(results) == 1
         assert results[0].fold.year == 2023
+
+    @patch("backtest.engine.BacktestEngine")
+    @patch("db.model_loader.ModelLoader")
+    @patch("db.readers.load_payouts")
+    @patch("db.readers.load_odds_snapshots")
+    @patch("db.readers.load_entries")
+    @patch("db.readers.load_races")
+    @patch("db.readers.load_odds_time_series_range")
+    def test_run_fold_calibration_bt_enabled_passes_none(
+        self,
+        mock_load_odds: MagicMock,
+        mock_load_races: MagicMock,
+        mock_load_entries: MagicMock,
+        mock_load_odds_snapshots: MagicMock,
+        mock_load_payouts: MagicMock,
+        mock_loader_cls: MagicMock,
+        mock_engine_cls: MagicMock,
+    ) -> None:
+        """run_calibration_bt=True: engine.run() called with training_bet_history=None."""
+        from backtest.shadow_comparison import (
+            FoldDefinition,
+            ShadowComparisonFramework,
+            VariantConfig,
+        )
+
+        mock_load_odds.return_value = pd.DataFrame()
+        mock_load_races.return_value = pd.DataFrame()
+        mock_load_entries.return_value = pd.DataFrame()
+        mock_load_odds_snapshots.return_value = pd.DataFrame()
+        mock_load_payouts.return_value = pd.DataFrame()
+
+        models = _make_trained_models(mawc_trained=True, ranker_trained=True)
+        mock_loader = MagicMock()
+        mock_loader.load_from_dir.return_value = (models, MagicMock())
+        mock_loader_cls.return_value = mock_loader
+
+        mock_engine = MagicMock()
+        bh = _make_bet_history(["R1", "R2"], [1, 3], [5.0, 8.0], [0.0, 800.0])
+        mock_engine.run.return_value = _make_backtest_result(bh)
+        mock_engine_cls.return_value = mock_engine
+
+        mock_store = MagicMock()
+        variants = [
+            VariantConfig("baseline", Path("data/bt"), False, False),
+            VariantConfig("shadow", Path("data/shadow"), True, True),
+        ]
+        framework = ShadowComparisonFramework(
+            variants=variants,
+            betting_target="win",
+            store=mock_store,
+            run_calibration_bt=True,
+        )
+        fold = FoldDefinition(
+            year=2024,
+            train_start="2020-01-01",
+            train_end="2023-12-31",
+            test_start="2024-01-01",
+            test_end="2024-12-31",
+        )
+        framework.run_fold(fold)
+
+        # Verify training_bet_history=None (auto-generate enabled)
+        assert mock_engine.run.call_count == 2
+        for call in mock_engine.run.call_args_list:
+            assert call.kwargs.get("training_bet_history") is None
 
 
 # ===================================================================
@@ -1565,3 +1635,26 @@ class TestCLIScript:
         assert result.stdout is not None
         assert "baseline-root" in result.stdout
         assert "shadow-root" in result.stdout
+
+    def test_cli_calibration_bt_flag_default_off(self) -> None:
+        """--calibration-bt defaults to False."""
+        import scripts.run_shadow_comparison as script_module
+
+        parser = script_module.build_parser()
+        args = parser.parse_args([
+            "--baseline-root", "data/bt",
+            "--shadow-root", "data/shadow",
+        ])
+        assert args.calibration_bt is False
+
+    def test_cli_calibration_bt_flag_enabled(self) -> None:
+        """--calibration-bt flag enables calibration."""
+        import scripts.run_shadow_comparison as script_module
+
+        parser = script_module.build_parser()
+        args = parser.parse_args([
+            "--baseline-root", "data/bt",
+            "--shadow-root", "data/shadow",
+            "--calibration-bt",
+        ])
+        assert args.calibration_bt is True

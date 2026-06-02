@@ -259,11 +259,13 @@ def save_manifest(
     variant_configs: list[VariantConfig],
     output_dir: Path,
     artifact_paths: dict[str, Path],
+    calibration_bt: bool = False,
 ) -> Path:
     """shadow_manifest.json を書き出す (D-20, D-22)."""
     manifest: dict[str, Any] = {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "framework_version": "1.0",
+        "calibration_bt": calibration_bt,
         "variants": [],
         "folds": [],
         "artifacts": {},
@@ -433,6 +435,7 @@ class ShadowComparisonFramework:
         betting_mode: str = "flat",
         strategy_params: dict[str, Any] | None = None,
         min_bets_per_year: int = 1000,
+        run_calibration_bt: bool = False,
     ) -> None:
         self.variants = variants
         self.store = store
@@ -440,6 +443,7 @@ class ShadowComparisonFramework:
         self.betting_mode = betting_mode
         self.strategy_params = strategy_params
         self.min_bets_per_year = min_bets_per_year
+        self.run_calibration_bt = run_calibration_bt
 
     # ------------------------------------------------------------------
     # D-21: Strict mode artifact validation
@@ -556,6 +560,7 @@ class ShadowComparisonFramework:
             bt_result = engine.run(
                 test_start=fold.test_start,
                 test_end=fold.test_end,
+                training_bet_history=None if self.run_calibration_bt else [],
             )
             results[variant_cfg.variant_name] = bt_result
             variant_results[variant_cfg.variant_name] = VariantResult(
