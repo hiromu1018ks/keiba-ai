@@ -1,0 +1,22 @@
+19:16:39 [INFO] Shadow Diagnosis: input_dir=data\backtest\shadow
+19:16:39 [INFO] Results saved to data\backtest\shadow\diagnosis
+19:16:39 [INFO] HTML report: data\backtest\shadow\diagnosis\shadow_diagnosis_report.html
+
+Shadow Diagnosis Complete
+==================================================
+Step 1: Probability Quality
+  Brier:   baseline=0.1324  shadow=0.1103  delta=-0.0220
+  Logloss: baseline=0.4187  shadow=0.3649  delta=-0.0538
+  ECE:     baseline=0.0149  shadow=0.0182  delta=+0.0032
+  APR:     baseline=0.9281  shadow=1.1539  delta=+0.2257
+Step 2: Selection Pattern
+  Changed:   2123 races | BL ROI=-0.1825, HR=0.2916 | SH ROI=0.0000, HR=0.0000
+  Unchanged: 4539 races | BL ROI=-0.0306, HR=0.1357 | SH ROI=0.0000, HR=0.0000
+  Delta ROI: -0.1519 | Delta HR: +0.1559
+Step 3: Top 3 Calibration Gaps
+  popularity_band=10-14: delta_apr=+1.1102, delta_ece=-0.0055
+  odds_band=30+: delta_apr=+0.7162, delta_ece=-0.0094
+  odds_band=1-3: delta_apr=+0.5514, delta_ece=+0.0997
+Missing Inputs: None
+==================================================
+Artifacts saved to: data\backtest\shadow\diagnosis
