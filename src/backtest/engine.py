@@ -510,6 +510,10 @@ class BacktestEngine:
         betting_target: str = "win",
         strategy_params: dict[str, Any] | None = None,
         manifest_path: Path | None = None,
+        preloaded_race_df: pd.DataFrame | None = None,
+        preloaded_entry_df: pd.DataFrame | None = None,
+        preloaded_final_odds_df: pd.DataFrame | None = None,
+        preloaded_payouts_df: pd.DataFrame | None = None,
         preloaded_odds_ts: pd.DataFrame | None = None,
         min_bets_per_year: int = 1000,
     ) -> None:
@@ -529,6 +533,10 @@ class BacktestEngine:
         self._manifest_path = manifest_path
         self._pfp: ParameterFreezeProtocol | None = None
         self._preloaded_odds_ts = preloaded_odds_ts  # P1: odds時系列データ受け渡し
+        self._preloaded_race_df = preloaded_race_df  # P2: fold単位共有ロード
+        self._preloaded_entry_df = preloaded_entry_df
+        self._preloaded_final_odds_df = preloaded_final_odds_df
+        self._preloaded_payouts_df = preloaded_payouts_df
         self._min_bets_per_year = min_bets_per_year
         # Phase 43.5: 内部エンジンフラグ — OddsBandFilterキャリブレーションを
         # スキップし、再帰的な _generate_training_bet_history 呼び出しを防止する。
@@ -681,9 +689,21 @@ class BacktestEngine:
         # 1. データロード
         start = test_start.replace("-", "")
         end = test_end.replace("-", "")
-        race_df = load_races(self.store, start, end)
-        entry_df = load_entries(self.store, start, end)
-        final_odds_df = load_odds_snapshots(self.store, start, end)  # 確定オッズ（精算用）
+        race_df = (
+            self._preloaded_race_df.copy()
+            if self._preloaded_race_df is not None
+            else load_races(self.store, start, end)
+        )
+        entry_df = (
+            self._preloaded_entry_df.copy()
+            if self._preloaded_entry_df is not None
+            else load_entries(self.store, start, end)
+        )
+        final_odds_df = (
+            self._preloaded_final_odds_df.copy()
+            if self._preloaded_final_odds_df is not None
+            else load_odds_snapshots(self.store, start, end)  # 確定オッズ（精算用）
+        )
 
         if race_df.empty:
             logger.warning(f"No races found in {test_start} ~ {test_end}")
@@ -771,7 +791,11 @@ class BacktestEngine:
 
         # 確定配当マップを構築（精算用。実際の払戻金額を使用）
         # BUG-FIX: betting_target に応じて必要な払戻マップのみ構築
-        payouts_df = load_payouts(self.store, start, end)
+        payouts_df = (
+            self._preloaded_payouts_df.copy()
+            if self._preloaded_payouts_df is not None
+            else load_payouts(self.store, start, end)
+        )
 
         needs_place = self.betting_target in ("place", "wide")
         needs_win = self.betting_target in ("win", "wide")

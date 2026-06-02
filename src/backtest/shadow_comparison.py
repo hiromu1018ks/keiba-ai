@@ -491,21 +491,33 @@ class ShadowComparisonFramework:
         from backtest.engine import BacktestEngine
         from db.model_loader import ModelLoader
         from db.parquet_store import ParquetStore
-        from db.readers import load_odds_time_series_range
+        from db.readers import (
+            load_entries,
+            load_odds_snapshots,
+            load_odds_time_series_range,
+            load_payouts,
+            load_races,
+        )
 
         results: dict[str, Any] = {}  # variant_name -> BacktestResult
         variant_results: dict[str, VariantResult] = {}
 
-        # P1: odds時系列データ事前ロード — fold単位で1回だけロードし全variantで共有
+        # P1 + P2: fold単位で全データを1回だけロードし全variantで共有
         store = self.store or ParquetStore()
-        preloaded_odds_ts = load_odds_time_series_range(
-            store,
-            fold.test_start.replace("-", ""),
-            fold.test_end.replace("-", ""),
-        )
+        start = fold.test_start.replace("-", "")
+        end = fold.test_end.replace("-", "")
+        preloaded_race_df = load_races(store, start, end)
+        preloaded_entry_df = load_entries(store, start, end)
+        preloaded_final_odds_df = load_odds_snapshots(store, start, end)
+        preloaded_payouts_df = load_payouts(store, start, end)
+        preloaded_odds_ts = load_odds_time_series_range(store, start, end)
         logger.info(
-            "odds時系列データ事前ロード完了 (fold %d): %d行",
+            "Preloaded fold %d data: races=%d entries=%d final_odds=%d payouts=%d odds_ts=%d",
             fold.year,
+            len(preloaded_race_df),
+            len(preloaded_entry_df),
+            len(preloaded_final_odds_df),
+            len(preloaded_payouts_df),
             len(preloaded_odds_ts),
         )
 
@@ -535,6 +547,10 @@ class ShadowComparisonFramework:
                 strategy_params=self.strategy_params,
                 diag_prefix=f"shadow_{variant_cfg.variant_name}",
                 min_bets_per_year=self.min_bets_per_year,
+                preloaded_race_df=preloaded_race_df,
+                preloaded_entry_df=preloaded_entry_df,
+                preloaded_final_odds_df=preloaded_final_odds_df,
+                preloaded_payouts_df=preloaded_payouts_df,
                 preloaded_odds_ts=preloaded_odds_ts,
             )
             bt_result = engine.run(

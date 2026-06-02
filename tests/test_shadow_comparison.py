@@ -803,10 +803,18 @@ class TestRunFoldIntegration:
 
     @patch("backtest.engine.BacktestEngine")
     @patch("db.model_loader.ModelLoader")
+    @patch("db.readers.load_payouts")
+    @patch("db.readers.load_odds_snapshots")
+    @patch("db.readers.load_entries")
+    @patch("db.readers.load_races")
     @patch("db.readers.load_odds_time_series_range")
     def test_run_fold_loads_models_and_injects_flags(
         self,
         mock_load_odds: MagicMock,
+        mock_load_races: MagicMock,
+        mock_load_entries: MagicMock,
+        mock_load_odds_snapshots: MagicMock,
+        mock_load_payouts: MagicMock,
         mock_loader_cls: MagicMock,
         mock_engine_cls: MagicMock,
     ) -> None:
@@ -815,8 +823,12 @@ class TestRunFoldIntegration:
             VariantConfig,
         )
 
-        # P1: preload用モック — 空DataFrameを返す
+        # P1 + P2: preload用モック — 空DataFrameを返す
         mock_load_odds.return_value = pd.DataFrame()
+        mock_load_races.return_value = pd.DataFrame()
+        mock_load_entries.return_value = pd.DataFrame()
+        mock_load_odds_snapshots.return_value = pd.DataFrame()
+        mock_load_payouts.return_value = pd.DataFrame()
 
         models = _make_trained_models(mawc_trained=True, ranker_trained=True)
         mock_loader = MagicMock()
@@ -854,6 +866,13 @@ class TestRunFoldIntegration:
         mock_loader.load_from_dir.assert_any_call(Path("data/bt/2024"))
         mock_loader.load_from_dir.assert_any_call(Path("data/shadow/2024"))
 
+        # P1 + P2: 5ローダーはfold単位で1回だけ呼ばれる(2 variantsでも1回)
+        assert mock_load_races.call_count == 1
+        assert mock_load_entries.call_count == 1
+        assert mock_load_odds_snapshots.call_count == 1
+        assert mock_load_payouts.call_count == 1
+        assert mock_load_odds.call_count == 1
+
         # Verify _shadow_flags set correctly on loaded models
         assert hasattr(models, "_shadow_flags")
 
@@ -862,6 +881,18 @@ class TestRunFoldIntegration:
         mock_engine.run.assert_any_call(
             test_start="2024-01-01", test_end="2024-12-31",
         )
+
+        # P1 + P2: constructor が全preloaded kwargs + 同一storeを受けていること
+        # 2 variantsで2回呼ばれるため、call_args_listで全呼び出しを検証
+        assert mock_engine_cls.call_count == 2
+        for call in mock_engine_cls.call_args_list:
+            kwargs = call.kwargs
+            assert "preloaded_race_df" in kwargs
+            assert "preloaded_entry_df" in kwargs
+            assert "preloaded_final_odds_df" in kwargs
+            assert "preloaded_payouts_df" in kwargs
+            assert "preloaded_odds_ts" in kwargs
+            assert kwargs["store"] is mock_store
 
         # Verify result structure
         assert "baseline" in result.variants
@@ -873,10 +904,18 @@ class TestRunFoldIntegration:
 
     @patch("backtest.engine.BacktestEngine")
     @patch("db.model_loader.ModelLoader")
+    @patch("db.readers.load_payouts")
+    @patch("db.readers.load_odds_snapshots")
+    @patch("db.readers.load_entries")
+    @patch("db.readers.load_races")
     @patch("db.readers.load_odds_time_series_range")
     def test_run_default_folds(
         self,
         mock_load_odds: MagicMock,
+        mock_load_races: MagicMock,
+        mock_load_entries: MagicMock,
+        mock_load_odds_snapshots: MagicMock,
+        mock_load_payouts: MagicMock,
         mock_loader_cls: MagicMock,
         mock_engine_cls: MagicMock,
     ) -> None:
@@ -886,6 +925,10 @@ class TestRunFoldIntegration:
         )
 
         mock_load_odds.return_value = pd.DataFrame()
+        mock_load_races.return_value = pd.DataFrame()
+        mock_load_entries.return_value = pd.DataFrame()
+        mock_load_odds_snapshots.return_value = pd.DataFrame()
+        mock_load_payouts.return_value = pd.DataFrame()
 
         models = _make_trained_models(mawc_trained=True, ranker_trained=True)
         mock_loader = MagicMock()
@@ -910,10 +953,18 @@ class TestRunFoldIntegration:
 
     @patch("backtest.engine.BacktestEngine")
     @patch("db.model_loader.ModelLoader")
+    @patch("db.readers.load_payouts")
+    @patch("db.readers.load_odds_snapshots")
+    @patch("db.readers.load_entries")
+    @patch("db.readers.load_races")
     @patch("db.readers.load_odds_time_series_range")
     def test_run_custom_fold_list(
         self,
         mock_load_odds: MagicMock,
+        mock_load_races: MagicMock,
+        mock_load_entries: MagicMock,
+        mock_load_odds_snapshots: MagicMock,
+        mock_load_payouts: MagicMock,
         mock_loader_cls: MagicMock,
         mock_engine_cls: MagicMock,
     ) -> None:
@@ -924,6 +975,10 @@ class TestRunFoldIntegration:
         )
 
         mock_load_odds.return_value = pd.DataFrame()
+        mock_load_races.return_value = pd.DataFrame()
+        mock_load_entries.return_value = pd.DataFrame()
+        mock_load_odds_snapshots.return_value = pd.DataFrame()
+        mock_load_payouts.return_value = pd.DataFrame()
 
         models = _make_trained_models(mawc_trained=True, ranker_trained=True)
         mock_loader = MagicMock()
