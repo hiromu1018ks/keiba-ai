@@ -33,5 +33,8 @@
       "Bash(ls docs/everydb2/*.md)"
     ]
   },
-  "outputStyle": "Explanatory"
+  "outputStyle": "Explanatory",
+  "enabledPlugins": {
+    "commit-commands@claude-plugins-official": true
+  }
 }
