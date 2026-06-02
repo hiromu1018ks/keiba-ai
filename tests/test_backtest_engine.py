@@ -2433,6 +2433,196 @@ class TestBacktestOptimizationStages:
         assert len(HorseHistoryFeatures._class_cache) == 0
 
 
+class TestBacktestPreparedDataP4:
+    """P4: BacktestPreparedData + prepare_data() + run(prepared_data) のテスト"""
+
+    def test_prepared_data_dataclass_fields(self) -> None:
+        """BacktestPreparedData が全10フィールドを持つ"""
+        import numpy as np
+        import pandas as pd
+        from backtest.engine import BacktestPreparedData
+
+        empty = BacktestPreparedData.empty()
+        assert isinstance(empty, BacktestPreparedData)
+        assert isinstance(empty.race_ids, np.ndarray)
+        assert isinstance(empty.feat_df, pd.DataFrame)
+        assert isinstance(empty.jockey_df_all, pd.DataFrame)
+        assert isinstance(empty.trainer_df_all, pd.DataFrame)
+        assert isinstance(empty.jt_df_all, pd.DataFrame)
+        assert isinstance(empty.final_odds_map, dict)
+        assert isinstance(empty.closing_win_odds_map, dict)
+        assert isinstance(empty.payout_map, dict)
+        assert isinstance(empty.win_payout_map, dict)
+        assert isinstance(empty.wide_payout_map, dict)
+
+    def test_empty_returns_empty_not_none(self) -> None:
+        """空データ時に None ではなく空の BacktestPreparedData が返る"""
+        from unittest.mock import MagicMock
+
+        import pandas as pd
+        from backtest.engine import BacktestEngine, BacktestPreparedData
+
+        store = MagicMock()
+        store._data_dir = "data"
+
+        # 空のDataFrameを返すようにloaderをmock
+        with (
+            patch("backtest.engine.load_races", return_value=pd.DataFrame()),
+            patch("backtest.engine.load_entries", return_value=pd.DataFrame()),
+            patch("backtest.engine.load_odds_snapshots", return_value=pd.DataFrame()),
+            patch("backtest.engine.load_payouts", return_value=pd.DataFrame()),
+        ):
+            result = BacktestEngine.prepare_data(
+                store=store,
+                betting_target="win",
+                test_start="2024-01-01",
+                test_end="2024-12-31",
+            )
+
+        # Noneではなく空のBacktestPreparedDataが返る
+        assert result is not None
+        assert isinstance(result, BacktestPreparedData)
+        assert len(result.race_ids) == 0
+        assert result.feat_df.empty
+        assert result.final_odds_map == {}
+        assert result.payout_map == {}
+
+    def test_prepare_data_with_preloaded_returns_prepared(self) -> None:
+        """preloaded渡しでprepare_data()がloaderを呼ばずBacktestPreparedDataを返す"""
+        from unittest.mock import MagicMock
+
+        import pandas as pd
+        from backtest.engine import BacktestEngine
+
+        store = MagicMock()
+
+        # preloaded データ（空でない）
+        preloaded_race_df = pd.DataFrame({"race_id": ["20240101010101"]})
+        preloaded_entry_df = pd.DataFrame(
+            {"race_id": ["20240101010101"], "umaban": [1]}
+        )
+        preloaded_final_odds_df = pd.DataFrame(
+            {"race_id": ["20240101010101"], "umaban": [1], "fukuoddslow": [3.0]}
+        )
+        preloaded_payouts_df = pd.DataFrame({"race_id": ["20240101010101"]})
+        preloaded_odds_ts = pd.DataFrame(
+            {
+                "race_id": ["20240101010101"],
+                "race_date": pd.to_datetime(["2024-01-01"]),
+                "umaban": [1],
+                "hassotime": ["03101500"],
+                "tanodds": [5.0],
+            }
+        )
+
+        # loaderが呼ばれないことを確認するためのpatch
+        with (
+            patch("backtest.engine.load_races") as mock_load_races,
+            patch("backtest.engine.load_entries") as mock_load_entries,
+        ):
+            result = BacktestEngine.prepare_data(
+                store=store,
+                betting_target="win",
+                test_start="2024-01-01",
+                test_end="2024-12-31",
+                preloaded_race_df=preloaded_race_df,
+                preloaded_entry_df=preloaded_entry_df,
+                preloaded_final_odds_df=preloaded_final_odds_df,
+                preloaded_payouts_df=preloaded_payouts_df,
+                preloaded_odds_ts=preloaded_odds_ts,
+            )
+            # preloadedを渡したのでloaderは呼ばれない
+            mock_load_races.assert_not_called()
+            mock_load_entries.assert_not_called()
+
+        # 結果は BacktestPreparedData（空データまたは実データ）
+        assert result is not None
+
+    def test_run_with_empty_prepared_data_returns_early(self) -> None:
+        """空のprepared_dataで_verify_pfp()が呼ばれ、空のBacktestResultが返る"""
+        from unittest.mock import MagicMock, patch
+
+        from backtest.engine import BacktestEngine, BacktestPreparedData
+
+        models = MagicMock()
+        store = MagicMock()
+        engine = BacktestEngine(models=models, store=store)
+
+        empty_prepared = BacktestPreparedData.empty()
+
+        # _verify_pfp をspyする
+        with patch.object(engine, "_verify_pfp") as mock_verify:
+            result = engine.run(
+                test_start="2024-01-01",
+                test_end="2024-12-31",
+                prepared_data=empty_prepared,
+            )
+
+        # _verify_pfpが呼ばれたことを確認
+        mock_verify.assert_called_once()
+        # 空のBacktestResultが返る
+        assert result.final_bankroll == 100_000
+        assert result.total_bets == 0
+
+    def test_run_with_prepared_data_none_uses_internal_path(self) -> None:
+        """prepared_data=Noneの場合、内部でデータロードが実行される"""
+        from unittest.mock import MagicMock, patch
+
+        import pandas as pd
+        from backtest.engine import BacktestEngine
+
+        models = MagicMock()
+        store = MagicMock()
+        engine = BacktestEngine(models=models, store=store)
+
+        # 内部パスでload_racesが呼ばれることを確認
+        with (
+            patch("backtest.engine.load_races", return_value=pd.DataFrame()) as mock_load,
+            patch("backtest.engine.load_entries", return_value=pd.DataFrame()),
+            patch("backtest.engine.load_odds_snapshots", return_value=pd.DataFrame()),
+            patch("backtest.engine.load_payouts", return_value=pd.DataFrame()),
+        ):
+            result = engine.run(
+                test_start="2024-01-01",
+                test_end="2024-12-31",
+                prepared_data=None,  # ← Noneなので内部ロード
+            )
+
+        # load_racesが呼ばれた (=内部パスが実行された)
+        mock_load.assert_called_once()
+        # 空データなので空のBacktestResult
+        assert result.final_bankroll == 100_000
+
+    def test_prepared_data_dfs_not_mutated_by_run(self) -> None:
+        """prepared_data内のDataFrameがrun()実行後に不変であることを確認"""
+        from unittest.mock import MagicMock, patch
+
+        import numpy as np
+        import pandas as pd
+        from backtest.engine import BacktestEngine, BacktestPreparedData
+
+        # 空のprepared_dataを作成（race_ids空なので即時リターン）
+        prepared = BacktestPreparedData.empty()
+        original_feat_id = id(prepared.feat_df)
+        original_feat_cols = list(prepared.feat_df.columns)
+
+        models = MagicMock()
+        store = MagicMock()
+        engine = BacktestEngine(models=models, store=store)
+
+        with patch.object(engine, "_verify_pfp"):
+            engine.run(
+                test_start="2024-01-01",
+                test_end="2024-12-31",
+                prepared_data=prepared,
+            )
+
+        # run()後もprepared_dataのDataFrameが変更されていない
+        assert id(prepared.feat_df) == original_feat_id
+        assert list(prepared.feat_df.columns) == original_feat_cols
+        assert len(prepared.race_ids) == 0  # still empty
+
+
 class TestHistFeaturesPreMerge:
     """D-11: hist_df_all を feat_df に事前マージし、predict() に hist_features=None を渡す"""
 

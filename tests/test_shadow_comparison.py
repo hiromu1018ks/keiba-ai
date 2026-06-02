@@ -115,6 +115,32 @@ def _make_backtest_result(
     )
 
 
+def _make_prepared_data(
+    n_races: int = 1,
+) -> BacktestPreparedData:
+    """Build a non-empty BacktestPreparedData for P4 tests."""
+    from backtest.engine import BacktestPreparedData
+
+    race_ids = np.array([f"202401010{i:02d}" for i in range(1, n_races + 1)])
+    feat_df = pd.DataFrame({
+        "race_id": race_ids.tolist(),
+        "umaban": [1] * n_races,
+        "kettonum": [1000 + i for i in range(n_races)],
+    })
+    return BacktestPreparedData(
+        race_ids=race_ids,
+        feat_df=feat_df,
+        jockey_df_all=pd.DataFrame({"race_id": race_ids.tolist(), "umaban": [1] * n_races}),
+        trainer_df_all=pd.DataFrame({"race_id": race_ids.tolist(), "umaban": [1] * n_races}),
+        jt_df_all=pd.DataFrame({"race_id": race_ids.tolist(), "umaban": [1] * n_races}),
+        final_odds_map={},
+        closing_win_odds_map={},
+        payout_map={},
+        win_payout_map={},
+        wide_payout_map={},
+    )
+
+
 # ===================================================================
 # Task 1: Dataclasses and ShadowComparisonFramework
 # ===================================================================
@@ -839,6 +865,8 @@ class TestRunFoldIntegration:
         bh = _make_bet_history(["R1", "R2"], [1, 3], [5.0, 8.0], [0.0, 800.0])
         mock_engine.run.return_value = _make_backtest_result(bh)
         mock_engine_cls.return_value = mock_engine
+        # P4: prepare_data が非空 BacktestPreparedData を返すように設定
+        mock_engine_cls.prepare_data.return_value = _make_prepared_data(n_races=2)
 
         mock_store = MagicMock()
         variants = [
@@ -881,7 +909,11 @@ class TestRunFoldIntegration:
         mock_engine.run.assert_any_call(
             test_start="2024-01-01", test_end="2024-12-31",
             training_bet_history=[],
+            prepared_data=mock_engine_cls.prepare_data.return_value,
         )
+
+        # P4: prepare_data が fold 単位で1回だけ呼ばれる
+        assert mock_engine_cls.prepare_data.call_count == 1
 
         # P1 + P2: constructor が全preloaded kwargs + 同一storeを受けていること
         # 2 variantsで2回呼ばれるため、call_args_listで全呼び出しを検証
@@ -945,6 +977,8 @@ class TestRunFoldIntegration:
             _make_bet_history(["R1"], [1], [5.0], [0.0]),
         )
         mock_engine_cls.return_value = mock_engine
+        # P4: prepare_data が非空 BacktestPreparedData を返すように設定
+        mock_engine_cls.prepare_data.return_value = _make_prepared_data(n_races=1)
 
         mock_store = MagicMock()
         variants = [
@@ -995,6 +1029,8 @@ class TestRunFoldIntegration:
             _make_bet_history(["R1"], [1], [5.0], [0.0]),
         )
         mock_engine_cls.return_value = mock_engine
+        # P4: prepare_data が非空 BacktestPreparedData を返すように設定
+        mock_engine_cls.prepare_data.return_value = _make_prepared_data(n_races=1)
 
         mock_store = MagicMock()
         variants = [
@@ -1051,6 +1087,8 @@ class TestRunFoldIntegration:
         bh = _make_bet_history(["R1", "R2"], [1, 3], [5.0, 8.0], [0.0, 800.0])
         mock_engine.run.return_value = _make_backtest_result(bh)
         mock_engine_cls.return_value = mock_engine
+        # P4: prepare_data が非空 BacktestPreparedData を返すように設定
+        mock_engine_cls.prepare_data.return_value = _make_prepared_data(n_races=2)
 
         mock_store = MagicMock()
         variants = [

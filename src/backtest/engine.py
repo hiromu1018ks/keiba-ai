@@ -108,6 +108,54 @@ class BacktestResult:
         return "\n".join(lines)
 
 
+@dataclass
+class BacktestPreparedData:
+    """P4: fold-level pre-computed data (model-independent).
+
+    prepare_data() は常にこのオブジェクトを返す（空データでも None は返さない）。
+    run() 側で len(race_ids) == 0 をチェックして早期リターンする。
+
+    Attributes:
+        race_ids: 対象レースID配列 (空の場合あり)
+        feat_df: FeatureEngine + バッチ特徴量適用済みの全レース DataFrame
+        jockey_df_all: JockeyContextFeatures の全計算結果
+        trainer_df_all: TrainerContextFeatures の全計算結果
+        jt_df_all: JockeyTrainerComboFeatures の全計算結果
+        final_odds_map: (race_id, umaban) → 確定複勝オッズ
+        closing_win_odds_map: (race_id, umaban) → 確定単勝オッズ
+        payout_map: (race_id, umaban) → 複勝配当倍率
+        win_payout_map: (race_id, umaban) → 単勝配当倍率
+        wide_payout_map: (race_id, umaban_lo, umaban_hi) → ワイド配当倍率
+    """
+
+    race_ids: np.ndarray
+    feat_df: pd.DataFrame
+    jockey_df_all: pd.DataFrame
+    trainer_df_all: pd.DataFrame
+    jt_df_all: pd.DataFrame
+    final_odds_map: dict[tuple[str, int], float]
+    closing_win_odds_map: dict[tuple[str, int], float]
+    payout_map: dict[tuple[str, int], float]
+    win_payout_map: dict[tuple[str, int], float]
+    wide_payout_map: dict[tuple[str, int, int], float]
+
+    @classmethod
+    def empty(cls) -> BacktestPreparedData:
+        """空データのインスタンスを返す (None は返さない設計)."""
+        return cls(
+            race_ids=np.array([]),
+            feat_df=pd.DataFrame(),
+            jockey_df_all=pd.DataFrame(),
+            trainer_df_all=pd.DataFrame(),
+            jt_df_all=pd.DataFrame(),
+            final_odds_map={},
+            closing_win_odds_map={},
+            payout_map={},
+            win_payout_map={},
+            wide_payout_map={},
+        )
+
+
 def build_payout_map(
     payouts_df: pd.DataFrame,
 ) -> dict[tuple[str, int], float]:
@@ -660,55 +708,66 @@ class BacktestEngine:
                 raise RuntimeError(pfp_result["message"])  # D-04: 即時停止
             logger.info("PFP verification passed: %s", pfp_result["message"])
 
-    def run(
-        self,
+    # ------------------------------------------------------------------
+    # P4: prepare_data — model-independent data + feature preparation
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def prepare_data(
+        store: ParquetStore,
+        betting_target: str,
         test_start: str,
         test_end: str,
-        training_bet_history: list[dict[str, Any]] | None = None,  # D-05
-    ) -> BacktestResult:
-        """バックテストを実行
+        preloaded_race_df: pd.DataFrame | None = None,
+        preloaded_entry_df: pd.DataFrame | None = None,
+        preloaded_final_odds_df: pd.DataFrame | None = None,
+        preloaded_payouts_df: pd.DataFrame | None = None,
+        preloaded_odds_ts: pd.DataFrame | None = None,
+    ) -> BacktestPreparedData:
+        """P4: モデル非依存のデータ準備 + 特徴量生成.
+
+        run() の前半 (データロード → 特徴量生成) を抽出したメソッド。
+        self.models / _shadow_flags に依存しないコードのみを含む。
+        常に BacktestPreparedData を返す (空データでも None は返さない)。
 
         Args:
+            store: ParquetStore インスタンス
+            betting_target: "win" | "place" | "wide"
             test_start: テスト開始日 (YYYY-MM-DD)
             test_end: テスト終了日 (YYYY-MM-DD)
-            training_bet_history: トレーニング期間のベット履歴 (OddsBandFilter キャリブレーション用)
+            preloaded_race_df: fold単位で共有済みのレース DataFrame (省略時はDB読み込み)
+            preloaded_entry_df: fold単位で共有済みの出走 DataFrame
+            preloaded_final_odds_df: fold単位で共有済みの確定オッズ DataFrame
+            preloaded_payouts_df: fold単位で共有済みの配当 DataFrame
+            preloaded_odds_ts: fold単位で共有済みのオッズ時系列 DataFrame
 
         Returns:
-            BacktestResult
+            BacktestPreparedData (空データ時は race_ids が空配列)
         """
-        # --- D-03: PFP二重検証 (SHA256 + ParameterFreezeProtocol) ---
-        if self._manifest_path is not None:
-            # D-03(1): SHA256再検証
-            verify_strategy_manifest(self._manifest_path)
-            logger.info("Manifest SHA256 verified in engine.run(): %s", self._manifest_path)
-
-            # D-03(2): PFP freeze -- OOS期間開始時のモデルスナップショット
-            self._pfp = ParameterFreezeProtocol(self.models)
-            self._pfp.freeze()
+        _empty = BacktestPreparedData.empty
 
         # 1. データロード
         start = test_start.replace("-", "")
         end = test_end.replace("-", "")
         race_df = (
-            self._preloaded_race_df.copy()
-            if self._preloaded_race_df is not None
-            else load_races(self.store, start, end)
+            preloaded_race_df.copy()
+            if preloaded_race_df is not None
+            else load_races(store, start, end)
         )
         entry_df = (
-            self._preloaded_entry_df.copy()
-            if self._preloaded_entry_df is not None
-            else load_entries(self.store, start, end)
+            preloaded_entry_df.copy()
+            if preloaded_entry_df is not None
+            else load_entries(store, start, end)
         )
         final_odds_df = (
-            self._preloaded_final_odds_df.copy()
-            if self._preloaded_final_odds_df is not None
-            else load_odds_snapshots(self.store, start, end)  # 確定オッズ（精算用）
+            preloaded_final_odds_df.copy()
+            if preloaded_final_odds_df is not None
+            else load_odds_snapshots(store, start, end)
         )
 
         if race_df.empty:
-            logger.warning(f"No races found in {test_start} ~ {test_end}")
-            self._verify_pfp()
-            return BacktestResult(final_bankroll=self.initial_bankroll)
+            logger.warning("No races found in %s ~ %s [prepare_data]", test_start, test_end)
+            return _empty()
 
         if "jyocd" in race_df.columns:
             jyocd_int = pd.to_numeric(race_df["jyocd"], errors="coerce")
@@ -725,51 +784,46 @@ class BacktestEngine:
         feat_engine = FeatureEngine()
         submodel_mgr = SubModelManager()
 
-        # P1: odds時系列データ — preloaded_odds_tsがあれば再利用、なければロード
-        if self._preloaded_odds_ts is not None:
-            odds_ts_df = self._preloaded_odds_ts
+        # P1: odds時系列データ
+        if preloaded_odds_ts is not None:
+            odds_ts_df = preloaded_odds_ts
             s_dt = pd.Timestamp(start)
             e_dt = pd.Timestamp(end)
             if "race_date" in odds_ts_df.columns:
                 mask = (odds_ts_df["race_date"] >= s_dt) & (odds_ts_df["race_date"] <= e_dt)
                 odds_ts_df = odds_ts_df[mask]
             logger.debug(
-                "Using preloaded odds_ts (%d rows for %s ~ %s)",
+                "Using preloaded odds_ts (%d rows for %s ~ %s) [prepare_data]",
                 len(odds_ts_df),
                 start,
                 end,
             )
         else:
-            odds_ts_df = load_odds_time_series_range(self.store, start, end)
+            odds_ts_df = load_odds_time_series_range(store, start, end)
         if not odds_ts_df.empty:
             odds_ts_df = odds_ts_df[odds_ts_df["race_id"].isin(race_df["race_id"])].copy()
 
-        # 発走前オッズの抽出（フォールバックなし: 時系列オッズがない場合は全レーススキップ）
+        # 発走前オッズの抽出
         if odds_ts_df.empty:
             logger.warning(
-                "No time-series odds data for %s ~ %s, skipping all races", test_start, test_end
+                "No time-series odds data for %s ~ %s [prepare_data]", test_start, test_end
             )
-            self._verify_pfp()
-            return BacktestResult(final_bankroll=self.initial_bankroll)
+            return _empty()
 
         if "hassotime" not in race_df.columns:
-            logger.warning(
-                "hassotime column missing, cannot extract pre-race odds, skipping all races"
-            )
-            self._verify_pfp()
-            return BacktestResult(final_bankroll=self.initial_bankroll)
+            logger.warning("hassotime column missing [prepare_data]")
+            return _empty()
 
         pre_post_odds = extract_pre_post_odds(odds_ts_df, race_df, minutes_before=5)
         if pre_post_odds.empty:
             logger.warning(
-                "extract_pre_post_odds returned empty for %s ~ %s, skipping all races",
+                "extract_pre_post_odds returned empty for %s ~ %s [prepare_data]",
                 test_start,
                 test_end,
             )
-            self._verify_pfp()
-            return BacktestResult(final_bankroll=self.initial_bankroll)
+            return _empty()
 
-        # 確定オッズマップを構築（精算用。FeatureEngine の列フィルタ回避）
+        # 確定オッズマップを構築
         final_odds_map: dict[tuple[str, int], float] = {}
         if not final_odds_df.empty:
             _odds = final_odds_df.dropna(subset=["fukuoddslow"])
@@ -789,51 +843,44 @@ class BacktestEngine:
                 ].items():
                     closing_win_odds_map[(str(race_id), int(umaban))] = float(odds)
 
-        # 確定配当マップを構築（精算用。実際の払戻金額を使用）
-        # BUG-FIX: betting_target に応じて必要な払戻マップのみ構築
+        # 確定配当マップを構築
         payouts_df = (
-            self._preloaded_payouts_df.copy()
-            if self._preloaded_payouts_df is not None
-            else load_payouts(self.store, start, end)
+            preloaded_payouts_df.copy()
+            if preloaded_payouts_df is not None
+            else load_payouts(store, start, end)
         )
 
-        needs_place = self.betting_target in ("place", "wide")
-        needs_win = self.betting_target in ("win", "wide")
-        needs_wide = self.betting_target == "wide"
+        needs_place = betting_target in ("place", "wide")
+        needs_win = betting_target in ("win", "wide")
+        needs_wide = betting_target == "wide"
 
+        payout_map = build_payout_map(payouts_df) if needs_place else {}
         if needs_place:
-            self.payout_map = build_payout_map(payouts_df)
-            logger.info("Loaded payout map: %d entries", len(self.payout_map))
-        else:
-            self.payout_map = {}
+            logger.info("Loaded payout map: %d entries [prepare_data]", len(payout_map))
 
+        win_payout_map = build_win_payout_map(payouts_df) if needs_win else {}
         if needs_win:
-            self.win_payout_map = build_win_payout_map(payouts_df)
-            logger.info("Loaded win payout map: %d entries", len(self.win_payout_map))
-        else:
-            self.win_payout_map = {}
+            logger.info("Loaded win payout map: %d entries [prepare_data]", len(win_payout_map))
 
+        wide_payout_map = build_wide_payout_map(payouts_df) if needs_wide else {}
         if needs_wide:
-            self.wide_payout_map = build_wide_payout_map(payouts_df)
-            logger.info("Loaded wide payout map: %d entries", len(self.wide_payout_map))
-        else:
-            self.wide_payout_map = {}
+            logger.info("Loaded wide payout map: %d entries [prepare_data]", len(wide_payout_map))
 
+        # FeatureEngine.build_all()
         feat_df = feat_engine.build_all(
             race_df,
             entry_df,
             pre_post_odds,
             odds_ts_df=odds_ts_df,
-            store=self.store,
+            store=store,
             preserve_columns=["kakuteijyuni", "confirmed_odds"],
         )
         feat_df = submodel_mgr.add_distance_band_features(feat_df)
 
-        # ワイドペア専用オッズを pivot して特徴量にマージ（WideJointPairBuilder 用）
-        if self.betting_target == "wide":
-            wide_odds_df = load_wide_odds(self.store, start, end)
+        # ワイドペア専用オッズ
+        if betting_target == "wide":
+            wide_odds_df = load_wide_odds(store, start, end)
             if wide_odds_df is not None and not wide_odds_df.empty:
-                # kumi "0102" → int変換で "1_2" 形式（WideJointPairBuilder の lookup に合わせる）
                 _wide = wide_odds_df[["race_id", "kumi", "oddslow"]].dropna(subset=["oddslow"])
                 if not _wide.empty:
                     wide_pivot = _wide.pivot_table(
@@ -841,7 +888,6 @@ class BacktestEngine:
                         columns="kumi",
                         values="oddslow",
                     )
-                    # ゼロ埋めを解除: "0102" → "1_2", "0211" → "2_11"
                     new_cols = []
                     for c in wide_pivot.columns:
                         lo = int(c[:2])
@@ -852,10 +898,9 @@ class BacktestEngine:
                     feat_df = feat_df.merge(wide_pivot, on="race_id", how="left")
                     logger.info("Merged wide odds: %d pair-columns", len(wide_pivot.columns) - 1)
         else:
-            logger.info("Skipping wide odds pivot for betting_target=%s", self.betting_target)
+            logger.info("Skipping wide odds pivot for betting_target=%s", betting_target)
 
-        # Safety check: verify feature generation did not introduce NAR entries
-        # (already filtered at data load above; this catches pipeline bugs)
+        # Safety check: NAR filter
         if "jyocd" in feat_df.columns:
             jyocd_int = pd.to_numeric(feat_df["jyocd"], errors="coerce")
             nar_count = (~jyocd_int.between(1, 10)).sum()
@@ -866,7 +911,7 @@ class BacktestEngine:
                 )
                 feat_df = feat_df[jyocd_int.between(1, 10)]
 
-        # 3. 特徴量の一括事前計算 (ループ外で全レース分を一度に計算)
+        # 3. 特徴量の一括事前計算
         from features.horse_history_features import HorseHistoryFeatures
         from features.jockey_context_features import JockeyContextFeatures
         from features.jockey_trainer_combo import JockeyTrainerComboFeatures
@@ -875,29 +920,29 @@ class BacktestEngine:
         race_ids = feat_df["race_id"].unique()
 
         logger.info("Pre-computing HorseHistoryFeatures for %d races...", len(race_ids))
-        hist_all = HorseHistoryFeatures(store=self.store)
+        hist_all = HorseHistoryFeatures(store=store)
         hist_df_all = hist_all.compute(race_df, entry_df, race_ids)
 
         logger.info("Pre-computing JockeyContextFeatures for %d entries...", len(entry_df))
-        jockey_ctx = JockeyContextFeatures(self.store)
+        jockey_ctx = JockeyContextFeatures(store)
         jockey_df_all = jockey_ctx.compute(entry_df)
 
         logger.info("Pre-computing TrainerContextFeatures for %d entries...", len(entry_df))
-        trainer_ctx = TrainerContextFeatures(self.store)
+        trainer_ctx = TrainerContextFeatures(store)
         trainer_df_all = trainer_ctx.compute(entry_df)
 
         logger.info("Pre-computing JockeyTrainerComboFeatures for %d entries...", len(entry_df))
-        jt_combo = JockeyTrainerComboFeatures(self.store)
+        jt_combo = JockeyTrainerComboFeatures(store)
         jt_df_all = jt_combo.compute(entry_df)
 
-        # 種牡馬産駒特徴量の追加 (推論パス — 学習と同一ロジック)
+        # 種牡馬産駒特徴量
         from db.readers import load_horses, load_sire_stats
         from features.sire_features import SireFeatures
 
-        logger.info("Computing SireFeatures for backtest inference...")
-        sire_stats_bt = load_sire_stats(self.store)
+        logger.info("Computing SireFeatures for backtest inference [prepare_data]...")
+        sire_stats_bt = load_sire_stats(store)
         if not sire_stats_bt.empty:
-            horses_bt = load_horses(self.store)
+            horses_bt = load_horses(store)
             sire_feat_bt = SireFeatures(sire_stats_bt)
             sire_map_bt = horses_bt.set_index("kettonum")["ketto3infohansyokunum1"]
             feat_df["sire_id"] = feat_df["kettonum"].map(sire_map_bt)
@@ -926,14 +971,13 @@ class BacktestEngine:
                 if col in sire_result_bt.columns:
                     feat_df[col] = sire_result_bt[col].values
 
-        # 4. PaceAptitude + CourseFeatures の事前計算 (推論パスでも必要)
+        # 4. PaceAptitude + CourseFeatures
         from features.course_features import CourseFeatures
         from features.pace_aptitude_features import PaceAptitudeFeatures
 
-        logger.info("Pre-computing PaceAptitudeFeatures...")
-        pace_feat = PaceAptitudeFeatures(store=self.store)
+        logger.info("Pre-computing PaceAptitudeFeatures [prepare_data]...")
+        pace_feat = PaceAptitudeFeatures(store=store)
         pace_df = pace_feat.compute_batch(feat_df)
-        # BUG-FIX: 学習パイプラインと同様に全6列をマージ (PACE-01 の3列が漏れていた)
         _pace_cols = [
             c
             for c in [
@@ -953,8 +997,8 @@ class BacktestEngine:
                 how="left",
             )
 
-        logger.info("Pre-computing CourseFeatures...")
-        course_feat = CourseFeatures(store=self.store)
+        logger.info("Pre-computing CourseFeatures [prepare_data]...")
+        course_feat = CourseFeatures(store=store)
         course_df = course_feat.compute_batch(feat_df)
         _course_cols = [c for c in ["course_wr", "course_distance_wr"] if c in course_df.columns]
         if _course_cols:
@@ -964,7 +1008,7 @@ class BacktestEngine:
                 how="left",
             )
 
-        # 4b. Phase 26-27 追加特徴量 (TrainingPipeline._train_submodel と同一視)
+        # 4b. Phase 26-27 追加特徴量
         from features.dam_pedigree_features import FEATURE_COLS as DAM_PED_FEATURE_COLS
         from features.dam_pedigree_features import DamPedigreeFeatures
         from features.mining_features import FEATURE_COLS as MINING_FEATURE_COLS
@@ -972,8 +1016,7 @@ class BacktestEngine:
         from features.record_features import FEATURE_COLS as RECORD_FEATURE_COLS
         from features.record_features import RecordFeatures
 
-        # DamPedigreeFeatures: horse-level (race_id, umaban)
-        dam_feat = DamPedigreeFeatures(self.store)
+        dam_feat = DamPedigreeFeatures(store)
         dam_df = dam_feat.compute(feat_df)
         _dam_drop_cols = [c for c in DAM_PED_FEATURE_COLS if c in feat_df.columns]
         if _dam_drop_cols:
@@ -984,8 +1027,7 @@ class BacktestEngine:
             for col in DAM_PED_FEATURE_COLS:
                 feat_df[col] = np.nan
 
-        # RecordFeatures: race-level (race_id only)
-        record_feat = RecordFeatures(self.store)
+        record_feat = RecordFeatures(store)
         record_df = record_feat.compute(feat_df)
         _record_drop_cols = [c for c in RECORD_FEATURE_COLS if c in feat_df.columns]
         if _record_drop_cols:
@@ -996,8 +1038,7 @@ class BacktestEngine:
             for col in RECORD_FEATURE_COLS:
                 feat_df[col] = np.nan
 
-        # MiningFeatures: horse-level (race_id, umaban)
-        mining_feat = MiningFeatures(self.store)
+        mining_feat = MiningFeatures(store)
         mining_df = mining_feat.compute(feat_df)
         _mining_drop_cols = [c for c in MINING_FEATURE_COLS if c in feat_df.columns]
         if _mining_drop_cols:
@@ -1008,13 +1049,8 @@ class BacktestEngine:
             for col in MINING_FEATURE_COLS:
                 feat_df[col] = np.nan
 
-        # NOTE: compute_relative_features は RacePredictor.predict() 内で呼び出す
-        # (HorseHistoryFeatures の base 列が feat_df にまだ存在しないため)
-
         # D-11: hist_df_all を feat_df に事前マージ
-        # backtest parquet に hist 特徴量が含まれるようにする (二重マージ回避)
         if not hist_df_all.empty:
-            # Drop merge keys from hist_df_all for the merge
             hist_merge_cols = [
                 c
                 for c in hist_df_all.columns
@@ -1025,14 +1061,440 @@ class BacktestEngine:
                 on=["race_id", "umaban"],
                 how="left",
             )
-            logger.info("Merged hist features into feat_df: %d columns", len(hist_merge_cols) - 2)
+            logger.info(
+                "Merged hist features into feat_df: %d columns [prepare_data]",
+                len(hist_merge_cols) - 2,
+            )
 
-        # 5. レースごとにシミュレーション (推論は RacePredictor に委譲)
-        # Groupby dict preprocessing — O(1) race lookups per D-07
-        feat_groups = build_race_groups(feat_df, name="features")
-        jockey_groups = build_race_groups(jockey_df_all, name="jockey")
-        trainer_groups = build_race_groups(trainer_df_all, name="trainer")
-        jt_groups = build_race_groups(jt_df_all, name="jockey_trainer")
+        logger.info(
+            "prepare_data complete: %d races, %d features, betting_target=%s",
+            len(race_ids),
+            len(feat_df.columns),
+            betting_target,
+        )
+        return BacktestPreparedData(
+            race_ids=race_ids,
+            feat_df=feat_df,
+            jockey_df_all=jockey_df_all,
+            trainer_df_all=trainer_df_all,
+            jt_df_all=jt_df_all,
+            final_odds_map=final_odds_map,
+            closing_win_odds_map=closing_win_odds_map,
+            payout_map=payout_map,
+            win_payout_map=win_payout_map,
+            wide_payout_map=wide_payout_map,
+        )
+
+    def run(
+        self,
+        test_start: str,
+        test_end: str,
+        training_bet_history: list[dict[str, Any]] | None = None,  # D-05
+        prepared_data: BacktestPreparedData | None = None,  # P4
+    ) -> BacktestResult:
+        """バックテストを実行
+
+        Args:
+            test_start: テスト開始日 (YYYY-MM-DD)
+            test_end: テスト終了日 (YYYY-MM-DD)
+            training_bet_history: トレーニング期間のベット履歴 (OddsBandFilter キャリブレーション用)
+            prepared_data: P4: fold単位で共有済みのデータ+特徴量 (None時は内部で生成)
+
+        Returns:
+            BacktestResult
+        """
+        # --- D-03: PFP二重検証 (SHA256 + ParameterFreezeProtocol) ---
+        if self._manifest_path is not None:
+            # D-03(1): SHA256再検証
+            verify_strategy_manifest(self._manifest_path)
+            logger.info("Manifest SHA256 verified in engine.run(): %s", self._manifest_path)
+
+            # D-03(2): PFP freeze -- OOS期間開始時のモデルスナップショット
+            self._pfp = ParameterFreezeProtocol(self.models)
+            self._pfp.freeze()
+
+        # --- P4: prepared_data 分岐 ---
+        # prepared_data is not None → 共有データを使用 (copy して安全に分離)
+        # prepared_data is None     → 従来通り内部でデータロード + 特徴量生成
+        if prepared_data is not None:
+            # P4: 空データチェック -- _verify_pfp() は run() 側で必ず呼ぶ
+            if len(prepared_data.race_ids) == 0:
+                logger.warning(
+                    "Prepared data has no races for %s ~ %s", test_start, test_end
+                )
+                self._verify_pfp()
+                return BacktestResult(final_bankroll=self.initial_bankroll)
+
+            race_ids = prepared_data.race_ids
+            feat_groups = build_race_groups(prepared_data.feat_df.copy(), name="features")
+            jockey_groups = build_race_groups(
+                prepared_data.jockey_df_all.copy(), name="jockey"
+            )
+            trainer_groups = build_race_groups(
+                prepared_data.trainer_df_all.copy(), name="trainer"
+            )
+            jt_groups = build_race_groups(
+                prepared_data.jt_df_all.copy(), name="jockey_trainer"
+            )
+            final_odds_map = dict(prepared_data.final_odds_map)
+            closing_win_odds_map = dict(prepared_data.closing_win_odds_map)
+            self.payout_map = dict(prepared_data.payout_map)
+            self.win_payout_map = dict(prepared_data.win_payout_map)
+            self.wide_payout_map = dict(prepared_data.wide_payout_map)
+            logger.info(
+                "P4: Using prepared_data: %d races, %d features",
+                len(race_ids),
+                len(prepared_data.feat_df.columns),
+            )
+        else:
+            # --- 既存パス: 内部でデータロード + 特徴量生成 ---
+            # 1. データロード
+            start = test_start.replace("-", "")
+            end = test_end.replace("-", "")
+            race_df = (
+                self._preloaded_race_df.copy()
+                if self._preloaded_race_df is not None
+                else load_races(self.store, start, end)
+            )
+            entry_df = (
+                self._preloaded_entry_df.copy()
+                if self._preloaded_entry_df is not None
+                else load_entries(self.store, start, end)
+            )
+            final_odds_df = (
+                self._preloaded_final_odds_df.copy()
+                if self._preloaded_final_odds_df is not None
+                else load_odds_snapshots(self.store, start, end)  # 確定オッズ（精算用）
+            )
+
+            if race_df.empty:
+                logger.warning(f"No races found in {test_start} ~ {test_end}")
+                self._verify_pfp()
+                return BacktestResult(final_bankroll=self.initial_bankroll)
+
+            if "jyocd" in race_df.columns:
+                jyocd_int = pd.to_numeric(race_df["jyocd"], errors="coerce")
+                jra_race_ids = race_df.loc[jyocd_int.between(1, 10), "race_id"].drop_duplicates()
+                race_df = race_df[race_df["race_id"].isin(jra_race_ids)].copy()
+                entry_df = entry_df[entry_df["race_id"].isin(jra_race_ids)].copy()
+                final_odds_df = final_odds_df[final_odds_df["race_id"].isin(jra_race_ids)].copy()
+
+            # 2. 特徴量生成
+            from db.odds_extractor import extract_pre_post_odds
+            from features.feature_engine import FeatureEngine
+            from models.submodel_manager import SubModelManager
+
+            feat_engine = FeatureEngine()
+            submodel_mgr = SubModelManager()
+
+            # P1: odds時系列データ — preloaded_odds_tsがあれば再利用、なければロード
+            if self._preloaded_odds_ts is not None:
+                odds_ts_df = self._preloaded_odds_ts
+                s_dt = pd.Timestamp(start)
+                e_dt = pd.Timestamp(end)
+                if "race_date" in odds_ts_df.columns:
+                    mask = (odds_ts_df["race_date"] >= s_dt) & (odds_ts_df["race_date"] <= e_dt)
+                    odds_ts_df = odds_ts_df[mask]
+                logger.debug(
+                    "Using preloaded odds_ts (%d rows for %s ~ %s)",
+                    len(odds_ts_df),
+                    start,
+                    end,
+                )
+            else:
+                odds_ts_df = load_odds_time_series_range(self.store, start, end)
+            if not odds_ts_df.empty:
+                odds_ts_df = odds_ts_df[odds_ts_df["race_id"].isin(race_df["race_id"])].copy()
+
+            # 発走前オッズの抽出（フォールバックなし: 時系列オッズがない場合は全レーススキップ）
+            if odds_ts_df.empty:
+                logger.warning(
+                    "No time-series odds data for %s ~ %s, skipping all races", test_start, test_end
+                )
+                self._verify_pfp()
+                return BacktestResult(final_bankroll=self.initial_bankroll)
+
+            if "hassotime" not in race_df.columns:
+                logger.warning(
+                    "hassotime column missing, cannot extract pre-race odds, skipping all races"
+                )
+                self._verify_pfp()
+                return BacktestResult(final_bankroll=self.initial_bankroll)
+
+            pre_post_odds = extract_pre_post_odds(odds_ts_df, race_df, minutes_before=5)
+            if pre_post_odds.empty:
+                logger.warning(
+                    "extract_pre_post_odds returned empty for %s ~ %s, skipping all races",
+                    test_start,
+                    test_end,
+                )
+                self._verify_pfp()
+                return BacktestResult(final_bankroll=self.initial_bankroll)
+
+            # 確定オッズマップを構築（精算用。FeatureEngine の列フィルタ回避）
+            final_odds_map: dict[tuple[str, int], float] = {}
+            if not final_odds_df.empty:
+                _odds = final_odds_df.dropna(subset=["fukuoddslow"])
+                if not _odds.empty:
+                    for (race_id, umaban), odds in _odds.set_index(["race_id", "umaban"])[
+                        "fukuoddslow"
+                    ].items():
+                        final_odds_map[(str(race_id), int(umaban))] = float(odds)
+            closing_win_odds_map: dict[tuple[str, int], float] = {}
+            if not final_odds_df.empty and {"race_id", "umaban", "tanodds"}.issubset(
+                final_odds_df.columns
+            ):
+                _win_odds = final_odds_df.dropna(subset=["tanodds"])
+                if not _win_odds.empty:
+                    for (race_id, umaban), odds in _win_odds.set_index(["race_id", "umaban"])[
+                        "tanodds"
+                    ].items():
+                        closing_win_odds_map[(str(race_id), int(umaban))] = float(odds)
+
+            # 確定配当マップを構築（精算用。実際の払戻金額を使用）
+            # BUG-FIX: betting_target に応じて必要な払戻マップのみ構築
+            payouts_df = (
+                self._preloaded_payouts_df.copy()
+                if self._preloaded_payouts_df is not None
+                else load_payouts(self.store, start, end)
+            )
+
+            needs_place = self.betting_target in ("place", "wide")
+            needs_win = self.betting_target in ("win", "wide")
+            needs_wide = self.betting_target == "wide"
+
+            if needs_place:
+                self.payout_map = build_payout_map(payouts_df)
+                logger.info("Loaded payout map: %d entries", len(self.payout_map))
+            else:
+                self.payout_map = {}
+
+            if needs_win:
+                self.win_payout_map = build_win_payout_map(payouts_df)
+                logger.info("Loaded win payout map: %d entries", len(self.win_payout_map))
+            else:
+                self.win_payout_map = {}
+
+            if needs_wide:
+                self.wide_payout_map = build_wide_payout_map(payouts_df)
+                logger.info("Loaded wide payout map: %d entries", len(self.wide_payout_map))
+            else:
+                self.wide_payout_map = {}
+
+            feat_df = feat_engine.build_all(
+                race_df,
+                entry_df,
+                pre_post_odds,
+                odds_ts_df=odds_ts_df,
+                store=self.store,
+                preserve_columns=["kakuteijyuni", "confirmed_odds"],
+            )
+            feat_df = submodel_mgr.add_distance_band_features(feat_df)
+
+            # ワイドペア専用オッズを pivot して特徴量にマージ（WideJointPairBuilder 用）
+            if self.betting_target == "wide":
+                wide_odds_df = load_wide_odds(self.store, start, end)
+                if wide_odds_df is not None and not wide_odds_df.empty:
+                    # kumi "0102" → int変換で "1_2" 形式（WideJointPairBuilder の lookup に合わせる）
+                    _wide = wide_odds_df[["race_id", "kumi", "oddslow"]].dropna(subset=["oddslow"])
+                    if not _wide.empty:
+                        wide_pivot = _wide.pivot_table(
+                            index="race_id",
+                            columns="kumi",
+                            values="oddslow",
+                        )
+                        # ゼロ埋めを解除: "0102" → "1_2", "0211" → "2_11"
+                        new_cols = []
+                        for c in wide_pivot.columns:
+                            lo = int(c[:2])
+                            hi = int(c[2:])
+                            new_cols.append(f"wide_odds_{lo}_{hi}")
+                        wide_pivot.columns = new_cols
+                        wide_pivot = wide_pivot.reset_index()
+                        feat_df = feat_df.merge(wide_pivot, on="race_id", how="left")
+                        logger.info("Merged wide odds: %d pair-columns", len(wide_pivot.columns) - 1)
+            else:
+                logger.info("Skipping wide odds pivot for betting_target=%s", self.betting_target)
+
+            # Safety check: verify feature generation did not introduce NAR entries
+            # (already filtered at data load above; this catches pipeline bugs)
+            if "jyocd" in feat_df.columns:
+                jyocd_int = pd.to_numeric(feat_df["jyocd"], errors="coerce")
+                nar_count = (~jyocd_int.between(1, 10)).sum()
+                if nar_count > 0:
+                    logger.warning(
+                        "NAR entries leaked into feat_df: %d (feature pipeline bug?)",
+                        int(nar_count),
+                    )
+                    feat_df = feat_df[jyocd_int.between(1, 10)]
+
+            # 3. 特徴量の一括事前計算 (ループ外で全レース分を一度に計算)
+            from features.horse_history_features import HorseHistoryFeatures
+            from features.jockey_context_features import JockeyContextFeatures
+            from features.jockey_trainer_combo import JockeyTrainerComboFeatures
+            from features.trainer_context_features import TrainerContextFeatures
+
+            race_ids = feat_df["race_id"].unique()
+
+            logger.info("Pre-computing HorseHistoryFeatures for %d races...", len(race_ids))
+            hist_all = HorseHistoryFeatures(store=self.store)
+            hist_df_all = hist_all.compute(race_df, entry_df, race_ids)
+
+            logger.info("Pre-computing JockeyContextFeatures for %d entries...", len(entry_df))
+            jockey_ctx = JockeyContextFeatures(self.store)
+            jockey_df_all = jockey_ctx.compute(entry_df)
+
+            logger.info("Pre-computing TrainerContextFeatures for %d entries...", len(entry_df))
+            trainer_ctx = TrainerContextFeatures(self.store)
+            trainer_df_all = trainer_ctx.compute(entry_df)
+
+            logger.info("Pre-computing JockeyTrainerComboFeatures for %d entries...", len(entry_df))
+            jt_combo = JockeyTrainerComboFeatures(self.store)
+            jt_df_all = jt_combo.compute(entry_df)
+
+            # 種牡馬産駒特徴量の追加 (推論パス — 学習と同一ロジック)
+            from db.readers import load_horses, load_sire_stats
+            from features.sire_features import SireFeatures
+
+            logger.info("Computing SireFeatures for backtest inference...")
+            sire_stats_bt = load_sire_stats(self.store)
+            if not sire_stats_bt.empty:
+                horses_bt = load_horses(self.store)
+                sire_feat_bt = SireFeatures(sire_stats_bt)
+                sire_map_bt = horses_bt.set_index("kettonum")["ketto3infohansyokunum1"]
+                feat_df["sire_id"] = feat_df["kettonum"].map(sire_map_bt)
+                bms_source_col_bt = (
+                    "ketto3infohansyokunum5"
+                    if "ketto3infohansyokunum5" in horses_bt.columns
+                    else "ketto3infohansyokunum3"
+                )
+                bms_map_bt = horses_bt.set_index("kettonum")[bms_source_col_bt]
+                feat_df["bms_id"] = feat_df["kettonum"].map(bms_map_bt)
+                sire_result_bt = sire_feat_bt.compute_batch(feat_df)
+                _sire_cols_needed = {
+                    "sire_wr",
+                    "sire_surface_wr",
+                    "sire_distance_wr",
+                    "sire_prize_avg",
+                    "bms_wr",
+                    "bms_distance_wr",
+                    "bms_surface_wr",
+                    "bms_has_history",
+                    "bms_starts_log",
+                    "bms_surface_starts_log",
+                    "bms_distance_starts_log",
+                }
+                for col in _sire_cols_needed:
+                    if col in sire_result_bt.columns:
+                        feat_df[col] = sire_result_bt[col].values
+
+            # 4. PaceAptitude + CourseFeatures の事前計算 (推論パスでも必要)
+            from features.course_features import CourseFeatures
+            from features.pace_aptitude_features import PaceAptitudeFeatures
+
+            logger.info("Pre-computing PaceAptitudeFeatures...")
+            pace_feat = PaceAptitudeFeatures(store=self.store)
+            pace_df = pace_feat.compute_batch(feat_df)
+            # BUG-FIX: 学習パイプラインと同様に全6列をマージ (PACE-01 の3列が漏れていた)
+            _pace_cols = [
+                c
+                for c in [
+                    "pace_aptitude",
+                    "front_pace_wr",
+                    "closing_pace_wr",
+                    "pace_corner_stability",
+                    "pace_closing_power",
+                    "pace_position_consistency",
+                ]
+                if c in pace_df.columns
+            ]
+            if _pace_cols:
+                feat_df = feat_df.drop(columns=_pace_cols, errors="ignore").merge(
+                    pace_df[["kettonum", "race_id"] + _pace_cols],
+                    on=["kettonum", "race_id"],
+                    how="left",
+                )
+
+            logger.info("Pre-computing CourseFeatures...")
+            course_feat = CourseFeatures(store=self.store)
+            course_df = course_feat.compute_batch(feat_df)
+            _course_cols = [c for c in ["course_wr", "course_distance_wr"] if c in course_df.columns]
+            if _course_cols:
+                feat_df = feat_df.drop(columns=_course_cols, errors="ignore").merge(
+                    course_df[["kettonum", "race_id"] + _course_cols],
+                    on=["kettonum", "race_id"],
+                    how="left",
+                )
+
+            # 4b. Phase 26-27 追加特徴量 (TrainingPipeline._train_submodel と同一視)
+            from features.dam_pedigree_features import FEATURE_COLS as DAM_PED_FEATURE_COLS
+            from features.dam_pedigree_features import DamPedigreeFeatures
+            from features.mining_features import FEATURE_COLS as MINING_FEATURE_COLS
+            from features.mining_features import MiningFeatures
+            from features.record_features import FEATURE_COLS as RECORD_FEATURE_COLS
+            from features.record_features import RecordFeatures
+
+            # DamPedigreeFeatures: horse-level (race_id, umaban)
+            dam_feat = DamPedigreeFeatures(self.store)
+            dam_df = dam_feat.compute(feat_df)
+            _dam_drop_cols = [c for c in DAM_PED_FEATURE_COLS if c in feat_df.columns]
+            if _dam_drop_cols:
+                feat_df.drop(columns=_dam_drop_cols, inplace=True)
+            if not dam_df.empty:
+                feat_df = feat_df.merge(dam_df, on=["race_id", "umaban"], how="left")
+            else:
+                for col in DAM_PED_FEATURE_COLS:
+                    feat_df[col] = np.nan
+
+            # RecordFeatures: race-level (race_id only)
+            record_feat = RecordFeatures(self.store)
+            record_df = record_feat.compute(feat_df)
+            _record_drop_cols = [c for c in RECORD_FEATURE_COLS if c in feat_df.columns]
+            if _record_drop_cols:
+                feat_df.drop(columns=_record_drop_cols, inplace=True)
+            if not record_df.empty:
+                feat_df = feat_df.merge(record_df, on="race_id", how="left")
+            else:
+                for col in RECORD_FEATURE_COLS:
+                    feat_df[col] = np.nan
+
+            # MiningFeatures: horse-level (race_id, umaban)
+            mining_feat = MiningFeatures(self.store)
+            mining_df = mining_feat.compute(feat_df)
+            _mining_drop_cols = [c for c in MINING_FEATURE_COLS if c in feat_df.columns]
+            if _mining_drop_cols:
+                feat_df.drop(columns=_mining_drop_cols, inplace=True)
+            if not mining_df.empty:
+                feat_df = feat_df.merge(mining_df, on=["race_id", "umaban"], how="left")
+            else:
+                for col in MINING_FEATURE_COLS:
+                    feat_df[col] = np.nan
+
+            # NOTE: compute_relative_features は RacePredictor.predict() 内で呼び出す
+            # (HorseHistoryFeatures の base 列が feat_df にまだ存在しないため)
+
+            # D-11: hist_df_all を feat_df に事前マージ
+            # backtest parquet に hist 特徴量が含まれるようにする (二重マージ回避)
+            if not hist_df_all.empty:
+                # Drop merge keys from hist_df_all for the merge
+                hist_merge_cols = [
+                    c
+                    for c in hist_df_all.columns
+                    if c not in feat_df.columns or c in ("race_id", "umaban")
+                ]
+                feat_df = feat_df.merge(
+                    hist_df_all[hist_merge_cols],
+                    on=["race_id", "umaban"],
+                    how="left",
+                )
+                logger.info("Merged hist features into feat_df: %d columns", len(hist_merge_cols) - 2)
+
+            # 5. レースごとにシミュレーション (推論は RacePredictor に委譲)
+            # Groupby dict preprocessing — O(1) race lookups per D-07
+            feat_groups = build_race_groups(feat_df, name="features")
+            jockey_groups = build_race_groups(jockey_df_all, name="jockey")
+            trainer_groups = build_race_groups(trainer_df_all, name="trainer")
+            jt_groups = build_race_groups(jt_df_all, name="jockey_trainer")
 
         diag_logger = DiagnosticLogger()
         bankroll = self.initial_bankroll

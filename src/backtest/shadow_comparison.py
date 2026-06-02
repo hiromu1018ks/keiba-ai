@@ -492,7 +492,7 @@ class ShadowComparisonFramework:
 
     def run_fold(self, fold: FoldDefinition) -> ShadowComparisonResult:
         """単一 fold で N-way 比較を実行 (D-01, D-02, D-03)."""
-        from backtest.engine import BacktestEngine
+        from backtest.engine import BacktestEngine, BacktestResult
         from db.model_loader import ModelLoader
         from db.parquet_store import ParquetStore
         from db.readers import (
@@ -524,6 +524,51 @@ class ShadowComparisonFramework:
             len(preloaded_payouts_df),
             len(preloaded_odds_ts),
         )
+
+        # P4: fold単位で特徴量生成を1回だけ実行し全variantで共有
+        # prepare_data() は常に BacktestPreparedData を返す (None は返さない)
+        prepared = BacktestEngine.prepare_data(
+            store=store,
+            betting_target=self.betting_target,
+            test_start=fold.test_start,
+            test_end=fold.test_end,
+            preloaded_race_df=preloaded_race_df,
+            preloaded_entry_df=preloaded_entry_df,
+            preloaded_final_odds_df=preloaded_final_odds_df,
+            preloaded_payouts_df=preloaded_payouts_df,
+            preloaded_odds_ts=preloaded_odds_ts,
+        )
+        logger.info(
+            "P4: Prepared fold %d features: %d races, %d columns",
+            fold.year,
+            len(prepared.race_ids),
+            len(prepared.feat_df.columns),
+        )
+
+        # 空データ時は variant loop を回さず空結果を返す
+        # (各 engine.run() 内でも空チェックするが、不要なモデルロードを避ける)
+        if len(prepared.race_ids) == 0:
+            logger.warning("No data prepared for fold %d, returning empty results", fold.year)
+            for variant_cfg in self.variants:
+                results[variant_cfg.variant_name] = BacktestResult(
+                    final_bankroll=100_000
+                )
+                variant_results[variant_cfg.variant_name] = VariantResult(
+                    variant_name=variant_cfg.variant_name,
+                    backtest_result=results[variant_cfg.variant_name],
+                    flag_states={
+                        "enable_market_aware_calibrator": variant_cfg.enable_market_aware_calibrator,
+                        "enable_race_level_ranker": variant_cfg.enable_race_level_ranker,
+                    },
+                )
+            return ShadowComparisonResult(
+                fold=fold,
+                variants=variant_results,
+                race_diff=pd.DataFrame(),
+                horse_diff=pd.DataFrame(),
+                metrics={},
+                alignment_succeeded=False,
+            )
 
         for variant_cfg in self.variants:
             # D-05: model_dir / year でロード
@@ -561,6 +606,7 @@ class ShadowComparisonFramework:
                 test_start=fold.test_start,
                 test_end=fold.test_end,
                 training_bet_history=None if self.run_calibration_bt else [],
+                prepared_data=prepared,  # P4: 共有特徴量データ
             )
             results[variant_cfg.variant_name] = bt_result
             variant_results[variant_cfg.variant_name] = VariantResult(
