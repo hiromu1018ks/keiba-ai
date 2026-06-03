@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import logging
+import math
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -60,6 +61,9 @@ class BacktestResult:
     n_collapsed_skipped: int = 0  # D-11: COLLAPSED regime skip count
     n_ev_excluded: int = 0  # D-01: EV filter exclusion count
     n_odds_band_excluded: int = 0  # D-06: OddsBandFilter exclusion count
+    n_win_ev_odds_excluded: int = 0  # select_bets後 EV/Oddsフィルター除外 bet数
+    n_win_stake_increased: int = 0  # tiered stake増額 bet数
+    total_win_stake_increased: float = 0.0  # tiered stake増額総額
     exclusion_stats: dict[str, Any] = field(default_factory=dict)  # Full exclusion breakdown
 
     @property
@@ -564,6 +568,10 @@ class BacktestEngine:
         preloaded_payouts_df: pd.DataFrame | None = None,
         preloaded_odds_ts: pd.DataFrame | None = None,
         min_bets_per_year: int = 1000,
+        min_win_ev: float = 0.0,
+        min_win_odds: float = 0.0,
+        win_ev_stake_threshold: float = 0.0,
+        win_ev_stake_multiplier: float = 1.0,
     ) -> None:
         if betting_mode not in ("flat", "kelly"):
             raise ValueError(f"betting_mode must be 'flat' or 'kelly', got '{betting_mode}'")
@@ -586,6 +594,11 @@ class BacktestEngine:
         self._preloaded_final_odds_df = preloaded_final_odds_df
         self._preloaded_payouts_df = preloaded_payouts_df
         self._min_bets_per_year = min_bets_per_year
+        # 意思決定EV/Oddsフィルター + tiered stake sizing
+        self._min_win_ev = min_win_ev
+        self._min_win_odds = min_win_odds
+        self._win_ev_stake_threshold = win_ev_stake_threshold
+        self._win_ev_stake_multiplier = win_ev_stake_multiplier
         # Phase 43.5: 内部エンジンフラグ — OddsBandFilterキャリブレーションを
         # スキップし、再帰的な _generate_training_bet_history 呼び出しを防止する。
         self._skip_odds_band_calibration: bool = False
@@ -1512,6 +1525,9 @@ class BacktestEngine:
         n_ev_excluded = 0
         n_odds_band_excluded = 0
         n_total_candidates = 0
+        n_win_ev_odds_excluded = 0
+        n_win_stake_increased = 0
+        total_win_stake_increased = 0.0
 
         # D-05/D-06/D-07: OddsBandFilter キャリブレーション
         # training_bet_historyがNoneの場合、engine内で自動生成する
@@ -1797,6 +1813,67 @@ class BacktestEngine:
 
             # v5: セグメント除外フィルタ全削除 — モデル自身がedgeを低に見積もるように改善する
             # (旧v4の14個の除外フィルタは全て削除)
+
+            # --- 意思決定EV/Oddsフィルター (select_bets後、bet確定前) ---
+            # bet.odds = tanodds (5分前), bet.ev_lower_corrected = win_selection_ev
+            # closing_win_odds, final_odds, result, kakuteijyuni は不使用
+            if (
+                self.betting_target == "win"
+                and (self._min_win_ev > 0.0 or self._min_win_odds > 0.0)
+                and bets
+            ):
+                _kept: list[Bet] = []
+                for bet in bets:
+                    if bet.bet_type != BetType.WIN:
+                        _kept.append(bet)
+                        continue
+                    _exclude = False
+                    # EV閾値チェック: NaNは除外
+                    if self._min_win_ev > 0.0:
+                        _ev = bet.ev_lower_corrected
+                        if pd.isna(_ev) or _ev < self._min_win_ev:
+                            _exclude = True
+                    # オッズ閾値チェック: NaNは除外
+                    if self._min_win_odds > 0.0:
+                        if pd.isna(bet.odds) or bet.odds < self._min_win_odds:
+                            _exclude = True
+                    if _exclude:
+                        n_win_ev_odds_excluded += 1
+                    else:
+                        _kept.append(bet)
+                bets = _kept
+
+            # --- tiered stake sizing (flat mode + win only) ---
+            # 100円単位の天井丸め (math.ceil)
+            if (
+                self.betting_target == "win"
+                and self.betting_mode == "flat"
+                and self._win_ev_stake_threshold > 0.0
+                and self._win_ev_stake_multiplier > 1.0
+                and bets
+            ):
+                _updated: list[Bet] = []
+                for bet in bets:
+                    if (
+                        bet.bet_type == BetType.WIN
+                        and not pd.isna(bet.ev_lower_corrected)
+                        and bet.ev_lower_corrected >= self._win_ev_stake_threshold
+                    ):
+                        new_stake = (
+                            math.ceil(bet.stake * self._win_ev_stake_multiplier / 100.0)
+                            * 100.0
+                        )
+                        new_stake = max(100.0, new_stake)
+                        extra = new_stake - bet.stake
+                        if extra > 0:
+                            n_win_stake_increased += 1
+                            total_win_stake_increased += extra
+                            _updated.append(replace(bet, stake=new_stake))
+                        else:
+                            _updated.append(bet)
+                    else:
+                        _updated.append(bet)
+                bets = _updated
 
             # Bet に確定オッズを設定（place/win のみ。wide は wide_payout_map で精算）
             updated_bets = []
@@ -2135,6 +2212,21 @@ class BacktestEngine:
                 self._odds_band_filter.excluded_bands if self._odds_band_filter else {},
             )
 
+        # 意思決定EV/Oddsフィルター + tiered stake ログ
+        if n_win_ev_odds_excluded > 0:
+            logger.info(
+                "Win EV/Odds filter excluded %d bets (min_ev=%.2f, min_odds=%.1f)",
+                n_win_ev_odds_excluded,
+                self._min_win_ev,
+                self._min_win_odds,
+            )
+        if n_win_stake_increased > 0:
+            logger.info(
+                "Win tiered stake: %d bets increased, +%.0f yen total",
+                n_win_stake_increased,
+                total_win_stake_increased,
+            )
+
         # D-10: Bet count guard
         if total_bets > 0:
             try:
@@ -2182,6 +2274,9 @@ class BacktestEngine:
             n_collapsed_skipped=n_collapsed_skipped,
             n_ev_excluded=n_ev_excluded,
             n_odds_band_excluded=n_odds_band_excluded,
+            n_win_ev_odds_excluded=n_win_ev_odds_excluded,
+            n_win_stake_increased=n_win_stake_increased,
+            total_win_stake_increased=total_win_stake_increased,
             exclusion_stats={
                 "collapsed_skipped": n_collapsed_skipped,
                 "ev_excluded": n_ev_excluded,
@@ -2190,6 +2285,9 @@ class BacktestEngine:
                 "odds_band_filter_excluded": (
                     self._odds_band_filter.excluded_bands if self._odds_band_filter else {}
                 ),
+                "win_ev_odds_excluded": n_win_ev_odds_excluded,
+                "win_stake_increased": n_win_stake_increased,
+                "total_win_stake_increased": total_win_stake_increased,
             },
         )
 

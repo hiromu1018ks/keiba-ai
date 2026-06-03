@@ -195,6 +195,7 @@ from utils.wf_splits import walk_forward_race_splits
 - **Shadow-first deployment**: New pipeline components stay in shadow mode until all quality gates (probability quality, bet count, reproducibility, diagnostics) pass via DeploymentGateEvaluator
 - **Feature routing audit**: 50 calibrator + 28 ranker forbidden features verified by CI to prevent information leakage into target models
 - **OOF health validation**: fail-fast OOF validation with SHA256 manifest verification before downstream consumption
+- **Win EV/Odds Safety Filter** (Phase 43.5): `--min-win-ev 1.03 --min-win-odds 3.0` as provisional default. Decision-time filter (5min odds, win_selection_ev) that excludes low-quality bets. NOT a profit maximizer -- removes loss sources (filter-off ROI 94.0% → filter-on 102.37%). Tiered stake rejected (DD 1.5-1.8x worse). CLI defaults stay 0.0; specify via strategy manifest or CLI args. Validated: offline post-hoc and actual BT Jaccard 100%, 2,025 bets, profit +4,790
 
 ## Pipeline Scripts
 
@@ -267,6 +268,10 @@ python scripts/run_backtest.py \
 | `--profile` | flag | False | pyinstrument profiling (`data/profiles/`) |
 | `--strategy-manifest` | str | -- | Optuna manifest JSON (requires `--ensemble`) |
 | `--calibration-bt` | flag | False | Lightweight BT for OddsBandFilter calibration (last 12 months) |
+| `--min-win-ev` | float | 0.0 | Min EV threshold for win bet safety filter (provisional: 1.03) |
+| `--min-win-odds` | float | 0.0 | Min odds threshold for win bet safety filter (provisional: 3.0) |
+| `--win-ev-stake-threshold` | float | 0.0 | EV threshold for tiered stake (experimental, NOT recommended) |
+| `--win-ev-stake-multiplier` | float | 1.0 | Stake multiplier above threshold (experimental, NOT recommended) |
 
 **Mode selection:** `--years` -> multi-year; 4 train/test args -> single-year. One required.
 **Output:** `backtest_result.json`, `data/validation/validation_report.json`, `data/backtest/bt_{year}_*.{csv,parquet}`
@@ -507,6 +512,7 @@ DB connection uses `_PROJECT_ROOT = Path(__file__).resolve().parent.parent.paren
 ### Known Issues
 
 - BT ROI: 87.8% (v2.0 close). v1.7 achieved 97.8%. v2.2 targets recovery via structural fix
+- Win EV/Odds safety filter (`--min-win-ev 1.03 --min-win-odds 3.0`) improves BT ROI to 102.37% (2024-2025, 2,025 bets, +4,790 profit). Still provisional; 2024 year is -5,860
 - `test_training_pipeline.py` has 3 known failures
 - `training_pipeline._build_race_level_features()` rl_* column processing not fully integrated
 - Turf conservative regime unprofitable -- largest improvement opportunity

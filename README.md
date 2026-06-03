@@ -46,6 +46,7 @@ LightGBM + XGBoost + CatBoost の3モデルスタッキング、2段階予測モ
 - **自動資金管理** -- 3段階ドローダウン制御 (NORMAL/REDUCED/STOP) + ヒステリシス + Fractional Kelly サイジング
 - **市場レジーム検知** -- 3状態 (AGGRESSIVE/CONSERVATIVE/COLLAPSED) LightGBM多クラス分類でオッズ分布から市場の荒れ具合を検知
 - **厳密な検証基盤** -- Walk-forward CV、Shadow Comparison Framework、DeploymentGateEvaluator、OOFHealthValidator、Feature Routing Audit で安全性を保証
+- **EV/Odds安全フィルター** -- 意思決定時点（発走5分前）のEV/oddsで低品質betを除外。`ev>=1.03, odds>=3.0` でBT ROI 94.0%→102.37%に改善 (2,025 bets, +4,790 profit, offline/実BT Jaccard 100%)
 - **ペーパートレード** -- レース当日にリアルタイム推論、Slack通知、結果照合、HTMLレポート生成
 
 ## システムアーキテクチャ
@@ -283,6 +284,8 @@ python scripts/run_backtest.py \
 | `--profile` | flag | False | pyinstrumentプロファイリング |
 | `--strategy-manifest` | str | -- | Optuna最適化済みmanifest JSON |
 | `--calibration-bt` | flag | False | OddsBandFilterキャリブレーションBT |
+| `--min-win-ev` | float | 0.0 | 単勝EV安全フィルター閾値 (暫定推奨: 1.03) |
+| `--min-win-odds` | float | 0.0 | 単勝オッズ安全フィルター閾値 (暫定推奨: 3.0) |
 
 所要時間: 約41分/年 (manifestなし), 約57分/年 (manifestあり)
 
@@ -732,9 +735,9 @@ from audit.feature_routing_registry import run_feature_audit
 | v1.8 | 35-36.1.1 | -- | Turf Precision: haron/lap特徴量 + MarketModel修正 | ✅ Shipped |
 | v2.0 | 37-38 | 87.8% | Investment Pipeline: OOFHealthValidator + InvestmentFeatureFrame | ✅ Shipped |
 | v2.1 | 39-42 | TBD | MAWC + Ranker (shadow mode) + Shadow Comparison + Deployment Gates | ✅ Shipped |
-| v2.2 | 43-46 | **進行中** | ROI Recovery Analysis: 診断 → ビセクション → 構造的修正 → 品質ゲート | 🔄 In Progress |
+| v2.2 | 43-46 | **102.4%** | ROI Recovery: EV/Odds安全フィルター (ev>=1.03, odds>=3.0) + Shadow Diagnosis + Deployment Gates | 🔄 In Progress |
 
-> **ROI推移:** v1.7で97.8%（最高）→ v2.0で87.8%に回帰（Phase 36の強特徴量がMarketModelに副作用）→ v2.2で回復を目指す
+> **ROI推移:** v1.7で97.8%（最高）→ v2.0で87.8%に回帰 → v2.2でEV/Odds安全フィルター適用時102.4%に改善（フィルターなし94.0%）
 
 ---
 

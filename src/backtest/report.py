@@ -51,6 +51,9 @@ class BacktestReportGenerator:
                 "collapsed_skipped": result.n_collapsed_skipped,
                 "ev_excluded": result.n_ev_excluded,
                 "odds_band_excluded": result.n_odds_band_excluded,
+                "win_ev_odds_excluded": result.n_win_ev_odds_excluded,
+                "win_stake_increased": result.n_win_stake_increased,
+                "total_win_stake_increased": result.total_win_stake_increased,
                 "odds_band_filter_excluded": result.exclusion_stats.get(
                     "odds_band_filter_excluded", {}
                 ),
@@ -198,6 +201,9 @@ class BacktestReportGenerator:
                 "collapsed_skipped": result.n_collapsed_skipped,
                 "ev_excluded": result.n_ev_excluded,
                 "odds_band_excluded": result.n_odds_band_excluded,
+                "win_ev_odds_excluded": result.n_win_ev_odds_excluded,
+                "win_stake_increased": result.n_win_stake_increased,
+                "total_win_stake_increased": result.total_win_stake_increased,
                 "excluded_odds_bands": result.exclusion_stats.get(
                     "odds_band_filter_excluded", {}
                 ),
