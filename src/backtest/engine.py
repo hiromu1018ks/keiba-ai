@@ -1833,9 +1833,9 @@ class BacktestEngine:
                         _ev = bet.ev_lower_corrected
                         if pd.isna(_ev) or _ev < self._min_win_ev:
                             _exclude = True
-                    # オッズ閾値チェック
+                    # オッズ閾値チェック: NaNは除外
                     if self._min_win_odds > 0.0:
-                        if bet.odds < self._min_win_odds:
+                        if pd.isna(bet.odds) or bet.odds < self._min_win_odds:
                             _exclude = True
                     if _exclude:
                         n_win_ev_odds_excluded += 1
