@@ -113,6 +113,30 @@ def build_parser() -> argparse.ArgumentParser:
         default=False,
         help="OddsBandFilter キャリブレーション用の軽量BTを実行 (直近12ヶ月)",
     )
+    parser.add_argument(
+        "--min-win-ev",
+        type=float,
+        default=0.0,
+        help="単勝EV閾値 (default: 0.0 = disabled)",
+    )
+    parser.add_argument(
+        "--min-win-odds",
+        type=float,
+        default=0.0,
+        help="単勝オッズ閾値 (default: 0.0 = disabled)",
+    )
+    parser.add_argument(
+        "--win-ev-stake-threshold",
+        type=float,
+        default=0.0,
+        help="EV閾値以上でstake増額 (default: 0.0 = disabled)",
+    )
+    parser.add_argument(
+        "--win-ev-stake-multiplier",
+        type=float,
+        default=1.0,
+        help="EV閾値以上のstake倍率 (default: 1.0, 100円単位天井丸め)",
+    )
     return parser
 
 
@@ -573,6 +597,10 @@ def _run_single_year(args: argparse.Namespace) -> None:
         strategy_params=strategy_params,
         manifest_path=manifest_path,
         preloaded_odds_ts=preloaded_odds,
+        min_win_ev=args.min_win_ev,
+        min_win_odds=args.min_win_odds,
+        win_ev_stake_threshold=args.win_ev_stake_threshold,
+        win_ev_stake_multiplier=args.win_ev_stake_multiplier,
     )
     result = engine.run(test_start, test_end, training_bet_history=training_bet_history)
     elapsed_test = time.time() - t1
@@ -721,6 +749,10 @@ def _run_multi_year(args: argparse.Namespace) -> None:
                 betting_target=args.betting_target,
                 strategy_params=strategy_params,
                 manifest_path=manifest_path,
+                min_win_ev=args.min_win_ev,
+                min_win_odds=args.min_win_odds,
+                win_ev_stake_threshold=args.win_ev_stake_threshold,
+                win_ev_stake_multiplier=args.win_ev_stake_multiplier,
             )
             result = engine.run(test_start, test_end, training_bet_history=training_bet_history)
         except Exception as e:
