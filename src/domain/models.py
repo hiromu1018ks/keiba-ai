@@ -270,6 +270,8 @@ class SubmodelSet:
     ev_odds_band_scales: dict[str, float] | None = None  # {"1.0-3.0": 0.95, "3.0-10.0": 1.02, ...}
     # INTER-03: Target encoder (inference-time TE application)
     target_encoder: TargetEncoder | None = None
+    # Phase 48: トラック条件特徴量の学習期間統計 (T1-02 relative/zscore 用)
+    track_stats: dict | None = None
 
 
 @dataclass

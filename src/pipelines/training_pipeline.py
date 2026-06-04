@@ -967,6 +967,18 @@ class TrainingPipelineV5:
         # Group E: 交互作用特徴量 (HorseHistoryFeatures 後に実行 — kyakusitu_cd が必要)
         from features.interaction_features import compute_interaction_features
 
+        # Group F: 馬場状態トラック条件特徴量 (HorseHistoryFeatures 後、interaction_features 前)
+        from features.track_condition_features import (
+            _compute_track_stats,
+            compute_track_condition_features,
+        )
+
+        _track_stats: dict | None = None
+        with TimingContext(f"{surface}/track_condition"):
+            if "turf_cushion" in df.columns and "trackcd" in df.columns:
+                _track_stats = _compute_track_stats(df)
+            df = compute_track_condition_features(df, track_stats=_track_stats)
+
         with TimingContext(f"{surface}/interaction"):
             df = compute_interaction_features(df)
 
@@ -1543,6 +1555,7 @@ class TrainingPipelineV5:
             ev_isotonic_calibrator=ev_isotonic_calibrator,
             ev_odds_band_scales=ev_odds_band_scales,
             target_encoder=te_encoder,
+            track_stats=_track_stats,
         )
         # Wire Isotonic + band scales into ev_corrector for correct_ev() to apply
         sub.ev_corrector.ev_isotonic_calibrator = ev_isotonic_calibrator

@@ -251,6 +251,13 @@ class RacePredictor:
             if _col in df.columns:
                 df[f"{_col}_race_rank"] = df[_col].rank(pct=True, method="average")
 
+        # 2b. track_condition_features (HorseHistoryFeatures 後、interaction_features 前)
+        from features.track_condition_features import compute_track_condition_features
+
+        # T1-02: 学習期間統計をSubmodelSetから取得 (単一レースからの再計算は不可)
+        _track_stats = getattr(submodel, "track_stats", None)
+        df = compute_track_condition_features(df, track_stats=_track_stats)
+
         # 3. interaction_features (kyakusitu_cd が必要なため HorseHistoryFeatures 後)
         df = compute_interaction_features(df)
 
