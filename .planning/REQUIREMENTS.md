@@ -8,10 +8,10 @@
 
 ### Data Pipeline (ETL)
 
-- [ ] **ETL-01**: 外部CSV（ダート含水率 `20180728~20260531ダート含水率.csv`）をParquetに変換するprecomputeスクリプトを実装する。エントリ単位ID → race_id (先頭14桁) でrace-level集約、NaN適正処理、データ型検証を含む
-- [ ] **ETL-02**: 外部CSV（芝クッション値 `20200912~20260531クッション値.csv`）をParquetに変換するprecomputeスクリプトを実装する。エントリ単位ID → race_id集約、NaN適正処理、データ型検証を含む
-- [ ] **ETL-03**: DataRepositoryに含水率・クッション値Parquetのローダーメソッドを追加する。既存の`load_horse_career_stats()`パターンに従う
-- [ ] **ETL-04**: POST_RACE分類の確認と適正処理を行う。含水率/クッション値はレース当日JRA発表値（締切前利用可能情報）として扱い、POST_RACE_COLSに含めないことをCI検証で確認する
+- [x] **ETL-01**: 外部CSV（ダート含水率 `20180728~20260531ダート含水率.csv`）をParquetに変換するprecomputeスクリプトを実装する。エントリ単位ID → race_id (先頭14桁) でrace-level集約、NaN適正処理、データ型検証を含む
+- [x] **ETL-02**: 外部CSV（芝クッション値 `20200912~20260531クッション値.csv`）をParquetに変換するprecomputeスクリプトを実装する。エントリ単位ID → race_id集約、NaN適正処理、データ型検証を含む
+- [x] **ETL-03**: DataRepositoryに含水率・クッション値Parquetのローダーメソッドを追加する。既存の`load_horse_career_stats()`パターンに従う
+- [x] **ETL-04**: POST_RACE分類の確認と適正処理を行う。含水率/クッション値はレース当日JRA発表値（締切前利用可能情報）として扱い、POST_RACE_COLSに含めないことをCI検証で確認する
 
 ### Tier 1 — Maximum Edge (P0)
 
@@ -72,10 +72,10 @@
 
 | REQ-ID | Phase | Status |
 |--------|-------|--------|
-| ETL-01 | Phase 47 | Pending |
-| ETL-02 | Phase 47 | Pending |
-| ETL-03 | Phase 47 | Pending |
-| ETL-04 | Phase 47 | Pending |
+| ETL-01 | Phase 47 | Complete |
+| ETL-02 | Phase 47 | Complete |
+| ETL-03 | Phase 47 | Complete |
+| ETL-04 | Phase 47 | Complete |
 | T1-01 | Phase 48 | Pending |
 | T1-02 | Phase 48 | Pending |
 | T2-01 | Phase 48 | Pending |
