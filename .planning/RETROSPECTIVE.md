@@ -289,6 +289,49 @@
 
 ---
 
+## Milestone: v2.2 — ROI Recovery Analysis
+
+**Shipped:** 2026-06-02 (closed — not_deployable)
+**Phases:** 4 (43-46) | **Plans:** 8 | **Sessions:** ~4
+
+### What Was Built
+- Shadow Diagnosis — 3ステップ段階的除外診断エンジン + 5セグメント別APR/ECE乖離分析
+- ROI Bisect — ComponentAttributionエンジン(逐次帰属+条件付きSHAP) + HistoricalBisect(v1.7→v2.0補助比較)
+- Structural Fix — MawcConservativeRetrainer(36-dim, C grid [0.003-0.03], 100倍強正則化) + favorite band guard
+- Quality Gate Verification — QualityGateOrchestrator(2-stage flow + 3-label framework) + RUNBOOK + 手動再現手順
+
+### What Worked
+- 診断→ビセクション→修正→検証の段階的アプローチが原因特定に効果的だった
+- ComponentAttributionの係数分析でMAWCのbeta_market=0.90支配(logit_market coef=0.39)を特定
+- Shadow Comparison Frameworkが品質劣化の定量的比較基盤として有効
+- conservative MAWCを既存モデル上書きではなく別variant保存にした判断が安全だった
+- QualityGateOrchestratorの3-label framework(Quality Gate/ROI Trend/Deployment)が判定を明確化
+
+### What Was Inefficient
+- Conservative MAWCの全交互作用削除(15個)が過剰だった — 36-dimでは正則化が強すぎてtest汎化しなかった
+- Phase 46 runtime Stage 2で6/18 conditions FAIL — 学習時ROI改善(288-317%)がtest結果(-11.3%)と逆行
+- Historical bisectの信頼度がLOW — Phase 35-36間のartifactが不完全で推定に留まった
+- DeploymentGateEvaluatorのoverall metric 0.0集計バグがtech debtとして残存
+
+### Patterns Established
+- not_deployable マイルストーンの記録パターン — 品質ゲートFAILでも診断・分析成果物は残す
+- 3-label deployment判定: Quality Gate(PASS/FAIL) × ROI Trend × Deployment verdict
+- conservative variant pattern — 既存モデルを上書きせず別ディレクトリに保存
+
+### Key Lessons
+1. MAWCの市場過重ブレンド(beta_market=0.90)が確率過度圧縮を引き起こす — 交互作用項の削除は逆効果だった
+2. 学習時ROI改善とtest汎化は別物 — training ROI 288-317% vs test ROI -11.3%の乖離が示す通り
+3. 特徴量削減アプローチより、正則化強度の調整が本質 — 51-dim→36-dimよりC値の適正範囲探求が先
+4. ROI回復は「何を直すか」より「どこが壊れているか」の特定が8割 — Shadow/Bisectの診断価値が高い
+5. not_deployableでもマイルストーンとして閉じることで、分析成果物のトレーサビリティを保持できる
+
+### Cost Observations
+- Model mix: ~40% opus, ~40% sonnet, ~20% haiku
+- Sessions: ~4
+- Notable: Phase 46がruntime verification主体でセッション長、Phase 44 bisectが1222行のComponentAttribution実装で最大
+
+---
+
 ## Cross-Milestone Trends
 
 ### Process Evolution
@@ -305,6 +348,8 @@
 | v1.7 | ~2 | 6 | 市場独立性獲得、IC評価フレームワーク、GPD診断 |
 | v1.8 | ~3 | 4 | 上がりタイムETL、芝相対特徴量、MarketModel配線修正 |
 | v2.0 | ~3 | 2 | OOF検査基盤、投資特徴量フレーム、schema registry |
+| v2.1 | ~2 | 4 | Shadow Comparison、DeploymentGate、Feature Routing Audit |
+| v2.2 | ~4 | 4 | ROI Recovery Analysis(not_deployable)、3-label判定framework |
 
 ### Cumulative Quality
 
@@ -318,6 +363,8 @@
 | v1.6 | 1,527 | mock-based | ~23,215 |
 | v1.7 | 1,540+ | mock-based | ~24,100 |
 | v2.0 | 2,056 | mock-based | ~44,582 |
+| v2.1 | 2,231 | mock-based | ~46,400 |
+| v2.2 | 2,343 | mock-based | ~48,200 |
 
 ### Top Lessons (Verified Across Milestones)
 
@@ -329,3 +376,5 @@
 6. 特徴量の量より質 — 37新特徴量でROI+1.3ppは限界、アプローチ自体の見直しが必要 — v1.6で実証
 7. 強特徴量の一律登録は特殊役割モデルを崩壊させる — モデル役割別ルーティングが必須 — v1.8で実証
 8. frozen dataclass schema registryが大規模特徴量管理に有効 — v2.0で確立
+9. Shadow-first deploymentが確率品質劣化を安全に検出 — 新パイプラインはshadow modeで品質ゲート通過まで不活性 — v2.1で確立
+10. 学習時ROI改善とtest汎化は別物 — training 288% vs test -11.3%の乖離。正則化強度調整が特徴量削減より本質 — v2.2で実証

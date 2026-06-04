@@ -26,89 +26,17 @@ last_updated: "2026-06-02T00:00:00.000Z"
 ## Phases
 
 <details>
-<summary>v1.0-v2.1 (Phases 1-42) -- All Shipped</summary>
+<summary>v1.0-v2.2 (Phases 1-46) — All Closed</summary>
 
-Phases 1-42 complete across milestones v1.0 through v2.1.
+Phases 1-42 shipped across milestones v1.0 through v2.1.
+Phases 43-46 closed as not_deployable (v2.2 ROI Recovery Analysis).
 See `.planning/milestones/` for archived roadmaps.
 
 </details>
 
-### v2.2 ROI Recovery Analysis (Closed -- not_deployable)
-
-- [x] **Phase 43: Shadow Diagnosis** -- 確率品質・選定差分の全面比較 (DIAG-01~03) (completed 2026-05-29)
-- [x] **Phase 44: ROI Bisect** -- DeploymentGate FAILのコンポーネント帰属 + MAWC/Ranker係数分析 (BISECT-01~02) (completed 2026-05-30)
-- [x] **Phase 45: Structural Fix** -- 診断結果に基づく構造的修正と汎化確認 (FIX-01~02) (completed 2026-05-31)
-- [x] **Phase 46: Quality Gate Verification** -- 品質ゲート実行。OOF/FeatureRoutingはPASS、DeploymentGate/ROI回復はFAIL (QUAL-01~04)
-
-## Phase Details
-
-### Phase 43: Shadow Diagnosis
-**Goal**: baseline vs shadowの確率品質・選定パターン・キャリブレーション乖離を完全に特定し、劣化の次元を明らかにする
-**Depends on**: v2.1 complete (Phase 42)
-**Requirements**: DIAG-01, DIAG-02, DIAG-03
-**Success Criteria** (what must be TRUE):
-  1. 2024/2025固定foldのBrier/logloss/ECEがbaseline vs shadowで数値比較され、劣化维度(確率精度 vs 選定 vs キャリブレーション)が特定されている
-  2. RaceLevelRankerの選定パターン差分(的中/不的中レース構造、選定変更レース一覧)がレポート化されている
-  3. surface/odds_band/popularity_band/probability_rank_band/selected_changed別のactual/predicted比率乖離箇所が特定されている
-**Plans**: 2 plans
-
-Plans:
-- [x] 43-01-PLAN.md -- ShadowDiagnosis クラス実装 (3ステップ段階的除外診断ロジック + テスト)
-- [x] 43-02-PLAN.md -- CLI + HTML レポート + Markdown 要約 (D-04 出力フォーマット)
-
-### Phase 44: ROI Bisect
-**Goal**: DeploymentGate FAILの直接原因をコンポーネント単位(MAWC/Ranker/OBF/Selection)で帰属し、MAWC/Ranker係数分析で悪化寄与特徴量を特定する
-**Depends on**: Phase 43
-**Requirements**: BISECT-01, BISECT-02
-**Success Criteria** (what must be TRUE):
-  1. Phase 34→38間のartifact-level bisectで、ROI劣化を引き起こしたフェーズ(またはフェーズ群)が特定されている
-  2. 再現不能なフェーズはgit差分・OOF/BTログ・既存成果物から原因推定が文書化されている
-  3. 劣化フェーズのOOF特徴量寄与度(SHAP/gain)をbaseline vs当該フェーズで比較し、ROI悪化に寄与した特徴量・パラメータが特定されている
-**Plans**: 2 plans
-
-Plans:
-- [x] 44-01-PLAN.md -- ComponentAttribution分析エンジン (逐次帰属 + 係数分析 + 条件付き上流SHAP) + HistoricalBisect (補助的v1.7→v2.0比較)
-- [x] 44-02-PLAN.md -- CLI + JSON/MD/HTML出力 (ReportGenerator分離モジュール + Phase 45消費可能な帰属成果物)
-
-### Phase 45: Structural Fix
-**Goal**: ビセクション・診断結果に基づく最小限の構造的修正を適用し、その汎化性を確認する
-**Depends on**: Phase 44
-**Requirements**: FIX-01, FIX-02
-**Success Criteria** (what must be TRUE):
-  1. 診断・ビセクションで特定された構造的欠陥(特徴量ルーティング、キャリブレーション設定等)に対する修正が実装されている
-  2. 修正がOOF/WF指標で説明可能であることが確認されている
-  3. 修正内容が2024/2025固有係数に依存せず、OOF指標で汎化性が確認されている
-**Plans**: 2 plans
-
-Plans:
-- [x] 45-01-PLAN.md -- MawcConservativeRetrainer (36-dim特徴量 + C grid探索 + 品質ゲート + variant保存 + manifest生成)
-- [x] 45-02-PLAN.md -- CLI + JSON/MD/HTML出力 (ReportGenerator分離モジュール + Phase 46消費可能なmanifest)
-
-### Phase 46: Quality Gate Verification
-**Goal**: 全修正が安全ゲートを通過し、ROI回復傾向と品質指標非悪化が確認されている
-**Depends on**: Phase 45
-**Requirements**: QUAL-01, QUAL-02, QUAL-03, QUAL-04
-**Runtime Result**:
-  1. OOFHealthValidator: PASS
-  2. FeatureRoutingAudit: PASS
-  3. DeploymentGateEvaluator: FAIL (per-fold Brier/logloss/ECE degraded)
-  4. ROI recovery: FAIL (baseline test ROI -8.0%, conservative MAWC -11.3%)
-  5. Deployment: not_deployable; original 51-dim MAWC remains baseline
-**Plans**: 2 plans
-
-Plans:
-- [x] 46-01-PLAN.md -- QualityGateOrchestrator (Stage 1/2 orchestration CLI + skip/resume + 3-label aggregation + 30+ tests)
-- [x] 46-02-PLAN.md -- RUNBOOK + VERIFICATION + v2.2 Milestone Summary (手動再現runbook + 品質検証レポート + マイルストーン完了証明)
-
 ## Progress
-
-**Execution Order:**
-Phases execute in numeric order: 43 -> 44 -> 45 -> 46
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
 | 1-42 | v1.0-v2.1 | 85/85 | Complete | 2026-05-28 |
-| 43. Shadow Diagnosis | v2.2 | 2/2 | Complete | 2026-05-29 |
-| 44. ROI Bisect | v2.2 | 2/2 | Complete | 2026-05-30 |
-| 45. Structural Fix | v2.2 | 2/2 | Complete | 2026-05-31 |
-| 46. Quality Gate Verification | v2.2 | 2/2 | Complete (runtime FAIL, not_deployable) | 2026-06-02 |
+| 43-46 | v2.2 | 8/8 | Complete (not_deployable) | 2026-06-02 |
