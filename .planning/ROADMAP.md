@@ -1,9 +1,9 @@
 ---
 gsd_state_version: 1.0
-milestone: v2.2
-milestone_name: ROI Recovery Analysis
-status: closed_not_deployable
-last_updated: "2026-06-02T00:00:00.000Z"
+milestone: v2.3
+milestone_name: Track Condition Feature Integration
+status: in_progress
+last_updated: "2026-06-04T00:00:00.000Z"
 ---
 
 # Roadmap: keiba-ai Win Model Improvement
@@ -22,6 +22,7 @@ last_updated: "2026-06-02T00:00:00.000Z"
 - **v2.0 Investment Pipeline Restructuring** -- Phases 37-38 (shipped 2026-05-27)
 - **v2.1 MarketAware Calibration + Race-Level Ranker** -- Phases 39-42 (shipped 2026-05-28)
 - **v2.2 ROI Recovery Analysis** -- Phases 43-46 (closed 2026-06-02, not_deployable)
+- **v2.3 Track Condition Feature Integration** -- Phases 47-50 (in progress)
 
 ## Phases
 
@@ -34,9 +35,72 @@ See `.planning/milestones/` for archived roadmaps.
 
 </details>
 
+### v2.3 Track Condition Feature Integration (In Progress)
+
+**Milestone Goal:** 含水率・クッション値の連続値データを特徴量として統合し、BT ROI 97%+(v1.7レベル)を回復する
+
+- [ ] **Phase 47: ETL Data Pipeline** - 外部CSV(含水率/クッション値)をParquetに変換しDataRepositoryに統合
+- [ ] **Phase 48: Core Edge Features** - Tier 1+2の交互作用特徴量(含水率x脚質/枠位置、クッションx脚質/種牡馬)を実装・登録
+- [ ] **Phase 49: Derived & Higher-Order Features** - Tier 3+4の馬個体適性・ペース予測・異常値検出・既存インタラクション拡張を実装
+- [ ] **Phase 50: Safety & Validation** - Feature Routing Audit/POST_RACE CI検証 + BT ROI 97%+ + IC評価 + WF可用性確認
+
+## Phase Details
+
+### Phase 47: ETL Data Pipeline
+**Goal**: 外部CSVデータ(含水率・クッション値)がParquetとしてDataRepository経由で利用可能になる
+**Depends on**: Nothing (first phase of v2.3)
+**Requirements**: ETL-01, ETL-02, ETL-03, ETL-04
+**Success Criteria** (what must be TRUE):
+  1. ダート含水率CSV(189K行)がParquetに変換され、エントリ単位ID→race_id集約でrace-levelデータとして保存される
+  2. 芝クッション値CSV(133K行)がParquetに変換され、同様にrace-level集約される
+  3. DataRepositoryから含水率・クッション値Parquetをロードでき、FeatureEngineにマージ可能なDataFrameが返る
+  4. 含水率/クッション値がPOST_RACE_COLSに含まれていないことがCIテストで確認される(レース当日JRA発表値=締切前利用可能)
+**Plans**: TBD
+
+### Phase 48: Core Edge Features
+**Goal**: 含水率・クッション値のTier 1+2交互作用特徴量がFeatureEngineに登録され、単独BTでROI寄与が観測できる
+**Depends on**: Phase 47
+**Requirements**: T1-01, T1-02, T2-01, T2-02, T2-03, REG-01
+**Success Criteria** (what must be TRUE):
+  1. dirt_moisture_x_kyakusitu特徴量がダートレースで計算され、含水率上昇時の逃げ馬有利バイアスを捉える
+  2. turf_cushion_track_relative / turf_cushion_track_zscore特徴量が芝レースで計算され、コース間差が正規化される
+  3. 含水率x枠位置交互作用 + 高含水/低含水フラグ、クッションx脚質交互作用、種牡馬xクッションビン交互作用が全て計算される
+  4. 新特徴量がFEATURE_COLSの12モデル全てに登録され、run_train.pyでエラーなく学習完了する
+**Plans**: TBD
+
+### Phase 49: Derived & Higher-Order Features
+**Goal**: 馬個体の馬場状態適性・ペース予測・異常値検出・既存特徴量インタラクションが実装され、全特徴量層が揃う
+**Depends on**: Phase 48
+**Requirements**: T3-01, T3-02, T3-03, T3-04, T4-01, T4-02, T4-03, T4-04
+**Success Criteria** (what must be TRUE):
+  1. 馬個体の含水率/クッション値適性(horse_dirt_wet_hit_rate等)がPIT-safeに計算され、過走履歴から適性カテゴリ(湿得意/乾得意/万能)が分類される
+  2. クッション値/含水率のコース別月別偏差(season_deviation)が計算される
+  3. 含水率/クッション値から先行バイアススコア・蹴り返りリスク・ペース予測が算出され、レースフィールド条件マッチスコアが計算される
+  4. クッション/含水率異常値検出(2σ逸脱) + 既存特徴量とのインタラクション(距離/馬齢/脚質等)が全て計算される
+**Plans**: TBD
+
+### Phase 50: Safety & Validation
+**Goal**: 全新特徴量の安全性がCI検証され、BT ROI 97%+が確認されてデプロイ可能になる
+**Depends on**: Phase 49
+**Requirements**: REG-02, REG-03, VLD-01, VLD-02, VLD-03
+**Success Criteria** (what must be TRUE):
+  1. Feature Routing Auditが新特徴量の外科的ルーティング(MarketModel/RaceQualityScreener除外等)を検証し、PASSする
+  2. 新特徴量のPOST_RACE分類が3層CI検証(whitelist/forbidden/manual)で正しく確認される
+  3. マルチ年度BT(2024/2025)でBT ROI 97%+が達成される(v1.7レベル回復)
+  4. 新特徴量のIC評価(C直交IC)が実行され、既存特徴量と独立したシグナルであることが確認される
+  5. クッション値データのWF Fold0(2020-2023学習)でのNaN率が許容範囲内であることが確認される
+**Plans**: TBD
+
 ## Progress
+
+**Execution Order:**
+Phases execute in numeric order: 47 → 48 → 49 → 50
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
 | 1-42 | v1.0-v2.1 | 85/85 | Complete | 2026-05-28 |
 | 43-46 | v2.2 | 8/8 | Complete (not_deployable) | 2026-06-02 |
+| 47. ETL Data Pipeline | v2.3 | 0/? | Not started | - |
+| 48. Core Edge Features | v2.3 | 0/? | Not started | - |
+| 49. Derived & Higher-Order Features | v2.3 | 0/? | Not started | - |
+| 50. Safety & Validation | v2.3 | 0/? | Not started | - |

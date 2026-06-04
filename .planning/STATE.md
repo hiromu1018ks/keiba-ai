@@ -4,9 +4,9 @@ milestone: v2.3
 milestone_name: Track Condition Feature Integration
 status: planning
 last_updated: "2026-06-04T00:00:00Z"
-last_activity: 2026-06-04 — Milestone v2.3 started
+last_activity: 2026-06-04 — Roadmap created (Phases 47-50)
 progress:
-  total_phases: 0
+  total_phases: 4
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -24,12 +24,26 @@ See: .planning/PROJECT.md (updated 2026-06-04)
 
 ## Current Position
 
-Phase: Not started (defining requirements)
+Phase: 47 of 50 (ETL Data Pipeline)
 Plan: —
-Status: Defining requirements
-Last activity: 2026-06-04 — Milestone v2.3 started
+Status: Ready to plan
+Last activity: 2026-06-04 — Roadmap created (4 phases, 23 requirements mapped)
 
-Progress: [ ] 0%
+Progress: [░░░░░░░░░░] 0%
+
+## Accumulated Context
+
+### Decisions
+
+- Coarse granularity: 4 phases compressed from 7 requirement categories
+- Tier 1+2 combined (Phase 48): Both are direct interaction features from same data source
+- Tier 3+4 combined (Phase 49): Derived features depend on Tier 1/2 being registered
+- REG-01 (feature registration) moved to Phase 48: Features must be registered to be usable
+- REG-02/REG-03 in Phase 50: Routing audit and POST_RACE CI validate the complete feature set
+
+### Blockers/Concerns
+
+- クッション値データは2020/09開始のためWF Fold0(2020学習)でNaN率高い可能性 (VLD-03で検証)
 
 ## Deferred Items
 
@@ -46,3 +60,5 @@ Progress: [ ] 0%
 ## Session Continuity
 
 Last session: 2026-06-04T00:00:00Z
+Stopped at: Roadmap created, ready to plan Phase 47
+Resume file: None

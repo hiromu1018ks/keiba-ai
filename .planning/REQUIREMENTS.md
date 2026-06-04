@@ -72,29 +72,29 @@
 
 | REQ-ID | Phase | Status |
 |--------|-------|--------|
-| ETL-01 | — | Pending |
-| ETL-02 | — | Pending |
-| ETL-03 | — | Pending |
-| ETL-04 | — | Pending |
-| T1-01 | — | Pending |
-| T1-02 | — | Pending |
-| T2-01 | — | Pending |
-| T2-02 | — | Pending |
-| T2-03 | — | Pending |
-| T3-01 | — | Pending |
-| T3-02 | — | Pending |
-| T3-03 | — | Pending |
-| T3-04 | — | Pending |
-| T4-01 | — | Pending |
-| T4-02 | — | Pending |
-| T4-03 | — | Pending |
-| T4-04 | — | Pending |
-| REG-01 | — | Pending |
-| REG-02 | — | Pending |
-| REG-03 | — | Pending |
-| VLD-01 | — | Pending |
-| VLD-02 | — | Pending |
-| VLD-03 | — | Pending |
+| ETL-01 | Phase 47 | Pending |
+| ETL-02 | Phase 47 | Pending |
+| ETL-03 | Phase 47 | Pending |
+| ETL-04 | Phase 47 | Pending |
+| T1-01 | Phase 48 | Pending |
+| T1-02 | Phase 48 | Pending |
+| T2-01 | Phase 48 | Pending |
+| T2-02 | Phase 48 | Pending |
+| T2-03 | Phase 48 | Pending |
+| T3-01 | Phase 49 | Pending |
+| T3-02 | Phase 49 | Pending |
+| T3-03 | Phase 49 | Pending |
+| T3-04 | Phase 49 | Pending |
+| T4-01 | Phase 49 | Pending |
+| T4-02 | Phase 49 | Pending |
+| T4-03 | Phase 49 | Pending |
+| T4-04 | Phase 49 | Pending |
+| REG-01 | Phase 48 | Pending |
+| REG-02 | Phase 50 | Pending |
+| REG-03 | Phase 50 | Pending |
+| VLD-01 | Phase 50 | Pending |
+| VLD-02 | Phase 50 | Pending |
+| VLD-03 | Phase 50 | Pending |
 
 ---
 *Last updated: 2026-06-04*
