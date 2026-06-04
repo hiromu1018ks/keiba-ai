@@ -82,9 +82,34 @@ MLflow で実験管理。PostgreSQL (EveryDB2/JRA-VAN DataLab) をデータソ�
 
 ### Active
 
-- v2.3候補: v2.2で棄却されたConservative MAWCの教訓を踏まえた、より小さいキャリブレーション再設計
-- デプロイゲート自動判定 (DEP-01) — v2.3+
-- Optuna 19次元パラメータ最適化 (DEP-02) — v2.3+
+- 外部CSV → Parquet変換 (含水率・クッション値) + race_id集約パイプライン — v2.3
+- Tier 1: 含水率×脚質交互作用 + クッション値トラック相対化 — v2.3
+- Tier 2: 含水率×枠位置 + クッション×脚質 + 種牡馬×クッションビン — v2.3
+- Tier 3: 馬個体の馬場状態適性 + 季節偏差 — v2.3
+- Tier 4: ペース予測 + レースレベル条件スコア + 異常値検出 + 既存インタラクション拡張 — v2.3
+- BT ROI 97%+検証 — v2.3
+- Conservative MAWC redesign — v2.4+
+- デプロイゲート自動判定 (DEP-01) — v2.4+
+- Optuna 19次元パラメータ最適化 (DEP-02) — v2.4+
+
+## Current Milestone: v2.3 Track Condition Feature Integration
+
+**Goal:** 馬場状態の連続値データ（ダート含水率・芝クッション値）を特徴量として統合し、BT ROI 97%+を回復する
+
+**Target features:**
+- データ基盤: 外部CSV（含水率189K行・クッション値133K行）→ Parquet変換 + race_id集約
+- Tier 1 (P0): 含水率×脚質交互作用、クッション値トラック相対化
+- Tier 2 (P1): 含水率×枠位置、クッション×脚質、種牡馬×クッションビン
+- Tier 3 (P2): 馬個体の馬場状態適性、季節偏差
+- Tier 4 (P3): ペース予測、レースレベル条件スコア、異常値検出、既存特徴量インタラクション
+
+**Success criteria:** BT ROI 97%+ (v1.7レベル回復)
+
+**Key context:**
+- MAWC問題はv2.3スコープ外（既存51-dim MAWCをそのまま使用）
+- データソース: 外部CSV (EveryDB2非依存)
+- 含水率: `data/20180728~20260531ダート含水率.csv` (189K行, 2018/07〜)
+- クッション値: `data/20200912~20260531クッション値.csv` (133K行, 2020/09〜)
 
 ## Last Closed Milestone: v2.2 ROI Recovery Analysis
 
@@ -125,12 +150,12 @@ MLflow で実験管理。PostgreSQL (EveryDB2/JRA-VAN DataLab) をデータソ�
 
 ## Current State
 
-**Closed:** v2.2 ROI Recovery Analysis (2026-06-02, not_deployable)
+**Active:** v2.3 Track Condition Feature Integration (2026-06-04)
 **Phases:** 46 total (v1.0-v2.2), all executed
 **Tests:** 2,343+ passed, 3 known failures
 **BT ROI reference:** v2.0 close 87.8%, v1.7 reference 97.8%, target 100%+
 **Latest runtime:** baseline test ROI -8.0%, conservative MAWC test ROI -11.3% (rejected)
-**Next:** v2.3 planning; do not replace baseline MAWC with conservative variant
+**Next:** v2.3 — 外部CSV(含水率/クッション値) → 特徴量統合 → BT ROI 97%+回復
 
 ## Context
 
@@ -247,4 +272,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-28 after v2.1 milestone shipped*
+*Last updated: 2026-06-04 — v2.3 Track Condition Feature Integration milestone started*

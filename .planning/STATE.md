@@ -1,48 +1,35 @@
 ---
 gsd_state_version: 1.0
-milestone: v2.2
-milestone_name: ROI Recovery Analysis
-status: Closed -- not_deployable
-last_updated: "2026-06-02T00:00:00Z"
-last_activity: 2026-06-02 — v2.2 runtime verification closed; conservative MAWC rejected
+milestone: v2.3
+milestone_name: Track Condition Feature Integration
+status: planning
+last_updated: "2026-06-04T00:00:00Z"
+last_activity: 2026-06-04 — Milestone v2.3 started
 progress:
-  total_phases: 4
-  completed_phases: 4
-  total_plans: 6
-  completed_plans: 6
-  percent: 100
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-05-28)
+See: .planning/PROJECT.md (updated 2026-06-04)
 
 **Core value:** 単勝モデルのバックテストROIを100%超えにすること
-**Current focus:** v2.2 closed; next milestone should decide v2.3 direction
+**Current focus:** v2.3 Track Condition Feature Integration — 含水率/クッション値特徴量統合でBT ROI 97%+回復
 
 ## Current Position
 
-Phase: v2.2 closed after Phase 46 runtime verification
-Previous: Phase 46 runtime verification complete
-Status: Closed -- conservative MAWC failed deployment gates and is not deployable
-Last activity: 2026-06-02 -- Archiving v2.2 as not_deployable
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-06-04 — Milestone v2.3 started
 
-Progress: [██████████] 100%
-
-## v2.2 Final Runtime Result
-
-| Item | Result |
-|------|--------|
-| Candidate | MAWC conservative variant (36-dim, C=0.003, shadow_only) |
-| Quality Gate | FAIL |
-| Deployment | not_deployable |
-| Baseline test ROI | -8.0% |
-| Conservative test ROI | -11.3% |
-| Decision | Do not replace baseline MAWC |
-
-The original 51-dim MAWC remains the baseline path. The conservative variant is kept only as an experimental artifact under `data/models-backtest-mawc-conservative/`.
+Progress: [ ] 0%
 
 ## Deferred Items
 
@@ -52,11 +39,10 @@ The original 51-dim MAWC remains the baseline path. The conservative variant is 
 | UAT | Human UAT 5項目 (PostgreSQL依存) | Pending since v1.4 |
 | Bug | test_training_pipeline.py 3件既知失敗 | Pending since v1.6 |
 | Cleanup | WinSegmentCalibrator dead code removal (WRN-01) | Pending since v2.1 |
-| Optimization | Optuna 19次元パラメータ最適化 (DEP-02) | Deferred to v2.3+ |
-| Automation | デプロイゲート自動判定 (DEP-01) | Deferred to v2.3+ |
-| Calibration | Conservative MAWC redesign / selective interaction experiment | Deferred to v2.3+ |
+| Optimization | Optuna 19次元パラメータ最適化 (DEP-02) | Deferred to v2.4+ |
+| Automation | デプロイゲート自動判定 (DEP-01) | Deferred to v2.4+ |
+| Calibration | Conservative MAWC redesign / selective interaction experiment | Deferred to v2.4+ |
 
 ## Session Continuity
 
-Last session: 2026-06-02T00:00:00Z
-Resume file: .planning/v2.2-MILESTONE-SUMMARY.md
+Last session: 2026-06-04T00:00:00Z
