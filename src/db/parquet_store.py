@@ -10,17 +10,31 @@ import pyarrow.dataset as ds
 import pyarrow.parquet as pq
 
 # P2: D-04 — 高カーディナリティ文字列列をpd.Categoricalに変換する対象
+# Note: mergeキーとして使われる列 (race_id, kettonum) は除外。
+#   Categorical dtype の不一致 (category set違い / object との不一致) で
+#   pd.merge / pd.merge_asof が失敗するため。
 CATEGORICAL_COLUMNS: frozenset[str] = frozenset({
-    "race_id", "kettonum", "kisyucode", "chokyosicode",
+    "kisyucode", "chokyosicode",
     "sire_id", "bms_id",
 })
 
+# 旧キャッシュParquetにCategoricalとして保存されたmergeキー列をstrに戻す対象
+_MERGE_KEY_COLUMNS: frozenset[str] = frozenset({"race_id", "kettonum"})
+
 
 def _optimize_dtypes(df: pd.DataFrame) -> pd.DataFrame:
-    """高カーディナリティ文字列列をpd.Categoricalに変換 (P2: D-04)"""
+    """高カーディナリティ文字列列をpd.Categoricalに変換 (P2: D-04)
+
+    旧ParquetにCategoricalとして保存されたmergeキー列 (race_id, kettonum) は
+    strに戻してmerge安全性を確保する。
+    """
     for col in CATEGORICAL_COLUMNS & set(df.columns):
         if df[col].dtype == object:
             df[col] = df[col].astype("category")
+    # 旧キャッシュ由来のCategorical mergeキーをstrに正規化
+    for col in _MERGE_KEY_COLUMNS & set(df.columns):
+        if isinstance(df[col].dtype, pd.CategoricalDtype):
+            df[col] = df[col].astype(str)
     return df
 
 

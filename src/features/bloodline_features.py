@@ -65,7 +65,7 @@ class BloodlineFeatures:
     def _load_keito_map(self) -> dict[str, str]:
         """sire_id -> keitousystemcd のマッピングを構築。
 
-        JOIN: horses.ketto3infohansyokunum1 -> keito.keitoucode -> keito.keitousystemcd
+        JOIN: horses.ketto3infohansyokunum1 -> keito.hansyokunum -> keito.keitoname
         """
         if self._keito_cache is None:
             from db.readers import load_keito
@@ -80,16 +80,16 @@ class BloodlineFeatures:
                 self._keito_cache = {}
             else:
                 sire_col = "ketto3infohansyokunum1"
-                code_col = (
-                    "keitousystemcd"
-                    if "keitousystemcd" in keito.columns
-                    else keito.columns[1]
-                )
+                # Parquet列名: hansyokunum (JOIN key), keitoname (系統名)
+                join_col = "hansyokunum"
+                code_col = "keitoname"
                 if sire_col not in horses.columns or code_col not in keito.columns:
                     self._keito_cache = {}
                 else:
+                    # coerce_types で hansyokunum が int64 になるため str に揃える
+                    keito[join_col] = keito[join_col].astype(str)
                     merged = horses[[sire_col]].merge(
-                        keito, left_on=sire_col, right_on="keitoucode", how="left"
+                        keito, left_on=sire_col, right_on=join_col, how="left"
                     )
                     self._keito_cache = dict(
                         zip(horses[sire_col], merged[code_col].fillna("unknown"))
