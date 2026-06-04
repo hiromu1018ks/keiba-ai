@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v2.3
 milestone_name: Track Condition Feature Integration
 status: planning
-stopped_at: Phase 48 context gathered
-last_updated: "2026-06-04T12:46:03.994Z"
-last_activity: 2026-06-04 — Phase 47 VERIFICATION.md PASSED
+stopped_at: Phase 48 verified PASSED
+last_updated: "2026-06-05T00:00:00.000Z"
+last_activity: 2026-06-05 — Phase 48 VERIFICATION.md PASSED (human_needed, approved)
 progress:
   total_phases: 4
-  completed_phases: 1
-  total_plans: 2
-  completed_plans: 2
+  completed_phases: 2
+  total_plans: 3
+  completed_plans: 3
   percent: 100
 ---
 
@@ -25,12 +25,12 @@ See: .planning/PROJECT.md (updated 2026-06-04)
 
 ## Current Position
 
-Phase: 48 of 50 (Core Edge Features) — next
+Phase: 49 of 50 (Derived & Higher-Order Features) — next
 Plan: —
-Status: Phase 47 verified PASSED, ready for Phase 48 planning
-Last activity: 2026-06-04 — Phase 47 VERIFICATION.md PASSED
+Status: Phase 48 verified PASSED, ready for Phase 49 planning
+Last activity: 2026-06-05 — Phase 48 VERIFICATION.md PASSED (human_needed, approved)
 
-Progress: [██░░░░░░░░] 25%
+Progress: [████░░░░░░] 50%
 
 ## Accumulated Context
 
@@ -56,6 +56,15 @@ Progress: [██░░░░░░░░] 25%
 - DataRepository.load_track_conditions(start, end) — date-filtered access to track conditions
 - 22 new tests: 16 (track_condition_data) + 4 (repository) + 2 (POST_RACE CI)
 
+### Phase 48 Artifacts
+
+- src/features/track_condition_features.py — 8 T1/T2 features: compute_track_condition_features() + _compute_track_stats()
+- FeatureEngine.build_all() merges dirt_moisture/turf_cushion from track_conditions.parquet
+- _train_submodel() / RacePredictor: track_condition_features computed between HorseHistoryFeatures and interaction_features
+- SubmodelSet.track_stats: training-period statistics for T1-02 relative/zscore features
+- Surgical routing: 8 models included (AbilityModel, Win/PlaceTwoStage, EVCorrection, PlaceEVCorrection, PlaceAbility, WideTwoStage), 4 excluded (MarketModel, RaceQualityScreener, RegimeDetector, ConformalEVModel)
+- 22 new tests + 4 downstream test propagation fixes
+
 ### Blockers/Concerns
 
 - クッション値データは2020/09開始のためWF Fold0(2020学習)でNaN率高い可能性 (VLD-03で検証)
@@ -75,6 +84,6 @@ Progress: [██░░░░░░░░] 25%
 
 ## Session Continuity
 
-Last session: 2026-06-04T12:46:03.984Z
-Stopped at: Phase 48 context gathered
-Resume file: .planning/phases/48-core-edge-features/48-CONTEXT.md
+Last session: 2026-06-05T00:00:00.000Z
+Stopped at: Phase 48 verified PASSED
+Resume file: .planning/phases/49-derived-features/

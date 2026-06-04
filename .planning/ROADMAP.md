@@ -40,7 +40,7 @@ See `.planning/milestones/` for archived roadmaps.
 **Milestone Goal:** 含水率・クッション値の連続値データを特徴量として統合し、BT ROI 97%+(v1.7レベル)を回復する
 
 - [x] **Phase 47: ETL Data Pipeline** - 外部CSV(含水率/クッション値)をParquetに変換しDataRepositoryに統合 ✅ 2026-06-04
-- [ ] **Phase 48: Core Edge Features** - Tier 1+2の交互作用特徴量(含水率x脚質/枠位置、クッションx脚質/種牡馬)を実装・登録
+- [x] **Phase 48: Core Edge Features** - Tier 1+2の交互作用特徴量(含水率x脚質/枠位置、クッションx脚質/種牡馬)を実装・登録 ✅ 2026-06-05
 - [ ] **Phase 49: Derived & Higher-Order Features** - Tier 3+4の馬個体適性・ペース予測・異常値検出・既存インタラクション拡張を実装
 - [ ] **Phase 50: Safety & Validation** - Feature Routing Audit/POST_RACE CI検証 + BT ROI 97%+ + IC評価 + WF可用性確認
 
@@ -66,15 +66,16 @@ Plans:
 **Goal**: 含水率・クッション値のTier 1+2交互作用特徴量がFeatureEngineに登録され、単独BTでROI寄与が観測できる
 **Depends on**: Phase 47
 **Requirements**: T1-01, T1-02, T2-01, T2-02, T2-03, REG-01
+**Status**: ✅ COMPLETED (2026-06-05)
 **Success Criteria** (what must be TRUE):
-  1. dirt_moisture_x_kyakusitu特徴量がダートレースで計算され、含水率上昇時の逃げ馬有利バイアスを捉える
-  2. turf_cushion_track_relative / turf_cushion_track_zscore特徴量が芝レースで計算され、コース間差が正規化される
-  3. 含水率x枠位置交互作用 + 高含水/低含水フラグ、クッションx脚質交互作用、種牡馬xクッションビン交互作用が全て計算される
-  4. 新特徴量がFEATURE_COLSの12モデル全てに登録され、run_train.pyでエラーなく学習完了する
-**Plans**: 1 plan
+  1. ✅ dirt_moisture_x_kyakusitu特徴量がダートレースで計算され、含水率上昇時の逃げ馬有利バイアスを捉える
+  2. ✅ turf_cushion_track_relative / turf_cushion_track_zscore特徴量が芝レースで計算され、コース間差が正規化される
+  3. ✅ 含水率x枠位置交互作用 + 高含水/低含水フラグ、クッションx脚質交互作用、種牡馬xクッションビン交互作用が全て計算される
+  4. ✅ 新特徴量がFEATURE_COLSの対象モデル(6モデル11リスト)に登録される（run_train.py実行はPhase 50で検証）
+**Plans**: 1 plan (completed)
 
 Plans:
-- [ ] 48-01-PLAN.md — track_condition_features module + pipeline integration + surgical routing (T1-01, T1-02, T2-01, T2-02, T2-03, REG-01)
+- [x] 48-01-PLAN.md — track_condition_features module + pipeline integration + surgical routing (T1-01, T1-02, T2-01, T2-02, T2-03, REG-01) ✅
 
 ### Phase 49: Derived & Higher-Order Features
 **Goal**: 馬個体の馬場状態適性・ペース予測・異常値検出・既存特徴量インタラクションが実装され、全特徴量層が揃う
@@ -109,6 +110,6 @@ Phases execute in numeric order: 47 → 48 → 49 → 50
 | 1-42 | v1.0-v2.1 | 85/85 | Complete | 2026-05-28 |
 | 43-46 | v2.2 | 8/8 | Complete (not_deployable) | 2026-06-02 |
 | 47. ETL Data Pipeline | v2.3 | 2/2 | Complete | 2026-06-04 |
-| 48. Core Edge Features | v2.3 | 0/1 | Planned | - |
+| 48. Core Edge Features | v2.3 | 1/1 | Complete | 2026-06-05 |
 | 49. Derived & Higher-Order Features | v2.3 | 0/? | Not started | - |
 | 50. Safety & Validation | v2.3 | 0/? | Not started | - |
