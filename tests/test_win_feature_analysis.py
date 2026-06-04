@@ -315,6 +315,15 @@ class TestRemoveNoiseFeatures:
             "haron_race_gap_avg",
             "haron_race_gap_zscore",
             "haron_race_gap_trend",
+            # Phase 48: track condition features
+            "dirt_moisture_x_kyakusitu",
+            "turf_cushion_track_relative",
+            "turf_cushion_track_zscore",
+            "dirt_moisture_x_barrier_pos",
+            "dirt_moisture_high_flag",
+            "dirt_moisture_dry_flag",
+            "turf_cushion_x_kyakusitu",
+            "sire_x_cushion_band",
         ]
         # FEATURE_COLSは元の特徴量の部分集合であること
         for feat in WinTwoStageModel.FEATURE_COLS:
