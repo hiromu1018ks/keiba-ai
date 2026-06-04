@@ -55,7 +55,11 @@ See `.planning/milestones/` for archived roadmaps.
   2. 芝クッション値CSV(133K行)がParquetに変換され、同様にrace-level集約される
   3. DataRepositoryから含水率・クッション値Parquetをロードでき、FeatureEngineにマージ可能なDataFrameが返る
   4. 含水率/クッション値がPOST_RACE_COLSに含まれていないことがCIテストで確認される(レース当日JRA発表値=締切前利用可能)
-**Plans**: TBD
+**Plans**: 2 plans
+
+Plans:
+- [ ] 47-01-PLAN.md — CSV→Parquet変換モジュール + precomputeスクリプト (ETL-01, ETL-02)
+- [ ] 47-02-PLAN.md — DataRepository.load_track_conditions() + POST_RACE CI検証 (ETL-03, ETL-04)
 
 ### Phase 48: Core Edge Features
 **Goal**: 含水率・クッション値のTier 1+2交互作用特徴量がFeatureEngineに登録され、単独BTでROI寄与が観測できる
@@ -100,7 +104,7 @@ Phases execute in numeric order: 47 → 48 → 49 → 50
 |-------|-----------|----------------|--------|-----------|
 | 1-42 | v1.0-v2.1 | 85/85 | Complete | 2026-05-28 |
 | 43-46 | v2.2 | 8/8 | Complete (not_deployable) | 2026-06-02 |
-| 47. ETL Data Pipeline | v2.3 | 0/? | Not started | - |
+| 47. ETL Data Pipeline | v2.3 | 0/2 | Planning complete | - |
 | 48. Core Edge Features | v2.3 | 0/? | Not started | - |
 | 49. Derived & Higher-Order Features | v2.3 | 0/? | Not started | - |
 | 50. Safety & Validation | v2.3 | 0/? | Not started | - |
