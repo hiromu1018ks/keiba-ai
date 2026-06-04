@@ -93,7 +93,7 @@ def aggregate_to_race_level(
         )
 
     # race_id, race_dateでグループ化
-    grouped = df.groupby(["race_id", "race_date"], sort=False)
+    grouped = df.groupby(["race_id", "race_date"], sort=False, observed=True)
     result_rows: list[dict[str, object]] = []
     for (rid, rdate), group in grouped:
         val = _agg_group(group)
@@ -128,7 +128,10 @@ def validate_physical_range(
     out_of_range = numeric.notna() & ~((numeric > low) & (numeric < high))
     count = int(out_of_range.sum())
     if count > 0:
-        logger.info("Replaced %d out-of-range values in '%s' (range: (%s, %s))", count, col, low, high)
+        logger.info(
+            "Replaced %d out-of-range values in '%s' (range: (%s, %s))",
+            count, col, low, high,
+        )
         df.loc[out_of_range, col] = np.nan
     return df, count
 
