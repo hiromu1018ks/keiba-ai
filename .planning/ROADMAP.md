@@ -39,7 +39,7 @@ See `.planning/milestones/` for archived roadmaps.
 
 **Milestone Goal:** 含水率・クッション値の連続値データを特徴量として統合し、BT ROI 97%+(v1.7レベル)を回復する
 
-- [ ] **Phase 47: ETL Data Pipeline** - 外部CSV(含水率/クッション値)をParquetに変換しDataRepositoryに統合
+- [x] **Phase 47: ETL Data Pipeline** - 外部CSV(含水率/クッション値)をParquetに変換しDataRepositoryに統合 ✅ 2026-06-04
 - [ ] **Phase 48: Core Edge Features** - Tier 1+2の交互作用特徴量(含水率x脚質/枠位置、クッションx脚質/種牡馬)を実装・登録
 - [ ] **Phase 49: Derived & Higher-Order Features** - Tier 3+4の馬個体適性・ペース予測・異常値検出・既存インタラクション拡張を実装
 - [ ] **Phase 50: Safety & Validation** - Feature Routing Audit/POST_RACE CI検証 + BT ROI 97%+ + IC評価 + WF可用性確認
@@ -50,16 +50,17 @@ See `.planning/milestones/` for archived roadmaps.
 **Goal**: 外部CSVデータ(含水率・クッション値)がParquetとしてDataRepository経由で利用可能になる
 **Depends on**: Nothing (first phase of v2.3)
 **Requirements**: ETL-01, ETL-02, ETL-03, ETL-04
+**Status**: ✅ COMPLETED (2026-06-04)
 **Success Criteria** (what must be TRUE):
-  1. ダート含水率CSV(189K行)がParquetに変換され、エントリ単位ID→race_id集約でrace-levelデータとして保存される
-  2. 芝クッション値CSV(133K行)がParquetに変換され、同様にrace-level集約される
-  3. DataRepositoryから含水率・クッション値Parquetをロードでき、FeatureEngineにマージ可能なDataFrameが返る
-  4. 含水率/クッション値がPOST_RACE_COLSに含まれていないことがCIテストで確認される(レース当日JRA発表値=締切前利用可能)
-**Plans**: 2 plans
+  1. ✅ ダート含水率CSV(189K行)がParquetに変換され、エントリ単位ID→race_id集約でrace-levelデータとして保存される
+  2. ✅ 芝クッション値CSV(133K行)がParquetに変換され、同様にrace-level集約される
+  3. ✅ DataRepositoryから含水率・クッション値Parquetをロードでき、FeatureEngineにマージ可能なDataFrameが返る
+  4. ✅ 含水率/クッション値がPOST_RACE_COLSに含まれていないことがCIテストで確認される
+**Plans**: 2 plans (both completed)
 
 Plans:
-- [x] 47-01-PLAN.md — CSV→Parquet変換モジュール + precomputeスクリプト (ETL-01, ETL-02)
-- [x] 47-02-PLAN.md — DataRepository.load_track_conditions() + POST_RACE CI検証 (ETL-03, ETL-04)
+- [x] 47-01-PLAN.md — CSV→Parquet変換モジュール + precomputeスクリプト (ETL-01, ETL-02) ✅
+- [x] 47-02-PLAN.md — DataRepository.load_track_conditions() + POST_RACE CI検証 (ETL-03, ETL-04) ✅
 
 ### Phase 48: Core Edge Features
 **Goal**: 含水率・クッション値のTier 1+2交互作用特徴量がFeatureEngineに登録され、単独BTでROI寄与が観測できる
