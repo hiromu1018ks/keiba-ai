@@ -71,7 +71,10 @@ Plans:
   2. turf_cushion_track_relative / turf_cushion_track_zscore特徴量が芝レースで計算され、コース間差が正規化される
   3. 含水率x枠位置交互作用 + 高含水/低含水フラグ、クッションx脚質交互作用、種牡馬xクッションビン交互作用が全て計算される
   4. 新特徴量がFEATURE_COLSの12モデル全てに登録され、run_train.pyでエラーなく学習完了する
-**Plans**: TBD
+**Plans**: 1 plan
+
+Plans:
+- [ ] 48-01-PLAN.md — track_condition_features module + pipeline integration + surgical routing (T1-01, T1-02, T2-01, T2-02, T2-03, REG-01)
 
 ### Phase 49: Derived & Higher-Order Features
 **Goal**: 馬個体の馬場状態適性・ペース予測・異常値検出・既存特徴量インタラクションが実装され、全特徴量層が揃う
@@ -106,6 +109,6 @@ Phases execute in numeric order: 47 → 48 → 49 → 50
 | 1-42 | v1.0-v2.1 | 85/85 | Complete | 2026-05-28 |
 | 43-46 | v2.2 | 8/8 | Complete (not_deployable) | 2026-06-02 |
 | 47. ETL Data Pipeline | v2.3 | 2/2 | Complete | 2026-06-04 |
-| 48. Core Edge Features | v2.3 | 0/? | Not started | - |
+| 48. Core Edge Features | v2.3 | 0/1 | Planned | - |
 | 49. Derived & Higher-Order Features | v2.3 | 0/? | Not started | - |
 | 50. Safety & Validation | v2.3 | 0/? | Not started | - |
