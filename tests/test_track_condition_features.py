@@ -329,3 +329,50 @@ def test_compute_track_stats():
     assert abs(stats["05"]["mean"] - 9.0) < 1e-6
     assert abs(stats["09"]["mean"] - 10.25) < 1e-6
     assert stats["05"]["std"] > 0
+
+
+# ---------------------------------------------------------------------------
+# 外科的ルーティング検証 (Phase 48, D-04/D-05)
+# ---------------------------------------------------------------------------
+
+
+def test_surgical_routing_included_models_have_track_condition_features():
+    """外科的ルーティング: 対象モデルのFEATURE_COLSに8個のトラック条件特徴量が含まれる (D-04)"""
+    from models.ev_correction_model import EVCorrectionModel, PlaceEVCorrectionModel
+    from models.place_ability_model import PlaceAbilityModel
+    from models.stage1_ability_model import AbilityModel
+    from models.two_stage_return_model import PlaceTwoStageModel, WinTwoStageModel
+    from models.wide_two_stage_model import WideTwoStageModel
+
+    included_models = {
+        "AbilityModel": AbilityModel.FEATURE_COLS,
+        "WinTwoStageModel": WinTwoStageModel.FEATURE_COLS,
+        "PlaceTwoStageModel.HIT": PlaceTwoStageModel.HIT_FEATURE_COLS,
+        "PlaceTwoStageModel.RETURN": PlaceTwoStageModel.RETURN_FEATURE_COLS,
+        "PlaceTwoStageModel.FEATURE": PlaceTwoStageModel.FEATURE_COLS,
+        "EVCorrectionModel": EVCorrectionModel.FEATURE_COLS,
+        "PlaceEVCorrectionModel": PlaceEVCorrectionModel.FEATURE_COLS,
+        "PlaceAbilityModel": PlaceAbilityModel.FEATURE_COLS,
+        "WideTwoStageModel.SHARED": WideTwoStageModel.SHARED_FEATURE_COLS,
+    }
+    for model_name, cols in included_models.items():
+        for feat in TRACK_CONDITION_COLS:
+            assert feat in cols, f"{model_name} missing track condition feature: {feat}"
+
+
+def test_surgical_routing_excluded_models():
+    """外科的ルーティング: 除外モデルにトラック条件特徴量は含まれない (D-05)"""
+    from models.conformal_ev_model import ConformalEVModel
+    from models.market_model import MarketModel
+    from models.race_quality_screener import RaceQualityScreener
+    from models.regime_detector import RegimeDetector
+
+    excluded_models = {
+        "MarketModel": MarketModel.FEATURE_COLS,
+        "RaceQualityScreener": RaceQualityScreener.FEATURE_COLS,
+        "RegimeDetector": RegimeDetector.FEATURE_COLS,
+        "ConformalEVModel": ConformalEVModel.FEATURE_COLS,
+    }
+    for model_name, cols in excluded_models.items():
+        for feat in TRACK_CONDITION_COLS:
+            assert feat not in cols, f"{model_name} should NOT have track condition feature: {feat}"

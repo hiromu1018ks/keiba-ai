@@ -227,6 +227,15 @@ class EVCorrectionModel:
         # HLF-02: HaronTime race-rank
         "closing_speed_ratio_avg_race_rank",
         "harontime_last3f_avg_race_rank",
+        # Phase 48: トラック条件特徴量 (T1/T2)
+        "dirt_moisture_x_kyakusitu",
+        "turf_cushion_track_relative",
+        "turf_cushion_track_zscore",
+        "dirt_moisture_x_barrier_pos",
+        "dirt_moisture_high_flag",
+        "dirt_moisture_dry_flag",
+        "turf_cushion_x_kyakusitu",
+        "sire_x_cushion_band",
     ]
 
     def _add_interaction_features(
@@ -557,6 +566,15 @@ class PlaceEVCorrectionModel:
         # HLF-02: HaronTime race-rank
         "closing_speed_ratio_avg_race_rank",
         "harontime_last3f_avg_race_rank",
+        # Phase 48: トラック条件特徴量 (T1/T2)
+        "dirt_moisture_x_kyakusitu",
+        "turf_cushion_track_relative",
+        "turf_cushion_track_zscore",
+        "dirt_moisture_x_barrier_pos",
+        "dirt_moisture_high_flag",
+        "dirt_moisture_dry_flag",
+        "turf_cushion_x_kyakusitu",
+        "sire_x_cushion_band",
     ]
 
     def __init__(self) -> None:
