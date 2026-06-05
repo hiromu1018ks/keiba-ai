@@ -527,12 +527,18 @@ def compute_race_condition_features(
             # Dry dirt: use dry_rate
             match_rate = match_rate.where(~is_dry, other=dry_rate)
             starts_count = starts_count.where(~is_dry, other=dry_starts)
-            # Middle dirt: mean of both
+            # Middle dirt: use mean of available rates (no fillna(0) bias)
             is_dirt_middle = moisture.notna() & ~is_wet & ~is_dry
-            mid_rate = (wet_rate.fillna(0) + dry_rate.fillna(0)) / 2
-            # Use NaN where both rates are NaN
+            both_valid = wet_rate.notna() & dry_rate.notna()
             either_valid = wet_rate.notna() | dry_rate.notna()
-            mid_rate = mid_rate.where(either_valid, other=np.nan)
+            mid_rate_both = (wet_rate + dry_rate) / 2
+            # When only one rate is available, use that rate (not half of it)
+            mid_rate = np.where(
+                both_valid, mid_rate_both,
+                np.where(wet_rate.notna(), wet_rate,
+                         np.where(dry_rate.notna(), dry_rate, np.nan)),
+            )
+            mid_rate = pd.Series(mid_rate, index=df.index, dtype=float)
             match_rate = match_rate.where(~is_dirt_middle, other=mid_rate)
             mid_starts = (wet_starts.fillna(0) + dry_starts.fillna(0))
             mid_starts = mid_starts.where(either_valid, other=np.nan)
@@ -570,11 +576,17 @@ def compute_race_condition_features(
             # Soft turf: use soft_rate
             match_rate = match_rate.where(~is_soft, other=soft_rate)
             starts_count = starts_count.where(~is_soft, other=soft_starts)
-            # Middle turf: mean of both
+            # Middle turf: use mean of available rates (no fillna(0) bias)
             is_turf_middle = cushion.notna() & ~is_hard & ~is_soft
-            mid_rate = (hard_rate.fillna(0) + soft_rate.fillna(0)) / 2
+            both_valid = hard_rate.notna() & soft_rate.notna()
             either_valid = hard_rate.notna() | soft_rate.notna()
-            mid_rate = mid_rate.where(either_valid, other=np.nan)
+            mid_rate_both = (hard_rate + soft_rate) / 2
+            mid_rate = np.where(
+                both_valid, mid_rate_both,
+                np.where(hard_rate.notna(), hard_rate,
+                         np.where(soft_rate.notna(), soft_rate, np.nan)),
+            )
+            mid_rate = pd.Series(mid_rate, index=df.index, dtype=float)
             match_rate = match_rate.where(~is_turf_middle, other=mid_rate)
             mid_starts = (hard_starts.fillna(0) + soft_starts.fillna(0))
             mid_starts = mid_starts.where(either_valid, other=np.nan)
