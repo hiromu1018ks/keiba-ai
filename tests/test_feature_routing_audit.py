@@ -2,6 +2,7 @@
 
 Fail-fast unit tests + diff tests ensuring calibrator (50 features) and
 ranker (28 features) never leak into MarketModel or RaceQualityScreener.
+Plus track condition feature routing verification (REG-02).
 """
 
 from __future__ import annotations
@@ -17,10 +18,26 @@ from audit.feature_routing_registry import (
     REGISTRY_VERSION,
     run_feature_audit,
 )
+from features.track_condition_features import (
+    RACE_CONDITION_COLS,
+    TRACK_CONDITION_COLS,
+    TRACK_DERIVED_COLS,
+)
+from models.conformal_ev_model import ConformalEVModel
+from models.ev_correction_model import EVCorrectionModel, PlaceEVCorrectionModel
 from models.market_aware_win_calibrator import MarketAwareWinCalibrator
 from models.market_model import MarketModel
+from models.place_ability_model import PlaceAbilityModel
 from models.race_level_ranker import RaceLevelRanker
 from models.race_quality_screener import RaceQualityScreener
+from models.regime_detector import RegimeDetector
+from models.stage1_ability_model import AbilityModel
+from models.two_stage_return_model import PlaceTwoStageModel, WinTwoStageModel
+
+# Union of all 23 track condition features (T1/T2 + T3/T4 + T4-02)
+ALL_TRACK_CONDITION_COLS: list[str] = (
+    TRACK_CONDITION_COLS + TRACK_DERIVED_COLS + RACE_CONDITION_COLS
+)
 
 
 class TestFeatureRoutingAudit:
@@ -136,3 +153,71 @@ class TestFeatureRoutingAudit:
                 f"Advisory model {model_result['model_name']} status: "
                 f"{model_result['status']}"
             )
+
+
+class TestTrackConditionRouting:
+    """REG-02: Track condition feature routing verification.
+
+    Verifies surgical routing of 23 track condition features:
+    - 4 excluded models: MarketModel, RaceQualityScreener, RegimeDetector, ConformalEVModel
+    - 7 included models: AbilityModel, WinTwoStageModel, PlaceTwoStageModel,
+      EVCorrectionModel, PlaceEVCorrectionModel, PlaceAbilityModel, WideTwoStageModel
+    Per D-06: Phase 48/49 surgical routing maintained.
+    """
+
+    # -- Excluded models (4) --
+
+    def test_excluded_models_no_track_condition_features(self) -> None:
+        """Per D-06: 4 excluded models have zero track condition features."""
+        excluded_models = [
+            ("MarketModel", MarketModel.FEATURE_COLS),
+            ("RaceQualityScreener", RaceQualityScreener.FEATURE_COLS),
+            ("RegimeDetector", RegimeDetector.FEATURE_COLS),
+            ("ConformalEVModel", ConformalEVModel.FEATURE_COLS),
+        ]
+        tc_set = set(ALL_TRACK_CONDITION_COLS)
+        for model_name, feature_cols in excluded_models:
+            intersection = set(feature_cols) & tc_set
+            assert intersection == set(), (
+                f"{model_name} contains track condition features: {intersection}"
+            )
+
+    # -- Included models (7) --
+
+    def test_included_models_have_track_condition_features(self) -> None:
+        """Per D-04: All 7 included models have all 23 track condition features."""
+        included_models = [
+            ("AbilityModel", AbilityModel.FEATURE_COLS),
+            ("WinTwoStageModel", WinTwoStageModel.FEATURE_COLS),
+            ("PlaceTwoStageModel.HIT", PlaceTwoStageModel.HIT_FEATURE_COLS),
+            ("PlaceTwoStageModel.RETURN", PlaceTwoStageModel.RETURN_FEATURE_COLS),
+            ("EVCorrectionModel", EVCorrectionModel.FEATURE_COLS),
+            ("PlaceEVCorrectionModel", PlaceEVCorrectionModel.FEATURE_COLS),
+            ("PlaceAbilityModel", PlaceAbilityModel.FEATURE_COLS),
+        ]
+        tc_set = set(ALL_TRACK_CONDITION_COLS)
+        for model_name, feature_cols in included_models:
+            feature_set = set(feature_cols)
+            missing = tc_set - feature_set
+            assert not missing, (
+                f"{model_name} missing track condition features: {missing}"
+            )
+
+    def test_wide_two_stage_has_track_condition_features(self) -> None:
+        """WideTwoStageModel.SHARED_FEATURE_COLS has all 23 track condition features."""
+        from models.wide_two_stage_model import WideTwoStageModel
+
+        tc_set = set(ALL_TRACK_CONDITION_COLS)
+        feature_set = set(WideTwoStageModel.SHARED_FEATURE_COLS)
+        missing = tc_set - feature_set
+        assert not missing, (
+            f"WideTwoStageModel.SHARED_FEATURE_COLS missing track condition features: "
+            f"{missing}"
+        )
+
+    # -- run_feature_audit integration --
+
+    def test_audit_still_passes(self) -> None:
+        """run_feature_audit() still returns overall_status='PASS'."""
+        results = run_feature_audit()
+        assert results["overall_status"] == "PASS"

@@ -415,3 +415,90 @@ class TestMarketCrossFeatures:
                 f"FEATURE_CATEGORY_MAP[{rl_col}] = '{FEATURE_CATEGORY_MAP[rl_col]}', "
                 f"expected 'market'"
             )
+
+
+# ---------------------------------------------------------------------------
+# Track Condition Features: POST_RACE Safety Verification (REG-03, D-15)
+# ---------------------------------------------------------------------------
+
+
+class TestTrackConditionPostRace:
+    """REG-03: Track condition features POST_RACE 3-layer CI verification.
+
+    Per D-15: All 23 track condition features are NOT in POST_RACE_COLS
+    (race-day JRA pre-cutoff values, not POST_RACE).
+    """
+
+    def test_track_condition_not_post_race(self) -> None:
+        """All 23 track condition features are NOT in POST_RACE_COLS."""
+        from features.track_condition_features import (
+            RACE_CONDITION_COLS,
+            TRACK_CONDITION_COLS,
+            TRACK_DERIVED_COLS,
+        )
+
+        all_tc = set(TRACK_CONDITION_COLS + TRACK_DERIVED_COLS + RACE_CONDITION_COLS)
+        overlap = all_tc & set(POST_RACE_COLS)
+        assert not overlap, (
+            f"Track condition features found in POST_RACE_COLS: {overlap}"
+        )
+
+    def test_track_condition_features_registered_in_models(self) -> None:
+        """All 23 track condition features appear in at least one model's FEATURE_COLS."""
+        from features.track_condition_features import (
+            RACE_CONDITION_COLS,
+            TRACK_CONDITION_COLS,
+            TRACK_DERIVED_COLS,
+        )
+        from models.ev_correction_model import EVCorrectionModel
+        from models.place_ability_model import PlaceAbilityModel
+        from models.stage1_ability_model import AbilityModel
+        from models.two_stage_return_model import WinTwoStageModel
+
+        all_tc = TRACK_CONDITION_COLS + TRACK_DERIVED_COLS + RACE_CONDITION_COLS
+
+        # Collect union of all included model FEATURE_COLS
+        all_model_features: set[str] = set()
+        for model_cls in [
+            AbilityModel,
+            WinTwoStageModel,
+            EVCorrectionModel,
+            PlaceAbilityModel,
+        ]:
+            all_model_features |= set(model_cls.FEATURE_COLS)
+
+        missing = set(all_tc) - all_model_features
+        assert not missing, (
+            f"Track condition features not registered in any included model: {missing}"
+        )
+
+    def test_raw_track_values_not_in_feature_cols(self) -> None:
+        """Raw track values (dirt_moisture, turf_cushion) are NOT in any model FEATURE_COLS."""
+        from models.conformal_ev_model import ConformalEVModel
+        from models.ev_correction_model import EVCorrectionModel, PlaceEVCorrectionModel
+        from models.market_model import MarketModel
+        from models.place_ability_model import PlaceAbilityModel
+        from models.race_quality_screener import RaceQualityScreener
+        from models.regime_detector import RegimeDetector
+        from models.stage1_ability_model import AbilityModel
+        from models.two_stage_return_model import PlaceTwoStageModel, WinTwoStageModel
+
+        raw_values = {"dirt_moisture", "turf_cushion"}
+        model_feature_lists = [
+            ("AbilityModel", AbilityModel.FEATURE_COLS),
+            ("MarketModel", MarketModel.FEATURE_COLS),
+            ("RegimeDetector", RegimeDetector.FEATURE_COLS),
+            ("RaceQualityScreener", RaceQualityScreener.FEATURE_COLS),
+            ("EVCorrectionModel", EVCorrectionModel.FEATURE_COLS),
+            ("PlaceEVCorrectionModel", PlaceEVCorrectionModel.FEATURE_COLS),
+            ("ConformalEVModel", ConformalEVModel.FEATURE_COLS),
+            ("PlaceAbilityModel", PlaceAbilityModel.FEATURE_COLS),
+            ("WinTwoStageModel", WinTwoStageModel.FEATURE_COLS),
+            ("PlaceTwoStageModel.HIT", PlaceTwoStageModel.HIT_FEATURE_COLS),
+            ("PlaceTwoStageModel.RETURN", PlaceTwoStageModel.RETURN_FEATURE_COLS),
+        ]
+        for model_name, cols in model_feature_lists:
+            overlap = raw_values & set(cols)
+            assert not overlap, (
+                f"{model_name} contains raw track values: {overlap}"
+            )
