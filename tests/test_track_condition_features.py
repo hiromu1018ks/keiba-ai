@@ -343,7 +343,7 @@ def test_compute_track_stats():
 
 
 def test_surgical_routing_included_models_have_track_condition_features():
-    """外科的ルーティング: 対象モデルのFEATURE_COLSに8個のトラック条件特徴量が含まれる (D-04)"""
+    """外科的ルーティング: 対象モデルのFEATURE_COLSにトラック条件特徴量が含まれる (D-04)"""
     from models.ev_correction_model import EVCorrectionModel, PlaceEVCorrectionModel
     from models.place_ability_model import PlaceAbilityModel
     from models.stage1_ability_model import AbilityModel
@@ -361,8 +361,9 @@ def test_surgical_routing_included_models_have_track_condition_features():
         "PlaceAbilityModel": PlaceAbilityModel.FEATURE_COLS,
         "WideTwoStageModel.SHARED": WideTwoStageModel.SHARED_FEATURE_COLS,
     }
+    all_track_cols = TRACK_CONDITION_COLS + TRACK_DERIVED_COLS + RACE_CONDITION_COLS
     for model_name, cols in included_models.items():
-        for feat in TRACK_CONDITION_COLS:
+        for feat in all_track_cols:
             assert feat in cols, f"{model_name} missing track condition feature: {feat}"
 
 
@@ -379,9 +380,12 @@ def test_surgical_routing_excluded_models():
         "RegimeDetector": RegimeDetector.FEATURE_COLS,
         "ConformalEVModel": ConformalEVModel.FEATURE_COLS,
     }
+    all_track_cols = TRACK_CONDITION_COLS + TRACK_DERIVED_COLS + RACE_CONDITION_COLS
     for model_name, cols in excluded_models.items():
-        for feat in TRACK_CONDITION_COLS:
-            assert feat not in cols, f"{model_name} should NOT have track condition feature: {feat}"
+        for feat in all_track_cols:
+            assert feat not in cols, (
+                f"{model_name} should NOT have track condition feature: {feat}"
+            )
 
 
 # ---------------------------------------------------------------------------

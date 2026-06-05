@@ -272,6 +272,8 @@ class SubmodelSet:
     target_encoder: TargetEncoder | None = None
     # Phase 48: トラック条件特徴量の学習期間統計 (T1-02 relative/zscore 用)
     track_stats: dict | None = None
+    # Phase 49: trackcd x month 統計 (T3-04 season deviation 用)
+    track_month_stats: dict | None = None
 
 
 @dataclass

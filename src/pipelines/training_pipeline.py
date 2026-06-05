@@ -969,15 +969,25 @@ class TrainingPipelineV5:
 
         # Group F: 馬場状態トラック条件特徴量 (HorseHistoryFeatures 後、interaction_features 前)
         from features.track_condition_features import (
+            _compute_track_month_stats,
             _compute_track_stats,
+            compute_race_condition_features,
             compute_track_condition_features,
         )
 
         _track_stats: dict | None = None
+        _track_month_stats: dict | None = None
         with TimingContext(f"{surface}/track_condition"):
             if "turf_cushion" in df.columns and "trackcd" in df.columns:
                 _track_stats = _compute_track_stats(df)
-            df = compute_track_condition_features(df, track_stats=_track_stats)
+            if "trackcd" in df.columns and (
+                "turf_cushion" in df.columns or "dirt_moisture" in df.columns
+            ):
+                _track_month_stats = _compute_track_month_stats(df)
+            df = compute_track_condition_features(
+                df, track_stats=_track_stats, track_month_stats=_track_month_stats
+            )
+            df = compute_race_condition_features(df)
 
         with TimingContext(f"{surface}/interaction"):
             df = compute_interaction_features(df)
@@ -1556,6 +1566,7 @@ class TrainingPipelineV5:
             ev_odds_band_scales=ev_odds_band_scales,
             target_encoder=te_encoder,
             track_stats=_track_stats,
+            track_month_stats=_track_month_stats,
         )
         # Wire Isotonic + band scales into ev_corrector for correct_ev() to apply
         sub.ev_corrector.ev_isotonic_calibrator = ev_isotonic_calibrator

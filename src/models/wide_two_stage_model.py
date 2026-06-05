@@ -126,6 +126,23 @@ class WideTwoStageModel:
         "dirt_moisture_dry_flag",
         "turf_cushion_x_kyakusitu",
         "sire_x_cushion_band",
+        # Phase 49: 派生・高次トラック条件特徴量 (T3-04/T4-01/T4-03/T4-04)
+        "track_front_bias_score",
+        "kickback_risk_score",
+        "expected_pace_class",
+        "cushion_season_deviation",
+        "moisture_season_deviation",
+        "cushion_anomaly_flag",
+        "moisture_extreme_flag",
+        "cushion_x_distance",
+        "moisture_x_weight",
+        "cushion_x_age",
+        "surface_condition_transition",
+        # Phase 49: レースレベルトラック条件特徴量 (T4-02)
+        "race_condition_match_score",
+        "race_condition_match_max",
+        "race_condition_match_ratio",
+        "race_field_front_bias",
     ]
 
     hit_model: Any
