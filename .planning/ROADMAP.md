@@ -42,7 +42,7 @@ See `.planning/milestones/` for archived roadmaps.
 - [x] **Phase 47: ETL Data Pipeline** - 外部CSV(含水率/クッション値)をParquetに変換しDataRepositoryに統合 ✅ 2026-06-04
 - [x] **Phase 48: Core Edge Features** - Tier 1+2の交互作用特徴量(含水率x脚質/枠位置、クッションx脚質/種牡馬)を実装・登録 ✅ 2026-06-05
 - [x] **Phase 49: Derived & Higher-Order Features** - Tier 3+4の馬個体適性・ペース予測・異常値検出・既存インタラクション拡張を実装 ✅ 2026-06-05
-- [ ] **Phase 50: Safety & Validation** - Feature Routing Audit/POST_RACE CI検証 + BT ROI 97%+ + IC評価 + WF可用性確認
+- [x] **Phase 50: Safety & Validation** - Feature Routing Audit/POST_RACE CI検証 + BT ROI 97%+ + IC評価 + WF可用性確認 (completed 2026-06-05)
 
 ## Phase Details
 
@@ -131,7 +131,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 50-02-PLAN.md — Training再実行(特徴量キャッシュ/OOF再生成) + WF Fold0 NaN診断 + 段階BT ROI検証 + IC評価 (VLD-01, VLD-02, VLD-03)
+- [x] 50-02-PLAN.md — Training再実行(特徴量キャッシュ/OOF再生成) + WF Fold0 NaN診断 + 段階BT ROI検証 + IC評価 (VLD-01, VLD-02, VLD-03)
 
 ## Progress
 
@@ -145,4 +145,4 @@ Phases execute in numeric order: 47 → 48 → 49 → 50
 | 47. ETL Data Pipeline | v2.3 | 2/2 | Complete | 2026-06-04 |
 | 48. Core Edge Features | v2.3 | 1/1 | Complete | 2026-05-05 |
 | 49. Derived & Higher-Order Features | v2.3 | 2/2 | Complete | 2026-06-05 |
-| 50. Safety & Validation | v2.3 | 1/2 | In Progress|  |
+| 50. Safety & Validation | v2.3 | 2/2 | Complete   | 2026-06-05 |
