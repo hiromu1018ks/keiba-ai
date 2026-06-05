@@ -161,6 +161,9 @@ def precompute_track_aptitude(
     # Sort by kettonum + race_date
     if "race_date" not in ent.columns and "race_date" not in entries_df.columns:
         # Fallback: use race_id as proxy for date ordering
+        logger.warning(
+            "race_date not found; using race_id as date proxy (may be incorrect)"
+        )
         ent = ent.sort_values(["kettonum", "race_id"]).reset_index(drop=True)
     else:
         ent = ent.sort_values(["kettonum", "race_date", "race_id"]).reset_index(drop=True)
