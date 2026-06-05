@@ -373,8 +373,12 @@ def compute_track_condition_features(
             else:
                 df["moisture_season_deviation"] = float("nan")
     else:
-        # No track_month_stats -> no season deviation features
-        pass
+        # No track_month_stats -> create season deviation columns as NaN
+        # so downstream T4-03 anomaly flags are always produced
+        if "cushion_season_deviation" not in df.columns:
+            df["cushion_season_deviation"] = float("nan")
+        if "moisture_season_deviation" not in df.columns:
+            df["moisture_season_deviation"] = float("nan")
 
     # --- T4-03: anomaly flags (D-15) ---
     if "cushion_season_deviation" in df.columns:
