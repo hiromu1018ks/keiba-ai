@@ -87,15 +87,37 @@ MLflow で実験管理。PostgreSQL (EveryDB2/JRA-VAN DataLab) をデータソ�
 
 ### Active
 
-- Conservative MAWC redesign — v2.4+
-- デプロイゲート自動判定 (DEP-01) — v2.4+
-- Optuna 19次元パラメータ最適化 (DEP-02) — v2.4+
-- WinSegmentCalibrator dead code removal (WRN-01) — v2.4+
-- 4 RACE_CONDITION特徴量100% NaN修正 — v2.4+
+- PT 精算整合性 — win/place 実払戻対応、負け含む全ベット確定状態保存、ROI 過大評価修正 — v2.4
+- PT パイプライン一貫性検証 — 同一実装・同一設定契約の担保、MLflow run ID・学習期間・コードハッシュ記録、データカットオフ厳密検証 — v2.4
+- PT/BT 特徴量生成の共有実装 — 共通特徴量構築関数抽出、将来分岐防止 — v2.4
+- PT/BT 戦略完全整合 — manifest/PFP + betting_target + flat/Kelly + DD + OddsBandFilter + QualityScreener + regime 同一実装・同一設定契約 — v2.4
+- PT 1コマンド run モード — モデル検証→予測→監視→精算→集計の全工程自動化。再起動再開・冪等性・DB障害時終了コード — v2.4
+- PT 結果評価拡張 — 週次集計・負け含む累積履歴・target別集計・モデル識別情報 — v2.4
+- Conservative MAWC redesign — v2.5+
+- デプロイゲート自動判定 (DEP-01) — v2.5+
+- Optuna 19次元パラメータ最適化 (DEP-02) — v2.5+
+- WinSegmentCalibrator dead code removal (WRN-01) — v2.5+
+- 4 RACE_CONDITION特徴量100% NaN修正 — v2.5+
 
-## Current Milestone: Planning Next Milestone
+## Current Milestone: v2.4 Paper Trading Pipeline Integration
 
-**Status:** Awaiting `/gsd-new-milestone` to define v2.4 scope
+**Goal:** BT で検証済みの学習・推論パイプラインを用いて PT を実行し、推論から精算まで1コマンドで完遂する。精算整合性と同一実装・同一設定契約を確保し、ROI を正確に測定する。
+
+**Target features:**
+
+1. **精算整合性** (Critical) — win/place 実払戻対応。負け含む全ベットの確定状態(pending/settled)保存。的中のみ記録による ROI 過大評価を修正
+2. **パイプライン一貫性検証** — 特徴量定義・学習コード・HP・戦略設定・推論ロジックの同一実装・同一設定契約を担保。MLflow run ID・学習期間・コードハッシュを記録。学習終了日 < 予測日 + 特徴量統計・OddsBandFilter校正・HP・strategy manifest も予測日以降の情報を含まないことを検証
+3. **特徴量生成の共有実装** — BT/PT 共通の特徴量構築関数を抽出。将来の分岐防止
+4. **戦略完全整合** — manifest/PFP(PT実行中のパラメータ不変性検証) + betting_target + flat/Kelly + DD制御 + OddsBandFilter + QualityScreener + regime状態 を同一実装・同一設定契約化
+5. **1コマンド run モード** — 学習は事前実行前提(run_train.py)。run モードはモデル検証→予測→監視→精算→集計を担当。再起動時再開・処理済み冪等性・DB障害時終了コード
+6. **結果評価拡張** — 既存日次JSON/CLI/月次HTMLを拡張。週次集計・負け含む累積履歴・target別集計・モデル識別情報を追加
+
+**Key context:**
+- モデル成果物の流用は要求しない。PT は最新期間(2022-2025)で `run_train.py` から再学習したモデルを使用
+- 2026年 PT では 2025年12月31日以前のデータのみ使用(学習・特徴量統計・校正・HP・manifest 全て)
+- regime 状態を BT/PT で統一（どちらに合わせるかはフェーズ計画で決定）
+- `PaperPredictor`/`RaceWatcher`/`PaperReconciler` クラスとスクリプトインラインの断絶を解消
+- PostgreSQL (EveryDB2) が実行環境で必要
 
 ## Last Closed Milestone: v2.3 Track Condition Feature Integration
 
@@ -155,12 +177,12 @@ MLflow で実験管理。PostgreSQL (EveryDB2/JRA-VAN DataLab) をデータソ�
 
 ## Current State
 
-**Active:** Planning next milestone (2026-06-05)
+**Active:** v2.4 Paper Trading Pipeline Integration (2026-06-06)
 **Phases:** 50 total (v1.0-v2.3), all executed
 **Tests:** 2,503 passed, 14 pre-existing failures
 **BT ROI reference:** v2.3 close 87.3% (raw), post-hoc 124.4% (EV>=1.40)
 **Latest features:** 23 track condition features (含水率・クッション値)
-**Next:** v2.4 — scope TBD via `/gsd-new-milestone`
+**Next:** v2.4 Phase 51+ — Paper Trading Pipeline Integration
 
 ## Context
 
@@ -283,4 +305,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-05 — v2.3 Track Condition Feature Integration milestone shipped*
+*Last updated: 2026-06-06 — v2.4 Paper Trading Pipeline Integration milestone started*

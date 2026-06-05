@@ -1,11 +1,10 @@
 ---
 gsd_state_version: 1.0
 milestone: v2.4
-milestone_name: TBD
+milestone_name: Paper Trading Pipeline Integration
 status: planning
-stopped_at: Milestone complete, awaiting next
-last_updated: "2026-06-05T06:30:00.000Z"
-last_activity: 2026-06-05 -- v2.3 shipped, planning next milestone
+last_updated: "2026-06-05T22:48:08.770Z"
+last_activity: 2026-06-05
 progress:
   total_phases: 0
   completed_phases: 0
@@ -25,12 +24,10 @@ See: .planning/PROJECT.md (updated 2026-06-05)
 
 ## Current Position
 
-Phase: — (awaiting `/gsd-new-milestone`)
+Phase: Not started (defining requirements)
 Plan: —
-Status: Milestone v2.3 shipped, ready for next cycle
-Last activity: 2026-06-05 -- v2.3 Track Condition Feature Integration archived
-
-Progress: [░░░░░░░░░░] 0%
+Status: Defining requirements
+Last activity: 2026-06-05 — Milestone v2.4 started
 
 ## Accumulated Context
 
