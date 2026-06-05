@@ -7,6 +7,9 @@ Follows horse_career_stats.parquet pattern: each (kettonum, race_id) row
 reflects only past race results, ensuring no lookahead bias.
 
 Output keyed on race_id + kettonum for FeatureEngine.build_all() merge.
+
+Known limitation: horse_condition_type and horse_condition_versatility use only
+dirt metrics (wet/dry). Turf-only horses are always "unknown" with NaN versatility.
 """
 
 from __future__ import annotations
@@ -203,6 +206,11 @@ def precompute_track_aptitude(
     ent["horse_cushion_soft_starts_count"] = ent["cum_valid_turf_soft"]
 
     # --- horse_condition_type (D-05) ---
+    # NOTE (WR-01): Classification uses only dirt metrics (wet/dry hit rates).
+    # Turf-only horses (no dirt starts) are always classified as "unknown".
+    # Similarly, horse_condition_versatility will be NaN for turf-only horses.
+    # This is a known limitation; extending with turf-specific metrics (hard/soft)
+    # would improve coverage for the majority of JRA races (turf > dirt).
     wet_rate = ent["horse_dirt_wet_hit_rate"]
     dry_rate = ent["horse_dirt_dry_hit_rate"]
     wet_starts = ent["horse_dirt_wet_starts_count"]
