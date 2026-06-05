@@ -1,242 +1,162 @@
 # Domain Pitfalls
 
-**Domain:** Horse racing prediction -- MarketAware Calibration + Race-Level Ranker (v2.1)
-**Researched:** 2026-05-27
-**Context:** v2.1 milestone adding MarketAwareWinCalibrator, segment conditioning, Race-Level Ranker, and shadow comparison. Built on existing system at 87.8% BT ROI (v2.0), targeting 100%+. The prior v1.7 ROI of 97.8% degraded to 87.8% through v1.8 Phase 36 feature integration issues, which this milestone must reverse without repeating the same patterns.
+**Domain:** Paper Trading Pipeline Integration (v2.4)
+**Researched:** 2026-06-06
+**Context:** v2.4 milestone integrating PT pipeline with BT pipeline for trustworthy ROI measurement. The existing PT system has 7 identified code gaps that make its ROI unreliable. Each gap independently makes PT-BT ROI comparison invalid.
 
 ## Critical Pitfalls
 
-Mistakes that cause rewrites or major issues. Based on both external research and direct project history (v1.8 ROI collapse from 97.8% to 87.8%).
+Mistakes that cause misleading ROI or require rewrites.
 
-### Pitfall 1: Strong Feature Uniform Registration Collapses Specialized Models (PROVEN -- v1.8)
+### Pitfall 1: Feature Divergence Between BT and PT (PROVEN -- current codebase)
 
-**What goes wrong:** Adding strong new features (Phase 36 closing_speed_ratio, form_trend, etc.) and registering them uniformly across ALL models (MarketModel, RaceQualityScreener, AbilityModel, WinTwoStage) causes specialized models to lose their function. The MarketModel becomes dominated by the new features and stops providing independent market-prediction signal. The RaceQualityScreener's quality detection becomes noisy. The whole pipeline degenerates.
+**What goes wrong:** PT `_run_predict()` is missing `DamPedigreeFeatures`, `RecordFeatures`, `MiningFeatures` that BT `BacktestEngine.prepare_data()` includes. PT produces predictions with fewer features, leading to different model outputs for the same race. ROI comparison is meaningless.
 
-**Why it happens:** When new features have high predictive power, they overwhelm the existing feature balance in models that were designed to work with a specific feature profile. The MarketModel's job is to predict market probability from fundamentals; adding strong race-level features makes it overfit to those features and underfit to the market-prediction task. This exact scenario happened in Phase 36 of v1.8.
+**Why it happens:** Feature construction code is duplicated in BT (`engine.py` lines 792-1099) and PT (`run_paper_trading.py` lines 368-436, 743-798, 1200-1266 -- three copies). When new features are added to BT, PT copies are not always updated. Three separate copies guarantee future divergence.
 
-**Consequences:** ROI drops 10+ percentage points (97.8% to 87.8% in v1.8). The effect is silent during development because individual model metrics may look fine -- the problem is systemic degradation across the pipeline. Debugging requires v[N-1] vs v[N] diff analysis scripts to isolate.
+**Consequences:** PT ROI and BT ROI measure different things. A 95% PT ROI does not mean BT will also be 95%. Operator makes deployment decisions on invalid data.
 
-**Prevention:**
-- For every new feature added to the MarketAwareWinCalibrator, audit which models it is registered in. The surgical routing approach (Phase 36.1.1) must be applied: exclude new features from MarketModel and RaceQualityScreener unless explicitly validated.
-- Maintain a feature routing manifest that maps features to models. The existing 12-model SHA256 manifest tracks which features each model sees.
-- Before BT validation, verify that MarketModel's feature importances have not shifted dramatically from the v1.7 baseline.
+**Prevention:** Extract shared `build_inference_features()` function. Both BT and PT call it. Single source of truth. When a feature module is added, it automatically appears in both paths.
 
-**Detection:** Compare GPD (Gain per Depth) diagnostics before and after feature changes. If MarketModel's top-3 gain features are all new features, the model has been captured. Run a quick correlation check: if new features have >0.3 correlation with MarketModel's output, exclude them from MarketModel.
+**Detection:** Add feature column count assertion in PT: `assert len(feat_df.columns) >= N` where N is the expected column count from BT. Log column count at predict time. If it differs from BT by more than 5 columns, raise WARNING.
 
 ---
 
-### Pitfall 2: Double-Correction from Cascading Calibration Layers (PROVEN -- existing codebase risk)
+### Pitfall 2: result=0.0 Ambiguity Masks Losses (PROVEN -- current codebase)
 
-**What goes wrong:** The existing pipeline already has multiple calibration points: EVCorrectionModel (P-correction + E-correction), BenterCombination (logit blend), WinBenterGate (calibration + temp scaling + race normalization), WinSegmentCalibrator (segment-based shrinkage), and WinSelectionPolicy (score-based selection). Adding MarketAwareWinCalibrator as yet another layer creates a chain where each layer assumes its input is the raw model output, but each input is already calibrated by the previous layer. The compound effect is over-shrunk probabilities that never trigger bets.
+**What goes wrong:** `result=0.0` means both "not yet reconciled" and "lost bet, payout 0". The reconcile loop at `run_paper_trading.py` line 958 only processes bets where `umaban in winners`, leaving losers at `result=0.0` perpetually "unsettled". Cumulative ROI only counts winning returns in the numerator while excluding losing stakes from the denominator.
 
-**Why it happens:** Each calibration layer is designed and tested in isolation. The BenterCombination blends model probability with market probability. The segment calibrator shrinks overconfident segments. The new MarketAwareWinCalibrator calibrates again. None communicate about what the previous layer already did. The existing codebase already shows this symptom: `BenterCombination.fit()` bounds beta at [0.20, 5.0] to prevent fundamental overconfidence, which is itself a correction on top of EVCorrection.
+**Why it happens:** The reconcile design assumes bets are either "won" (result > 0) or "pending" (result == 0). There is no "settled loss" state. The BT engine does not have this problem because it settles every bet immediately using `_settle_bet()` which returns 0.0 for losses.
 
-**Consequences:** Final probabilities systematically biased toward the prior (market). Edge estimates compressed toward zero. Bet count drops below viable levels. ROI may improve slightly (fewer bad bets) but total return drops. The system becomes inert. The v2.0 codebase already has `apply_ev_factor=False` by default in WinSegmentCalibrator to prevent this exact compounding.
+**Consequences:** Cumulative ROI is overstated. For example, with 10 bets at 100 yen each, 2 wins returning 300 yen each: actual ROI = 600/1000 = 60%. But if 8 losses stay "pending" and only 2 wins are recorded: reported return = 600, reported stake = 200 (only winning bets counted), reported ROI = 300%. This is a 5x overstatement.
 
-**Prevention:**
-- Define a single canonical calibration ordering. Recommended: raw model -> P/E correction (existing EVCorrectionModel) -> InvestmentFeatureFrame assembly -> MarketAwareWinCalibrator (new, replaces both WinBenterGate and WinSegmentCalibrator for win probability) -> race normalization -> edge calculation.
-- The MarketAwareWinCalibrator MUST absorb the roles of both WinBenterGate and WinSegmentCalibrator. Do not run them in sequence with the new calibrator.
-- Add a "calibration budget" test: after the full pipeline, check that the variance of `p_win_final` across horses in a race is not compressed below 1.5x the variance of raw `1/tanodds`. If variance is too low, the pipeline is over-correcting.
-- When the new calibrator is active, the old WinBenterGate and WinSegmentCalibrator must be explicitly bypassed (not just given default passthrough parameters).
+**Prevention:** Add `status` column (`"pending"` / `"settled"`). Reconcile sets `status="settled"` for ALL bets where race results are available -- both wins AND losses. ROI calculation uses `status == "settled"` filter.
 
-**Detection:** Compare variance of `p_win_final` vs `1/tanodds` across races. Track bet count per race -- if it drops below 0.5 bets/race from the current ~1-2, over-correction is the cause. Check the calibration budget metric (variance ratio) in CI.
+**Detection:** Check if any bets have `status == "pending"` for dates more than 1 day in the past. If so, reconcile is not processing losses. Also check: `total_stake` should equal `sum(stake for status=="settled")`, not `sum(stake for result > 0)`.
 
 ---
 
-### Pitfall 3: Race Normalization Destroys Calibrated Probabilities
+### Pitfall 3: Win Bet Settlement Missing in PT (PROVEN -- current codebase)
 
-**What goes wrong:** After Benter blending and calibration produce well-calibrated probabilities, race normalization (`p_win_final = p_combined / sum(race)`) recalibrates them relative to the race sum. If any single horse's probability is badly off (e.g., a scratched horse with stale odds still contributing 0.15), every other horse's probability shifts. The calibration is destroyed. The existing `WinBenterGate.apply()` normalizes after calibration (line 120), which is the vulnerable ordering.
+**What goes wrong:** PT reconcile (`_run_reconcile` lines 899-1115) only looks up `payfukusyoumaban`/`payfukusyopay` (place payouts). It never checks `paytansyoumaban1`/`paytansyopay1` for win payouts. All win bets appear as permanent losses regardless of actual outcome.
 
-**Why it happens:** The pipeline treats normalization as a harmless post-processing step. But normalization is a transformation that decouples output probabilities from the calibration mapping. Combined with a Benter blend where `beta` (market weight) is large, the market odds of one bad entry corrupt all others.
+**Why it happens:** The reconcile was written when PT only supported place betting. Win betting support was added to predict mode but reconcile was not updated. The BT engine handles both via `_settle_bet()` which dispatches by `bet_type`.
 
-**Consequences:** Calibrated probabilities become uncalibrated. Brier score improvements from blending vanish after normalization. EV estimates built on `p_win_final` are systematically wrong. The team sees calibration metrics improve on intermediate columns but ROI does not track.
+**Consequences:** If PT generates win bets (which it does when `betting_target="win"` or the model selects win candidates), ALL of them show `result=0.0` even for winning horses. Win ROI appears to be 0%.
 
-**Prevention:**
-- For MarketAwareWinCalibrator, calibrate on race-normalized probabilities directly. The calibration mapping must account for the normalization step. This means the calibrator's training data should be normalized per-race before fitting.
-- Alternatively, normalize before calibration, not after. Then the calibrator learns to correct already-normalized probabilities.
-- Validate: compute ECE both before and after normalization. If ECE degrades by more than 10% after normalization, the ordering is wrong.
-- The new calibrator must produce `p_win_final` that sums to 1.0 per race natively, without a separate normalization post-step.
+**Prevention:** Import `build_win_payout_map()` from `backtest.engine`. Add win settlement branch: lookup `(race_id, umaban)` in win payout map. If found and horse finished 1st, `result = stake * payout_multiplier`.
 
-**Detection:** ECE improves on `p_win_combined` but regresses on `p_win_final`. Calibration reliability diagram shows good calibration pre-normalization, poor calibration post-normalization.
+**Detection:** After reconcile, check for any `bet_type == "win"` bets still at `status == "pending"`. If the race has completed (payout data available), win settlement is broken.
 
 ---
 
-### Pitfall 4: Segment Conditioning Overfits to Historical Odds Bands
+### Pitfall 4: Regime Mismatch Between BT and PT
 
-**What goes wrong:** The existing WinSegmentCalibrator bins odds into bands like [1-2), [2-5), [5-10), [10-30), [30-100), [100+). A horse at odds 4.99 gets segment factor X, while a horse at 5.01 gets segment factor Y. If X and Y differ significantly (e.g., X=0.90, Y=0.95), a tiny odds movement causes a 5% probability shift. This creates discontinuous, unstable selection behavior. More fundamentally, segment corrections trained on 2020-2024 data may invert in 2025 -- a segment that was overconfident historically becomes underconfident and the "correction" makes things worse.
+**What goes wrong:** BT hardcodes `regime = RegimeState.AGGRESSIVE` at `engine.py` line 1619. PT uses dynamic `regime = models.regime_detector.detect(recent_stats_df)` at `run_paper_trading.py` line 478. Different regime = different `regime_params` = different edge_threshold, fractional_kelly, max_bets_per_race. PT selects different bets than BT for the same race.
 
-**Why it happens:** Hard bin boundaries create artificial discontinuities. Betting market efficiency changes year over year. A segment that was mispriced in 2022 may be correctly priced in 2025 as the market adapts. Segment corrections based on historical residuals do not generalize. The existing codebase uses `prior_strength=500` for Bayesian shrinkage, which mitigates but does not eliminate this risk.
+**Why it happens:** BT switched to hardcoded AGGRESSIVE (with TODO to re-enable dynamic later) but PT was not updated to match. The regime detector uses a 200-race rolling window which may produce conservative/collapsed states during losing streaks, while BT always uses aggressive parameters.
 
-**Consequences:** Marginal bets at segment boundaries are unstable -- they may or may not trigger depending on minute odds fluctuations. In backtest this manifests as high variance in bet selection across similar races. In production, the same race can produce different bets depending on when the odds snapshot is taken.
+**Consequences:** BT may skip a race (if dynamic regime was conservative) while PT bets on it (dynamic regime is aggressive), or vice versa. The set of bets differs, making ROI comparison invalid.
 
-**Prevention:**
-- Treat odds as a continuous feature in the MarketAwareWinCalibrator rather than binning it. The calibrator should learn smooth corrections, not step functions.
-- Use the existing WinSegmentCalibrator's output as a feature (the p_factor and ev_factor) rather than as a standalone correction layer. This is the already-decided "Option B" integration approach.
-- Validate segment corrections on a held-out year. If any segment's correction flips sign between the last two training years, increase the prior strength for that segment.
-- If bins must be used, validate that adjacent segments have factors within 0.03 of each other.
+**Prevention:** Both BT and PT must use the same regime determination logic. Since BT hardcodes AGGRESSIVE, PT should too. Add `--regime` CLI flag defaulting to `"aggressive"`. When BT re-enables dynamic regime, PT should match.
 
-**Detection:** In backtest, flag races where the selected horse changes when odds shift by less than 0.1. If more than 5% of races show this instability, the segment conditioning is too granular. Track year-over-year sign stability of segment corrections.
+**Detection:** Log regime state for each race in both BT and PT. Compare regime column in bet history. If they differ for any race, the pipelines are misaligned.
 
 ---
 
-### Pitfall 5: Shadow Comparison Metric Mismatch Hides Degradation
+### Pitfall 5: Shared Builder Extraction Breaks BT
 
-**What goes wrong:** The shadow comparison framework runs the new calibrator alongside the baseline. If the comparison metrics focus on calibration quality (Brier, ECE) but the new calibrator changes WHICH horses get selected (different top-1 horse in 15-20% of races), the calibration metrics look fine while the ROI degrades. A calibrator that produces slightly better-calibrated probabilities but systematically misses the best value horses is worse than the baseline.
+**What goes wrong:** Extracting `build_inference_features()` from `BacktestEngine.prepare_data()` introduces a regression in BT. The extraction might miss a subtle dependency (e.g., `preserve_columns=["kakuteijyuni", "confirmed_odds"]` parameter passed to `FeatureEngine.build_all()`, or `jyocd` NAR filtering timing).
 
-**Why it happens:** Calibration metrics measure probability accuracy, not selection quality. A perfectly calibrated model that always picks the second-best horse loses money. The deployment gate already specifies probability quality as the criterion (correct decision), but the shadow comparison must also track selection agreement and CLV (Closing Line Value). If selection agreement is below 85%, the new calibrator is making materially different bets even if its probabilities are better-calibrated.
+**Why it happens:** `prepare_data()` is 300+ lines with interwoven data loading, filtering, feature construction, and map building. The feature construction section is not cleanly separable from the data loading section. There are dependencies on variables computed during data loading (e.g., `race_ids` from `feat_df["race_id"].unique()`, which is used by `HorseHistoryFeatures.compute()`).
 
-**Consequences:** The new calibrator passes the deployment gate (better Brier/ECE) but ROI drops. The team cannot diagnose why because the metrics they checked all improved. This is the exact pattern that makes shadow testing unreliable when the proxy metric (calibration) does not fully capture the business metric (ROI).
+**Consequences:** BT ROI changes after refactoring. All historical BT benchmarks become invalid. This is a silent regression that may not be caught until the next full BT run (~40 minutes).
 
-**Prevention:**
-- The shadow comparison MUST include these metrics beyond calibration: (1) top-1 selection agreement rate (same horse chosen), (2) CLV comparison (average closing-line value of selected horses), (3) ROI delta, (4) hit rate delta, (5) bet count ratio. All five must be reported.
-- The deployment gate must require BOTH probability quality improvement AND selection agreement >= 85%. If the new calibrator changes the selected horse in >15% of races, it needs explicit human review before deployment.
-- Run shadow comparison on BOTH 2024 and 2025 data. If the new calibrator helps 2024 but hurts 2025, it is overfitted to the training period.
-- Track "regret" metrics: how often would the baseline have been correct where the shadow model was wrong, and vice versa.
+**Prevention:** Run full BT before and after extraction. Compare `bet_history` element-wise. Assert `len(bet_history)` is identical, `sum(b["stake"] for b in bet_history)` matches within 1 yen, and `sum(b["result"] for b in bet_history)` matches within 1 yen. Add CI test that runs a small BT and checks result hash.
 
-**Detection:** Shadow shows Brier improvement but ROI regression. Selection agreement below 85%. CLV of shadow selections worse than baseline. These three together indicate metric mismatch.
+**Detection:** Run `python scripts/run_backtest.py --train-start 20230101 --train-end 20231231 --test-start 20240101 --test-end 20240630 --ensemble` before and after extraction. Compare ROI, bet count, and total stake.
 
 ---
 
-### Pitfall 6: LightGBM Ranker Group Parameter Misalignment
+### Pitfall 6: OddsBandFilter Calibration Without Training Bet History
 
-**What goes wrong:** The `group` parameter in LightGBM's lambdarank objective must exactly match race boundaries. If the data is not sorted by `race_id` with contiguous groups, or if the group sizes do not match the actual number of horses per race, the ranker learns from wrong query boundaries. Horses from different races get compared against each other during lambda construction.
+**What goes wrong:** BT calibrates OddsBandFilter by running an inner BacktestEngine on the training period (`_generate_training_bet_history()`). PT does not have training period models available and cannot run this calibration. If OddsBandFilter is applied with default parameters, it may filter out different bets than BT's calibrated version.
 
-**Why it happens:** The training pipeline filters rows (removing horses with missing features, filtering by surface, excluding steeplechase entries) after computing group sizes. The group array no longer matches the filtered data. This is especially likely when InvestmentFeatureFrame produces NaN for some horses (first-time starters with no historical features) and those rows get dropped.
+**Why it happens:** The calibration requires running the full inference pipeline on training data to generate bet history. PT operates in inference-only mode -- it loads pre-trained models and does not have access to the training pipeline.
 
-**Consequences:** The ranker produces garbage rankings. It may appear to work on average metrics but fails at the race level. ROI is unpredictable. Debugging is extremely difficult because LightGBM trains without error -- it does not validate group boundaries.
+**Consequences:** PT applies different OddsBandFilter bands than BT. Some bets that BT includes are excluded in PT, and vice versa.
 
-**Prevention:**
-- Compute group sizes AFTER all filtering, immediately before passing to LightGBM.
-- Add a validation assertion: `sum(groups) == len(X_train)`. This must be checked every training run.
-- Sort by `race_id` before computing groups. Never assume data is already sorted.
-- Log race_id boundaries and group sizes during training for post-hoc validation.
-- When NaN-filled rows are kept instead of dropped, group computation is simpler and LightGBM handles NaN natively.
+**Prevention:** Two options: (a) Save OddsBandFilter calibration data as a model artifact during `run_train.py`. PT loads the calibration from the artifact. (b) Pre-compute calibration during strategy optimization and include it in the strategy manifest. Option (a) is simpler and more reliable.
 
-**Detection:** Random spot-check: pick 5 races, verify group boundaries align with race_id transitions. If average group size differs from expected field size (~12-18 horses), groups are wrong. Log per-race NDCG -- if many races show NDCG=1.0, the ranker is not discriminating.
-
----
-
-### Pitfall 7: Post-Race Data Leakage Through Feature Pipeline
-
-**What goes wrong:** InvestmentFeatureFrame includes features derived from data only available after the race. The most dangerous sources: `confirmed_odds` (final odds, post-race), `kakuteijyuni` (finishing position), `harontime` (sectional times), `time` (finish time). Even indirect leakage through features like "jockey win rate at this meeting" computed using today's results is fatal.
-
-**Why it happens:** During feature engineering, it is natural to use all available columns. The existing codebase already has `confirmed_odds` vs `tanodds` confusion -- `WinSegmentCalibrator.train()` lines 153-158 explicitly falls back from `confirmed_odds` to `tanodds`. The 3-layer CI leak detection (v1.6) catches direct leakage but not indirect leakage through derived features.
-
-**Consequences:** Backtest shows inflated ROI that collapses in production. This is the single most common cause of betting system failures that look good in testing but fail in deployment. The v1.6 POST_RACE whitelist prevents direct column usage but does not trace feature lineage.
-
-**Prevention:**
-- For every new feature added to MarketAwareWinCalibrator or Race-Level Ranker, trace data lineage. What column(s) is it derived from? When is that column populated?
-- The existing leakage_validators.py framework must be extended with an explicit `PREDICTION_TIME_COLUMNS` allowlist.
-- `tanodds` (morning/early odds) is acceptable; `confirmed_odds` is not. Document the assumed data availability timestamp for each feature.
-- Late odds features (`tanoddslow`, `tanoddshigh`) are edge cases -- available during late betting but may not be available at prediction time. Document assumptions.
-
-**Detection:** Train with and without candidate features. If removing a feature causes ROI to drop by more than 30%, it may be leaking. Feature importance >0.15 for odds-derived data is suspicious. Cross-validate with time-shifted features (shift odds by 1 race) -- if performance holds, the feature is genuine.
+**Detection:** Compare OddsBandFilter excluded bands between BT and PT. If they differ, calibration source mismatch.
 
 ---
 
 ## Moderate Pitfalls
 
-### Pitfall 8: Betting System Label Sparsity in Ranker Training
+### Pitfall 7: Parquet Write During Crash Loses Data
 
-**What goes wrong:** Only one horse per race wins (label=1 for exactly one entry). In an 18-horse field, the positive class ratio is ~5.5%. This extreme sparsity makes lambdarank training unstable -- the gradient signal is dominated by negative pairs. The ranker learns to predict "nobody wins" and converges to trivial scores where all horses rank similarly.
+**What goes wrong:** PT predict writes predictions to parquet incrementally. If the process crashes mid-write, the parquet file may be corrupted or partial. On restart, the corrupted file causes read errors or missing data.
 
-**Why it happens:** Binary win/loss labels provide minimal gradient signal per race. Lambdarank constructs pairwise gradients, but with only 1 positive per ~15-18 horses, most pairs have identical labels and contribute zero gradient.
+**Prevention:** Write to a temporary file first, then atomically rename. Or use append-only writes with explicit flush.
 
-**Prevention:**
-- Use graded relevance labels instead of binary win/loss. Map finishing position: 1st=5, 2nd=4, 3rd=3, 4th-5th=2, 6th-10th=1, rest=0.
-- Set `label_gain` in LightGBM lambdarank to match the relevance mapping.
-- Use `lambdarank_truncation_level=3` or `5` to focus learning on top positions.
-- Ensure at least 10,000 races in training data.
+### Pitfall 8: PaperPredictor Class vs Script Inline Code Confusion
 
-### Pitfall 9: Feature Multicollinearity Between Model and Market Probabilities
+**What goes wrong:** `PaperPredictor` class in `src/paper_trading/predictor.py` is not used by the CLI script. `RaceWatcher` uses it, but the CLI has its own inline prediction code. Two code paths exist for the same task.
 
-**What goes wrong:** InvestmentFeatureFrame includes both model-derived probabilities (`p_win_corrected`, `p_win_combined`) and market-derived probabilities (`1/tanodds`, overround). These are highly correlated (typically rho > 0.8). When fed into the calibrator, it cannot distinguish model information from market information, and learned blend weights become unstable across training runs.
+**Prevention:** Decide on one canonical path. Either (a) refactor CLI to use `PaperPredictor` class, or (b) remove `PaperPredictor` class and keep CLI inline. Option (b) is safer because CLI inline is what's currently working and tested.
 
-**Why it happens:** Both model and market probabilities estimate the same underlying quantity (true win probability). High correlation is expected but creates ill-conditioned feature matrices.
+### Pitfall 9: Pre-v2.4 Records Contaminate Cumulative Stats
 
-**Prevention:**
-- Construct features that capture the DIFFERENCE: `logit(p_model) - logit(p_market)`, `p_model / p_market`, `rank(p_model) - rank(p_market)`.
-- Use raw probabilities as inputs only, not as calibrator features.
-- Check VIF (Variance Inflation Factor). Flag any feature with VIF > 10.
+**What goes wrong:** Existing PT records (generated with incomplete features and no status tracking) are mixed with new v2.4 records in `bets.parquet`. Cumulative ROI includes invalid historical data.
 
-### Pitfall 10: Regime-Dependent Calibration Instability
+**Prevention:** Mark pre-v2.4 records with a `schema_version` column. New records get `schema_version="v2.4"`. Cumulative stats can optionally filter by schema version for clean measurement.
 
-**What goes wrong:** The calibrator is trained across all market regimes (aggressive/conservative/collapsed). In collapsed markets (low liquidity, high overround), the market is noisy and the model should be weighted more. In aggressive markets, the market is efficient and should get more weight. A single set of blend weights cannot handle both.
+### Pitfall 10: Kelly Sizing in PT Without DD State Persistence
 
-**Why it happens:** Each regime has different market efficiency. A calibrator trained on the full period learns average blend weights suboptimal for each regime. The existing RegimeDetector uses overround and favorite rate for classification.
+**What goes wrong:** PT creates `DrawdownController` fresh each run. If using Kelly mode across multiple days, DD state resets daily. A drawdown that should trigger STOP mode on day 2 is ignored because DD controller starts fresh.
 
-**Prevention:**
-- Include regime indicators as continuous features in the calibrator. Do not create separate regime-specific calibrators (per project decision: regime-independent structure).
-- Validate calibration quality per regime. If ECE in collapsed regime is >2x ECE in aggressive regime, add regime features.
+**Prevention:** Serialize DD state to JSON after each reconcile. Load at predict start. Include `dd_state.json` in PT output directory.
 
-### Pitfall 11: OOF Health False Positives Blocking Valid Models
+### Pitfall 11: Wide Bet Settlement kumi Parsing
 
-**What goes wrong:** OOF health checks include anomaly thresholds like "top1 hit rate >35% warning." In a small validation set or an unusual period (many favorites winning), a legitimate model triggers these thresholds. The pipeline refuses to deploy a valid model.
+**What goes wrong:** Wide payout lookup uses `paywidekumi1-7` format which requires parsing "513" as (horse 5, horse 13) or (horse 51, horse 3). BT has a complex 80-line `build_wide_payout_map()` with heuristics for this. PT would need to replicate this exactly.
 
-**Why it happens:** Fixed thresholds do not account for sample size or distribution variation. A 35% top-1 hit rate is suspicious for 1000 races but normal for 50 races.
+**Prevention:** Import `build_wide_payout_map()` directly from `backtest.engine`. Do not reimplement.
 
-**Prevention:**
-- Set thresholds based on statistical significance, not fixed values. Use confidence intervals.
-- Distinguish "stop" conditions (data corruption) from "warning" conditions (unusual but possible).
-- Never block deployment on a warning; only block on a stop.
+### Pitfall 12: PFP Verification Failure During PT Run
 
-### Pitfall 12: Market Model Rule 11 Violation in Calibrator Features
+**What goes wrong:** PFP `verify()` checks model parameter hashes. If any model parameter has changed between predict and reconcile (e.g., due to memory mutation, lazy loading, or model reload), PFP raises `RuntimeError` and PT aborts.
 
-**What goes wrong:** The existing `market_model.py` has a critical constraint (Rule 11): only `log_error` is passed to Stage2, never `p_market_pred` directly. If MarketAwareWinCalibrator accidentally uses `p_market_pred` or `p_market_win_adj` as a feature, it violates this isolation and creates feedback loop leakage.
-
-**Why it happens:** InvestmentFeatureFrame assembles features from multiple sources. If market model outputs are included alongside raw market features, the calibrator may use both. The market model's prediction is already fitted to historical data and carries overfitting risk.
-
-**Prevention:**
-- InvestmentFeatureFrame must use raw market features (tanodds, implied probability, overround) but NOT market model outputs.
-- Add CI check: verify no calibrator feature column starts with `p_market`.
-
-### Pitfall 13: Shadow Comparison Insufficient Temporal Coverage
-
-**What goes wrong:** Shadow comparison runs on 2024 only (or 2025 only). The new calibrator happens to work well on that year's market structure but fails on the other year. The deployment gate passes, but the calibrator is overfitted to the comparison period.
-
-**Why it happens:** Market efficiency varies across years. JRA betting pools, favorite behavior, and field composition change. A single-year shadow is a single sample from the distribution of possible market conditions.
-
-**Prevention:**
-- Shadow comparison MUST run on both 2024 AND 2025 independently.
-- If the new calibrator passes on 2024 but fails on 2025 (or vice versa), it requires investigation before deployment.
-- Report per-year metrics separately, not as an aggregate.
+**Prevention:** PFP freeze should happen once at predict start. Reconcile should verify the same frozen state. If reconcile loads models again, it must use the same MLflow run ID. Store frozen state hash in predictions parquet.
 
 ---
 
 ## Minor Pitfalls
 
-### Pitfall 14: LightGBM Ranker Position Bias
+### Pitfall 13: Missing BloodlineFeatures in BT
 
-**What goes wrong:** In lambdarank, the model implicitly learns that position 1 in the input order is more important. If horses are sorted by `umaban` or starting gate position, the ranker learns gate-position bias rather than true ability.
+**What goes wrong:** PT `_run_predict` includes `BloodlineFeatures` but `BacktestEngine.prepare_data()` does not. When extracting shared builder, if BloodlineFeatures is included, BT results change. If excluded, PT results change.
 
-**Prevention:** Randomize horse order within each race before training. Or enable `lambdarank_position_bias_regularization` (LightGBM 4.1.0+).
+**Prevention:** Check whether `blood_*` features are in any model's `FEATURE_COLS`. If not, they are unused and can be safely included or excluded. If yes, add to BT's `prepare_data()` as well.
 
-### Pitfall 15: Temperature Scaling Bounds Too Narrow
+### Pitfall 14: Daily Summary JSON Missing Losses
 
-**What goes wrong:** The existing `TemperatureScaling` bounds temperature to [0.3, 3.0]. In unusual market conditions, the optimal temperature may be outside this range. The bounded optimization finds a suboptimal solution at the boundary.
+**What goes wrong:** `PaperReconciler._compute_summary()` computes `total_return = bets_df[bets_df["result"] > 0]["result"].sum()`. This only sums positive returns. Losses are implicit (missing from sum). The summary does not distinguish "total return from wins" from "total stake lost".
 
-**Prevention:** Monitor how often the optimizer hits the bounds. If >20% of runs hit bounds, widen them to [0.1, 5.0].
+**Prevention:** Add explicit loss tracking: `total_losses = bets_df[(bets_df["status"] == "settled") & (bets_df["result"] == 0)]["stake"].sum()`.
 
-### Pitfall 16: Race-Level Aggregation Window Mismatch
+### Pitfall 15: HTML Report Assumes Place-Only Bets
 
-**What goes wrong:** Race-level features (e.g., "average model probability of top 3 horses") require complete race data. If some horses are filtered out (missing features, surface filter), the aggregation is based on a partial field.
+**What goes wrong:** Report template shows "fuku" (place odds) for all bets. Win bets would show place odds, not win odds. Wide bets have no odds display at all.
 
-**Prevention:** Compute race-level aggregations before filtering. Use NaN-safe aggregation. Flag races where >30% of entries were excluded.
+**Prevention:** Add bet_type-aware display in report template. Show `tanodds` for win, `fukuoddslow` for place, pair notation for wide.
 
-### Pitfall 17: EV Factor Compounding in Segment Calibration
+### Pitfall 16: Time Zone Issues in Race Completion Detection
 
-**What goes wrong:** WinSegmentCalibrator can apply both `p_factor` and `ev_factor`. When both are active, effective edge is `p * odds * p_factor * ev_factor - 1`, compounding two shrinkage factors. Currently `apply_ev_factor=False` by default, but accidental activation is possible.
+**What goes wrong:** PT runs on JST but system clock may be UTC. "Last race post time + 30 min" calculation uses local time. If system is UTC, the wait may be 9 hours off.
 
-**Prevention:** The MarketAwareWinCalibrator should apply a single correction factor, not separate p and EV corrections. If EV correction is needed, apply it after the unified probability correction.
-
-### Pitfall 18: Shadow-First Deployment Gate Too Strict
-
-**What goes wrong:** The deployment gate requires probability quality + bet count maintenance + artifact reproducibility + diagnostics to ALL pass. If any single metric regresses by even a tiny amount (e.g., Brier worsens by 0.001), deployment is blocked even if ROI improves by 10pp. The system becomes impossible to improve because every change has tradeoffs.
-
-**Prevention:**
-- Define explicit tolerance ranges for each gate criterion. Brier worsening by <0.005 is acceptable if ROI improves by >5pp.
-- The gate should allow "conditional deployment" where a regression in one metric is accepted when compensating improvements exist elsewhere.
-- Human review should be the escape valve, not an automatic block.
+**Prevention:** Use explicit timezone-aware datetime. `post_time = JST.localize(datetime.combine(target_date, time(h, m)))`.
 
 ---
 
@@ -244,60 +164,34 @@ Mistakes that cause rewrites or major issues. Based on both external research an
 
 | Phase Topic | Likely Pitfall | Mitigation |
 |-------------|---------------|------------|
-| MarketAwareWinCalibrator design | Double-correction with existing WinBenterGate (Pitfall 2) | Replace, do not append. Explicit bypass of old pipeline. |
-| MarketAwareWinCalibrator design | Race normalization destroying calibration (Pitfall 3) | Calibrate on normalized probabilities or normalize before calibration |
-| MarketAwareWinCalibrator design | Feature leakage through p_market_pred (Pitfall 12) | Feature allowlist; CI check for p_market columns |
-| MarketAwareWinCalibrator features | Multicollinearity (Pitfall 9) | Use difference features; check VIF |
-| Segment conditioning integration | Year-dependent segment inversion (Pitfall 4) | Continuous features, strong priors, held-out year validation |
-| Segment conditioning integration | Boundary discontinuity (Pitfall 4) | Continuous odds treatment; validate adjacent segment gap <0.03 |
-| Segment conditioning integration | EV factor compounding (Pitfall 17) | Single correction factor; no parallel shrinkage |
-| Race-Level Ranker training | Group parameter misalignment (Pitfall 6) | Compute groups after filtering; assert sum==len |
-| Race-Level Ranker training | Label sparsity (Pitfall 8) | Graded relevance; lambdarank_truncation_level=3 |
-| Race-Level Ranker training | Position bias (Pitfall 14) | Randomize horse order within races |
-| Shadow comparison | Metric mismatch (Pitfall 5) | Track selection agreement, CLV, ROI -- not just calibration |
-| Shadow comparison | Insufficient temporal coverage (Pitfall 13) | Both 2024 AND 2025 required |
-| Shadow comparison | Deployment gate too strict (Pitfall 18) | Tolerance ranges; conditional deployment; human escape valve |
-| Feature routing | Strong feature uniform registration (Pitfall 1) | Surgical routing; exclude from MarketModel/RaceQuality |
-
-## Cross-Phase Integration Pitfalls
-
-| Concern | Phases Involved | Risk | Mitigation |
-|---------|----------------|------|------------|
-| Cascading calibration over-correction | Calibrator + Segment | Critical | New calibrator absorbs old roles; old pipeline bypassed |
-| Strong feature captures specialized models | Feature + All models | Critical (PROVEN v1.8) | Feature routing manifest; exclude from MarketModel/RaceQuality |
-| Feature availability at prediction time | Features + Calibrator + Ranker | Critical | Feature allowlist with lineage tracing; CI validation |
-| OOF quality affects all downstream calibration | OOF Health + Calibrator | Critical | OOF health must pass before calibrator training |
-| Ranker training depends on calibrator output | Calibrator + Ranker | Moderate | Freeze calibrator before ranker training |
-| Segment corrections conflict with ranker | Segment + Ranker | Moderate | Train ranker with segment features already applied |
-| Shadow metrics miss selection changes | Shadow + Deployment | High | Track 5+ metrics including selection agreement and CLV |
+| Settlement integrity | result=0.0 ambiguity (Pitfall 2) | Add status column before any settlement changes |
+| Settlement integrity | Win payout missing (Pitfall 3) | Reuse `build_win_payout_map()` from engine.py |
+| Shared feature builder | Breaking BT regression (Pitfall 5) | Full BT before/after comparison test |
+| Shared feature builder | BloodlineFeatures asymmetry (Pitfall 13) | Check feature manifest for blood_* usage |
+| Strategy alignment | OddsBandFilter calibration (Pitfall 6) | Save calibration as model artifact |
+| Strategy alignment | Regime mismatch (Pitfall 4) | Hardcode AGGRESSIVE in PT to match BT |
+| One-command run | Crash data loss (Pitfall 7) | Atomic write with temp file |
+| One-command run | PFP verify failure (Pitfall 12) | Freeze once, store hash in predictions |
+| One-command run | DD state reset (Pitfall 10) | Serialize DD state to JSON |
+| Reporting | Loss tracking missing (Pitfall 14) | Add explicit loss columns to summary |
 
 ## Project-Specific Historical Lessons
 
-These pitfalls are drawn from the project's own history (v1.0-v2.0, 10 milestones, 38 phases):
+1. **v1.6 (PROVEN):** Feature code duplication between training and inference caused 6 feature omissions. The same pattern is now happening between BT and PT. Shared builder prevents this class of bug entirely.
 
-1. **v1.8 Phase 36 (PROVEN):** Strong features (closing_speed_ratio, form_trend) registered in all models caused MarketModel/RaceQuality collapse. Required Phase 36.1.1 surgical routing to fix. ROI dropped from 97.8% to 87.8%. The new MarketAwareWinCalibrator features must NOT be registered in MarketModel or RaceQualityScreener.
+2. **v1.8 (PROVEN):** Feature additions in one path without updating another caused ROI degradation. PT's three inline copies of feature construction guarantee this will happen again without shared builder.
 
-2. **v1.6 (PROVEN):** 37 new features yielded only +1.3pp ROI improvement. Feature quantity does not equal quality. The MarketAwareWinCalibrator should use a small number of well-chosen features (logit difference, rank disagreement, regime indicator) rather than a large feature set.
-
-3. **v1.6 (PROVEN):** Training/prediction path dual management caused 6 feature omissions in the inference path. The InvestmentFeatureFrame's dual-mode builder (train/infer same schema) was designed to prevent this. Any new calibrator must use the same dual-mode pattern.
-
-4. **v1.5 (PROVEN):** CQR residual learning change caused overfitting that required a design revision. The new calibrator must be validated with OOF predictions, not in-sample metrics.
-
-5. **v1.4 (PROVEN):** Filter thresholds must match model output distributions. The MarketAwareWinCalibrator will change the probability distribution; all downstream filters (EV_lower, OddsBand) must be recalibrated after the new calibrator is in place.
+3. **v2.1 (PROVEN):** Shadow comparison framework validates changes before deployment. The same principle should apply to PT: any change to shared builder must pass BT regression test before PT uses it.
 
 ## Sources
 
-- Codebase analysis: `src/models/win_benter_gate.py` (race normalization ordering, OOF walk-forward splits)
-- Codebase analysis: `src/models/win_segment_calibrator.py` (segment calibration with Bayesian shrinkage, p_factor/ev_factor compounding)
-- Codebase analysis: `src/models/benter_combination.py` (logit-space blending, beta bounds [0.20, 5.0])
-- Codebase analysis: `src/backtest/race_predictor.py` (full inference chain with 14+ model stages)
-- Codebase analysis: `src/models/ev_correction_model.py` (P/E decomposition, confirmed_odds usage)
-- Codebase analysis: `.planning/RETROSPECTIVE.md` (v1.8 ROI collapse lesson, Phase 36.1.1 surgical routing)
-- Codebase analysis: `.planning/codebase/CONCERNS.md` (tight coupling, NaN propagation, calibration gaps)
-- LightGBM documentation: lambdarank parameters (group, label_gain, truncation_level, position_bias_regularization)
-- Benter (1994): "Computer Based Horse Race Handicapping and Wagering Systems" -- logit-space blending methodology
-- [Revisiting the Algorithm that Changed Horse Race Betting](http://actamachina.com/posts/annotated-benter-paper) -- calibration pitfalls in Benter blending
-- [Wallaroo AI: A/B Testing and Shadow Deployments](https://wallaroo.ai/ai-production-experiments-the-art-of-a-b-testing-and-shadow-deployments/) -- shadow deployment pitfalls
-- [MLOps Community: A/B Testing in ML](https://mlops.community/blog/the-what-why-and-how-of-a-b-testing-in-ml) -- proxy vs business metric misalignment
-- [arXiv: Generative Approach to Multi-Competitor Races](https://arxiv.org/html/2310.01748v3) -- race-level ranking pitfalls
-- Confidence: HIGH for codebase-derived pitfalls (directly observed in source code and project history), MEDIUM for LightGBM ranker pitfalls (documentation-verified but not yet tested in this specific codebase), MEDIUM for shadow comparison pitfalls (industry-standard patterns applied to this project's context)
+- Direct codebase analysis: `scripts/run_paper_trading.py` (1384 lines, three feature construction copies)
+- Direct codebase analysis: `src/backtest/engine.py` (2392 lines, canonical feature construction)
+- Direct codebase analysis: `src/paper_trading/reconciler.py` (153 lines, settlement gaps)
+- Direct codebase analysis: `src/backtest/parameter_freeze_protocol.py` (PFP patterns)
+- Project history: `.planning/PROJECT.md` (v2.4 milestone, gaps identified)
+- Confidence: HIGH for all pitfalls -- every one identified by direct source code comparison
+
+---
+*Pitfall research for: v2.4 Paper Trading Pipeline Integration*
+*Researched: 2026-06-06*
