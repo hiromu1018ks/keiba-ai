@@ -90,7 +90,7 @@ Plans:
 
 Plans:
 **Wave 1**
-- [ ] 49-01-PLAN.md — T3 precompute parquet (horse_track_aptitude) + repository + FeatureEngine merge (T3-01, T3-02, T3-03)
+- [x] 49-01-PLAN.md — T3 precompute parquet (horse_track_aptitude) + repository + FeatureEngine merge (T3-01, T3-02, T3-03) ✅
 
 **Wave 2** *(blocked on Wave 1 completion)*
 - [ ] 49-02-PLAN.md — T3-04/T4-01~04 feature computation + pipeline integration + surgical routing (T3-04, T4-01, T4-02, T4-03, T4-04)
@@ -118,5 +118,5 @@ Phases execute in numeric order: 47 → 48 → 49 → 50
 | 43-46 | v2.2 | 8/8 | Complete (not_deployable) | 2026-06-02 |
 | 47. ETL Data Pipeline | v2.3 | 2/2 | Complete | 2026-06-04 |
 | 48. Core Edge Features | v2.3 | 1/1 | Complete | 2026-06-05 |
-| 49. Derived & Higher-Order Features | v2.3 | 0/2 | Not started | - |
+| 49. Derived & Higher-Order Features | v2.3 | 1/2 | In progress | - |
 | 50. Safety & Validation | v2.3 | 0/? | Not started | - |

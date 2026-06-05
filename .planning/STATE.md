@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v2.3
 milestone_name: Track Condition Feature Integration
 status: executing
-stopped_at: Phase 49 context gathered
-last_updated: "2026-06-05T01:29:42.238Z"
-last_activity: 2026-06-05 -- Phase 49 planning complete
+stopped_at: Phase 49 Plan 01 complete
+last_updated: "2026-06-05T02:05:35.000Z"
+last_activity: 2026-06-05 -- Phase 49 Plan 01 complete
 progress:
   total_phases: 4
   completed_phases: 2
   total_plans: 5
-  completed_plans: 3
-  percent: 60
+  completed_plans: 4
+  percent: 80
 ---
 
 # Project State
@@ -25,12 +25,12 @@ See: .planning/PROJECT.md (updated 2026-06-04)
 
 ## Current Position
 
-Phase: 49 of 50 (Derived & Higher-Order Features) — next
-Plan: —
-Status: Ready to execute
-Last activity: 2026-06-05 -- Phase 49 planning complete
+Phase: 49 of 50 (Derived & Higher-Order Features) — in progress
+Plan: 01 complete, 02 next
+Status: Executing
+Last activity: 2026-06-05 -- Phase 49 Plan 01 complete (horse_track_aptitude)
 
-Progress: [████░░░░░░] 50%
+Progress: [████████░░] 80%
 
 ## Accumulated Context
 
@@ -65,6 +65,15 @@ Progress: [████░░░░░░] 50%
 - Surgical routing: 8 models included (AbilityModel, Win/PlaceTwoStage, EVCorrection, PlaceEVCorrection, PlaceAbility, WideTwoStage), 4 excluded (MarketModel, RaceQualityScreener, RegimeDetector, ConformalEVModel)
 - 22 new tests + 4 downstream test propagation fixes
 
+### Phase 49 Plan 01 Artifacts
+
+- src/features/horse_track_aptitude.py — precompute_track_aptitude() + APTITUDE_COLS (14 columns)
+- scripts/precompute_track_aptitude.py — CLI precompute script (career_stats pattern)
+- src/db/readers.py — load_horse_track_aptitude(store) standalone function
+- src/db/repository.py — DataRepository.load_horse_track_aptitude(start, end)
+- src/features/feature_engine.py — T3 merge in build_all() on race_id + kettonum (left join)
+- 19 new tests: 16 unit + 3 integration
+
 ### Blockers/Concerns
 
 - クッション値データは2020/09開始のためWF Fold0(2020学習)でNaN率高い可能性 (VLD-03で検証)
@@ -84,6 +93,6 @@ Progress: [████░░░░░░] 50%
 
 ## Session Continuity
 
-Last session: 2026-06-05T00:56:18.360Z
-Stopped at: Phase 49 context gathered
-Resume file: .planning/phases/49-derived-higher-order-features/49-CONTEXT.md
+Last session: 2026-06-05T02:05:35.000Z
+Stopped at: Phase 49 Plan 01 complete
+Resume file: .planning/phases/49-derived-higher-order-features/49-01-SUMMARY.md
