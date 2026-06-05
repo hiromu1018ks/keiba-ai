@@ -84,8 +84,8 @@ Tier 3（馬個体の馬場状態適性・季節偏差）と Tier 4（ペース�
   - `cushion_x_distance` = turf_cushion × kyori
   - `moisture_x_weight` = dirt_moisture × bataijyu
   - `cushion_x_age` = turf_cushion × barei
-  - `moisture_x_prev_kyakusitu` = dirt_moisture × prev_kyakusitu_cd
   - 片方NaN → NaN伝播
+  - **注意:** 元の `moisture_x_prev_kyakusitu` は除外。prev_kyakusitu_cdがコードベースに存在せず、kyakusitukubun_cdへの代替はPhase 48のdirt_moisture_x_kyakusituと重複するため
 - **D-17:** `surface_condition_transition`: 前走からの馬場条件変化
   - ダート: dirt_moisture - prev_dirt_moisture
   - 芝: turf_cushion - prev_turf_cushion

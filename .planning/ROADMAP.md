@@ -89,7 +89,10 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
+**Wave 1**
 - [ ] 49-01-PLAN.md — T3 precompute parquet (horse_track_aptitude) + repository + FeatureEngine merge (T3-01, T3-02, T3-03)
+
+**Wave 2** *(blocked on Wave 1 completion)*
 - [ ] 49-02-PLAN.md — T3-04/T4-01~04 feature computation + pipeline integration + surgical routing (T3-04, T4-01, T4-02, T4-03, T4-04)
 
 ### Phase 50: Safety & Validation
