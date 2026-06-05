@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v2.3
 milestone_name: Track Condition Feature Integration
 status: executing
-stopped_at: Phase 49 Plan 01 complete
-last_updated: "2026-06-05T02:05:35.000Z"
-last_activity: 2026-06-05 -- Phase 49 Plan 01 complete
+stopped_at: Phase 49 Plan 02 complete
+last_updated: "2026-06-05T02:31:18.000Z"
+last_activity: 2026-06-05 -- Phase 49 Plan 02 complete
 progress:
   total_phases: 4
   completed_phases: 2
   total_plans: 5
-  completed_plans: 4
-  percent: 80
+  completed_plans: 5
+  percent: 100
 ---
 
 # Project State
@@ -26,11 +26,11 @@ See: .planning/PROJECT.md (updated 2026-06-04)
 ## Current Position
 
 Phase: 49 of 50 (Derived & Higher-Order Features) — in progress
-Plan: 01 complete, 02 next
+Plan: 02 complete
 Status: Executing
-Last activity: 2026-06-05 -- Phase 49 Plan 01 complete (horse_track_aptitude)
+Last activity: 2026-06-05 -- Phase 49 Plan 02 complete (T3/T4 derived features)
 
-Progress: [████████░░] 80%
+Progress: [██████████] 100%
 
 ## Accumulated Context
 
@@ -74,6 +74,17 @@ Progress: [████████░░] 80%
 - src/features/feature_engine.py — T3 merge in build_all() on race_id + kettonum (left join)
 - 19 new tests: 16 unit + 3 integration
 
+### Phase 49 Plan 02 Artifacts
+
+- src/features/track_condition_features.py — TRACK_DERIVED_COLS (11), RACE_CONDITION_COLS (4), _compute_track_month_stats(), compute_race_condition_features()
+- src/pipelines/training_pipeline.py — track_month_stats computation + race_condition_features call
+- src/backtest/race_predictor.py — race_condition_features call + track_month_stats inference
+- src/domain/models.py — SubmodelSet.track_month_stats field
+- 6 included models: TRACK_DERIVED_COLS + RACE_CONDITION_COLS in FEATURE_COLS (AbilityModel, Win/PlaceTwoStage, EVCorrection, PlaceEVCorrection, PlaceAbility, WideTwoStage)
+- 4 excluded models: MarketModel, RaceQualityScreener, RegimeDetector, ConformalEVModel
+- config/settings.yaml — track_condition thresholds section
+- 33 new tests (55 total)
+
 ### Blockers/Concerns
 
 - クッション値データは2020/09開始のためWF Fold0(2020学習)でNaN率高い可能性 (VLD-03で検証)
@@ -93,6 +104,6 @@ Progress: [████████░░] 80%
 
 ## Session Continuity
 
-Last session: 2026-06-05T02:05:35.000Z
-Stopped at: Phase 49 Plan 01 complete
-Resume file: .planning/phases/49-derived-higher-order-features/49-01-SUMMARY.md
+Last session: 2026-06-05T02:31:18.000Z
+Stopped at: Phase 49 Plan 02 complete
+Resume file: .planning/phases/49-derived-higher-order-features/49-02-SUMMARY.md

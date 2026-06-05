@@ -41,7 +41,7 @@ See `.planning/milestones/` for archived roadmaps.
 
 - [x] **Phase 47: ETL Data Pipeline** - 外部CSV(含水率/クッション値)をParquetに変換しDataRepositoryに統合 ✅ 2026-06-04
 - [x] **Phase 48: Core Edge Features** - Tier 1+2の交互作用特徴量(含水率x脚質/枠位置、クッションx脚質/種牡馬)を実装・登録 ✅ 2026-06-05
-- [ ] **Phase 49: Derived & Higher-Order Features** - Tier 3+4の馬個体適性・ペース予測・異常値検出・既存インタラクション拡張を実装
+- [x] **Phase 49: Derived & Higher-Order Features** - Tier 3+4の馬個体適性・ペース予測・異常値検出・既存インタラクション拡張を実装 ✅ 2026-06-05
 - [ ] **Phase 50: Safety & Validation** - Feature Routing Audit/POST_RACE CI検証 + BT ROI 97%+ + IC評価 + WF可用性確認
 
 ## Phase Details
@@ -93,7 +93,7 @@ Plans:
 - [x] 49-01-PLAN.md — T3 precompute parquet (horse_track_aptitude) + repository + FeatureEngine merge (T3-01, T3-02, T3-03) ✅
 
 **Wave 2** *(blocked on Wave 1 completion)*
-- [ ] 49-02-PLAN.md — T3-04/T4-01~04 feature computation + pipeline integration + surgical routing (T3-04, T4-01, T4-02, T4-03, T4-04)
+- [x] 49-02-PLAN.md — T3-04/T4-01~04 feature computation + pipeline integration + surgical routing (T3-04, T4-01, T4-02, T4-03, T4-04) ✅
 
 ### Phase 50: Safety & Validation
 **Goal**: 全新特徴量の安全性がCI検証され、BT ROI 97%+が確認されてデプロイ可能になる
@@ -118,5 +118,5 @@ Phases execute in numeric order: 47 → 48 → 49 → 50
 | 43-46 | v2.2 | 8/8 | Complete (not_deployable) | 2026-06-02 |
 | 47. ETL Data Pipeline | v2.3 | 2/2 | Complete | 2026-06-04 |
 | 48. Core Edge Features | v2.3 | 1/1 | Complete | 2026-06-05 |
-| 49. Derived & Higher-Order Features | v2.3 | 1/2 | In progress | - |
+| 49. Derived & Higher-Order Features | v2.3 | 2/2 | Complete | 2026-06-05 |
 | 50. Safety & Validation | v2.3 | 0/? | Not started | - |
