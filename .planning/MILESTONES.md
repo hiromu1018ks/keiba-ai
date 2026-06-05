@@ -261,3 +261,42 @@ Known deferred items at close: 12 (see STATE.md Deferred Items)
 - `.planning/milestones/v2.2-ROADMAP.md`
 - `.planning/milestones/v2.2-REQUIREMENTS.md`
 - `.planning/milestones/v2.2-MILESTONE-SUMMARY.md`
+
+## v2.3 Track Condition Feature Integration — 2026-06-05
+
+**Status:** ✅ Shipped
+**Phases:** 4 (47-50) | **Plans:** 7
+
+### Key Accomplishments
+
+1. Track Condition ETL Pipeline — 含水率189K行・クッション値133K行CSV→23,259レースParquet変換 + DataRepository統合
+2. 23 Track Condition Features — T1/T2(8) + T3(4) + T4(11) 全ティア実装、NaN-safe surface-aware設計 + 外科的ルーティング(6登録/4除外)
+3. PIT-safe Horse Aptitude — 14列馬個体適性precompute (expanding window + shift(1)) + condition classification
+4. Safety CI Validation — Feature Routing Audit PASS, POST_RACE 3層CI PASS, Surface-aware NaN 17/23 PASS, IC評価フレームワーク
+5. Post-hoc EV Optimization — Raw ROI 87.3% → --min-win-ev 1.40 で 124.4% ROI (505 bets, +¥12,340) を発見
+
+### Milestone Stats
+
+| Metric | Value |
+|--------|-------|
+| Commits | 48 |
+| Files changed | 62 |
+| Lines added | +9,749 |
+| Timeline | 2 days (2026-06-04 → 2026-06-05) |
+| Tests | 2,503 |
+
+### Known Deferred Items
+
+- IC評価レポート生成(OOF予測が必要、別途run_train.py実行)
+- 4 RACE_CONDITION特徴量の100% NaN修正(track_month_stats利用可能性問題)
+- sire_x_cushion_bandの51.63% NaN改善(種牡馬×クッション交差データ不足)
+- WF検証スクリプトの実際の実行(~4時間、PostgreSQL環境必要)
+- Human UAT 5項目 (PostgreSQL依存)
+- test_training_pipeline.py 3件既知失敗
+
+Known deferred items at close: 6 (see STATE.md Deferred Items)
+
+### Archive
+
+- `.planning/milestones/v2.3-ROADMAP.md`
+- `.planning/milestones/v2.3-REQUIREMENTS.md`

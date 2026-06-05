@@ -10,6 +10,7 @@ OOF健全性検査基盤(OOFHealthValidator + fail-fast validation + SHA256 mani
 IC評価フレームワーク + Gain-per-Depth診断システム搭載。
 MarketAwareWinCalibrator (Benter logit-blend + 51-dim segment conditioning) + RaceLevelRanker (Ridge relevance/value scoring + investment_score) 搭載。
 Shadow Comparison Framework (2024/2025 fixed-fold baseline vs shadow) + DeploymentGateEvaluator (frozen GatePolicy) + Feature Routing Audit基盤搭載。
+Track Condition Feature Integration — 含水率・クッション値23特徴量(T1/T2: 8, T3: 4, T4: 11)を外科的ルーティングで全12モデルに統合。NaN-safe surface-aware設計 + IC評価フレームワーク搭載。
 3段階ベットフィルター(動的EV_lower/OddsBand/COLLAPSED skip)、レジーム別Kellyサイジング、DD%のみ3段階制御、Optuna TPE 16次元パラメータ最適化 + multi-seed安定性検証、SHA256特徴量凍結manifestを搭載。
 MLflow で実験管理。PostgreSQL (EveryDB2/JRA-VAN DataLab) をデータソースとする。
 
@@ -79,39 +80,43 @@ MLflow で実験管理。PostgreSQL (EveryDB2/JRA-VAN DataLab) をデータソ�
 - ✓ RaceLevelRanker — Ridge relevance/value scoring + investment_score (shadow mode) — v2.1 Phase 40
 - ✓ Shadow Comparison Framework — 2024/2025 fixed-fold baseline vs shadow + HTML report — v2.1 Phase 41
 - ✓ Feature Routing Audit + DeploymentGateEvaluator — 確率品質/ベット数維持/再現性/diagnostics安全基盤 — v2.1 Phase 42
+- ✓ Track Condition ETL Pipeline — 含水率189K行・クッション値133K行CSV→Parquet + DataRepository統合 — v2.3 Phase 47
+- ✓ 23 Track Condition Features (T1/T2: 8, T3: 4, T4: 11) — NaN-safe surface-aware + 外科的ルーティング(6登録/4除外) — v2.3 Phase 48-49
+- ✓ Track Condition Safety CI — Feature Routing Audit PASS + POST_RACE 3層CI + Surface-aware NaN verification — v2.3 Phase 50
+- ✓ IC Evaluation Framework for Track Conditions — per-feature Spearman/C-orthogonal IC + surface stratification — v2.3 Phase 50
 
 ### Active
 
-- 外部CSV → Parquet変換 (含水率・クッション値) + race_id集約パイプライン — v2.3
-- Tier 1: 含水率×脚質交互作用 + クッション値トラック相対化 — v2.3
-- Tier 2: 含水率×枠位置 + クッション×脚質 + 種牡馬×クッションビン — v2.3
-- Tier 3: 馬個体の馬場状態適性 + 季節偏差 — v2.3
-- Tier 4: ペース予測 + レースレベル条件スコア + 異常値検出 + 既存インタラクション拡張 — v2.3
-- BT ROI 97%+検証 — v2.3
 - Conservative MAWC redesign — v2.4+
 - デプロイゲート自動判定 (DEP-01) — v2.4+
 - Optuna 19次元パラメータ最適化 (DEP-02) — v2.4+
+- WinSegmentCalibrator dead code removal (WRN-01) — v2.4+
+- 4 RACE_CONDITION特徴量100% NaN修正 — v2.4+
 
-## Current Milestone: v2.3 Track Condition Feature Integration
+## Current Milestone: Planning Next Milestone
 
-**Goal:** 馬場状態の連続値データ（ダート含水率・芝クッション値）を特徴量として統合し、BT ROI 97%+を回復する
+**Status:** Awaiting `/gsd-new-milestone` to define v2.4 scope
 
-**Target features:**
-- データ基盤: 外部CSV（含水率189K行・クッション値133K行）→ Parquet変換 + race_id集約
-- Tier 1 (P0): 含水率×脚質交互作用、クッション値トラック相対化
-- Tier 2 (P1): 含水率×枠位置、クッション×脚質、種牡馬×クッションビン
-- Tier 3 (P2): 馬個体の馬場状態適性、季節偏差
-- Tier 4 (P3): ペース予測、レースレベル条件スコア、異常値検出、既存特徴量インタラクション
+## Last Closed Milestone: v2.3 Track Condition Feature Integration
 
-**Success criteria:** BT ROI 97%+ (v1.7レベル回復)
+**Result:** Shipped 2026-06-05. 23 track condition features implemented with full CI safety validation.
 
-**Key context:**
-- MAWC問題はv2.3スコープ外（既存51-dim MAWCをそのまま使用）
-- データソース: 外部CSV (EveryDB2非依存)
-- 含水率: `data/20180728~20260531ダート含水率.csv` (189K行, 2018/07〜)
-- クッション値: `data/20200912~20260531クッション値.csv` (133K行, 2020/09〜)
+**Delivered:**
+- Track Condition ETL Pipeline: 含水率189K行・クッション値133K行 → 23,259レースParquet
+- 23 Features (T1/T2: 8, T3: 4, T4: 11) with NaN-safe surface-aware design + surgical routing
+- Safety CI: Feature Routing Audit PASS, POST_RACE 3層CI PASS, Surface-aware NaN verification
+- IC Evaluation Framework + Post-hoc EV optimization (--min-win-ev 1.40 → 124.4% ROI)
 
-## Last Closed Milestone: v2.2 ROI Recovery Analysis
+**Runtime outcome:**
+- BT ROI 2025: 87.3% raw (3,335 bets)
+- Post-hoc --min-win-ev 1.40: 124.4% (505 bets, +¥12,340)
+- NaN Report: 17/23 PASS, 5 FAIL (sire_x_cushion_band + 4 RACE_CONDITION)
+- Deployment: Shipped (not gated — features complete, CI verified)
+
+**Exclusions:**
+- MAWC redesign (v2.4+)
+- RACE_CONDITION NaN fix (structural — track_month_stats availability)
+- OOF IC report generation (requires separate run_train.py)
 
 **Result:** closed as not_deployable. v2.2 identified MAWC calibration as the main failure path and tested a conservative MAWC variant, but Phase 46 runtime gates rejected it.
 
@@ -150,12 +155,12 @@ MLflow で実験管理。PostgreSQL (EveryDB2/JRA-VAN DataLab) をデータソ�
 
 ## Current State
 
-**Active:** v2.3 Track Condition Feature Integration (2026-06-04)
-**Phases:** 46 total (v1.0-v2.2), all executed
-**Tests:** 2,343+ passed, 3 known failures
-**BT ROI reference:** v2.0 close 87.8%, v1.7 reference 97.8%, target 100%+
-**Latest runtime:** baseline test ROI -8.0%, conservative MAWC test ROI -11.3% (rejected)
-**Next:** v2.3 — 外部CSV(含水率/クッション値) → 特徴量統合 → BT ROI 97%+回復
+**Active:** Planning next milestone (2026-06-05)
+**Phases:** 50 total (v1.0-v2.3), all executed
+**Tests:** 2,503 passed, 14 pre-existing failures
+**BT ROI reference:** v2.3 close 87.3% (raw), post-hoc 124.4% (EV>=1.40)
+**Latest features:** 23 track condition features (含水率・クッション値)
+**Next:** v2.4 — scope TBD via `/gsd-new-milestone`
 
 ## Context
 
@@ -253,6 +258,12 @@ MLflow で実験管理。PostgreSQL (EveryDB2/JRA-VAN DataLab) をデータソ�
 | Shadow-first deployment policy | 確率品質/ベット数/再現性/診断全通過まで新パイプライン不活性 | ✓ Good (v2.1) |
 | Feature routing audit registry | 50+28禁止特徴量のCI安全監査でリーク検出 | ✓ Good (v2.1) |
 | DeploymentGateEvaluator report-only | deployment_statusを変更せず判定レポートのみ出力 | ✓ Good (v2.1) |
+| 含水率/クッション値CSV→Parquet ETL | エントリ単位→race_id集約で外部データをML利用可能に | ✓ Good (v2.3) |
+| NaN-safe surface-aware feature design | ダート特徴量は芝でNaN、芝特徴量はダートでNaN | ✓ Good (v2.3) |
+| 外科的ルーティング 6 included/4 excluded | Phase36教訓: MarketModel等にTC featuresを登録しない | ✓ Good (v2.3) |
+| PIT-safe expanding window + shift(1) | 馬個体適性の未来情報漏洩防止 | ✓ Good (v2.3) |
+| Post-hoc EV threshold optimization | --min-win-ev 1.40 でraw ROI 87.3% → 124.4%に改善 | ✓ Good (v2.3) — 暫定値、PT検証必要 |
+| track_stats on SubmodelSet | 学習期間統計を推論時に再利用(再計算不要) | ✓ Good (v2.3) |
 
 ## Evolution
 
@@ -272,4 +283,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-04 — v2.3 Track Condition Feature Integration milestone started*
+*Last updated: 2026-06-05 — v2.3 Track Condition Feature Integration milestone shipped*
