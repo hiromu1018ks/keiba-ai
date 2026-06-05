@@ -441,6 +441,11 @@ def compute_track_condition_features(
 
     df["surface_condition_transition"] = transition
 
+    # Ensure all TRACK_DERIVED_COLS exist (NaN fallback for missing prerequisites)
+    for col in TRACK_DERIVED_COLS:
+        if col not in df.columns:
+            df[col] = float("nan")
+
     return df
 
 
@@ -616,5 +621,10 @@ def compute_race_condition_features(
             front_runner_ratio.notna() & bias.notna(),
             other=float("nan"),
         )
+
+    # Ensure all RACE_CONDITION_COLS exist (NaN fallback for missing prerequisites)
+    for col in RACE_CONDITION_COLS:
+        if col not in df.columns:
+            df[col] = float("nan")
 
     return df

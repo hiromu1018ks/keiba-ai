@@ -544,7 +544,7 @@ def test_season_deviation_std_zero():
 
 
 def test_season_deviation_no_stats():
-    """track_month_stats is None -> no season deviation features"""
+    """track_month_stats is None -> season deviation columns exist as NaN"""
     df = pd.DataFrame(
         {
             "turf_cushion": [9.0],
@@ -553,8 +553,11 @@ def test_season_deviation_no_stats():
         }
     )
     result = compute_track_condition_features(df, track_month_stats=None)
-    assert "cushion_season_deviation" not in result.columns
-    assert "moisture_season_deviation" not in result.columns
+    # CR-02 fix: NaN fallback ensures columns always exist
+    assert "cushion_season_deviation" in result.columns
+    assert pd.isna(result["cushion_season_deviation"].iloc[0])
+    assert "moisture_season_deviation" in result.columns
+    assert pd.isna(result["moisture_season_deviation"].iloc[0])
 
 
 # ---------------------------------------------------------------------------
