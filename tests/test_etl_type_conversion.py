@@ -168,3 +168,17 @@ class TestReadersCompat:
 
         assert "jyuni2c" in _INT_COLS
         assert "jyuni3c" in _INT_COLS
+
+
+class TestPostRaceCols:
+    """ETL-04: 含水率・クッション値がPOST_RACE_COLSに含まれないことをCI検証。"""
+
+    def test_dirt_moisture_not_in_post_race_cols(self):
+        from domain.types import POST_RACE_COLS
+
+        assert "dirt_moisture" not in POST_RACE_COLS
+
+    def test_turf_cushion_not_in_post_race_cols(self):
+        from domain.types import POST_RACE_COLS
+
+        assert "turf_cushion" not in POST_RACE_COLS

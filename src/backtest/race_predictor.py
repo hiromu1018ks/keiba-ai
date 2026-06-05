@@ -131,6 +131,7 @@ class RacePredictor:
         betting_target: str = "place",
         enable_market_aware_calibrator: bool = True,
         enable_race_level_ranker: bool = True,
+        apt_df: pd.DataFrame | None = None,
     ) -> None:
         if betting_target not in ("win", "place", "wide"):
             raise ValueError(
@@ -141,6 +142,7 @@ class RacePredictor:
         self.dd_ctrl = dd_controller
         self.betting_target = betting_target
         self._betting_mode = "kelly" if stake_calculator is not None else "flat"
+        self._apt_df = apt_df
         if not 0.0 <= alpha <= 1.0:
             raise ValueError(f"alpha must be in [0, 1], got {alpha}")
         self.alpha = alpha  # kept for backwards compatibility / fallback
@@ -225,6 +227,29 @@ class RacePredictor:
 
         df = race_df.copy()
 
+        # CR-01: Merge horse_track_aptitude when not already present (inference path).
+        # During backtest, build_all() already merges these columns; the merge is
+        # skipped because the columns already exist.  At inference time (paper trading,
+        # live prediction), these columns are absent and must be loaded from the
+        # precomputed parquet passed via apt_df.
+        if self._apt_df is not None and not self._apt_df.empty and "kettonum" in df.columns:
+            _apt_needed = any(
+                c not in df.columns
+                for c in ("horse_dirt_wet_hit_rate", "prev_dirt_moisture")
+            )
+            if _apt_needed:
+                apt_cols = [
+                    c for c in self._apt_df.columns
+                    if c in {"race_id", "kettonum"}
+                    or c.startswith("horse_")
+                    or c.startswith("prev_")
+                ]
+                df = df.merge(
+                    self._apt_df[apt_cols],
+                    on=["race_id", "kettonum"],
+                    how="left",
+                )
+
         # 2. HorseHistoryFeatures マージ + race_transforms
         if hist_features is not None:
             df = df.merge(hist_features, on=["race_id", "umaban"], how="left")
@@ -250,6 +275,20 @@ class RacePredictor:
         for _col in _race_rank_cols:
             if _col in df.columns:
                 df[f"{_col}_race_rank"] = df[_col].rank(pct=True, method="average")
+
+        # 2b. track_condition_features (HorseHistoryFeatures 後、interaction_features 前)
+        from features.track_condition_features import (
+            compute_race_condition_features,
+            compute_track_condition_features,
+        )
+
+        # T1-02/T3-04: 学習期間統計をSubmodelSetから取得
+        _track_stats = getattr(submodel, "track_stats", None)
+        _track_month_stats = getattr(submodel, "track_month_stats", None)
+        df = compute_track_condition_features(
+            df, track_stats=_track_stats, track_month_stats=_track_month_stats
+        )
+        df = compute_race_condition_features(df)
 
         # 3. interaction_features (kyakusitu_cd が必要なため HorseHistoryFeatures 後)
         df = compute_interaction_features(df)

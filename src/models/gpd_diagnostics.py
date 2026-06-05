@@ -220,6 +220,14 @@ FEATURE_CATEGORY_MAP: dict[str, str] = {
     "timediff_avg": "fundamental",
     "timediff_avg_race_rank": "fundamental",
     "track_condition_delta": "fundamental",
+    # Phase 48: トラック条件特徴量 (T1/T2)
+    "dirt_moisture_x_kyakusitu": "fundamental",
+    "turf_cushion_track_relative": "fundamental",
+    "turf_cushion_track_zscore": "fundamental",
+    "dirt_moisture_x_barrier_pos": "fundamental",
+    "dirt_moisture_high_flag": "fundamental",
+    "dirt_moisture_dry_flag": "fundamental",
+    "turf_cushion_x_kyakusitu": "fundamental",
     "trainer_prize_log": "fundamental",
     "trainer_wr_distance": "fundamental",
     "trainer_wr_overall": "fundamental",
@@ -265,6 +273,8 @@ FEATURE_CATEGORY_MAP: dict[str, str] = {
     "te_kisyucode": "categorical",
     "trackcd": "categorical",
     "track_condition_code": "categorical",
+    # Phase 48: トラック条件カテゴリ交互作用
+    "sire_x_cushion_band": "categorical",
 }
 
 # Tier classification for each booster name pattern

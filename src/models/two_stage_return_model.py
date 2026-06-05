@@ -214,6 +214,32 @@ class WinTwoStageModel:
         "rl_top1_odds",
         "rl_favorite_rank_gap",
         "rl_n_horses",
+        # Phase 48: トラック条件特徴量 (T1/T2)
+        "dirt_moisture_x_kyakusitu",
+        "turf_cushion_track_relative",
+        "turf_cushion_track_zscore",
+        "dirt_moisture_x_barrier_pos",
+        "dirt_moisture_high_flag",
+        "dirt_moisture_dry_flag",
+        "turf_cushion_x_kyakusitu",
+        "sire_x_cushion_band",
+        # Phase 49: 派生・高次トラック条件特徴量 (T3-04/T4-01/T4-03/T4-04)
+        "track_front_bias_score",
+        "kickback_risk_score",
+        "expected_pace_class",
+        "cushion_season_deviation",
+        "moisture_season_deviation",
+        "cushion_anomaly_flag",
+        "moisture_extreme_flag",
+        "cushion_x_distance",
+        "moisture_x_weight",
+        "cushion_x_age",
+        "surface_condition_transition",
+        # Phase 49: レースレベルトラック条件特徴量 (T4-02)
+        "race_condition_match_score",
+        "race_condition_match_max",
+        "race_condition_match_ratio",
+        "race_field_front_bias",
     ]
 
     def __init__(self, cfg: TwoStageConfig | None = None) -> None:
@@ -575,6 +601,32 @@ class PlaceTwoStageModel:
         "rl_top1_odds",
         "rl_favorite_rank_gap",
         "rl_n_horses",
+        # Phase 48: トラック条件特徴量 (T1/T2)
+        "dirt_moisture_x_kyakusitu",
+        "turf_cushion_track_relative",
+        "turf_cushion_track_zscore",
+        "dirt_moisture_x_barrier_pos",
+        "dirt_moisture_high_flag",
+        "dirt_moisture_dry_flag",
+        "turf_cushion_x_kyakusitu",
+        "sire_x_cushion_band",
+        # Phase 49: 派生・高次トラック条件特徴量 (T3-04/T4-01/T4-03/T4-04)
+        "track_front_bias_score",
+        "kickback_risk_score",
+        "expected_pace_class",
+        "cushion_season_deviation",
+        "moisture_season_deviation",
+        "cushion_anomaly_flag",
+        "moisture_extreme_flag",
+        "cushion_x_distance",
+        "moisture_x_weight",
+        "cushion_x_age",
+        "surface_condition_transition",
+        # Phase 49: レースレベルトラック条件特徴量 (T4-02)
+        "race_condition_match_score",
+        "race_condition_match_max",
+        "race_condition_match_ratio",
+        "race_field_front_bias",
     ]
 
     # --- Return model (Stage B): 配当回帰用 ---
@@ -740,6 +792,32 @@ class PlaceTwoStageModel:
         "rl_top1_odds",
         "rl_favorite_rank_gap",
         "rl_n_horses",
+        # Phase 48: トラック条件特徴量 (T1/T2)
+        "dirt_moisture_x_kyakusitu",
+        "turf_cushion_track_relative",
+        "turf_cushion_track_zscore",
+        "dirt_moisture_x_barrier_pos",
+        "dirt_moisture_high_flag",
+        "dirt_moisture_dry_flag",
+        "turf_cushion_x_kyakusitu",
+        "sire_x_cushion_band",
+        # Phase 49: 派生・高次トラック条件特徴量 (T3-04/T4-01/T4-03/T4-04)
+        "track_front_bias_score",
+        "kickback_risk_score",
+        "expected_pace_class",
+        "cushion_season_deviation",
+        "moisture_season_deviation",
+        "cushion_anomaly_flag",
+        "moisture_extreme_flag",
+        "cushion_x_distance",
+        "moisture_x_weight",
+        "cushion_x_age",
+        "surface_condition_transition",
+        # Phase 49: レースレベルトラック条件特徴量 (T4-02)
+        "race_condition_match_score",
+        "race_condition_match_max",
+        "race_condition_match_ratio",
+        "race_field_front_bias",
     ]
 
     # 後方互換: FEATURE_COLS は return model のリストを返す (最も情報量が多いため)

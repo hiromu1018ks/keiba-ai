@@ -158,7 +158,12 @@ class TestPlaceAbilityModel:
                            "weighted_recent_form_finish", "weighted_recent_form_time",
                            # Phase 36.1 horse-level features
                            "haron_race_gap_avg", "haron_race_gap_zscore",
-                           "haron_race_gap_trend"}
+                           "haron_race_gap_trend",
+                           # Phase 48: track condition features (pipeline-only)
+                           "dirt_moisture_x_kyakusitu", "turf_cushion_track_relative",
+                           "turf_cushion_track_zscore", "dirt_moisture_x_barrier_pos",
+                           "dirt_moisture_high_flag", "dirt_moisture_dry_flag",
+                           "turf_cushion_x_kyakusitu", "sire_x_cushion_band"}
         for col in model.FEATURE_COLS:
             if col in v5_context_cols:
                 continue

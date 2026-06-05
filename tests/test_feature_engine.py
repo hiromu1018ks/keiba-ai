@@ -212,6 +212,9 @@ class TestFeatureEngineBuildAll:
             def __init__(self, store):
                 self.store = store
 
+            def load_track_conditions(self, start, end):
+                return pd.DataFrame()
+
             def load_wide_odds(self, start, end):
                 calls.append(("wide", start, end))
                 return pd.DataFrame(

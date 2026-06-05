@@ -331,6 +331,14 @@ def load_sire_stats(store: ParquetStore) -> pd.DataFrame:
     return coerce_types(df)
 
 
+def load_horse_track_aptitude(store: ParquetStore) -> pd.DataFrame:
+    """馬場条件適性統計を読み込む。"""
+    if not store.exists("raw", "horse_track_aptitude"):
+        return pd.DataFrame()
+    df = store.read("raw", "horse_track_aptitude")
+    return coerce_types(df)
+
+
 def load_features(store: ParquetStore, start: str, end: str) -> pd.DataFrame | None:
     if not store.exists("features", "horse_features"):
         return None
