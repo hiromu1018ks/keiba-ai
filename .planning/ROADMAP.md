@@ -3,7 +3,7 @@ gsd_state_version: 1.0
 milestone: v2.3
 milestone_name: Track Condition Feature Integration
 status: in_progress
-last_updated: "2026-06-04T00:00:00.000Z"
+last_updated: "2026-06-05T00:00:00.000Z"
 ---
 
 # Roadmap: keiba-ai Win Model Improvement
@@ -86,7 +86,11 @@ Plans:
   2. クッション値/含水率のコース別月別偏差(season_deviation)が計算される
   3. 含水率/クッション値から先行バイアススコア・蹴り返りリスク・ペース予測が算出され、レースフィールド条件マッチスコアが計算される
   4. クッション/含水率異常値検出(2σ逸脱) + 既存特徴量とのインタラクション(距離/馬齢/脚質等)が全て計算される
-**Plans**: TBD
+**Plans**: 2 plans
+
+Plans:
+- [ ] 49-01-PLAN.md — T3 precompute parquet (horse_track_aptitude) + repository + FeatureEngine merge (T3-01, T3-02, T3-03)
+- [ ] 49-02-PLAN.md — T3-04/T4-01~04 feature computation + pipeline integration + surgical routing (T3-04, T4-01, T4-02, T4-03, T4-04)
 
 ### Phase 50: Safety & Validation
 **Goal**: 全新特徴量の安全性がCI検証され、BT ROI 97%+が確認されてデプロイ可能になる
@@ -111,5 +115,5 @@ Phases execute in numeric order: 47 → 48 → 49 → 50
 | 43-46 | v2.2 | 8/8 | Complete (not_deployable) | 2026-06-02 |
 | 47. ETL Data Pipeline | v2.3 | 2/2 | Complete | 2026-06-04 |
 | 48. Core Edge Features | v2.3 | 1/1 | Complete | 2026-06-05 |
-| 49. Derived & Higher-Order Features | v2.3 | 0/? | Not started | - |
+| 49. Derived & Higher-Order Features | v2.3 | 0/2 | Not started | - |
 | 50. Safety & Validation | v2.3 | 0/? | Not started | - |
