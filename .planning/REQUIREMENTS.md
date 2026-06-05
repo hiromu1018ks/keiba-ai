@@ -26,9 +26,9 @@
 
 ### Tier 3 — Derived & Context (P2)
 
-- [ ] **T3-01**: `horse_dirt_wet_hit_rate` / `horse_dirt_dry_hit_rate` 特徴量を実装する。馬個体のダート含水率適性（高含水時/低含水時の着順上位率）。過走履歴からのPIT-safe計算が必要
-- [ ] **T3-02**: `horse_cushion_hard_hit_rate` / `horse_cushion_soft_hit_rate` 特徴量を実装する。馬個体の芝クッション値適性（硬/柔時の着順上位率）。過走履歴からのPIT-safe計算が必要
-- [ ] **T3-03**: `horse_condition_type` 特徴量を実装する。馬個体の馬場状態適性カテゴリ（湿得意/乾得意/万能）分類
+- [x] **T3-01**: `horse_dirt_wet_hit_rate` / `horse_dirt_dry_hit_rate` 特徴量を実装する。馬個体のダート含水率適性（高含水時/低含水時の着順上位率）。過走履歴からのPIT-safe計算が必要 ✅ (49-01)
+- [x] **T3-02**: `horse_cushion_hard_hit_rate` / `horse_cushion_soft_hit_rate` 特徴量を実装する。馬個体の芝クッション値適性（硬/柔時の着順上位率）。過走履歴からのPIT-safe計算が必要 ✅ (49-01)
+- [x] **T3-03**: `horse_condition_type` 特徴量を実装する。馬個体の馬場状態適性カテゴリ（湿得意/乾得意/万能）分類 ✅ (49-01)
 - [ ] **T3-04**: `cushion_season_deviation` / `moisture_season_deviation` 特徴量を実装する。クッション値・含水率のコース別月別偏差。季節特有のバイアスを捕捉する
 
 ### Tier 4 — Higher-Order & Race-Level (P3)
@@ -81,9 +81,9 @@
 | T2-01 | Phase 48 | Pending |
 | T2-02 | Phase 48 | Pending |
 | T2-03 | Phase 48 | Pending |
-| T3-01 | Phase 49 | Pending |
-| T3-02 | Phase 49 | Pending |
-| T3-03 | Phase 49 | Pending |
+| T3-01 | Phase 49 | Done (49-01) |
+| T3-02 | Phase 49 | Done (49-01) |
+| T3-03 | Phase 49 | Done (49-01) |
 | T3-04 | Phase 49 | Pending |
 | T4-01 | Phase 49 | Pending |
 | T4-02 | Phase 49 | Pending |
