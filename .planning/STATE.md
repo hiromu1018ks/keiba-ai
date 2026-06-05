@@ -3,10 +3,10 @@ gsd_state_version: 1.0
 milestone: v2.4
 milestone_name: Paper Trading Pipeline Integration
 status: planning
-last_updated: "2026-06-05T22:48:08.770Z"
-last_activity: 2026-06-05
+last_updated: "2026-06-06T00:00:00.000Z"
+last_activity: 2026-06-06
 progress:
-  total_phases: 0
+  total_phases: 4
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -17,46 +17,35 @@ progress:
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-06-05)
+See: .planning/PROJECT.md (updated 2026-06-06)
 
 **Core value:** 単勝モデルのバックテストROIを100%超えにすること
-**Current focus:** Planning next milestone
+**Current focus:** Phase 51 — Settlement Integrity & Training Pipeline
 
 ## Current Position
 
-Phase: Not started (defining requirements)
+Phase: 51 of 54 (Settlement Integrity & Training Pipeline)
 Plan: —
-Status: Defining requirements
-Last activity: 2026-06-05 — Milestone v2.4 started
+Status: Ready to plan
+Last activity: 2026-06-06 — Roadmap created for v2.4
+
+Progress: [░░░░░░░░░░] 0%
 
 ## Accumulated Context
 
 ### Decisions
 
-- D-04: entry_id(18-digit) = race_id(first 16) + umaban(last 2) (47-01)
-- D-05: ValueError on multiple distinct non-NaN values per race_id (47-01)
-- D-06: NaN/non-NaN mix resolves to non-NaN (47-01)
-- D-07: Cross-validation against races.parquet logs only (47-01)
-- D-08: NaN values preserved as-is (no statistical imputation) (47-01)
-- D-09: Physical outliers NaN-ified (dirt: 0<x<100, turf: x>0) (47-01)
-- D-10: load_track_conditions follows existing load_* pattern with exists-check gate (47-02)
-- D-11: POST_RACE_COLS CI test ensures track condition columns are safe for ML features (47-02)
+Decisions are logged in PROJECT.md Key Decisions table.
+Recent decisions affecting current work:
 
-### v2.3 Shipped Artifacts
-
-- data/raw/track_conditions.parquet — 23,259 rows, 13,323 dirt_moisture, 9,936 turf_cushion
-- data/raw/horse_track_aptitude.parquet — 14-column PIT-safe precompute
-- src/features/track_condition_features.py — 23 features: TRACK_CONDITION_COLS(8) + TRACK_DERIVED_COLS(11) + RACE_CONDITION_COLS(4)
-- src/features/horse_track_aptitude.py — precompute_track_aptitude() + APTITUDE_COLS(14)
-- FeatureEngine.build_all() — track_conditions + horse_track_aptitude merge integrated
-- Surgical routing: 6 included models (all 23 features), 4 excluded (0 features)
-- CI: 55 track condition tests + 17 safety CI tests + 16 IC eval tests
-- IC evaluation script: scripts/run_track_condition_ic_eval.py
-- NaN diagnostic script: scripts/validate_track_condition_nan.py
+- v2.4 is an integration milestone, not a feature milestone
+- PT uses retrained models (run_train.py 2022-2025), not BT model artifacts
+- 2026 PT uses data up to 2025-12-31 only (no future information)
+- Regime state unification decision deferred to Phase 53 planning
 
 ### Blockers/Concerns
 
-- なし (次マイルストーンの要件定義待ち)
+- Phase 52 (Shared Feature Builder) is HIGH RISK — extraction from BacktestEngine.prepare_data() requires full BT regression test before and after
 
 ## Deferred Items
 
@@ -69,12 +58,12 @@ Last activity: 2026-06-05 — Milestone v2.4 started
 | Cleanup | WinSegmentCalibrator dead code removal (WRN-01) | Pending since v2.1 |
 | Feature | 4 RACE_CONDITION特徴量100% NaN修正 (track_month_stats availability) | Pending since v2.3 |
 | Feature | sire_x_cushion_band 51% NaN改善 (種牡馬×クッション交差データ不足) | Pending since v2.3 |
-| Optimization | Optuna 19次元パラメータ最適化 (DEP-02) | Deferred to v2.4+ |
-| Automation | デプロイゲート自動判定 (DEP-01) | Deferred to v2.4+ |
-| Calibration | Conservative MAWC redesign / selective interaction experiment | Deferred to v2.4+ |
+| Optimization | Optuna 19次元パラメータ最適化 (DEP-02) | Deferred to v2.5+ |
+| Automation | デプロイゲート自動判定 (DEP-01) | Deferred to v2.5+ |
+| Calibration | Conservative MAWC redesign | Deferred to v2.5+ |
 | Validation | IC評価レポート生成 (OOF予測必要、別途run_train.py) | Pending since v2.3 |
 
 ## Session Continuity
 
-Last session: 2026-06-05
-Stopped at: v2.3 shipped and archived
+Last session: 2026-06-06
+Stopped at: v2.4 roadmap created, Phase 51 ready to plan

@@ -7,7 +7,7 @@
 
 ### Settlement (精算整合性)
 
-- [ ] **STL-01**: Win/Place bet status tracking — `bets.parquet` に明示的な `status` 列 (pending/settled) を追加し、負けベットを含む全ベットの確定状態を記録する
+- [ ] **STL-01**: Win/Place bet status tracking — `bets.parquet` に `settlement_status` 列 (pending/settled) と `outcome` 列 (won/lost) を分離して追加し、負けベットを含む全ベットの確定状態を記録する
 - [ ] **STL-02**: Win actual payout settlement — `build_win_payout_map()` パターンを再利用し、単勝払戻を精算する
 - [ ] **STL-03**: Place actual payout settlement — 既存複勝払戻ロジックを修正し、負けベットも `result=loss_stake` として記録する
 - [ ] **STL-04**: ROI calculation fix — 的中のみ記録による ROI 過大評価を修正し、負け含む全ベットで正確な ROI を算出する
@@ -15,7 +15,7 @@
 
 ### Pipeline Consistency (パイプライン一貫性)
 
-- [ ] **PLN-01**: Shared feature builder extraction — `BacktestEngine.prepare_data()` から `build_inference_features()` を抽出し、BT/PT が共通の特徴量構築関数を呼ぶことを受入条件とする。7つのギャップ (DamPedigree/Record/Mining/PaceAptitude 3列/Sire/Course) を一括解消する
+- [ ] **PLN-01**: Shared feature builder extraction — `BacktestEngine.prepare_data()` から `build_inference_features()` を抽出し、BT/PT/TrainingPipeline が共通の特徴量構築関数を呼ぶことを受入条件とする。7つのギャップ (DamPedigree/Record/Mining/PaceAptitude 3列/Sire/Course) を一括解消する
 - [ ] **PLN-02**: Pipeline identity recording — MLflow run ID・学習期間・コードハッシュ・feature manifest hash を PT 実行記録に保存する
 - [ ] **PLN-03**: Data cutoff validation — 2026年 PT では 2025年12月31日以前のデータのみ使用。特徴量統計・OddsBandFilter 校正・HP・strategy manifest よ予測日以降の情報を含まないことを検証する
 - [ ] **PLN-04**: PFP parameter immutability — PT 実行中のパラメータ不変性を ParameterFreezeProtocol で検証する
@@ -30,14 +30,14 @@
 
 ### Live Data (当日データ取得)
 
-- [ ] **LIV-01**: JRA track condition fetcher — JRA 公式サイト (https://www.jra.go.jp/keiba/baba/kaisetsu/index.html) から開催場ごとの芝クッション値・ダート含水率を取得し、race_id へ展開する
-- [ ] **LIV-02**: Live data validation — 取得値・測定時刻・取得時刻・取得元を保存する。取得失敗または値が古い場合は予測を停止し非ゼロ終了する
+- [ ] **LIV-01**: JRA track condition fetcher — JRA 公式サイト (https://www.jra.go.jp/keiba/baba/kaisetsu/index.html) から開催場ごとの芝クッション値・ダート含水率を取得し、race_id へ展開する。ゴール前・4コーナー含水率を既存の単一 dirt_moisture 値へ変換する集約規則を定義する
+- [ ] **LIV-02**: Live data validation — 取得値・測定時刻・取得時刻・取得元を保存する。取得失敗または値が古い場合は予測を停止し非ゼロ終了する。HTML 構造変更を検知し、スクレイピング失敗時に警告を出す
 - [ ] **LIV-03**: Same schema as historical — 過去 CSV と当日取得値は同一スキーマ・同一集約規則で扱う。共通特徴量ビルダーへ渡す
 
 ### Strategy Alignment (戦略完全整合)
 
 - [ ] **STR-01**: Strategy manifest integration — PT で strategy_manifest を読み込み、manifest/PFP を適用する
-- [ ] **STR-02**: Betting mode/target passthrough — PT で `--betting-target win|place|wide` と `--betting-mode flat|kelly` を指定可能にする
+- [ ] **STR-02**: Betting mode/target passthrough — PT で `--betting-target win|place` と `--betting-mode flat|kelly` を指定可能にする。v2.4 では Wide は対象外
 - [ ] **STR-03**: DD control integration — DrawdownController を PT パイプラインに組み込む
 - [ ] **STR-04**: OddsBandFilter integration — BT の校正済み OddsBandFilter を PT で使用する
 - [ ] **STR-05**: QualityScreener integration — RaceQualityScreener を PT パイプラインに組み込む
@@ -45,7 +45,7 @@
 
 ### Automation (自動化)
 
-- [ ] **AUT-01**: One-command run mode — `--mode run` を追加。モデル検証→予測→監視→精算→集計の全工程を1コマンドで実行する。学習は事前実行前提
+- [ ] **AUT-01**: One-command run mode — `--mode run` を追加。学習は含めず、事前学習済みモデルの検証から開始し、予測→監視→精算→集計の全工程を1コマンドで実行する
 - [ ] **AUT-02**: Restart resumption — 処理済みレースの再実行をスキップする冪等性を保証する。クラッシュ後の再起動で未処理レースのみ再開する
 - [ ] **AUT-03**: DB failure exit codes — DB接続障害・データ欠損・モデル不整合時に非ゼロ終了コードを返す
 
@@ -75,7 +75,7 @@ Deferred to future release. Tracked but not in current roadmap.
 | Feature | Reason |
 |---------|--------|
 | SafetyGuard 連動 | v2.4 ではクラッシュリカバリで対応。SafetyGuard は v2.5+ で統合 |
-| Wide 払戻対応 | 複雑度高。Win/Place での精正確立が先。v2.5+ で検討 |
+| Wide 払戻・選択対応 | v2.4 では Win/Place のみ対応。Wide は複雑度高のため v2.5+ で検討 |
 | 実馬券購入 (IPAT API) | ペーパートレードまで。PatVoter は将来の実運用用 |
 | RaceWatcher リアルタイム監視 | バッチモード対応を先に行う。リアルタイムは将来検討 |
 | MLflow モデル自動デプロイ | 手動 run_train.py → PT のフローを維持 |
@@ -87,23 +87,46 @@ Deferred to future release. Tracked but not in current roadmap.
 
 ## Traceability
 
-Which phases cover which requirements. Updated during roadmap creation.
+Which phases cover which requirements.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| STL-01~05 | TBD | Pending |
-| PLN-01~04 | TBD | Pending |
-| TRN-01~05 | TBD | Pending |
-| LIV-01~03 | TBD | Pending |
-| STR-01~06 | TBD | Pending |
-| AUT-01~03 | TBD | Pending |
-| RPT-01~04 | TBD | Pending |
+| STL-01 | Phase 51 | Pending |
+| STL-02 | Phase 51 | Pending |
+| STL-03 | Phase 51 | Pending |
+| STL-04 | Phase 51 | Pending |
+| STL-05 | Phase 51 | Pending |
+| TRN-01 | Phase 51 | Pending |
+| TRN-02 | Phase 51 | Pending |
+| TRN-03 | Phase 51 | Pending |
+| TRN-04 | Phase 51 | Pending |
+| TRN-05 | Phase 51 | Pending |
+| PLN-01 | Phase 52 | Pending |
+| PLN-02 | Phase 52 | Pending |
+| PLN-03 | Phase 52 | Pending |
+| PLN-04 | Phase 52 | Pending |
+| STR-01 | Phase 53 | Pending |
+| STR-02 | Phase 53 | Pending |
+| STR-03 | Phase 53 | Pending |
+| STR-04 | Phase 53 | Pending |
+| STR-05 | Phase 53 | Pending |
+| STR-06 | Phase 53 | Pending |
+| LIV-01 | Phase 53 | Pending |
+| LIV-02 | Phase 53 | Pending |
+| LIV-03 | Phase 53 | Pending |
+| AUT-01 | Phase 54 | Pending |
+| AUT-02 | Phase 54 | Pending |
+| AUT-03 | Phase 54 | Pending |
+| RPT-01 | Phase 54 | Pending |
+| RPT-02 | Phase 54 | Pending |
+| RPT-03 | Phase 54 | Pending |
+| RPT-04 | Phase 54 | Pending |
 
 **Coverage:**
-- v1 requirements: 26 total
-- Mapped to phases: 0
-- Unmapped: 26 ⚠️
+- v1 requirements: 30 total
+- Mapped to phases: 30
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-06-06*
-*Last updated: 2026-06-06 after initial definition*
+*Last updated: 2026-06-06 — roadmap created, traceability mapped*
