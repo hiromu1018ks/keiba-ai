@@ -106,7 +106,14 @@ Plans:
   3. マルチ年度BT(2024/2025)でBT ROI 97%+が達成される(v1.7レベル回復)
   4. 新特徴量のIC評価(C直交IC)が実行され、既存特徴量と独立したシグナルであることが確認される
   5. クッション値データのWF Fold0(2020-2023学習)でのNaN率が許容範囲内であることが確認される
-**Plans**: TBD
+**Plans**: 2 plans
+
+Plans:
+**Wave 1**
+- [ ] 50-01-PLAN.md — CI検証: Feature Routing Audit拡張 + Surface-aware NaN CI + POST_RACE 3層CI (REG-02, REG-03, VLD-03)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+- [ ] 50-02-PLAN.md — WF Fold0 NaN診断 + 段階BT ROI検証 + IC評価 (VLD-01, VLD-02, VLD-03)
 
 ## Progress
 
@@ -118,6 +125,6 @@ Phases execute in numeric order: 47 → 48 → 49 → 50
 | 1-42 | v1.0-v2.1 | 85/85 | Complete | 2026-05-28 |
 | 43-46 | v2.2 | 8/8 | Complete (not_deployable) | 2026-06-02 |
 | 47. ETL Data Pipeline | v2.3 | 2/2 | Complete | 2026-06-04 |
-| 48. Core Edge Features | v2.3 | 1/1 | Complete | 2026-06-05 |
+| 48. Core Edge Features | v2.3 | 1/1 | Complete | 2026-05-05 |
 | 49. Derived & Higher-Order Features | v2.3 | 2/2 | Complete | 2026-06-05 |
-| 50. Safety & Validation | v2.3 | 0/? | Not started | - |
+| 50. Safety & Validation | v2.3 | 0/2 | In Progress | - |
