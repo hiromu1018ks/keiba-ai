@@ -45,3 +45,11 @@ betting_strategy:
     aggressive: 0.50
     conservative: 0.25
     collapsed: 0.00
+
+track_condition:
+  dirt_wet_threshold: 12.0
+  dirt_dry_threshold: 3.0
+  turf_hard_threshold: 10.0
+  turf_soft_threshold: 8.0
+  hit_rate_threshold: 0.3
+  min_starts: 3
