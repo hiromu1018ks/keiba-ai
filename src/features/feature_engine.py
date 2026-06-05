@@ -413,6 +413,41 @@ class FeatureEngine:
                             result_df, tc_df[tc_merge_cols], on="race_id", how="left"
                         )
 
+        # Group B-3: 馬場条件適性 (T3 precomputed, Phase 49)
+        if store is not None:
+            with TimingContext("build_all/horse_track_aptitude"):
+                from db.repository import DataRepository
+
+                repo = DataRepository(store)
+                if "race_date" in result_df.columns:
+                    rd = pd.to_datetime(result_df["race_date"], errors="coerce")
+                    rd_valid = rd.dropna()
+                    if len(rd_valid) > 0:
+                        start_str = rd_valid.min().strftime("%Y%m%d")
+                        end_str = rd_valid.max().strftime("%Y%m%d")
+                        apt_df = repo.load_horse_track_aptitude(start_str, end_str)
+                        if not apt_df.empty and "race_id" in apt_df.columns:
+                            apt_merge_cols = [
+                                c
+                                for c in apt_df.columns
+                                if c in {"race_id", "kettonum"}
+                                or c.startswith("horse_")
+                                or c.startswith("prev_")
+                            ]
+                            if "kettonum" in result_df.columns:
+                                merge_keys = ["race_id", "kettonum"]
+                            else:
+                                merge_keys = ["race_id"]
+                                apt_merge_cols = [
+                                    c for c in apt_merge_cols if c != "kettonum"
+                                ]
+                            result_df = pd.merge(
+                                result_df,
+                                apt_df[apt_merge_cols],
+                                on=merge_keys,
+                                how="left",
+                            )
+
         # NOTE: Group C (ペース適性特徴量) と Group D (コース別適性特徴量) は
         # TrainingPipeline._train_submodel() で計算されるため、ここではプレースホルダーなし
         # pace_aptitude, front_pace_wr, closing_pace_wr, course_wr, course_distance_wr

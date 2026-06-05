@@ -89,3 +89,21 @@ class DataRepository:
             return pd.DataFrame()
         df = self._store.read("raw", "track_conditions", filters=date_filters(start, end))
         return coerce_types(df)
+
+    def load_horse_track_aptitude(self, start: str, end: str) -> pd.DataFrame:
+        """馬場条件適性統計を読み込む。
+
+        Args:
+            start: 開始日 (YYYYMMDD)
+            end: 終了日 (YYYYMMDD)
+
+        Returns:
+            フィルタ・型変換済みのDataFrame。
+            parquetが存在しない場合は空DataFrameを返す。
+        """
+        if not self._store.exists("raw", "horse_track_aptitude"):
+            return pd.DataFrame()
+        df = self._store.read(
+            "raw", "horse_track_aptitude", filters=date_filters(start, end)
+        )
+        return coerce_types(df)

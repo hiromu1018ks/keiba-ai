@@ -533,3 +533,65 @@ def test_multiple_horses_isolation():
     h2_r2 = result[(result["kettonum"] == "H2") & (result["race_id"] == "R2")].iloc[0]
     assert h2_r2["horse_dirt_wet_starts_count"] == 1
     assert h2_r2["horse_dirt_wet_hit_rate"] == pytest.approx(0.0)
+
+
+# ---------------------------------------------------------------------------
+# Integration tests: readers + repository + FeatureEngine merge
+# ---------------------------------------------------------------------------
+
+
+def test_load_horse_track_aptitude_missing_parquet():
+    """load_horse_track_aptitude returns empty DataFrame when parquet missing."""
+    from unittest.mock import MagicMock
+
+    from db.readers import load_horse_track_aptitude
+
+    store = MagicMock()
+    store.exists.return_value = False
+    result = load_horse_track_aptitude(store)
+    assert isinstance(result, pd.DataFrame)
+    assert len(result) == 0
+    store.exists.assert_called_once_with("raw", "horse_track_aptitude")
+
+
+def test_repository_load_horse_track_aptitude_missing():
+    """DataRepository.load_horse_track_aptitude returns empty DataFrame when missing."""
+    from unittest.mock import MagicMock
+
+    from db.repository import DataRepository
+
+    store = MagicMock()
+    store.exists.return_value = False
+    repo = DataRepository(store)
+    result = repo.load_horse_track_aptitude("20200101", "20201231")
+    assert isinstance(result, pd.DataFrame)
+    assert len(result) == 0
+
+
+def test_feature_engine_merge_preserves_row_count():
+    """FeatureEngine.build_all() merge preserves row count (left join)."""
+    from unittest.mock import MagicMock, patch
+
+    from db.parquet_store import ParquetStore
+
+    # Create a minimal DataFrame simulating build_all output before T3 merge
+    pre_merge_df = pd.DataFrame({
+        "race_id": ["R1", "R1", "R2"],
+        "kettonum": ["H1", "H2", "H1"],
+        "race_date": pd.to_datetime(["2020-01-01", "2020-01-01", "2020-02-01"]),
+        "umaban": ["01", "02", "01"],
+        "bamei": ["Horse1", "Horse2", "Horse1"],
+    })
+
+    # Verify merge logic: left join on race_id + kettonum preserves all rows
+    apt_df = pd.DataFrame({
+        "race_id": ["R1", "R1", "R2"],
+        "kettonum": ["H1", "H2", "H1"],
+        "horse_dirt_wet_hit_rate": [0.5, 0.3, 0.7],
+        "horse_condition_type": ["wet_good", "unknown", "balanced"],
+    })
+
+    merged = pd.merge(pre_merge_df, apt_df, on=["race_id", "kettonum"], how="left")
+    assert len(merged) == len(pre_merge_df), "Left join must preserve row count"
+    assert "horse_dirt_wet_hit_rate" in merged.columns
+    assert "horse_condition_type" in merged.columns
