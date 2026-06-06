@@ -71,7 +71,12 @@ See `.planning/milestones/` for archived roadmaps.
   5. run_train.py --betting-target win で単勝 PT 用モデルを学習でき、学習前に必須 Parquet(track_conditions/horse_track_aptitude含む)の日付範囲・NaN率・更新日時検証が走る
   6. 特徴量キャッシュの依存元に track_conditions.parquet/horse_track_aptitude.parquet が追加され、更新後の古いキャッシュ使用が防止される
   7. track_stats/track_month_stats がモデル成果物に保存・復元され、PTで季節偏差等が NaN にならない
-**Plans**: TBD
+**Plans**: 3 plans
+
+Plans:
+- [ ] 51-01-PLAN.md — Extract payout_maps.py pure functions from BacktestEngine
+- [ ] 51-02-PLAN.md — Overhaul PaperReconciler with 3-column state model and thin _run_reconcile
+- [ ] 51-03-PLAN.md — Training pipeline fixes (--betting-target, track_stats persistence, ModelLoader priority)
 
 ### Phase 52: Shared Feature Builder & Consistency
 **Goal**: BT と PT と TrainingPipeline が同一の特徴量生成関数を呼び出し、パイプラインの同一実装・同一設定契約が検証可能であること
@@ -118,7 +123,7 @@ Phases execute in numeric order: 51 → 52 → 53 → 54
 | 1-42 | v1.0-v2.1 | 85/85 | Complete | 2026-05-28 |
 | 43-46 | v2.2 | 8/8 | Complete (not_deployable) | 2026-06-02 |
 | 47-50 | v2.3 | 7/7 | Complete | 2026-06-05 |
-| 51. Settlement Integrity & Training | v2.4 | 0/? | Not started | - |
+| 51. Settlement Integrity & Training | v2.4 | 0/3 | Planned | - |
 | 52. Shared Feature Builder & Consistency | v2.4 | 0/? | Not started | - |
 | 53. Strategy Alignment & Live Data | v2.4 | 0/? | Not started | - |
 | 54. Automation & Reporting | v2.4 | 0/? | Not started | - |
