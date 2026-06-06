@@ -722,7 +722,7 @@ def _run_predict(
                     diag_logger.log_horse_features(hr.to_dict())
             continue
 
-        bets = race_predictor.select_bets(result_df, bankroll)
+        bets = race_predictor.select_bets(result_df, bankroll, betting_target=args.betting_target)
 
         # Log race diagnostic: quality check passed
         diag_logger.log_race(
@@ -1061,7 +1061,7 @@ def _run_diagnose(
                     diag_logger.log_horse_features(hr.to_dict())
             continue
 
-        bets = race_predictor.select_bets(result_df, bankroll=0)
+        bets = race_predictor.select_bets(result_df, bankroll=0, betting_target=args.betting_target)
         diag_logger.log_race(
             race_id=race_id,
             regime=str(regime),
@@ -1292,7 +1292,9 @@ def _run_dry_run(
             if not race_predictor.should_bet(result_df):
                 continue
 
-            bets = race_predictor.select_bets(result_df, bankroll)
+            bets = race_predictor.select_bets(
+                result_df, bankroll, betting_target=args.betting_target,
+            )
             for bet in bets:
                 horse_full = race_df_single[race_df_single["umaban"] == bet.umaban]
                 if not horse_full.empty and "kakuteijyuni" in horse_full.columns:
