@@ -83,6 +83,11 @@ def _make_payouts_df(
             row[f"payfukusyoumaban{i}"] = [float("nan")]
             row[f"payfukusyopay{i}"] = [float("nan")]
 
+    # Wide columns (NaN by default -- tests that don't use wide don't need them)
+    for i in range(1, 8):
+        row[f"paywidekumi{i}"] = [float("nan")]
+        row[f"paywidepay{i}"] = [float("nan")]
+
     return pd.DataFrame(row)
 
 
