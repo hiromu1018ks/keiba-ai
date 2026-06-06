@@ -356,13 +356,6 @@ def _run_predict(
         load_odds_time_series_from_db,
         load_races_from_db,
     )
-    from features.bloodline_features import BloodlineFeatures
-    from features.feature_engine import FeatureEngine
-    from features.horse_history_features import HorseHistoryFeatures
-    from features.jockey_context_features import JockeyContextFeatures
-    from features.jockey_trainer_combo import JockeyTrainerComboFeatures
-    from features.trainer_context_features import TrainerContextFeatures
-    from models.submodel_manager import SubModelManager
     from paper_trading.reconciler import PaperReconciler
 
     import pandas as pd
@@ -500,78 +493,25 @@ def _run_predict(
         post_time = _race_time_map.get(rid, "??")
         logger.info("Skipping %s: no odds snapshot (post_time=%s)", rid, post_time)
 
-    # 特徴量生成 (odds_df を発走N分前スナップショットに差し替え。
-    # odds_ts_df はそのまま渡す → odds_dynamics 特徴量は完全時系列から計算)
-    logger.info("Generating features...")
-    feat_engine = FeatureEngine()
-    submodel_mgr = SubModelManager()
-    feat_df = feat_engine.build_all(race_df, entry_df, odds_df, odds_ts_df=odds_ts_df)
-    feat_df = submodel_mgr.add_distance_band_features(feat_df)
-
-    # JRAフィルタ: NARレースを除外 (BT と同等)
-    feat_df = _apply_jra_filter(feat_df)
+    # 特徴量生成 — FeatureBuilder 経由で BT/Train と同一パス (GAP-1 解消)
+    logger.info("Generating features via FeatureBuilder...")
+    feat_df = _build_features_fb(
+        race_df, entry_df, odds_df, store, odds_ts_df=odds_ts_df,
+    )
 
     race_ids = feat_df["race_id"].unique()
+
+    # RacePredictor.predict() 用の個別特徴量 (FeatureBuilder に統合済みだが
+    # predict() のシグネチャ上、別 DataFrame として渡す必要がある)
+    from features.horse_history_features import HorseHistoryFeatures
+    from features.jockey_context_features import JockeyContextFeatures
+    from features.jockey_trainer_combo import JockeyTrainerComboFeatures
+    from features.trainer_context_features import TrainerContextFeatures
 
     hist_all = HorseHistoryFeatures(store=store).compute(race_df, entry_df, race_ids)
     jockey_all = JockeyContextFeatures(store).compute(entry_df)
     trainer_all = TrainerContextFeatures(store).compute(entry_df)
     jt_all = JockeyTrainerComboFeatures(store).compute(entry_df)
-    blood_all = BloodlineFeatures(store=store).compute(entry_df)
-
-    # 血統特徴量を feat_df にマージ
-    feat_df = feat_df.merge(
-        blood_all[["race_id", "umaban"] + [c for c in blood_all.columns if c.startswith("blood_")]],
-        on=["race_id", "umaban"],
-        how="left",
-    )
-
-    # 種牡馬特徴量 (SireFeatures)
-    from db.readers import load_horses, load_sire_stats
-    from features.sire_features import SireFeatures
-
-    sire_stats_pt = load_sire_stats(store)
-    if not sire_stats_pt.empty:
-        horses_pt = load_horses(store)
-        sire_feat_pt = SireFeatures(sire_stats_pt)
-        sire_map_pt = horses_pt.set_index("kettonum")["ketto3infohansyokunum1"]
-        bms_source_col_pt = (
-            "ketto3infohansyokunum5"
-            if "ketto3infohansyokunum5" in horses_pt.columns
-            else "ketto3infohansyokunum3"
-        )
-        bms_map_pt = horses_pt.set_index("kettonum")[bms_source_col_pt]
-        feat_df["sire_id"] = feat_df["kettonum"].map(sire_map_pt)
-        feat_df["bms_id"] = feat_df["kettonum"].map(bms_map_pt)
-        sire_result_pt = sire_feat_pt.compute_batch(feat_df)
-        _sire_cols = {
-            "sire_wr", "sire_surface_wr", "sire_distance_wr", "sire_prize_avg",
-            "bms_wr", "bms_distance_wr", "bms_surface_wr", "bms_has_history",
-            "bms_starts_log", "bms_surface_starts_log", "bms_distance_starts_log",
-        }
-        for sc in _sire_cols:
-            if sc in sire_result_pt.columns:
-                feat_df[sc] = sire_result_pt[sc].values
-
-    # ペース適性 + コース別適性特徴量
-    from features.course_features import CourseFeatures
-    from features.pace_aptitude_features import PaceAptitudeFeatures
-
-    pace_feat = PaceAptitudeFeatures(store=store)
-    pace_df = pace_feat.compute_batch(feat_df)
-    _pace_cols = [c for c in ["pace_aptitude", "front_pace_wr", "closing_pace_wr"] if c in pace_df.columns]
-    if _pace_cols:
-        feat_df = feat_df.drop(columns=_pace_cols, errors="ignore").merge(
-            pace_df[["kettonum", "race_id"] + _pace_cols], on=["kettonum", "race_id"], how="left"
-        )
-
-    course_feat = CourseFeatures(store=store)
-    course_df = course_feat.compute_batch(feat_df)
-    _course_cols = [c for c in ["course_wr", "course_distance_wr"] if c in course_df.columns]
-    if _course_cols:
-        feat_df = feat_df.drop(columns=_course_cols, errors="ignore").merge(
-            course_df[["kettonum", "race_id"] + _course_cols], on=["kettonum", "race_id"], how="left"
-        )
 
     # 既存予測の読み込み (重複回避)
     pred_path = config.paper_trading_dir / "predictions" / f"{ymd}.parquet"
