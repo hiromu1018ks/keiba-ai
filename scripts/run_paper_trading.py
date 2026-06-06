@@ -238,7 +238,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--mode",
         required=True,
-        choices=["setup", "predict", "reconcile", "dry-run", "diagnose"],
+        choices=["setup", "predict", "reconcile", "dry-run", "diagnose", "run"],
         help="実行モード",
     )
     parser.add_argument("--date", help="対象日 (YYYY-MM-DD)")
@@ -1238,6 +1238,41 @@ def _run_reconcile(
         result.get("n_pending", 0),
     )
 
+    # D-15: Generate report via Aggregator after reconciliation
+    try:
+        from paper_trading.report_aggregator import PaperTradingReportAggregator
+
+        # Try to load session manifest for model identity
+        session_manifest = None
+        try:
+            from features.session_manifest import SessionManifest
+
+            session_dir = config.paper_trading_dir / "sessions"
+            manifest_path = session_dir / f"session_manifest_{ymd}.json"
+            if manifest_path.exists():
+                manifest_data = json.loads(manifest_path.read_text(encoding="utf-8"))
+                session_manifest = SessionManifest(
+                    session_id=manifest_data.get("session_id", ""),
+                    prediction_date=manifest_data.get("prediction_date", ""),
+                    model_run_id=manifest_data.get("model_run_id", ""),
+                    training_start=manifest_data.get("training_start", ""),
+                    training_end=manifest_data.get("training_end", ""),
+                    manifest_hash=manifest_data.get("manifest_hash", ""),
+                )
+        except Exception:
+            pass  # Non-fatal: Aggregator works without manifest
+
+        aggregator = PaperTradingReportAggregator(
+            bets_path=bets_path,
+            output_dir=config.paper_trading_dir,
+            session_manifest=session_manifest,
+        )
+        aggregator.save_outputs(target_date)
+        logger.info("Report updated via Aggregator after reconcile (D-15)")
+    except Exception as e:
+        logger.warning("Report generation failed after reconcile (D-16): %s", e)
+        # D-16: report failure does NOT roll back reconciliation results
+
     # Exit code 2 if pending remain (D-06)
     if result.get("exit_code", 0) == 2 or result.get("n_pending", 0) > 0:
         sys.exit(2)
@@ -1409,6 +1444,109 @@ def _run_dry_run(
 
 
 # ─────────────────────────────────────────────────
+# run: 1コマンド PT ライフサイクル (AUT-01)
+# ─────────────────────────────────────────────────
+
+
+def _handle_sigint(signum: int, frame: object) -> None:
+    """SIGINT handler: set cancellation flag on orchestrator or exit(130)."""
+    orch = getattr(main, "_orchestrator", None)
+    if orch is not None:
+        orch._cancelled = True  # noqa: SLF001
+    else:
+        sys.exit(130)
+
+
+def _run_run_mode(
+    args: argparse.Namespace,
+    config: "PaperTradingConfig",
+    models: "TrainedModelsV5",
+    store: "ParquetStore",
+) -> None:
+    """--mode run: Execute full PT lifecycle via RunModeOrchestrator (AUT-01)."""
+    import signal
+
+    from features.session_manifest import SessionManifest, get_code_version, write_session_manifest
+    from paper_trading.run_orchestrator import RunModeOrchestrator
+
+    # D-02: --date required for run mode
+    if not args.date:
+        logger.error("--date is required for --mode run (D-02)")
+        sys.exit(1)
+
+    target_date = date.fromisoformat(args.date)
+    ymd = target_date.strftime("%Y%m%d")
+
+    # Session ID
+    session_id = f"{ymd}_run"
+
+    # Session manifest
+    try:
+        code_version = get_code_version()
+    except RuntimeError:
+        code_version = {}
+
+    manifest = SessionManifest(
+        session_id=session_id,
+        prediction_date=args.date,
+    )
+    manifest.set_code_version(code_version)
+
+    # Model identity
+    model_info_path = config.paper_trading_dir / "model" / "model_info.json"
+    if model_info_path.exists():
+        try:
+            model_info_data = json.loads(model_info_path.read_text(encoding="utf-8"))
+            manifest.set_model_identity(
+                run_id=model_info_data.get("mlflow_run_id", ""),
+                training_start=model_info_data.get("train_start", ""),
+                training_end=model_info_data.get("train_end", ""),
+                manifest_hash="",
+            )
+        except (json.JSONDecodeError, OSError):
+            pass
+
+    # Strategy config (empty for now, can be loaded from manifest later)
+    strategy_config: dict[str, object] = {}
+
+    # Build orchestrator
+    orchestrator = RunModeOrchestrator(
+        config=config,
+        models=models,
+        store=store,
+        args=args,
+        strategy_config=strategy_config,
+        session_manifest=manifest,
+    )
+
+    # Register SIGINT handler
+    signal.signal(signal.SIGINT, _handle_sigint)
+    main._orchestrator = orchestrator  # type: ignore[attr-defined]
+
+    try:
+        exit_code = orchestrator.execute()
+    finally:
+        # Clean up signal handler reference
+        if hasattr(main, "_orchestrator"):
+            del main._orchestrator  # type: ignore[attr-defined]
+
+    # Update manifest with final status
+    manifest.set_status(
+        "completed" if exit_code == 0 else "error",
+        exit_code=int(exit_code),
+    )
+
+    # Save session manifest
+    sessions_dir = config.paper_trading_dir / "sessions" / session_id
+    sessions_dir.mkdir(parents=True, exist_ok=True)
+    manifest_path = sessions_dir / f"session_manifest_{ymd}.json"
+    write_session_manifest(manifest, manifest_path)
+
+    logger.info("Run mode completed with exit code %d", int(exit_code))
+    sys.exit(int(exit_code))
+
+
+# ─────────────────────────────────────────────────
 # main
 # ─────────────────────────────────────────────────
 
@@ -1427,6 +1565,9 @@ def main() -> None:
 
     if args.mode == "setup":
         _run_setup(args, config, models, store)
+
+    elif args.mode == "run":
+        _run_run_mode(args, config, models, store)
 
     elif args.mode == "predict":
         _run_predict(args, config, models, store)
