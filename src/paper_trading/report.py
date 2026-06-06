@@ -210,7 +210,8 @@ th{background:#f0f0f0}
 {% if model_identity %}
 <dl>
 <dt>MLflow Run ID</dt><dd>{{ model_identity.model_run_id or 'N/A' }}</dd>
-<dt>Training Period</dt><dd>{{ model_identity.training_start or 'N/A' }} ~ {{ model_identity.training_end or 'N/A' }}</dd>
+<dt>Training Period</dt>
+<dd>{{ model_identity.training_start or 'N/A' }} ~ {{ model_identity.training_end or 'N/A' }}</dd>
 <dt>Manifest Hash</dt><dd>{{ model_identity.manifest_hash or 'N/A' }}</dd>
 </dl>
 {% else %}
