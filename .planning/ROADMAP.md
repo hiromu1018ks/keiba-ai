@@ -124,7 +124,16 @@ Plans:
   4. JRA 公式サイトから開催場ごとの芝クッション値・ダート含水率を取得し、ゴール前・4コーナー含水率を既存 dirt_moisture への集約規則で race_id へ展開できる
   5. 取得値・測定時刻・取得時刻・取得元が保存され、取得失敗・値が古い・HTML構造変更検知時に予測を停止し非ゼロ終了する
 
-**Plans**: TBD
+**Plans**: 3 plans
+Plans:
+**Wave 1** (parallel)
+
+- [ ] 53-01-PLAN.md — Strategy manifest integration, CLI required args, DD/Regime shadow, OddsBandFilter injection (STR-01~06)
+- [ ] 53-02-PLAN.md — JRA TrackConditionFetcher + pure function parser + HTML structure change detection (LIV-01, LIV-02)
+
+**Wave 2** *(blocked on Wave 1)*
+
+- [ ] 53-03-PLAN.md — Live data merge in FeatureBuilder + session manifest extension (LIV-03)
 
 ### Phase 54: Automation & Reporting
 
@@ -153,5 +162,5 @@ Phases execute in numeric order: 51 → 52 → 53 → 54
 | 47-50 | v2.3 | 7/7 | Complete | 2026-06-05 |
 | 51. Settlement Integrity & Training | v2.4 | 3/3 | Complete | 2026-06-06 |
 | 52. Shared Feature Builder & Consistency | v2.4 | 4/4 | Complete    | 2026-06-06 |
-| 53. Strategy Alignment & Live Data | v2.4 | 0/? | Not started | - |
+| 53. Strategy Alignment & Live Data | v2.4 | 0/3 | Not started | - |
 | 54. Automation & Reporting | v2.4 | 0/? | Not started | - |
