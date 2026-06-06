@@ -28,6 +28,7 @@ import json
 import logging
 import os
 import sys
+from pathlib import Path
 import time
 from datetime import date, datetime, timedelta
 from typing import TYPE_CHECKING
@@ -141,6 +142,11 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=5,
         help="発走何分前のオッズを使用するか (デフォルト: 5)",
+    )
+    parser.add_argument(
+        "--allow-dirty",
+        action="store_true",
+        help="Git dirty 状態でも PT 実行を許可 (開発用)",
     )
     return parser.parse_args()
 
@@ -336,6 +342,79 @@ def _run_predict(
             encoding="utf-8",
         )
 
+    # ── PT Startup Verification (D-06, D-07, D-08) ──
+    from features.data_cutoff_manifest import DataCutoffManifest
+    from features.feature_manifest import FeatureManifest, FeatureState
+    from features.pipeline_consistency import PFPVerifier
+    from features.session_manifest import SessionManifest, get_code_version, write_session_manifest
+
+    # D-06: Git dirty 状態検出
+    code_version = get_code_version()
+    if code_version["git_dirty"] and not getattr(args, "allow_dirty", False):
+        logger.error(
+            "Git dirty state detected — uncommitted changes in src/scripts/config. "
+            "Use --allow-dirty to override (development only)."
+        )
+        sys.exit(1)
+    elif code_version["git_dirty"]:
+        logger.warning(
+            "Git dirty state detected but --allow-dirty is set. "
+            "Proceeding with warning (diff_hash=%s...)",
+            (code_version.get("dirty_diff_hash") or "N/A")[:8],
+        )
+
+    # D-07: DataCutoffManifest — 全データソースの最終日付検証
+    strategy_manifest_path = (
+        Path(ROOT) / "data" / "strategy_manifest.json"
+    )
+    cutoff_manifest = DataCutoffManifest.from_config(
+        prediction_date=args.date,
+        models=models,
+        strategy_manifest_path=strategy_manifest_path if strategy_manifest_path.exists() else None,
+    )
+    actual_cutoff = {
+        "model_train_end": cutoff_manifest.model_train_end,
+        "stats_fit_end": cutoff_manifest.stats_fit_end,
+        "odds_band_calibration_end": cutoff_manifest.odds_band_calibration_end,
+        "strategy_optimization_end": cutoff_manifest.strategy_optimization_end,
+    }
+    cutoff_manifest.verify_strict(actual_cutoff)
+    logger.info("Data cutoff verification passed for %s", args.date)
+
+    # D-08: PFPVerifier — パラメータ不変性検証の準備
+    first_submodel = next(iter(models.submodels.values()))
+    try:
+        feature_state = FeatureState.from_submodel_set(first_submodel, version="1.0")
+    except ValueError:
+        feature_state = FeatureState(
+            track_stats={}, track_month_stats={}, feature_version="1.0"
+        )
+        logger.warning("Using empty FeatureState for PFP verification")
+    feature_manifest = FeatureManifest(
+        column_names=tuple(), column_dtypes=tuple(), feature_version="1.0"
+    )
+    pfp_verifier = PFPVerifier(
+        models, feature_manifest, feature_state,
+        betting_target="place",
+        betting_mode="flat",
+    )
+    pfp_verifier.freeze()
+
+    # D-09: SessionManifest — 実行記録
+    session_manifest = SessionManifest(
+        session_id=session_id,
+        prediction_date=args.date,
+    )
+    session_manifest.set_code_version(code_version)
+    session_manifest.set_model_identity(
+        run_id=config.mlflow_run_id or "",
+        training_start=models.train_period[0],
+        training_end=models.train_period[1],
+        manifest_hash=feature_manifest.compute_hash(),
+    )
+    session_manifest_path = config.paper_trading_dir / "session_manifest.json"
+    write_session_manifest(session_manifest, session_manifest_path)
+
     # EveryDB2からデータ読み込み
     logger.info("Loading data for %s...", ymd)
     db = EveryDB2Queries(config.everydb2_connection_string)
@@ -473,6 +552,19 @@ def _run_predict(
             continue  # 発走前オッズスナップショットなし → スキップ
         if race_id in existing_race_ids:
             continue  # 既に予測済み (重複回避)
+
+        # D-08: Pre-race PFP verification
+        pfp_result = pfp_verifier.verify()
+        if not pfp_result["passed"]:
+            logger.error(
+                "PFP verification failed before race %s: %s",
+                race_id, pfp_result["message"],
+            )
+            session_manifest.set_pfp_result(pfp_result)
+            session_manifest.set_status("aborted", exit_code=1)
+            write_session_manifest(session_manifest, session_manifest_path)
+            sys.exit(1)
+
         single_race = feat_df[feat_df["race_id"] == race_id].copy()
         hist_race = hist_all[hist_all["race_id"] == race_id]
         jockey_race = jockey_all[jockey_all["race_id"] == race_id]
@@ -589,6 +681,16 @@ def _run_predict(
 
     # Save diagnostics
     diag_logger.save(config.paper_trading_dir, prefix=f"diag_{ymd}")
+
+    # D-08: End-of-run PFP verification
+    pfp_result = pfp_verifier.verify()
+    session_manifest.set_pfp_result(pfp_result)
+    if not pfp_result["passed"]:
+        logger.error("PFP verification failed at end of run: %s", pfp_result["message"])
+        session_manifest.set_status("failed", exit_code=1)
+    else:
+        session_manifest.set_status("completed", exit_code=0)
+    write_session_manifest(session_manifest, session_manifest_path)
 
     if not all_bets and existing_pred_df.empty:
         logger.info("No bets generated for %s", args.date)

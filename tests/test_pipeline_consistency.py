@@ -12,6 +12,7 @@ import pytest
 
 from features.data_cutoff_manifest import DataCutoffManifest
 from features.pipeline_consistency import PFPVerifier
+from features.session_manifest import SessionManifest, get_code_version, write_session_manifest
 
 
 # ── DataCutoffManifest ──────────────────────────────────────────
@@ -258,3 +259,138 @@ class TestPFPVerifier:
         result = verifier.verify()
         assert result["passed"] is False
         assert result["checks"]["feature_state"] is False
+
+
+# ── SessionManifest ─────────────────────────────────────────────
+
+
+class TestSessionManifest:
+    """SessionManifest の記録・シリアライズをテスト."""
+
+    def test_to_dict_contains_all_required_keys(self) -> None:
+        manifest = SessionManifest(session_id="abc123", prediction_date="2025-06-01")
+        d = manifest.to_dict()
+        required_keys = {
+            "session_id", "prediction_date", "code_version",
+            "model_run_id", "manifest_hash", "pfp_result",
+            "status", "exit_code", "training_start", "training_end",
+        }
+        assert required_keys.issubset(set(d.keys()))
+
+    def test_is_dirty_returns_true_when_git_dirty(self) -> None:
+        manifest = SessionManifest(
+            session_id="abc123",
+            prediction_date="2025-06-01",
+            code_version={"commit_sha": "deadbeef", "git_dirty": True},
+        )
+        assert manifest.is_dirty is True
+
+    def test_is_dirty_returns_false_when_clean(self) -> None:
+        manifest = SessionManifest(
+            session_id="abc123",
+            prediction_date="2025-06-01",
+            code_version={"commit_sha": "deadbeef", "git_dirty": False},
+        )
+        assert manifest.is_dirty is False
+
+    def test_set_model_identity_stores_all_fields(self) -> None:
+        manifest = SessionManifest(session_id="abc123", prediction_date="2025-06-01")
+        manifest.set_model_identity(
+            run_id="mlflow-run-42",
+            training_start="2020-01-01",
+            training_end="2023-12-31",
+            manifest_hash="hash123",
+        )
+        assert manifest.model_run_id == "mlflow-run-42"
+        assert manifest.training_start == "2020-01-01"
+        assert manifest.training_end == "2023-12-31"
+        assert manifest.manifest_hash == "hash123"
+
+    def test_set_pfp_result_stores_result_dict(self) -> None:
+        manifest = SessionManifest(session_id="abc123", prediction_date="2025-06-01")
+        pfp_data = {"passed": True, "checks": {"model_hp": True}}
+        manifest.set_pfp_result(pfp_data)
+        assert manifest.pfp_result == pfp_data
+
+
+# ── get_code_version ────────────────────────────────────────────
+
+
+class TestCodeVersion:
+    """get_code_version() の git 状態検出をテスト."""
+
+    def test_returns_commit_sha_and_git_dirty_false_for_clean_repo(self) -> None:
+        """git status --porcelain が空なら git_dirty=False."""
+        with patch("subprocess.run") as mock_run:
+            mock_run.side_effect = [
+                MagicMock(stdout="abc123def456\n", returncode=0),  # rev-parse
+                MagicMock(stdout="", returncode=0),  # status --porcelain
+            ]
+            result = get_code_version()
+        assert result["commit_sha"] == "abc123def456"
+        assert result["git_dirty"] is False
+        assert result["dirty_diff_hash"] is None
+
+    def test_returns_git_dirty_true_for_dirty_repo(self) -> None:
+        """git status --porcelain が空でなければ git_dirty=True."""
+        with patch("subprocess.run") as mock_run:
+            mock_run.side_effect = [
+                MagicMock(stdout="abc123def456\n", returncode=0),  # rev-parse
+                MagicMock(stdout=" M src/foo.py\n?? src/bar.py\n", returncode=0),
+                MagicMock(stdout="diff content", returncode=0),  # git diff
+            ]
+            result = get_code_version()
+        assert result["git_dirty"] is True
+        assert result["dirty_diff_hash"] is not None
+        assert len(result["untracked_files"]) == 1
+
+    def test_raises_runtime_error_when_git_unavailable(self) -> None:
+        """git コマンドが見つからない場合は RuntimeError."""
+        with patch("subprocess.run", side_effect=FileNotFoundError("git not found")):
+            with pytest.raises(RuntimeError, match="git rev-parse"):
+                get_code_version()
+
+
+# ── write_session_manifest ──────────────────────────────────────
+
+
+class TestWriteSessionManifest:
+    """write_session_manifest() のファイル書き込みをテスト."""
+
+    def test_file_created_with_valid_json(self) -> None:
+        manifest = SessionManifest(session_id="test123", prediction_date="2025-06-01")
+        manifest.set_model_identity("run-1", "2020-01-01", "2023-12-31", "hash")
+        tmp_dir = Path(tempfile.mkdtemp())
+        try:
+            out_path = tmp_dir / "session_manifest.json"
+            write_session_manifest(manifest, out_path)
+            assert out_path.exists()
+            data = json.loads(out_path.read_text(encoding="utf-8"))
+            assert data["session_id"] == "test123"
+            assert data["model_run_id"] == "run-1"
+        finally:
+            out_path.unlink(missing_ok=True)
+            try:
+                tmp_dir.rmdir()
+            except OSError:
+                pass
+
+    def test_atomic_write_creates_readable_file(self) -> None:
+        """アトミック書き込み後、ファイルが読み取り可能であることを確認."""
+        manifest = SessionManifest(session_id="atomic_test", prediction_date="2025-06-01")
+        manifest.set_status("completed", exit_code=0)
+        tmp_dir = Path(tempfile.mkdtemp())
+        try:
+            out_path = tmp_dir / "session_manifest.json"
+            write_session_manifest(manifest, out_path)
+            # 読み取り可能か確認
+            content = out_path.read_text(encoding="utf-8")
+            parsed = json.loads(content)
+            assert parsed["status"] == "completed"
+            assert parsed["exit_code"] == 0
+        finally:
+            out_path.unlink(missing_ok=True)
+            try:
+                tmp_dir.rmdir()
+            except OSError:
+                pass
