@@ -475,7 +475,7 @@ class DataCutoffManifest:
 | A4 | Phase 51 TRN-04 で track_stats JSON 持続性は既に動作する | FeatureState | 中: 動作確認必要。None の場合 FeatureState 生成で fail-fast |
 | A5 | RelativeFeatures (stage2) は FeatureBuilder 対象外 — RacePredictor 内で計算される | Architecture Patterns | 低: stage2 は p_ability_win 依存のため FeatureBuilder の範囲外 |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **HorseHistoryFeatures の add_race_transforms タイミング**
    - What we know: _train_submodel では hist_df merge 直後に add_race_transforms を呼ぶ (line 823)
