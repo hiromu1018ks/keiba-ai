@@ -2333,6 +2333,19 @@ class TrainingPipelineV5:
             # ローカルにもモデル保存 (MLflow Model Registry不使用時のフォールバック)
             self._save_models_local(models, quality_screen, regime_det, train_start, train_end)
 
+            # track_stats / track_month_stats を MLflow artifacts として記録 (D-15)
+            models_dir = self.model_dir
+            for surface, sub in models.items():
+                ts_path = models_dir / f"track_stats_{surface}.json"
+                if sub.track_stats is not None and ts_path.is_file():
+                    mlflow.log_artifact(str(ts_path))
+                    import hashlib
+                    sha256 = hashlib.sha256(ts_path.read_bytes()).hexdigest()
+                    mlflow.log_param(f"track_stats_sha256_{surface}", sha256[:16])
+                tms_path = models_dir / f"track_month_stats_{surface}.json"
+                if sub.track_month_stats is not None and tms_path.is_file():
+                    mlflow.log_artifact(str(tms_path))
+
     def _save_models_local(
         self,
         models: dict[str, SubmodelSet],
@@ -2498,6 +2511,21 @@ class TrainingPipelineV5:
             else:
                 logger.debug("strategy_manifest.json not found, CQR checksums logged only")
 
+        # track_stats / track_month_stats 永続化 (D-15)
+        for surface, sub in models.items():
+            if sub.track_stats is not None:
+                ts_path = models_dir / f"track_stats_{surface}.json"
+                with open(ts_path, "w", encoding="utf-8") as f:
+                    json.dump(sub.track_stats, f, indent=2, ensure_ascii=False)
+                sha256 = hashlib.sha256(ts_path.read_bytes()).hexdigest()
+                logger.info("track_stats_%s.json saved (SHA256: %s)", surface, sha256[:16])
+            if sub.track_month_stats is not None:
+                tms_path = models_dir / f"track_month_stats_{surface}.json"
+                with open(tms_path, "w", encoding="utf-8") as f:
+                    json.dump(sub.track_month_stats, f, indent=2, ensure_ascii=False)
+                sha256 = hashlib.sha256(tms_path.read_bytes()).hexdigest()
+                logger.info("track_month_stats_%s.json saved (SHA256: %s)", surface, sha256[:16])
+
         # メタ情報
         meta = {
             "train_start": train_start,
@@ -2506,6 +2534,7 @@ class TrainingPipelineV5:
             "quality_threshold": quality_screen.threshold,
             "saved_at": pd.Timestamp.now().isoformat(),
             "use_ensemble": all(sub.use_ensemble for sub in models.values()),
+            "betting_target": self._betting_target,
         }
         with open(models_dir / "meta.json", "w", encoding="utf-8") as f:
             json.dump(meta, f, indent=2, ensure_ascii=False)

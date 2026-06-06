@@ -34,6 +34,7 @@ class ModelInfo:
     train_start: str
     train_end: str
     loaded_at: str
+    betting_target: str = "place"
 
 
 class ModelLoader:
@@ -43,20 +44,31 @@ class ModelLoader:
         mlflow.set_tracking_uri(tracking_uri)
 
     def load(
-        self, run_id: str | None = None, *, use_ensemble: bool | None = None
+        self,
+        run_id: str | None = None,
+        *,
+        models_dir: Path | None = None,
+        use_ensemble: bool | None = None,
     ) -> tuple[TrainedModelsV5, ModelInfo]:
         """学習済みモデルを読み込み、TrainedModelsV5 を再構築。
 
-        優先: ローカルディレクトリ (data/models/) → MLflow run artifacts
+        D-16: run_id と models_dir は排他指定。暗黙フォールバックなし。
         """
-        # 1. ローカルディレクトリから読み込み
-        models_dir = Path("data/models")
-        if models_dir.is_dir() and (models_dir / "meta.json").is_file():
+        # 相互排他チェック (D-16)
+        if run_id is not None and models_dir is not None:
+            raise ValueError(
+                "Cannot specify both run_id and models_dir (mutually exclusive per D-16)"
+            )
+        if run_id is None and models_dir is None:
+            raise ValueError(
+                "Must specify either run_id or models_dir (no implicit selection per D-16)"
+            )
+
+        # ローカルディレクトリ指定時は load_from_dir のみ
+        if models_dir is not None:
             return self.load_from_dir(models_dir, use_ensemble_override=use_ensemble)
 
-        # 2. MLflow 経由 (フォールバック)
-        if run_id is None:
-            run_id = self._find_latest_run()
+        # run_id 指定時は MLflow のみ (ローカルフォールバックなし)
 
         # MLflow API経由でパラメータを取得
         train_end = "unknown"
@@ -439,6 +451,28 @@ class ModelLoader:
                 ev_odds_band_scales=ev_odds_band_scales,
                 target_encoder=target_encoder,
             )
+
+            # track_stats / track_month_stats 復元 (MLflow artifacts)
+            sub = submodels[surface]
+            try:
+                ts_path = mlflow.artifacts.download_artifacts(
+                    f"runs:/{run_id}/track_stats_{surface}.json"
+                )
+                with open(ts_path, encoding="utf-8") as f:
+                    sub.track_stats = json.load(f)
+            except Exception:
+                logger.debug("track_stats_%s.json not found in MLflow, leaving as None", surface)
+            try:
+                tms_path = mlflow.artifacts.download_artifacts(
+                    f"runs:/{run_id}/track_month_stats_{surface}.json"
+                )
+                with open(tms_path, encoding="utf-8") as f:
+                    sub.track_month_stats = json.load(f)
+            except Exception:
+                logger.debug(
+                    "track_month_stats_%s.json not found in MLflow, leaving as None", surface
+                )
+
         quality = RaceQualityScreener()
         quality.model = self._load_lgbm(f"{artifact_uri}/race_quality")
         quality.threshold = quality_threshold
@@ -903,11 +937,30 @@ class ModelLoader:
                 target_encoder=target_encoder,
             )
 
+            # track_stats / track_month_stats 復元 (ローカル JSON)
+            sub = submodels[surface]
+            ts_file = models_dir / f"track_stats_{surface}.json"
+            if ts_file.is_file():
+                try:
+                    with open(ts_file, encoding="utf-8") as f:
+                        sub.track_stats = json.load(f)
+                except Exception:
+                    logger.warning("Failed to load %s, skipping", ts_file)
+            tms_file = models_dir / f"track_month_stats_{surface}.json"
+            if tms_file.is_file():
+                try:
+                    with open(tms_file, encoding="utf-8") as f:
+                        sub.track_month_stats = json.load(f)
+                except Exception:
+                    logger.warning("Failed to load %s, skipping", tms_file)
+
         # RaceQualityScreener
         quality = RaceQualityScreener()
         quality.model = self._load_lgbm(str(models_dir / "race_quality.lgb"))
         with open(models_dir / "meta.json", encoding="utf-8") as f:
-            quality.threshold = float(json.load(f).get("quality_threshold", 0.0))
+            meta_content = json.load(f)
+        quality.threshold = float(meta_content.get("quality_threshold", 0.0))
+        betting_target = meta_content.get("betting_target", "place")
 
         # RegimeDetector
         regime = RegimeDetector()
@@ -925,6 +978,7 @@ class ModelLoader:
             train_start=train_start,
             train_end=train_end,
             loaded_at=datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC"),
+            betting_target=betting_target,
         )
 
         return models, info

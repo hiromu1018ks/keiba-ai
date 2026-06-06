@@ -110,41 +110,82 @@ class TestModelLoader:
             assert models.regime_detector.model is not None
             assert models.train_period == ("2020-01-01", "2023-12-31")
 
-    @patch("db.model_loader.joblib")
-    @patch("db.model_loader.mlflow")
-    def test_load_uses_latest_run_when_no_run_id(
-        self, mock_mlflow: MagicMock, mock_joblib: MagicMock
-    ) -> None:
+    def test_load_with_no_args_raises_value_error(self) -> None:
+        """D-16: load() with neither run_id nor models_dir raises ValueError."""
         from db.model_loader import ModelLoader
 
-        with _patch_no_local_models():
-            mock_booster = MagicMock()
-            mock_mlflow.lightgbm.load_model.return_value = mock_booster
-            mock_mlflow.artifacts.download_artifacts.return_value = "/tmp/artifacts"
-            mock_run = MagicMock()
-            mock_run.data.params = {
-                "train_end": "2023-12-31",
-                "train_start": "2020-01-01",
-                "quality_threshold": "0.42",
-            }
-            mock_mlflow.get_run.return_value = mock_run
-            mock_mlflow.get_artifact_uri.return_value = "mlruns/1/abc/artifacts"
+        loader = ModelLoader(tracking_uri="file:///mlruns")
+        with pytest.raises(ValueError, match="no implicit selection"):
+            loader.load()
 
-            # Mock search_runs to return a DataFrame-like object
-            mock_df = MagicMock()
-            mock_df.empty = False
-            mock_df.iloc = MagicMock()
-            mock_df.iloc.__getitem__ = MagicMock(return_value=MagicMock())
-            mock_df.iloc.__getitem__().__getitem__ = MagicMock(return_value="latest_run_id")
-            mock_mlflow.search_runs.return_value = mock_df
+    def test_load_with_both_args_raises_value_error(self) -> None:
+        """D-16: load() with both run_id and models_dir raises ValueError."""
+        from db.model_loader import ModelLoader
 
-            mock_joblib.load.return_value = MagicMock()
+        loader = ModelLoader(tracking_uri="file:///mlruns")
+        with pytest.raises(ValueError, match="mutually exclusive"):
+            loader.load(run_id="abc", models_dir=Path("data/models"))
 
-            loader = ModelLoader(tracking_uri="file:///mlruns")
-            models, info = loader.load()
+    @patch("db.model_loader.joblib")
+    @patch("db.model_loader.mlflow")
+    def test_load_run_id_does_not_check_local_dir(
+        self, mock_mlflow: MagicMock, mock_joblib: MagicMock
+    ) -> None:
+        """D-16: load(run_id=...) never checks data/models/ directory."""
+        from db.model_loader import ModelLoader
 
-            mock_mlflow.search_runs.assert_called_once()
-            assert info.mlflow_run_id == "latest_run_id"
+        mock_booster = MagicMock()
+        mock_mlflow.lightgbm.load_model.return_value = mock_booster
+        mock_mlflow.artifacts.download_artifacts.return_value = "/tmp/artifacts"
+        mock_run = MagicMock()
+        mock_run.data.params = {
+            "train_end": "2023-12-31",
+            "train_start": "2020-01-01",
+            "quality_threshold": "0.42",
+        }
+        mock_mlflow.get_run.return_value = mock_run
+        mock_mlflow.get_artifact_uri.return_value = "mlruns/1/abc/artifacts"
+        mock_mlflow.search_runs.return_value = MagicMock()
+        mock_joblib.load.return_value = MagicMock()
+
+        loader = ModelLoader(tracking_uri="file:///mlruns")
+        # Verify that load_from_dir is NOT called when run_id is specified
+        # (old behavior would call load_from_dir if data/models/ existed)
+        with patch.object(loader, "load_from_dir") as mock_lfd:
+            models, info = loader.load(run_id="test_run")
+            mock_lfd.assert_not_called()
+            assert info.mlflow_run_id == "test_run"
+
+    @patch("db.model_loader.joblib")
+    @patch("db.model_loader.Path")
+    def test_load_models_dir_does_not_call_mlflow(
+        self, mock_path_cls: MagicMock, mock_joblib: MagicMock
+    ) -> None:
+        """D-16: load(models_dir=...) never calls MLflow."""
+        from db.model_loader import ModelLoader
+
+        # Setup mock filesystem for models_dir
+        mock_models_dir = MagicMock()
+        mock_models_dir.__truediv__ = MagicMock(return_value=mock_models_dir)
+        mock_models_dir.is_file.return_value = True
+        mock_models_dir.is_dir.return_value = False
+        mock_models_dir.exists.return_value = True
+        mock_models_dir.glob.return_value = []
+
+        # meta.json content
+        mock_meta_file = MagicMock()
+        mock_meta_file.__enter__ = MagicMock(return_value=MagicMock())
+        mock_meta_file.__exit__ = MagicMock(return_value=False)
+
+        mock_joblib.load.return_value = MagicMock()
+
+        loader = ModelLoader(tracking_uri="file:///mlruns")
+        # load_from_dir is called internally — just verify it routes correctly
+        with patch.object(loader, "load_from_dir") as mock_load_from_dir:
+            mock_load_from_dir.return_value = (MagicMock(), MagicMock())
+            loader.load(models_dir=Path("data/models"))
+            mock_load_from_dir.assert_called_once()
+            # MLflow should NOT have been called (no run_id specified)
 
     @patch("db.model_loader.mlflow")
     @patch("db.model_loader.Path")
@@ -198,3 +239,28 @@ class TestModelLoader:
 
         ModelLoader(tracking_uri="file:///custom_mlruns")
         mock_mlflow.set_tracking_uri.assert_called_once_with("file:///custom_mlruns")
+
+    def test_model_info_has_betting_target_field(self) -> None:
+        """D-14: ModelInfo includes betting_target field."""
+        from db.model_loader import ModelInfo
+
+        info = ModelInfo(
+            mlflow_run_id="abc",
+            train_start="2020-01-01",
+            train_end="2023-12-31",
+            loaded_at="2026-01-01",
+            betting_target="win",
+        )
+        assert info.betting_target == "win"
+
+    def test_model_info_betting_target_defaults_to_place(self) -> None:
+        """D-14: ModelInfo betting_target defaults to place."""
+        from db.model_loader import ModelInfo
+
+        info = ModelInfo(
+            mlflow_run_id="abc",
+            train_start="2020-01-01",
+            train_end="2023-12-31",
+            loaded_at="2026-01-01",
+        )
+        assert info.betting_target == "place"

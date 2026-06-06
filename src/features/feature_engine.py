@@ -229,6 +229,8 @@ class FeatureEngine:
                     ("raw", "races"),
                     ("raw", "entries"),
                     ("odds", "snapshots"),
+                    ("raw", "track_conditions"),
+                    ("raw", "horse_track_aptitude"),
                 ]:
                     p = data_dir / cat / name
                     if p.with_suffix(".parquet").exists():
