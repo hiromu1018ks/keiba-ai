@@ -52,7 +52,7 @@ See `.planning/milestones/` for archived roadmaps.
 
 **Milestone Goal:** BT で検証済みの学習・推論パイプラインを用いて PT を実行し、推論から精算まで1コマンドで完遂する。精算整合性と同一実装・同一設定契約を確保し、ROI を正確に測定する。
 
-- [ ] **Phase 51: Settlement Integrity & Training Pipeline** - 精算整合性(ROI過大評価修正)と学習パイプライン修正(PT用モデル生成)
+- [x] **Phase 51: Settlement Integrity & Training Pipeline** - 精算整合性(ROI過大評価修正)と学習パイプライン修正(PT用モデル生成) — completed 2026-06-06
 - [ ] **Phase 52: Shared Feature Builder & Consistency** - BT/PT共通特徴量構築関数の抽出とパイプライン一貫性検証基盤
 - [ ] **Phase 53: Strategy Alignment & Live Data** - 戦略完全整合と当日データ取得でBT検証済みパイプラインをPTで再現
 - [ ] **Phase 54: Automation & Reporting** - 1コマンドrun modeと評価レポート拡張で運用完全自動化
@@ -78,12 +78,12 @@ See `.planning/milestones/` for archived roadmaps.
 Plans:
 **Wave 1**
 
-- [ ] 51-01-PLAN.md — Extract payout_maps.py pure functions from BacktestEngine
-- [ ] 51-03-PLAN.md — Training pipeline fixes (--betting-target, track_stats persistence, ModelLoader priority)
+- [x] 51-01-PLAN.md — Extract payout_maps.py pure functions from BacktestEngine
+- [x] 51-03-PLAN.md — Training pipeline fixes (--betting-target, track_stats persistence, ModelLoader priority)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 51-02-PLAN.md — Overhaul PaperReconciler with 3-column state model and thin _run_reconcile
+- [x] 51-02-PLAN.md — Overhaul PaperReconciler with 3-column state model and thin _run_reconcile
 
 ### Phase 52: Shared Feature Builder & Consistency
 
@@ -139,7 +139,7 @@ Phases execute in numeric order: 51 → 52 → 53 → 54
 | 1-42 | v1.0-v2.1 | 85/85 | Complete | 2026-05-28 |
 | 43-46 | v2.2 | 8/8 | Complete (not_deployable) | 2026-06-02 |
 | 47-50 | v2.3 | 7/7 | Complete | 2026-06-05 |
-| 51. Settlement Integrity & Training | v2.4 | 2/3 | In progress | - |
+| 51. Settlement Integrity & Training | v2.4 | 3/3 | Complete | 2026-06-06 |
 | 52. Shared Feature Builder & Consistency | v2.4 | 0/? | Not started | - |
 | 53. Strategy Alignment & Live Data | v2.4 | 0/? | Not started | - |
 | 54. Automation & Reporting | v2.4 | 0/? | Not started | - |

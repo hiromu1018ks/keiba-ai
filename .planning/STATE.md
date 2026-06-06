@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v2.4
 milestone_name: Paper Trading Pipeline Integration
 status: executing
-stopped_at: Phase 51 Plan 02 complete (PaperReconciler overhaul)
-last_updated: "2026-06-06T00:35:00Z"
-last_activity: 2026-06-06 — Plan 51-02 completed (PaperReconciler 3-column state model, thin _run_reconcile)
+stopped_at: Phase 51 complete, Phase 52 next
+last_updated: "2026-06-06T00:40:00Z"
+last_activity: 2026-06-06 — Phase 51 executed (3/3 plans complete)
 progress:
   total_phases: 4
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 3
-  completed_plans: 2
-  percent: 67
+  completed_plans: 3
+  percent: 25
 ---
 
 # Project State
@@ -21,16 +21,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-06)
 
 **Core value:** 単勝モデルのバックテストROIを100%超えにすること
-**Current focus:** Phase 51 — Settlement Integrity & Training Pipeline
+**Current focus:** Phase 52 — Shared Feature Builder & Consistency
 
 ## Current Position
 
-Phase: 51 of 54 (Settlement Integrity & Training Pipeline)
-Plan: 03 of 03 (next)
-Status: Plan 02 complete (PaperReconciler overhaul), Plan 03 next
-Last activity: 2026-06-06 — Plan 51-02 completed (PaperReconciler 3-column state model, thin _run_reconcile)
+Phase: 52 of 54 (Shared Feature Builder & Consistency)
+Plan: —
+Status: Ready to plan
+Last activity: 2026-06-06 — Phase 51 executed (3/3 plans complete)
 
-Progress: [██████░░░░] 67%
+Progress: [██░░░░░░░░] 25%
 
 ## Accumulated Context
 
@@ -43,6 +43,24 @@ Recent decisions affecting current work:
 - PT uses retrained models (run_train.py 2022-2025), not BT model artifacts
 - 2026 PT uses data up to 2025-12-31 only (no future information)
 - Regime state unification decision deferred to Phase 53 planning
+- PaperReconciler is the single implementation of settlement logic (D-01, Phase 51)
+- bet_id = SHA256(session_id|race_id|bet_type|umaban)[:32] (D-02, Phase 51)
+- 3-column state model: settlement_status/outcome/payout (D-03, Phase 51)
+- ROI = return / effective_stake (won+lost only), excluding refunded/voided (D-05, Phase 51)
+- ModelLoader requires explicit run_id or models_dir, no implicit fallback (D-16, Phase 51)
+
+### Phase 51 Deliverables
+
+| Component | Status | Key Change |
+|-----------|--------|------------|
+| src/betting/payout_maps.py | New | Pure functions for Win/Place/Wide payout maps (20 tests) |
+| src/backtest/engine.py | Modified | Imports from payout_maps.py, ~200 lines removed |
+| src/paper_trading/reconciler.py | Overhauled | 3-column state model, retry, ROI with losses (25 tests) |
+| scripts/run_paper_trading.py | Modified | New schema columns in _run_predict, _run_reconcile thinned to 58 lines |
+| scripts/run_train.py | Modified | --betting-target CLI, pre-training Parquet validation |
+| src/pipelines/training_pipeline.py | Modified | track_stats JSON persistence, betting_target in meta.json |
+| src/features/feature_engine.py | Modified | track_conditions + horse_track_aptitude cache deps |
+| src/db/model_loader.py | Modified | Explicit source selection, track_stats restore, betting_target (12 tests) |
 
 ### Blockers/Concerns
 
@@ -66,5 +84,5 @@ Recent decisions affecting current work:
 
 ## Session Continuity
 
-Last session: 2026-06-06T00:35:00Z
-Stopped at: Phase 51 Plan 02 complete (PaperReconciler overhaul)
+Last session: 2026-06-06T00:40:00Z
+Stopped at: Phase 51 complete, Phase 52 next
