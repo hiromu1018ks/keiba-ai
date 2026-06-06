@@ -139,7 +139,7 @@ Phases execute in numeric order: 51 → 52 → 53 → 54
 | 1-42 | v1.0-v2.1 | 85/85 | Complete | 2026-05-28 |
 | 43-46 | v2.2 | 8/8 | Complete (not_deployable) | 2026-06-02 |
 | 47-50 | v2.3 | 7/7 | Complete | 2026-06-05 |
-| 51. Settlement Integrity & Training | v2.4 | 0/3 | Planned | - |
+| 51. Settlement Integrity & Training | v2.4 | 2/3 | In progress | - |
 | 52. Shared Feature Builder & Consistency | v2.4 | 0/? | Not started | - |
 | 53. Strategy Alignment & Live Data | v2.4 | 0/? | Not started | - |
 | 54. Automation & Reporting | v2.4 | 0/? | Not started | - |
