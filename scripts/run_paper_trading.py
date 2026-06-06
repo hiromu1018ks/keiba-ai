@@ -163,6 +163,76 @@ def _build_features_fb(
     return feat_df
 
 
+def _build_race_predictor(
+    models: "TrainedModelsV5",
+    args: argparse.Namespace,
+    strategy_config: dict[str, object] | None = None,
+    session_manifest: object | None = None,
+    bankroll: float = 0.0,
+):
+    """Build RacePredictor with consistent kwargs across predict/diagnose/dry-run (WR-01).
+
+    Encapsulates OddsBandFilter injection, dd_shadow_only, and kelly-mode
+    stake calculator setup so all 3 modes use identical construction logic.
+    """
+    from backtest.race_predictor import RacePredictor
+
+    betting_target = args.betting_target
+    betting_mode = args.betting_mode
+    if strategy_config is None:
+        strategy_config = {}
+
+    race_predictor_kwargs: dict[str, object] = {
+        "betting_target": betting_target,
+        "dd_shadow_only": True,  # D-01: PT では DD は shadow 記録のみ
+    }
+
+    if betting_mode == "kelly" and strategy_config:
+        from betting.drawdown_controller import DDConfig, DrawdownController
+        from betting.stake_calculator import StakeCalculator
+
+        dd_cfg = strategy_config.get("dd_config", DDConfig())
+        stake_calc = StakeCalculator(
+            fractional_kelly=strategy_config.get("fractional_kelly", 0.5),
+            target_ev=strategy_config.get("target_ev", 1.10),
+            max_scale=strategy_config.get("max_scale", 2.0),
+        )
+        dd_ctrl = DrawdownController(
+            peak_bankroll=bankroll,
+            cfg=dd_cfg,
+        )
+        race_predictor_kwargs["stake_calculator"] = stake_calc
+        race_predictor_kwargs["dd_controller"] = dd_ctrl
+
+    # OddsBandFilter injection (win-target only)
+    if betting_target == "win":
+        from betting.odds_band_filter import OddsBandFilter
+
+        roi_threshold = float(strategy_config.get("roi_threshold", 1.0))
+        obf = OddsBandFilter(roi_threshold=roi_threshold)
+        race_predictor_kwargs["odds_band_filter"] = obf
+
+        # Record OddsBandFilter metadata if session_manifest available
+        if session_manifest is not None and hasattr(session_manifest, "set_obf_metadata"):
+            from features.session_manifest import compute_obf_config_hash
+
+            train_end = models.train_period[1] if models.train_period else ""
+            obf_excluded_bands: set[str] = set()
+            if strategy_config and "_obf_excluded_bands" in strategy_config:
+                _raw = strategy_config["_obf_excluded_bands"]
+                if isinstance(_raw, (list, set)):
+                    obf_excluded_bands = set(str(b) for b in _raw)
+            config_hash = compute_obf_config_hash(roi_threshold)
+            session_manifest.set_obf_metadata(
+                calibration_data_end_date=str(train_end),
+                roi_threshold=roi_threshold,
+                excluded_bands=obf_excluded_bands,
+                config_hash=config_hash,
+            )
+
+    return RacePredictor(models, **race_predictor_kwargs)
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Paper Trading")
     parser.add_argument(
@@ -397,7 +467,6 @@ def _run_predict(
     import pandas as pd
 
     from backtest.diagnostic_logger import DiagnosticLogger
-    from backtest.race_predictor import RacePredictor
     from db.everydb2_queries import EveryDB2Queries
     from db.odds_extractor import extract_pre_post_odds
     from db.readers import (
@@ -638,52 +707,12 @@ def _run_predict(
 
     # 推論 — BT engine.py と同一の RacePredictor 構築パターン (D-02)
     bankroll = config.initial_bankroll
-    race_predictor_kwargs: dict[str, object] = {
-        "betting_target": betting_target,
-        "dd_shadow_only": True,  # D-01: PT では DD は shadow 記録のみ
-    }
-    if betting_mode == "kelly" and strategy_config:
-        from betting.drawdown_controller import DDConfig, DrawdownController
-        from betting.stake_calculator import StakeCalculator
-
-        dd_cfg = strategy_config.get("dd_config", DDConfig())
-        stake_calc = StakeCalculator(
-            fractional_kelly=strategy_config.get("fractional_kelly", 0.5),
-            target_ev=strategy_config.get("target_ev", 1.10),
-            max_scale=strategy_config.get("max_scale", 2.0),
-        )
-        dd_ctrl = DrawdownController(
-            peak_bankroll=bankroll,
-            cfg=dd_cfg,
-        )
-        race_predictor_kwargs["stake_calculator"] = stake_calc
-        race_predictor_kwargs["dd_controller"] = dd_ctrl
-
-    # D-08: OddsBandFilter injection (win-target only)
-    if betting_target == "win":
-        from betting.odds_band_filter import OddsBandFilter
-        from features.session_manifest import compute_obf_config_hash
-
-        roi_threshold = float(strategy_config.get("roi_threshold", 1.0))
-        obf = OddsBandFilter(roi_threshold=roi_threshold)
-        race_predictor_kwargs["odds_band_filter"] = obf
-
-        # D-08: Record OddsBandFilter metadata
-        train_end = models.train_period[1] if models.train_period else ""
-        obf_excluded_bands: set[str] = set()
-        if strategy_config and "_obf_excluded_bands" in strategy_config:
-            _raw = strategy_config["_obf_excluded_bands"]
-            if isinstance(_raw, (list, set)):
-                obf_excluded_bands = set(str(b) for b in _raw)
-        config_hash = compute_obf_config_hash(roi_threshold)
-        session_manifest.set_obf_metadata(
-            calibration_data_end_date=str(train_end),
-            roi_threshold=roi_threshold,
-            excluded_bands=obf_excluded_bands,
-            config_hash=config_hash,
-        )
-
-    race_predictor = RacePredictor(models, **race_predictor_kwargs)
+    race_predictor = _build_race_predictor(
+        models, args,
+        strategy_config=strategy_config,
+        session_manifest=session_manifest,
+        bankroll=bankroll,
+    )
     diag_logger = DiagnosticLogger()
     all_bets: list[dict[str, object]] = []
 
@@ -999,7 +1028,6 @@ def _run_diagnose(
 ) -> None:
     """Parquet データを使って診断推論を実行 (EveryDB2 バイパス)"""
     from backtest.diagnostic_logger import DiagnosticLogger
-    from backtest.race_predictor import RacePredictor
     from db.odds_extractor import extract_pre_post_odds
     from db.readers import (
         load_entries,
@@ -1042,7 +1070,7 @@ def _run_diagnose(
     race_ids = feat_df["race_id"].unique()
 
     # 推論 + 診断ログ
-    race_predictor = RacePredictor(models, betting_target=args.betting_target)
+    race_predictor = _build_race_predictor(models, args)
     diag_logger = DiagnosticLogger()
 
     # RegimeDetector 用: 直近200レースの統計を蓄積 (BT と同等)
@@ -1228,7 +1256,6 @@ def _run_dry_run(
 ) -> None:
     import pandas as pd
 
-    from backtest.race_predictor import RacePredictor
     from db.everydb2_queries import EveryDB2Queries
     from db.odds_extractor import extract_pre_post_odds
     from db.readers import (
@@ -1242,8 +1269,8 @@ def _run_dry_run(
     if args.date:
         dates: list[date] = [date.fromisoformat(args.date)]
     elif args.start and args.end:
-        start = date.fromisoformat(args.start.replace("-", ""))
-        end = date.fromisoformat(args.end.replace("-", ""))
+        start = date.fromisoformat(args.start)
+        end = date.fromisoformat(args.end)
         dates = []
         d = start
         while d <= end:
@@ -1253,7 +1280,7 @@ def _run_dry_run(
         logger.error("--date or --start/--end required for dry-run")
         sys.exit(1)
 
-    race_predictor = RacePredictor(models, betting_target=args.betting_target)
+    race_predictor = _build_race_predictor(models, args)
 
     # 特徴量を一括生成
     all_start = dates[0].strftime("%Y%m%d")
