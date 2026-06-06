@@ -14,7 +14,10 @@ from domain.types import RegimeState
 @pytest.fixture
 def mock_models() -> MagicMock:
     models = MagicMock(spec=TrainedModelsV5)
-    models.submodels = {"turf": MagicMock(spec=SubmodelSet)}
+    submodel = MagicMock(spec=SubmodelSet)
+    submodel.track_stats = {"turf": {"avg": 1.0}}
+    submodel.track_month_stats = {"turf": {"avg": 1.0}}
+    models.submodels = {"turf": submodel}
     models.quality_screener = MagicMock()
     models.quality_screener.should_bet.return_value = True
     models.regime_detector = MagicMock()
@@ -27,11 +30,7 @@ def mock_models() -> MagicMock:
 
 
 class TestPaperPredictor:
-    @patch("features.trainer_context_features.TrainerContextFeatures")
-    @patch("features.jockey_context_features.JockeyContextFeatures")
-    @patch("features.horse_history_features.HorseHistoryFeatures")
-    @patch("models.submodel_manager.SubModelManager")
-    @patch("features.feature_engine.FeatureEngine")
+    @patch("features.feature_builder.FeatureBuilder")
     @patch("paper_trading.predictor.load_odds_snapshots")
     @patch("paper_trading.predictor.load_entries")
     @patch("paper_trading.predictor.load_races")
@@ -40,11 +39,7 @@ class TestPaperPredictor:
         mock_load_races: MagicMock,
         mock_load_entries: MagicMock,
         mock_load_odds: MagicMock,
-        mock_feat_cls: MagicMock,
-        mock_submgr_cls: MagicMock,
-        mock_hist_cls: MagicMock,
-        mock_jockey_cls: MagicMock,
-        mock_trainer_cls: MagicMock,
+        mock_feature_builder_cls: MagicMock,
         mock_models: MagicMock,
         tmp_path: Path,
     ) -> None:
@@ -65,9 +60,10 @@ class TestPaperPredictor:
         )
         mock_load_odds.return_value = pd.DataFrame()
 
-        mock_feat = MagicMock()
-        mock_feat_cls.return_value = mock_feat
-        mock_feat.build_all.return_value = pd.DataFrame(
+        # FeatureBuilder mock (Phase 52)
+        from features.feature_manifest import FeatureBuildResult, FeatureManifest
+
+        feat_df = pd.DataFrame(
             {
                 "race_id": ["2026040510010101"],
                 "umaban": [1],
@@ -80,21 +76,12 @@ class TestPaperPredictor:
                 "kettonum": [1234],
             }
         )
-        mock_submgr = MagicMock()
-        mock_submgr_cls.return_value = mock_submgr
-        mock_submgr.add_distance_band_features.return_value = mock_feat.build_all.return_value
-
-        mock_hist = MagicMock()
-        mock_hist_cls.return_value = mock_hist
-        mock_hist.compute.return_value = pd.DataFrame(columns=["race_id", "umaban"])
-
-        mock_jockey = MagicMock()
-        mock_jockey_cls.return_value = mock_jockey
-        mock_jockey.compute.return_value = pd.DataFrame(columns=["race_id", "umaban"])
-
-        mock_trainer = MagicMock()
-        mock_trainer_cls.return_value = mock_trainer
-        mock_trainer.compute.return_value = pd.DataFrame(columns=["race_id", "umaban"])
+        _manifest = FeatureManifest(column_names=(), column_dtypes=(), feature_version="1.0")
+        mock_builder = MagicMock()
+        mock_feature_builder_cls.return_value = mock_builder
+        mock_builder.build_for_inference.return_value = FeatureBuildResult(
+            frame=feat_df, manifest=_manifest,
+        )
 
         mock_everydb2 = MagicMock()
         mock_everydb2.get_race_schedule.return_value = [
@@ -176,18 +163,10 @@ class TestPaperPredictorPreRaceOdds:
     @patch("paper_trading.predictor.load_odds_snapshots")
     @patch("paper_trading.predictor.load_entries")
     @patch("paper_trading.predictor.load_races")
-    @patch("features.trainer_context_features.TrainerContextFeatures")
-    @patch("features.jockey_context_features.JockeyContextFeatures")
-    @patch("features.horse_history_features.HorseHistoryFeatures")
-    @patch("models.submodel_manager.SubModelManager")
-    @patch("features.feature_engine.FeatureEngine")
+    @patch("features.feature_builder.FeatureBuilder")
     def test_setup_uses_pre_race_odds_when_available(
         self,
-        mock_feat_cls: MagicMock,
-        mock_submgr_cls: MagicMock,
-        mock_hist_cls: MagicMock,
-        mock_jockey_cls: MagicMock,
-        mock_trainer_cls: MagicMock,
+        mock_feature_builder_cls: MagicMock,
         mock_load_races: MagicMock,
         mock_load_entries: MagicMock,
         mock_load_odds: MagicMock,
@@ -220,9 +199,10 @@ class TestPaperPredictorPreRaceOdds:
         mock_load_ts.return_value = pd.DataFrame({"race_id": ["x"]})  # 非空
         mock_extract.return_value = pre_race_odds
 
-        mock_feat = MagicMock()
-        mock_feat_cls.return_value = mock_feat
-        mock_feat.build_all.return_value = pd.DataFrame(
+        # FeatureBuilder mock (Phase 52)
+        from features.feature_manifest import FeatureBuildResult, FeatureManifest
+
+        feat_df = pd.DataFrame(
             {
                 "race_id": ["2026040510010101"],
                 "umaban": [1],
@@ -230,34 +210,33 @@ class TestPaperPredictorPreRaceOdds:
                 "kyori": [1200],
             }
         )
-        mock_submgr = MagicMock()
-        mock_submgr_cls.return_value = mock_submgr
-        mock_submgr.add_distance_band_features.return_value = mock_feat.build_all.return_value
-
-        mock_hist = MagicMock()
-        mock_hist_cls.return_value = mock_hist
-        mock_hist.compute.return_value = pd.DataFrame(columns=["race_id", "umaban"])
-        mock_jockey = MagicMock()
-        mock_jockey_cls.return_value = mock_jockey
-        mock_jockey.compute.return_value = pd.DataFrame(columns=["race_id", "umaban"])
-        mock_trainer = MagicMock()
-        mock_trainer_cls.return_value = mock_trainer
-        mock_trainer.compute.return_value = pd.DataFrame(columns=["race_id", "umaban"])
+        _manifest = FeatureManifest(column_names=(), column_dtypes=(), feature_version="1.0")
+        mock_builder = MagicMock()
+        mock_feature_builder_cls.return_value = mock_builder
+        mock_builder.build_for_inference.return_value = FeatureBuildResult(
+            frame=feat_df, manifest=_manifest,
+        )
 
         mock_everydb2 = MagicMock()
         mock_everydb2.get_race_schedule.return_value = [
             {"race_id": "2026040510010101", "venue": "中山", "race_num": 1}
         ]
 
+        submodel = MagicMock()
+        submodel.track_stats = {"turf": {"avg": 1.0}}
+        submodel.track_month_stats = {"turf": {"avg": 1.0}}
+        mock_models_pt = MagicMock()
+        mock_models_pt.submodels = {"turf": submodel}
+
         predictor = PaperPredictor(
-            store=MagicMock(), race_predictor=MagicMock(), models=MagicMock(), output_dir=tmp_path / "pt"
+            store=MagicMock(), race_predictor=MagicMock(), models=mock_models_pt, output_dir=tmp_path / "pt"
         )
         predictor.setup(date(2026, 4, 5), everydb2=mock_everydb2)
 
         # extract_pre_post_odds が呼ばれる
         mock_extract.assert_called_once()
-        # build_all に pre_race_odds が渡される (confirmed_odds ではない)
-        call_args = mock_feat.build_all.call_args
+        # FeatureBuilder.build_for_inference に pre_race_odds が渡される
+        call_args = mock_builder.build_for_inference.call_args
         assert call_args is not None
         # 第3引数 (odds_df) が pre_race_odds
         odds_arg = call_args[0][2]
@@ -268,18 +247,10 @@ class TestPaperPredictorPreRaceOdds:
     @patch("paper_trading.predictor.load_odds_snapshots")
     @patch("paper_trading.predictor.load_entries")
     @patch("paper_trading.predictor.load_races")
-    @patch("features.trainer_context_features.TrainerContextFeatures")
-    @patch("features.jockey_context_features.JockeyContextFeatures")
-    @patch("features.horse_history_features.HorseHistoryFeatures")
-    @patch("models.submodel_manager.SubModelManager")
-    @patch("features.feature_engine.FeatureEngine")
+    @patch("features.feature_builder.FeatureBuilder")
     def test_setup_falls_back_to_confirmed_when_no_ts(
         self,
-        mock_feat_cls: MagicMock,
-        mock_submgr_cls: MagicMock,
-        mock_hist_cls: MagicMock,
-        mock_jockey_cls: MagicMock,
-        mock_trainer_cls: MagicMock,
+        mock_feature_builder_cls: MagicMock,
         mock_load_races: MagicMock,
         mock_load_entries: MagicMock,
         mock_load_odds: MagicMock,
@@ -307,9 +278,10 @@ class TestPaperPredictorPreRaceOdds:
         mock_load_odds.return_value = confirmed_odds
         mock_load_ts.return_value = pd.DataFrame()  # 空のDF → フォールバック
 
-        mock_feat = MagicMock()
-        mock_feat_cls.return_value = mock_feat
-        mock_feat.build_all.return_value = pd.DataFrame(
+        # FeatureBuilder mock (Phase 52)
+        from features.feature_manifest import FeatureBuildResult, FeatureManifest
+
+        feat_df = pd.DataFrame(
             {
                 "race_id": ["2026040510010101"],
                 "umaban": [1],
@@ -317,32 +289,31 @@ class TestPaperPredictorPreRaceOdds:
                 "kyori": [1200],
             }
         )
-        mock_submgr = MagicMock()
-        mock_submgr_cls.return_value = mock_submgr
-        mock_submgr.add_distance_band_features.return_value = mock_feat.build_all.return_value
-
-        mock_hist = MagicMock()
-        mock_hist_cls.return_value = mock_hist
-        mock_hist.compute.return_value = pd.DataFrame(columns=["race_id", "umaban"])
-        mock_jockey = MagicMock()
-        mock_jockey_cls.return_value = mock_jockey
-        mock_jockey.compute.return_value = pd.DataFrame(columns=["race_id", "umaban"])
-        mock_trainer = MagicMock()
-        mock_trainer_cls.return_value = mock_trainer
-        mock_trainer.compute.return_value = pd.DataFrame(columns=["race_id", "umaban"])
+        _manifest = FeatureManifest(column_names=(), column_dtypes=(), feature_version="1.0")
+        mock_builder = MagicMock()
+        mock_feature_builder_cls.return_value = mock_builder
+        mock_builder.build_for_training.return_value = FeatureBuildResult(
+            frame=feat_df, manifest=_manifest,
+        )
 
         mock_everydb2 = MagicMock()
         mock_everydb2.get_race_schedule.return_value = [
             {"race_id": "2026040510010101", "venue": "中山", "race_num": 1}
         ]
 
+        # track_statsなしのsubmodel → build_for_training フォールバック
+        submodel_no_stats = MagicMock()
+        submodel_no_stats.track_stats = None
+        mock_models_pt = MagicMock()
+        mock_models_pt.submodels = {"turf": submodel_no_stats}
+
         predictor = PaperPredictor(
-            store=MagicMock(), race_predictor=MagicMock(), models=MagicMock(), output_dir=tmp_path / "pt"
+            store=MagicMock(), race_predictor=MagicMock(), models=mock_models_pt, output_dir=tmp_path / "pt"
         )
         predictor.setup(date(2026, 4, 5), everydb2=mock_everydb2)
 
-        # build_all に confirmed_odds が渡される
-        call_args = mock_feat.build_all.call_args
+        # FeatureBuilder.build_for_training に confirmed_odds が渡される
+        call_args = mock_builder.build_for_training.call_args
         assert call_args is not None
         odds_arg = call_args[0][2]
         assert len(odds_arg) == len(confirmed_odds)
@@ -353,18 +324,10 @@ class TestPaperPredictorPreRaceOdds:
     @patch("paper_trading.predictor.load_odds_snapshots")
     @patch("paper_trading.predictor.load_entries")
     @patch("paper_trading.predictor.load_races")
-    @patch("features.trainer_context_features.TrainerContextFeatures")
-    @patch("features.jockey_context_features.JockeyContextFeatures")
-    @patch("features.horse_history_features.HorseHistoryFeatures")
-    @patch("models.submodel_manager.SubModelManager")
-    @patch("features.feature_engine.FeatureEngine")
+    @patch("features.feature_builder.FeatureBuilder")
     def test_setup_falls_back_when_pre_race_empty(
         self,
-        mock_feat_cls: MagicMock,
-        mock_submgr_cls: MagicMock,
-        mock_hist_cls: MagicMock,
-        mock_jockey_cls: MagicMock,
-        mock_trainer_cls: MagicMock,
+        mock_feature_builder_cls: MagicMock,
         mock_load_races: MagicMock,
         mock_load_entries: MagicMock,
         mock_load_odds: MagicMock,
@@ -394,9 +357,10 @@ class TestPaperPredictorPreRaceOdds:
         mock_load_ts.return_value = pd.DataFrame({"race_id": ["x"]})  # 非空
         mock_extract.return_value = pd.DataFrame()  # 空の結果
 
-        mock_feat = MagicMock()
-        mock_feat_cls.return_value = mock_feat
-        mock_feat.build_all.return_value = pd.DataFrame(
+        # FeatureBuilder mock (Phase 52)
+        from features.feature_manifest import FeatureBuildResult, FeatureManifest
+
+        feat_df = pd.DataFrame(
             {
                 "race_id": ["2026040510010101"],
                 "umaban": [1],
@@ -404,32 +368,31 @@ class TestPaperPredictorPreRaceOdds:
                 "kyori": [1200],
             }
         )
-        mock_submgr = MagicMock()
-        mock_submgr_cls.return_value = mock_submgr
-        mock_submgr.add_distance_band_features.return_value = mock_feat.build_all.return_value
-
-        mock_hist = MagicMock()
-        mock_hist_cls.return_value = mock_hist
-        mock_hist.compute.return_value = pd.DataFrame(columns=["race_id", "umaban"])
-        mock_jockey = MagicMock()
-        mock_jockey_cls.return_value = mock_jockey
-        mock_jockey.compute.return_value = pd.DataFrame(columns=["race_id", "umaban"])
-        mock_trainer = MagicMock()
-        mock_trainer_cls.return_value = mock_trainer
-        mock_trainer.compute.return_value = pd.DataFrame(columns=["race_id", "umaban"])
+        _manifest = FeatureManifest(column_names=(), column_dtypes=(), feature_version="1.0")
+        mock_builder = MagicMock()
+        mock_feature_builder_cls.return_value = mock_builder
+        mock_builder.build_for_training.return_value = FeatureBuildResult(
+            frame=feat_df, manifest=_manifest,
+        )
 
         mock_everydb2 = MagicMock()
         mock_everydb2.get_race_schedule.return_value = [
             {"race_id": "2026040510010101", "venue": "中山", "race_num": 1}
         ]
 
+        # track_statsなしのsubmodel → build_for_training フォールバック
+        submodel_no_stats = MagicMock()
+        submodel_no_stats.track_stats = None
+        mock_models_pt = MagicMock()
+        mock_models_pt.submodels = {"turf": submodel_no_stats}
+
         predictor = PaperPredictor(
-            store=MagicMock(), race_predictor=MagicMock(), models=MagicMock(), output_dir=tmp_path / "pt"
+            store=MagicMock(), race_predictor=MagicMock(), models=mock_models_pt, output_dir=tmp_path / "pt"
         )
         predictor.setup(date(2026, 4, 5), everydb2=mock_everydb2)
 
-        # build_all に confirmed_odds が渡される (フォールバック)
-        call_args = mock_feat.build_all.call_args
+        # FeatureBuilder.build_for_training に confirmed_odds が渡される (フォールバック)
+        call_args = mock_builder.build_for_training.call_args
         assert call_args is not None
         odds_arg = call_args[0][2]
         assert len(odds_arg) == len(confirmed_odds)

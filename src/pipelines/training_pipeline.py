@@ -373,19 +373,21 @@ class TrainingPipelineV5:
         else:
             logger.warning("No time-series data or hassotime, using snapshots")
 
-        # 2. 特徴量生成
+        # 2. 特徴量生成 (Phase 52: FeatureBuilder で13エンリッチメントモジュールを一括実行)
         # 学習パイプラインでは kakuteijyuni (ターゲット変数) と confirmed_odds (EV計算)
-        # を保持する。build_all() の SAFE-01 はこれらを除外してドロップする。
+        # を保持する。build_for_training() の preserve_columns でこれらを維持。
+        from features.feature_builder import FeatureBuilder
+
         logger.info("Building features")
-        feat_df = self.feature_engine.build_all(
+        builder = FeatureBuilder(store=self.store)
+        build_result = builder.build_for_training(
             race_df,
             entry_df,
             odds_df,
             odds_ts_df=odds_ts_df,
-            store=self.store,
             preserve_columns=["kakuteijyuni", "confirmed_odds"],
         )
-        feat_df = self.submodel_mgr.add_distance_band_features(feat_df)
+        feat_df = build_result.frame
 
         # JRAフィルタ: NARレース (jyocd 30以上) を除外
         if "jyocd" in feat_df.columns:
@@ -812,217 +814,25 @@ class TrainingPipelineV5:
             num_threads = max(1, (os.cpu_count() or 4) // 2)
         surface = df["surface"].iloc[0] if "surface" in df.columns else "unknown"
 
-        # NEW: 馬過去成績特徴量
-        from features.horse_history_features import HorseHistoryFeatures
-
-        with TimingContext(f"{surface}/horse_history"):
-            hist = HorseHistoryFeatures(store=self.store, n_past=5)
-            hist_df = hist.compute(self._race_df, self._entry_df, df["race_id"].unique())
-            df = df.merge(hist_df, on=["race_id", "umaban"], how="left")
-        with TimingContext(f"{surface}/add_race_transforms"):
-            df = HorseHistoryFeatures.add_race_transforms(df)
-
-        # Group C: ペース適性特徴量 (HorseHistoryFeatures の直後)
-        from features.pace_aptitude_features import PaceAptitudeFeatures
-
-        with TimingContext(f"{surface}/pace_aptitude"):
-            pace_feat = PaceAptitudeFeatures(store=self.store)
-            pace_df = pace_feat.compute_batch(df)
-            # df には既に特徴量列が含まれている可能性があるため削除
-            _pace_drop_cols = [
-                "pace_aptitude",
-                "front_pace_wr",
-                "closing_pace_wr",
-                "pace_corner_stability",
-                "pace_closing_power",
-                "pace_position_consistency",
-            ]
-            for col in _pace_drop_cols:
-                if col in df.columns:
-                    df.drop(columns=[col], inplace=True)
-            if not pace_df.empty:
-                pace_merge_cols = [
-                    c
-                    for c in [
-                        "kettonum",
-                        "race_id",
-                        "pace_aptitude",
-                        "front_pace_wr",
-                        "closing_pace_wr",
-                        "pace_corner_stability",
-                        "pace_closing_power",
-                        "pace_position_consistency",
-                    ]
-                    if c in pace_df.columns
-                ]
-                df = df.merge(
-                    pace_df[pace_merge_cols],
-                    on=["kettonum", "race_id"],
-                    how="left",
-                )
-            else:
-                # 空の場合は結果列を NaN で追加
-                df["pace_aptitude"] = np.nan
-                df["front_pace_wr"] = np.nan
-                df["closing_pace_wr"] = np.nan
-                df["pace_corner_stability"] = np.nan
-                df["pace_closing_power"] = np.nan
-                df["pace_position_consistency"] = np.nan
-
-        # Group D: コース別適性特徴量 (pace_aptitude の直後)
-        from features.course_features import CourseFeatures
-
-        with TimingContext(f"{surface}/course_features"):
-            course_feat = CourseFeatures(store=self.store)
-            course_df = course_feat.compute_batch(df)
-            # df には既に特徴量列が含まれている可能性があるため削除
-            for col in ["course_wr", "course_distance_wr"]:
-                if col in df.columns:
-                    df.drop(columns=[col], inplace=True)
-            if not course_df.empty:
-                df = df.merge(
-                    course_df[["kettonum", "race_id", "course_wr", "course_distance_wr"]],
-                    on=["kettonum", "race_id"],
-                    how="left",
-                )
-            else:
-                # 空の場合は結果列を NaN で追加
-                df["course_wr"] = np.nan
-                df["course_distance_wr"] = np.nan
-
-        # 種牡馬産駒特徴量の追加 (ベクトル化)
-        from db.readers import load_horses, load_sire_stats
-        from features.sire_features import SireFeatures
-
-        with TimingContext(f"{surface}/sire_features"):
-            sire_stats = load_sire_stats(self.store)
-            if not sire_stats.empty:
-                horses_df = load_horses(self.store)
-                sire_feat = SireFeatures(sire_stats)
-                # entry_df に sire_id / bms_id 列を追加
-                sire_map = horses_df.set_index("kettonum")["ketto3infohansyokunum1"]
-                df["sire_id"] = df["kettonum"].map(sire_map)
-                bms_source_col = (
-                    "ketto3infohansyokunum5"
-                    if "ketto3infohansyokunum5" in horses_df.columns
-                    else "ketto3infohansyokunum3"
-                )
-                bms_map = horses_df.set_index("kettonum")[bms_source_col]
-                df["bms_id"] = df["kettonum"].map(bms_map)
-                # ベクトル化一括計算
-                sire_result = sire_feat.compute_batch(df)
-                # モデルで使用する7列のみを反映 (sire_place_rate は未使用のため除外)
-                _sire_cols_needed = {
-                    "sire_wr",
-                    "sire_surface_wr",
-                    "sire_distance_wr",
-                    "sire_prize_avg",
-                    "bms_wr",
-                    "bms_distance_wr",
-                    "bms_surface_wr",
-                    "bms_has_history",
-                    "bms_starts_log",
-                    "bms_surface_starts_log",
-                    "bms_distance_starts_log",
-                }
-                for col in _sire_cols_needed:
-                    if col in sire_result.columns:
-                        df[col] = sire_result[col].values
-
-        # Group B-2: 繁殖牝馬産駒特徴量 (sire features の後)
-        from features.dam_pedigree_features import FEATURE_COLS as DAM_PED_FEATURE_COLS
-        from features.dam_pedigree_features import DamPedigreeFeatures
-
-        with TimingContext(f"{surface}/dam_pedigree"):
-            dam_ped = DamPedigreeFeatures(self.store)
-            dam_ped_df = dam_ped.compute(df)
-            _dam_drop_cols = [c for c in DAM_PED_FEATURE_COLS if c in df.columns]
-            if _dam_drop_cols:
-                df.drop(columns=_dam_drop_cols, inplace=True)
-            if not dam_ped_df.empty:
-                df = df.merge(dam_ped_df, on=["race_id", "umaban"], how="left")
-            else:
-                for col in DAM_PED_FEATURE_COLS:
-                    df[col] = np.nan
-
-        # Group B-3: コースレコード特徴量
-        from features.record_features import FEATURE_COLS as RECORD_FEATURE_COLS
-        from features.record_features import RecordFeatures
-
-        with TimingContext(f"{surface}/record_features"):
-            record_feat = RecordFeatures(self.store)
-            record_df = record_feat.compute(df)
-            assert record_df.empty or record_df["race_id"].is_unique, (
-                f"record_df has duplicate race_ids: {record_df['race_id'].duplicated().sum()}"
-            )
-            _record_drop_cols = [c for c in RECORD_FEATURE_COLS if c in df.columns]
-            if _record_drop_cols:
-                df.drop(columns=_record_drop_cols, inplace=True)
-            if not record_df.empty:
-                df = df.merge(record_df, on=["race_id"], how="left")
-            else:
-                for col in RECORD_FEATURE_COLS:
-                    df[col] = np.nan
-
-        # Group E: 交互作用特徴量 (HorseHistoryFeatures 後に実行 — kyakusitu_cd が必要)
-        from features.interaction_features import compute_interaction_features
-
-        # Group F: 馬場状態トラック条件特徴量 (HorseHistoryFeatures 後、interaction_features 前)
+        # track_stats/track_month_stats for SubmodelSet persistence
+        # These are computed from the surface-filtered training data
+        # FeatureBuilder handles all 13 enrichment modules; _train_submodel
+        # only computes track_stats per-surface (Phase 52)
         from features.track_condition_features import (
             _compute_track_month_stats,
             _compute_track_stats,
-            compute_race_condition_features,
-            compute_track_condition_features,
         )
 
         _track_stats: dict | None = None
         _track_month_stats: dict | None = None
-        with TimingContext(f"{surface}/track_condition"):
-            if "turf_cushion" in df.columns and "trackcd" in df.columns:
-                _track_stats = _compute_track_stats(df)
-            if "trackcd" in df.columns and (
-                "turf_cushion" in df.columns or "dirt_moisture" in df.columns
-            ):
-                _track_month_stats = _compute_track_month_stats(df)
-            df = compute_track_condition_features(
-                df, track_stats=_track_stats, track_month_stats=_track_month_stats
-            )
-            df = compute_race_condition_features(df)
-
-        with TimingContext(f"{surface}/interaction"):
-            df = compute_interaction_features(df)
-
-        # Group F: n_mining予想特徴量 (interaction features の後)
-        from features.mining_features import FEATURE_COLS as MINING_FEATURE_COLS
-        from features.mining_features import MiningFeatures
-
-        with TimingContext(f"{surface}/mining_features"):
-            mining_feat = MiningFeatures(self.store)
-            mining_df = mining_feat.compute(df)
-            _mining_drop_cols = [c for c in MINING_FEATURE_COLS if c in df.columns]
-            if _mining_drop_cols:
-                df.drop(columns=_mining_drop_cols, inplace=True)
-            if not mining_df.empty:
-                df = df.merge(mining_df, on=["race_id", "umaban"], how="left")
-            else:
-                for col in MINING_FEATURE_COLS:
-                    df[col] = np.nan
-
-        # Group G: レース内相対比較特徴量 (all per-horse features の後)
-        from features.relative_features import compute_relative_features
-
-        with TimingContext(f"{surface}/relative_features"):
-            df = compute_relative_features(df)
+        if "turf_cushion" in df.columns and "trackcd" in df.columns:
+            _track_stats = _compute_track_stats(df)
+        if "trackcd" in df.columns and (
+            "turf_cushion" in df.columns or "dirt_moisture" in df.columns
+        ):
+            _track_month_stats = _compute_track_month_stats(df)
 
         # 1. Market Model (正規化差分 log_error のみ出力)
-        # object型の数値列 (pd.NA含む) → float64 (2回目のsurface処理でpd.NAが混入するため)
-        for col in df.columns:
-            if df[col].dtype == object:
-                try:
-                    df[col] = df[col].astype(float)
-                except (ValueError, TypeError):
-                    pass
-
         with TimingContext(f"{surface}/market_model"):
             # 時間ベース分割の前提: race_date でソート
             df = df.sort_values("race_date").reset_index(drop=True)

@@ -50,12 +50,8 @@ class PaperPredictor:
             レーススケジュール (race_id, venue, race_num, post_time, surface, distance)。
             事前計算済み特徴量を predictions/YYYYMMDD_pre.parquet に保存。
         """
-        from features.feature_engine import FeatureEngine
-        from features.horse_history_features import HorseHistoryFeatures
-        from features.jockey_context_features import JockeyContextFeatures
-        from features.jockey_trainer_combo import JockeyTrainerComboFeatures
-        from features.trainer_context_features import TrainerContextFeatures
-        from models.submodel_manager import SubModelManager
+        from features.feature_builder import FeatureBuilder
+        from features.feature_manifest import FeatureState
 
         # 1. スケジュール取得
         schedule = everydb2.get_race_schedule(target_date)
@@ -86,35 +82,44 @@ class PaperPredictor:
         else:
             logger.info("No time-series odds for %s, using confirmed odds", ymd)
 
-        feat_engine = FeatureEngine()
-        submodel_mgr = SubModelManager()
-        feat_df = feat_engine.build_all(
-            race_df, entry_df, odds_df, odds_ts_df=odds_ts_df, store=self.store
-        )
-        feat_df = submodel_mgr.add_distance_band_features(feat_df)
+        # FeatureBuilder: 13エンリッチメントモジュールを一括実行 (Phase 52)
+        # PT は推論パス: build_for_inference() を使用し、FeatureState は
+        # SubmodelSet から取得。7ギャップ (Sire/PaceAptitude/Course/DamPedigree/
+        # Record/Mining/Interaction) が FeatureBuilder で解消される。
+        builder = FeatureBuilder(store=self.store)
 
-        # 3. 事前特徴量の計算
+        # 全 surface の submodel から FeatureState を構築してビルド
+        feat_dfs: list[pd.DataFrame] = []
+        for _surface_key, submodel in self.models.submodels.items():
+            try:
+                feature_state = FeatureState.from_submodel_set(submodel, version="1.0")
+            except ValueError:
+                # track_stats が未設定の場合はスキップ (学習済みモデルのみ使用)
+                logger.warning("Skipping surface %s: track_stats not available", _surface_key)
+                continue
+            result = builder.build_for_inference(
+                race_df,
+                entry_df,
+                odds_df,
+                feature_state=feature_state,
+                odds_ts_df=odds_ts_df,
+            )
+            feat_dfs.append(result.frame)
+
+        if feat_dfs:
+            feat_df = pd.concat(feat_dfs, ignore_index=True)
+        else:
+            # フォールバック: FeatureState が利用できない場合は build_for_training を使用
+            logger.warning("No FeatureState available, falling back to build_for_training")
+            result = builder.build_for_training(
+                race_df,
+                entry_df,
+                odds_df,
+                odds_ts_df=odds_ts_df,
+            )
+            feat_df = result.frame
+
         race_ids = feat_df["race_id"].unique()
-        hist_all = HorseHistoryFeatures(store=self.store)
-        hist_df = hist_all.compute(race_df, entry_df, race_ids)
-
-        jockey_ctx = JockeyContextFeatures(self.store)
-        jockey_df = jockey_ctx.compute(entry_df)
-
-        trainer_ctx = TrainerContextFeatures(self.store)
-        trainer_df = trainer_ctx.compute(entry_df)
-
-        jt_combo = JockeyTrainerComboFeatures(self.store)
-        jt_combo_df = jt_combo.compute(entry_df)
-
-        # マージして保存
-        for col_df in [hist_df, jockey_df, trainer_df, jt_combo_df]:
-            if not col_df.empty:
-                common_cols = [c for c in col_df.columns if c in ["race_id", "umaban"]]
-                merge_cols = [
-                    c for c in col_df.columns if c not in feat_df.columns or c in common_cols
-                ]
-                feat_df = feat_df.merge(col_df[merge_cols], on=["race_id", "umaban"], how="left")
 
         # 事前計算済み特徴量を保存
         pred_dir = self.output_dir / "predictions"
