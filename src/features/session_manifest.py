@@ -135,6 +135,8 @@ class SessionManifest:
     strategy_manifest_sha256: str = ""
     # D-08: OddsBandFilter metadata
     odds_band_filter_metadata: dict[str, Any] = field(default_factory=dict)
+    # LIV-03: Live data metadata
+    live_data: dict[str, Any] = field(default_factory=dict)
 
     def set_code_version(self, version: dict[str, Any]) -> None:
         """Git SHA と dirty 状態を記録."""
@@ -185,6 +187,23 @@ class SessionManifest:
             "config_hash": config_hash,
         }
 
+    def set_live_data(
+        self,
+        source: str,
+        measured_at: str,
+        fetched_at: str,
+        html_hash: str,
+        venue_codes: list[str],
+    ) -> None:
+        """LIV-03: ライブトラック条件取得メタデータを記録."""
+        self.live_data = {
+            "source": source,
+            "measured_at": measured_at,
+            "fetched_at": fetched_at,
+            "html_hash": html_hash,
+            "venue_codes": venue_codes,
+        }
+
     def set_status(self, status: str, exit_code: int = 0) -> None:
         """完了ステータスと終了コードを記録."""
         self.status = status
@@ -208,6 +227,7 @@ class SessionManifest:
             "strategy_manifest_path": self.strategy_manifest_path,
             "strategy_manifest_sha256": self.strategy_manifest_sha256,
             "odds_band_filter_metadata": self.odds_band_filter_metadata,
+            "live_data": self.live_data,
         }
 
     @property

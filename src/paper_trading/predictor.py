@@ -43,8 +43,14 @@ class PaperPredictor:
         self,
         target_date: date,
         everydb2: EveryDB2Queries,
+        live_track_conditions: pd.DataFrame | None = None,
     ) -> list[dict[str, Any]]:
         """当日の出走表を取得し、履歴特徴量を生成。
+
+        Args:
+            target_date: 予測対象日。
+            everydb2: EveryDB2 クエリインターフェース。
+            live_track_conditions: JRAから取得したライブトラック条件。
 
         Returns:
             レーススケジュール (race_id, venue, race_num, post_time, surface, distance)。
@@ -127,6 +133,7 @@ class PaperPredictor:
                 surf_odds_df,
                 feature_state=feature_state,
                 odds_ts_df=surf_odds_ts_df,
+                live_track_conditions=live_track_conditions,
             )
             feat_dfs.append(result.frame)
 

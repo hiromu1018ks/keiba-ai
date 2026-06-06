@@ -26,6 +26,102 @@ from models.submodel_manager import SubModelManager
 logger = logging.getLogger(__name__)
 
 
+# ---------------------------------------------------------------------------
+# Module-level helpers: moisture collation & aggregation (D-06)
+# ---------------------------------------------------------------------------
+
+
+def collate_moisture_rule(
+    jra_goal: float | None,
+    jra_4c: float | None,
+    csv_value: float | None,
+) -> str:
+    """JRAライブ値と履歴CSV値を照合し、含水率集約規則を確定する (D-06)。
+
+    優先順位: goal > 4c > mean。csv_value が JRA 値のいずれかに近い場合、
+    その規則を採用する。近さ判定の閾値は 0.5%。
+
+    Args:
+        jra_goal: JRA ライブ dirt_moisture (ゴール前)。
+        jra_4c: JRA ライブ dirt_moisture (4コーナー)。
+        csv_value: 履歴CSV由来の dirt_moisture。
+
+    Returns:
+        採用規則 ("goal", "4c", "mean")。
+
+    Raises:
+        ValueError: 照合不能 (全規則で閾値外) の場合。
+    """
+    threshold = 0.5
+
+    # 重複データ不足 → デフォルト規則 + 警告
+    if csv_value is None:
+        logger.warning(
+            "collate_moisture_rule: csv_value is None — insufficient data, defaulting to mean"
+        )
+        return "mean"
+
+    # 各規則の距離を計算
+    candidates: list[tuple[float, str]] = []
+    if jra_goal is not None:
+        candidates.append((abs(jra_goal - csv_value), "goal"))
+    if jra_4c is not None:
+        candidates.append((abs(jra_4c - csv_value), "4c"))
+    if jra_goal is not None and jra_4c is not None:
+        mean_val = (jra_goal + jra_4c) / 2.0
+        candidates.append((abs(mean_val - csv_value), "mean"))
+
+    if not candidates:
+        raise ValueError(
+            f"照合不能: jra_goal={jra_goal}, jra_4c={jra_4c}, csv_value={csv_value} "
+            f"— 規則候補なし"
+        )
+
+    # 最も近い規則を選択
+    candidates.sort(key=lambda x: x[0])
+    best_dist, best_rule = candidates[0]
+
+    if best_dist > threshold:
+        raise ValueError(
+            f"照合不能: jra_goal={jra_goal}, jra_4c={jra_4c}, csv_value={csv_value} "
+            f"— 最近規則({best_rule})でも距離{best_dist:.2f} > 閾値{threshold}"
+        )
+
+    return best_rule
+
+
+def aggregate_dirt_moisture(
+    goal: float | None,
+    four_c: float | None,
+    rule: str,
+) -> float | None:
+    """確定した規則に基づいて dirt_moisture を算出する。
+
+    Args:
+        goal: ゴール前含水率。
+        four_c: 4コーナー含水率。
+        rule: 集約規則 ("goal", "4c", "mean")。
+
+    Returns:
+        算出された dirt_moisture。両方 None の場合は None。
+    """
+    if rule == "goal":
+        return goal
+    elif rule == "4c":
+        return four_c
+    elif rule == "mean":
+        if goal is not None and four_c is not None:
+            return (goal + four_c) / 2.0
+        elif goal is not None:
+            return goal
+        elif four_c is not None:
+            return four_c
+        return None
+    else:
+        logger.warning("Unknown moisture rule '%s', falling back to mean", rule)
+        return aggregate_dirt_moisture(goal, four_c, "mean")
+
+
 class FeatureBuilder:
     """特徴量生成の単一エントリポイント。
 
@@ -90,6 +186,7 @@ class FeatureBuilder:
         feature_state: FeatureState,
         *,
         odds_ts_df: pd.DataFrame | None = None,
+        live_track_conditions: pd.DataFrame | None = None,
         feature_version: str = "1.0",
     ) -> FeatureBuildResult:
         """推論用特徴量を生成。
@@ -427,3 +524,48 @@ class FeatureBuilder:
             df = df.merge(jt_df[_jt_merge_cols], on=["race_id", "umaban"], how="left")
 
         return df
+
+    def _merge_live_track_conditions(
+        self,
+        df: pd.DataFrame,
+        live_df: pd.DataFrame,
+    ) -> pd.DataFrame:
+        """ライブトラック条件を履歴データにマージする (D-07)。
+
+        マージキー: race_id。ライブ値が非 NaN の場合に履歴値を上書き。
+        NaN の場合は履歴値を保持。live_df のみに存在する race_id は追加しない
+        (推論対象は df 側で決定)。
+
+        Args:
+            df: 履歴特徴量 DataFrame。
+            live_df: ライブトラック条件 DataFrame。
+
+        Returns:
+            マージ済み DataFrame。
+        """
+        if live_df is None or live_df.empty:
+            return df
+
+        # マージ対象列を特定 (race_id 除外)
+        merge_cols = [c for c in live_df.columns if c != "race_id" and c in df.columns]
+        if not merge_cols:
+            return df
+
+        # left join on race_id (履歴側が主)
+        merged = df.merge(
+            live_df[["race_id"] + merge_cols],
+            on="race_id",
+            how="left",
+            suffixes=("", "_live"),
+        )
+
+        # ライブ値で上書き (NaN は履歴値を保持)
+        for col in merge_cols:
+            live_col = f"{col}_live"
+            if live_col in merged.columns:
+                # ライブ値が非 NaN の場合のみ上書き
+                mask = merged[live_col].notna()
+                merged.loc[mask, col] = merged.loc[mask, live_col]
+                merged.drop(columns=[live_col], inplace=True)
+
+        return merged
