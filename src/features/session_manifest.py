@@ -13,6 +13,7 @@ import hashlib
 import json
 import logging
 import os
+import shutil
 import subprocess
 import tempfile
 from dataclasses import dataclass, field
@@ -36,10 +37,15 @@ def get_code_version() -> dict[str, Any]:
     Raises:
         RuntimeError: git が利用不可、または git リポジトリ内ではない場合。
     """
+    # git コマンドの可用性を事前チェック (WR-03)
+    git_path = shutil.which("git")
+    if git_path is None:
+        raise RuntimeError("git command not found on PATH")
+
     # コミット SHA
     try:
         result = subprocess.run(
-            ["git", "rev-parse", "HEAD"],
+            [git_path, "rev-parse", "HEAD"],
             capture_output=True,
             text=True,
             check=True,
@@ -51,7 +57,7 @@ def get_code_version() -> dict[str, Any]:
     # Dirty 状態 (src/, scripts/, config/)
     try:
         status_result = subprocess.run(
-            ["git", "status", "--porcelain", "--", "src/", "scripts/", "config/"],
+            [git_path, "status", "--porcelain", "--", "src/", "scripts/", "config/"],
             capture_output=True,
             text=True,
             check=True,
@@ -72,7 +78,7 @@ def get_code_version() -> dict[str, Any]:
     if git_dirty:
         try:
             diff_result = subprocess.run(
-                ["git", "diff", "src/", "scripts/", "config/"],
+                [git_path, "diff", "src/", "scripts/", "config/"],
                 capture_output=True,
                 text=True,
                 check=True,
