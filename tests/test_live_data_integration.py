@@ -7,15 +7,12 @@ PaperPredictor.setup() live_track_conditions passthrough, collate_moisture_rule(
 
 from __future__ import annotations
 
-import sys
 from datetime import date
-from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import numpy as np
 import pandas as pd
 import pytest
-
 
 # ---------------------------------------------------------------------------
 # Test 1: _merge_live_track_conditions — None の場合変更なし
@@ -367,6 +364,7 @@ class TestPredictorSetupPassesLiveConditions:
     def test_setup_signature_accepts_live_track_conditions(self) -> None:
         """setup() シグネチャに live_track_conditions パラメータが存在する。"""
         import inspect
+
         from paper_trading.predictor import PaperPredictor
 
         sig = inspect.signature(PaperPredictor.setup)
