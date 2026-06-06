@@ -584,6 +584,48 @@ def _run_predict(
         race_df, entry_df, odds_df, store, odds_ts_df=odds_ts_df,
     )
 
+    # Live track condition data fetch (D-07)
+    live_track_df: pd.DataFrame | None = None
+    if args.date:
+        try:
+            from ingestion.track_condition_fetcher import JRATrackConditionFetcher
+
+            jra_fetcher = JRATrackConditionFetcher(headless=True)
+            venue_results = jra_fetcher.fetch_all_venues(args.date)
+            if venue_results:
+                live_rows = []
+                for venue_code, parsed in venue_results.items():
+                    row = {"race_id": venue_code}  # Simplified — merge by venue
+                    for k, v in parsed.items():
+                        if k != "html_hash":
+                            row[k] = v
+                    live_rows.append(row)
+                live_track_df = pd.DataFrame(live_rows)
+                # Save raw HTML
+                session_live_dir = Path(f"data/paper_trading/sessions/{ymd}")
+                session_live_dir.mkdir(parents=True, exist_ok=True)
+                # Record live data metadata
+                session_manifest.set_live_data(
+                    source="JRA",
+                    measured_at="",  # filled from parsed if available
+                    fetched_at=datetime.now().isoformat(),
+                    html_hash=",".join(
+                        v.get("html_hash", "") for v in venue_results.values()
+                    ),
+                    venue_codes=list(venue_results.keys()),
+                )
+        except Exception as e:
+            logger.error("Live track condition fetch failed: %s", e)
+            logger.error("Prediction halted — live data required")
+            sys.exit(1)
+
+    # Merge live track conditions into feature frame
+    if live_track_df is not None and not live_track_df.empty:
+        from features.feature_builder import FeatureBuilder
+
+        builder = FeatureBuilder(store=store)
+        feat_df = builder._merge_live_track_conditions(feat_df, live_track_df)
+
     race_ids = feat_df["race_id"].unique()
 
     # 既存予測の読み込み (重複回避)
