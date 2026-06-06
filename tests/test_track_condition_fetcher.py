@@ -8,8 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import re
-from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -21,7 +20,6 @@ from ingestion.track_condition_fetcher import (
     _parse_percent,
     parse_track_condition_html,
 )
-
 
 # ---------------------------------------------------------------------------
 # HTML Fixtures (53-RESEARCH.md 確認済み DOM 構造)
