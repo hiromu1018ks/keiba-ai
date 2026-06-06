@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import dataclass
+from datetime import date as date_type
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -51,6 +52,16 @@ class DataCutoffManifest:
             違反メッセージのリスト。空リストなら全チェック通過。
         """
         violations: list[str] = []
+        try:
+            pred_dt = date_type.fromisoformat(self.prediction_date)
+        except ValueError:
+            # prediction_date が不正フォーマットの場合は文字列比較にフォールバック
+            logger.warning(
+                "prediction_date %s is not valid ISO format, falling back to string comparison",
+                self.prediction_date,
+            )
+            pred_dt = None
+
         for field in _CUTOFF_FIELDS:
             actual = actual_dates.get(field)
             if actual is None:
@@ -58,10 +69,29 @@ class DataCutoffManifest:
                     f"{field}: actual date not provided (expected <= {self.prediction_date})"
                 )
                 continue
-            if actual > self.prediction_date:
-                violations.append(
-                    f"{field}: {actual} > prediction_date {self.prediction_date}"
-                )
+            if pred_dt is not None:
+                try:
+                    actual_dt = date_type.fromisoformat(actual)
+                    if actual_dt > pred_dt:
+                        violations.append(
+                            f"{field}: {actual} > prediction_date {self.prediction_date}"
+                        )
+                except ValueError:
+                    # actual が不正フォーマットの場合は文字列比較にフォールバック
+                    logger.warning(
+                        "%s date %s is not valid ISO format, using string comparison",
+                        field, actual,
+                    )
+                    if actual > self.prediction_date:
+                        violations.append(
+                            f"{field}: {actual} > prediction_date {self.prediction_date}"
+                        )
+            else:
+                # prediction_date が不正だった場合のフォールバック
+                if actual > self.prediction_date:
+                    violations.append(
+                        f"{field}: {actual} > prediction_date {self.prediction_date}"
+                    )
         return violations
 
     def verify_strict(self, actual_dates: dict[str, str]) -> None:
