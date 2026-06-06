@@ -326,3 +326,59 @@ class TestBuildWidePayoutMap:
         )
         result = build_wide_payout_map(df)
         assert result == {("20240101010101", 1, 3): pytest.approx(5.7)}
+
+    def test_boundary_kumi_118(self) -> None:
+        """3文字 kumi "118" -> first_two=11 <= 18 -> (11, 8)。"""
+        df = _make_wide_df(
+            [
+                {
+                    "race_id": "20240101010101",
+                    "paywidekumi1": "118",
+                    "paywidepay1": 700,
+                }
+            ]
+        )
+        result = build_wide_payout_map(df)
+        assert result == {("20240101010101", 8, 11): pytest.approx(7.0)}
+
+    def test_boundary_kumi_181(self) -> None:
+        """3文字 kumi "181" -> first_two=18 <= 18 -> (18, 1)。"""
+        df = _make_wide_df(
+            [
+                {
+                    "race_id": "20240101010101",
+                    "paywidekumi1": "181",
+                    "paywidepay1": 900,
+                }
+            ]
+        )
+        result = build_wide_payout_map(df)
+        assert result == {("20240101010101", 1, 18): pytest.approx(9.0)}
+
+    def test_boundary_kumi_918(self) -> None:
+        """3文字 kumi "918" -> first_two=91 > 18 -> (9, 18)。"""
+        df = _make_wide_df(
+            [
+                {
+                    "race_id": "20240101010101",
+                    "paywidekumi1": "918",
+                    "paywidepay1": 650,
+                }
+            ]
+        )
+        result = build_wide_payout_map(df)
+        assert result == {("20240101010101", 9, 18): pytest.approx(6.5)}
+
+    def test_boundary_kumi_109(self) -> None:
+        """3文字 kumi "109" -> first_two=10 <= 18 -> (10, 9), reordered to (9, 10)。"""
+        df = _make_wide_df(
+            [
+                {
+                    "race_id": "20240101010101",
+                    "paywidekumi1": "109",
+                    "paywidepay1": 480,
+                }
+            ]
+        )
+        result = build_wide_payout_map(df)
+        assert result == {("20240101010101", 9, 10): pytest.approx(4.8)}
