@@ -89,6 +89,8 @@ class PaperPredictor:
         builder = FeatureBuilder(store=self.store)
 
         # 全 surface の submodel から FeatureState を構築してビルド
+        # surface_key ("turf"/"dirt") に基づいて race_df をフィルタリングし、
+        # 重複行の生成を防止する (WR-02)
         feat_dfs: list[pd.DataFrame] = []
         for _surface_key, submodel in self.models.submodels.items():
             try:
@@ -97,12 +99,34 @@ class PaperPredictor:
                 # track_stats が未設定の場合はスキップ (学習済みモデルのみ使用)
                 logger.warning("Skipping surface %s: track_stats not available", _surface_key)
                 continue
+
+            # surface_key に該当するレースのみをフィルタリング
+            if "surface" in race_df.columns:
+                surf_race_df = race_df[race_df["surface"] == _surface_key].copy()
+                surf_race_ids = set(surf_race_df["race_id"].unique())
+                surf_entry_df = entry_df[entry_df["race_id"].isin(surf_race_ids)].copy()
+                surf_odds_df = odds_df[odds_df["race_id"].isin(surf_race_ids)].copy()
+                if odds_ts_df is not None and not odds_ts_df.empty:
+                    surf_odds_ts_df = odds_ts_df[odds_ts_df["race_id"].isin(surf_race_ids)].copy()
+                else:
+                    surf_odds_ts_df = None
+            else:
+                # surface 列がない場合は全レースを使用 (フォールバック)
+                surf_race_df = race_df
+                surf_entry_df = entry_df
+                surf_odds_df = odds_df
+                surf_odds_ts_df = odds_ts_df
+
+            if surf_race_df.empty:
+                logger.info("No %s races for %s, skipping", _surface_key, target_date)
+                continue
+
             result = builder.build_for_inference(
-                race_df,
-                entry_df,
-                odds_df,
+                surf_race_df,
+                surf_entry_df,
+                surf_odds_df,
                 feature_state=feature_state,
-                odds_ts_df=odds_ts_df,
+                odds_ts_df=surf_odds_ts_df,
             )
             feat_dfs.append(result.frame)
 
