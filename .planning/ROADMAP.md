@@ -54,7 +54,7 @@ See `.planning/milestones/` for archived roadmaps.
 
 - [x] **Phase 51: Settlement Integrity & Training Pipeline** - 精算整合性(ROI過大評価修正)と学習パイプライン修正(PT用モデル生成) — completed 2026-06-06
 - [x] **Phase 52: Shared Feature Builder & Consistency** - BT/PT共通特徴量構築関数の抽出とパイプライン一貫性検証基盤 (completed 2026-06-06)
-- [ ] **Phase 53: Strategy Alignment & Live Data** - 戦略完全整合と当日データ取得でBT検証済みパイプラインをPTで再現
+- [x] **Phase 53: Strategy Alignment & Live Data** - 戦略完全整合と当日データ取得でBT検証済みパイプラインをPTで再現 (completed 2026-06-06)
 - [ ] **Phase 54: Automation & Reporting** - 1コマンドrun modeと評価レポート拡張で運用完全自動化
 
 ## Phase Details
@@ -162,5 +162,5 @@ Phases execute in numeric order: 51 → 52 → 53 → 54
 | 47-50 | v2.3 | 7/7 | Complete | 2026-06-05 |
 | 51. Settlement Integrity & Training | v2.4 | 3/3 | Complete | 2026-06-06 |
 | 52. Shared Feature Builder & Consistency | v2.4 | 4/4 | Complete    | 2026-06-06 |
-| 53. Strategy Alignment & Live Data | v2.4 | 2/3 | In Progress|  |
+| 53. Strategy Alignment & Live Data | v2.4 | 3/3 | Complete    | 2026-06-06 |
 | 54. Automation & Reporting | v2.4 | 0/? | Not started | - |

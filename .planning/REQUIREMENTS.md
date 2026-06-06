@@ -30,18 +30,18 @@
 
 ### Live Data (当日データ取得)
 
-- [ ] **LIV-01**: JRA track condition fetcher — JRA 公式サイト (https://www.jra.go.jp/keiba/baba/kaisetsu/index.html) から開催場ごとの芝クッション値・ダート含水率を取得し、race_id へ展開する。ゴール前・4コーナー含水率を既存の単一 dirt_moisture 値へ変換する集約規則を定義する
-- [ ] **LIV-02**: Live data validation — 取得値・測定時刻・取得時刻・取得元を保存する。取得失敗または値が古い場合は予測を停止し非ゼロ終了する。HTML 構造変更を検知し、スクレイピング失敗時に警告を出す
-- [ ] **LIV-03**: Same schema as historical — 過去 CSV と当日取得値は同一スキーマ・同一集約規則で扱う。共通特徴量ビルダーへ渡す
+- [x] **LIV-01**: JRA track condition fetcher — JRA 公式サイト (https://www.jra.go.jp/keiba/baba/kaisetsu/index.html) から開催場ごとの芝クッション値・ダート含水率を取得し、race_id へ展開する。ゴール前・4コーナー含水率を既存の単一 dirt_moisture 値へ変換する集約規則を定義する
+- [x] **LIV-02**: Live data validation — 取得値・測定時刻・取得時刻・取得元を保存する。取得失敗または値が古い場合は予測を停止し非ゼロ終了する。HTML 構造変更を検知し、スクレイピング失敗時に警告を出す
+- [x] **LIV-03**: Same schema as historical — 過去 CSV と当日取得値は同一スキーマ・同一集約規則で扱う。共通特徴量ビルダーへ渡す
 
 ### Strategy Alignment (戦略完全整合)
 
-- [ ] **STR-01**: Strategy manifest integration — PT で strategy_manifest を読み込み、manifest/PFP を適用する
-- [ ] **STR-02**: Betting mode/target passthrough — PT で `--betting-target win|place` と `--betting-mode flat|kelly` を指定可能にする。v2.4 では Wide は対象外
-- [ ] **STR-03**: DD control integration — DrawdownController を PT パイプラインに組み込む
-- [ ] **STR-04**: OddsBandFilter integration — BT の校正済み OddsBandFilter を PT で使用する
-- [ ] **STR-05**: QualityScreener integration — RaceQualityScreener を PT パイプラインに組み込む
-- [ ] **STR-06**: Regime synchronization — BT/PT の regime 検出を統一する（AGGRESSIVE固定 vs 動体の決定含む）
+- [x] **STR-01**: Strategy manifest integration — PT で strategy_manifest を読み込み、manifest/PFP を適用する
+- [x] **STR-02**: Betting mode/target passthrough — PT で `--betting-target win|place` と `--betting-mode flat|kelly` を指定可能にする。v2.4 では Wide は対象外
+- [x] **STR-03**: DD control integration — DrawdownController を PT パイプラインに組み込む
+- [x] **STR-04**: OddsBandFilter integration — BT の校正済み OddsBandFilter を PT で使用する
+- [x] **STR-05**: QualityScreener integration — RaceQualityScreener を PT パイプラインに組み込む
+- [x] **STR-06**: Regime synchronization — BT/PT の regime 検出を統一する（AGGRESSIVE固定 vs 動体の決定含む）
 
 ### Automation (自動化)
 
@@ -105,15 +105,15 @@ Which phases cover which requirements.
 | PLN-02 | Phase 52 | Complete |
 | PLN-03 | Phase 52 | Complete |
 | PLN-04 | Phase 52 | Complete |
-| STR-01 | Phase 53 | Pending |
-| STR-02 | Phase 53 | Pending |
-| STR-03 | Phase 53 | Pending |
-| STR-04 | Phase 53 | Pending |
-| STR-05 | Phase 53 | Pending |
-| STR-06 | Phase 53 | Pending |
-| LIV-01 | Phase 53 | Pending |
-| LIV-02 | Phase 53 | Pending |
-| LIV-03 | Phase 53 | Pending |
+| STR-01 | Phase 53 | Complete |
+| STR-02 | Phase 53 | Complete |
+| STR-03 | Phase 53 | Complete |
+| STR-04 | Phase 53 | Complete |
+| STR-05 | Phase 53 | Complete |
+| STR-06 | Phase 53 | Complete |
+| LIV-01 | Phase 53 | Complete |
+| LIV-02 | Phase 53 | Complete |
+| LIV-03 | Phase 53 | Complete |
 | AUT-01 | Phase 54 | Pending |
 | AUT-02 | Phase 54 | Pending |
 | AUT-03 | Phase 54 | Pending |
