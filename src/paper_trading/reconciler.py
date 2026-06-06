@@ -62,9 +62,14 @@ class PaperReconciler:
     # ------------------------------------------------------------------
 
     @staticmethod
-    def compute_bet_id(session_id: str, race_id: str, bet_type: str, umaban: int) -> str:
-        """bet_id = SHA256(session_id|race_id|bet_type|umaban)[:32] (D-02)"""
+    def compute_bet_id(
+        session_id: str, race_id: str, bet_type: str, umaban: int, umaban_b: int | None = None,
+    ) -> str:
+        """bet_id = SHA256(session_id|race_id|bet_type|umaban[:32] (D-02)
+        Wide bets include umaban_b for uniqueness."""
         raw = f"{session_id}|{race_id}|{bet_type}|{umaban}"
+        if umaban_b is not None:
+            raw += f"|{umaban_b}"
         return hashlib.sha256(raw.encode()).hexdigest()[:32]
 
     @staticmethod
