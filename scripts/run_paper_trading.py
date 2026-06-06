@@ -28,9 +28,9 @@ import json
 import logging
 import os
 import sys
-from pathlib import Path
 import time
 from datetime import date, datetime, timedelta
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pandas as pd
@@ -346,6 +346,8 @@ def _run_predict(
     models: "TrainedModelsV5",
     store: "ParquetStore",
 ) -> None:
+    import pandas as pd
+
     from backtest.diagnostic_logger import DiagnosticLogger
     from backtest.race_predictor import RacePredictor
     from db.everydb2_queries import EveryDB2Queries
@@ -357,8 +359,6 @@ def _run_predict(
         load_races_from_db,
     )
     from paper_trading.reconciler import PaperReconciler
-
-    import pandas as pd
 
     target_date = date.fromisoformat(args.date)
     ymd = target_date.strftime("%Y%m%d")
