@@ -40,7 +40,7 @@ See `.planning/milestones/` for archived roadmaps.
 <summary>v2.3 Track Condition Feature Integration (Phases 47-50) — SHIPPED 2026-06-05</summary>
 
 - [x] Phase 47: ETL Data Pipeline (2/2 plans) — completed 2026-06-04
-- [x] Phase 48: Core Edge Features (1/1 plan) — completed 2026-06-05
+- [x] Phase 48: Core Edge Features (1/1 plan) — completed 2026-05-05
 - [x] Phase 49: Derived & Higher-Order Features (2/2 plans) — completed 2026-06-05
 - [x] Phase 50: Safety & Validation (2/2 plans) — completed 2026-06-05
 
@@ -97,7 +97,19 @@ Plans:
   3. 2026年 PT で予測日以降のデータ(特徴量統計・OddsBandFilter 校正・HP・strategy manifest)が使用されていないことを検証する仕組みが動作する
   4. PT 実行中のパラメータ不変性を ParameterFreezeProtocol で検証する仕組みが動作する
 
-**Plans**: TBD
+**Plans**: 3 plans
+Plans:
+**Wave 1**
+
+- [ ] 52-01-PLAN.md — FeatureBuilder core: dataclasses + builder class + PIT registry
+
+**Wave 2** *(blocked on Wave 1)*
+
+- [ ] 52-02-PLAN.md — Replace 4 inline feature construction copies with FeatureBuilder calls
+
+**Wave 3** *(blocked on Wave 2)*
+
+- [ ] 52-03-PLAN.md — Pipeline consistency verification: DataCutoffManifest, PFPVerifier, SessionManifest
 
 ### Phase 53: Strategy Alignment & Live Data
 
@@ -140,6 +152,6 @@ Phases execute in numeric order: 51 → 52 → 53 → 54
 | 43-46 | v2.2 | 8/8 | Complete (not_deployable) | 2026-06-02 |
 | 47-50 | v2.3 | 7/7 | Complete | 2026-06-05 |
 | 51. Settlement Integrity & Training | v2.4 | 3/3 | Complete | 2026-06-06 |
-| 52. Shared Feature Builder & Consistency | v2.4 | 0/? | Not started | - |
+| 52. Shared Feature Builder & Consistency | v2.4 | 0/3 | Planned | - |
 | 53. Strategy Alignment & Live Data | v2.4 | 0/? | Not started | - |
 | 54. Automation & Reporting | v2.4 | 0/? | Not started | - |
