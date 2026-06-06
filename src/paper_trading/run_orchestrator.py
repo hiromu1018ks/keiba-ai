@@ -339,7 +339,10 @@ class RunModeOrchestrator:
 
         # Select bets
         bankroll = self._compute_current_bankroll()
-        bets = race_predictor.select_bets(result_df, bankroll)
+        betting_target = getattr(self.args, "betting_target", "place")
+        bets = race_predictor.select_bets(
+            result_df, bankroll, betting_target=betting_target,
+        )
 
         if not bets:
             progress.mark(race_id, RaceState.NO_BET)
@@ -566,12 +569,9 @@ class RunModeOrchestrator:
         """Cross-validate PREDICTED race against bets.parquet (D-08).
 
         Returns True if valid, False if mismatch detected.
+        verify_bet_ids_present returns False when bets_df is empty (no bets
+        to match), correctly flagging PREDICTED races with missing bets.
         """
-        if bets_df.empty:
-            # No bets file at all -- might be a no_bet race that was
-            # incorrectly marked. Check bet_ids.
-            return progress.verify_bet_ids_present(race_id, bets_df)
-
         return progress.verify_bet_ids_present(race_id, bets_df)
 
     def _determine_exit_code(self) -> ExitCode:
@@ -657,6 +657,11 @@ class RunModeOrchestrator:
         logger.debug("Input snapshot saved: %s (hash=%s...)", race_id, snapshot_hash[:12])
 
     def _build_race_predictor(self) -> Any:
-        """Build RacePredictor from models (delegates to same pattern as run_paper_trading.py)."""
+        """Build RacePredictor from models (delegates to same pattern as run_paper_trading.py).
+
+        NOTE: This helper is kept for potential future use but is NOT currently called
+        in _predict_single_race, which constructs RacePredictor inline. If re-enabled,
+        ensure betting_target and strategy config are propagated correctly (CR-02).
+        """
         from backtest.race_predictor import RacePredictor
         return RacePredictor(self.models)
