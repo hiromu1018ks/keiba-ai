@@ -7,29 +7,56 @@ from unittest.mock import MagicMock, patch
 
 class TestRunPaperTradingCLI:
     def test_parse_args_setup_mode(self) -> None:
-        sys.argv = ["run_paper_trading.py", "--mode", "setup", "--date", "2026-04-05"]
+        sys.argv = [
+            "run_paper_trading.py",
+            "--mode", "setup",
+            "--date", "2026-04-05",
+            "--betting-target", "win",
+            "--betting-mode", "flat",
+        ]
         from scripts.run_paper_trading import parse_args
 
         args = parse_args()
         assert args.mode == "setup"
         assert args.date == "2026-04-05"
+        assert args.betting_target == "win"
 
     def test_parse_args_predict_mode(self) -> None:
-        sys.argv = ["run_paper_trading.py", "--mode", "predict", "--date", "2026-04-05"]
+        sys.argv = [
+            "run_paper_trading.py",
+            "--mode", "predict",
+            "--date", "2026-04-05",
+            "--betting-target", "place",
+            "--betting-mode", "kelly",
+        ]
         from scripts.run_paper_trading import parse_args
 
         args = parse_args()
         assert args.mode == "predict"
+        assert args.betting_target == "place"
+        assert args.betting_mode == "kelly"
 
     def test_parse_args_reconcile_mode(self) -> None:
-        sys.argv = ["run_paper_trading.py", "--mode", "reconcile", "--date", "2026-04-05"]
+        sys.argv = [
+            "run_paper_trading.py",
+            "--mode", "reconcile",
+            "--date", "2026-04-05",
+            "--betting-target", "win",
+            "--betting-mode", "flat",
+        ]
         from scripts.run_paper_trading import parse_args
 
         args = parse_args()
         assert args.mode == "reconcile"
 
     def test_parse_args_dry_run_mode(self) -> None:
-        sys.argv = ["run_paper_trading.py", "--mode", "dry-run", "--date", "2024-07-13"]
+        sys.argv = [
+            "run_paper_trading.py",
+            "--mode", "dry-run",
+            "--date", "2024-07-13",
+            "--betting-target", "win",
+            "--betting-mode", "flat",
+        ]
         from scripts.run_paper_trading import parse_args
 
         args = parse_args()
@@ -39,12 +66,11 @@ class TestRunPaperTradingCLI:
     def test_parse_args_dry_run_range(self) -> None:
         sys.argv = [
             "run_paper_trading.py",
-            "--mode",
-            "dry-run",
-            "--start",
-            "2024-07-01",
-            "--end",
-            "2024-07-31",
+            "--mode", "dry-run",
+            "--start", "2024-07-01",
+            "--end", "2024-07-31",
+            "--betting-target", "win",
+            "--betting-mode", "flat",
         ]
         from scripts.run_paper_trading import parse_args
 
@@ -56,12 +82,11 @@ class TestRunPaperTradingCLI:
     def test_parse_args_diagnose_mode(self) -> None:
         sys.argv = [
             "run_paper_trading.py",
-            "--mode",
-            "diagnose",
-            "--start",
-            "2024-07-01",
-            "--end",
-            "2024-07-31",
+            "--mode", "diagnose",
+            "--start", "2024-07-01",
+            "--end", "2024-07-31",
+            "--betting-target", "win",
+            "--betting-mode", "flat",
         ]
         from scripts.run_paper_trading import parse_args
 
@@ -115,10 +140,10 @@ class TestRunPaperTradingCLI:
 
             sys.argv = [
                 "run_paper_trading.py",
-                "--mode",
-                "setup",
-                "--date",
-                "2026-04-05",
+                "--mode", "setup",
+                "--date", "2026-04-05",
+                "--betting-target", "win",
+                "--betting-mode", "flat",
             ]
             main()
 
@@ -158,12 +183,11 @@ class TestRunPaperTradingCLI:
 
             sys.argv = [
                 "run_paper_trading.py",
-                "--mode",
-                "diagnose",
-                "--start",
-                "2024-07-01",
-                "--end",
-                "2024-07-31",
+                "--mode", "diagnose",
+                "--start", "2024-07-01",
+                "--end", "2024-07-31",
+                "--betting-target", "win",
+                "--betting-mode", "flat",
             ]
             main()
 
