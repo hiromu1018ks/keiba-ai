@@ -195,18 +195,105 @@ class JRATrackConditionFetcher:
     Playwright sync_api を使用して HTML を取得する。
     解析は行わず、生の HTML 文字列を返す (D-05: 取得と解析の完全分離)。
 
+    JRA 馬場情報ページは各開催場ごとに個別の HTML ページ (index.html, index2.html, ...)
+    で構成されている。ベースページから開催場リンクを発見し、各ページにナビゲートして
+    HTML を取得する。
+
     取得失敗時は例外をそのまま送出し、フォールバックは行わない。
     呼び出し元が非ゼロ終了して予測を停止する (T-53-05)。
     """
 
     BASE_URL = "https://www.jra.go.jp/keiba/baba/"
 
+    # JRA 開催場コード → 会場名 (run_paper_trading.py _venue_map と同一)
+    _VENUE_MAP: dict[str, str] = {
+        "01": "札幌",
+        "02": "函館",
+        "03": "福島",
+        "04": "新潟",
+        "05": "東京",
+        "06": "中山",
+        "07": "中京",
+        "08": "京都",
+        "09": "阪神",
+        "10": "小倉",
+    }
+
+    # 逆引き: 会場名 → コード
+    _VENUE_MAP_REVERSE: dict[str, str] = {v: k for k, v in _VENUE_MAP.items()}
+
     def __init__(self, headless: bool = True, timeout_ms: int = 30000) -> None:
         self._headless = headless
         self._timeout_ms = timeout_ms
 
+    @classmethod
+    def _venue_name_to_code(cls, link_text: str) -> str | None:
+        """開催場リンクテキストから venue code を逆引きする。
+
+        リンクテキスト例: "1回東京", "2回阪神", "3回京都"
+        数字回 + 会場名のパターンから、会場名部分を _VENUE_MAP_REVERSE で検索する。
+
+        Args:
+            link_text: ナビゲーションリンクのテキスト (例: "1回東京")。
+
+        Returns:
+            開催場コード (例: "05")。不一致の場合は None。
+        """
+        for name, code in cls._VENUE_MAP_REVERSE.items():
+            if name in link_text:
+                return code
+        return None
+
+    def _discover_venue_links(self, page: Any) -> list[tuple[str, str]]:
+        """ベースページからアクティブな開催場リンクを発見する。
+
+        DOM 構造:
+          <div class="kaisai_tab">
+            <div class="nav tab">
+              <div class="current"><a href="index.html">1回東京</a></div>
+              <div><a href="index2.html">1回阪神</a></div>
+            </div>
+          </div>
+
+        Args:
+            page: Playwright Page オブジェクト。
+
+        Returns:
+            [(venue_code, full_url), ...] のリスト。
+        """
+        links = page.query_selector_all("div.nav.tab > div > a")
+        if not links:
+            # フォールバック: より広いセレクタで検索
+            links = page.query_selector_all(".kaisai_tab a")
+
+        venues: list[tuple[str, str]] = []
+        for link in links:
+            href = link.get_attribute("href")
+            text = link.inner_text()
+            if not href or not text:
+                continue
+
+            venue_code = self._venue_name_to_code(text)
+            if venue_code is None:
+                logger.warning("開催場リンクテキストからコード逆引き失敗: '%s'", text)
+                continue
+
+            # 相対 URL → 絶対 URL に変換
+            if href.startswith("http"):
+                full_url = href
+            else:
+                full_url = self.BASE_URL + href
+
+            venues.append((venue_code, full_url))
+            logger.debug("開催場リンク発見: code=%s, url=%s, text='%s'", venue_code, full_url, text)
+
+        return venues
+
     def fetch_track_conditions_html(self, venue_code: str) -> str:
         """指定した開催場のトラック条件 HTML を Playwright で取得する。
+
+        ベースページから開催場リンクを発見し、該当コードの URL にナビゲートする。
+        リンクが見つからない場合はベースページの HTML をそのまま返す。
 
         Args:
             venue_code: 開催場コード (例: "05" = 東京)。
@@ -237,30 +324,49 @@ class JRATrackConditionFetcher:
                     viewport={"width": 1280, "height": 900},
                 )
                 page = context.new_page()
+
+                # ベースページにアクセスして開催場リンクを発見
                 page.goto(
                     self.BASE_URL,
-                    wait_until="domcontentloaded",
+                    wait_until="networkidle",
                     timeout=self._timeout_ms,
                 )
 
-                # 開催場タブをクリック (同一ページ内 DOM 切り替え)
-                # JRA ページは開催場選択がタブ形式で同一 URL 内で切り替わる
-                tab_selector = f'[data-venue="{venue_code}"], .tab-item[data-code="{venue_code}"]'
-                try:
-                    page.click(tab_selector, timeout=5000)
-                except Exception:
-                    # タブクリック失敗時はそのままのページ内容を返す
+                venue_links = self._discover_venue_links(page)
+
+                # 該当コードの URL を検索
+                target_url = None
+                for code, url in venue_links:
+                    if code == venue_code:
+                        target_url = url
+                        break
+
+                if target_url:
+                    # 該当開催場の個別ページにナビゲート
+                    page.goto(
+                        target_url,
+                        wait_until="networkidle",
+                        timeout=self._timeout_ms,
+                    )
+                    logger.info(
+                        "開催場ページへナビゲート: venue_code=%s, url=%s",
+                        venue_code,
+                        target_url,
+                    )
+                else:
                     logger.warning(
-                        "開催場タブクリック失敗: venue_code=%s。デフォルトページ内容を返します。",
+                        "開催場リンク未発見: venue_code=%s。ベースページ内容を返します。",
                         venue_code,
                     )
 
-                # コンテンツ待機
+                # コンテンツ待機: テーブル行のテキストが空でないことを確認
                 try:
-                    page.wait_for_selector("#turf_line", timeout=10000)
+                    page.wait_for_selector(
+                        "#turf_line .gm", timeout=10000,
+                    )
                 except Exception:
                     logger.warning(
-                        "#turf_line セレクタ待機タイムアウト: venue_code=%s",
+                        "#turf_line .gm セレクタ待機タイムアウト: venue_code=%s",
                         venue_code,
                     )
 
@@ -277,6 +383,11 @@ class JRATrackConditionFetcher:
     def fetch_all_venues(self, track_date: str) -> dict[str, dict[str, Any]]:
         """全開催場のトラック条件を取得・解析する。
 
+        ベースページからアクティブな開催場リンクを発見し、各ページにナビゲートして
+        HTML を取得・解析する。非開催日の会場はスキップされる。
+
+        単一ブラウザセッションで全開催場を巡回し、ブラウザ起動オーバーヘッドを最小化する。
+
         Args:
             track_date: 競馬開催日 (YYYY-MM-DD)。
 
@@ -287,25 +398,82 @@ class JRATrackConditionFetcher:
             TrackConditionParseError: 解析エラー時。
             Exception: 取得失敗時 (1場でも失敗すれば予測停止)。
         """
-        # JRA の開催場コード一覧
-        venue_codes = ["01", "02", "03", "04", "05", "06", "07", "08", "09", "10"]
+        try:
+            from playwright.sync_api import sync_playwright
+        except ImportError as e:
+            raise ImportError(
+                "playwright がインストールされていません。"
+                "pip install playwright && playwright install chromium を実行してください。"
+            ) from e
+
         results: dict[str, dict[str, Any]] = {}
 
-        for venue_code in venue_codes:
+        with sync_playwright() as pw:
+            browser = pw.chromium.launch(headless=self._headless)
             try:
-                html = self.fetch_track_conditions_html(venue_code)
-                parsed = parse_track_condition_html(html)
-                results[venue_code] = parsed
-                logger.info(
-                    "venue=%s parsed: cushion=%s, dirt_goal=%s",
-                    venue_code,
-                    parsed.get("turf_cushion"),
-                    parsed.get("dirt_moisture_goal"),
+                context = browser.new_context(
+                    user_agent=(
+                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                        "AppleWebKit/537.36 (KHTML, like Gecko) "
+                        "Chrome/120.0.0.0 Safari/537.36"
+                    ),
+                    viewport={"width": 1280, "height": 900},
                 )
-            except TrackConditionParseError:
-                # 非開催場は必須要素がなく ParseError になるのが正常
-                logger.debug("venue=%s: 非開催場またはデータなし", venue_code)
-                continue
+                page = context.new_page()
+
+                # ベースページにアクセスして開催場リンクを発見
+                page.goto(
+                    self.BASE_URL,
+                    wait_until="networkidle",
+                    timeout=self._timeout_ms,
+                )
+
+                venue_links = self._discover_venue_links(page)
+                logger.info(
+                    "track_date=%s: %d 個の開催場リンクを発見",
+                    track_date,
+                    len(venue_links),
+                )
+
+                if not venue_links:
+                    logger.info("track_date=%s: 開催場リンクなし (非開催日)", track_date)
+                    return results
+
+                # 各開催場の個別ページにナビゲートして取得・解析
+                for venue_code, url in venue_links:
+                    try:
+                        page.goto(
+                            url,
+                            wait_until="networkidle",
+                            timeout=self._timeout_ms,
+                        )
+
+                        # コンテンツ待機: テーブル行のテキストが空でないことを確認
+                        try:
+                            page.wait_for_selector(
+                                "#turf_line .gm", timeout=10000,
+                            )
+                        except Exception:
+                            logger.warning(
+                                "#turf_line .gm セレクタ待機タイムアウト: venue_code=%s",
+                                venue_code,
+                            )
+
+                        html = page.content()
+                        parsed = parse_track_condition_html(html)
+                        results[venue_code] = parsed
+                        logger.info(
+                            "venue=%s parsed: cushion=%s, dirt_goal=%s",
+                            venue_code,
+                            parsed.get("turf_cushion"),
+                            parsed.get("dirt_moisture_goal"),
+                        )
+                    except TrackConditionParseError:
+                        logger.debug("venue=%s: 解析エラー (非開催場またはデータなし)", venue_code)
+                        continue
+
+            finally:
+                browser.close()
 
         logger.info(
             "track_date=%s: %d venues with data",

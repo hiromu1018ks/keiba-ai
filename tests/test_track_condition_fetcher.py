@@ -251,3 +251,141 @@ class TestDetectHtmlStructureChange:
         h1 = hashlib.sha256(b"old").hexdigest()
         h2 = hashlib.sha256(b"new").hexdigest()
         assert _detect_html_structure_change(h1, h2) is True
+
+
+# ---------------------------------------------------------------------------
+# Test: _venue_name_to_code — リンクテキストから開催場コード逆引き
+# ---------------------------------------------------------------------------
+class TestVenueNameToCode:
+    def test_tokyo_single_char_prefix(self) -> None:
+        assert JRATrackConditionFetcher._venue_name_to_code("1回東京") == "05"
+
+    def test_hanshin(self) -> None:
+        assert JRATrackConditionFetcher._venue_name_to_code("1回阪神") == "09"
+
+    def test_nakayama(self) -> None:
+        assert JRATrackConditionFetcher._venue_name_to_code("2回中山") == "06"
+
+    def test_chukyo(self) -> None:
+        assert JRATrackConditionFetcher._venue_name_to_code("1回中京") == "07"
+
+    def test_kyoto(self) -> None:
+        assert JRATrackConditionFetcher._venue_name_to_code("3回京都") == "08"
+
+    def test_sapporo(self) -> None:
+        assert JRATrackConditionFetcher._venue_name_to_code("1回札幌") == "01"
+
+    def test_hakodate(self) -> None:
+        assert JRATrackConditionFetcher._venue_name_to_code("1回函館") == "02"
+
+    def test_fukushima(self) -> None:
+        assert JRATrackConditionFetcher._venue_name_to_code("2回福島") == "03"
+
+    def test_niigata(self) -> None:
+        assert JRATrackConditionFetcher._venue_name_to_code("1回新潟") == "04"
+
+    def test_kokura(self) -> None:
+        assert JRATrackConditionFetcher._venue_name_to_code("1回小倉") == "10"
+
+    def test_unknown_venue_returns_none(self) -> None:
+        assert JRATrackConditionFetcher._venue_name_to_code("不明な会場") is None
+
+    def test_empty_string_returns_none(self) -> None:
+        assert JRATrackConditionFetcher._venue_name_to_code("") is None
+
+
+# ---------------------------------------------------------------------------
+# Test: _discover_venue_links — 開催場リンク発見 (mock Playwright Page)
+# ---------------------------------------------------------------------------
+class TestDiscoverVenueLinks:
+    @staticmethod
+    def _make_mock_page(links_html: str) -> MagicMock:
+        """指定したリンク HTML を持つモック Playwright Page を作成する。
+
+        query_selector_all はセレクタに関わらず links_html をパースして
+        <a> 要素のモックリストを返す。
+        """
+        from bs4 import BeautifulSoup
+
+        soup = BeautifulSoup(links_html, "html.parser")
+        anchor_tags = soup.find_all("a")
+
+        mock_elements = []
+        for tag in anchor_tags:
+            el = MagicMock()
+            el.get_attribute.return_value = tag.get("href")
+            el.inner_text.return_value = tag.get_text()
+            mock_elements.append(el)
+
+        page = MagicMock()
+        page.query_selector_all.return_value = mock_elements
+        return page
+
+    def test_discovers_two_venues(self) -> None:
+        html = """
+        <div class="nav tab">
+          <div class="current"><a href="index.html">1回東京</a></div>
+          <div><a href="index2.html">1回阪神</a></div>
+        </div>
+        """
+        fetcher = JRATrackConditionFetcher()
+        page = self._make_mock_page(html)
+        venues = fetcher._discover_venue_links(page)
+
+        assert len(venues) == 2
+        assert venues[0] == ("05", "https://www.jra.go.jp/keiba/baba/index.html")
+        assert venues[1] == ("09", "https://www.jra.go.jp/keiba/baba/index2.html")
+
+    def test_no_venues_on_non_race_day(self) -> None:
+        page = MagicMock()
+        page.query_selector_all.return_value = []
+        fetcher = JRATrackConditionFetcher()
+        venues = fetcher._discover_venue_links(page)
+
+        assert venues == []
+
+    def test_absolute_url_preserved(self) -> None:
+        html = '<a href="https://other.example.com/baba/">1回中山</a>'
+        fetcher = JRATrackConditionFetcher()
+        page = self._make_mock_page(html)
+        venues = fetcher._discover_venue_links(page)
+
+        assert len(venues) == 1
+        assert venues[0] == ("06", "https://other.example.com/baba/")
+
+    def test_skips_link_without_href(self) -> None:
+        el = MagicMock()
+        el.get_attribute.return_value = None
+        el.inner_text.return_value = "1回東京"
+
+        page = MagicMock()
+        page.query_selector_all.return_value = [el]
+
+        fetcher = JRATrackConditionFetcher()
+        venues = fetcher._discover_venue_links(page)
+
+        assert venues == []
+
+    def test_skips_unrecognized_venue_name(self) -> None:
+        html = '<a href="index3.html">謎の開催場</a>'
+        fetcher = JRATrackConditionFetcher()
+        page = self._make_mock_page(html)
+        venues = fetcher._discover_venue_links(page)
+
+        assert venues == []
+
+    def test_three_venues(self) -> None:
+        html = """
+        <div class="nav tab">
+          <div class="current"><a href="index.html">1回東京</a></div>
+          <div><a href="index2.html">1回阪神</a></div>
+          <div><a href="index3.html">1回中京</a></div>
+        </div>
+        """
+        fetcher = JRATrackConditionFetcher()
+        page = self._make_mock_page(html)
+        venues = fetcher._discover_venue_links(page)
+
+        assert len(venues) == 3
+        codes = [v[0] for v in venues]
+        assert codes == ["05", "09", "07"]
