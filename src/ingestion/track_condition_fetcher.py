@@ -244,6 +244,30 @@ class JRATrackConditionFetcher:
                 return code
         return None
 
+    def _select_latest_measurement(self, page: Any) -> None:
+        """測定時刻セレクトボックスで最新の測定値を選択する。
+
+        JRA ページの #moist_list と #cushion_list は複数の測定時刻を持つ。
+        最新 (value=0) を明示的に選択し、ページ内容を更新させる。
+        value=0 が常に当日の最新測定時刻であることを前提とする。
+
+        Args:
+            page: Playwright Page オブジェクト。
+        """
+        for select_id in ("#moist_list", "#cushion_list"):
+            try:
+                # value=0 (最新測定) を明示的に選択
+                page.select_option(select_id, value="0")
+            except Exception:
+                # セレクトボックスが存在しない場合はスキップ
+                pass
+
+        # 選択変更後の DOM 更新を待機
+        try:
+            page.wait_for_selector("#turf_line .gm", timeout=5000)
+        except Exception:
+            pass
+
     def _discover_venue_links(self, page: Any) -> list[tuple[str, str]]:
         """ベースページからアクティブな開催場リンクを発見する。
 
@@ -458,6 +482,9 @@ class JRATrackConditionFetcher:
                                 "#turf_line .gm セレクタ待機タイムアウト: venue_code=%s",
                                 venue_code,
                             )
+
+                        # 最新測定時刻を明示的に選択
+                        self._select_latest_measurement(page)
 
                         html = page.content()
                         parsed = parse_track_condition_html(html)
