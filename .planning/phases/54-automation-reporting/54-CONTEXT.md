@@ -39,8 +39,8 @@
   - betsのみ存在 → bet_id + snapshot hash 検証 → progress 復元
   - progress=`predicted` で bets 欠損 → 不整合 → 再処理 or fail-fast
   - `no_bet` → bets 行0件を正常状態として検証
-- **D-09:** Replay 機能。特徴量・モデル修正後、新しい replay セッションを作成して保存済み入力から再予測可能。元セッション・bets.parquet は変更せず、旧版との選択馬・的中率・ROI を比較
-- **D-10:** 責務分離: bets.parquet = ベット記録、race_progress.json = 処理進捗、入力 snapshot = 再現・比較用。累積履歴は bets.parquet を正本とし重複コピーを生成しない
+- **D-09:** Replay-ready infrastructure。入力 snapshot 保存(D-07)に加え snapshot hash・parent/source session 参照用メタデータを実装。Replay CLI コマンドと旧版・新版の比較レポートは将来フェーズへ延期(ROADMAP/REQUIREMENTS Out of Scope)
+- **D-10:** 責務分離: bets.parquet = ベット記録・累積履歴の唯一の正本・出力成果物、race_progress.json = 処理進捗、入力 snapshot = 再現用。bets.parquet は schema_version=2 で settlement_status/outcome/payout を含み、pending/settled/won/lost を検索可能。ReportAggregator は bets.parquet を読み込み件数と内訳を JSON/HTML へ集計表示するが、行単位の JSON/CSV 複製は生成しない
 
 ### Reporting Integration
 
