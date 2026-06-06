@@ -957,8 +957,6 @@ def _run_reconcile(
     store: "ParquetStore | None" = None,
 ) -> None:
     """Thin CLI wrapper for PaperReconciler.reconcile() (D-01)."""
-    from unittest.mock import MagicMock
-
     from db.everydb2_queries import EveryDB2Queries
     from paper_trading.reconciler import PaperReconciler
 
@@ -970,7 +968,6 @@ def _run_reconcile(
     bets_path = config.paper_trading_dir / "bets.parquet"
 
     reconciler = PaperReconciler(
-        store=store if store is not None else MagicMock(),
         bets_path=bets_path,
         everydb2=everydb2,
         retry_interval=60,

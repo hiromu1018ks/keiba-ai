@@ -184,7 +184,7 @@ class TestWinSettlement:
         pd.DataFrame([_make_bet_row(bet_type="win", umaban=3)]).to_parquet(bets_path, index=False)
 
         reconciler = PaperReconciler(
-            store=MagicMock(), bets_path=bets_path, everydb2=mock_everydb2,
+            bets_path=bets_path, everydb2=mock_everydb2,
         )
         result = reconciler.reconcile(date(2026, 4, 5))
 
@@ -208,7 +208,7 @@ class TestWinSettlement:
         pd.DataFrame([_make_bet_row(bet_type="win", umaban=3)]).to_parquet(bets_path, index=False)
 
         reconciler = PaperReconciler(
-            store=MagicMock(), bets_path=bets_path, everydb2=mock_everydb2,
+            bets_path=bets_path, everydb2=mock_everydb2,
         )
         result = reconciler.reconcile(date(2026, 4, 5))
 
@@ -237,7 +237,7 @@ class TestPlaceSettlement:
         pd.DataFrame([_make_bet_row(bet_type="place", umaban=3)]).to_parquet(bets_path, index=False)
 
         reconciler = PaperReconciler(
-            store=MagicMock(), bets_path=bets_path, everydb2=mock_everydb2,
+            bets_path=bets_path, everydb2=mock_everydb2,
         )
         result = reconciler.reconcile(date(2026, 4, 5))
 
@@ -259,7 +259,7 @@ class TestPlaceSettlement:
         pd.DataFrame([_make_bet_row(bet_type="place", umaban=3)]).to_parquet(bets_path, index=False)
 
         reconciler = PaperReconciler(
-            store=MagicMock(), bets_path=bets_path, everydb2=mock_everydb2,
+            bets_path=bets_path, everydb2=mock_everydb2,
         )
         result = reconciler.reconcile(date(2026, 4, 5))
 
@@ -298,7 +298,7 @@ class TestROI:
         pd.DataFrame(rows).to_parquet(bets_path, index=False)
 
         reconciler = PaperReconciler(
-            store=MagicMock(), bets_path=bets_path, everydb2=mock_everydb2,
+            bets_path=bets_path, everydb2=mock_everydb2,
         )
         result = reconciler.reconcile(date(2026, 4, 5))
 
@@ -331,7 +331,7 @@ class TestROI:
         pd.DataFrame(rows).to_parquet(bets_path, index=False)
 
         reconciler = PaperReconciler(
-            store=MagicMock(), bets_path=bets_path, everydb2=mock_everydb2,
+            bets_path=bets_path, everydb2=mock_everydb2,
         )
         result = reconciler.reconcile(date(2026, 4, 5))
 
@@ -362,7 +362,7 @@ class TestOldSchemaRejection:
         pd.DataFrame([old_bet]).to_parquet(bets_path, index=False)
 
         reconciler = PaperReconciler(
-            store=MagicMock(), bets_path=bets_path, everydb2=mock_everydb2,
+            bets_path=bets_path, everydb2=mock_everydb2,
         )
         with pytest.raises(ValueError, match="Old schema"):
             reconciler.reconcile(date(2026, 4, 5))
@@ -386,7 +386,7 @@ class TestInvalidPayout:
         pd.DataFrame([_make_bet_row(bet_type="win", umaban=3)]).to_parquet(bets_path, index=False)
 
         reconciler = PaperReconciler(
-            store=MagicMock(), bets_path=bets_path, everydb2=mock_everydb2,
+            bets_path=bets_path, everydb2=mock_everydb2,
         )
         result = reconciler.reconcile(date(2026, 4, 5))
 
@@ -419,7 +419,7 @@ class TestIdempotency:
         pd.DataFrame([row]).to_parquet(bets_path, index=False)
 
         reconciler = PaperReconciler(
-            store=MagicMock(), bets_path=bets_path, everydb2=mock_everydb2,
+            bets_path=bets_path, everydb2=mock_everydb2,
         )
         result = reconciler.reconcile(date(2026, 4, 5))
         assert result["n_settled"] == 0
@@ -433,7 +433,6 @@ class TestEdgeCases:
     def test_no_bets_file(self, tmp_path: Path) -> None:
         """No bets.parquet returns empty result."""
         reconciler = PaperReconciler(
-            store=MagicMock(),
             bets_path=tmp_path / "nonexistent.parquet",
             everydb2=MagicMock(),
         )
@@ -447,7 +446,7 @@ class TestEdgeCases:
         pd.DataFrame([row]).to_parquet(bets_path, index=False)
 
         reconciler = PaperReconciler(
-            store=MagicMock(), bets_path=bets_path, everydb2=MagicMock(),
+            bets_path=bets_path, everydb2=MagicMock(),
         )
         result = reconciler.reconcile(date(2026, 4, 5))
         assert result["n_settled"] == 0
@@ -462,7 +461,7 @@ class TestEdgeCases:
         pd.DataFrame([_make_bet_row()]).to_parquet(bets_path, index=False)
 
         reconciler = PaperReconciler(
-            store=MagicMock(), bets_path=bets_path, everydb2=mock_everydb2,
+            bets_path=bets_path, everydb2=mock_everydb2,
         )
         result = reconciler.reconcile(date(2026, 4, 5))
         assert result["n_settled"] == 0
