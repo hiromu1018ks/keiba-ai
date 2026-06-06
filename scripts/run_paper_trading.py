@@ -501,18 +501,6 @@ def _run_predict(
 
     race_ids = feat_df["race_id"].unique()
 
-    # RacePredictor.predict() 用の個別特徴量 (FeatureBuilder に統合済みだが
-    # predict() のシグネチャ上、別 DataFrame として渡す必要がある)
-    from features.horse_history_features import HorseHistoryFeatures
-    from features.jockey_context_features import JockeyContextFeatures
-    from features.jockey_trainer_combo import JockeyTrainerComboFeatures
-    from features.trainer_context_features import TrainerContextFeatures
-
-    hist_all = HorseHistoryFeatures(store=store).compute(race_df, entry_df, race_ids)
-    jockey_all = JockeyContextFeatures(store).compute(entry_df)
-    trainer_all = TrainerContextFeatures(store).compute(entry_df)
-    jt_all = JockeyTrainerComboFeatures(store).compute(entry_df)
-
     # 既存予測の読み込み (重複回避)
     pred_path = config.paper_trading_dir / "predictions" / f"{ymd}.parquet"
     existing_pred_df = pd.DataFrame()
@@ -549,16 +537,17 @@ def _run_predict(
             sys.exit(1)
 
         single_race = feat_df[feat_df["race_id"] == race_id].copy()
-        hist_race = hist_all[hist_all["race_id"] == race_id]
-        jockey_race = jockey_all[jockey_all["race_id"] == race_id]
-        trainer_race = trainer_all[trainer_all["race_id"] == race_id]
-        jt_race = jt_all[jt_all["race_id"] == race_id]
 
         # POST_RACE 列を除外 (BT engine.py と同じ処理)
         single_race = _drop_post_race_cols(single_race)
 
+        # FeatureBuilder が全特徴量を feat_df に統合済み (BT engine.py L1085-1091 と同一)
         result_df = race_predictor.predict(
-            single_race, hist_race, jockey_race, trainer_race, jt_combo_features=jt_race
+            single_race,
+            hist_features=None,
+            jockey_features=None,
+            trainer_features=None,
+            jt_combo_features=None,
         )
         if result_df.empty:
             continue
@@ -878,17 +867,6 @@ def _run_diagnose(
 
     race_ids = feat_df["race_id"].unique()
 
-    # RacePredictor.predict() 用の個別特徴量
-    from features.horse_history_features import HorseHistoryFeatures
-    from features.jockey_context_features import JockeyContextFeatures
-    from features.jockey_trainer_combo import JockeyTrainerComboFeatures
-    from features.trainer_context_features import TrainerContextFeatures
-
-    hist_all = HorseHistoryFeatures(store=store).compute(race_df, entry_df, race_ids)
-    jockey_all = JockeyContextFeatures(store).compute(entry_df)
-    trainer_all = TrainerContextFeatures(store).compute(entry_df)
-    jt_all = JockeyTrainerComboFeatures(store).compute(entry_df)
-
     # 推論 + 診断ログ
     race_predictor = RacePredictor(models)
     diag_logger = DiagnosticLogger()
@@ -898,16 +876,17 @@ def _run_diagnose(
 
     for race_id in race_ids:
         single_race = feat_df[feat_df["race_id"] == race_id].copy()
-        hist_race = hist_all[hist_all["race_id"] == race_id]
-        jockey_race = jockey_all[jockey_all["race_id"] == race_id]
-        trainer_race = trainer_all[trainer_all["race_id"] == race_id]
-        jt_race = jt_all[jt_all["race_id"] == race_id]
 
         # POST_RACE 列を除外 (BT engine.py と同じ処理)
         single_race = _drop_post_race_cols(single_race)
 
+        # FeatureBuilder が全特徴量を feat_df に統合済み (BT engine.py L1085-1091 と同一)
         result_df = race_predictor.predict(
-            single_race, hist_race, jockey_race, trainer_race, jt_combo_features=jt_race
+            single_race,
+            hist_features=None,
+            jockey_features=None,
+            trainer_features=None,
+            jt_combo_features=None,
         )
         if result_df.empty:
             continue
@@ -1144,17 +1123,6 @@ def _run_dry_run(
 
     race_ids = feat_df["race_id"].unique()
 
-    # RacePredictor.predict() 用の個別特徴量
-    from features.horse_history_features import HorseHistoryFeatures
-    from features.jockey_context_features import JockeyContextFeatures
-    from features.jockey_trainer_combo import JockeyTrainerComboFeatures
-    from features.trainer_context_features import TrainerContextFeatures
-
-    hist_all = HorseHistoryFeatures(store=store).compute(race_df, entry_df, race_ids)
-    jockey_all = JockeyContextFeatures(store).compute(entry_df)
-    trainer_all = TrainerContextFeatures(store).compute(entry_df)
-    jt_all = JockeyTrainerComboFeatures(store).compute(entry_df)
-
     # 日次シミュレーション
     total_bets = 0
     total_stake = 0.0
@@ -1173,17 +1141,18 @@ def _run_dry_run(
 
         day_bets: list[dict[str, object]] = []
         for race_id in day_races:
-            race_df_full = feat_df[feat_df["race_id"] == race_id].copy()
-            hist_race = hist_all[hist_all["race_id"] == race_id]
-            jockey_race = jockey_all[jockey_all["race_id"] == race_id]
-            trainer_race = trainer_all[trainer_all["race_id"] == race_id]
-            jt_race = jt_all[jt_all["race_id"] == race_id]
+            race_df_single = feat_df[feat_df["race_id"] == race_id].copy()
 
             # POST_RACE 列を除外 (BT engine.py と同じ処理)
-            race_df_single = _drop_post_race_cols(race_df_full.copy())
+            race_df_single = _drop_post_race_cols(race_df_single)
 
+            # FeatureBuilder が全特徴量を feat_df に統合済み (BT engine.py L1085-1091 と同一)
             result_df = race_predictor.predict(
-                race_df_single, hist_race, jockey_race, trainer_race, jt_combo_features=jt_race
+                race_df_single,
+                hist_features=None,
+                jockey_features=None,
+                trainer_features=None,
+                jt_combo_features=None,
             )
             if result_df.empty:
                 continue
@@ -1193,7 +1162,7 @@ def _run_dry_run(
 
             bets = race_predictor.select_bets(result_df, bankroll)
             for bet in bets:
-                horse_full = race_df_full[race_df_full["umaban"] == bet.umaban]
+                horse_full = race_df_single[race_df_single["umaban"] == bet.umaban]
                 if not horse_full.empty and "kakuteijyuni" in horse_full.columns:
                     finish_pos = int(horse_full.iloc[0]["kakuteijyuni"])
                     payout = 0.0
