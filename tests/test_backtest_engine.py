@@ -334,12 +334,7 @@ class TestPostRaceColumnExclusion:
     _POST_RACE_COLS = ["kakuteijyuni", "confirmed_odds"]
 
     @patch("db.odds_extractor.extract_pre_post_odds")
-    @patch("features.trainer_context_features.TrainerContextFeatures")
-    @patch("features.jockey_context_features.JockeyContextFeatures")
-    @patch("features.interaction_features.compute_interaction_features")
-    @patch("features.horse_history_features.HorseHistoryFeatures")
-    @patch("models.submodel_manager.SubModelManager")
-    @patch("features.feature_engine.FeatureEngine")
+    @patch("features.feature_builder.FeatureBuilder")
     @patch("backtest.engine.load_odds_time_series_range")
     @patch("backtest.engine.load_odds_snapshots")
     @patch("backtest.engine.load_entries")
@@ -350,12 +345,7 @@ class TestPostRaceColumnExclusion:
         mock_load_entries: MagicMock,
         mock_load_odds: MagicMock,
         mock_load_odds_ts: MagicMock,
-        mock_feat_engine_cls: MagicMock,
-        mock_submodel_mgr_cls: MagicMock,
-        mock_hist_cls: MagicMock,
-        mock_interaction_fn: MagicMock,
-        mock_jockey_cls: MagicMock,
-        mock_trainer_cls: MagicMock,
+        mock_feature_builder_cls: MagicMock,
         mock_extract_odds: MagicMock,
         mock_models: MagicMock,
     ) -> None:
@@ -420,31 +410,15 @@ class TestPostRaceColumnExclusion:
             }
         )
 
-        # --- FeatureEngine mock ---
-        mock_feat_engine = MagicMock()
-        mock_feat_engine_cls.return_value = mock_feat_engine
-        mock_feat_engine.build_all.return_value = feat_df
+        # --- FeatureBuilder mock (Phase 52: FeatureBuilder replaces FeatureEngine + modules) ---
+        from features.feature_manifest import FeatureBuildResult, FeatureManifest
 
-        # --- SubModelManager mock ---
-        mock_submodel_mgr = MagicMock()
-        mock_submodel_mgr_cls.return_value = mock_submodel_mgr
-        mock_submodel_mgr.add_distance_band_features.return_value = feat_df
-
-        # --- pre-computation mocks (return empty → merges are no-ops) ---
-        mock_hist = MagicMock()
-        mock_hist_cls.return_value = mock_hist
-        mock_hist.compute.return_value = pd.DataFrame(columns=["race_id", "umaban"])
-        mock_hist.add_race_transforms = staticmethod(lambda df: df)
-
-        mock_interaction_fn.side_effect = lambda df: df
-
-        mock_jockey = MagicMock()
-        mock_jockey_cls.return_value = mock_jockey
-        mock_jockey.compute.return_value = pd.DataFrame(columns=["race_id", "umaban"])
-
-        mock_trainer = MagicMock()
-        mock_trainer_cls.return_value = mock_trainer
-        mock_trainer.compute.return_value = pd.DataFrame(columns=["race_id", "umaban"])
+        _manifest = FeatureManifest(column_names=(), column_dtypes=(), feature_version="1.0")
+        mock_builder = MagicMock()
+        mock_feature_builder_cls.return_value = mock_builder
+        mock_builder.build_for_training.return_value = FeatureBuildResult(
+            frame=feat_df, manifest=_manifest,
+        )
 
         # --- submodel mocks ---
         submodel = MagicMock()
@@ -507,12 +481,7 @@ class TestBetHistoryEnrichment:
     """bet_history への surface/distance/ev/popularity/bankroll_after 付与テスト"""
 
     @patch("db.odds_extractor.extract_pre_post_odds")
-    @patch("features.trainer_context_features.TrainerContextFeatures")
-    @patch("features.jockey_context_features.JockeyContextFeatures")
-    @patch("features.interaction_features.compute_interaction_features")
-    @patch("features.horse_history_features.HorseHistoryFeatures")
-    @patch("models.submodel_manager.SubModelManager")
-    @patch("features.feature_engine.FeatureEngine")
+    @patch("features.feature_builder.FeatureBuilder")
     @patch("backtest.engine.load_odds_time_series_range")
     @patch("backtest.engine.load_odds_snapshots")
     @patch("backtest.engine.load_entries")
@@ -523,12 +492,7 @@ class TestBetHistoryEnrichment:
         mock_load_entries: MagicMock,
         mock_load_odds: MagicMock,
         mock_load_odds_ts: MagicMock,
-        mock_feat_engine_cls: MagicMock,
-        mock_submodel_mgr_cls: MagicMock,
-        mock_hist_cls: MagicMock,
-        mock_interaction_fn: MagicMock,
-        mock_jockey_cls: MagicMock,
-        mock_trainer_cls: MagicMock,
+        mock_feature_builder_cls: MagicMock,
         mock_extract_odds: MagicMock,
         mock_models: MagicMock,
     ) -> None:
@@ -593,31 +557,15 @@ class TestBetHistoryEnrichment:
             }
         )
 
-        # --- FeatureEngine mock ---
-        mock_feat_engine = MagicMock()
-        mock_feat_engine_cls.return_value = mock_feat_engine
-        mock_feat_engine.build_all.return_value = feat_df
+        # --- FeatureBuilder mock (Phase 52) ---
+        from features.feature_manifest import FeatureBuildResult, FeatureManifest
 
-        # --- SubModelManager mock ---
-        mock_submodel_mgr = MagicMock()
-        mock_submodel_mgr_cls.return_value = mock_submodel_mgr
-        mock_submodel_mgr.add_distance_band_features.return_value = feat_df
-
-        # --- pre-computation mocks (return empty → merges are no-ops) ---
-        mock_hist = MagicMock()
-        mock_hist_cls.return_value = mock_hist
-        mock_hist.compute.return_value = pd.DataFrame(columns=["race_id", "umaban"])
-        mock_hist.add_race_transforms = staticmethod(lambda df: df)
-
-        mock_interaction_fn.side_effect = lambda df: df
-
-        mock_jockey = MagicMock()
-        mock_jockey_cls.return_value = mock_jockey
-        mock_jockey.compute.return_value = pd.DataFrame(columns=["race_id", "umaban"])
-
-        mock_trainer = MagicMock()
-        mock_trainer_cls.return_value = mock_trainer
-        mock_trainer.compute.return_value = pd.DataFrame(columns=["race_id", "umaban"])
+        _manifest = FeatureManifest(column_names=(), column_dtypes=(), feature_version="1.0")
+        mock_builder = MagicMock()
+        mock_feature_builder_cls.return_value = mock_builder
+        mock_builder.build_for_training.return_value = FeatureBuildResult(
+            frame=feat_df, manifest=_manifest,
+        )
 
         # --- submodel mocks (plain MagicMock — spec restricts attribute access) ---
         submodel = MagicMock()
@@ -883,12 +831,7 @@ class TestJRAFilterBacktest:
     """バックテストエンジン JRAフィルタのテスト"""
 
     @patch("db.odds_extractor.extract_pre_post_odds")
-    @patch("features.trainer_context_features.TrainerContextFeatures")
-    @patch("features.jockey_context_features.JockeyContextFeatures")
-    @patch("features.interaction_features.compute_interaction_features")
-    @patch("features.horse_history_features.HorseHistoryFeatures")
-    @patch("models.submodel_manager.SubModelManager")
-    @patch("features.feature_engine.FeatureEngine")
+    @patch("features.feature_builder.FeatureBuilder")
     @patch("backtest.engine.load_odds_time_series_range")
     @patch("backtest.engine.load_odds_snapshots")
     @patch("backtest.engine.load_entries")
@@ -899,12 +842,7 @@ class TestJRAFilterBacktest:
         mock_load_entries: MagicMock,
         mock_load_odds: MagicMock,
         mock_load_odds_ts: MagicMock,
-        mock_feat_engine_cls: MagicMock,
-        mock_submodel_mgr_cls: MagicMock,
-        mock_hist_cls: MagicMock,
-        mock_interaction_fn: MagicMock,
-        mock_jockey_cls: MagicMock,
-        mock_trainer_cls: MagicMock,
+        mock_feature_builder_cls: MagicMock,
         mock_extract_odds: MagicMock,
         mock_models: MagicMock,
     ) -> None:
@@ -966,28 +904,14 @@ class TestJRAFilterBacktest:
             }
         )
 
-        mock_feat_engine = MagicMock()
-        mock_feat_engine_cls.return_value = mock_feat_engine
-        mock_feat_engine.build_all.return_value = feat_df
+        from features.feature_manifest import FeatureBuildResult, FeatureManifest
 
-        mock_submodel_mgr = MagicMock()
-        mock_submodel_mgr_cls.return_value = mock_submodel_mgr
-        mock_submodel_mgr.add_distance_band_features.return_value = feat_df
-
-        mock_hist = MagicMock()
-        mock_hist_cls.return_value = mock_hist
-        mock_hist.compute.return_value = pd.DataFrame(columns=["race_id", "umaban"])
-        mock_hist.add_race_transforms = staticmethod(lambda df: df)
-
-        mock_interaction_fn.side_effect = lambda df: df
-
-        mock_jockey = MagicMock()
-        mock_jockey_cls.return_value = mock_jockey
-        mock_jockey.compute.return_value = pd.DataFrame(columns=["race_id", "umaban"])
-
-        mock_trainer = MagicMock()
-        mock_trainer_cls.return_value = mock_trainer
-        mock_trainer.compute.return_value = pd.DataFrame(columns=["race_id", "umaban"])
+        _manifest = FeatureManifest(column_names=(), column_dtypes=(), feature_version="1.0")
+        mock_builder = MagicMock()
+        mock_feature_builder_cls.return_value = mock_builder
+        mock_builder.build_for_training.return_value = FeatureBuildResult(
+            frame=feat_df, manifest=_manifest,
+        )
 
         # Submodel mocks — needed so the test actually exercises the filter
         # Without these, the test passes for the wrong reason (no submodel = skip)
@@ -1024,12 +948,7 @@ class TestJRAFilterBacktest:
         assert result.total_bets == 0, "NAR race (jyocd=35) should be excluded from backtest"
 
     @patch("db.odds_extractor.extract_pre_post_odds")
-    @patch("features.trainer_context_features.TrainerContextFeatures")
-    @patch("features.jockey_context_features.JockeyContextFeatures")
-    @patch("features.interaction_features.compute_interaction_features")
-    @patch("features.horse_history_features.HorseHistoryFeatures")
-    @patch("models.submodel_manager.SubModelManager")
-    @patch("features.feature_engine.FeatureEngine")
+    @patch("features.feature_builder.FeatureBuilder")
     @patch("backtest.engine.load_odds_time_series_range")
     @patch("backtest.engine.load_odds_snapshots")
     @patch("backtest.engine.load_entries")
@@ -1040,12 +959,7 @@ class TestJRAFilterBacktest:
         mock_load_entries: MagicMock,
         mock_load_odds: MagicMock,
         mock_load_odds_ts: MagicMock,
-        mock_feat_engine_cls: MagicMock,
-        mock_submodel_mgr_cls: MagicMock,
-        mock_hist_cls: MagicMock,
-        mock_interaction_fn: MagicMock,
-        mock_jockey_cls: MagicMock,
-        mock_trainer_cls: MagicMock,
+        mock_feature_builder_cls: MagicMock,
         mock_extract_odds: MagicMock,
         mock_models: MagicMock,
     ) -> None:
@@ -1107,28 +1021,14 @@ class TestJRAFilterBacktest:
             }
         )
 
-        mock_feat_engine = MagicMock()
-        mock_feat_engine_cls.return_value = mock_feat_engine
-        mock_feat_engine.build_all.return_value = feat_df
+        from features.feature_manifest import FeatureBuildResult, FeatureManifest
 
-        mock_submodel_mgr = MagicMock()
-        mock_submodel_mgr_cls.return_value = mock_submodel_mgr
-        mock_submodel_mgr.add_distance_band_features.return_value = feat_df
-
-        mock_hist = MagicMock()
-        mock_hist_cls.return_value = mock_hist
-        mock_hist.compute.return_value = pd.DataFrame(columns=["race_id", "umaban"])
-        mock_hist.add_race_transforms = staticmethod(lambda df: df)
-
-        mock_interaction_fn.side_effect = lambda df: df
-
-        mock_jockey = MagicMock()
-        mock_jockey_cls.return_value = mock_jockey
-        mock_jockey.compute.return_value = pd.DataFrame(columns=["race_id", "umaban"])
-
-        mock_trainer = MagicMock()
-        mock_trainer_cls.return_value = mock_trainer
-        mock_trainer.compute.return_value = pd.DataFrame(columns=["race_id", "umaban"])
+        _manifest = FeatureManifest(column_names=(), column_dtypes=(), feature_version="1.0")
+        mock_builder = MagicMock()
+        mock_feature_builder_cls.return_value = mock_builder
+        mock_builder.build_for_training.return_value = FeatureBuildResult(
+            frame=feat_df, manifest=_manifest,
+        )
 
         # Submodel mocks for prediction
         submodel = MagicMock()
@@ -1247,12 +1147,7 @@ class TestBetSelectionFilters:
         assert result.exclusion_stats["collapsed_skipped"] == 5
 
     @patch("db.odds_extractor.extract_pre_post_odds")
-    @patch("features.trainer_context_features.TrainerContextFeatures")
-    @patch("features.jockey_context_features.JockeyContextFeatures")
-    @patch("features.interaction_features.compute_interaction_features")
-    @patch("features.horse_history_features.HorseHistoryFeatures")
-    @patch("models.submodel_manager.SubModelManager")
-    @patch("features.feature_engine.FeatureEngine")
+    @patch("features.feature_builder.FeatureBuilder")
     @patch("backtest.engine.load_odds_time_series_range")
     @patch("backtest.engine.load_odds_snapshots")
     @patch("backtest.engine.load_entries")
@@ -1263,12 +1158,7 @@ class TestBetSelectionFilters:
         mock_load_entries: MagicMock,
         mock_load_odds: MagicMock,
         mock_load_odds_ts: MagicMock,
-        mock_feat_engine_cls: MagicMock,
-        mock_submodel_mgr_cls: MagicMock,
-        mock_hist_cls: MagicMock,
-        mock_interaction_fn: MagicMock,
-        mock_jockey_cls: MagicMock,
-        mock_trainer_cls: MagicMock,
+        mock_feature_builder_cls: MagicMock,
         mock_extract_odds: MagicMock,
         mock_models: MagicMock,
     ) -> None:
@@ -1330,27 +1220,14 @@ class TestBetSelectionFilters:
             }
         )
 
-        mock_feat_engine = MagicMock()
-        mock_feat_engine_cls.return_value = mock_feat_engine
-        mock_feat_engine.build_all.return_value = feat_df
+        from features.feature_manifest import FeatureBuildResult, FeatureManifest
 
-        mock_submodel_mgr = MagicMock()
-        mock_submodel_mgr_cls.return_value = mock_submodel_mgr
-        mock_submodel_mgr.add_distance_band_features.return_value = feat_df
-
-        mock_hist = MagicMock()
-        mock_hist_cls.return_value = mock_hist
-        mock_hist.compute.return_value = pd.DataFrame(columns=["race_id", "umaban"])
-        mock_hist.add_race_transforms = staticmethod(lambda df: df)
-        mock_interaction_fn.side_effect = lambda df: df
-
-        mock_jockey = MagicMock()
-        mock_jockey_cls.return_value = mock_jockey
-        mock_jockey.compute.return_value = pd.DataFrame(columns=["race_id", "umaban"])
-
-        mock_trainer = MagicMock()
-        mock_trainer_cls.return_value = mock_trainer
-        mock_trainer.compute.return_value = pd.DataFrame(columns=["race_id", "umaban"])
+        _manifest = FeatureManifest(column_names=(), column_dtypes=(), feature_version="1.0")
+        mock_builder = MagicMock()
+        mock_feature_builder_cls.return_value = mock_builder
+        mock_builder.build_for_training.return_value = FeatureBuildResult(
+            frame=feat_df, manifest=_manifest,
+        )
 
         # Submodel mocks for predict() to pass
         submodel = MagicMock()
@@ -1413,12 +1290,7 @@ class TestBetSelectionFilters:
         assert engine._odds_band_filter is None
 
     @patch("db.odds_extractor.extract_pre_post_odds")
-    @patch("features.trainer_context_features.TrainerContextFeatures")
-    @patch("features.jockey_context_features.JockeyContextFeatures")
-    @patch("features.interaction_features.compute_interaction_features")
-    @patch("features.horse_history_features.HorseHistoryFeatures")
-    @patch("models.submodel_manager.SubModelManager")
-    @patch("features.feature_engine.FeatureEngine")
+    @patch("features.feature_builder.FeatureBuilder")
     @patch("backtest.engine.load_odds_time_series_range")
     @patch("backtest.engine.load_odds_snapshots")
     @patch("backtest.engine.load_entries")
@@ -1429,12 +1301,7 @@ class TestBetSelectionFilters:
         mock_load_entries: MagicMock,
         mock_load_odds: MagicMock,
         mock_load_odds_ts: MagicMock,
-        mock_feat_engine_cls: MagicMock,
-        mock_submodel_mgr_cls: MagicMock,
-        mock_hist_cls: MagicMock,
-        mock_interaction_fn: MagicMock,
-        mock_jockey_cls: MagicMock,
-        mock_trainer_cls: MagicMock,
+        mock_feature_builder_cls: MagicMock,
         mock_extract_odds: MagicMock,
         mock_models: MagicMock,
         caplog: pytest.LogCaptureFixture,
@@ -2627,12 +2494,7 @@ class TestHistFeaturesPreMerge:
     """D-11: hist_df_all を feat_df に事前マージし、predict() に hist_features=None を渡す"""
 
     @patch("db.odds_extractor.extract_pre_post_odds")
-    @patch("features.trainer_context_features.TrainerContextFeatures")
-    @patch("features.jockey_context_features.JockeyContextFeatures")
-    @patch("features.interaction_features.compute_interaction_features")
-    @patch("features.horse_history_features.HorseHistoryFeatures")
-    @patch("models.submodel_manager.SubModelManager")
-    @patch("features.feature_engine.FeatureEngine")
+    @patch("features.feature_builder.FeatureBuilder")
     @patch("backtest.engine.load_odds_time_series_range")
     @patch("backtest.engine.load_odds_snapshots")
     @patch("backtest.engine.load_entries")
@@ -2643,12 +2505,7 @@ class TestHistFeaturesPreMerge:
         mock_load_entries: MagicMock,
         mock_load_odds: MagicMock,
         mock_load_odds_ts: MagicMock,
-        mock_feat_engine_cls: MagicMock,
-        mock_submodel_mgr_cls: MagicMock,
-        mock_hist_cls: MagicMock,
-        mock_interaction_fn: MagicMock,
-        mock_jockey_cls: MagicMock,
-        mock_trainer_cls: MagicMock,
+        mock_feature_builder_cls: MagicMock,
         mock_extract_odds: MagicMock,
         mock_models: MagicMock,
     ) -> None:
@@ -2680,35 +2537,26 @@ class TestHistFeaturesPreMerge:
             "grade_code": ["E"], "hondai": ["テスト"], "bamei": ["テスト馬"],
             "kisyuryakusyo": ["テスト騎手"], "track_condition_code": [1],
             "p_place_pred": [0.65], "e_return_place_pred": [1.80],
+            # hist features (now included by FeatureBuilder)
+            "closing_speed_ratio_avg": [0.75],
+            "haron_race_gap_avg": [-1.5],
         })
 
-        # hist_df_all with a known feature column
+        # hist_df_all with a known feature column (kept for test clarity)
         hist_df_all = pd.DataFrame({
             "race_id": ["20240101010101"], "umaban": [1],
             "closing_speed_ratio_avg": [0.75],
             "haron_race_gap_avg": [-1.5],
         })
 
-        mock_feat_engine = MagicMock()
-        mock_feat_engine_cls.return_value = mock_feat_engine
-        mock_feat_engine.build_all.return_value = feat_df
+        from features.feature_manifest import FeatureBuildResult, FeatureManifest
 
-        mock_submodel_mgr = MagicMock()
-        mock_submodel_mgr_cls.return_value = mock_submodel_mgr
-        mock_submodel_mgr.add_distance_band_features.return_value = feat_df
-
-        mock_hist = MagicMock()
-        mock_hist_cls.return_value = mock_hist
-        mock_hist.compute.return_value = hist_df_all
-        mock_hist.add_race_transforms = staticmethod(lambda df: df)
-
-        mock_interaction_fn.side_effect = lambda df: df
-        mock_jockey = MagicMock()
-        mock_jockey_cls.return_value = mock_jockey
-        mock_jockey.compute.return_value = pd.DataFrame(columns=["race_id", "umaban"])
-        mock_trainer = MagicMock()
-        mock_trainer_cls.return_value = mock_trainer
-        mock_trainer.compute.return_value = pd.DataFrame(columns=["race_id", "umaban"])
+        _manifest = FeatureManifest(column_names=(), column_dtypes=(), feature_version="1.0")
+        mock_builder = MagicMock()
+        mock_feature_builder_cls.return_value = mock_builder
+        mock_builder.build_for_training.return_value = FeatureBuildResult(
+            frame=feat_df, manifest=_manifest,
+        )
 
         submodel = MagicMock()
         submodel.benter_combo = None
@@ -2761,12 +2609,7 @@ class TestHistFeaturesPreMerge:
         )
 
     @patch("db.odds_extractor.extract_pre_post_odds")
-    @patch("features.trainer_context_features.TrainerContextFeatures")
-    @patch("features.jockey_context_features.JockeyContextFeatures")
-    @patch("features.interaction_features.compute_interaction_features")
-    @patch("features.horse_history_features.HorseHistoryFeatures")
-    @patch("models.submodel_manager.SubModelManager")
-    @patch("features.feature_engine.FeatureEngine")
+    @patch("features.feature_builder.FeatureBuilder")
     @patch("backtest.engine.load_odds_time_series_range")
     @patch("backtest.engine.load_odds_snapshots")
     @patch("backtest.engine.load_entries")
@@ -2777,12 +2620,7 @@ class TestHistFeaturesPreMerge:
         mock_load_entries: MagicMock,
         mock_load_odds: MagicMock,
         mock_load_odds_ts: MagicMock,
-        mock_feat_engine_cls: MagicMock,
-        mock_submodel_mgr_cls: MagicMock,
-        mock_hist_cls: MagicMock,
-        mock_interaction_fn: MagicMock,
-        mock_jockey_cls: MagicMock,
-        mock_trainer_cls: MagicMock,
+        mock_feature_builder_cls: MagicMock,
         mock_extract_odds: MagicMock,
         mock_models: MagicMock,
     ) -> None:
@@ -2814,6 +2652,8 @@ class TestHistFeaturesPreMerge:
             "grade_code": ["E"], "hondai": ["テスト"], "bamei": ["テスト馬"],
             "kisyuryakusyo": ["テスト騎手"], "track_condition_code": [1],
             "p_place_pred": [0.65], "e_return_place_pred": [1.80],
+            # hist features (now included by FeatureBuilder)
+            "closing_speed_ratio_avg": [0.75],
         })
 
         hist_df_all = pd.DataFrame({
@@ -2821,26 +2661,14 @@ class TestHistFeaturesPreMerge:
             "closing_speed_ratio_avg": [0.75],
         })
 
-        mock_feat_engine = MagicMock()
-        mock_feat_engine_cls.return_value = mock_feat_engine
-        mock_feat_engine.build_all.return_value = feat_df
+        from features.feature_manifest import FeatureBuildResult, FeatureManifest
 
-        mock_submodel_mgr = MagicMock()
-        mock_submodel_mgr_cls.return_value = mock_submodel_mgr
-        mock_submodel_mgr.add_distance_band_features.return_value = feat_df
-
-        mock_hist = MagicMock()
-        mock_hist_cls.return_value = mock_hist
-        mock_hist.compute.return_value = hist_df_all
-        mock_hist.add_race_transforms = staticmethod(lambda df: df)
-
-        mock_interaction_fn.side_effect = lambda df: df
-        mock_jockey = MagicMock()
-        mock_jockey_cls.return_value = mock_jockey
-        mock_jockey.compute.return_value = pd.DataFrame(columns=["race_id", "umaban"])
-        mock_trainer = MagicMock()
-        mock_trainer_cls.return_value = mock_trainer
-        mock_trainer.compute.return_value = pd.DataFrame(columns=["race_id", "umaban"])
+        _manifest = FeatureManifest(column_names=(), column_dtypes=(), feature_version="1.0")
+        mock_builder = MagicMock()
+        mock_feature_builder_cls.return_value = mock_builder
+        mock_builder.build_for_training.return_value = FeatureBuildResult(
+            frame=feat_df, manifest=_manifest,
+        )
 
         submodel = MagicMock()
         submodel.benter_combo = None

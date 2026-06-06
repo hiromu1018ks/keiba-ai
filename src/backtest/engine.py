@@ -682,16 +682,20 @@ class BacktestEngine:
         if needs_wide:
             logger.info("Loaded wide payout map: %d entries [prepare_data]", len(wide_payout_map))
 
-        # FeatureEngine.build_all()
-        feat_df = feat_engine.build_all(
+        # FeatureBuilder: 13エンリッチメントモジュールを一括実行 (Phase 52 D-10)
+        from features.feature_builder import FeatureBuilder
+
+        builder = FeatureBuilder(store=store)
+        build_result = builder.build_for_training(
             race_df,
             entry_df,
             pre_post_odds,
             odds_ts_df=odds_ts_df,
-            store=store,
             preserve_columns=["kakuteijyuni", "confirmed_odds"],
         )
-        feat_df = submodel_mgr.add_distance_band_features(feat_df)
+        feat_df = build_result.frame
+
+        race_ids = feat_df["race_id"].unique()
 
         # ワイドペア専用オッズ
         if betting_target == "wide":
@@ -727,160 +731,11 @@ class BacktestEngine:
                 )
                 feat_df = feat_df[jyocd_int.between(1, 10)]
 
-        # 3. 特徴量の一括事前計算
-        from features.horse_history_features import HorseHistoryFeatures
-        from features.jockey_context_features import JockeyContextFeatures
-        from features.jockey_trainer_combo import JockeyTrainerComboFeatures
-        from features.trainer_context_features import TrainerContextFeatures
-
-        race_ids = feat_df["race_id"].unique()
-
-        logger.info("Pre-computing HorseHistoryFeatures for %d races...", len(race_ids))
-        hist_all = HorseHistoryFeatures(store=store)
-        hist_df_all = hist_all.compute(race_df, entry_df, race_ids)
-
-        logger.info("Pre-computing JockeyContextFeatures for %d entries...", len(entry_df))
-        jockey_ctx = JockeyContextFeatures(store)
-        jockey_df_all = jockey_ctx.compute(entry_df)
-
-        logger.info("Pre-computing TrainerContextFeatures for %d entries...", len(entry_df))
-        trainer_ctx = TrainerContextFeatures(store)
-        trainer_df_all = trainer_ctx.compute(entry_df)
-
-        logger.info("Pre-computing JockeyTrainerComboFeatures for %d entries...", len(entry_df))
-        jt_combo = JockeyTrainerComboFeatures(store)
-        jt_df_all = jt_combo.compute(entry_df)
-
-        # 種牡馬産駒特徴量
-        from db.readers import load_horses, load_sire_stats
-        from features.sire_features import SireFeatures
-
-        logger.info("Computing SireFeatures for backtest inference [prepare_data]...")
-        sire_stats_bt = load_sire_stats(store)
-        if not sire_stats_bt.empty:
-            horses_bt = load_horses(store)
-            sire_feat_bt = SireFeatures(sire_stats_bt)
-            sire_map_bt = horses_bt.set_index("kettonum")["ketto3infohansyokunum1"]
-            feat_df["sire_id"] = feat_df["kettonum"].map(sire_map_bt)
-            bms_source_col_bt = (
-                "ketto3infohansyokunum5"
-                if "ketto3infohansyokunum5" in horses_bt.columns
-                else "ketto3infohansyokunum3"
-            )
-            bms_map_bt = horses_bt.set_index("kettonum")[bms_source_col_bt]
-            feat_df["bms_id"] = feat_df["kettonum"].map(bms_map_bt)
-            sire_result_bt = sire_feat_bt.compute_batch(feat_df)
-            _sire_cols_needed = {
-                "sire_wr",
-                "sire_surface_wr",
-                "sire_distance_wr",
-                "sire_prize_avg",
-                "bms_wr",
-                "bms_distance_wr",
-                "bms_surface_wr",
-                "bms_has_history",
-                "bms_starts_log",
-                "bms_surface_starts_log",
-                "bms_distance_starts_log",
-            }
-            for col in _sire_cols_needed:
-                if col in sire_result_bt.columns:
-                    feat_df[col] = sire_result_bt[col].values
-
-        # 4. PaceAptitude + CourseFeatures
-        from features.course_features import CourseFeatures
-        from features.pace_aptitude_features import PaceAptitudeFeatures
-
-        logger.info("Pre-computing PaceAptitudeFeatures [prepare_data]...")
-        pace_feat = PaceAptitudeFeatures(store=store)
-        pace_df = pace_feat.compute_batch(feat_df)
-        _pace_cols = [
-            c
-            for c in [
-                "pace_aptitude",
-                "front_pace_wr",
-                "closing_pace_wr",
-                "pace_corner_stability",
-                "pace_closing_power",
-                "pace_position_consistency",
-            ]
-            if c in pace_df.columns
-        ]
-        if _pace_cols:
-            feat_df = feat_df.drop(columns=_pace_cols, errors="ignore").merge(
-                pace_df[["kettonum", "race_id"] + _pace_cols],
-                on=["kettonum", "race_id"],
-                how="left",
-            )
-
-        logger.info("Pre-computing CourseFeatures [prepare_data]...")
-        course_feat = CourseFeatures(store=store)
-        course_df = course_feat.compute_batch(feat_df)
-        _course_cols = [c for c in ["course_wr", "course_distance_wr"] if c in course_df.columns]
-        if _course_cols:
-            feat_df = feat_df.drop(columns=_course_cols, errors="ignore").merge(
-                course_df[["kettonum", "race_id"] + _course_cols],
-                on=["kettonum", "race_id"],
-                how="left",
-            )
-
-        # 4b. Phase 26-27 追加特徴量
-        from features.dam_pedigree_features import FEATURE_COLS as DAM_PED_FEATURE_COLS
-        from features.dam_pedigree_features import DamPedigreeFeatures
-        from features.mining_features import FEATURE_COLS as MINING_FEATURE_COLS
-        from features.mining_features import MiningFeatures
-        from features.record_features import FEATURE_COLS as RECORD_FEATURE_COLS
-        from features.record_features import RecordFeatures
-
-        dam_feat = DamPedigreeFeatures(store)
-        dam_df = dam_feat.compute(feat_df)
-        _dam_drop_cols = [c for c in DAM_PED_FEATURE_COLS if c in feat_df.columns]
-        if _dam_drop_cols:
-            feat_df.drop(columns=_dam_drop_cols, inplace=True)
-        if not dam_df.empty:
-            feat_df = feat_df.merge(dam_df, on=["race_id", "umaban"], how="left")
-        else:
-            for col in DAM_PED_FEATURE_COLS:
-                feat_df[col] = np.nan
-
-        record_feat = RecordFeatures(store)
-        record_df = record_feat.compute(feat_df)
-        _record_drop_cols = [c for c in RECORD_FEATURE_COLS if c in feat_df.columns]
-        if _record_drop_cols:
-            feat_df.drop(columns=_record_drop_cols, inplace=True)
-        if not record_df.empty:
-            feat_df = feat_df.merge(record_df, on="race_id", how="left")
-        else:
-            for col in RECORD_FEATURE_COLS:
-                feat_df[col] = np.nan
-
-        mining_feat = MiningFeatures(store)
-        mining_df = mining_feat.compute(feat_df)
-        _mining_drop_cols = [c for c in MINING_FEATURE_COLS if c in feat_df.columns]
-        if _mining_drop_cols:
-            feat_df.drop(columns=_mining_drop_cols, inplace=True)
-        if not mining_df.empty:
-            feat_df = feat_df.merge(mining_df, on=["race_id", "umaban"], how="left")
-        else:
-            for col in MINING_FEATURE_COLS:
-                feat_df[col] = np.nan
-
-        # D-11: hist_df_all を feat_df に事前マージ
-        if not hist_df_all.empty:
-            hist_merge_cols = [
-                c
-                for c in hist_df_all.columns
-                if c not in feat_df.columns or c in ("race_id", "umaban")
-            ]
-            feat_df = feat_df.merge(
-                hist_df_all[hist_merge_cols],
-                on=["race_id", "umaban"],
-                how="left",
-            )
-            logger.info(
-                "Merged hist features into feat_df: %d columns [prepare_data]",
-                len(hist_merge_cols) - 2,
-            )
+        # jockey/trainer/jt は FeatureBuilder で feat_df に既にマージ済み
+        # 空DataFrame を返す (BacktestPreparedData 構造は維持)
+        jockey_df_all = pd.DataFrame()
+        trainer_df_all = pd.DataFrame()
+        jt_df_all = pd.DataFrame()
 
         logger.info(
             "prepare_data complete: %d races, %d features, betting_target=%s",
@@ -997,11 +852,6 @@ class BacktestEngine:
 
             # 2. 特徴量生成
             from db.odds_extractor import extract_pre_post_odds
-            from features.feature_engine import FeatureEngine
-            from models.submodel_manager import SubModelManager
-
-            feat_engine = FeatureEngine()
-            submodel_mgr = SubModelManager()
 
             # P1: odds時系列データ — preloaded_odds_tsがあれば再利用、なければロード
             if self._preloaded_odds_ts is not None:
@@ -1097,21 +947,25 @@ class BacktestEngine:
             else:
                 self.wide_payout_map = {}
 
-            feat_df = feat_engine.build_all(
+            # FeatureBuilder: 13エンリッチメントモジュールを一括実行 (Phase 52 D-10)
+            from features.feature_builder import FeatureBuilder
+
+            builder = FeatureBuilder(store=self.store)
+            build_result = builder.build_for_training(
                 race_df,
                 entry_df,
                 pre_post_odds,
                 odds_ts_df=odds_ts_df,
-                store=self.store,
                 preserve_columns=["kakuteijyuni", "confirmed_odds"],
             )
-            feat_df = submodel_mgr.add_distance_band_features(feat_df)
+            feat_df = build_result.frame
+
+            race_ids = feat_df["race_id"].unique()
 
             # ワイドペア専用オッズを pivot して特徴量にマージ（WideJointPairBuilder 用）
             if self.betting_target == "wide":
                 wide_odds_df = load_wide_odds(self.store, start, end)
                 if wide_odds_df is not None and not wide_odds_df.empty:
-                    # kumi "0102" → int変換で "1_2" 形式（WideJointPairBuilder の lookup に合わせる）
                     _wide = wide_odds_df[["race_id", "kumi", "oddslow"]].dropna(subset=["oddslow"])
                     if not _wide.empty:
                         wide_pivot = _wide.pivot_table(
@@ -1119,7 +973,6 @@ class BacktestEngine:
                             columns="kumi",
                             values="oddslow",
                         )
-                        # ゼロ埋めを解除: "0102" → "1_2", "0211" → "2_11"
                         new_cols = []
                         for c in wide_pivot.columns:
                             lo = int(c[:2])
@@ -1133,7 +986,6 @@ class BacktestEngine:
                 logger.info("Skipping wide odds pivot for betting_target=%s", self.betting_target)
 
             # Safety check: verify feature generation did not introduce NAR entries
-            # (already filtered at data load above; this catches pipeline bugs)
             if "jyocd" in feat_df.columns:
                 jyocd_int = pd.to_numeric(feat_df["jyocd"], errors="coerce")
                 nar_count = (~jyocd_int.between(1, 10)).sum()
@@ -1144,173 +996,12 @@ class BacktestEngine:
                     )
                     feat_df = feat_df[jyocd_int.between(1, 10)]
 
-            # 3. 特徴量の一括事前計算 (ループ外で全レース分を一度に計算)
-            from features.horse_history_features import HorseHistoryFeatures
-            from features.jockey_context_features import JockeyContextFeatures
-            from features.jockey_trainer_combo import JockeyTrainerComboFeatures
-            from features.trainer_context_features import TrainerContextFeatures
-
-            race_ids = feat_df["race_id"].unique()
-
-            logger.info("Pre-computing HorseHistoryFeatures for %d races...", len(race_ids))
-            hist_all = HorseHistoryFeatures(store=self.store)
-            hist_df_all = hist_all.compute(race_df, entry_df, race_ids)
-
-            logger.info("Pre-computing JockeyContextFeatures for %d entries...", len(entry_df))
-            jockey_ctx = JockeyContextFeatures(self.store)
-            jockey_df_all = jockey_ctx.compute(entry_df)
-
-            logger.info("Pre-computing TrainerContextFeatures for %d entries...", len(entry_df))
-            trainer_ctx = TrainerContextFeatures(self.store)
-            trainer_df_all = trainer_ctx.compute(entry_df)
-
-            logger.info("Pre-computing JockeyTrainerComboFeatures for %d entries...", len(entry_df))
-            jt_combo = JockeyTrainerComboFeatures(self.store)
-            jt_df_all = jt_combo.compute(entry_df)
-
-            # 種牡馬産駒特徴量の追加 (推論パス — 学習と同一ロジック)
-            from db.readers import load_horses, load_sire_stats
-            from features.sire_features import SireFeatures
-
-            logger.info("Computing SireFeatures for backtest inference...")
-            sire_stats_bt = load_sire_stats(self.store)
-            if not sire_stats_bt.empty:
-                horses_bt = load_horses(self.store)
-                sire_feat_bt = SireFeatures(sire_stats_bt)
-                sire_map_bt = horses_bt.set_index("kettonum")["ketto3infohansyokunum1"]
-                feat_df["sire_id"] = feat_df["kettonum"].map(sire_map_bt)
-                bms_source_col_bt = (
-                    "ketto3infohansyokunum5"
-                    if "ketto3infohansyokunum5" in horses_bt.columns
-                    else "ketto3infohansyokunum3"
-                )
-                bms_map_bt = horses_bt.set_index("kettonum")[bms_source_col_bt]
-                feat_df["bms_id"] = feat_df["kettonum"].map(bms_map_bt)
-                sire_result_bt = sire_feat_bt.compute_batch(feat_df)
-                _sire_cols_needed = {
-                    "sire_wr",
-                    "sire_surface_wr",
-                    "sire_distance_wr",
-                    "sire_prize_avg",
-                    "bms_wr",
-                    "bms_distance_wr",
-                    "bms_surface_wr",
-                    "bms_has_history",
-                    "bms_starts_log",
-                    "bms_surface_starts_log",
-                    "bms_distance_starts_log",
-                }
-                for col in _sire_cols_needed:
-                    if col in sire_result_bt.columns:
-                        feat_df[col] = sire_result_bt[col].values
-
-            # 4. PaceAptitude + CourseFeatures の事前計算 (推論パスでも必要)
-            from features.course_features import CourseFeatures
-            from features.pace_aptitude_features import PaceAptitudeFeatures
-
-            logger.info("Pre-computing PaceAptitudeFeatures...")
-            pace_feat = PaceAptitudeFeatures(store=self.store)
-            pace_df = pace_feat.compute_batch(feat_df)
-            # BUG-FIX: 学習パイプラインと同様に全6列をマージ (PACE-01 の3列が漏れていた)
-            _pace_cols = [
-                c
-                for c in [
-                    "pace_aptitude",
-                    "front_pace_wr",
-                    "closing_pace_wr",
-                    "pace_corner_stability",
-                    "pace_closing_power",
-                    "pace_position_consistency",
-                ]
-                if c in pace_df.columns
-            ]
-            if _pace_cols:
-                feat_df = feat_df.drop(columns=_pace_cols, errors="ignore").merge(
-                    pace_df[["kettonum", "race_id"] + _pace_cols],
-                    on=["kettonum", "race_id"],
-                    how="left",
-                )
-
-            logger.info("Pre-computing CourseFeatures...")
-            course_feat = CourseFeatures(store=self.store)
-            course_df = course_feat.compute_batch(feat_df)
-            _course_cols = [c for c in ["course_wr", "course_distance_wr"] if c in course_df.columns]
-            if _course_cols:
-                feat_df = feat_df.drop(columns=_course_cols, errors="ignore").merge(
-                    course_df[["kettonum", "race_id"] + _course_cols],
-                    on=["kettonum", "race_id"],
-                    how="left",
-                )
-
-            # 4b. Phase 26-27 追加特徴量 (TrainingPipeline._train_submodel と同一視)
-            from features.dam_pedigree_features import FEATURE_COLS as DAM_PED_FEATURE_COLS
-            from features.dam_pedigree_features import DamPedigreeFeatures
-            from features.mining_features import FEATURE_COLS as MINING_FEATURE_COLS
-            from features.mining_features import MiningFeatures
-            from features.record_features import FEATURE_COLS as RECORD_FEATURE_COLS
-            from features.record_features import RecordFeatures
-
-            # DamPedigreeFeatures: horse-level (race_id, umaban)
-            dam_feat = DamPedigreeFeatures(self.store)
-            dam_df = dam_feat.compute(feat_df)
-            _dam_drop_cols = [c for c in DAM_PED_FEATURE_COLS if c in feat_df.columns]
-            if _dam_drop_cols:
-                feat_df.drop(columns=_dam_drop_cols, inplace=True)
-            if not dam_df.empty:
-                feat_df = feat_df.merge(dam_df, on=["race_id", "umaban"], how="left")
-            else:
-                for col in DAM_PED_FEATURE_COLS:
-                    feat_df[col] = np.nan
-
-            # RecordFeatures: race-level (race_id only)
-            record_feat = RecordFeatures(self.store)
-            record_df = record_feat.compute(feat_df)
-            _record_drop_cols = [c for c in RECORD_FEATURE_COLS if c in feat_df.columns]
-            if _record_drop_cols:
-                feat_df.drop(columns=_record_drop_cols, inplace=True)
-            if not record_df.empty:
-                feat_df = feat_df.merge(record_df, on="race_id", how="left")
-            else:
-                for col in RECORD_FEATURE_COLS:
-                    feat_df[col] = np.nan
-
-            # MiningFeatures: horse-level (race_id, umaban)
-            mining_feat = MiningFeatures(self.store)
-            mining_df = mining_feat.compute(feat_df)
-            _mining_drop_cols = [c for c in MINING_FEATURE_COLS if c in feat_df.columns]
-            if _mining_drop_cols:
-                feat_df.drop(columns=_mining_drop_cols, inplace=True)
-            if not mining_df.empty:
-                feat_df = feat_df.merge(mining_df, on=["race_id", "umaban"], how="left")
-            else:
-                for col in MINING_FEATURE_COLS:
-                    feat_df[col] = np.nan
-
-            # NOTE: compute_relative_features は RacePredictor.predict() 内で呼び出す
-            # (HorseHistoryFeatures の base 列が feat_df にまだ存在しないため)
-
-            # D-11: hist_df_all を feat_df に事前マージ
-            # backtest parquet に hist 特徴量が含まれるようにする (二重マージ回避)
-            if not hist_df_all.empty:
-                # Drop merge keys from hist_df_all for the merge
-                hist_merge_cols = [
-                    c
-                    for c in hist_df_all.columns
-                    if c not in feat_df.columns or c in ("race_id", "umaban")
-                ]
-                feat_df = feat_df.merge(
-                    hist_df_all[hist_merge_cols],
-                    on=["race_id", "umaban"],
-                    how="left",
-                )
-                logger.info("Merged hist features into feat_df: %d columns", len(hist_merge_cols) - 2)
-
             # 5. レースごとにシミュレーション (推論は RacePredictor に委譲)
-            # Groupby dict preprocessing — O(1) race lookups per D-07
+            # jockey/trainer/jt は FeatureBuilder で feat_df に既にマージ済み
             feat_groups = build_race_groups(feat_df, name="features")
-            jockey_groups = build_race_groups(jockey_df_all, name="jockey")
-            trainer_groups = build_race_groups(trainer_df_all, name="trainer")
-            jt_groups = build_race_groups(jt_df_all, name="jockey_trainer")
+            jockey_groups: dict[str, pd.DataFrame] = {}
+            trainer_groups: dict[str, pd.DataFrame] = {}
+            jt_groups: dict[str, pd.DataFrame] = {}
 
         diag_logger = DiagnosticLogger()
         bankroll = self.initial_bankroll

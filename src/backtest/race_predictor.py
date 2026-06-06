@@ -213,8 +213,6 @@ class RacePredictor:
             推論結果列 (EV, ev_lower_corrected等) を追加した DataFrame。
             サーフェスが不明な場合は空 DataFrame を返す。
         """
-        from features.interaction_features import compute_interaction_features
-
         if race_df.empty:
             return race_df
 
@@ -276,27 +274,8 @@ class RacePredictor:
             if _col in df.columns:
                 df[f"{_col}_race_rank"] = df[_col].rank(pct=True, method="average")
 
-        # 2b. track_condition_features (HorseHistoryFeatures 後、interaction_features 前)
-        from features.track_condition_features import (
-            compute_race_condition_features,
-            compute_track_condition_features,
-        )
-
-        # T1-02/T3-04: 学習期間統計をSubmodelSetから取得
-        _track_stats = getattr(submodel, "track_stats", None)
-        _track_month_stats = getattr(submodel, "track_month_stats", None)
-        df = compute_track_condition_features(
-            df, track_stats=_track_stats, track_month_stats=_track_month_stats
-        )
-        df = compute_race_condition_features(df)
-
-        # 3. interaction_features (kyakusitu_cd が必要なため HorseHistoryFeatures 後)
-        df = compute_interaction_features(df)
-
-        # 3b. レース内相対比較特徴量 (HorseHistoryFeatures の base 列が必要なためここで計算)
-        from features.relative_features import compute_relative_features
-
-        df = compute_relative_features(df)
+        # FeatureBuilder handles track_condition, interaction, relative — removed duplicate per Phase 52 D-01
+        # These features are now computed by FeatureBuilder before reaching RacePredictor.
 
         # 4. 推論チェーン
         try:
@@ -334,17 +313,25 @@ class RacePredictor:
         df = submodel.win.predict_ev(df)
 
         # 5. 騎手/調教師コンテキスト マージ
+        # FeatureBuilder で既に feat_df にマージ済みの場合はスキップ (Phase 52)
+        # 後方互換: 旧呼び出し元が jockey_features 等を渡す場合はマージを実行
         if jockey_features is not None:
             jockey_race = jockey_features[jockey_features["race_id"] == race_df["race_id"].iloc[0]]
-            df = df.merge(jockey_race, on=["race_id", "umaban"], how="left")
+            _new_cols = [c for c in jockey_race.columns if c not in df.columns or c in {"race_id", "umaban"}]
+            if _new_cols:
+                df = df.merge(jockey_race[_new_cols], on=["race_id", "umaban"], how="left")
         if trainer_features is not None:
             trainer_race = trainer_features[
                 trainer_features["race_id"] == race_df["race_id"].iloc[0]
             ]
-            df = df.merge(trainer_race, on=["race_id", "umaban"], how="left")
+            _new_cols = [c for c in trainer_race.columns if c not in df.columns or c in {"race_id", "umaban"}]
+            if _new_cols:
+                df = df.merge(trainer_race[_new_cols], on=["race_id", "umaban"], how="left")
         if jt_combo_features is not None:
             jt_race = jt_combo_features[jt_combo_features["race_id"] == race_df["race_id"].iloc[0]]
-            df = df.merge(jt_race, on=["race_id", "umaban"], how="left")
+            _new_cols = [c for c in jt_race.columns if c not in df.columns or c in {"race_id", "umaban"}]
+            if _new_cols:
+                df = df.merge(jt_race[_new_cols], on=["race_id", "umaban"], how="left")
 
         # 6. EV補正 + Place推論
         df = submodel.ev_corrector.correct_ev(df)  # Win EV補正は維持
