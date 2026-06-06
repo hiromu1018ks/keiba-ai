@@ -128,8 +128,8 @@ Plans:
 Plans:
 **Wave 1** (parallel)
 
-- [ ] 53-01-PLAN.md — Strategy manifest integration, CLI required args, DD/Regime shadow, OddsBandFilter injection (STR-01~06)
-- [ ] 53-02-PLAN.md — JRA TrackConditionFetcher + pure function parser + HTML structure change detection (LIV-01, LIV-02)
+- [x] 53-01-PLAN.md — Strategy manifest integration, CLI required args, DD/Regime shadow, OddsBandFilter injection (STR-01~06)
+- [x] 53-02-PLAN.md — JRA TrackConditionFetcher + pure function parser + HTML structure change detection (LIV-01, LIV-02)
 
 **Wave 2** *(blocked on Wave 1)*
 
@@ -162,5 +162,5 @@ Phases execute in numeric order: 51 → 52 → 53 → 54
 | 47-50 | v2.3 | 7/7 | Complete | 2026-06-05 |
 | 51. Settlement Integrity & Training | v2.4 | 3/3 | Complete | 2026-06-06 |
 | 52. Shared Feature Builder & Consistency | v2.4 | 4/4 | Complete    | 2026-06-06 |
-| 53. Strategy Alignment & Live Data | v2.4 | 3/3 | Planned | - |
+| 53. Strategy Alignment & Live Data | v2.4 | 2/3 | In Progress|  |
 | 54. Automation & Reporting | v2.4 | 0/? | Not started | - |

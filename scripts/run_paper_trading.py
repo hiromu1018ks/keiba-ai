@@ -830,8 +830,9 @@ def _run_predict(
             # Old schema rejection (D-18)
             if "result" in existing_bets.columns and "payout" not in existing_bets.columns:
                 raise ValueError(
-                    "Old schema detected in bets.parquet: 'result' column present without 'payout'. "
-                    "Migration not supported -- recreate bets from predictions."
+                    "Old schema detected in bets.parquet: "
+                    "'result' column present without 'payout'. "
+                    "Migration not supported -- recreate bets."
                 )
             combined_bets = pd.concat([existing_bets, new_bet_rows], ignore_index=True)
             # Dedup by bet_id (D-02)
@@ -879,7 +880,8 @@ def _run_predict(
     lines.append("")
     lines.append("=" * 60)
     lines.append(
-        f"  Predict: {args.date}  -  {len(new_bets)} new bets  ({len(skipped_race_ids)} races skipped)"
+        f"  Predict: {args.date}  -  {len(new_bets)} new bets"
+        f"  ({len(skipped_race_ids)} races skipped)"
     )
     lines.append("=" * 60)
 
