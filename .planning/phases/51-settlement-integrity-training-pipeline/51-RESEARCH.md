@@ -559,7 +559,7 @@ for cat, name in [
 | A4 | Existing `test_paper_reconciler.py` tests use `result` column and will need updating to new schema | Testing | Tests will break and need migration |
 | A5 | `_run_predict` in run_paper_trading.py will need modification to add `bet_id`, `session_id`, and new columns to bet records | STL-01 | Scope may be larger than expected |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **`horse_track_aptitude.parquet` file location**
    - What we know: `track_conditions.parquet` exists at `data/raw/track_conditions.parquet` (193KB, updated 2026-06-04). `DataRepository.load_horse_track_aptitude()` checks for `data/raw/horse_track_aptitude`.
