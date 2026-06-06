@@ -55,7 +55,7 @@ See `.planning/milestones/` for archived roadmaps.
 - [x] **Phase 51: Settlement Integrity & Training Pipeline** - 精算整合性(ROI過大評価修正)と学習パイプライン修正(PT用モデル生成) — completed 2026-06-06
 - [x] **Phase 52: Shared Feature Builder & Consistency** - BT/PT共通特徴量構築関数の抽出とパイプライン一貫性検証基盤 (completed 2026-06-06)
 - [x] **Phase 53: Strategy Alignment & Live Data** - 戦略完全整合と当日データ取得でBT検証済みパイプラインをPTで再現 (completed 2026-06-06)
-- [ ] **Phase 54: Automation & Reporting** - 1コマンドrun modeと評価レポート拡張で運用完全自動化
+- [x] **Phase 54: Automation & Reporting** - 1コマンドrun modeと評価レポート拡張で運用完全自動化 (completed 2026-06-06)
 
 ## Phase Details
 
@@ -156,8 +156,8 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1)*
 
-- [ ] 54-02-PLAN.md — RunModeOrchestrator lifecycle + --mode run CLI integration (AUT-01, AUT-02, AUT-03)
-- [ ] 54-03-PLAN.md — PaperTradingReport shrink to pure HTML renderer (RPT-01~04)
+- [x] 54-02-PLAN.md — RunModeOrchestrator lifecycle + --mode run CLI integration (AUT-01, AUT-02, AUT-03)
+- [x] 54-03-PLAN.md — PaperTradingReport shrink to pure HTML renderer (RPT-01~04)
 
 ## Progress
 
@@ -172,4 +172,4 @@ Phases execute in numeric order: 51 → 52 → 53 → 54
 | 51. Settlement Integrity & Training | v2.4 | 3/3 | Complete | 2026-06-06 |
 | 52. Shared Feature Builder & Consistency | v2.4 | 4/4 | Complete    | 2026-06-06 |
 | 53. Strategy Alignment & Live Data | v2.4 | 3/3 | Complete    | 2026-06-06 |
-| 54. Automation & Reporting | v2.4 | 1/3 | In Progress|  |
+| 54. Automation & Reporting | v2.4 | 3/3 | Complete   | 2026-06-06 |
