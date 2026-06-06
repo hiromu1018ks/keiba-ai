@@ -579,7 +579,7 @@ def _run_predict(
                     "surface": result_df.iloc[0].get("surface", ""),
                     "distance": result_df.iloc[0].get("kyori", 0),
                     "bankroll_after": round(bankroll - bet.stake, 2),
-                    "race_date": ymd,
+                    "race_date": pd.Timestamp(ymd),
                     "post_time": _race_time_map.get(race_id, ""),
                     "is_paper": True,
                     "predicted_at": datetime.now().isoformat(),
