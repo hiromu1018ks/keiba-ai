@@ -33,6 +33,7 @@ from models.win_selection_policy import (
 
 if TYPE_CHECKING:
     from betting.drawdown_controller import DrawdownController
+    from betting.odds_band_filter import OddsBandFilter
     from betting.stake_calculator import StakeCalculator
     from domain.models import TrainedModelsV5
 
@@ -132,6 +133,8 @@ class RacePredictor:
         enable_market_aware_calibrator: bool = True,
         enable_race_level_ranker: bool = True,
         apt_df: pd.DataFrame | None = None,
+        odds_band_filter: OddsBandFilter | None = None,
+        dd_shadow_only: bool = False,
     ) -> None:
         if betting_target not in ("win", "place", "wide"):
             raise ValueError(
@@ -147,6 +150,8 @@ class RacePredictor:
             raise ValueError(f"alpha must be in [0, 1], got {alpha}")
         self.alpha = alpha  # kept for backwards compatibility / fallback
         self._win_tail_calibrator = EVTtailCalibrator()
+        self.odds_band_filter = odds_band_filter
+        self.dd_shadow_only = dd_shadow_only
 
         # D-18/D-19: Feature flags for MAWC and ranker control.
         # Default True for backward compatibility.
@@ -1287,6 +1292,9 @@ class RacePredictor:
                     ev_col = "win_selection_ev_tail_calibrated"
             if candidates.empty:
                 return bets
+            # D-08: OddsBandFilter (win-target only)
+            if self.odds_band_filter is not None and not candidates.empty:
+                candidates = self.odds_band_filter.filter(candidates)
             candidates = candidates.head(max_bets)
 
             for _, row in candidates.iterrows():
@@ -1306,6 +1314,9 @@ class RacePredictor:
                     if self.dd_ctrl is not None:
                         stake = self.dd_ctrl.adjust_stake(stake, bankroll)
                         stake = max(0, math.floor(stake / 100) * 100)
+                    # D-01: PT shadow-only DD — record state but use 100 flat
+                    if self.dd_shadow_only:
+                        stake = 100.0
                 else:
                     stake_scale = _safe_float(row.get(PROFIT_STAKE_SCALE_COL, 1.0), 1.0)
                     stake_scale = min(max(stake_scale, 1.0), 2.0)
@@ -1399,6 +1410,9 @@ class RacePredictor:
                 if self.dd_ctrl is not None:
                     stake = self.dd_ctrl.adjust_stake(stake, bankroll)
                     stake = max(0, math.floor(stake / 100) * 100)
+                # D-01: PT shadow-only DD — record state but use 100 flat
+                if self.dd_shadow_only:
+                    stake = 100.0
             else:
                 stake = 100.0
 

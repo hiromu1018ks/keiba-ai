@@ -97,6 +97,19 @@ def get_code_version() -> dict[str, Any]:
     }
 
 
+def compute_obf_config_hash(roi_threshold: float) -> str:
+    """OddsBandFilter 設定の SHA256 hash を算出 (D-08).
+
+    BANDS 境界 + roi_threshold を結合して hash 化する。
+    PT ではキャリブレーションを行わないため、この hash で設定不変性を担保する。
+    """
+    from betting.odds_band_filter import OddsBandFilter
+
+    parts = ",".join(f"{lo}-{hi}" for lo, hi in OddsBandFilter.BANDS)
+    raw = f"{parts}|{roi_threshold}"
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
 @dataclass
 class SessionManifest:
     """PT 実行記録 (D-09).
@@ -115,6 +128,13 @@ class SessionManifest:
     pfp_result: dict[str, Any] = field(default_factory=dict)
     status: str = "started"
     exit_code: int = 0
+    # STR-01: Strategy alignment fields
+    betting_target: str = ""
+    betting_mode: str = ""
+    strategy_manifest_path: str = ""
+    strategy_manifest_sha256: str = ""
+    # D-08: OddsBandFilter metadata
+    odds_band_filter_metadata: dict[str, Any] = field(default_factory=dict)
 
     def set_code_version(self, version: dict[str, Any]) -> None:
         """Git SHA と dirty 状態を記録."""
@@ -137,6 +157,34 @@ class SessionManifest:
         """PFP 検証結果を記録."""
         self.pfp_result = result
 
+    def set_strategy_params(
+        self,
+        betting_target: str,
+        betting_mode: str,
+        strategy_manifest_path: str,
+        strategy_manifest_sha256: str,
+    ) -> None:
+        """STR-01: 戦略パラメータを一括設定."""
+        self.betting_target = betting_target
+        self.betting_mode = betting_mode
+        self.strategy_manifest_path = strategy_manifest_path
+        self.strategy_manifest_sha256 = strategy_manifest_sha256
+
+    def set_obf_metadata(
+        self,
+        calibration_data_end_date: str,
+        roi_threshold: float,
+        excluded_bands: set[str],
+        config_hash: str,
+    ) -> None:
+        """D-08: OddsBandFilter の4メタデータを記録."""
+        self.odds_band_filter_metadata = {
+            "calibration_data_end_date": calibration_data_end_date,
+            "roi_threshold": roi_threshold,
+            "excluded_bands": sorted(excluded_bands),
+            "config_hash": config_hash,
+        }
+
     def set_status(self, status: str, exit_code: int = 0) -> None:
         """完了ステータスと終了コードを記録."""
         self.status = status
@@ -155,6 +203,11 @@ class SessionManifest:
             "pfp_result": self.pfp_result,
             "status": self.status,
             "exit_code": self.exit_code,
+            "betting_target": self.betting_target,
+            "betting_mode": self.betting_mode,
+            "strategy_manifest_path": self.strategy_manifest_path,
+            "strategy_manifest_sha256": self.strategy_manifest_sha256,
+            "odds_band_filter_metadata": self.odds_band_filter_metadata,
         }
 
     @property

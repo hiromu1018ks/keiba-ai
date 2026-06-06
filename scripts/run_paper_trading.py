@@ -191,7 +191,55 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Git dirty 状態でも PT 実行を許可 (開発用)",
     )
+    parser.add_argument(
+        "--betting-target",
+        required=True,
+        choices=["win", "place"],
+        help="ベッティング対象 (win=単勝, place=複勝)",
+    )
+    parser.add_argument(
+        "--betting-mode",
+        required=True,
+        choices=["flat", "kelly"],
+        help="ベッティングモード (flat=100円固定, kelly=Fractional Kelly)",
+    )
+    parser.add_argument(
+        "--strategy-manifest",
+        type=str,
+        default=None,
+        help="戦略マニフェスト JSON パス (Optuna 最適化済みパラメータ)",
+    )
     return parser.parse_args()
+
+
+def _validate_betting_target_alignment(
+    models: "TrainedModelsV5",
+    manifest_target: str | None,
+    cli_target: str,
+) -> None:
+    """STR-03: model/manifest/CLI の3者で betting_target が一致するか検証 (fail-fast).
+
+    model_target または manifest_target が None の場合はスキップ。
+    不一致時は logger.error + sys.exit(1)。
+    """
+    model_target = None
+    meta = getattr(models, "meta", None)
+    if isinstance(meta, dict):
+        model_target = meta.get("betting_target")
+
+    if model_target is not None and model_target != cli_target:
+        logger.error(
+            "Betting target mismatch: model=%s, CLI=%s",
+            model_target, cli_target,
+        )
+        sys.exit(1)
+
+    if manifest_target is not None and manifest_target != cli_target:
+        logger.error(
+            "Betting target mismatch: manifest=%s, CLI=%s",
+            manifest_target, cli_target,
+        )
+        sys.exit(1)
 
 
 def load_config(args: argparse.Namespace) -> "PaperTradingConfig":
@@ -429,10 +477,12 @@ def _run_predict(
     feature_manifest = FeatureManifest(
         column_names=tuple(), column_dtypes=tuple(), feature_version="1.0"
     )
+    betting_target = args.betting_target
+    betting_mode = args.betting_mode
     pfp_verifier = PFPVerifier(
         models, feature_manifest, feature_state,
-        betting_target="place",
-        betting_mode="flat",
+        betting_target=betting_target,
+        betting_mode=betting_mode,
     )
     pfp_verifier.freeze()
 
@@ -447,6 +497,41 @@ def _run_predict(
         training_start=models.train_period[0],
         training_end=models.train_period[1],
         manifest_hash=feature_manifest.compute_hash(),
+    )
+
+    # STR-01: Strategy manifest loading and 3-way target validation
+    strategy_config: dict[str, object] = {}
+    manifest_sha256 = ""
+    manifest_target: str | None = None
+    strategy_manifest_path = getattr(args, "strategy_manifest", None)
+    if strategy_manifest_path is not None:
+        sm_path = Path(strategy_manifest_path)
+        if sm_path.exists():
+            from backtest.parameter_freeze_protocol import verify_strategy_manifest
+            verify_strategy_manifest(sm_path)
+            with open(sm_path, encoding="utf-8") as f:
+                manifest_data = json.load(f)
+            import hashlib
+            manifest_sha256 = hashlib.sha256(
+                sm_path.read_bytes(),
+            ).hexdigest()
+            from betting.default_strategy import build_strategy_config_from_params
+            strategy_config = build_strategy_config_from_params(manifest_data)
+            manifest_target = manifest_data.get("_betting_target")
+            logger.info(
+                "Strategy manifest loaded: %s (SHA256=%s...)",
+                sm_path.name, manifest_sha256[:8],
+            )
+
+    # STR-03: 3-way target alignment check
+    _validate_betting_target_alignment(models, manifest_target, betting_target)
+
+    # Record strategy params in session manifest
+    session_manifest.set_strategy_params(
+        betting_target=betting_target,
+        betting_mode=betting_mode,
+        strategy_manifest_path=strategy_manifest_path or "",
+        strategy_manifest_sha256=manifest_sha256,
     )
     session_manifest_path = config.paper_trading_dir / "session_manifest.json"
     write_session_manifest(session_manifest, session_manifest_path)
@@ -509,9 +594,54 @@ def _run_predict(
         existing_pred_df = pd.read_parquet(pred_path)
         existing_race_ids = set(existing_pred_df["race_id"].unique())
 
-    # 推論
-    race_predictor = RacePredictor(models)
+    # 推論 — BT engine.py と同一の RacePredictor 構築パターン (D-02)
     bankroll = config.initial_bankroll
+    race_predictor_kwargs: dict[str, object] = {
+        "betting_target": betting_target,
+        "dd_shadow_only": True,  # D-01: PT では DD は shadow 記録のみ
+    }
+    if betting_mode == "kelly" and strategy_config:
+        from betting.drawdown_controller import DDConfig, DrawdownController
+        from betting.stake_calculator import StakeCalculator
+
+        dd_cfg = strategy_config.get("dd_config", DDConfig())
+        stake_calc = StakeCalculator(
+            fractional_kelly=strategy_config.get("fractional_kelly", 0.5),
+            target_ev=strategy_config.get("target_ev", 1.10),
+            max_scale=strategy_config.get("max_scale", 2.0),
+        )
+        dd_ctrl = DrawdownController(
+            peak_bankroll=bankroll,
+            cfg=dd_cfg,
+        )
+        race_predictor_kwargs["stake_calculator"] = stake_calc
+        race_predictor_kwargs["dd_controller"] = dd_ctrl
+
+    # D-08: OddsBandFilter injection (win-target only)
+    if betting_target == "win":
+        from betting.odds_band_filter import OddsBandFilter
+        from features.session_manifest import compute_obf_config_hash
+
+        roi_threshold = float(strategy_config.get("roi_threshold", 1.0))
+        obf = OddsBandFilter(roi_threshold=roi_threshold)
+        race_predictor_kwargs["odds_band_filter"] = obf
+
+        # D-08: Record OddsBandFilter metadata
+        train_end = models.train_period[1] if models.train_period else ""
+        obf_excluded_bands: set[str] = set()
+        if strategy_config and "_obf_excluded_bands" in strategy_config:
+            _raw = strategy_config["_obf_excluded_bands"]
+            if isinstance(_raw, (list, set)):
+                obf_excluded_bands = set(str(b) for b in _raw)
+        config_hash = compute_obf_config_hash(roi_threshold)
+        session_manifest.set_obf_metadata(
+            calibration_data_end_date=str(train_end),
+            roi_threshold=roi_threshold,
+            excluded_bands=obf_excluded_bands,
+            config_hash=config_hash,
+        )
+
+    race_predictor = RacePredictor(models, **race_predictor_kwargs)
     diag_logger = DiagnosticLogger()
     all_bets: list[dict[str, object]] = []
 
@@ -868,7 +998,7 @@ def _run_diagnose(
     race_ids = feat_df["race_id"].unique()
 
     # 推論 + 診断ログ
-    race_predictor = RacePredictor(models)
+    race_predictor = RacePredictor(models, betting_target=args.betting_target)
     diag_logger = DiagnosticLogger()
 
     # RegimeDetector 用: 直近200レースの統計を蓄積 (BT と同等)
@@ -1079,7 +1209,7 @@ def _run_dry_run(
         logger.error("--date or --start/--end required for dry-run")
         sys.exit(1)
 
-    race_predictor = RacePredictor(models)
+    race_predictor = RacePredictor(models, betting_target=args.betting_target)
 
     # 特徴量を一括生成
     all_start = dates[0].strftime("%Y%m%d")

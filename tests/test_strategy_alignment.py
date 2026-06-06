@@ -37,25 +37,28 @@ class TestParseArgsRejectsWide:
     """--betting-target wide は argparse choices=["win","place"] で拒否される"""
 
     def test_rejects_wide_target(self) -> None:
-        from scripts.run_paper_trading import parse_args
-
-        with pytest.raises(SystemExit):
-            parse_args(["--mode", "predict", "--date", "2026-01-01",
-                        "--betting-target", "wide", "--betting-mode", "flat"])
+        with patch("sys.argv", ["run_paper_trading.py", "--mode", "predict",
+                                "--date", "2026-01-01",
+                                "--betting-target", "wide", "--betting-mode", "flat"]):
+            with pytest.raises(SystemExit):
+                from scripts.run_paper_trading import parse_args
+                parse_args()
 
     def test_accepts_win_target(self) -> None:
-        from scripts.run_paper_trading import parse_args
-
-        args = parse_args(["--mode", "predict", "--date", "2026-01-01",
-                           "--betting-target", "win", "--betting-mode", "flat"])
-        assert args.betting_target == "win"
+        with patch("sys.argv", ["run_paper_trading.py", "--mode", "predict",
+                                "--date", "2026-01-01",
+                                "--betting-target", "win", "--betting-mode", "flat"]):
+            from scripts.run_paper_trading import parse_args
+            args = parse_args()
+            assert args.betting_target == "win"
 
     def test_accepts_place_target(self) -> None:
-        from scripts.run_paper_trading import parse_args
-
-        args = parse_args(["--mode", "predict", "--date", "2026-01-01",
-                           "--betting-target", "place", "--betting-mode", "kelly"])
-        assert args.betting_target == "place"
+        with patch("sys.argv", ["run_paper_trading.py", "--mode", "predict",
+                                "--date", "2026-01-01",
+                                "--betting-target", "place", "--betting-mode", "kelly"]):
+            from scripts.run_paper_trading import parse_args
+            args = parse_args()
+            assert args.betting_target == "place"
 
 
 class TestStrategyConfigFromManifest:
