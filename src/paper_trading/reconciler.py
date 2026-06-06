@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import os
 import tempfile
 import time
 from datetime import date
@@ -77,7 +78,16 @@ class PaperReconciler:
         ) as tmp:
             tmp_path = Path(tmp.name)
         df.to_parquet(tmp_path, index=False)
-        tmp_path.replace(target)
+        # Windows: os.replace with retry loop for PermissionError when target is open
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                os.replace(str(tmp_path), str(target))
+                return
+            except PermissionError:
+                if attempt == max_retries - 1:
+                    raise
+                time.sleep(0.1)
 
     @staticmethod
     def _validate_bet_schema(df: pd.DataFrame) -> list[str]:
