@@ -5,6 +5,9 @@ build_for_training() と build_for_inference() を提供し、
 TrainingPipeline._train_submodel / PaperPredictor.setup) を統一する。
 
 13 のエンリッチメントモジュールを _train_submodel と同一の順序で実行する。
+BloodlineFeatures は FeatureEngine.build_all() Group B で暗黙的に実行され、
+blood_* カラムが build_all() 出力に含まれるため _enrich_features() では
+明示的なステップを持たない。
 """
 
 from __future__ import annotations
@@ -209,7 +212,13 @@ class FeatureBuilder:
         *,
         feature_state: FeatureState | None = None,
     ) -> pd.DataFrame:
-        """Phase 2: 13 エンリッチメントモジュールを _train_submodel と同一順序で実行。"""
+        """Phase 2: 13 エンリッチメントモジュールを _train_submodel と同一順序で実行。
+
+        BloodlineFeatures (blood_* カラム) は FeatureEngine.build_all() Group B で
+        暗黙的に実行されるため、このメソッドでは明示的なステップを持たない。
+        build_all() → _build_base_features() → このメソッドの順で呼ばれるため、
+        feat_df には既に blood_* カラムが含まれている。
+        """
         df = feat_df
 
         # (a) HorseHistoryFeatures
