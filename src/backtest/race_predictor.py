@@ -274,8 +274,9 @@ class RacePredictor:
             if _col in df.columns:
                 df[f"{_col}_race_rank"] = df[_col].rank(pct=True, method="average")
 
-        # FeatureBuilder handles track_condition, interaction, relative — removed duplicate per Phase 52 D-01
-        # These features are now computed by FeatureBuilder before reaching RacePredictor.
+        # FeatureBuilder handles track_condition, interaction, relative —
+        # removed duplicate computation per Phase 52 D-01
+        # These features are now computed by FeatureBuilder before RacePredictor.
 
         # 4. 推論チェーン
         try:
@@ -316,20 +317,33 @@ class RacePredictor:
         # FeatureBuilder で既に feat_df にマージ済みの場合はスキップ (Phase 52)
         # 後方互換: 旧呼び出し元が jockey_features 等を渡す場合はマージを実行
         if jockey_features is not None:
-            jockey_race = jockey_features[jockey_features["race_id"] == race_df["race_id"].iloc[0]]
-            _new_cols = [c for c in jockey_race.columns if c not in df.columns or c in {"race_id", "umaban"}]
+            jockey_race = jockey_features[
+                jockey_features["race_id"] == race_df["race_id"].iloc[0]
+            ]
+            _new_cols = [
+                c for c in jockey_race.columns
+                if c not in df.columns or c in {"race_id", "umaban"}
+            ]
             if _new_cols:
                 df = df.merge(jockey_race[_new_cols], on=["race_id", "umaban"], how="left")
         if trainer_features is not None:
             trainer_race = trainer_features[
                 trainer_features["race_id"] == race_df["race_id"].iloc[0]
             ]
-            _new_cols = [c for c in trainer_race.columns if c not in df.columns or c in {"race_id", "umaban"}]
+            _new_cols = [
+                c for c in trainer_race.columns
+                if c not in df.columns or c in {"race_id", "umaban"}
+            ]
             if _new_cols:
                 df = df.merge(trainer_race[_new_cols], on=["race_id", "umaban"], how="left")
         if jt_combo_features is not None:
-            jt_race = jt_combo_features[jt_combo_features["race_id"] == race_df["race_id"].iloc[0]]
-            _new_cols = [c for c in jt_race.columns if c not in df.columns or c in {"race_id", "umaban"}]
+            jt_race = jt_combo_features[
+                jt_combo_features["race_id"] == race_df["race_id"].iloc[0]
+            ]
+            _new_cols = [
+                c for c in jt_race.columns
+                if c not in df.columns or c in {"race_id", "umaban"}
+            ]
             if _new_cols:
                 df = df.merge(jt_race[_new_cols], on=["race_id", "umaban"], how="left")
 

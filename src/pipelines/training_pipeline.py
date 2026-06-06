@@ -19,7 +19,6 @@ import mlflow
 import numpy as np
 import pandas as pd
 from sklearn.isotonic import IsotonicRegression
-from utils.wf_splits import walk_forward_race_splits as _walk_forward_race_splits
 
 from db.parquet_store import ParquetStore
 from db.readers import (
@@ -32,6 +31,7 @@ from db.readers import (
 )
 from domain.models import SubmodelSet, TrainedModelsV5
 from utils.timing import TimingContext
+from utils.wf_splits import walk_forward_race_splits as _walk_forward_race_splits
 
 if TYPE_CHECKING:
     from db.connection import DatabaseConnection

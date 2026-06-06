@@ -594,11 +594,6 @@ class BacktestEngine:
 
         # 2. 特徴量生成
         from db.odds_extractor import extract_pre_post_odds
-        from features.feature_engine import FeatureEngine
-        from models.submodel_manager import SubModelManager
-
-        feat_engine = FeatureEngine()
-        submodel_mgr = SubModelManager()
 
         # P1: odds時系列データ
         if preloaded_odds_ts is not None:
@@ -981,7 +976,10 @@ class BacktestEngine:
                         wide_pivot.columns = new_cols
                         wide_pivot = wide_pivot.reset_index()
                         feat_df = feat_df.merge(wide_pivot, on="race_id", how="left")
-                        logger.info("Merged wide odds: %d pair-columns", len(wide_pivot.columns) - 1)
+                        logger.info(
+                            "Merged wide odds: %d pair-columns",
+                            len(wide_pivot.columns) - 1,
+                        )
             else:
                 logger.info("Skipping wide odds pivot for betting_target=%s", self.betting_target)
 
