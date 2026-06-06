@@ -20,7 +20,17 @@ findings:
   warning: 4
   info: 2
   total: 8
-status: issues_found
+fixed:
+  - CR-01 (commit 503e83b)
+  - CR-02 (commit 503e83b)
+  - WR-04 (commit 503e83b)
+  - WR-01 (commit TBD -- _compute_max_dd initial_bankroll fix)
+  - WR-02 (commit TBD -- bankroll instance cache)
+  - WR-03 (commit TBD -- shared _validate_bet_schema_basic)
+remaining:
+  - IN-01 (info, acceptable fallback)
+  - IN-02 (info, minor UX)
+status: fixes_applied
 ---
 
 # Phase 54: Code Review Report
@@ -149,6 +159,45 @@ def _cross_validate_race(self, race_id: str, bets_df: pd.DataFrame, progress: Ra
 
 ---
 
+## Fixes Applied (--fix)
+
+### WR-01 Fix: `_compute_max_dd` — initial_bankroll パラメータ追加
+
+**File:** `src/paper_trading/report.py:77-97`
+
+`cumulative` と `peak` を `initial_bankroll` (default: 100,000) から開始するよう変更。全損シナリオでも正しいドローダウン率を返す。
+
+### WR-02 Fix: Bankroll インスタンスキャッシュ
+
+**File:** `src/paper_trading/run_orchestrator.py:71,432-449,398-399`
+
+- `__init__` に `_current_bankroll: float | None` を追加（遅延初期化）
+- `_compute_current_bankroll()` をキャッシュ対応に変更（初回のみ disk 読み込み）
+- `_predict_single_race` のベット保存後に `self._current_bankroll = bankroll` で更新
+
+### WR-03 Fix: スキーマバリデーション統一（DRY）
+
+**Files:** `src/paper_trading/reconciler.py:94-115`, `src/paper_trading/report_aggregator.py`
+
+- `PaperReconciler._validate_bet_schema_basic()` (基本チェック: 旧スキーマ拒否 + 必須列) を新設
+- `PaperReconciler._validate_bet_schema()` は basic を呼び出し後に書き込み時の厳密検証を追加
+- `report_aggregator` の重複定義を削除し `PaperReconciler._validate_bet_schema_basic()` に委譲
+
+### Verification
+
+```
+47/47 tests passed (report + aggregator + orchestrator + CLI + race_progress)
+ruff check: no new errors (3 pre-existing line-length in reconciler.py)
+```
+
+### Remaining (Info, no fix required)
+
+- **IN-01:** `subprocess` git hash — fallback "unknown" is acceptable
+- **IN-02:** `--betting-target` required for all modes — minor UX, deferred
+
+---
+
 _Reviewed: 2026-06-06_
 _Reviewer: Claude (gsd-code-reviewer)_
 _Depth: standard_
+_Fixes applied: 2026-06-06_

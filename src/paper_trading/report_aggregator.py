@@ -13,6 +13,8 @@ from typing import Any
 
 import pandas as pd
 
+from paper_trading.reconciler import PaperReconciler
+
 logger = logging.getLogger(__name__)
 
 
@@ -73,19 +75,6 @@ def _common_fields(
     }
 
 
-def _validate_bet_schema(df: pd.DataFrame) -> list[str]:
-    """Validate bets.parquet schema (reject old v1 schema)."""
-    errors: list[str] = []
-    if "result" in df.columns and "payout" not in df.columns:
-        errors.append("Old schema detected: 'result' column present without 'payout'")
-        return errors
-    required = ("schema_version", "settlement_status", "outcome", "payout", "bet_id", "stake")
-    for col in required:
-        if col not in df.columns:
-            errors.append(f"Missing required column: {col}")
-    return errors
-
-
 class PaperTradingReportAggregator:
     """Aggregate paper trading statistics from bets.parquet (D-11).
 
@@ -121,7 +110,7 @@ class PaperTradingReportAggregator:
         df = pd.read_parquet(self._bets_path)
         if df.empty:
             return df
-        errors = _validate_bet_schema(df)
+        errors = PaperReconciler._validate_bet_schema_basic(df)
         if errors:
             raise ValueError(f"Schema validation failed: {'; '.join(errors)}")
         return df

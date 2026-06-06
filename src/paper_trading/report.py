@@ -75,15 +75,18 @@ class PaperTradingReport:
         return outpath
 
     @staticmethod
-    def _compute_max_dd(bets: list[dict[str, Any]]) -> float:
+    def _compute_max_dd(
+        bets: list[dict[str, Any]], initial_bankroll: float = 100000.0,
+    ) -> float:
         """ベットリストから最大ドローダウンを計算。
 
-        payout - stake を累積してピークからの最大下落率を算出。
+        initial_bankroll を起点とし、各ベットの PnL を累積して
+        ピークからの最大下落率を算出。全損シナリオでも正の DD を返す。
         """
         if not bets:
             return 0.0
-        cumulative = 0.0
-        peak = 0.0
+        cumulative = initial_bankroll
+        peak = initial_bankroll
         max_dd = 0.0
         for b in bets:
             pnl = float(b.get("payout", 0) or 0) - float(b.get("stake", 0) or 0)

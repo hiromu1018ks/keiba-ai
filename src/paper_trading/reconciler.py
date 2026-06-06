@@ -92,8 +92,11 @@ class PaperReconciler:
                 time.sleep(0.1)
 
     @staticmethod
-    def _validate_bet_schema(df: pd.DataFrame) -> list[str]:
-        """書き込み前整合性検証 (D-20). Returns list of error strings (empty = valid)."""
+    def _validate_bet_schema_basic(df: pd.DataFrame) -> list[str]:
+        """Basic schema validation: old-schema rejection + required columns.
+
+        Used by both write-time validation (full) and read-time aggregation (basic).
+        """
         errors: list[str] = []
 
         # Old schema rejection (D-18)
@@ -105,6 +108,13 @@ class PaperReconciler:
         for col in ("schema_version", "settlement_status", "outcome", "payout", "bet_id", "stake"):
             if col not in df.columns:
                 errors.append(f"Missing required column: {col}")
+
+        return errors
+
+    @staticmethod
+    def _validate_bet_schema(df: pd.DataFrame) -> list[str]:
+        """書き込み前整合性検証 (D-20). Returns list of error strings (empty = valid)."""
+        errors = PaperReconciler._validate_bet_schema_basic(df)
 
         if errors:
             return errors

@@ -68,6 +68,7 @@ class RunModeOrchestrator:
 
         # State
         self._cancelled: bool = False
+        self._current_bankroll: float | None = None  # lazily initialised from disk
         self.errors: list[ExitCode] = []
         self._schedule: list[dict[str, Any]] | None = None
 
@@ -395,6 +396,9 @@ class RunModeOrchestrator:
         # Append to bets.parquet atomically
         self._append_bets(bet_records)
 
+        # Update in-memory bankroll to avoid stale disk reads (WR-02 fix)
+        self._current_bankroll = bankroll
+
         # Save input snapshot (D-09)
         odds_df = self._load_odds_for_race(race_id)
         fallback_odds = odds_df if odds_df is not None else pd.DataFrame()
@@ -430,14 +434,23 @@ class RunModeOrchestrator:
         return None
 
     def _compute_current_bankroll(self) -> float:
-        """Compute current bankroll from bets.parquet."""
+        """Compute current bankroll from instance cache or bets.parquet.
+
+        Lazily initialised on first call, then updated in-memory after each
+        bet to avoid stale disk reads between sequential race predictions.
+        """
+        if self._current_bankroll is not None:
+            return self._current_bankroll
         initial = self.config.initial_bankroll
         bets_df = self._load_bets()
         if bets_df.empty:
+            self._current_bankroll = initial
             return initial
         if "bankroll_after" in bets_df.columns:
-            return float(bets_df["bankroll_after"].iloc[-1])
-        return initial - float(bets_df["stake"].sum())
+            self._current_bankroll = float(bets_df["bankroll_after"].iloc[-1])
+        else:
+            self._current_bankroll = initial - float(bets_df["stake"].sum())
+        return self._current_bankroll
 
     def _load_bets(self) -> pd.DataFrame:
         """Load bets.parquet or return empty DataFrame."""
