@@ -133,7 +133,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1)*
 
-- [ ] 53-03-PLAN.md — Live data merge in FeatureBuilder + session manifest extension (LIV-03)
+- [x] 53-03-PLAN.md — Live data merge in FeatureBuilder + session manifest extension (LIV-03)
 
 ### Phase 54: Automation & Reporting
 
