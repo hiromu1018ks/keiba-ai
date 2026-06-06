@@ -20,7 +20,7 @@ from typing import TYPE_CHECKING, Any
 
 import pandas as pd
 
-from betting.payout_maps import build_payout_map, build_win_payout_map
+from betting.payout_maps import build_payout_map, build_wide_payout_map, build_win_payout_map
 
 if TYPE_CHECKING:
     from db.everydb2_queries import EveryDB2Queries
@@ -180,6 +180,7 @@ class PaperReconciler:
         # 4. Build payout maps
         win_map = build_win_payout_map(payouts_df)
         place_map = build_payout_map(payouts_df)
+        wide_map = build_wide_payout_map(payouts_df)
 
         # 5. Settlement logic (D-11 order)
         n_settled = 0
@@ -197,6 +198,45 @@ class PaperReconciler:
             # Select appropriate payout map
             if bet_type == "win":
                 pmap = win_map
+            elif bet_type == "wide":
+                # Wide settlement requires partner umaban_b
+                umaban_b_raw = row.get("umaban_b", 0)
+                umaban_b = int(umaban_b_raw) if pd.notna(umaban_b_raw) else 0
+                if umaban_b == 0:
+                    logger.warning(
+                        "Wide bet missing umaban_b for %s umaban=%d, keeping pending",
+                        race_id, umaban,
+                    )
+                    continue
+                lo, hi = min(umaban, umaban_b), max(umaban, umaban_b)
+                wide_key = (race_id, lo, hi)
+                # Check if race exists in payout data
+                race_in_payouts = (
+                    any(r == race_id for (r, *_rest) in wide_map.keys()) if wide_map else False
+                )
+                if not race_in_payouts:
+                    race_in_payouts = any(r == race_id for (r, _) in win_map.keys()) if win_map else False
+                if not race_in_payouts:
+                    continue
+                if wide_key in wide_map:
+                    multiplier = wide_map[wide_key]
+                    if multiplier <= 0:
+                        logger.warning(
+                            "Invalid wide payout multiplier %.4f for %s (%d,%d), keeping pending",
+                            multiplier, race_id, lo, hi,
+                        )
+                        continue
+                    payout = stake * multiplier
+                    bets_df.at[idx, "outcome"] = "won"
+                    bets_df.at[idx, "payout"] = payout
+                    bets_df.at[idx, "settlement_status"] = "settled"
+                    n_wins += 1
+                else:
+                    bets_df.at[idx, "outcome"] = "lost"
+                    bets_df.at[idx, "payout"] = 0.0
+                    bets_df.at[idx, "settlement_status"] = "settled"
+                n_settled += 1
+                continue
             else:
                 pmap = place_map
 
