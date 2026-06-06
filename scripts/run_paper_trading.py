@@ -1084,13 +1084,6 @@ def _run_dry_run(
         load_odds_time_series_from_db,
         load_races_from_db,
     )
-    from features.bloodline_features import BloodlineFeatures
-    from features.feature_engine import FeatureEngine
-    from features.horse_history_features import HorseHistoryFeatures
-    from features.jockey_context_features import JockeyContextFeatures
-    from features.jockey_trainer_combo import JockeyTrainerComboFeatures
-    from features.trainer_context_features import TrainerContextFeatures
-    from models.submodel_manager import SubModelManager
 
     # 期間決定
     if args.date:
@@ -1144,73 +1137,23 @@ def _run_dry_run(
     else:
         logger.info("No time-series odds, using confirmed odds")
 
-    feat_engine = FeatureEngine()
-    submodel_mgr = SubModelManager()
-    feat_df = feat_engine.build_all(race_df, entry_df, odds_df, odds_ts_df=odds_ts_df)
-    feat_df = submodel_mgr.add_distance_band_features(feat_df)
-
-    # JRAフィルタ: NARレースを除外 (BT と同等)
-    feat_df = _apply_jra_filter(feat_df)
+    # 特徴量生成 — FeatureBuilder 経由で BT/Train と同一パス (GAP-1 解消)
+    feat_df = _build_features_fb(
+        race_df, entry_df, odds_df, store, odds_ts_df=odds_ts_df,
+    )
 
     race_ids = feat_df["race_id"].unique()
+
+    # RacePredictor.predict() 用の個別特徴量
+    from features.horse_history_features import HorseHistoryFeatures
+    from features.jockey_context_features import JockeyContextFeatures
+    from features.jockey_trainer_combo import JockeyTrainerComboFeatures
+    from features.trainer_context_features import TrainerContextFeatures
+
     hist_all = HorseHistoryFeatures(store=store).compute(race_df, entry_df, race_ids)
     jockey_all = JockeyContextFeatures(store).compute(entry_df)
     trainer_all = TrainerContextFeatures(store).compute(entry_df)
     jt_all = JockeyTrainerComboFeatures(store).compute(entry_df)
-    blood_all = BloodlineFeatures(store=store).compute(entry_df)
-
-    # 血統特徴量を feat_df にマージ
-    feat_df = feat_df.merge(
-        blood_all[["race_id", "umaban"] + [c for c in blood_all.columns if c.startswith("blood_")]],
-        on=["race_id", "umaban"],
-        how="left",
-    )
-
-    # 種牡馬特徴量 (SireFeatures)
-    from db.readers import load_horses, load_sire_stats
-    from features.sire_features import SireFeatures
-
-    sire_stats_pt3 = load_sire_stats(store)
-    if not sire_stats_pt3.empty:
-        horses_pt3 = load_horses(store)
-        sire_feat3 = SireFeatures(sire_stats_pt3)
-        sire_map3 = horses_pt3.set_index("kettonum")["ketto3infohansyokunum1"]
-        bms_source_col3 = (
-            "ketto3infohansyokunum5"
-            if "ketto3infohansyokunum5" in horses_pt3.columns
-            else "ketto3infohansyokunum3"
-        )
-        bms_map3 = horses_pt3.set_index("kettonum")[bms_source_col3]
-        feat_df["sire_id"] = feat_df["kettonum"].map(sire_map3)
-        feat_df["bms_id"] = feat_df["kettonum"].map(bms_map3)
-        sire_result3 = sire_feat3.compute_batch(feat_df)
-        for sc3 in {
-            "sire_wr", "sire_surface_wr", "sire_distance_wr", "sire_prize_avg",
-            "bms_wr", "bms_distance_wr", "bms_surface_wr", "bms_has_history",
-            "bms_starts_log", "bms_surface_starts_log", "bms_distance_starts_log",
-        }:
-            if sc3 in sire_result3.columns:
-                feat_df[sc3] = sire_result3[sc3].values
-
-    # ペース適性 + コース別適性特徴量
-    from features.course_features import CourseFeatures
-    from features.pace_aptitude_features import PaceAptitudeFeatures
-
-    pace_feat3 = PaceAptitudeFeatures(store=store)
-    pace_df3 = pace_feat3.compute_batch(feat_df)
-    _pace_cols3 = [c for c in ["pace_aptitude", "front_pace_wr", "closing_pace_wr"] if c in pace_df3.columns]
-    if _pace_cols3:
-        feat_df = feat_df.drop(columns=_pace_cols3, errors="ignore").merge(
-            pace_df3[["kettonum", "race_id"] + _pace_cols3], on=["kettonum", "race_id"], how="left"
-        )
-
-    course_feat3 = CourseFeatures(store=store)
-    course_df3 = course_feat3.compute_batch(feat_df)
-    _course_cols3 = [c for c in ["course_wr", "course_distance_wr"] if c in course_df3.columns]
-    if _course_cols3:
-        feat_df = feat_df.drop(columns=_course_cols3, errors="ignore").merge(
-            course_df3[["kettonum", "race_id"] + _course_cols3], on=["kettonum", "race_id"], how="left"
-        )
 
     # 日次シミュレーション
     total_bets = 0
