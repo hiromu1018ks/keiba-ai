@@ -15,10 +15,10 @@
 
 ### Pipeline Consistency (パイプライン一貫性)
 
-- [ ] **PLN-01**: Shared feature builder extraction — `BacktestEngine.prepare_data()` から `build_inference_features()` を抽出し、BT/PT/TrainingPipeline が共通の特徴量構築関数を呼ぶことを受入条件とする。7つのギャップ (DamPedigree/Record/Mining/PaceAptitude 3列/Sire/Course) を一括解消する
-- [ ] **PLN-02**: Pipeline identity recording — MLflow run ID・学習期間・コードハッシュ・feature manifest hash を PT 実行記録に保存する
-- [ ] **PLN-03**: Data cutoff validation — 2026年 PT では 2025年12月31日以前のデータのみ使用。特徴量統計・OddsBandFilter 校正・HP・strategy manifest よ予測日以降の情報を含まないことを検証する
-- [ ] **PLN-04**: PFP parameter immutability — PT 実行中のパラメータ不変性を ParameterFreezeProtocol で検証する
+- [x] **PLN-01**: Shared feature builder extraction — `BacktestEngine.prepare_data()` から `build_inference_features()` を抽出し、BT/PT/TrainingPipeline が共通の特徴量構築関数を呼ぶことを受入条件とする。7つのギャップ (DamPedigree/Record/Mining/PaceAptitude 3列/Sire/Course) を一括解消する
+- [x] **PLN-02**: Pipeline identity recording — MLflow run ID・学習期間・コードハッシュ・feature manifest hash を PT 実行記録に保存する
+- [x] **PLN-03**: Data cutoff validation — 2026年 PT では 2025年12月31日以前のデータのみ使用。特徴量統計・OddsBandFilter 校正・HP・strategy manifest よ予測日以降の情報を含まないことを検証する
+- [x] **PLN-04**: PFP parameter immutability — PT 実行中のパラメータ不変性を ParameterFreezeProtocol で検証する
 
 ### Training Pipeline (学習パイプライン修正)
 
@@ -101,10 +101,10 @@ Which phases cover which requirements.
 | TRN-03 | Phase 51 | Pending |
 | TRN-04 | Phase 51 | Pending |
 | TRN-05 | Phase 51 | Pending |
-| PLN-01 | Phase 52 | Pending |
-| PLN-02 | Phase 52 | Pending |
-| PLN-03 | Phase 52 | Pending |
-| PLN-04 | Phase 52 | Pending |
+| PLN-01 | Phase 52 | Complete |
+| PLN-02 | Phase 52 | Complete |
+| PLN-03 | Phase 52 | Complete |
+| PLN-04 | Phase 52 | Complete |
 | STR-01 | Phase 53 | Pending |
 | STR-02 | Phase 53 | Pending |
 | STR-03 | Phase 53 | Pending |
@@ -123,6 +123,7 @@ Which phases cover which requirements.
 | RPT-04 | Phase 54 | Pending |
 
 **Coverage:**
+
 - v1 requirements: 30 total
 - Mapped to phases: 30
 - Unmapped: 0
