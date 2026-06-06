@@ -844,12 +844,6 @@ def _run_diagnose(
         load_odds_time_series_range,
         load_races,
     )
-    from features.feature_engine import FeatureEngine
-    from features.horse_history_features import HorseHistoryFeatures
-    from features.jockey_context_features import JockeyContextFeatures
-    from features.jockey_trainer_combo import JockeyTrainerComboFeatures
-    from features.trainer_context_features import TrainerContextFeatures
-    from models.submodel_manager import SubModelManager
 
     start_ymd = args.start.replace("-", "")
     end_ymd = args.end.replace("-", "")
@@ -877,64 +871,23 @@ def _run_diagnose(
     else:
         logger.info("No time-series odds, using confirmed odds")
 
-    # 特徴量生成 (_run_predict と同じパイプライン)
-    feat_engine = FeatureEngine()
-    submodel_mgr = SubModelManager()
-    feat_df = feat_engine.build_all(race_df, entry_df, odds_df, odds_ts_df=odds_ts_df, store=store)
-    feat_df = submodel_mgr.add_distance_band_features(feat_df)
-
-    # JRAフィルタ: NARレースを除外 (BT と同等)
-    feat_df = _apply_jra_filter(feat_df)
+    # 特徴量生成 — FeatureBuilder 経由で BT/Train と同一パス (GAP-1 解消)
+    feat_df = _build_features_fb(
+        race_df, entry_df, odds_df, store, odds_ts_df=odds_ts_df,
+    )
 
     race_ids = feat_df["race_id"].unique()
+
+    # RacePredictor.predict() 用の個別特徴量
+    from features.horse_history_features import HorseHistoryFeatures
+    from features.jockey_context_features import JockeyContextFeatures
+    from features.jockey_trainer_combo import JockeyTrainerComboFeatures
+    from features.trainer_context_features import TrainerContextFeatures
+
     hist_all = HorseHistoryFeatures(store=store).compute(race_df, entry_df, race_ids)
     jockey_all = JockeyContextFeatures(store).compute(entry_df)
     trainer_all = TrainerContextFeatures(store).compute(entry_df)
     jt_all = JockeyTrainerComboFeatures(store).compute(entry_df)
-
-    # ペース適性 + コース別適性 + 種牡馬特徴量 (予測パスで必要)
-    from db.readers import load_horses, load_sire_stats
-    from features.course_features import CourseFeatures
-    from features.pace_aptitude_features import PaceAptitudeFeatures
-    from features.sire_features import SireFeatures
-
-    pace_feat2 = PaceAptitudeFeatures(store=store)
-    pace_df2 = pace_feat2.compute_batch(feat_df)
-    _pace_cols2 = [c for c in ["pace_aptitude", "front_pace_wr", "closing_pace_wr"] if c in pace_df2.columns]
-    if _pace_cols2:
-        feat_df = feat_df.drop(columns=_pace_cols2, errors="ignore").merge(
-            pace_df2[["kettonum", "race_id"] + _pace_cols2], on=["kettonum", "race_id"], how="left"
-        )
-
-    course_feat2 = CourseFeatures(store=store)
-    course_df2 = course_feat2.compute_batch(feat_df)
-    _course_cols2 = [c for c in ["course_wr", "course_distance_wr"] if c in course_df2.columns]
-    if _course_cols2:
-        feat_df = feat_df.drop(columns=_course_cols2, errors="ignore").merge(
-            course_df2[["kettonum", "race_id"] + _course_cols2], on=["kettonum", "race_id"], how="left"
-        )
-
-    sire_stats_pt2 = load_sire_stats(store)
-    if not sire_stats_pt2.empty:
-        horses_pt2 = load_horses(store)
-        sire_feat2 = SireFeatures(sire_stats_pt2)
-        sire_map2 = horses_pt2.set_index("kettonum")["ketto3infohansyokunum1"]
-        bms_source_col2 = (
-            "ketto3infohansyokunum5"
-            if "ketto3infohansyokunum5" in horses_pt2.columns
-            else "ketto3infohansyokunum3"
-        )
-        bms_map2 = horses_pt2.set_index("kettonum")[bms_source_col2]
-        feat_df["sire_id"] = feat_df["kettonum"].map(sire_map2)
-        feat_df["bms_id"] = feat_df["kettonum"].map(bms_map2)
-        sire_result2 = sire_feat2.compute_batch(feat_df)
-        for sc2 in {
-            "sire_wr", "sire_surface_wr", "sire_distance_wr", "sire_prize_avg",
-            "bms_wr", "bms_distance_wr", "bms_surface_wr", "bms_has_history",
-            "bms_starts_log", "bms_surface_starts_log", "bms_distance_starts_log",
-        }:
-            if sc2 in sire_result2.columns:
-                feat_df[sc2] = sire_result2[sc2].values
 
     # 推論 + 診断ログ
     race_predictor = RacePredictor(models)
