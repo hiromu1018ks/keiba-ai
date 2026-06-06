@@ -195,8 +195,6 @@ class PaperReconciler:
         # 5. Settlement logic (D-11 order)
         n_settled = 0
         n_wins = 0
-        n_refunded = 0
-        n_voided = 0
 
         for idx in pending.index:
             row = bets_df.loc[idx]
@@ -289,7 +287,7 @@ class PaperReconciler:
             self._atomic_write_parquet(bets_df, self.bets_path)
             logger.info("Settled %d bets (%d wins) for %s", n_settled, n_wins, target_date)
 
-        return self._compute_roi(bets_df, target_date, n_settled, n_wins, n_refunded, n_voided)
+        return self._compute_roi(bets_df, target_date, n_settled, n_wins)
 
     def retry_pending(
         self, target_date: date, last_race_time: str | None = None
