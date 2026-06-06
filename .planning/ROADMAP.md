@@ -152,7 +152,7 @@ Plans:
 Plans:
 **Wave 1**
 
-- [ ] 54-01-PLAN.md — ExitCode IntEnum + RaceProgress state machine + PaperTradingReportAggregator (AUT-02, AUT-03, RPT-01~04)
+- [x] 54-01-PLAN.md — ExitCode IntEnum + RaceProgress state machine + PaperTradingReportAggregator (AUT-02, AUT-03, RPT-01~04)
 
 **Wave 2** *(blocked on Wave 1)*
 
@@ -172,4 +172,4 @@ Phases execute in numeric order: 51 → 52 → 53 → 54
 | 51. Settlement Integrity & Training | v2.4 | 3/3 | Complete | 2026-06-06 |
 | 52. Shared Feature Builder & Consistency | v2.4 | 4/4 | Complete    | 2026-06-06 |
 | 53. Strategy Alignment & Live Data | v2.4 | 3/3 | Complete    | 2026-06-06 |
-| 54. Automation & Reporting | v2.4 | 0/3 | Not started | - |
+| 54. Automation & Reporting | v2.4 | 1/3 | In Progress|  |
