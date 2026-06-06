@@ -314,11 +314,27 @@ def _run_predict(
     from features.jockey_trainer_combo import JockeyTrainerComboFeatures
     from features.trainer_context_features import TrainerContextFeatures
     from models.submodel_manager import SubModelManager
+    from paper_trading.reconciler import PaperReconciler
 
     import pandas as pd
 
     target_date = date.fromisoformat(args.date)
     ymd = target_date.strftime("%Y%m%d")
+
+    # Session ID generation / crash recovery (D-02)
+    sessions_dir = config.paper_trading_dir / "sessions"
+    sessions_dir.mkdir(parents=True, exist_ok=True)
+    session_file = sessions_dir / f"{ymd}.json"
+    if session_file.exists():
+        session_data = json.loads(session_file.read_text(encoding="utf-8"))
+        session_id = session_data["session_id"]
+    else:
+        import uuid
+        session_id = uuid.uuid4().hex[:16]
+        session_file.write_text(
+            json.dumps({"session_id": session_id, "created_at": datetime.now().isoformat()}),
+            encoding="utf-8",
+        )
 
     # EveryDB2からデータ読み込み
     logger.info("Loading data for %s...", ymd)
@@ -542,8 +558,17 @@ def _run_predict(
         for bet in bets:
             horse = result_df[result_df["umaban"] == bet.umaban]
             horse_name = _decode_bamei(horse.iloc[0]["bamei"]) if not horse.empty else ""
+            bet_id = PaperReconciler.compute_bet_id(
+                session_id, race_id, bet.bet_type.value, bet.umaban,
+            )
             all_bets.append(
                 {
+                    "bet_id": bet_id,
+                    "session_id": session_id,
+                    "schema_version": 2,
+                    "settlement_status": "pending",
+                    "outcome": None,
+                    "payout": None,
                     "race_id": race_id,
                     "bet_type": bet.bet_type.value,
                     "umaban": bet.umaban,
@@ -551,7 +576,6 @@ def _run_predict(
                     "stake": bet.stake,
                     "odds": bet.odds,
                     "ev": bet.ev_lower_corrected,
-                    "result": 0.0,  # 未確定
                     "surface": result_df.iloc[0].get("surface", ""),
                     "distance": result_df.iloc[0].get("kyori", 0),
                     "bankroll_after": round(bankroll - bet.stake, 2),
@@ -591,6 +615,36 @@ def _run_predict(
             "No new bets for %s, %d existing predictions preserved",
             args.date,
             len(existing_pred_df),
+        )
+
+    # Append new bets to cumulative bets.parquet (source of truth, D-08)
+    if all_bets:
+        new_bet_rows = pd.DataFrame(all_bets)
+        bets_path = config.paper_trading_dir / "bets.parquet"
+        if bets_path.exists():
+            existing_bets = pd.read_parquet(bets_path)
+            # Old schema rejection (D-18)
+            if "result" in existing_bets.columns and "payout" not in existing_bets.columns:
+                raise ValueError(
+                    "Old schema detected in bets.parquet: 'result' column present without 'payout'. "
+                    "Migration not supported -- recreate bets from predictions."
+                )
+            combined_bets = pd.concat([existing_bets, new_bet_rows], ignore_index=True)
+            # Dedup by bet_id (D-02)
+            combined_bets = combined_bets.drop_duplicates(subset=["bet_id"], keep="last")
+        else:
+            combined_bets = new_bet_rows
+
+        # Schema validation (D-20)
+        errors = PaperReconciler._validate_bet_schema(combined_bets)
+        if errors:
+            raise ValueError(f"Bet schema validation failed: {'; '.join(errors)}")
+
+        # Atomic write
+        PaperReconciler._atomic_write_parquet(combined_bets, bets_path)
+        logger.info(
+            "Bets appended to cumulative bets.parquet: %d new → %s",
+            len(all_bets), bets_path,
         )
 
     # コンソール出力 (Windows cp932 対応)
@@ -902,217 +956,75 @@ def _run_reconcile(
     models: "TrainedModelsV5 | None" = None,
     store: "ParquetStore | None" = None,
 ) -> None:
-    import pandas as pd
+    """Thin CLI wrapper for PaperReconciler.reconcile() (D-01)."""
+    from unittest.mock import MagicMock
 
     from db.everydb2_queries import EveryDB2Queries
+    from paper_trading.reconciler import PaperReconciler
 
     target_date = date.fromisoformat(args.date)
     ymd = target_date.strftime("%Y%m%d")
 
-    # 予測を読み込み
-    pred_path = config.paper_trading_dir / "predictions" / f"{ymd}.parquet"
-    if not pred_path.exists():
-        logger.error("Predictions not found: %s", pred_path)
-        return
-    pred_df = pd.read_parquet(pred_path)
+    # Construct dependencies
+    everydb2 = EveryDB2Queries(config.everydb2_connection_string)
+    bets_path = config.paper_trading_dir / "bets.parquet"
 
-    # 未確定のベットのみ処理
-    unsettled = pred_df[pred_df["result"] == 0.0]
-    if unsettled.empty:
-        logger.info("All bets already settled for %s", args.date)
-        return
+    reconciler = PaperReconciler(
+        store=store if store is not None else MagicMock(),
+        bets_path=bets_path,
+        everydb2=everydb2,
+        retry_interval=60,
+        retry_timeout=600,
+    )
 
-    # EveryDB2 払戻テーブルから複勝結果を取得
-    db = EveryDB2Queries(config.everydb2_connection_string)
-    payout_df = db.get_payouts(ymd)
+    # Execute reconciliation
+    result = reconciler.reconcile(target_date)
 
-    if payout_df.empty:
-        logger.warning("No payout data for %s -- races may not have finished yet", args.date)
-        return
+    # Retry if requested and pending remain
+    if getattr(args, "retry", False) and result.get("n_pending", 0) > 0:
+        result = reconciler.retry_pending(target_date)
 
-    # race_id → 払戻情報 のルックアップ辞書を構築
-    payout_map: dict[str, dict[int, float]] = {}
-    for _, row in payout_df.iterrows():
-        rid = row["race_id"]
-        winners: dict[int, float] = {}
-        for i in range(1, 6):
-            umaban_str = row.get(f"payfukusyoumaban{i}")
-            pay_str = row.get(f"payfukusyopay{i}")
-            if pd.isna(umaban_str) or pd.isna(pay_str):
-                continue
-            umaban_str = str(umaban_str).strip()
-            pay_str = str(pay_str).strip()
-            if not umaban_str or umaban_str == "00" or not pay_str or pay_str == "0":
-                continue
-            umaban_int = int(umaban_str)
-            # 払戻金は「100円あたりの円」→ オッズ倍率 = pay / 100
-            pay_yen = int(pay_str)
-            winners[umaban_int] = pay_yen / 100.0
-        payout_map[rid] = winners
-
-    logger.info("Payout data: %d races loaded", len(payout_map))
-
-    n_settled = 0
-    n_wins = 0
-
-    for idx, row in unsettled.iterrows():
-        race_id = row["race_id"]
-        umaban = int(row["umaban"])
-
-        winners = payout_map.get(race_id)
-        if winners is None:
-            continue  # 払戻データなし = レース未確定
-
-        n_settled += 1
-        if umaban in winners:
-            actual_odds = winners[umaban]
-            payout = row["stake"] * actual_odds
-            pred_df.at[idx, "result"] = payout
-            n_wins += 1
-        else:
-            pred_df.at[idx, "result"] = 0.0
-
-    if n_settled == 0:
-        logger.info("No races settled yet for %s", args.date)
-        return
-
-    # 確定した予測を書き戻し
-    pred_df.to_parquet(pred_path, index=False)
-
-    # bets.parquet に追記 (確定行のみ、重複除去)
-    settled_rows = pred_df[pred_df["result"] != 0.0]
-    if not settled_rows.empty:
-        bets_path = config.paper_trading_dir / "bets.parquet"
-        if bets_path.exists():
-            existing = pd.read_parquet(bets_path)
-            combined = pd.concat([existing, settled_rows], ignore_index=True)
-            combined = combined.drop_duplicates(
-                subset=["race_id", "umaban", "race_date", "bet_type"], keep="last"
-            )
-        else:
-            combined = settled_rows
-        combined.to_parquet(bets_path, index=False)
-    else:
-        bets_path = config.paper_trading_dir / "bets.parquet"
-        combined = pd.read_parquet(bets_path) if bets_path.exists() else pred_df
-
-    # 累積統計を計算
-    total_stake = combined["stake"].sum()
-    total_return = combined["result"].sum()
-    cumulative_roi = total_return / total_stake if total_stake > 0 else 0.0
-    n_total_wins = (combined["result"] > 0).sum()
-
-    # 日次統計
-    day_settled = pred_df[pred_df["result"] != 0.0]
-    day_total_stake = pred_df["stake"].sum()
-    day_total_return = pred_df["result"].sum()
-
-    result = {
-        "date": ymd,
-        "n_bets": len(pred_df),
-        "n_settled": n_settled,
-        "n_new_wins": n_wins,
-        "total_stake": total_stake,
-        "total_return": total_return,
-        "cumulative_roi": cumulative_roi,
-        "bankroll": config.initial_bankroll + total_return - total_stake,
-        "n_total_bets": len(combined),
-        "n_total_wins": int(n_total_wins),
-    }
-
-    # 日次サマリー保存
-    summary_dir = config.paper_trading_dir / "daily_summary"
-    summary_dir.mkdir(parents=True, exist_ok=True)
-    summary_path = summary_dir / f"{ymd}.json"
-    summary_path.write_text(json.dumps(result, indent=2, ensure_ascii=False), encoding="utf-8")
-
-    # HTMLレポート更新
-    try:
-        from paper_trading.report import PaperTradingReport
-
-        report = PaperTradingReport(output_dir=config.paper_trading_dir)
-        report.generate(combined.to_dict("records"), result)
-    except Exception as e:
-        logger.warning("Report generation failed: %s", e)
-
-    # コンソール出力
+    # Display results
     lines: list[str] = []
     lines.append("")
     lines.append("=" * 60)
+    n_settled = result.get("n_settled", 0)
+    n_wins = result.get("n_new_wins", 0)
     lines.append(f"  Reconcile: {args.date}  -  {n_settled} settled, {n_wins} wins")
     lines.append("=" * 60)
-
-    _venue_map = {
-        "01": "札幌",
-        "02": "函館",
-        "03": "福島",
-        "04": "新潟",
-        "05": "東京",
-        "06": "中山",
-        "07": "中京",
-        "08": "京都",
-        "09": "阪神",
-        "10": "小倉",
-    }
-
-    def _fmt_race_id(rid: str) -> str:
-        jyocd = rid[8:10]
-        racenum = rid[14:16]
-        venue = _venue_map.get(jyocd, jyocd)
-        return f"{venue}{int(racenum):2d}R"
-
-    prev_rid = ""
-    for _, row in pred_df.iterrows():
-        rid = row["race_id"]
-        if rid != prev_rid:
-            if prev_rid:
-                lines.append("")
-            post_time = str(row.get("post_time", ""))
-            lines.append(f"  ── {post_time}  {_fmt_race_id(rid)} ──")
-            prev_rid = rid
-        res_mark = "---"
-        actual_pay = 0.0
-        winners = payout_map.get(row["race_id"], {})
-        if int(row["umaban"]) in winners:
-            res_mark = "WIN"
-            actual_pay = row["result"]
-        elif row["race_id"] in payout_map:
-            res_mark = "LOSE"
-
-        lines.append(
-            f"      馬番{int(row['umaban']):2d}  "
-            f"予測Odds={row['odds']:.1f}  "
-            f"{res_mark:4s}  "
-            f"払戻{actual_pay:,.0f}円"
-        )
-
-    lines.append("")
-    lines.append(
-        f"  Day:  Stake={day_total_stake:,.0f}  Return={day_total_return:,.0f}  "
-        f"ROI={day_total_return / day_total_stake if day_total_stake else 0:.1%}"
-    )
-    lines.append(f"  Cum:  {len(combined)} bets  ROI={cumulative_roi:.1%}")
+    lines.append(f"  Cum: {result.get('n_bets', 0)} bets  "
+                 f"Effective Stake={result.get('effective_stake', 0):,.0f}  "
+                 f"Return={result.get('total_return', 0):,.0f}  "
+                 f"ROI={result.get('cumulative_roi', 0):.1%}")
+    if result.get("n_pending", 0) > 0:
+        lines.append(f"  Pending: {result['n_pending']} bets still unsettled")
     lines.append("")
     text = "\n".join(lines)
     sys.stdout.buffer.write(text.encode("utf-8", errors="replace"))
     sys.stdout.buffer.flush()
 
-    # Slack通知
+    # Save daily summary
+    summary_dir = config.paper_trading_dir / "daily_summary"
+    summary_dir.mkdir(parents=True, exist_ok=True)
+    summary_path = summary_dir / f"{ymd}.json"
+    summary_path.write_text(json.dumps(result, indent=2, ensure_ascii=False), encoding="utf-8")
+
+    # Slack notification
     slack_msg = (
         f"Reconcile {ymd}: {n_settled} settled, {n_wins} wins\n"
-        f"  Day ROI: {day_total_return / day_total_stake if day_total_stake else 0:.1%}\n"
-        f"  Cumulative: {len(combined)} bets, ROI={cumulative_roi:.1%}"
+        f"  ROI={result.get('cumulative_roi', 0):.1%}  "
+        f"Pending={result.get('n_pending', 0)}"
     )
     _send_slack(config, slack_msg)
-
     logger.info(
-        "Reconcile: %d settled, %d wins, day ROI=%.1f%%, cumulative ROI=%.1f%% (%d total bets)",
-        n_settled,
-        n_wins,
-        day_total_return / day_total_stake * 100 if day_total_stake else 0,
-        cumulative_roi * 100,
-        len(combined),
+        "Reconcile: %d settled, %d wins, ROI=%.1f%%, %d pending",
+        n_settled, n_wins, result.get("cumulative_roi", 0) * 100,
+        result.get("n_pending", 0),
     )
+
+    # Exit code 2 if pending remain (D-06)
+    if result.get("exit_code", 0) == 2 or result.get("n_pending", 0) > 0:
+        sys.exit(2)
 
 
 # ─────────────────────────────────────────────────
