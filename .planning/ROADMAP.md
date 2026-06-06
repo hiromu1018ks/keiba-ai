@@ -105,7 +105,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1)*
 
-- [ ] 52-02-PLAN.md — Replace 4 inline feature construction copies with FeatureBuilder calls
+- [x] 52-02-PLAN.md — Replace 4 inline feature construction copies with FeatureBuilder calls
 
 **Wave 3** *(blocked on Wave 2)*
 
@@ -152,6 +152,6 @@ Phases execute in numeric order: 51 → 52 → 53 → 54
 | 43-46 | v2.2 | 8/8 | Complete (not_deployable) | 2026-06-02 |
 | 47-50 | v2.3 | 7/7 | Complete | 2026-06-05 |
 | 51. Settlement Integrity & Training | v2.4 | 3/3 | Complete | 2026-06-06 |
-| 52. Shared Feature Builder & Consistency | v2.4 | 1/3 | In Progress|  |
+| 52. Shared Feature Builder & Consistency | v2.4 | 2/3 | In Progress|  |
 | 53. Strategy Alignment & Live Data | v2.4 | 0/? | Not started | - |
 | 54. Automation & Reporting | v2.4 | 0/? | Not started | - |
