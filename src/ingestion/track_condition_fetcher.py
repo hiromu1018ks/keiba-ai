@@ -126,9 +126,7 @@ def parse_track_condition_html(html: str) -> dict[str, Any]:
 
     # 両方欠落の場合はエラー
     if turf_line is None and dirt_line is None:
-        raise TrackConditionParseError(
-            "Missing required elements: #turf_line and #dirt_line"
-        )
+        raise TrackConditionParseError("Missing required elements: #turf_line and #dirt_line")
 
     # いずれかが欠落の場合もエラー (必須要素)
     if turf_line is None:
@@ -253,8 +251,7 @@ class JRATrackConditionFetcher:
                 except Exception:
                     # タブクリック失敗時はそのままのページ内容を返す
                     logger.warning(
-                        "開催場タブクリック失敗: venue_code=%s。"
-                        "デフォルトページ内容を返します。",
+                        "開催場タブクリック失敗: venue_code=%s。デフォルトページ内容を返します。",
                         venue_code,
                     )
 
