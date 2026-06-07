@@ -34,6 +34,7 @@ from db.readers import (
 from domain.models import Bet, BetType
 from domain.types import POST_RACE_COLS, RegimeState
 from models.regime_detector import calc_favorite_implied_prob, calc_odds_skewness
+from utils.timing import TimingContext
 
 if TYPE_CHECKING:
     from domain.models import TrainedModelsV5
@@ -785,9 +786,7 @@ class BacktestEngine:
         if prepared_data is not None:
             # P4: 空データチェック -- _verify_pfp() は run() 側で必ず呼ぶ
             if len(prepared_data.race_ids) == 0:
-                logger.warning(
-                    "Prepared data has no races for %s ~ %s", test_start, test_end
-                )
+                logger.warning("Prepared data has no races for %s ~ %s", test_start, test_end)
                 self._verify_pfp()
                 return BacktestResult(final_bankroll=self.initial_bankroll)
 
@@ -820,15 +819,9 @@ class BacktestEngine:
             feat_df = compute_race_condition_features(feat_df)
 
             feat_groups = build_race_groups(feat_df, name="features")
-            jockey_groups = build_race_groups(
-                prepared_data.jockey_df_all.copy(), name="jockey"
-            )
-            trainer_groups = build_race_groups(
-                prepared_data.trainer_df_all.copy(), name="trainer"
-            )
-            jt_groups = build_race_groups(
-                prepared_data.jt_df_all.copy(), name="jockey_trainer"
-            )
+            jockey_df_all = prepared_data.jockey_df_all.copy()
+            trainer_df_all = prepared_data.trainer_df_all.copy()
+            jt_df_all = prepared_data.jt_df_all.copy()
             final_odds_map = dict(prepared_data.final_odds_map)
             closing_win_odds_map = dict(prepared_data.closing_win_odds_map)
             self.payout_map = dict(prepared_data.payout_map)
@@ -997,7 +990,11 @@ class BacktestEngine:
             # build_for_inference は POST_RACE 列を削除するが、
             # モックや旧パスで残っている場合は上書きする
             if not settlement_df.empty:
-                _dup_cols = [c for c in settlement_df.columns if c in feat_df.columns and c not in ("race_id", "umaban")]
+                _dup_cols = [
+                    c
+                    for c in settlement_df.columns
+                    if c in feat_df.columns and c not in ("race_id", "umaban")
+                ]
                 if _dup_cols:
                     feat_df = feat_df.drop(columns=_dup_cols)
                 feat_df = feat_df.merge(settlement_df, on=["race_id", "umaban"], how="left")
@@ -1044,9 +1041,32 @@ class BacktestEngine:
             # 5. レースごとにシミュレーション (推論は RacePredictor に委譲)
             # jockey/trainer/jt は FeatureBuilder で feat_df に既にマージ済み
             feat_groups = build_race_groups(feat_df, name="features")
-            jockey_groups: dict[str, pd.DataFrame] = {}
-            trainer_groups: dict[str, pd.DataFrame] = {}
-            jt_groups: dict[str, pd.DataFrame] = {}
+            jockey_df_all = pd.DataFrame()
+            trainer_df_all = pd.DataFrame()
+            jt_df_all = pd.DataFrame()
+
+        # モデル推論は資金管理・レジーム更新に依存しないため、surface単位で先に一括実行する。
+        predict_input_df = feat_df.drop(
+            columns=[c for c in POST_RACE_COLS if c in feat_df.columns],
+            errors="ignore",
+        )
+        for context_df in (jockey_df_all, trainer_df_all, jt_df_all):
+            if context_df.empty:
+                continue
+            new_cols = [
+                c
+                for c in context_df.columns
+                if c not in predict_input_df.columns or c in {"race_id", "umaban"}
+            ]
+            if len(new_cols) > 2:
+                predict_input_df = predict_input_df.merge(
+                    context_df[new_cols],
+                    on=["race_id", "umaban"],
+                    how="left",
+                )
+        with TimingContext("backtest/batch_prediction"):
+            predicted_df = self._race_predictor.predict_batch(predict_input_df)
+        predicted_groups = build_race_groups(predicted_df, name="predictions")
 
         diag_logger = DiagnosticLogger()
         bankroll = self.initial_bankroll
@@ -1117,27 +1137,10 @@ class BacktestEngine:
                     }
                 )
 
-            # 事前計算済み特徴量をマージ (groupby dict O(1) lookup)
-            jockey_df_race = jockey_groups.get(race_id)
-            trainer_df_race = trainer_groups.get(race_id)
-            jt_df_race = jt_groups.get(race_id)
-
-            # M3 fix: POST_RACE 列を predict() に渡さない
-            predict_df = race_df_single.drop(
-                columns=[c for c in POST_RACE_COLS if c in race_df_single.columns],
-                errors="ignore",
-            )
-            # RacePredictor に委譲
-            # D-11: hist_features=None — 既に feat_df に事前マージ済み (二重マージ回避)
-            result_df = self._race_predictor.predict(
-                predict_df,
-                hist_features=None,
-                jockey_features=jockey_df_race,
-                trainer_features=trainer_df_race,
-                jt_combo_features=jt_df_race,
-            )
-            if result_df.empty:
+            result_df_cached = predicted_groups.get(race_id)
+            if result_df_cached is None or result_df_cached.empty:
                 continue
+            result_df = result_df_cached.copy()
 
             # 精算・bet_history 用に POST_RACE 列を復元 (kakuteijyuni, confirmed_odds のみ)
             for col in POST_RACE_COLS[:2]:
@@ -1399,8 +1402,7 @@ class BacktestEngine:
                         and bet.ev_lower_corrected >= self._win_ev_stake_threshold
                     ):
                         new_stake = (
-                            math.ceil(bet.stake * self._win_ev_stake_multiplier / 100.0)
-                            * 100.0
+                            math.ceil(bet.stake * self._win_ev_stake_multiplier / 100.0) * 100.0
                         )
                         new_stake = max(100.0, new_stake)
                         extra = new_stake - bet.stake

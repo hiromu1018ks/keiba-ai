@@ -473,6 +473,7 @@ class RunModeOrchestrator:
         else:
             combined = new_df
 
+        combined = PaperReconciler._normalize_bet_identifiers(combined)
         PaperReconciler._atomic_write_parquet(combined, self.bets_path)
 
     # ------------------------------------------------------------------

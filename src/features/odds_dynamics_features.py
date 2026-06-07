@@ -100,13 +100,76 @@ def _pick_target_snapshot(
     subset["_diff"] = diff.loc[valid].values
     preferred = subset["_diff"] <= tolerance_minutes
     if preferred.any():
-        subset = subset.loc[preferred]
-    subset = subset.sort_values(
-        ["race_id", "umaban", "_diff", "_ts_datetime"],
-        ascending=[True, True, True, False],
-    )
-    picked = subset.drop_duplicates(subset=["race_id", "umaban"], keep="first")
+        subset = subset.loc[preferred].copy()
+
+    if "_group_code" in ts.columns:
+        subset["_group_code"] = ts.loc[subset.index, "_group_code"].to_numpy()
+    else:
+        subset["_group_code"] = pd.factorize(
+            pd.MultiIndex.from_frame(subset[["race_id", "umaban"]]),
+            sort=False,
+        )[0]
+
+    group_codes = subset["_group_code"].to_numpy(dtype=np.int64)
+    n_groups = int(group_codes.max()) + 1
+    diffs = subset["_diff"].to_numpy(dtype=float)
+    min_diff = np.full(n_groups, np.inf)
+    np.minimum.at(min_diff, group_codes, diffs)
+    closest = diffs == min_diff[group_codes]
+    subset = subset.loc[closest]
+    group_codes = group_codes[closest]
+
+    timestamps = subset["_ts_datetime"].to_numpy(dtype="datetime64[ns]").astype(np.int64)
+    latest_time = np.full(n_groups, np.iinfo(np.int64).min, dtype=np.int64)
+    np.maximum.at(latest_time, group_codes, timestamps)
+    latest = timestamps == latest_time[group_codes]
+    picked = subset.loc[latest].drop_duplicates(subset=["_group_code"], keep="first")
     return picked.set_index(["race_id", "umaban"])[value_col]
+
+
+def _compute_direction_consistency(ts: pd.DataFrame) -> pd.Series:
+    """指数減衰付きのオッズ方向一貫性をグループ単位で一括計算する。"""
+    valid = ts["_odds_dir"].notna()
+    if not valid.any():
+        return pd.Series(dtype=float, name="odds_direction_consistency")
+
+    directions = ts.loc[valid, ["race_id", "umaban", "_odds_dir"]].copy()
+    group_keys = [directions["race_id"], directions["umaban"]]
+    group_size = directions.groupby(["race_id", "umaban"], observed=True)["_odds_dir"].transform(
+        "size"
+    )
+
+    # ts は時刻昇順。旧実装の時刻降順 i=0..n-1 と同じ指数を逆順で割り当てる。
+    ascending_position = directions.groupby(
+        ["race_id", "umaban"],
+        observed=True,
+    ).cumcount()
+    reverse_position = group_size - 1 - ascending_position
+    decay_base = 1.0 - (4.0 * np.log(2.0) / group_size)
+    weights = np.power(decay_base, reverse_position)
+
+    weighted_direction = directions["_odds_dir"].to_numpy(dtype=float) * weights
+    weighted_sum = (
+        pd.Series(weighted_direction, index=directions.index)
+        .groupby(
+            group_keys,
+            observed=True,
+        )
+        .sum()
+    )
+    weight_sum = (
+        pd.Series(weights, index=directions.index)
+        .groupby(
+            group_keys,
+            observed=True,
+        )
+        .sum()
+    )
+    consistency = (weighted_sum / weight_sum).abs()
+    valid_sizes = group_size.groupby(group_keys, observed=True).first()
+    consistency[valid_sizes < 5] = np.nan
+    consistency.name = "odds_direction_consistency"
+    return consistency
 
 
 def compute_odds_dynamics(
@@ -158,6 +221,7 @@ def compute_odds_dynamics(
     ts["_ts_datetime"] = _build_snapshot_datetimes(ts)
 
     grouped = ts.groupby(["race_id", "umaban"], observed=True)
+    ts["_group_code"] = grouped.ngroup()
 
     post_time_map = _build_post_time_map(df)
     if not post_time_map.empty:
@@ -196,8 +260,8 @@ def compute_odds_dynamics(
     # --- 速度: 線形回帰の傾き (ベクトル化) ---
     # slope = (n*sum_xy - sum_x*sum_y) / (n*sum_x2 - sum_x^2)
     vel_ts = ts[ts["tanodds"].notna()].copy()
-    first_time = (
-        vel_ts.groupby(["race_id", "umaban"], observed=True)["_ts_datetime"].transform("min")
+    first_time = vel_ts.groupby(["race_id", "umaban"], observed=True)["_ts_datetime"].transform(
+        "min"
     )
     vel_ts["_elapsed_minutes"] = (
         (vel_ts["_ts_datetime"] - first_time) / pd.Timedelta(minutes=1)
@@ -234,27 +298,7 @@ def compute_odds_dynamics(
 
     # --- ODTS-02: オッズ方向一貫性 ---
     ts["_odds_dir"] = np.sign(ts["_odds_diff"])
-
-    def _compute_direction_consistency(group: pd.DataFrame) -> float:
-        n = len(group)
-        if n < 5:
-            return np.nan  # 最小5点要件
-        halflife_snaps = max(n / 4, 1)
-        decay_rate = np.log(2) / halflife_snaps
-        dirs = group.sort_values("_ts_datetime", ascending=False)["_odds_dir"].dropna().values
-        if len(dirs) < 5:
-            return np.nan
-        weights = np.array([(1 - decay_rate) ** i for i in range(len(dirs))])
-        weights = weights / weights.sum()
-        consistency = float(abs(np.sum(weights * dirs)) / np.sum(weights))
-        return consistency
-
-    direction_consistency = (
-        ts[ts["_odds_dir"].notna()]
-        .groupby(["race_id", "umaban"], observed=True)
-        .apply(_compute_direction_consistency, include_groups=False)
-    )
-    direction_consistency.name = "odds_direction_consistency"
+    direction_consistency = _compute_direction_consistency(ts)
     direction_consistency = direction_consistency.reindex(base_index)
 
     # --- 人気変化: t-30 → t-10 (ベクトル化) ---
@@ -270,10 +314,18 @@ def compute_odds_dynamics(
 
     # groupby 結果を1つのDataFrameにまとめてから df にマージ (1回のmerge)
     agg_df = pd.concat(
-        [s.reset_index() for s in [
-            drop_60_10, drop_30_10, velocity, volatility, pop_change,
-            odds_acceleration, direction_consistency,
-        ]],
+        [
+            s.reset_index()
+            for s in [
+                drop_60_10,
+                drop_30_10,
+                velocity,
+                volatility,
+                pop_change,
+                odds_acceleration,
+                direction_consistency,
+            ]
+        ],
         axis=1,
     )
     # reset_index() で重複した race_id/umaban 列を削除
@@ -353,8 +405,8 @@ def compute_roi_ema(
         p = p[p > 0]
         return float(-np.sum(p * np.log(p))) if len(p) > 0 else 0.0
 
-    race_entropy = (
-        p_norm.groupby(df["race_id"], observed=True).apply(_entropy, include_groups=False)
+    race_entropy = p_norm.groupby(df["race_id"], observed=True).apply(
+        _entropy, include_groups=False
     )
     race_entropy.name = "entropy"
 

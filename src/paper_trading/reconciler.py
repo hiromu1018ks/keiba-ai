@@ -92,6 +92,24 @@ class PaperReconciler:
                 time.sleep(0.1)
 
     @staticmethod
+    def _normalize_bet_identifiers(df: pd.DataFrame) -> pd.DataFrame:
+        """Normalize legacy numeric race IDs before appending new string IDs."""
+        if "race_id" not in df.columns:
+            return df
+
+        result = df.copy()
+
+        def _to_string(value: object) -> object:
+            if pd.isna(value):
+                return pd.NA
+            if isinstance(value, (int, float)) and float(value).is_integer():
+                return str(int(value))
+            return str(value)
+
+        result["race_id"] = result["race_id"].map(_to_string).astype("string")
+        return result
+
+    @staticmethod
     def _validate_bet_schema_basic(df: pd.DataFrame) -> list[str]:
         """Basic schema validation: old-schema rejection + required columns.
 

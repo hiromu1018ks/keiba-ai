@@ -914,9 +914,14 @@ def _run_predict(
             len(existing_pred_df),
         )
 
-    # Append new bets to cumulative bets.parquet (source of truth, D-08)
-    if all_bets:
-        new_bet_rows = pd.DataFrame(all_bets)
+    # Append the day's predictions to cumulative bets.parquet (source of truth, D-08).
+    # Include existing predictions so a retry repairs a prior partial write where
+    # predictions succeeded but the cumulative bets write failed.
+    bet_rows_to_merge = pd.concat(
+        [existing_pred_df, pd.DataFrame(all_bets)],
+        ignore_index=True,
+    ).drop_duplicates(subset=["bet_id"], keep="last")
+    if not bet_rows_to_merge.empty:
         bets_path = config.paper_trading_dir / "bets.parquet"
         if bets_path.exists():
             existing_bets = pd.read_parquet(bets_path)
@@ -927,11 +932,19 @@ def _run_predict(
                     "'result' column present without 'payout'. "
                     "Migration not supported -- recreate bets."
                 )
-            combined_bets = pd.concat([existing_bets, new_bet_rows], ignore_index=True)
+            existing_ids = set(existing_bets["bet_id"])
+            appended_count = int((~bet_rows_to_merge["bet_id"].isin(existing_ids)).sum())
+            combined_bets = pd.concat(
+                [existing_bets, bet_rows_to_merge],
+                ignore_index=True,
+            )
             # Dedup by bet_id (D-02)
             combined_bets = combined_bets.drop_duplicates(subset=["bet_id"], keep="last")
         else:
-            combined_bets = new_bet_rows
+            appended_count = len(bet_rows_to_merge)
+            combined_bets = bet_rows_to_merge
+
+        combined_bets = PaperReconciler._normalize_bet_identifiers(combined_bets)
 
         # Schema validation (D-20)
         errors = PaperReconciler._validate_bet_schema(combined_bets)
@@ -942,7 +955,7 @@ def _run_predict(
         PaperReconciler._atomic_write_parquet(combined_bets, bets_path)
         logger.info(
             "Bets appended to cumulative bets.parquet: %d new → %s",
-            len(all_bets), bets_path,
+            appended_count, bets_path,
         )
 
     # コンソール出力 (Windows cp932 対応)
@@ -960,6 +973,7 @@ def _run_predict(
     }
 
     def _fmt_race_id(rid: str) -> str:
+        rid = str(int(float(rid)))  # handle float race_id from parquet
         jyocd = rid[8:10]
         racenum = rid[14:16]
         venue = _venue_map.get(jyocd, jyocd)

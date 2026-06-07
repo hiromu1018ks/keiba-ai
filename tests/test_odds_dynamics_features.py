@@ -5,6 +5,7 @@ import pandas as pd
 import pytest
 
 from features.odds_dynamics_features import (
+    _compute_direction_consistency,
     compute_odds_dynamics,
     compute_roi_ema,
     compute_rolling_volatility,
@@ -67,6 +68,54 @@ def base_df() -> pd.DataFrame:
 
 
 class TestOddsDynamicsFeatures:
+    def test_direction_consistency_vectorized_matches_group_formula(self) -> None:
+        rng = np.random.default_rng(42)
+        rows: list[dict[str, object]] = []
+        for race_id in ("R1", "R2"):
+            for umaban in range(1, 5):
+                n_points = int(rng.integers(3, 15))
+                odds = 5.0 + np.cumsum(rng.choice([-0.5, 0.0, 0.5], size=n_points))
+                odds[rng.random(n_points) < 0.15] = np.nan
+                for point, value in enumerate(odds):
+                    rows.append(
+                        {
+                            "race_id": race_id,
+                            "umaban": umaban,
+                            "_ts_datetime": pd.Timestamp("2024-01-01")
+                            + pd.Timedelta(minutes=point),
+                            "_odds_dir": (
+                                np.nan
+                                if point == 0 or np.isnan(value)
+                                else np.sign(value - odds[point - 1])
+                            ),
+                        }
+                    )
+        ts = pd.DataFrame(rows)
+
+        def legacy(group: pd.DataFrame) -> float:
+            n = len(group)
+            if n < 5:
+                return np.nan
+            decay_rate = np.log(2) / max(n / 4, 1)
+            directions = (
+                group.sort_values("_ts_datetime", ascending=False)["_odds_dir"].dropna().values
+            )
+            if len(directions) < 5:
+                return np.nan
+            weights = np.array([(1 - decay_rate) ** i for i in range(len(directions))])
+            weights /= weights.sum()
+            return float(abs(np.sum(weights * directions)) / np.sum(weights))
+
+        expected = (
+            ts[ts["_odds_dir"].notna()]
+            .groupby(["race_id", "umaban"], observed=True)
+            .apply(legacy, include_groups=False)
+        )
+        expected.name = "odds_direction_consistency"
+        actual = _compute_direction_consistency(ts)
+
+        pd.testing.assert_series_equal(actual.sort_index(), expected.sort_index())
+
     def test_odds_drop_rate_60_10(self, base_df: pd.DataFrame, odds_ts_df: pd.DataFrame):
         """t-60→t-10 のオッズ変化率を正しく計算"""
         result = compute_odds_dynamics(base_df, odds_ts_df)
@@ -212,8 +261,12 @@ class TestOddsDynamicsFeatures:
             {
                 "race_id": ["R1"] * 6,
                 "happyotime": [
-                    "03241000", "03241010", "03241020",
-                    "03241030", "03241040", "03241050",
+                    "03241000",
+                    "03241010",
+                    "03241020",
+                    "03241030",
+                    "03241040",
+                    "03241050",
                 ],
                 "umaban": [1] * 6,
                 "tanodds": [10.0, 9.5, 8.0, 7.0, 4.5, 3.0],
@@ -235,8 +288,12 @@ class TestOddsDynamicsFeatures:
             {
                 "race_id": ["R1"] * 6,
                 "happyotime": [
-                    "03241000", "03241010", "03241020",
-                    "03241030", "03241040", "03241050",
+                    "03241000",
+                    "03241010",
+                    "03241020",
+                    "03241030",
+                    "03241040",
+                    "03241050",
                 ],
                 "umaban": [1] * 6,
                 "tanodds": [3.0, 3.5, 4.0, 5.0, 7.5, 10.0],
@@ -260,7 +317,7 @@ class TestOddsDynamicsFeatures:
                 "tanodds": [5.0],
             }
         )
-        result = compute_odds_dynamics(df, odds_ts)
+        compute_odds_dynamics(df, odds_ts)
         # 1点では t-60 と t-30 のスナップショットが取得不可
         # _pick_target_snapshot は tolerance 内になければ全validから最も近いものを選ぶ
         # しかし、1点(t-10)しかないので odds_60 と odds_30 が同じ値になる
@@ -285,8 +342,12 @@ class TestOddsDynamicsFeatures:
             {
                 "race_id": ["R1"] * 6,
                 "happyotime": [
-                    "03241000", "03241010", "03241020",
-                    "03241030", "03241040", "03241050",
+                    "03241000",
+                    "03241010",
+                    "03241020",
+                    "03241030",
+                    "03241040",
+                    "03241050",
                 ],
                 "umaban": [2] * 6,
                 "tanodds": [10.0, 9.0, 8.0, 7.0, 6.0, 5.0],
@@ -304,8 +365,12 @@ class TestOddsDynamicsFeatures:
             {
                 "race_id": ["R1"] * 6,
                 "happyotime": [
-                    "03241000", "03241010", "03241020",
-                    "03241030", "03241040", "03241050",
+                    "03241000",
+                    "03241010",
+                    "03241020",
+                    "03241030",
+                    "03241040",
+                    "03241050",
                 ],
                 "umaban": [1] * 6,
                 # 交互に上下: +0.5, -0.5, +0.5, -0.5, +0.5
@@ -378,8 +443,14 @@ class TestComputeOddsEma:
         rows = []
         for r in range(60):
             for h in range(10):
-                rows.append({"race_id": f"R{r:04d}", "umaban": h + 1,
-                    "tanodds": np.random.uniform(1.5, 100.0), "popularity_rank": h + 1})
+                rows.append(
+                    {
+                        "race_id": f"R{r:04d}",
+                        "umaban": h + 1,
+                        "tanodds": np.random.uniform(1.5, 100.0),
+                        "popularity_rank": h + 1,
+                    }
+                )
         df = pd.DataFrame(rows)
         result = compute_roi_ema(df, span=20, min_periods=10)
         assert "favorite_implied_prob_ema" in result.columns
@@ -397,8 +468,14 @@ class TestComputeOddsEma:
         rows = []
         for r in range(60):
             for h in range(10):
-                rows.append({"race_id": f"R{r:04d}", "umaban": h + 1,
-                    "tanodds": np.random.uniform(1.5, 30.0), "popularity_rank": h + 1})
+                rows.append(
+                    {
+                        "race_id": f"R{r:04d}",
+                        "umaban": h + 1,
+                        "tanodds": np.random.uniform(1.5, 30.0),
+                        "popularity_rank": h + 1,
+                    }
+                )
         df = pd.DataFrame(rows)
         assert "kakuteijyuni" not in df.columns
         result = compute_roi_ema(df, span=10, min_periods=5)
@@ -410,8 +487,14 @@ class TestComputeOddsEma:
         rows = []
         for r in range(60):
             for h in range(10):
-                rows.append({"race_id": f"R{r:04d}", "umaban": h + 1,
-                    "tanodds": np.random.uniform(1.5, 30.0), "popularity_rank": h + 1})
+                rows.append(
+                    {
+                        "race_id": f"R{r:04d}",
+                        "umaban": h + 1,
+                        "tanodds": np.random.uniform(1.5, 30.0),
+                        "popularity_rank": h + 1,
+                    }
+                )
         df = pd.DataFrame(rows)
         result = compute_roi_ema(df, span=10, min_periods=5)
         last = result[result["race_id"] == "R0059"]
@@ -420,8 +503,15 @@ class TestComputeOddsEma:
     def test_single_race_returns_same_value(self) -> None:
         """同一レース内の全行が同じ EMA 値を持つ"""
         np.random.seed(42)
-        rows = [{"race_id": "R0001", "umaban": h + 1, "tanodds": np.random.uniform(1.5, 30.0),
-            "popularity_rank": h + 1} for h in range(10)]
+        rows = [
+            {
+                "race_id": "R0001",
+                "umaban": h + 1,
+                "tanodds": np.random.uniform(1.5, 30.0),
+                "popularity_rank": h + 1,
+            }
+            for h in range(10)
+        ]
         df = pd.DataFrame(rows)
         result = compute_roi_ema(df, span=20, min_periods=1)
         assert result["favorite_implied_prob_ema"].nunique() == 1

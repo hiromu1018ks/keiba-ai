@@ -56,6 +56,130 @@ def mock_models() -> MagicMock:
 
 
 class TestRacePredictor:
+    def test_predict_batch_combines_races_for_same_surface(
+        self,
+        mock_models: MagicMock,
+    ) -> None:
+        from backtest.race_predictor import RacePredictor
+
+        predictor = RacePredictor(models=mock_models)
+        race_df = pd.DataFrame(
+            {
+                "race_id": ["race_1", "race_1", "race_2", "race_2"],
+                "umaban": [1, 2, 1, 2],
+                "surface": ["turf"] * 4,
+            }
+        )
+        predictor.predict = MagicMock(side_effect=lambda df: df.assign(predicted=True))
+
+        result = predictor.predict_batch(race_df)
+
+        assert predictor.predict.call_count == 1
+        pd.testing.assert_frame_equal(
+            result,
+            race_df.assign(predicted=True).reset_index(drop=True),
+        )
+
+    def test_predict_batch_falls_back_to_per_race(
+        self,
+        mock_models: MagicMock,
+    ) -> None:
+        from backtest.race_predictor import RacePredictor
+
+        predictor = RacePredictor(models=mock_models)
+        race_df = pd.DataFrame(
+            {
+                "race_id": ["race_1", "race_2"],
+                "umaban": [1, 1],
+                "surface": ["turf", "turf"],
+            }
+        )
+        predictor.predict = MagicMock(
+            side_effect=[
+                pd.DataFrame(),
+                race_df.iloc[[0]].assign(predicted=True),
+                race_df.iloc[[1]].assign(predicted=True),
+            ]
+        )
+
+        result = predictor.predict_batch(race_df)
+
+        assert predictor.predict.call_count == 3
+        assert result["race_id"].tolist() == ["race_1", "race_2"]
+
+    def test_predict_batch_matches_sequential_predictions(
+        self,
+        mock_models: MagicMock,
+    ) -> None:
+        from backtest.race_predictor import RacePredictor
+
+        predictor = RacePredictor(models=mock_models, betting_target="win")
+        race_df = pd.DataFrame(
+            {
+                "race_id": ["race_1", "race_1", "race_2", "race_2"],
+                "umaban": [1, 2, 1, 2],
+                "surface": ["turf"] * 4,
+                "norm_finish_logit_avg": [0.8, 0.2, 0.1, 0.9],
+                "p_market_win_adj": [0.6, 0.4, 0.3, 0.7],
+                "tanodds": [2.0, 4.0, 5.0, 1.8],
+            }
+        )
+        submodel = mock_models.submodels["turf"]
+        submodel.place_ability = None
+        submodel.place = None
+        submodel.conformal_ev_model = None
+
+        def market_predict(df: pd.DataFrame) -> pd.DataFrame:
+            return df.assign(
+                signed_log_error_win=0.0,
+                abs_log_error_win=0.0,
+            )
+
+        def ability_predict(df: pd.DataFrame) -> pd.DataFrame:
+            return df.assign(p_ability_win=df["p_market_win_adj"])
+
+        def win_predict(df: pd.DataFrame) -> pd.DataFrame:
+            return df.assign(
+                p_win_pred=df["p_ability_win"],
+                e_return_win_pred=df["tanodds"],
+                ev_win=df["p_ability_win"] * df["tanodds"],
+            )
+
+        def correct_ev(df: pd.DataFrame) -> pd.DataFrame:
+            return df.assign(
+                p_win_corrected=df["p_win_pred"],
+                ev_win_corrected=df["ev_win"],
+                ev_win_calibrated=df["ev_win"],
+            )
+
+        submodel.market.predict_and_calc_error.side_effect = market_predict
+        submodel.stage1.add_ability_probs.side_effect = ability_predict
+        submodel.win.predict_ev.side_effect = win_predict
+        submodel.ev_corrector.correct_ev.side_effect = correct_ev
+
+        sequential = pd.concat(
+            [
+                predictor.predict(group)
+                for _, group in race_df.groupby("race_id", sort=False, observed=True)
+            ],
+            ignore_index=True,
+        )
+        batched = predictor.predict_batch(race_df)
+
+        compare_cols = [
+            "race_id",
+            "umaban",
+            "norm_finish_logit_avg_race_rank",
+            "p_win_final",
+            "edge_win",
+            "EV_lower_win_corrected",
+        ]
+        pd.testing.assert_frame_equal(
+            batched[compare_cols],
+            sequential[compare_cols],
+            check_dtype=False,
+        )
+
     def test_predict_returns_dataframe_with_ev_columns(self, mock_models: MagicMock) -> None:
         from backtest.race_predictor import RacePredictor
 
@@ -1711,9 +1835,7 @@ class TestGetWinCandidates:
 
         assert result.iloc[0]["umaban"] == 1
 
-    def test_win_segment_factors_are_neutral_by_default(
-        self, mock_models: MagicMock
-    ) -> None:
+    def test_win_segment_factors_are_neutral_by_default(self, mock_models: MagicMock) -> None:
         """WinSegmentCalibrator removed -- segment factors are always neutral (1.0)."""
         from backtest.race_predictor import RacePredictor
 
@@ -1840,9 +1962,7 @@ class TestGetWinCandidates:
 class TestMarketAwareWinCalibratorIntegration:
     """MarketAwareWinCalibrator integration tests in RacePredictor (CAL-04)."""
 
-    def test_predict_calls_calibrator_apply_when_available(
-        self, mock_models: MagicMock
-    ) -> None:
+    def test_predict_calls_calibrator_apply_when_available(self, mock_models: MagicMock) -> None:
         """predict() calls market_aware_win_calibrator.apply() when calibrator is available."""
         from backtest.race_predictor import RacePredictor
 
@@ -1902,9 +2022,7 @@ class TestMarketAwareWinCalibratorIntegration:
         calibrator_mock.apply.assert_called_once()
         assert len(result) == 1
 
-    def test_predict_fallback_when_calibrator_is_none(
-        self, mock_models: MagicMock
-    ) -> None:
+    def test_predict_fallback_when_calibrator_is_none(self, mock_models: MagicMock) -> None:
         """predict() works when calibrator is None (fallback behavior)."""
         from backtest.race_predictor import RacePredictor
 
@@ -2233,9 +2351,7 @@ class TestRaceLevelRankerIntegration:
         # All 4 runners get investment_score
         assert result["investment_score"].notna().sum() == 4
 
-    def test_win_market_selection_score_unchanged_by_ranker(
-        self, mock_models: MagicMock
-    ) -> None:
+    def test_win_market_selection_score_unchanged_by_ranker(self, mock_models: MagicMock) -> None:
         """win_market_selection_score is unchanged by ranker addition (D-21, RNK-05)."""
         from backtest.race_predictor import RacePredictor
 

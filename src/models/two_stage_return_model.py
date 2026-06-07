@@ -454,7 +454,10 @@ class WinTwoStageModel:
             self.return_model.best_iteration if self.return_model.best_iteration > 0 else None
         )
         df["p_win_pred"] = self.hit_model.predict(features, num_iteration=hit_iter)
-        log_return = self.return_model.predict(features, num_iteration=ret_iter)
+        from models.categorical_alignment import align_lightgbm_categories
+
+        return_features = align_lightgbm_categories(features, self.return_model)
+        log_return = self.return_model.predict(return_features, num_iteration=ret_iter)
         df["e_return_win_pred"] = np.clip(np.expm1(log_return), 1.0, None)
         df["ev_win"] = df["p_win_pred"] * df["e_return_win_pred"]
         return df
@@ -993,7 +996,13 @@ class PlaceTwoStageModel:
             self.return_model.best_iteration if self.return_model.best_iteration > 0 else None
         )
 
+        from models.categorical_alignment import align_lightgbm_categories
+
+        hit_features = align_lightgbm_categories(hit_features, self.hit_model)
+        ret_features = align_lightgbm_categories(ret_features, self.return_model)
         df["p_place_pred"] = self.hit_model.predict(hit_features, num_iteration=hit_iter)
-        df["e_return_place_pred"] = self.return_model.predict(ret_features, num_iteration=ret_iter)
+        df["e_return_place_pred"] = self.return_model.predict(
+            ret_features, num_iteration=ret_iter
+        )
         df["ev_place"] = df["p_place_pred"] * df["e_return_place_pred"]
         return df

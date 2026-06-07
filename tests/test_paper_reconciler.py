@@ -9,7 +9,6 @@ import pytest
 
 from paper_trading.reconciler import PaperReconciler
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -487,3 +486,16 @@ class TestAtomicWrite:
         assert target.exists()
         result = pd.read_parquet(target)
         assert len(result) == 1
+
+    def test_normalize_bet_identifiers_handles_legacy_float_ids(self) -> None:
+        df = pd.DataFrame(
+            {"race_id": [2026040510010101.0, "2026060705030202"]}
+        )
+
+        result = PaperReconciler._normalize_bet_identifiers(df)
+
+        assert result["race_id"].tolist() == [
+            "2026040510010101",
+            "2026060705030202",
+        ]
+        assert str(result["race_id"].dtype) == "string"

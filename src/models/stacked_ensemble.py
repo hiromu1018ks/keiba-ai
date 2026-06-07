@@ -158,6 +158,9 @@ class StackedEnsemble:
                     f"StackedEnsemble.predict(): missing feature columns: {missing[:5]}"
                 )
             X = X[self._train_feature_names]
+        from models.categorical_alignment import align_lightgbm_categories
+
+        X = align_lightgbm_categories(X, self.lgbm_model)
         p_lgbm = self.lgbm_model.predict(X)
 
         import xgboost as xgb
@@ -219,8 +222,11 @@ class StackedEnsemble:
         _cat_codesが利用可能な場合は学習時のマッピングを使用し、
         未知カテゴリを-1として扱う。そうでなければcat.codesにフォールバック。
         """
+        all_cat_cols = [c for c in X.columns if X[c].dtype.name == "category"]
+        if not all_cat_cols:
+            return X
+
         X_out = X.copy()
-        all_cat_cols = [c for c in X_out.columns if X_out[c].dtype.name == "category"]
         for col in all_cat_cols:
             if col in self._cat_codes:
                 codes = self._cat_codes[col]
@@ -375,6 +381,8 @@ class StackedEnsemble:
         split = int(oob_start * 0.8)
         X_t, y_t = X_train.iloc[:split], y_train.iloc[:split]
         X_v, y_v = X_train.iloc[split:oob_start], y_train.iloc[split:oob_start]
+        X_t_num = self._encode_cats(X_t)
+        X_v_num = self._encode_cats(X_v)
 
         best_params: dict[str, dict[str, Any]] = {}
         ref_preds_list: list[np.ndarray] = []
@@ -388,8 +396,26 @@ class StackedEnsemble:
                 direction="maximize",
                 sampler=optuna.samplers.TPESampler(seed=DEFAULT_RANDOM_SEED),
             )
+            eval_kwargs: dict[str, Any] = {}
+            ref_kwargs: dict[str, Any] = {}
+            if model_name == "xgb":
+                import xgboost as xgb
+
+                dtrain = xgb.DMatrix(X_t_num, label=y_t)
+                dvalid = xgb.DMatrix(X_v_num, label=y_v)
+                eval_kwargs = {
+                    "X_t_num": X_t_num,
+                    "X_v_num": X_v_num,
+                    "dtrain": dtrain,
+                    "dvalid": dvalid,
+                }
+                ref_kwargs = eval_kwargs
+            elif model_name == "cat":
+                eval_kwargs = {"X_t_num": X_t_num, "X_v_num": X_v_num}
+                ref_kwargs = eval_kwargs
+
             study.optimize(
-                lambda trial, fn=suggest_fn, tf=eval_fn: tf(
+                lambda trial, fn=suggest_fn, tf=eval_fn, kwargs=eval_kwargs: tf(
                     trial,
                     fn,
                     X_t,
@@ -400,13 +426,22 @@ class StackedEnsemble:
                     ref_preds_list=ref_preds_list,
                     corr_penalty_weight=self.corr_penalty_weight,
                     corr_threshold=self.corr_threshold,
+                    **kwargs,
                 ),
                 n_trials=self.n_trials,
             )
             best_params[model_name] = study.best_params
 
             # Train reference model for next model's correlation penalty
-            ref_preds = ref_fn(X_t, y_t, X_v, y_v, num_threads, study.best_params)
+            ref_preds = ref_fn(
+                X_t,
+                y_t,
+                X_v,
+                y_v,
+                num_threads,
+                study.best_params,
+                **ref_kwargs,
+            )
             ref_preds_list.append(ref_preds)
 
             # Log correlation penalty info
@@ -464,14 +499,23 @@ class StackedEnsemble:
         y_v: pd.Series,
         num_threads: int,
         best_params: dict[str, Any],
+        *,
+        X_t_num: pd.DataFrame | None = None,
+        X_v_num: pd.DataFrame | None = None,
+        dtrain: Any | None = None,
+        dvalid: Any | None = None,
     ) -> np.ndarray:
         """Train reference XGB model with best params for correlation computation."""
         import xgboost as xgb
 
-        X_t_num = self._encode_cats(X_t)
-        X_v_num = self._encode_cats(X_v)
-        dtrain = xgb.DMatrix(X_t_num, label=y_t)
-        dvalid = xgb.DMatrix(X_v_num, label=y_v)
+        if dtrain is None:
+            if X_t_num is None:
+                X_t_num = self._encode_cats(X_t)
+            dtrain = xgb.DMatrix(X_t_num, label=y_t)
+        if dvalid is None:
+            if X_v_num is None:
+                X_v_num = self._encode_cats(X_v)
+            dvalid = xgb.DMatrix(X_v_num, label=y_v)
         m = xgb.train(
             {
                 **xgboost_params(),
@@ -498,12 +542,17 @@ class StackedEnsemble:
         y_v: pd.Series,
         num_threads: int,
         best_params: dict[str, Any],
+        *,
+        X_t_num: pd.DataFrame | None = None,
+        X_v_num: pd.DataFrame | None = None,
     ) -> np.ndarray:
         """Train reference CAT model with best params for correlation computation."""
         from catboost import CatBoostClassifier
 
-        X_t_num = self._encode_cats(X_t)
-        X_v_num = self._encode_cats(X_v)
+        if X_t_num is None:
+            X_t_num = self._encode_cats(X_t)
+        if X_v_num is None:
+            X_v_num = self._encode_cats(X_v)
         m = CatBoostClassifier(
             **catboost_params(),
             iterations=500,
@@ -591,16 +640,24 @@ class StackedEnsemble:
         ref_preds_list: list[np.ndarray] | None = None,
         corr_penalty_weight: float = 0.5,
         corr_threshold: float = 0.85,
+        X_t_num: pd.DataFrame | None = None,
+        X_v_num: pd.DataFrame | None = None,
+        dtrain: Any | None = None,
+        dvalid: Any | None = None,
     ) -> float:
         """XGBoost Optuna objective"""
         import xgboost as xgb
         from sklearn.metrics import roc_auc_score
 
         params = suggest_fn(trial)
-        X_t_num = self._encode_cats(X_t)
-        X_v_num = self._encode_cats(X_v)
-        dtrain = xgb.DMatrix(X_t_num, label=y_t)
-        dvalid = xgb.DMatrix(X_v_num, label=y_v)
+        if dtrain is None:
+            if X_t_num is None:
+                X_t_num = self._encode_cats(X_t)
+            dtrain = xgb.DMatrix(X_t_num, label=y_t)
+        if dvalid is None:
+            if X_v_num is None:
+                X_v_num = self._encode_cats(X_v)
+            dvalid = xgb.DMatrix(X_v_num, label=y_v)
         m = xgb.train(
             {
                 **xgboost_params(),
@@ -640,14 +697,18 @@ class StackedEnsemble:
         ref_preds_list: list[np.ndarray] | None = None,
         corr_penalty_weight: float = 0.5,
         corr_threshold: float = 0.85,
+        X_t_num: pd.DataFrame | None = None,
+        X_v_num: pd.DataFrame | None = None,
     ) -> float:
         """CatBoost Optuna objective"""
         from catboost import CatBoostClassifier
         from sklearn.metrics import roc_auc_score
 
         params = suggest_fn(trial)
-        X_t_num = self._encode_cats(X_t)
-        X_v_num = self._encode_cats(X_v)
+        if X_t_num is None:
+            X_t_num = self._encode_cats(X_t)
+        if X_v_num is None:
+            X_v_num = self._encode_cats(X_v)
         m = CatBoostClassifier(
             **catboost_params(),
             iterations=500,

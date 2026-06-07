@@ -4,15 +4,76 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
+import lightgbm as lgb
 import numpy as np
 import pandas as pd
 import pytest
 
+from models.categorical_alignment import align_lightgbm_categories
 from models.two_stage_return_model import (
     PlaceTwoStageModel,
     WinTwoStageModel,
     _train_valid_split,
 )
+
+
+class TestLightGBMCategoricalAlignment:
+    def test_restores_training_vocabulary_without_first_n_assumption(self) -> None:
+        train = pd.DataFrame(
+            {
+                "numeric_first": [0.1, 0.2, 0.3, 0.4],
+                "category_later": pd.Categorical(
+                    ["a", "b", "a", "b"], categories=["a", "b", "unused"]
+                ),
+            }
+        )
+        dataset = lgb.Dataset(train, label=[0, 1, 0, 1])
+        booster = lgb.train(
+            {"objective": "binary", "verbose": -1, "min_data_in_leaf": 1},
+            dataset,
+            num_boost_round=1,
+        )
+        inference = pd.DataFrame(
+            {
+                "numeric_first": [0.5],
+                "category_later": pd.Categorical(["a"]),
+                "extra_numeric": [99.0],
+                "extra_category": pd.Categorical(["unused"]),
+            }
+        )
+
+        aligned = align_lightgbm_categories(inference, booster)
+
+        assert aligned.columns.tolist() == ["numeric_first", "category_later"]
+        assert aligned["category_later"].cat.categories.tolist() == [
+            "a",
+            "b",
+            "unused",
+        ]
+        assert not isinstance(aligned["numeric_first"].dtype, pd.CategoricalDtype)
+        booster.predict(aligned)
+
+    def test_rejects_category_column_count_mismatch(self) -> None:
+        train = pd.DataFrame(
+            {
+                "numeric_first": [0.1, 0.2, 0.3, 0.4],
+                "category_later": pd.Categorical(["a", "b", "a", "b"]),
+            }
+        )
+        booster = lgb.train(
+            {"objective": "binary", "verbose": -1, "min_data_in_leaf": 1},
+            lgb.Dataset(train, label=[0, 1, 0, 1]),
+            num_boost_round=1,
+        )
+        inference = pd.DataFrame(
+            {
+                "numeric_first": [0.5],
+                "category_later": ["a"],
+            }
+        )
+
+        with pytest.raises(ValueError, match="categorical metadata mismatch"):
+            align_lightgbm_categories(inference, booster)
 
 
 @pytest.fixture
@@ -765,6 +826,7 @@ class TestRelativeFeaturesInFeatureCols:
     def test_compute_stage2_relative_features_in_pipeline(self) -> None:
         """_train_submodel内でcompute_stage2_relative_featuresが呼ばれている (grep検証)"""
         import inspect
+
         from pipelines.training_pipeline import TrainingPipelineV5
 
         source = inspect.getsource(TrainingPipelineV5._train_submodel)

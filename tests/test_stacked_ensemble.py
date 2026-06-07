@@ -9,11 +9,13 @@ from models.stacked_ensemble import StackedEnsemble
 
 def _make_binary_data(n: int = 500, seed: int = 42) -> tuple[pd.DataFrame, pd.Series]:
     rng = np.random.RandomState(seed)
-    X = pd.DataFrame({
-        "f1": rng.randn(n),
-        "f2": rng.randn(n),
-        "f3": rng.rand(n),
-    })
+    X = pd.DataFrame(
+        {
+            "f1": rng.randn(n),
+            "f2": rng.randn(n),
+            "f3": rng.rand(n),
+        }
+    )
     y = pd.Series((rng.rand(n) > 0.8).astype(int))
     return X, y
 
@@ -60,16 +62,17 @@ class TestStackedEnsemble:
         assert hasattr(ensemble, "best_iteration")
         assert ensemble.best_iteration == 0  # アンサンブルでは使用しない
 
-
     def test_encode_cats_categorical_fillna(self):
         """Categorical列の_encode_catsで未知カテゴリが-1になる (TypeError回帰)"""
         ensemble = StackedEnsemble(cat_cols=["color"])
         ensemble._cat_codes = {"color": {"red": 0, "blue": 1, "green": 2}}
 
-        X = pd.DataFrame({
-            "color": pd.Categorical(["red", "blue", "green", "red", "yellow"]),
-            "f1": [1.0, 2.0, 3.0, 4.0, 5.0],
-        })
+        X = pd.DataFrame(
+            {
+                "color": pd.Categorical(["red", "blue", "green", "red", "yellow"]),
+                "f1": [1.0, 2.0, 3.0, 4.0, 5.0],
+            }
+        )
 
         result = ensemble._encode_cats(X)
         assert result["color"].tolist() == [0.0, 1.0, 2.0, 0.0, -1.0]
@@ -79,13 +82,24 @@ class TestStackedEnsemble:
         ensemble = StackedEnsemble(cat_cols=["color"])
         ensemble._cat_codes = {"color": {"red": 0, "blue": 1}}
 
-        X = pd.DataFrame({
-            "color": pd.Categorical(["red", None, "blue", None]),
-            "f1": [1.0, 2.0, 3.0, 4.0],
-        })
+        X = pd.DataFrame(
+            {
+                "color": pd.Categorical(["red", None, "blue", None]),
+                "f1": [1.0, 2.0, 3.0, 4.0],
+            }
+        )
 
         result = ensemble._encode_cats(X)
         assert result["color"].tolist() == [0.0, -1.0, 1.0, -1.0]
+
+    def test_encode_cats_returns_input_when_no_categorical_columns(self):
+        """数値列のみの場合は不要なDataFrameコピーを作成しない"""
+        ensemble = StackedEnsemble(cat_cols=[])
+        X = pd.DataFrame({"f1": [1.0, 2.0], "f2": [3.0, 4.0]})
+
+        result = ensemble._encode_cats(X)
+
+        assert result is X
 
 
 class TestFeatureNameImportanceCompat:
@@ -189,10 +203,7 @@ class TestOptunaTuning:
         )
         assert callbacks is not None
         # early_stopping callbackのstopping_rounds属性を確認
-        assert any(
-            hasattr(cb, "stopping_rounds") and cb.stopping_rounds == 100
-            for cb in callbacks
-        )
+        assert any(hasattr(cb, "stopping_rounds") and cb.stopping_rounds == 100 for cb in callbacks)
 
     @patch("models.stacked_ensemble.lgb.train")
     def test_early_stopping_in_full(self, mock_lgb_train):
@@ -210,10 +221,7 @@ class TestOptunaTuning:
         call_kwargs = mock_lgb_train.call_args
         callbacks = call_kwargs.kwargs.get("callbacks")
         assert callbacks is not None
-        assert any(
-            hasattr(cb, "stopping_rounds") and cb.stopping_rounds == 100
-            for cb in callbacks
-        )
+        assert any(hasattr(cb, "stopping_rounds") and cb.stopping_rounds == 100 for cb in callbacks)
 
     def test_80_20_split_in_fold(self):
         """_train_lgbm_foldがX_trを80/20に分割してvalidation確保"""
@@ -263,34 +271,40 @@ class TestOptunaTuning:
 
         # LightGBM: objective内でsuggest結果をキャプチャ
         captured_lgb: dict = {}
+
         def obj_lgb(t):
             captured_lgb.update(ensemble._suggest_lgbm_params(t))
             return 0.0
+
         study_lgb = optuna.create_study(direction="maximize")
         study_lgb.optimize(obj_lgb, n_trials=1)
         assert captured_lgb["lgb_num_leaves"] <= 63
 
         # XGBoost
         captured_xgb: dict = {}
+
         def obj_xgb(t):
             captured_xgb.update(ensemble._suggest_xgb_params(t))
             return 0.0
+
         study_xgb = optuna.create_study(direction="maximize")
         study_xgb.optimize(obj_xgb, n_trials=1)
         assert captured_xgb["xgb_max_depth"] <= 8
 
         # CatBoost
         captured_cat: dict = {}
+
         def obj_cat(t):
             captured_cat.update(ensemble._suggest_cat_params(t))
             return 0.0
+
         study_cat = optuna.create_study(direction="maximize")
         study_cat.optimize(obj_cat, n_trials=1)
         assert captured_cat["cat_depth"] <= 10
 
         # 複雑度順序(上限): LGB(63) < XGB(2^8=256) < CAT(2^10=1024)
-        assert 63 < 2 ** 8  # LGB max < XGB max
-        assert 2 ** 8 <= 2 ** 10  # XGB max <= CAT max
+        assert 63 < 2**8  # LGB max < XGB max
+        assert 2**8 <= 2**10  # XGB max <= CAT max
 
     @patch("xgboost.train")
     def test_xgb_early_stopping_in_fold(self, mock_xgb_train):
@@ -309,6 +323,44 @@ class TestOptunaTuning:
 
         call_kwargs = mock_xgb_train.call_args.kwargs
         assert call_kwargs.get("early_stopping_rounds") == 100
+
+    @patch("xgboost.DMatrix")
+    @patch("xgboost.train")
+    def test_eval_xgb_reuses_cached_dmatrix(self, mock_xgb_train, mock_dmatrix):
+        """Optuna trial間でキャッシュ済みDMatrixを再利用する"""
+        mock_model = MagicMock()
+        mock_model.predict.return_value = np.array([0.2, 0.8])
+        mock_xgb_train.return_value = mock_model
+        cached_train = MagicMock()
+        cached_valid = MagicMock()
+
+        ensemble = StackedEnsemble(cat_cols=[])
+        X_t = pd.DataFrame({"f1": [1.0, 2.0]})
+        y_t = pd.Series([0, 1])
+        X_v = pd.DataFrame({"f1": [3.0, 4.0]})
+        y_v = pd.Series([0, 1])
+        trial = MagicMock()
+
+        score = ensemble._eval_xgb(
+            trial,
+            lambda _: {
+                "xgb_max_depth": 6,
+                "xgb_lr": 0.03,
+                "xgb_col_sample": 0.7,
+            },
+            X_t,
+            y_t,
+            X_v,
+            y_v,
+            1,
+            dtrain=cached_train,
+            dvalid=cached_valid,
+        )
+
+        assert score == 1.0
+        mock_dmatrix.assert_not_called()
+        assert mock_xgb_train.call_args.args[1] is cached_train
+        assert mock_model.predict.call_args.args[0] is cached_valid
 
     @patch("catboost.CatBoostClassifier")
     def test_cat_early_stopping_in_fold(self, mock_cat_cls):
@@ -336,13 +388,15 @@ class TestDiversityCheck:
         """_check_diversityがOOF予測の3ペア相関をINFOでログ出力"""
         ensemble = StackedEnsemble(cat_cols=[])
         # 異なる予測値 — 相関は低い
-        oof_preds = np.array([
-            [0.1, 0.3, 0.7],
-            [0.2, 0.5, 0.8],
-            [0.3, 0.1, 0.2],
-            [0.4, 0.9, 0.6],
-            [0.5, 0.2, 0.4],
-        ])
+        oof_preds = np.array(
+            [
+                [0.1, 0.3, 0.7],
+                [0.2, 0.5, 0.8],
+                [0.3, 0.1, 0.2],
+                [0.4, 0.9, 0.6],
+                [0.5, 0.2, 0.4],
+            ]
+        )
         y = pd.Series([0, 1, 0, 1, 0])
         importances = [
             np.array([1.0, 2.0, 3.0]),
@@ -376,11 +430,13 @@ class TestDiversityCheck:
     def test_check_diversity_logs_importance_correlation(self, caplog):
         """_check_diversityがfeature importanceのSpearman順位相関をログ出力"""
         ensemble = StackedEnsemble(cat_cols=[])
-        oof_preds = np.array([
-            [0.1, 0.3, 0.7],
-            [0.2, 0.5, 0.8],
-            [0.3, 0.1, 0.2],
-        ])
+        oof_preds = np.array(
+            [
+                [0.1, 0.3, 0.7],
+                [0.2, 0.5, 0.8],
+                [0.3, 0.1, 0.2],
+            ]
+        )
         y = pd.Series([0, 1, 0])
         importances = [
             np.array([1.0, 2.0, 3.0]),
@@ -398,11 +454,13 @@ class TestDiversityCheck:
     def test_check_diversity_warns_high_importance_correlation(self, caplog):
         """importance順位相関>0.8の場合、WARNINGログが出力される"""
         ensemble = StackedEnsemble(cat_cols=[])
-        oof_preds = np.array([
-            [0.1, 0.3, 0.7],
-            [0.2, 0.5, 0.8],
-            [0.3, 0.1, 0.2],
-        ])
+        oof_preds = np.array(
+            [
+                [0.1, 0.3, 0.7],
+                [0.2, 0.5, 0.8],
+                [0.3, 0.1, 0.2],
+            ]
+        )
         y = pd.Series([0, 1, 0])
         # 同一importance → Spearman相関1.0
         imp = np.array([1.0, 2.0, 3.0])
@@ -412,9 +470,7 @@ class TestDiversityCheck:
         with caplog.at_level(logging.WARNING, logger="models.stacked_ensemble"):
             ensemble._check_diversity(oof_preds, y, importances, feature_names)
 
-        warn_logs = [
-            r for r in caplog.records if "High importance correlation" in r.message
-        ]
+        warn_logs = [r for r in caplog.records if "High importance correlation" in r.message]
         assert len(warn_logs) == 3  # 全ペアが高相関
 
     def test_full_ensemble_with_optuna(self):

@@ -168,10 +168,12 @@ class RacePredictor:
         shadow_flags = getattr(models, "_shadow_flags", None)
         if shadow_flags is not None:
             self.enable_market_aware_calibrator = shadow_flags.get(
-                "enable_market_aware_calibrator", enable_market_aware_calibrator,
+                "enable_market_aware_calibrator",
+                enable_market_aware_calibrator,
             )
             self.enable_race_level_ranker = shadow_flags.get(
-                "enable_race_level_ranker", enable_race_level_ranker,
+                "enable_race_level_ranker",
+                enable_race_level_ranker,
             )
 
     @staticmethod
@@ -237,12 +239,12 @@ class RacePredictor:
         # precomputed parquet passed via apt_df.
         if self._apt_df is not None and not self._apt_df.empty and "kettonum" in df.columns:
             _apt_needed = any(
-                c not in df.columns
-                for c in ("horse_dirt_wet_hit_rate", "prev_dirt_moisture")
+                c not in df.columns for c in ("horse_dirt_wet_hit_rate", "prev_dirt_moisture")
             )
             if _apt_needed:
                 apt_cols = [
-                    c for c in self._apt_df.columns
+                    c
+                    for c in self._apt_df.columns
                     if c in {"race_id", "kettonum"}
                     or c.startswith("horse_")
                     or c.startswith("prev_")
@@ -277,7 +279,14 @@ class RacePredictor:
         df = df.copy()
         for _col in _race_rank_cols:
             if _col in df.columns:
-                df[f"{_col}_race_rank"] = df[_col].rank(pct=True, method="average")
+                df[f"{_col}_race_rank"] = (
+                    df[_col]
+                    .groupby(
+                        df["race_id"],
+                        observed=True,
+                    )
+                    .rank(pct=True, method="average")
+                )
 
         # FeatureBuilder handles track_condition, interaction, relative —
         # removed duplicate computation per Phase 52 D-01
@@ -322,12 +331,9 @@ class RacePredictor:
         # FeatureBuilder で既に feat_df にマージ済みの場合はスキップ (Phase 52)
         # 後方互換: 旧呼び出し元が jockey_features 等を渡す場合はマージを実行
         if jockey_features is not None:
-            jockey_race = jockey_features[
-                jockey_features["race_id"] == race_df["race_id"].iloc[0]
-            ]
+            jockey_race = jockey_features[jockey_features["race_id"] == race_df["race_id"].iloc[0]]
             _new_cols = [
-                c for c in jockey_race.columns
-                if c not in df.columns or c in {"race_id", "umaban"}
+                c for c in jockey_race.columns if c not in df.columns or c in {"race_id", "umaban"}
             ]
             if _new_cols:
                 df = df.merge(jockey_race[_new_cols], on=["race_id", "umaban"], how="left")
@@ -336,18 +342,14 @@ class RacePredictor:
                 trainer_features["race_id"] == race_df["race_id"].iloc[0]
             ]
             _new_cols = [
-                c for c in trainer_race.columns
-                if c not in df.columns or c in {"race_id", "umaban"}
+                c for c in trainer_race.columns if c not in df.columns or c in {"race_id", "umaban"}
             ]
             if _new_cols:
                 df = df.merge(trainer_race[_new_cols], on=["race_id", "umaban"], how="left")
         if jt_combo_features is not None:
-            jt_race = jt_combo_features[
-                jt_combo_features["race_id"] == race_df["race_id"].iloc[0]
-            ]
+            jt_race = jt_combo_features[jt_combo_features["race_id"] == race_df["race_id"].iloc[0]]
             _new_cols = [
-                c for c in jt_race.columns
-                if c not in df.columns or c in {"race_id", "umaban"}
+                c for c in jt_race.columns if c not in df.columns or c in {"race_id", "umaban"}
             ]
             if _new_cols:
                 df = df.merge(jt_race[_new_cols], on=["race_id", "umaban"], how="left")
@@ -498,6 +500,55 @@ class RacePredictor:
                     df = annotate_race_context(df)
 
         return df
+
+    def predict_batch(
+        self,
+        race_df: pd.DataFrame,
+        *,
+        races_per_batch: int = 256,
+    ) -> pd.DataFrame:
+        """複数レースをsurface単位で一括推論する。
+
+        資金管理やベット選択は含めず、モデル推論だけをまとめる。バッチ推論が
+        失敗した場合は同じ入力を1レースずつ処理して従来動作へフォールバックする。
+        """
+        if race_df.empty:
+            return race_df
+        if races_per_batch <= 0:
+            raise ValueError(f"races_per_batch must be positive, got {races_per_batch}")
+        if "race_id" not in race_df.columns or "surface" not in race_df.columns:
+            raise ValueError("predict_batch requires race_id and surface columns")
+
+        results: list[pd.DataFrame] = []
+        for surface, surface_df in race_df.groupby("surface", sort=False, observed=True):
+            race_ids = surface_df["race_id"].drop_duplicates().tolist()
+            for start in range(0, len(race_ids), races_per_batch):
+                batch_race_ids = race_ids[start : start + races_per_batch]
+                batch_df = surface_df[surface_df["race_id"].isin(batch_race_ids)]
+                batch_result = self.predict(batch_df)
+                if not batch_result.empty:
+                    results.append(batch_result)
+                    continue
+
+                logger.warning(
+                    "Batch prediction failed for surface=%s races=%d; retrying per race",
+                    surface,
+                    len(batch_race_ids),
+                )
+                for race_id, single_race_df in batch_df.groupby(
+                    "race_id",
+                    sort=False,
+                    observed=True,
+                ):
+                    single_result = self.predict(single_race_df)
+                    if single_result.empty:
+                        logger.warning("Prediction failed for race_id=%s", race_id)
+                    else:
+                        results.append(single_result)
+
+        if not results:
+            return pd.DataFrame()
+        return pd.concat(results, ignore_index=True)
 
     @staticmethod
     def _ensure_place_selection_columns(race_df: pd.DataFrame) -> pd.DataFrame:
@@ -964,6 +1015,7 @@ class RacePredictor:
         # investment_score is set by RaceLevelRanker.score() in predict().
         # This comparison happens AFTER win_market_selection_score is computed.
         if "investment_score" in prepared.columns:
+
             def _pick_selected_by_score(row_group: pd.DataFrame, score_col: str) -> int:
                 """Return umaban of the horse with highest score in this race."""
                 idx = row_group[score_col].idxmax()
@@ -976,12 +1028,8 @@ class RacePredictor:
             ranker_picks = diag_groups.apply(  # type: ignore[misc]
                 lambda g: _pick_selected_by_score(g, "investment_score")
             )
-            prepared["baseline_selected_umaban"] = prepared["race_id"].map(
-                baseline_picks
-            )
-            prepared["ranker_selected_umaban"] = prepared["race_id"].map(
-                ranker_picks
-            )
+            prepared["baseline_selected_umaban"] = prepared["race_id"].map(baseline_picks)
+            prepared["ranker_selected_umaban"] = prepared["race_id"].map(ranker_picks)
             prepared["baseline_ranker_agreement"] = (
                 prepared["baseline_selected_umaban"] == prepared["ranker_selected_umaban"]
             )
