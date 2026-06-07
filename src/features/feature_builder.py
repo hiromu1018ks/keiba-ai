@@ -25,6 +25,17 @@ from models.submodel_manager import SubModelManager
 
 logger = logging.getLogger(__name__)
 
+# dtype 正規化ループで float 変換から除外する識別列。
+# これらは join キーまたは文字列 ID であり、float 化すると
+# 下流の merge / match 操作で不一致が発生する。
+_IDENTIFIER_COLS: frozenset[str] = frozenset({
+    "race_id",
+    "kettonum",
+    "umaban",
+    "sire_id",
+    "bms_id",
+})
+
 
 # ---------------------------------------------------------------------------
 # Module-level helpers: moisture collation & aggregation (D-06)
@@ -272,7 +283,12 @@ class FeatureBuilder:
         )
 
         # Phase 3: dtype 正規化 (object型数値列 → float64)
+        # 識別列は float 変換から除外。これらは join キーまたは
+        # 文字列 ID であり、float 化すると下流の merge で不一致が
+        # 発生する (race_id: 16桁文字列, kettonum: 血統番号等)。
         for col in feat_df.columns:
+            if col in _IDENTIFIER_COLS:
+                continue
             if feat_df[col].dtype == object:
                 try:
                     feat_df[col] = feat_df[col].astype(float)
