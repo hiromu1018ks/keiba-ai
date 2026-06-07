@@ -286,7 +286,20 @@ class EVCorrectionModel:
         for col in features.columns:
             if pd.api.types.is_integer_dtype(features[col]):
                 features[col] = features[col].astype(float)
-        for col in ["surface", "distance_bin", "track_condition_code"]:
+        # Hardcoded categorical columns (used when columns were NaN-filled)
+        _cat_cols = [
+            "surface", "distance_bin", "track_condition_code",
+            "sire_x_cushion_band",
+        ]
+        # Dynamic detection: any column already categorical or object dtype
+        _cat_cols_set = set(_cat_cols)
+        for col in features.columns:
+            if col not in _cat_cols_set and (
+                isinstance(features[col].dtype, pd.CategoricalDtype)
+                or features[col].dtype == object
+            ):
+                _cat_cols_set.add(col)
+        for col in _cat_cols_set:
             if col in features.columns:
                 features[col] = features[col].astype("category")
         return features
@@ -638,7 +651,20 @@ class PlaceEVCorrectionModel:
         for col in features.columns:
             if pd.api.types.is_integer_dtype(features[col]):
                 features[col] = features[col].astype(float)
-        for col in ["surface", "distance_bin", "track_condition_code"]:
+        # Hardcoded categorical columns (used when columns were NaN-filled)
+        _cat_cols = [
+            "surface", "distance_bin", "track_condition_code",
+            "sire_x_cushion_band",
+        ]
+        # Dynamic detection: any column already categorical or object dtype
+        _cat_cols_set = set(_cat_cols)
+        for col in features.columns:
+            if col not in _cat_cols_set and (
+                isinstance(features[col].dtype, pd.CategoricalDtype)
+                or features[col].dtype == object
+            ):
+                _cat_cols_set.add(col)
+        for col in _cat_cols_set:
             if col in features.columns:
                 features[col] = features[col].astype("category")
         return features

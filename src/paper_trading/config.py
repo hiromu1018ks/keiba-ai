@@ -19,6 +19,7 @@ class PaperTradingConfig:
     # モデル
     mlflow_run_id: str | None = None
     mlflow_tracking_uri: str = "file:///mlruns"
+    models_dir: Path | None = None
 
     # ベット
     ev_threshold: float = 1.0

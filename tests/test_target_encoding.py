@@ -281,6 +281,44 @@ class TestUnsortedInput:
 # ---------------------------------------------------------------------------
 # Test 9 & 10: Feature column constants
 # ---------------------------------------------------------------------------
+class TestCategoricalDtype:
+    def test_fit_transform_with_category_dtype(self) -> None:
+        """fit_transform_oof() works when cat_col has category dtype."""
+        df = _make_df(n=200, seed=42)
+        df["blood_keito_cd"] = df["blood_keito_cd"].astype("category")
+        enc = TargetEncoder(
+            cat_cols=["blood_keito_cd"],
+            target_col="kakuteijyuni",
+        )
+        result = enc.fit_transform_oof(df)
+        assert "te_blood_keito_cd" in result.columns
+        assert result["te_blood_keito_cd"].notna().all()
+
+    def test_transform_with_category_dtype(self) -> None:
+        """transform() works when cat_col has category dtype (regression for
+        TypeError: Cannot setitem on a Categorical with a new category)."""
+        df_train = _make_df(n=200, seed=42)
+        enc = TargetEncoder(
+            cat_cols=["blood_keito_cd"],
+            target_col="kakuteijyuni",
+        )
+        enc.fit_transform_oof(df_train)
+
+        # New data with category dtype -- this used to crash
+        df_new = pd.DataFrame(
+            {
+                "race_date": pd.date_range("2021-01-01", periods=10, freq="D"),
+                "blood_keito_cd": pd.Categorical([1.0] * 5 + [999.0] * 5),
+                "kakuteijyuni": [1] * 10,
+            }
+        )
+        result = enc.transform(df_new)
+        assert "te_blood_keito_cd" in result.columns
+        assert result["te_blood_keito_cd"].notna().all()
+        # Known categories get encoded values, unknown get global mean
+        assert result["te_blood_keito_cd"].nunique() >= 1
+
+
 class TestConstants:
     def test_te_feature_cols_stage1(self) -> None:
         """TE_FEATURE_COLS contains only te_blood_keito_cd."""

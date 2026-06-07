@@ -316,17 +316,41 @@ class WinTwoStageModel:
             from features.odds_deviation_features import compute_odds_deviation_features
             df = compute_odds_deviation_features(df)
 
-        available_cols = [c for c in self.FEATURE_COLS if c in df.columns]
-        features = df[available_cols].copy()
+        # Fill missing feature columns with NaN to guarantee the same column count
+        # and order as training. Without this, LightGBM raises
+        # "categorical_feature do not match" when inference data lacks some
+        # FEATURE_COLS.
+        missing = [c for c in self.FEATURE_COLS if c not in df.columns]
+        if missing:
+            df = df.copy()
+            nan_cols = pd.DataFrame(
+                {c: np.full(len(df), np.nan) for c in missing}, index=df.index
+            )
+            df = pd.concat([df, nan_cols], axis=1)
+            logger.debug("Missing feature columns filled with NaN: %s", missing[:5])
+        features = df[self.FEATURE_COLS].copy()
         # Int64 (nullable int) → float64 (LightGBMが対応する型)
         for col in features.columns:
             if pd.api.types.is_integer_dtype(features[col]):
                 features[col] = features[col].astype(float)
-        for col in ["surface", "distance_bin", "grade_code",
-                     "track_condition_code",
-                     "kyakusitu_x_distance", "kyakusitu_x_surface",
-                     "surface_x_distance_bin", "blood_keito_x_surface",
-                     "grade_code_x_distance_bin"]:
+        # Hardcoded categorical columns (used when columns were NaN-filled)
+        _cat_cols = [
+            "surface", "distance_bin", "grade_code",
+            "track_condition_code",
+            "kyakusitu_x_distance", "kyakusitu_x_surface",
+            "surface_x_distance_bin", "blood_keito_x_surface",
+            "grade_code_x_distance_bin",
+            "sire_x_cushion_band",
+        ]
+        # Dynamic detection: any column already categorical or object dtype
+        _cat_cols_set = set(_cat_cols)
+        for col in features.columns:
+            if col not in _cat_cols_set and (
+                isinstance(features[col].dtype, pd.CategoricalDtype)
+                or features[col].dtype == object
+            ):
+                _cat_cols_set.add(col)
+        for col in _cat_cols_set:
             if col in features.columns:
                 features[col] = features[col].astype("category")
         return features
@@ -858,11 +882,24 @@ class PlaceTwoStageModel:
         for col in features.columns:
             if pd.api.types.is_integer_dtype(features[col]):
                 features[col] = features[col].astype(float)
-        for col in ["surface", "distance_bin", "grade_code",
-                     "track_condition_code",
-                     "kyakusitu_x_distance", "kyakusitu_x_surface",
-                     "surface_x_distance_bin", "blood_keito_x_surface",
-                     "grade_code_x_distance_bin"]:
+        # Hardcoded categorical columns (used when columns were NaN-filled)
+        _cat_cols = [
+            "surface", "distance_bin", "grade_code",
+            "track_condition_code",
+            "kyakusitu_x_distance", "kyakusitu_x_surface",
+            "surface_x_distance_bin", "blood_keito_x_surface",
+            "grade_code_x_distance_bin",
+            "sire_x_cushion_band",
+        ]
+        # Dynamic detection: any column already categorical or object dtype
+        _cat_cols_set = set(_cat_cols)
+        for col in features.columns:
+            if col not in _cat_cols_set and (
+                isinstance(features[col].dtype, pd.CategoricalDtype)
+                or features[col].dtype == object
+            ):
+                _cat_cols_set.add(col)
+        for col in _cat_cols_set:
             if col in features.columns:
                 features[col] = features[col].astype("category")
         return features

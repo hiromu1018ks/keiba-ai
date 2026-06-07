@@ -146,8 +146,8 @@ class TargetEncoder:
                     cat_stats["sum"] + self.smoothing * fold_global_mean
                 ) / (cat_stats["count"] + self.smoothing)
 
-                # Map to test data
-                test_cats = df.loc[test_mask, cat_col]
+                # Map to test data (cast to object to avoid Categorical fillna issues)
+                test_cats = df.loc[test_mask, cat_col].astype(object)
                 te_values = test_cats.map(smoothed)
 
                 # Fill unknown categories with fold global mean
@@ -170,7 +170,7 @@ class TargetEncoder:
             if nan_mask.any():
                 mapping = self.encoding_maps_[cat_col]
                 df.loc[nan_mask, te_col] = (
-                    df.loc[nan_mask, cat_col].map(mapping).fillna(global_mean)
+                    df.loc[nan_mask, cat_col].astype(object).map(mapping).fillna(global_mean)
                 )
 
         return df
@@ -190,7 +190,8 @@ class TargetEncoder:
             te_col = f"te_{cat_col}"
             if cat_col in self.encoding_maps_:
                 mapping = self.encoding_maps_[cat_col]
-                df[te_col] = df[cat_col].map(mapping).fillna(self.global_mean_)
+                mapped = df[cat_col].astype(object).map(mapping)
+                df[te_col] = mapped.fillna(self.global_mean_)
             else:
                 df[te_col] = self.global_mean_
 

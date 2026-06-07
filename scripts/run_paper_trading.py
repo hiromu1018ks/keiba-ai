@@ -246,6 +246,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--end", help="期間終了 (YYYY-MM-DD, diagnose/dry-run用)")
     parser.add_argument("--run-id", help="MLflow run ID (省略時は最新)")
     parser.add_argument(
+        "--models-dir",
+        type=str,
+        default=None,
+        help="ローカルモデルディレクトリ (例: data/models)。指定時は MLflow を使用しない",
+    )
+    parser.add_argument(
         "--ensemble",
         action="store_true",
         help="StackedEnsemble (.joblib) モデルをロード",
@@ -279,7 +285,13 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="戦略マニフェスト JSON パス (Optuna 最適化済みパラメータ)",
     )
-    return parser.parse_args()
+    args = parser.parse_args()
+
+    # --run-id と --models-dir は排他
+    if args.run_id and args.models_dir:
+        parser.error("--run-id and --models-dir are mutually exclusive")
+
+    return args
 
 
 def _validate_betting_target_alignment(
@@ -322,10 +334,12 @@ def load_config(args: argparse.Namespace) -> "PaperTradingConfig":
     db_password = os.environ.get("PGPASSWORD", "")
     conn_str = f"postgresql://postgres:{db_password}@localhost:5432/everydb2"
 
+    models_dir = Path(args.models_dir) if args.models_dir else None
     config = PaperTradingConfig(
         slack_webhook_url=webhook_url,
         everydb2_connection_string=conn_str,
         mlflow_run_id=args.run_id,
+        models_dir=models_dir,
     )
     config.ensure_dirs()
     return config
@@ -334,12 +348,20 @@ def load_config(args: argparse.Namespace) -> "PaperTradingConfig":
 def _load_models(
     config: "PaperTradingConfig", *, use_ensemble: bool = False
 ) -> tuple["TrainedModelsV5", object]:
-    """MLflowから学習済みモデルをロード"""
+    """学習済みモデルをロード (MLflow or ローカルディレクトリ)"""
     from db.model_loader import ModelLoader
 
     t0 = time.time()
     loader = ModelLoader(tracking_uri=config.mlflow_tracking_uri)
-    models, model_info = loader.load(run_id=config.mlflow_run_id, use_ensemble=use_ensemble)
+
+    if config.models_dir is not None:
+        models, model_info = loader.load(
+            models_dir=config.models_dir, use_ensemble=use_ensemble
+        )
+    else:
+        models, model_info = loader.load(
+            run_id=config.mlflow_run_id, use_ensemble=use_ensemble
+        )
     logger.info(
         "Model loaded: %s (train: %s ~ %s) in %.1fs",
         model_info.mlflow_run_id,
@@ -420,14 +442,14 @@ def _run_setup(
         n_with_results = entries["kakuteijyuni"].notna().sum()
         schedule.append(
             {
-                "race_id": race_id,
-                "surface": race.get("surface", ""),
+                "race_id": int(race_id),
+                "surface": str(race.get("surface", "")),
                 "distance": int(race.get("kyori", 0)),
                 "post_time": str(race.get("hassotime", "")),
                 "n_horses": len(entries),
                 "n_with_results": int(n_with_results),
-                "tenkocd": race.get("tenkocd", ""),
-                "track_condition_code": race.get("track_condition_code", ""),
+                "tenkocd": str(race.get("tenkocd", "")),
+                "track_condition_code": str(race.get("track_condition_code", "")),
             }
         )
 

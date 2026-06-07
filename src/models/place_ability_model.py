@@ -200,10 +200,17 @@ class PlaceAbilityModel:
 
         df = df.copy()
         y = (df["kakuteijyuni"] <= 3).astype(int)
-        # v5: 新規特徴量はテストデータに存在しない場合があるため、存在する列のみ使用
-        available_cols = [c for c in self.FEATURE_COLS if c in df.columns]
-        X = df[available_cols].copy()  # noqa: N806
-        for col in [
+        # Fill missing feature columns with NaN to guarantee consistent column count
+        missing = [c for c in self.FEATURE_COLS if c not in df.columns]
+        if missing:
+            nan_cols = pd.DataFrame(
+                {c: np.full(len(df), np.nan) for c in missing}, index=df.index
+            )
+            df = pd.concat([df, nan_cols], axis=1)
+            logger.debug("Missing feature columns filled with NaN: %s", missing[:5])
+        X = df[self.FEATURE_COLS].copy()  # noqa: N806
+        # Hardcoded categorical columns (used when columns were NaN-filled)
+        _cat_cols = [
             "surface",
             "distance_bin",
             "grade_code",
@@ -212,7 +219,17 @@ class PlaceAbilityModel:
             "blood_keito_cd",
             "kyakusitu_x_distance",
             "kyakusitu_x_surface",
-        ]:
+            "sire_x_cushion_band",
+        ]
+        # Dynamic detection: any column already categorical or object dtype
+        _cat_cols_set = set(_cat_cols)
+        for col in X.columns:
+            if col not in _cat_cols_set and (
+                isinstance(X[col].dtype, pd.CategoricalDtype)
+                or X[col].dtype == object
+            ):
+                _cat_cols_set.add(col)
+        for col in _cat_cols_set:
             if col in X.columns:
                 X[col] = X[col].astype("category")
 
@@ -261,9 +278,17 @@ class PlaceAbilityModel:
     def predict(self, df: pd.DataFrame) -> pd.DataFrame:
         """p_ability_place を設定して df を返す"""
         df = df.copy()
-        available_cols = [c for c in self.FEATURE_COLS if c in df.columns]
-        X = df[available_cols].copy()  # noqa: N806
-        for col in [
+        # Fill missing feature columns with NaN to guarantee consistent column count
+        missing = [c for c in self.FEATURE_COLS if c not in df.columns]
+        if missing:
+            nan_cols = pd.DataFrame(
+                {c: np.full(len(df), np.nan) for c in missing}, index=df.index
+            )
+            df = pd.concat([df, nan_cols], axis=1)
+            logger.debug("Missing feature columns filled with NaN: %s", missing[:5])
+        X = df[self.FEATURE_COLS].copy()  # noqa: N806
+        # Hardcoded categorical columns (used when columns were NaN-filled)
+        _cat_cols = [
             "surface",
             "distance_bin",
             "grade_code",
@@ -272,7 +297,17 @@ class PlaceAbilityModel:
             "blood_keito_cd",
             "kyakusitu_x_distance",
             "kyakusitu_x_surface",
-        ]:
+            "sire_x_cushion_band",
+        ]
+        # Dynamic detection: any column already categorical or object dtype
+        _cat_cols_set = set(_cat_cols)
+        for col in X.columns:
+            if col not in _cat_cols_set and (
+                isinstance(X[col].dtype, pd.CategoricalDtype)
+                or X[col].dtype == object
+            ):
+                _cat_cols_set.add(col)
+        for col in _cat_cols_set:
             if col in X.columns:
                 X[col] = X[col].astype("category")
 

@@ -163,7 +163,16 @@ class TestPlaceAbilityModel:
                            "dirt_moisture_x_kyakusitu", "turf_cushion_track_relative",
                            "turf_cushion_track_zscore", "dirt_moisture_x_barrier_pos",
                            "dirt_moisture_high_flag", "dirt_moisture_dry_flag",
-                           "turf_cushion_x_kyakusitu", "sire_x_cushion_band"}
+                           "turf_cushion_x_kyakusitu", "sire_x_cushion_band",
+                           # Phase 50+ track/race condition features (pipeline-only)
+                           "track_front_bias_score", "kickback_risk_score",
+                           "expected_pace_class", "cushion_season_deviation",
+                           "moisture_season_deviation", "cushion_anomaly_flag",
+                           "moisture_extreme_flag", "cushion_x_distance",
+                           "moisture_x_weight", "cushion_x_age",
+                           "surface_condition_transition", "race_condition_match_score",
+                           "race_condition_match_max", "race_condition_match_ratio",
+                           "race_field_front_bias"}
         for col in model.FEATURE_COLS:
             if col in v5_context_cols:
                 continue

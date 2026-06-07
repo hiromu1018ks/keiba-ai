@@ -220,6 +220,7 @@ class FeatureBuilder:
             preserve_columns=None,
             feature_state=feature_state,
             feature_version=feature_version,
+            live_track_conditions=live_track_conditions,
         )
         # POST_RACE 列の除去 (D-01)
         post_race_present = [c for c in result.frame.columns if c in POST_RACE_COLS]
@@ -246,6 +247,7 @@ class FeatureBuilder:
         preserve_columns: list[str] | None = None,
         feature_state: FeatureState | None = None,
         feature_version: str = "1.0",
+        live_track_conditions: pd.DataFrame | None = None,
     ) -> FeatureBuildResult:
         """共通特徴量構築ロジック。
 
@@ -266,6 +268,7 @@ class FeatureBuilder:
             race_df,
             entry_df,
             feature_state=feature_state,
+            live_track_conditions=live_track_conditions,
         )
 
         # Phase 3: dtype 正規化 (object型数値列 → float64)
@@ -308,6 +311,7 @@ class FeatureBuilder:
         entry_df: pd.DataFrame,
         *,
         feature_state: FeatureState | None = None,
+        live_track_conditions: pd.DataFrame | None = None,
     ) -> pd.DataFrame:
         """Phase 2: 13 エンリッチメントモジュールを _train_submodel と同一順序で実行。
 
@@ -461,6 +465,10 @@ class FeatureBuilder:
             df, track_stats=_track_stats, track_month_stats=_track_month_stats
         )
         df = compute_race_condition_features(df)
+
+        # (h.5) Live track condition override (D-07)
+        if live_track_conditions is not None:
+            df = self._merge_live_track_conditions(df, live_track_conditions)
 
         # (i) InteractionFeatures
         from features.interaction_features import compute_interaction_features

@@ -1,0 +1,52 @@
+17:02:04 [INFO] ParquetStore OK
+17:02:04 [INFO] 2025年: 学習スキップ (--skip-train)
+17:02:07 [INFO] Loading StackedEnsemble: data\models-backtest\2025\win_hit_turf.joblib
+17:02:07 [INFO] Place model files not found for turf, skipping (betting_target=win?)
+17:02:08 [INFO] Loading StackedEnsemble: data\models-backtest\2025\win_hit_dirt.joblib
+17:02:08 [INFO] Place model files not found for dirt, skipping (betting_target=win?)
+17:02:08 [INFO] キャッシュモデルをロード: data\models-backtest\2025 (学習期間: 2021-01-01 ~ 2024-12-31)
+17:02:08 [INFO] キャリブレーションBT: スキップ (--calibration-bt 未指定)
+17:04:12 [INFO] Loaded win payout map: 3455 entries
+17:04:12 [INFO] Feature cache HIT: feat_fa3903434b1df9d9
+17:04:12 [INFO] Skipping wide odds pivot for betting_target=win
+17:04:12 [INFO] Pre-computing HorseHistoryFeatures for 3335 races...
+17:10:07 [INFO] Pre-computing JockeyContextFeatures for 46499 entries...
+17:10:07 [INFO] Pre-computing TrainerContextFeatures for 46499 entries...
+17:10:08 [INFO] Pre-computing JockeyTrainerComboFeatures for 46499 entries...
+17:10:18 [INFO] Computing SireFeatures for backtest inference...
+17:10:31 [INFO] Pre-computing PaceAptitudeFeatures...
+17:10:56 [INFO] Pre-computing CourseFeatures...
+17:11:22 [INFO] Merged hist features into feat_df: 67 columns
+17:11:22 [INFO] [features] 3335 groups, 46160 rows, 176.4 MB
+17:11:22 [INFO] [jockey] 3336 groups, 46499 rows, 5.0 MB
+17:11:22 [INFO] [trainer] 3336 groups, 46499 rows, 5.0 MB
+17:11:22 [INFO] [jockey_trainer] 3336 groups, 46499 rows, 5.4 MB
+17:24:36 [INFO] Race diagnostics saved: 3335 records -> data\backtest\bt_2025_race_diagnostics.csv
+17:24:40 [INFO] Horse diagnostics saved: 46160 records -> data\backtest\bt_2025_horse_diagnostics.csv
+17:24:43 [INFO] Feature diagnostics saved: 46160 records -> data\backtest\bt_2025_horse_features.parquet
+17:24:43 [INFO] Bet Selection Filters: EV_excluded=0, COLLAPSED_skipped=0
+17:24:43 [INFO] Win EV/Odds filter excluded 2264 bets (min_ev=1.03, min_odds=3.0)
+17:24:43 [INFO] Validation report saved: data\validation\validation_report.json
+17:24:44 [INFO] Parquet保存: C:\Users\hirom\develop\keiba-ai\data\backtest\predictions\2025.parquet (46160 rows)
+
+==================================================
+  2025年 (学習: 2021-2024)
+==================================================
+  学習完了 (0秒)
+  テスト完了 (1356秒)
+  ベット数:    1,071 | 投資額: ¥   107,100 | 払戻: ¥   102,180
+  ROI:    95.4% | 利益: ¥    -4,920 | 最大DD:  12.9%
+
+==================================================
+  全体サマリー
+==================================================
+  総ベット数:       1,071
+  総投資額:  ¥     107,100
+  総払戻額:  ¥     102,180
+  総利益:    ¥      -4,920
+  合計 ROI:        95.4%
+  最良年度:  2025 (95.4%)
+  最悪年度:  2025 (95.4%)
+
+  JSON保存: C:\Users\hirom\develop\keiba-ai\data\backtest\multi_year_result.json
+  検証レポート: C:\Users\hirom\develop\keiba-ai\data\validation\multi_year_validation_report.json

@@ -1,0 +1,25 @@
+15:23:46 [INFO] ParquetStore OK
+15:23:47 [INFO] Loading data: 2021-01-01 ~ 2024-12-31
+15:26:11 [INFO] Using pre-post odds (5min before): 184177 rows
+15:26:11 [INFO] Building features
+15:26:11 [INFO] Feature cache HIT: feat_5a5d34441cf2641a
+15:26:12 [INFO] Skipping wide odds pivot for betting_target=win
+15:30:57 [INFO] [TIMING] turf/horse_history: 285.012s
+15:30:58 [INFO] [TIMING] turf/add_race_transforms: 0.236s
+15:31:09 [INFO] [TIMING] turf/pace_aptitude: 11.915s
+15:31:22 [INFO] [TIMING] turf/course_features: 12.923s
+15:31:36 [INFO] [TIMING] turf/sire_features: 13.442s
+15:31:58 [INFO] [TIMING] turf/dam_pedigree: 21.871s
+15:31:58 [ERROR] 2025年 学習失敗: incompatible merge keys [0] dtype('O') and CategoricalDtype(categories=['2004101502', '2004102855', '2005101110', '2005101210',
+                  '2005103543', '2005104343', '2005105204', '2005105894',
+                  '2005110011', '2006100130',
+                  ...
+                  '2023110097', '2023110098', '2023110099', '2023110100',
+                  '2023110101', '2023110102', '2023110103', '2023110104',
+                  '2023110105', '2023110106'],
+, ordered=False, categories_dtype=object), must be the same type — スキップ
+15:31:58 [ERROR] 全年度失敗。レポートは生成しません。
+
+==================================================
+  2025年 (学習: 2021-2024)
+==================================================

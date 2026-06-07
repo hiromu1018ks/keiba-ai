@@ -1,5 +1,5 @@
 ---
-status: root-cause-found
+status: resolved
 trigger: phase46-runtime-verification
 tdd_mode: false
 goal: find_and_fix
