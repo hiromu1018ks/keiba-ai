@@ -20,6 +20,8 @@ def mock_models() -> MagicMock:
     models.submodels = {"turf": MagicMock(spec=SubmodelSet)}
     models.submodels["turf"].benter_combo = None
     models.submodels["turf"].isotonic_calibrator = None
+    models.submodels["turf"].track_stats = {}  # from_models() requires non-None
+    models.submodels["turf"].track_month_stats = {}
     models.quality_screener = MagicMock()
     models.quality_screener.should_bet.return_value = True
     models.regime_detector = MagicMock()
@@ -381,7 +383,8 @@ class TestPostRaceColumnExclusion:
             {"race_id": ["20240101010101"], "umaban": [1], "fukuoddslow": [4.0]}
         )
 
-        # --- feat_df with POST_RACE columns present ---
+        # --- feat_df: build_for_inference strips POST_RACE cols ---
+        # kakuteijyuni/confirmed_odds come from settlement merge, not features
         feat_df = pd.DataFrame(
             {
                 "race_id": ["20240101010101"],
@@ -393,8 +396,6 @@ class TestPostRaceColumnExclusion:
                 "ninki": [3],
                 "ev_place": [1.5],
                 "fukuoddslow": [4.0],
-                "kakuteijyuni": [2],  # POST_RACE — must be excluded from predict
-                "confirmed_odds": [1.8],  # POST_RACE — must be excluded from predict
                 "kettonum": [1234],
                 "odds": [5.0],
                 "bataijyu": [480],
@@ -416,7 +417,7 @@ class TestPostRaceColumnExclusion:
         _manifest = FeatureManifest(column_names=(), column_dtypes=(), feature_version="1.0")
         mock_builder = MagicMock()
         mock_feature_builder_cls.return_value = mock_builder
-        mock_builder.build_for_training.return_value = FeatureBuildResult(
+        mock_builder.build_for_inference.return_value = FeatureBuildResult(
             frame=feat_df, manifest=_manifest,
         )
 
@@ -563,7 +564,7 @@ class TestBetHistoryEnrichment:
         _manifest = FeatureManifest(column_names=(), column_dtypes=(), feature_version="1.0")
         mock_builder = MagicMock()
         mock_feature_builder_cls.return_value = mock_builder
-        mock_builder.build_for_training.return_value = FeatureBuildResult(
+        mock_builder.build_for_inference.return_value = FeatureBuildResult(
             frame=feat_df, manifest=_manifest,
         )
 
@@ -909,7 +910,7 @@ class TestJRAFilterBacktest:
         _manifest = FeatureManifest(column_names=(), column_dtypes=(), feature_version="1.0")
         mock_builder = MagicMock()
         mock_feature_builder_cls.return_value = mock_builder
-        mock_builder.build_for_training.return_value = FeatureBuildResult(
+        mock_builder.build_for_inference.return_value = FeatureBuildResult(
             frame=feat_df, manifest=_manifest,
         )
 
@@ -1026,7 +1027,7 @@ class TestJRAFilterBacktest:
         _manifest = FeatureManifest(column_names=(), column_dtypes=(), feature_version="1.0")
         mock_builder = MagicMock()
         mock_feature_builder_cls.return_value = mock_builder
-        mock_builder.build_for_training.return_value = FeatureBuildResult(
+        mock_builder.build_for_inference.return_value = FeatureBuildResult(
             frame=feat_df, manifest=_manifest,
         )
 
@@ -1225,7 +1226,7 @@ class TestBetSelectionFilters:
         _manifest = FeatureManifest(column_names=(), column_dtypes=(), feature_version="1.0")
         mock_builder = MagicMock()
         mock_feature_builder_cls.return_value = mock_builder
-        mock_builder.build_for_training.return_value = FeatureBuildResult(
+        mock_builder.build_for_inference.return_value = FeatureBuildResult(
             frame=feat_df, manifest=_manifest,
         )
 
@@ -2554,7 +2555,7 @@ class TestHistFeaturesPreMerge:
         _manifest = FeatureManifest(column_names=(), column_dtypes=(), feature_version="1.0")
         mock_builder = MagicMock()
         mock_feature_builder_cls.return_value = mock_builder
-        mock_builder.build_for_training.return_value = FeatureBuildResult(
+        mock_builder.build_for_inference.return_value = FeatureBuildResult(
             frame=feat_df, manifest=_manifest,
         )
 
@@ -2666,7 +2667,7 @@ class TestHistFeaturesPreMerge:
         _manifest = FeatureManifest(column_names=(), column_dtypes=(), feature_version="1.0")
         mock_builder = MagicMock()
         mock_feature_builder_cls.return_value = mock_builder
-        mock_builder.build_for_training.return_value = FeatureBuildResult(
+        mock_builder.build_for_inference.return_value = FeatureBuildResult(
             frame=feat_df, manifest=_manifest,
         )
 

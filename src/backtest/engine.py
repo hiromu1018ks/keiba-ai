@@ -792,7 +792,34 @@ class BacktestEngine:
                 return BacktestResult(final_bankroll=self.initial_bankroll)
 
             race_ids = prepared_data.race_ids
-            feat_groups = build_race_groups(prepared_data.feat_df.copy(), name="features")
+            feat_df = prepared_data.feat_df.copy()
+
+            # --- モデル固有の track_stats で track_condition_features を補正 ---
+            # prepare_data() はモデル読み込み前に実行されるため build_for_training() を使用。
+            # ここで学習期間の track_stats で上書きすることで正しい z-score を復元。
+            from features.feature_manifest import FeatureState as _FS
+
+            try:
+                _feat_state = _FS.from_models(self.models)
+            except ValueError as e:
+                raise ValueError(
+                    f"Cannot run backtest: model has no track_stats. "
+                    f"Re-train with the latest pipeline. Detail: {e}"
+                ) from e
+
+            from features.track_condition_features import (
+                compute_race_condition_features,
+                compute_track_condition_features,
+            )
+
+            feat_df = compute_track_condition_features(
+                feat_df,
+                track_stats=_feat_state.track_stats,
+                track_month_stats=_feat_state.track_month_stats,
+            )
+            feat_df = compute_race_condition_features(feat_df)
+
+            feat_groups = build_race_groups(feat_df, name="features")
             jockey_groups = build_race_groups(
                 prepared_data.jockey_df_all.copy(), name="jockey"
             )
@@ -942,18 +969,38 @@ class BacktestEngine:
             else:
                 self.wide_payout_map = {}
 
-            # FeatureBuilder: 13エンリッチメントモジュールを一括実行 (Phase 52 D-10)
+            # FeatureBuilder: 推論パイプラインで正しい track_stats を使用
             from features.feature_builder import FeatureBuilder
+            from features.feature_manifest import FeatureState
+
+            # --- 精算列の事前保存 (entry_df から抽出) ---
+            _settlement_cols = ["race_id", "umaban", "kakuteijyuni", "odds"]
+            _avail = [c for c in _settlement_cols if c in entry_df.columns]
+            settlement_df = entry_df[_avail].copy() if _avail else pd.DataFrame()
+            if "odds" in settlement_df.columns:
+                settlement_df = settlement_df.rename(columns={"odds": "confirmed_odds"})
+
+            # --- FeatureState 構築 (フォールバック禁止) ---
+            feat_state = FeatureState.from_models(self.models)
 
             builder = FeatureBuilder(store=self.store)
-            build_result = builder.build_for_training(
+            build_result = builder.build_for_inference(
                 race_df,
                 entry_df,
                 pre_post_odds,
+                feat_state,
                 odds_ts_df=odds_ts_df,
-                preserve_columns=["kakuteijyuni", "confirmed_odds"],
             )
             feat_df = build_result.frame
+
+            # --- 精算列の結合 (race_id + umaban キー) ---
+            # build_for_inference は POST_RACE 列を削除するが、
+            # モックや旧パスで残っている場合は上書きする
+            if not settlement_df.empty:
+                _dup_cols = [c for c in settlement_df.columns if c in feat_df.columns and c not in ("race_id", "umaban")]
+                if _dup_cols:
+                    feat_df = feat_df.drop(columns=_dup_cols)
+                feat_df = feat_df.merge(settlement_df, on=["race_id", "umaban"], how="left")
 
             race_ids = feat_df["race_id"].unique()
 

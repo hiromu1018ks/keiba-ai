@@ -113,6 +113,42 @@ class FeatureState:
             feature_version=version,
         )
 
+    @classmethod
+    def from_models(cls, models: Any, version: str = "1.0") -> FeatureState:
+        """TrainedModelsV5 から両サーフェスの track_stats をマージして作成。
+
+        track_stats が None (未保存) の場合は ValueError を送出（フォールバック不可）。
+        空辞書 {} は正常値として許可（ダート等で芝クッション統計が存在しない場合）。
+
+        Args:
+            models: TrainedModelsV5 インスタンス。
+            version: 特徴量定義バージョン。
+
+        Returns:
+            FeatureState インスタンス。
+
+        Raises:
+            ValueError: いずれかの submodel で track_stats が None の場合。
+        """
+        merged_stats: dict[str, dict[str, float]] = {}
+        merged_month_stats: dict[str, dict[str, float]] = {}
+        for surface_key in ("turf", "dirt"):
+            sub = models.submodels.get(surface_key)
+            if sub is not None:
+                if sub.track_stats is None:
+                    raise ValueError(
+                        f"submodel '{surface_key}' has no track_stats (None). "
+                        f"Re-train with the latest pipeline to generate track_stats."
+                    )
+                merged_stats.update(sub.track_stats)
+                if sub.track_month_stats is not None:
+                    merged_month_stats.update(sub.track_month_stats)
+        return cls(
+            track_stats=merged_stats,
+            track_month_stats=merged_month_stats,
+            feature_version=version,
+        )
+
     def compute_hash(self) -> str:
         """SHA256 ハッシュを計算。"""
         payload = json.dumps(
