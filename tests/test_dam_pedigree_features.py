@@ -384,6 +384,46 @@ class TestPITSafeBehavior:
 
         assert result["dam_wr"].iloc[0] == pytest.approx((4 + 1) / (25 + 11))
 
+    def test_vectorized_pit_handles_multiple_dams_and_dates(self) -> None:
+        """複数母・複数日付を一括計算しても各母の履歴が混ざらない。"""
+        sanku = pd.DataFrame({
+            "kettonum": ["A1", "A2", "B1"],
+            "mnum": ["DA", "DA", "DB"],
+            "breedercode": ["BR1", "BR2", "BR3"],
+        })
+        career = pd.DataFrame({
+            "kettonum": ["A1", "A2", "B1", "A1", "B1"],
+            "race_id": ["A_E", "A2_E", "B_E", "A_L", "B_L"],
+            "race_date": pd.to_datetime([
+                "2020-01-01",
+                "2020-01-01",
+                "2020-01-01",
+                "2022-01-01",
+                "2022-01-01",
+            ]),
+            "cum_wins": [1, 2, 4, 5, 8],
+            "cum_starts": [10, 10, 20, 30, 40],
+            "cum_turf_wins": [1, 0, 2, 3, 4],
+            "cum_turf_starts": [5, 5, 10, 20, 20],
+            "cum_prize": [1_000_000, 2_000_000, 4_000_000, 9_000_000, 8_000_000],
+        })
+        entry = pd.DataFrame({
+            "race_id": ["A_E", "B_E", "A_L", "B_L"],
+            "umaban": [1, 2, 3, 4],
+            "kettonum": ["A1", "B1", "A1", "B1"],
+        })
+
+        feat = DamPedigreeFeatures(_make_store(sanku=sanku))
+        feat._career_cache = career
+        result = feat.compute(entry)
+
+        assert result["dam_wr"].tolist() == pytest.approx([
+            (3 + 1) / (20 + 11),
+            (4 + 1) / (20 + 11),
+            (7 + 1) / (40 + 11),
+            (8 + 1) / (40 + 11),
+        ])
+
     def test_fallback_used_when_no_race_date(self) -> None:
         """When career has no race_date/race_id, fallback path is used."""
         sanku = pd.DataFrame({

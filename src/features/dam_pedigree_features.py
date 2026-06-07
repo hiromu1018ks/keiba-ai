@@ -124,10 +124,15 @@ class DamPedigreeFeatures:
             )
             return self._compute_fallback(entry_df, sanku, career)
 
+        sanku["kettonum"] = sanku["kettonum"].astype(str)
+        sanku["mnum"] = sanku["mnum"].astype(str)
+
         # エントリー馬の kettonum から dam MNum を特定
-        kettonum_to_mnum = sanku.set_index("kettonum")["mnum"]
+        kettonum_to_mnum = (
+            sanku.drop_duplicates("kettonum", keep="last").set_index("kettonum")["mnum"]
+        )
         result = entry_df[["race_id", "umaban", "kettonum"]].copy()
-        result["mnum"] = result["kettonum"].map(kettonum_to_mnum)
+        result["mnum"] = result["kettonum"].astype(str).map(kettonum_to_mnum)
 
         # mnum が取れないエントリの早期チェック
         if result["mnum"].notna().sum() == 0:
@@ -145,129 +150,121 @@ class DamPedigreeFeatures:
             entry_race_dates = career[["race_id", "race_date"]].drop_duplicates("race_id")
         result = result.merge(entry_race_dates, on="race_id", how="left")
 
-        # merge() は index を再構築するため、対応する mask も再計算する。
-        valid = result["mnum"].notna()
+        return self._compute_pit_vectorized(result, sanku, career, breeder_col)
 
-        # 全 dam の産駒 kettonum を収集
-        mnums_with_entries = result.loc[valid, "mnum"].unique()
-        offspring_per_mnum: dict[str, list[str]] = {}
-        all_offspring_kettonums: set[str] = set()
-        for mnum in mnums_with_entries:
-            offspring = sanku.loc[sanku["mnum"] == mnum, "kettonum"].tolist()
-            offspring_per_mnum[mnum] = offspring
-            all_offspring_kettonums.update(offspring)
+    @staticmethod
+    def _compute_pit_vectorized(
+        result: pd.DataFrame,
+        sanku: pd.DataFrame,
+        career: pd.DataFrame,
+        breeder_col: str,
+    ) -> pd.DataFrame:
+        """母ごとの産駒累積値を差分集計し、全対象日へ一括でasof結合する。"""
+        output_cols = ["race_id", "umaban"] + FEATURE_COLS
+        valid_mnums = result["mnum"].dropna().unique()
+        offspring = sanku.loc[
+            sanku["mnum"].isin(valid_mnums), ["kettonum", "mnum"]
+        ].drop_duplicates("kettonum", keep="last")
 
-        # career を産駒に絞り込み
-        career_offspring = career[career["kettonum"].isin(all_offspring_kettonums)].copy()
-
-        if career_offspring.empty:
+        career_work = career.copy()
+        career_work["kettonum"] = career_work["kettonum"].astype(str)
+        career_work["race_date"] = pd.to_datetime(career_work["race_date"], errors="coerce")
+        career_work = career_work.merge(offspring, on="kettonum", how="inner")
+        if career_work.empty:
             return result[["race_id", "umaban"]].assign(
                 **{c: float("nan") for c in FEATURE_COLS}
             )
 
-        # 重複 (race_id, kettonum) を排除し、ソート
-        career_offspring = career_offspring.sort_values(
-            ["kettonum", "race_date", "race_id"]
-        ).drop_duplicates(subset=["kettonum", "race_id"], keep="last")
+        cum_cols = [
+            "cum_wins",
+            "cum_starts",
+            "cum_turf_wins",
+            "cum_turf_starts",
+            "cum_prize",
+        ]
+        for col in cum_cols:
+            career_work[col] = pd.to_numeric(career_work[col], errors="coerce").fillna(0.0)
 
-        # 必要な累積列
-        cum_cols = ["cum_wins", "cum_starts", "cum_turf_wins", "cum_turf_starts", "cum_prize"]
+        # 同一馬・同一日の最終スナップショットを採用し、累積値を日次差分へ変換する。
+        career_work = (
+            career_work.sort_values(["kettonum", "race_date", "race_id"])
+            .drop_duplicates(["kettonum", "race_id"], keep="last")
+            .drop_duplicates(["kettonum", "race_date"], keep="last")
+            .sort_values(["kettonum", "race_date"])
+        )
+        daily_deltas = career_work.groupby("kettonum", observed=True)[cum_cols].diff()
+        first_for_horse = ~career_work["kettonum"].duplicated()
+        daily_deltas.loc[first_for_horse, cum_cols] = career_work.loc[
+            first_for_horse, cum_cols
+        ].to_numpy()
+        daily_deltas[["mnum", "race_date"]] = career_work[["mnum", "race_date"]]
 
-        # 各エントリ (race_id, mnum) ごとに産駒の PIT キャリアを集計
-        # (mnum, target_date) の組でキャッシュ
-        dam_features_cache: dict[tuple[str, object], dict[str, float]] = {}
+        dam_history = (
+            daily_deltas.groupby(["mnum", "race_date"], observed=True)[cum_cols]
+            .sum()
+            .sort_index()
+            .groupby(level="mnum", observed=True)
+            .cumsum()
+            .reset_index()
+        )
 
-        for idx in result.index:
-            mnum = result.loc[idx, "mnum"]
-            if pd.isna(mnum):
-                for c in FEATURE_COLS:
-                    result.loc[idx, c] = np.nan
-                continue
+        target_pairs = (
+            result.loc[
+                result["mnum"].notna() & result["race_date"].notna(),
+                ["mnum", "race_date"],
+            ]
+            .drop_duplicates()
+            .copy()
+        )
+        target_pairs["race_date"] = pd.to_datetime(target_pairs["race_date"], errors="coerce")
+        target_pairs = target_pairs.dropna(subset=["race_date"])
+        if target_pairs.empty:
+            return result[["race_id", "umaban"]].assign(
+                **{c: float("nan") for c in FEATURE_COLS}
+            )
 
-            target_date = result.loc[idx, "race_date"]
-            if pd.isna(target_date):
-                for c in FEATURE_COLS:
-                    result.loc[idx, c] = np.nan
-                continue
+        # merge_asof は結合キーの全体昇順を要求する。
+        target_pairs = target_pairs.sort_values(["race_date", "mnum"])
+        dam_history = dam_history.sort_values(["race_date", "mnum"])
+        features = pd.merge_asof(
+            target_pairs,
+            dam_history,
+            on="race_date",
+            by="mnum",
+            direction="backward",
+        )
 
-            cache_key = (mnum, target_date)
-            if cache_key in dam_features_cache:
-                feats = dam_features_cache[cache_key]
-            else:
-                offspring_kettonums = offspring_per_mnum.get(mnum, [])
-                if len(offspring_kettonums) == 0:
-                    feats = {c: np.nan for c in FEATURE_COLS}
-                else:
-                    oc = career_offspring[
-                        career_offspring["kettonum"].isin(offspring_kettonums)
-                    ]
+        offspring_count = offspring.groupby("mnum", observed=True)["kettonum"].nunique()
+        features["offspring_count"] = features["mnum"].map(offspring_count)
+        features["dam_wr"] = np.where(
+            features["cum_starts"] > 0,
+            (features["cum_wins"] + ALPHA_PRIOR)
+            / (features["cum_starts"] + TOTAL_OFFSET),
+            np.nan,
+        )
+        features["dam_surface_wr"] = np.where(
+            features["cum_turf_starts"] > 0,
+            (features["cum_turf_wins"] + ALPHA_PRIOR)
+            / (features["cum_turf_starts"] + TOTAL_OFFSET),
+            np.nan,
+        )
+        mean_prize = features["cum_prize"] / features["offspring_count"]
+        features["dam_prize_log"] = np.where(
+            mean_prize > 0, np.log1p(mean_prize), np.nan
+        )
 
-                    if oc.empty:
-                        feats = {c: np.nan for c in FEATURE_COLS}
-                    else:
-                        # merge_asof: target_date 以前の最新行を kettonum ごとに取得
-                        # left は race_date でソート, right も race_date でソート必須
-                        oc_sorted = oc.sort_values("race_date").copy()
-                        oc_sorted["kettonum"] = oc_sorted["kettonum"].astype(str)
-                        left = pd.DataFrame({
-                            "kettonum": [str(k) for k in offspring_kettonums],
-                            "race_date": target_date,
-                        })
-                        left = left.sort_values("race_date")
+        if breeder_col in sanku.columns:
+            breeder_counts = sanku.groupby("mnum", observed=True)[breeder_col].nunique()
+            features["breeder_strength"] = np.log1p(features["mnum"].map(breeder_counts))
+        else:
+            features["breeder_strength"] = np.nan
 
-                        merged_asof = pd.merge_asof(
-                            left,
-                            oc_sorted[["kettonum", "race_date"] + cum_cols],
-                            on="race_date",
-                            by="kettonum",
-                            direction="backward",
-                        )
-
-                        # 産駒全体の勝率 (Beta 平滑化)
-                        total_wins = merged_asof["cum_wins"].fillna(0).sum()
-                        total_starts = merged_asof["cum_starts"].fillna(0).sum()
-                        if total_starts > 0:
-                            dam_wr = (total_wins + ALPHA_PRIOR) / (
-                                total_starts + TOTAL_OFFSET
-                            )
-                        else:
-                            dam_wr = np.nan
-
-                        # 産駒の芝勝率
-                        total_turf_wins = merged_asof["cum_turf_wins"].fillna(0).sum()
-                        total_turf_starts = merged_asof["cum_turf_starts"].fillna(0).sum()
-                        if total_turf_starts > 0:
-                            dam_surface_wr = (
-                                total_turf_wins + ALPHA_PRIOR
-                            ) / (total_turf_starts + TOTAL_OFFSET)
-                        else:
-                            dam_surface_wr = np.nan
-
-                        # 産駒の平均賞金 (log変換)
-                        mean_prize = merged_asof["cum_prize"].fillna(0).mean()
-                        dam_prize_log = np.log1p(mean_prize) if mean_prize > 0 else np.nan
-
-                        # breeder_strength: log(1 + unique breeder count)
-                        offspring_rows = sanku[sanku["mnum"] == mnum]
-                        if breeder_col in offspring_rows.columns:
-                            unique_breeders = offspring_rows[breeder_col].dropna().nunique()
-                            breeder_strength = np.log1p(unique_breeders)
-                        else:
-                            breeder_strength = np.nan
-
-                        feats = {
-                            "dam_wr": dam_wr,
-                            "dam_surface_wr": dam_surface_wr,
-                            "dam_prize_log": dam_prize_log,
-                            "breeder_strength": breeder_strength,
-                        }
-
-                dam_features_cache[cache_key] = feats
-
-            for c in FEATURE_COLS:
-                result.loc[idx, c] = feats.get(c, np.nan)
-
-        return result[["race_id", "umaban"] + FEATURE_COLS]
+        result = result.merge(
+            features[["mnum", "race_date"] + FEATURE_COLS],
+            on=["mnum", "race_date"],
+            how="left",
+        )
+        return result[output_cols]
 
     def _compute_fallback(
         self,
