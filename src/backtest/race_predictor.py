@@ -1016,10 +1016,16 @@ class RacePredictor:
         # This comparison happens AFTER win_market_selection_score is computed.
         if "investment_score" in prepared.columns:
 
-            def _pick_selected_by_score(row_group: pd.DataFrame, score_col: str) -> int:
-                """Return umaban of the horse with highest score in this race."""
-                idx = row_group[score_col].idxmax()
-                return int(row_group.loc[idx, "umaban"])
+            def _pick_selected_by_score(row_group: pd.DataFrame, score_col: str) -> object:
+                """Return the highest-scoring horse, or NA when no score is available."""
+                scores = pd.to_numeric(row_group[score_col], errors="coerce")
+                if not scores.notna().any():
+                    return pd.NA
+                idx = scores.idxmax()
+                umaban = row_group.loc[idx, "umaban"]
+                if pd.isna(umaban):
+                    return pd.NA
+                return int(umaban)
 
             diag_groups = prepared.groupby(race_key, observed=True)
             baseline_picks = diag_groups.apply(  # type: ignore[misc]
@@ -1030,9 +1036,15 @@ class RacePredictor:
             )
             prepared["baseline_selected_umaban"] = prepared["race_id"].map(baseline_picks)
             prepared["ranker_selected_umaban"] = prepared["race_id"].map(ranker_picks)
-            prepared["baseline_ranker_agreement"] = (
-                prepared["baseline_selected_umaban"] == prepared["ranker_selected_umaban"]
+            valid_comparison = (
+                prepared[["baseline_selected_umaban", "ranker_selected_umaban"]].notna().all(axis=1)
             )
+            agreement = pd.Series(pd.NA, index=prepared.index, dtype="boolean")
+            agreement.loc[valid_comparison] = (
+                prepared.loc[valid_comparison, "baseline_selected_umaban"]
+                == prepared.loc[valid_comparison, "ranker_selected_umaban"]
+            )
+            prepared["baseline_ranker_agreement"] = agreement
 
         win_profit_selector = self._get_win_profit_selector(prepared)
         profit_selector_enabled = False

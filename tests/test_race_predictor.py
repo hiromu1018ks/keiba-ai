@@ -2494,6 +2494,35 @@ class TestRaceLevelRankerIntegration:
             # Horse 2 has investment_score=0.9 (highest)
             assert diag_df["ranker_selected_umaban"].iloc[0] == 2
 
+    def test_ranker_diagnostics_allow_all_nan_investment_score(
+        self,
+        mock_models: MagicMock,
+    ) -> None:
+        """全investment_score欠損のレースは診断値をNAにして候補選択を継続する。"""
+        from backtest.race_predictor import RacePredictor
+
+        predictor = RacePredictor(models=mock_models, betting_target="win")
+        race_df = pd.DataFrame(
+            {
+                "race_id": ["R1", "R1"],
+                "umaban": [1, 2],
+                "surface": ["turf", "turf"],
+                "tanodds": [2.0, 4.0],
+                "p_win_final": [0.6, 0.4],
+                "edge_win": [0.2, 0.6],
+                "EV_lower_win_corrected": [1.2, 1.6],
+                "ev_win_calibrated": [1.2, 1.6],
+                "investment_score": [np.nan, np.nan],
+            }
+        )
+
+        candidates = predictor.get_win_candidates(race_df)
+        diag_df = candidates.attrs["win_diagnostic_df"]
+
+        assert not candidates.empty
+        assert diag_df["ranker_selected_umaban"].isna().all()
+        assert diag_df["baseline_ranker_agreement"].isna().all()
+
     def test_baseline_ranker_agreement_when_same_horse(self, mock_models: MagicMock) -> None:
         """baseline_ranker_agreement is True when both selectors pick the same horse."""
         from backtest.race_predictor import RacePredictor
