@@ -356,6 +356,34 @@ class TestPITSafeBehavior:
             rtol=1e-4,
         )
 
+    def test_pit_safe_handles_non_default_entry_index_and_categorical_key(self) -> None:
+        """merge後のindex変更とCategoricalなkettonumを同時に処理できる。"""
+        sanku = pd.DataFrame({
+            "kettonum": ["H1", "H2"],
+            "mnum": ["D1", "D1"],
+            "breedercode": ["BR1", "BR1"],
+        })
+        career = pd.DataFrame({
+            "kettonum": pd.Categorical(["H1", "H2"]),
+            "race_id": ["R1", "R0"],
+            "race_date": pd.to_datetime(["2022-01-01", "2021-01-01"]),
+            "cum_wins": [3, 1],
+            "cum_starts": [20, 5],
+            "cum_turf_wins": [2, 0],
+            "cum_turf_starts": [10, 0],
+            "cum_prize": [10_000_000, 1_000_000],
+        })
+        entry = pd.DataFrame(
+            {"race_id": ["R1"], "umaban": [1], "kettonum": ["H1"]},
+            index=[99],
+        )
+
+        feat = DamPedigreeFeatures(_make_store(sanku=sanku))
+        feat._career_cache = career
+        result = feat.compute(entry)
+
+        assert result["dam_wr"].iloc[0] == pytest.approx((4 + 1) / (25 + 11))
+
     def test_fallback_used_when_no_race_date(self) -> None:
         """When career has no race_date/race_id, fallback path is used."""
         sanku = pd.DataFrame({

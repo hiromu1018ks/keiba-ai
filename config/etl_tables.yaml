@@ -279,7 +279,7 @@ tables:
     parquet_key: hansyoku
     category: raw
     type: master
-    pk: [kettonum]
+    pk: [hansyokunum]
 
   - db_table: n_sanku
     parquet_key: sanku
@@ -291,7 +291,7 @@ tables:
     parquet_key: keito
     category: raw
     type: master
-    pk: [keitoucode]
+    pk: [hansyokunum]
 
   - db_table: n_course
     parquet_key: course

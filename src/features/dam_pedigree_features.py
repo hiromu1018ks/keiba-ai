@@ -129,9 +129,8 @@ class DamPedigreeFeatures:
         result = entry_df[["race_id", "umaban", "kettonum"]].copy()
         result["mnum"] = result["kettonum"].map(kettonum_to_mnum)
 
-        # mnum が取れないエントリは NaN で埋める
-        valid = result["mnum"].notna()
-        if not valid.any():
+        # mnum が取れないエントリの早期チェック
+        if result["mnum"].notna().sum() == 0:
             return result[["race_id", "umaban"]].assign(
                 **{c: float("nan") for c in FEATURE_COLS}
             )
@@ -145,6 +144,9 @@ class DamPedigreeFeatures:
         else:
             entry_race_dates = career[["race_id", "race_date"]].drop_duplicates("race_id")
         result = result.merge(entry_race_dates, on="race_id", how="left")
+
+        # merge() は index を再構築するため、対応する mask も再計算する。
+        valid = result["mnum"].notna()
 
         # 全 dam の産駒 kettonum を収集
         mnums_with_entries = result.loc[valid, "mnum"].unique()
@@ -205,9 +207,10 @@ class DamPedigreeFeatures:
                     else:
                         # merge_asof: target_date 以前の最新行を kettonum ごとに取得
                         # left は race_date でソート, right も race_date でソート必須
-                        oc_sorted = oc.sort_values("race_date")
+                        oc_sorted = oc.sort_values("race_date").copy()
+                        oc_sorted["kettonum"] = oc_sorted["kettonum"].astype(str)
                         left = pd.DataFrame({
-                            "kettonum": offspring_kettonums,
+                            "kettonum": [str(k) for k in offspring_kettonums],
                             "race_date": target_date,
                         })
                         left = left.sort_values("race_date")

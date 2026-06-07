@@ -65,7 +65,10 @@ class BloodlineFeatures:
     def _load_keito_map(self) -> dict[str, str]:
         """sire_id -> keitousystemcd のマッピングを構築。
 
-        JOIN: horses.ketto3infohansyokunum1 -> keito.hansyokunum -> keito.keitoname
+        現行ETL:
+          horses.ketto3infohansyokunum1 -> keito.hansyokunum -> keito.keitoname
+        旧形式:
+          horses.ketto3infohansyokunum1 -> keito.keitoucode -> keito.keitousystemcd
         """
         if self._keito_cache is None:
             from db.readers import load_keito
@@ -80,20 +83,26 @@ class BloodlineFeatures:
                 self._keito_cache = {}
             else:
                 sire_col = "ketto3infohansyokunum1"
-                # Parquet列名: hansyokunum (JOIN key), keitoname (系統名)
-                join_col = "hansyokunum"
-                code_col = "keitoname"
-                if sire_col not in horses.columns or code_col not in keito.columns:
+                if {"hansyokunum", "keitoname"}.issubset(keito.columns):
+                    join_col = "hansyokunum"
+                    code_col = "keitoname"
+                elif {"keitoucode", "keitousystemcd"}.issubset(keito.columns):
+                    join_col = "keitoucode"
+                    code_col = "keitousystemcd"
+                else:
+                    self._keito_cache = {}
+                    return self._keito_cache
+
+                if sire_col not in horses.columns:
                     self._keito_cache = {}
                 else:
-                    # coerce_types で hansyokunum が int64 になるため str に揃える
-                    keito[join_col] = keito[join_col].astype(str)
-                    merged = horses[[sire_col]].merge(
-                        keito, left_on=sire_col, right_on=join_col, how="left"
-                    )
-                    self._keito_cache = dict(
-                        zip(horses[sire_col], merged[code_col].fillna("unknown"))
-                    )
+                    keito_keys = keito[join_col].astype(str)
+                    keito_map = dict(zip(keito_keys, keito[code_col]))
+                    sire_ids = horses[sire_col].astype(str)
+                    self._keito_cache = {
+                        sire_id: keito_map.get(sire_id, "unknown")
+                        for sire_id in sire_ids.unique()
+                    }
         return self._keito_cache
 
     def compute(self, entry_df: pd.DataFrame) -> pd.DataFrame:

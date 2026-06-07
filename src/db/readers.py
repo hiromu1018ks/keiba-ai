@@ -94,6 +94,10 @@ _STRING_COLUMNS: set[str] = {
     "ketto3infohansyokunum12",
     "ketto3infohansyokunum13",
     "ketto3infohansyokunum14",
+    "hansyokunum",  # 現行keito/hansyokuの繁殖登録番号
+    "keitoid",  # 現行keitoの系統ID
+    "keitoname",  # 現行keitoの系統名
+    "keitoex",  # 現行keitoの系統説明
     "keitoucode",  # 血統番号 (keito)
     "keitousystemcd",  # 系統コード (keito, e.g. "SS"=サンデーサイレンス系)
 }

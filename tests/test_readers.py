@@ -192,3 +192,22 @@ class TestLoadKeito:
         result = load_keito(mock_store)
         assert not result.empty
         mock_store.read.assert_called_once_with("raw", "keito")
+
+    def test_preserves_current_etl_string_columns(self, mock_store):
+        """現行keitoスキーマの識別子・名称・説明を文字列のまま保持する。"""
+        mock_store.exists.return_value = True
+        mock_store.read.return_value = pd.DataFrame(
+            {
+                "hansyokunum": ["0110000576"],
+                "keitoid": ["02010201"],
+                "keitoname": ["パーソロン"],
+                "keitoex": ["系統説明"],
+            }
+        )
+
+        result = load_keito(mock_store)
+
+        assert result.loc[0, "hansyokunum"] == "0110000576"
+        assert result.loc[0, "keitoid"] == "02010201"
+        assert result.loc[0, "keitoname"] == "パーソロン"
+        assert result.loc[0, "keitoex"] == "系統説明"

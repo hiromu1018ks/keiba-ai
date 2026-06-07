@@ -228,6 +228,9 @@ class FeatureEngine:
                 for cat, name in [
                     ("raw", "races"),
                     ("raw", "entries"),
+                    ("raw", "horses"),
+                    ("raw", "horse_career_stats"),
+                    ("raw", "keito"),
                     ("odds", "snapshots"),
                     ("raw", "track_conditions"),
                     ("raw", "horse_track_aptitude"),

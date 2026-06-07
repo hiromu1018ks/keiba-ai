@@ -184,7 +184,7 @@ class TestEdgeCases:
 
 
 class TestBloodKeitoCd:
-    """blood_keito_cd: entries.kettonum -> horses.ketto3infohansyokunum1 -> keito.keitousystemcd"""
+    """blood_keito_cd: entry -> sire -> keito master."""
 
     def test_blood_keito_cd_from_sire(self):
         """blood_keito_cd が種牡馬の系統コードを返す"""
@@ -233,6 +233,22 @@ class TestBloodKeitoCd:
             )
             result = feat.compute(entry_df)
             assert result["blood_keito_cd"].iloc[0] == "SS"
+
+    def test_blood_keito_cd_from_current_etl_schema(self):
+        """現行ETLの hansyokunum/keitoname 形式から系統名を返す。"""
+        store = MagicMock()
+        store.exists.return_value = True
+        store.read.side_effect = lambda cat, name: {
+            ("raw", "horses"): pd.DataFrame(
+                {"kettonum": ["001"], "ketto3infohansyokunum1": ["1140004481"]}
+            ),
+            ("raw", "keito"): pd.DataFrame(
+                {"hansyokunum": ["1140004481"], "keitoname": ["サンデーサイレンス"]}
+            ),
+        }.get((cat, name), pd.DataFrame())
+
+        feat = BloodlineFeatures(store)
+        assert feat._load_keito_map()["1140004481"] == "サンデーサイレンス"
 
     def test_blood_keito_cd_unknown_for_missing_sire(self):
         """未知の種牡馬は 'unknown' を返す"""
