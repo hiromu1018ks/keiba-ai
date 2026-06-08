@@ -77,49 +77,56 @@ class StackedEnsemble:
         y_valid: pd.Series,
         *,
         num_threads: int = 0,
+        train_race_ids: pd.Series | None = None,
+        valid_race_ids: pd.Series | None = None,
     ) -> None:
         """K-fold OOF でメタラーナーを学習後、全データでベースモデルを再学習。"""
         if num_threads <= 0:
             num_threads = max(1, (os.cpu_count() or 4) // 2)
 
+        self._learn_cat_codes(X_train)
+        self._train_feature_names = list(X_train.columns)
+        train_groups = self._normalize_groups(train_race_ids, len(X_train))
+
         # --- Optuna HP Tuning Phase ---
-        self.best_params = self._tune_hyperparams(X_train, y_train, num_threads)
+        self.best_params = self._tune_hyperparams(
+            X_train,
+            y_train,
+            num_threads,
+            race_ids=train_groups,
+        )
 
         # --- Level 1: K-fold OOF 予測生成 ---
         n = len(X_train)
         oof_preds = np.full((n, 3), np.nan)
-        self._learn_cat_codes(X_train)
-        self._train_feature_names = list(X_train.columns)
 
-        for i in range(self.n_folds):
-            # 時系列考慮: 各foldのvalidは後半部分、trainは前半 (expanding window)
-            val_start = int(n * (i + 1) / (self.n_folds + 1))
-            val_end = int(n * (i + 2) / (self.n_folds + 1)) if i < self.n_folds - 1 else n
+        for train_idx, valid_idx in self._expanding_group_splits(train_groups, self.n_folds):
+            X_tr, y_tr = X_train.iloc[train_idx], y_train.iloc[train_idx]
+            X_va = X_train.iloc[valid_idx]
 
-            # train: [0, val_start), valid: [val_start, val_end)
-            X_tr, y_tr = X_train.iloc[:val_start], y_train.iloc[:val_start]
-            X_va = X_train.iloc[val_start:val_end]
-
-            oof_preds[val_start:val_end, 0] = self._train_lgbm_fold(
+            oof_preds[valid_idx, 0] = self._train_lgbm_fold(
                 X_tr,
                 y_tr,
                 X_va,
                 num_threads,
                 self.best_params["lgbm"],
+                train_groups=train_groups.iloc[train_idx],
             )
-            oof_preds[val_start:val_end, 1] = self._train_xgb_fold(
+            oof_preds[valid_idx, 1] = self._train_xgb_fold(
                 X_tr,
                 y_tr,
                 X_va,
                 num_threads,
                 self.best_params["xgb"],
+                train_groups=train_groups.iloc[train_idx],
             )
-            oof_preds[val_start:val_end, 2] = self._train_cat_fold(
+            oof_preds[valid_idx, 2] = self._train_cat_fold(
                 X_tr,
                 y_tr,
                 X_va,
                 num_threads,
                 self.best_params["cat"],
+                train_groups=train_groups.iloc[train_idx],
             )
 
         # --- Level 2: Ridge メタラーナー ---
@@ -132,10 +139,22 @@ class StackedEnsemble:
         # --- 最終ベースモデル: train+valid 全データで再学習 ---
         X_all = pd.concat([X_train, X_valid], ignore_index=True)
         y_all = pd.concat([y_train, y_valid], ignore_index=True)
+        valid_groups = self._normalize_groups(
+            valid_race_ids,
+            len(X_valid),
+            offset=int(train_groups.max()) + 1,
+        )
+        all_groups = pd.concat([train_groups, valid_groups], ignore_index=True)
 
-        self.lgbm_model = self._train_lgbm_full(X_all, y_all, num_threads, self.best_params["lgbm"])
-        self.xgb_model = self._train_xgb_full(X_all, y_all, num_threads, self.best_params["xgb"])
-        self.cat_model = self._train_cat_full(X_all, y_all, num_threads, self.best_params["cat"])
+        self.lgbm_model = self._train_lgbm_full(
+            X_all, y_all, num_threads, self.best_params["lgbm"], train_groups=all_groups
+        )
+        self.xgb_model = self._train_xgb_full(
+            X_all, y_all, num_threads, self.best_params["xgb"], train_groups=all_groups
+        )
+        self.cat_model = self._train_cat_full(
+            X_all, y_all, num_threads, self.best_params["cat"], train_groups=all_groups
+        )
 
         # --- 多様性検証 (D-09, D-10, D-11) ---
         feature_names = list(X_train.columns)
@@ -166,7 +185,7 @@ class StackedEnsemble:
         import xgboost as xgb
 
         X_num = self._encode_cats(X)
-        p_xgb = self.xgb_model.predict(xgb.DMatrix(X_num))
+        p_xgb = self._predict_xgb_best(self.xgb_model, xgb.DMatrix(X_num))
 
         # CatBoost: predict() はクラスラベル(0/1)を返すため predict_proba() を使用
         p_cat = self.cat_model.predict_proba(X_num)[:, 1]
@@ -240,6 +259,79 @@ class StackedEnsemble:
         for col in X.columns:
             if X[col].dtype.name == "category":
                 self._cat_codes[col] = {cat: code for code, cat in enumerate(X[col].cat.categories)}
+
+    @staticmethod
+    def _normalize_groups(
+        race_ids: pd.Series | None,
+        n_rows: int,
+        *,
+        offset: int = 0,
+    ) -> pd.Series:
+        """行順を維持したレースグループ番号へ正規化する。"""
+        if race_ids is None:
+            return pd.Series(np.arange(offset, offset + n_rows), dtype="int64")
+        if len(race_ids) != n_rows:
+            raise ValueError("race_ids length must match feature rows")
+        codes, _ = pd.factorize(race_ids.reset_index(drop=True), sort=False)
+        if np.any(codes < 0):
+            raise ValueError("race_ids must not contain missing values")
+        if len(codes) > 1 and np.any(np.diff(codes) < 0):
+            raise ValueError("rows for each race_id must be contiguous and chronologically ordered")
+        return pd.Series(codes + offset, dtype="int64")
+
+    @staticmethod
+    def _group_boundary(groups: pd.Series, ratio: float) -> int:
+        """指定比率以下のレースを丸ごと含む行境界を返す。"""
+        unique_groups = pd.unique(groups)
+        if len(unique_groups) < 2:
+            raise ValueError("at least two races are required for time split")
+        n_left = min(max(1, int(len(unique_groups) * ratio)), len(unique_groups) - 1)
+        left_groups = set(unique_groups[:n_left])
+        return int(groups.isin(left_groups).sum())
+
+    @classmethod
+    def race_group_split_index(cls, race_ids: pd.Series, ratio: float = 0.8) -> int:
+        """レースを分断しない行分割位置を返す。"""
+        groups = cls._normalize_groups(race_ids, len(race_ids))
+        return cls._group_boundary(groups, ratio)
+
+    @classmethod
+    def _expanding_group_splits(
+        cls,
+        groups: pd.Series,
+        n_folds: int,
+    ) -> list[tuple[np.ndarray, np.ndarray]]:
+        """レースを分断しないexpanding-window OOF splitを返す。"""
+        unique_groups = pd.unique(groups)
+        if len(unique_groups) < n_folds + 1:
+            raise ValueError(f"at least {n_folds + 1} races are required")
+        group_chunks = np.array_split(unique_groups, n_folds + 1)
+        splits: list[tuple[np.ndarray, np.ndarray]] = []
+        for fold in range(n_folds):
+            train_groups = np.concatenate(group_chunks[: fold + 1])
+            valid_groups = group_chunks[fold + 1]
+            train_idx = np.flatnonzero(groups.isin(train_groups).to_numpy())
+            valid_idx = np.flatnonzero(groups.isin(valid_groups).to_numpy())
+            splits.append((train_idx, valid_idx))
+        return splits
+
+    @staticmethod
+    def _predict_xgb_best(model: Any, data: Any) -> np.ndarray:
+        """early stoppingの最良反復までに限定してXGBoost予測する。"""
+        best_iteration = getattr(model, "best_iteration", None)
+        if best_iteration is None:
+            return model.predict(data)
+        return model.predict(data, iteration_range=(0, int(best_iteration) + 1))
+
+    @staticmethod
+    def _probability_objective(y_true: pd.Series, preds: np.ndarray) -> float:
+        """順位性能と確率精度を両立するOptuna目的関数。"""
+        from sklearn.metrics import brier_score_loss, roc_auc_score
+
+        clipped = np.clip(np.asarray(preds, dtype=float), 1e-6, 1 - 1e-6)
+        auc = float(roc_auc_score(y_true, clipped)) if y_true.nunique() >= 2 else 0.5
+        brier = float(brier_score_loss(y_true, clipped))
+        return auc - 0.25 * brier
 
     @staticmethod
     def _safe_corr(a: np.ndarray, b: np.ndarray) -> float:
@@ -368,19 +460,22 @@ class StackedEnsemble:
         X_train: pd.DataFrame,
         y_train: pd.Series,
         num_threads: int,
+        *,
+        race_ids: pd.Series | None = None,
     ) -> dict[str, dict[str, Any]]:
         """Optunaで各モデルのHPを個別最適化（相関ペナルティ付き）"""
         import optuna
 
         optuna.logging.set_verbosity(optuna.logging.WARNING)
 
-        n = len(X_train)
-        # K-fold OOF の最終fold validation区間と重複しないよう、
-        # OOF対象外の前半データ内でHPチューニング用の80/20 splitを行う
-        oob_start = int(n * self.n_folds / (self.n_folds + 1))  # 最終foldのval_start
-        split = int(oob_start * 0.8)
-        X_t, y_t = X_train.iloc[:split], y_train.iloc[:split]
-        X_v, y_v = X_train.iloc[split:oob_start], y_train.iloc[split:oob_start]
+        groups = self._normalize_groups(race_ids, len(X_train))
+        first_oof_train_idx, _ = self._expanding_group_splits(groups, self.n_folds)[0]
+        tune_groups = groups.iloc[first_oof_train_idx].reset_index(drop=True)
+        tune_split = self._group_boundary(tune_groups, 0.8)
+        tune_idx = first_oof_train_idx
+        train_idx, valid_idx = tune_idx[:tune_split], tune_idx[tune_split:]
+        X_t, y_t = X_train.iloc[train_idx], y_train.iloc[train_idx]
+        X_v, y_v = X_train.iloc[valid_idx], y_train.iloc[valid_idx]
         X_t_num = self._encode_cats(X_t)
         X_v_num = self._encode_cats(X_v)
 
@@ -477,7 +572,7 @@ class StackedEnsemble:
             {
                 **lightgbm_native_params(),
                 "objective": "binary",
-                "metric": "auc",
+                "metric": "binary_logloss",
                 "num_leaves": best_params["lgb_num_leaves"],
                 "learning_rate": best_params["lgb_lr"],
                 "feature_fraction": best_params["lgb_feat_frac"],
@@ -520,7 +615,7 @@ class StackedEnsemble:
             {
                 **xgboost_params(),
                 "objective": "binary:logistic",
-                "eval_metric": "auc",
+                "eval_metric": "logloss",
                 "max_depth": best_params["xgb_max_depth"],
                 "learning_rate": best_params["xgb_lr"],
                 "colsample_bytree": best_params["xgb_col_sample"],
@@ -532,7 +627,7 @@ class StackedEnsemble:
             early_stopping_rounds=100,
             verbose_eval=False,
         )
-        return m.predict(dvalid)
+        return self._predict_xgb_best(m, dvalid)
 
     def _train_ref_cat(
         self,
@@ -562,7 +657,7 @@ class StackedEnsemble:
             thread_count=num_threads,
             verbose=0,
             early_stopping_rounds=100,
-            eval_metric="AUC",
+            eval_metric="Logloss",
         )
         m.fit(X_t_num, y_t, eval_set=(X_v_num, y_v))
         return m.predict_proba(X_v_num)[:, 1]
@@ -595,8 +690,6 @@ class StackedEnsemble:
         corr_threshold: float = 0.85,
     ) -> float:
         """LightGBM Optuna objective"""
-        from sklearn.metrics import roc_auc_score
-
         params = suggest_fn(trial)
         train_data = lgb.Dataset(X_t, label=y_t)
         valid_data = lgb.Dataset(X_v, label=y_v, reference=train_data)
@@ -604,7 +697,7 @@ class StackedEnsemble:
             {
                 **lightgbm_native_params(),
                 "objective": "binary",
-                "metric": "auc",
+                "metric": "binary_logloss",
                 "num_leaves": params["lgb_num_leaves"],
                 "learning_rate": params["lgb_lr"],
                 "feature_fraction": params["lgb_feat_frac"],
@@ -617,7 +710,7 @@ class StackedEnsemble:
             callbacks=[lgb.early_stopping(stopping_rounds=100, verbose=False)],
         )
         preds = m.predict(X_v)
-        auc = float(roc_auc_score(y_v, preds))
+        score = self._probability_objective(y_v, preds)
 
         # Correlation penalty (LGB is first model, ref_preds_list is empty)
         penalty = self._compute_corr_penalty(
@@ -626,7 +719,7 @@ class StackedEnsemble:
             corr_penalty_weight,
             corr_threshold,
         )
-        return auc - penalty
+        return score - penalty
 
     def _eval_xgb(
         self,
@@ -647,7 +740,6 @@ class StackedEnsemble:
     ) -> float:
         """XGBoost Optuna objective"""
         import xgboost as xgb
-        from sklearn.metrics import roc_auc_score
 
         params = suggest_fn(trial)
         if dtrain is None:
@@ -662,7 +754,7 @@ class StackedEnsemble:
             {
                 **xgboost_params(),
                 "objective": "binary:logistic",
-                "eval_metric": "auc",
+                "eval_metric": "logloss",
                 "max_depth": params["xgb_max_depth"],
                 "learning_rate": params["xgb_lr"],
                 "colsample_bytree": params["xgb_col_sample"],
@@ -674,8 +766,8 @@ class StackedEnsemble:
             early_stopping_rounds=100,
             verbose_eval=False,
         )
-        preds = m.predict(dvalid)
-        auc = float(roc_auc_score(y_v, preds))
+        preds = self._predict_xgb_best(m, dvalid)
+        score = self._probability_objective(y_v, preds)
 
         penalty = self._compute_corr_penalty(
             preds,
@@ -683,7 +775,7 @@ class StackedEnsemble:
             corr_penalty_weight,
             corr_threshold,
         )
-        return auc - penalty
+        return score - penalty
 
     def _eval_cat(
         self,
@@ -702,7 +794,6 @@ class StackedEnsemble:
     ) -> float:
         """CatBoost Optuna objective"""
         from catboost import CatBoostClassifier
-        from sklearn.metrics import roc_auc_score
 
         params = suggest_fn(trial)
         if X_t_num is None:
@@ -718,11 +809,11 @@ class StackedEnsemble:
             thread_count=num_threads,
             verbose=0,
             early_stopping_rounds=100,
-            eval_metric="AUC",
+            eval_metric="Logloss",
         )
         m.fit(X_t_num, y_t, eval_set=(X_v_num, y_v))
         preds = m.predict_proba(X_v_num)[:, 1]
-        auc = float(roc_auc_score(y_v, preds))
+        score = self._probability_objective(y_v, preds)
 
         penalty = self._compute_corr_penalty(
             preds,
@@ -730,7 +821,7 @@ class StackedEnsemble:
             corr_penalty_weight,
             corr_threshold,
         )
-        return auc - penalty
+        return score - penalty
 
     # --- LightGBM helpers ---
 
@@ -741,14 +832,16 @@ class StackedEnsemble:
         X_va: pd.DataFrame,
         nt: int,
         params: dict[str, Any] | None = None,
+        *,
+        train_groups: pd.Series | None = None,
     ) -> np.ndarray:
         lr = params["lgb_lr"] if params else 0.03
         num_leaves = params["lgb_num_leaves"] if params else 31
         feat_frac = params["lgb_feat_frac"] if params else 1.0
 
         # K-fold train部を80/20に分割 (D-05)
-        n_tr = len(X_tr)
-        es_split = int(n_tr * 0.8)
+        groups = self._normalize_groups(train_groups, len(X_tr))
+        es_split = self._group_boundary(groups, 0.8)
         X_t, y_t = X_tr.iloc[:es_split], y_tr.iloc[:es_split]
         X_v, y_v = X_tr.iloc[es_split:], y_tr.iloc[es_split:]
 
@@ -759,7 +852,7 @@ class StackedEnsemble:
             {
                 **lightgbm_native_params(),
                 "objective": "binary",
-                "metric": "auc",
+                "metric": "binary_logloss",
                 "learning_rate": lr,
                 "num_leaves": num_leaves,
                 "feature_fraction": feat_frac,
@@ -779,14 +872,16 @@ class StackedEnsemble:
         y: pd.Series,
         nt: int,
         params: dict[str, Any] | None = None,
+        *,
+        train_groups: pd.Series | None = None,
     ) -> lgb.Booster:
         lr = params["lgb_lr"] if params else 0.03
         num_leaves = params["lgb_num_leaves"] if params else 31
         feat_frac = params["lgb_feat_frac"] if params else 1.0
 
         # 80/20 split for validation
-        n = len(X)
-        es_split = int(n * 0.8)
+        groups = self._normalize_groups(train_groups, len(X))
+        es_split = self._group_boundary(groups, 0.8)
         X_t, y_t = X.iloc[:es_split], y.iloc[:es_split]
         X_v, y_v = X.iloc[es_split:], y.iloc[es_split:]
 
@@ -797,7 +892,7 @@ class StackedEnsemble:
             {
                 **lightgbm_native_params(),
                 "objective": "binary",
-                "metric": "auc",
+                "metric": "binary_logloss",
                 "learning_rate": lr,
                 "num_leaves": num_leaves,
                 "feature_fraction": feat_frac,
@@ -819,6 +914,8 @@ class StackedEnsemble:
         X_va: pd.DataFrame,
         nt: int,
         params: dict[str, Any] | None = None,
+        *,
+        train_groups: pd.Series | None = None,
     ) -> np.ndarray:
         import xgboost as xgb
 
@@ -830,8 +927,8 @@ class StackedEnsemble:
         col_sample = params["xgb_col_sample"] if params else 1.0
 
         # K-fold train部を80/20に分割 (D-05)
-        n_tr = len(X_tr_num)
-        es_split = int(n_tr * 0.8)
+        groups = self._normalize_groups(train_groups, len(X_tr_num))
+        es_split = self._group_boundary(groups, 0.8)
         dtrain = xgb.DMatrix(X_tr_num.iloc[:es_split], label=y_tr.iloc[:es_split])
         dvalid = xgb.DMatrix(X_tr_num.iloc[es_split:], y_tr.iloc[es_split:])
 
@@ -839,7 +936,7 @@ class StackedEnsemble:
             {
                 **xgboost_params(),
                 "objective": "binary:logistic",
-                "eval_metric": "auc",
+                "eval_metric": "logloss",
                 "max_depth": max_depth,
                 "learning_rate": lr,
                 "colsample_bytree": col_sample,
@@ -851,7 +948,7 @@ class StackedEnsemble:
             early_stopping_rounds=100,
             verbose_eval=False,
         )
-        return m.predict(xgb.DMatrix(X_va_num))
+        return self._predict_xgb_best(m, xgb.DMatrix(X_va_num))
 
     def _train_xgb_full(
         self,
@@ -859,6 +956,8 @@ class StackedEnsemble:
         y: pd.Series,
         nt: int,
         params: dict[str, Any] | None = None,
+        *,
+        train_groups: pd.Series | None = None,
     ) -> Any:
         import xgboost as xgb
 
@@ -869,8 +968,8 @@ class StackedEnsemble:
         col_sample = params["xgb_col_sample"] if params else 1.0
 
         # 80/20 split for validation
-        n = len(X_num)
-        es_split = int(n * 0.8)
+        groups = self._normalize_groups(train_groups, len(X_num))
+        es_split = self._group_boundary(groups, 0.8)
         dtrain = xgb.DMatrix(X_num.iloc[:es_split], label=y.iloc[:es_split])
         dvalid = xgb.DMatrix(X_num.iloc[es_split:], y.iloc[es_split:])
 
@@ -878,7 +977,7 @@ class StackedEnsemble:
             {
                 **xgboost_params(),
                 "objective": "binary:logistic",
-                "eval_metric": "auc",
+                "eval_metric": "logloss",
                 "max_depth": max_depth,
                 "learning_rate": lr,
                 "colsample_bytree": col_sample,
@@ -900,6 +999,8 @@ class StackedEnsemble:
         X_va: pd.DataFrame,
         nt: int,
         params: dict[str, Any] | None = None,
+        *,
+        train_groups: pd.Series | None = None,
     ) -> np.ndarray:
         from catboost import CatBoostClassifier
 
@@ -911,8 +1012,8 @@ class StackedEnsemble:
         rsm = params["cat_rsm"] if params else 1.0
 
         # K-fold train部を80/20に分割 (D-05)
-        n_tr = len(X_tr_num)
-        es_split = int(n_tr * 0.8)
+        groups = self._normalize_groups(train_groups, len(X_tr_num))
+        es_split = self._group_boundary(groups, 0.8)
 
         m = CatBoostClassifier(
             **catboost_params(),
@@ -923,7 +1024,7 @@ class StackedEnsemble:
             thread_count=nt,
             verbose=0,
             early_stopping_rounds=100,
-            eval_metric="AUC",
+            eval_metric="Logloss",
         )
         m.fit(
             X_tr_num.iloc[:es_split],
@@ -938,6 +1039,8 @@ class StackedEnsemble:
         y: pd.Series,
         nt: int,
         params: dict[str, Any] | None = None,
+        *,
+        train_groups: pd.Series | None = None,
     ) -> Any:
         from catboost import CatBoostClassifier
 
@@ -948,8 +1051,8 @@ class StackedEnsemble:
         rsm = params["cat_rsm"] if params else 1.0
 
         # 80/20 split for validation
-        n = len(X_num)
-        es_split = int(n * 0.8)
+        groups = self._normalize_groups(train_groups, len(X_num))
+        es_split = self._group_boundary(groups, 0.8)
 
         m = CatBoostClassifier(
             **catboost_params(),
@@ -960,7 +1063,7 @@ class StackedEnsemble:
             thread_count=nt,
             verbose=0,
             early_stopping_rounds=100,
-            eval_metric="AUC",
+            eval_metric="Logloss",
         )
         m.fit(
             X_num.iloc[:es_split],

@@ -914,7 +914,8 @@ class TrainingPipelineV5:
         win_2s = WinTwoStageModel()
         # PITリーク防止: WinTwoStageModel 学習前にソート
         if "race_date" in df_oof.columns:
-            df_oof = df_oof.sort_values("race_date").reset_index(drop=True)
+            sort_cols = [col for col in ["race_date", "race_id", "umaban"] if col in df_oof.columns]
+            df_oof = df_oof.sort_values(sort_cols).reset_index(drop=True)
         if use_ensemble:
             from models.stacked_ensemble import StackedEnsemble
 
@@ -926,7 +927,7 @@ class TrainingPipelineV5:
                 ]
                 features = features.drop(columns=[c for c in _const_cols if c in features.columns])
                 y = (df_oof["kakuteijyuni"] == 1).astype(int)
-                split = int(len(features) * 0.8)
+                split = StackedEnsemble.race_group_split_index(df_oof["race_id"])
                 _cat_cols = [c for c in ["distance_bin", "grade_code"] if c in features.columns]
                 ensemble = StackedEnsemble(cat_cols=_cat_cols)
                 ensemble.train(
@@ -935,6 +936,8 @@ class TrainingPipelineV5:
                     features.iloc[split:],
                     y.iloc[split:],
                     num_threads=num_threads,
+                    train_race_ids=df_oof["race_id"].iloc[:split],
+                    valid_race_ids=df_oof["race_id"].iloc[split:],
                 )
                 win_2s.hit_model = ensemble
         else:
@@ -1042,7 +1045,7 @@ class TrainingPipelineV5:
                         columns=[c for c in _const_cols if c in features.columns]
                     )
                     y = (df_oof["kakuteijyuni"] <= 3).astype(int)
-                    split = int(len(features) * 0.8)
+                    split = StackedEnsemble.race_group_split_index(df_oof["race_id"])
                     _place_cat_cols = [
                         c for c in ["distance_bin", "grade_code"] if c in features.columns
                     ]
@@ -1053,6 +1056,8 @@ class TrainingPipelineV5:
                         features.iloc[split:],
                         y.iloc[split:],
                         num_threads=num_threads,
+                        train_race_ids=df_oof["race_id"].iloc[:split],
+                        valid_race_ids=df_oof["race_id"].iloc[split:],
                     )
                     place_2s.hit_model = ensemble_place
                     # バリデーション予測を保存 (Benter combination + isotonic fitting 用)

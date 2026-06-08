@@ -357,10 +357,69 @@ class TestOptunaTuning:
             dvalid=cached_valid,
         )
 
-        assert score == 1.0
+        assert score == 0.99
         mock_dmatrix.assert_not_called()
         assert mock_xgb_train.call_args.args[1] is cached_train
         assert mock_model.predict.call_args.args[0] is cached_valid
+
+    def test_race_group_split_does_not_split_race(self):
+        """時系列分割位置が同一レースの途中に入らない。"""
+        race_ids = pd.Series(["r1"] * 3 + ["r2"] * 2 + ["r3"] * 4 + ["r4"] * 2)
+
+        split = StackedEnsemble.race_group_split_index(race_ids, ratio=0.5)
+
+        assert split == 5
+        assert race_ids.iloc[:split].nunique() == 2
+        assert set(race_ids.iloc[:split]).isdisjoint(set(race_ids.iloc[split:]))
+
+    def test_race_group_split_rejects_noncontiguous_races(self):
+        """同一レースが離れた位置にある入力を黙って分割しない。"""
+        race_ids = pd.Series(["r1", "r2", "r1", "r2"])
+
+        with np.testing.assert_raises_regex(ValueError, "contiguous"):
+            StackedEnsemble.race_group_split_index(race_ids)
+
+    def test_optuna_validation_is_disjoint_from_oof_validation(self):
+        """Optuna専用検証レースがスタッキングOOF検証に混入しない。"""
+        race_ids = pd.Series(np.repeat([f"r{i:02d}" for i in range(20)], 3))
+        groups = StackedEnsemble._normalize_groups(race_ids, len(race_ids))
+        first_train_idx, _ = StackedEnsemble._expanding_group_splits(groups, n_folds=3)[0]
+        tune_groups = groups.iloc[first_train_idx].reset_index(drop=True)
+        tune_split = StackedEnsemble._group_boundary(tune_groups, 0.8)
+        tune_valid_idx = first_train_idx[tune_split:]
+        oof_valid_indices = np.concatenate(
+            [
+                valid_idx
+                for _, valid_idx in StackedEnsemble._expanding_group_splits(
+                    groups,
+                    n_folds=3,
+                )
+            ]
+        )
+
+        assert set(tune_valid_idx).isdisjoint(set(oof_valid_indices))
+
+    def test_predict_xgb_uses_best_iteration(self):
+        """XGBoost予測はearly stoppingの最良反復までに限定する。"""
+        model = MagicMock()
+        model.best_iteration = 17
+        model.predict.return_value = np.array([0.4, 0.6])
+        data = MagicMock()
+
+        result = StackedEnsemble._predict_xgb_best(model, data)
+
+        assert result.tolist() == [0.4, 0.6]
+        model.predict.assert_called_once_with(data, iteration_range=(0, 18))
+
+    def test_probability_objective_handles_single_class(self):
+        """単一クラスの短い検証期間でもOptuna目的値が有限になる。"""
+        y = pd.Series([0, 0, 0])
+        preds = np.array([0.1, 0.2, 0.3])
+
+        score = StackedEnsemble._probability_objective(y, preds)
+
+        assert np.isfinite(score)
+        assert score < 0.5
 
     @patch("catboost.CatBoostClassifier")
     def test_cat_early_stopping_in_fold(self, mock_cat_cls):
