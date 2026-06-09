@@ -1192,6 +1192,7 @@ class TrainingPipelineV5:
 
         # Phase 40: Race-Level Ranker (RNK-01/02/03, shadow mode per D-16)
         win_race_level_ranker: RaceLevelRanker | None = None
+        ranker_train_df: pd.DataFrame = pd.DataFrame()  # preserved for deploy validation
         if oof_cal_df is not None and len(oof_cal_df) >= 500:
             from investment.feature_frame import InvestmentFeatureFrameBuilder
             from models.race_level_ranker import RaceLevelRanker
@@ -1213,6 +1214,8 @@ class TrainingPipelineV5:
                 # Step 2: Train ranker on joined data
                 win_race_level_ranker = RaceLevelRanker()
                 win_race_level_ranker.train(ranker_train_df)
+                # Score with production ranker → investment_score on ranker_train_df
+                ranker_train_df = win_race_level_ranker.score(ranker_train_df)
 
             logger.info(
                 "RaceLevelRanker trained for %s: is_trained=%s summary=%s",
@@ -1221,7 +1224,14 @@ class TrainingPipelineV5:
                 win_race_level_ranker.training_summary,
             )
         else:
-            logger.info("OOF data insufficient for RaceLevelRanker, skipping")
+            n_oof = len(oof_cal_df) if oof_cal_df is not None else 0
+            logger.info(
+                "OOF data insufficient for RaceLevelRanker on %s "
+                "(n_oof=%d, need >= 500), skipping. "
+                "Check that generate_win_oof_predictions produced data.",
+                surface,
+                n_oof,
+            )
         place_ev_corrector: PlaceEVCorrectionModel | None = None
         if betting_target != "win":
             with TimingContext(f"{surface}/place_ev_correction"):
@@ -1350,6 +1360,37 @@ class TrainingPipelineV5:
                 win_selection_policy.training_summary,
             )
 
+        # Stage 3: OOF deployment validation (RNK-DEPLOY).
+        # Moved here from ranker block because we need win_market_selection_score
+        # from WinSelectionPolicy.apply() as the operational baseline.
+        # The validation frame merges the baseline score into ranker_train_df
+        # (which holds all IFF features) so walk-forward OOF can compare
+        # ranker investment_score vs operational baseline per fold.
+        if (
+            win_race_level_ranker is not None
+            and win_race_level_ranker.is_trained
+            and not ranker_train_df.empty
+            and not wsg_train_df.empty
+        ):
+            with TimingContext(f"{surface}/ranker_deploy_validation"):
+                _wsg_score_cols = ["race_id", "umaban", "win_market_selection_score"]
+                _wsg_score_df = wsg_train_df[_wsg_score_cols].drop_duplicates(
+                    subset=["race_id", "umaban"],
+                )
+                deploy_val_df = ranker_train_df.merge(
+                    _wsg_score_df,
+                    on=["race_id", "umaban"],
+                    how="inner",
+                )
+                win_race_level_ranker.validate_oof_deployment(deploy_val_df)
+
+            logger.info(
+                "RaceLevelRanker deployment for %s: deployed=%s oof_validation=%s",
+                surface,
+                list(win_race_level_ranker.deployed_surfaces),
+                win_race_level_ranker.training_summary.get(f"{surface}_oof_validation"),
+            )
+
         with TimingContext(f"{surface}/win_profit_selector_train"):
             win_profit_selector = WinProfitSelector()
             win_profit_selector.train(wsg_train_df)
@@ -1362,14 +1403,56 @@ class TrainingPipelineV5:
             )
 
         # --- WinTop1OddsReranker (高オッズ暴走抑制リランカー) ---
+        # When ranker is deployed, create active_win_selection_score on
+        # wsg_train_df so the reranker evaluates cap using the ranker's
+        # composite investment_score instead of the raw policy score.
+        reranker_score_col = "win_market_selection_score"
+        if (
+            win_race_level_ranker is not None
+            and win_race_level_ranker.is_trained
+            and win_race_level_ranker.deployed_surfaces
+            and not ranker_train_df.empty
+        ):
+            with TimingContext(f"{surface}/ranker_active_score"):
+                _inv_cols = ["race_id", "umaban", "investment_score"]
+                _inv_df = ranker_train_df[_inv_cols].drop_duplicates(
+                    subset=["race_id", "umaban"],
+                )
+                wsg_train_df = wsg_train_df.merge(
+                    _inv_df,
+                    on=["race_id", "umaban"],
+                    how="left",
+                )
+                _base_score = pd.to_numeric(
+                    wsg_train_df["win_market_selection_score"],
+                    errors="coerce",
+                )
+                _inv_score = pd.to_numeric(
+                    wsg_train_df["investment_score"],
+                    errors="coerce",
+                )
+                wsg_train_df["active_win_selection_score"] = _inv_score.fillna(
+                    _base_score,
+                )
+                reranker_score_col = "active_win_selection_score"
+
+            logger.info(
+                "RaceLevelRanker active score for %s: score_col=%s",
+                surface,
+                reranker_score_col,
+            )
+
         with TimingContext(f"{surface}/win_top1_odds_reranker_train"):
-            win_top1_odds_reranker = WinTop1OddsReranker()
+            win_top1_odds_reranker = WinTop1OddsReranker(
+                score_col=reranker_score_col,
+            )
             win_top1_odds_reranker.train(wsg_train_df)
             logger.info(
-                "WinTop1OddsReranker trained for %s: cap=%s trained=%s",
+                "WinTop1OddsReranker trained for %s: cap=%s trained=%s score_col=%s",
                 surface,
                 win_top1_odds_reranker.selected_cap,
                 win_top1_odds_reranker.is_trained,
+                win_top1_odds_reranker.score_col,
             )
 
         # Phase 39: WinSegmentCalibrator removed — segment conditioning now in

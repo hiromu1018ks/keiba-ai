@@ -43,6 +43,20 @@ _SURFACE_NAME_MAP: dict[object, str] = {
 }
 
 
+def _resolve_payout_odds(row: pd.Series) -> float:
+    """Resolve payout odds for evaluation: confirmed_odds if valid, else tanodds.
+
+    confirmed_odds / tanodds are evaluation-only; never used as model features.
+    Shared by ranker and baseline top1 ROI calculation in
+    validate_oof_deployment.
+    """
+    confirmed = pd.to_numeric(row.get("confirmed_odds", pd.NA), errors="coerce")
+    if pd.notna(confirmed):
+        return float(confirmed)
+    tan = pd.to_numeric(row.get("tanodds", pd.NA), errors="coerce")
+    return float(tan) if pd.notna(tan) else float("nan")
+
+
 @dataclass
 class RaceLevelRanker:
     """Learned ranker combining relevance and value Ridge models per surface.
@@ -66,8 +80,19 @@ class RaceLevelRanker:
     _trained: bool = False
     training_summary: dict[str, Any] = field(default_factory=dict)
 
+    # Stage 3: Per-surface OOF deployment validation (RNK-DEPLOY).
+    # Only surfaces in this set have their top1 override applied at inference.
+    _deployed_surfaces: set[str] = field(default_factory=set)
+
     # D-06: Alpha grid for regularization strength
     ALPHA_GRID: ClassVar[list[float]] = [0.03, 0.1, 0.3, 1.0, 3.0, 10.0]
+
+    # Deployment criteria (named constants for explainability).
+    # All conditions must be satisfied for a surface to be deployed.
+    DEPLOY_MIN_HIT_RATE_IMPROVEMENT: ClassVar[float] = 0.005  # >=0.5pp hit rate
+    DEPLOY_MIN_ROI_IMPROVEMENT: ClassVar[float] = -0.02  # ROI regresses <= 2pp
+    DEPLOY_MIN_NDCG_IMPROVEMENT: ClassVar[float] = 0.000  # NDCG@3 must not regress
+    DEPLOY_FOLD_STABILITY_MARGIN: ClassVar[float] = -0.03  # per-fold hit >= -3pp
 
     # D-23: Relevance scorer features (canonical IFF names, verified against schema_registry)
     RELEVANCE_FEATURES: ClassVar[list[str]] = [
@@ -113,8 +138,34 @@ class RaceLevelRanker:
 
     @property
     def is_trained(self) -> bool:
-        """Shadow mode: True only when trained and primary model exists."""
-        return self._trained and self.relevance_scorer_turf is not None
+        """True when trained and at least one surface scorer exists.
+
+        The pipeline creates a separate RaceLevelRanker per surface
+        (turf/dirt SubmodelSet), each trained on single-surface data.
+        The old check (relevance_scorer_turf only) caused dirt rankers to
+        report is_trained=False, preventing save and deployment.
+        """
+        return self._trained and any(
+            s is not None
+            for s in (
+                self.relevance_scorer_turf,
+                self.relevance_scorer_dirt,
+                self.value_scorer_turf,
+                self.value_scorer_dirt,
+            )
+        )
+
+    @property
+    def deployed_surfaces(self) -> frozenset[str]:
+        """Set of surfaces where the ranker is OOF-validated and deployed."""
+        return frozenset(self._deployed_surfaces)
+
+    def is_surface_deployed(self, surface: object) -> bool:
+        """Check if ranker is OOF-validated and deployed for the given surface."""
+        surface_name = _SURFACE_NAME_MAP.get(surface)
+        if surface_name is None:
+            surface_name = str(surface)
+        return surface_name in self._deployed_surfaces
 
     # ------------------------------------------------------------------
     # Target construction
@@ -208,9 +259,9 @@ class RaceLevelRanker:
 
         # Derive if_odds_rank from if_odds_log groupby rank
         if "if_odds_rank" not in df_work.columns and "if_odds_log" in df_work.columns:
-            df_work["if_odds_rank"] = df_work.groupby("race_id", observed=True)[
-                "if_odds_log"
-            ].rank(pct=True, method="average")
+            df_work["if_odds_rank"] = df_work.groupby("race_id", observed=True)["if_odds_log"].rank(
+                pct=True, method="average"
+            )
 
         # Derive if_abs_logit_gap from if_logit_gap
         if "if_abs_logit_gap" not in df_work.columns and "if_logit_gap" in df_work.columns:
@@ -251,7 +302,9 @@ class RaceLevelRanker:
     def _race_pct_rank(self, values: pd.Series, race_id: pd.Series) -> pd.Series:
         """D-27: Race-level robust percentile rank with deterministic tie handling."""
         return values.groupby(race_id, observed=True).rank(
-            pct=True, method="average", ascending=True,
+            pct=True,
+            method="average",
+            ascending=True,
         )
 
     # ------------------------------------------------------------------
@@ -296,7 +349,8 @@ class RaceLevelRanker:
             if len(df_surf) < 20:
                 logger.warning(
                     "Insufficient data for %s (%d rows), skipping",
-                    surface_name, len(df_surf),
+                    surface_name,
+                    len(df_surf),
                 )
                 continue
 
@@ -305,7 +359,10 @@ class RaceLevelRanker:
             rel_y = self._compute_relevance_target(df_surf["kakuteijyuni"])
 
             best_alpha_rel = self._select_alpha_relevance(
-                df_surf, rel_X, rel_y, n_splits,
+                df_surf,
+                rel_X,
+                rel_y,
+                n_splits,
             )
 
             ridge_rel = Ridge(alpha=best_alpha_rel)
@@ -321,7 +378,10 @@ class RaceLevelRanker:
             val_y = self._compute_value_target(df_surf)
 
             best_alpha_val = self._select_alpha_value(
-                df_surf, val_X, val_y, n_splits,
+                df_surf,
+                val_X,
+                val_y,
+                n_splits,
             )
 
             ridge_val = Ridge(alpha=best_alpha_val)
@@ -334,22 +394,342 @@ class RaceLevelRanker:
 
             # --- D-11 diagnostics ---
             self._compute_diagnostics(
-                df_surf, surface_name, ridge_rel, ridge_val,
-                rel_X, rel_y, val_X, val_y,
+                df_surf,
+                surface_name,
+                ridge_rel,
+                ridge_val,
+                rel_X,
+                rel_y,
+                val_X,
+                val_y,
             )
 
         self._trained = True
         self.training_summary["deployment_status"] = "shadow_only"
         self.training_summary["component_names"] = [
-            "relevance_score", "value_score",
-            "relevance_score_pct", "value_score_pct",
-            "calibrated_log_ev_pct", "uncertainty_penalty_pct",
+            "relevance_score",
+            "value_score",
+            "relevance_score_pct",
+            "value_score_pct",
+            "calibrated_log_ev_pct",
+            "uncertainty_penalty_pct",
             "investment_score",
         ]
         self.training_summary["trained"] = True
         self.training_summary["n_samples"] = len(df)
 
         return self
+
+    # ------------------------------------------------------------------
+    # OOF deployment validation (Stage 3: RNK-DEPLOY)
+    # ------------------------------------------------------------------
+
+    def validate_oof_deployment(
+        self,
+        df: pd.DataFrame,
+        *,
+        n_splits: int = 5,
+        baseline_col: str = "win_market_selection_score",
+        ranker_col: str = "investment_score",
+    ) -> None:
+        """Evaluate ranker deployment via walk-forward OOF comparison.
+
+        For each surface present in *df*:
+        1. Walk-forward split into folds.
+        2. Train a fresh ranker on each fold's train portion.
+        3. Score the validation portion; compute per-race top1 for
+           both ranker (highest *ranker_col*) and baseline
+           (highest *baseline_col* -- the operational score after
+           WinSelectionPolicy.apply).
+        4. Evaluate: top1 hit rate, top1 ROI, NDCG@3.
+        5. Deploy the surface only when ALL criteria pass:
+           - hit_rate_improvement >= DEPLOY_MIN_HIT_RATE_IMPROVEMENT
+           - roi_improvement >= DEPLOY_MIN_ROI_IMPROVEMENT
+           - ndcg_improvement >= DEPLOY_MIN_NDCG_IMPROVEMENT
+           - every fold's hit-rate improvement >= DEPLOY_FOLD_STABILITY_MARGIN
+
+        Does **not** modify the trained model's Ridge weights or ``_trained``
+        flag.  Only updates ``_deployed_surfaces`` and ``training_summary``.
+
+        Future information safety: ``kakuteijyuni`` and ``tanodds`` are used
+        only for evaluation (hit rate / ROI), never as features.  The
+        ranker's own IFF features are OOF-safe via walk-forward; the
+        baseline *baseline_col* was produced by WinSelectionPolicy on an
+        OOF prediction frame.
+        """
+        df = df.copy()
+
+        if "if_surface" not in df.columns:
+            logger.warning("if_surface missing, OOF deployment validation skipped")
+            return
+        if baseline_col not in df.columns:
+            logger.warning(
+                "Baseline column '%s' missing, OOF deployment validation skipped",
+                baseline_col,
+            )
+            return
+
+        for surface_val in df["surface"].dropna().unique():
+            surface_name = _SURFACE_NAME_MAP.get(surface_val)
+            if surface_name is None:
+                logger.warning(
+                    "Unknown surface %r in OOF validation, skipping",
+                    surface_val,
+                )
+                continue
+
+            mask = df["surface"] == surface_val
+            df_surf = df.loc[mask].reset_index(drop=True)
+
+            if len(df_surf) < 100:
+                logger.info(
+                    "OOF validation skipped for %s: insufficient data (%d < 100)",
+                    surface_name,
+                    len(df_surf),
+                )
+                continue
+
+            splits = _walk_forward_race_splits(df_surf, n_splits=n_splits)
+            if len(splits) < 2:
+                logger.info(
+                    "OOF validation skipped for %s: insufficient folds (%d < 2)",
+                    surface_name,
+                    len(splits),
+                )
+                continue
+
+            # Accumulate across folds
+            total_ranker_hits = 0
+            total_baseline_hits = 0
+            total_races = 0
+            total_ranker_roi = 0.0
+            total_baseline_roi = 0.0
+            ranker_ndcg_sum = 0.0
+            baseline_ndcg_sum = 0.0
+            fold_metrics: list[dict[str, float]] = []
+
+            for train_idx, val_idx in splits:
+                df_train = df_surf.iloc[train_idx].copy()
+                df_val = df_surf.iloc[val_idx].copy()
+
+                if len(df_train) < 20:
+                    continue
+
+                # Train a fresh ranker on this fold's train data
+                fold_ranker = RaceLevelRanker()
+                fold_ranker.train(df_train)
+
+                ridge_rel = getattr(
+                    fold_ranker,
+                    f"relevance_scorer_{surface_name}",
+                    None,
+                )
+                ridge_val = getattr(
+                    fold_ranker,
+                    f"value_scorer_{surface_name}",
+                    None,
+                )
+                if ridge_rel is None or ridge_val is None:
+                    continue
+
+                df_val = fold_ranker.score(df_val)
+
+                if ranker_col not in df_val.columns:
+                    continue
+
+                f_ranker_hits = 0
+                f_baseline_hits = 0
+                f_races = 0
+                f_ranker_roi = 0.0
+                f_baseline_roi = 0.0
+                f_ranker_ndcg = 0.0
+                f_baseline_ndcg = 0.0
+
+                for rid_val in df_val["race_id"].unique():
+                    race_mask = df_val["race_id"] == rid_val
+                    race_df = df_val.loc[race_mask]
+                    if len(race_df) < 2:
+                        continue
+                    winner_mask = race_df["kakuteijyuni"] == 1
+                    if not winner_mask.any():
+                        continue
+
+                    f_races += 1
+                    relevance = (1.0 / race_df["kakuteijyuni"].clip(lower=1)).values.astype(float)
+
+                    # --- Baseline top1 ---
+                    bl_scores = pd.to_numeric(
+                        race_df[baseline_col],
+                        errors="coerce",
+                    ).fillna(0.0)
+                    bl_top1_idx = bl_scores.idxmax()
+                    bl_hit = bool(winner_mask.loc[bl_top1_idx])
+                    if bl_hit:
+                        f_baseline_hits += 1
+                        bl_odds = _resolve_payout_odds(
+                            race_df.loc[bl_top1_idx],
+                        )
+                        if pd.notna(bl_odds):
+                            f_baseline_roi += bl_odds
+                    f_baseline_ndcg += self._ndcg_at_k(
+                        bl_scores.values,
+                        relevance,
+                    )
+
+                    # --- Ranker top1 ---
+                    rk_scores = pd.to_numeric(
+                        race_df[ranker_col],
+                        errors="coerce",
+                    ).fillna(-np.inf)
+                    rk_top1_idx = rk_scores.idxmax()
+                    rk_hit = bool(winner_mask.loc[rk_top1_idx])
+                    if rk_hit:
+                        f_ranker_hits += 1
+                        rk_odds = _resolve_payout_odds(
+                            race_df.loc[rk_top1_idx],
+                        )
+                        if pd.notna(rk_odds):
+                            f_ranker_roi += rk_odds
+                    f_ranker_ndcg += self._ndcg_at_k(
+                        rk_scores.values,
+                        relevance,
+                    )
+
+                if f_races > 0:
+                    total_ranker_hits += f_ranker_hits
+                    total_baseline_hits += f_baseline_hits
+                    total_races += f_races
+                    total_ranker_roi += f_ranker_roi
+                    total_baseline_roi += f_baseline_roi
+                    ranker_ndcg_sum += f_ranker_ndcg
+                    baseline_ndcg_sum += f_baseline_ndcg
+                    fold_metrics.append(
+                        {
+                            "hit_rate": f_ranker_hits / f_races - f_baseline_hits / f_races,
+                            "roi": (f_ranker_roi / f_races) - (f_baseline_roi / f_races),
+                            "ndcg": (f_ranker_ndcg / f_races) - (f_baseline_ndcg / f_races),
+                        },
+                    )
+
+            if total_races < 10:
+                logger.info(
+                    "OOF validation skipped for %s: too few evaluable races (%d < 10)",
+                    surface_name,
+                    total_races,
+                )
+                continue
+
+            ranker_hit_rate = total_ranker_hits / total_races
+            baseline_hit_rate = total_baseline_hits / total_races
+            hit_improvement = ranker_hit_rate - baseline_hit_rate
+
+            ranker_roi = total_ranker_roi / total_races
+            baseline_roi = total_baseline_roi / total_races
+            roi_improvement = ranker_roi - baseline_roi
+
+            ranker_ndcg = ranker_ndcg_sum / total_races
+            baseline_ndcg = baseline_ndcg_sum / total_races
+            ndcg_improvement = ranker_ndcg - baseline_ndcg
+
+            mean_fold_hit = (
+                float(np.mean([f["hit_rate"] for f in fold_metrics])) if fold_metrics else 0.0
+            )
+            min_fold_hit = min(f["hit_rate"] for f in fold_metrics) if fold_metrics else 0.0
+
+            self.training_summary[f"{surface_name}_oof_validation"] = {
+                "ranker_top1_hit_rate": round(ranker_hit_rate, 6),
+                "baseline_top1_hit_rate": round(baseline_hit_rate, 6),
+                "hit_rate_improvement": round(hit_improvement, 6),
+                "ranker_top1_roi": round(ranker_roi, 6),
+                "baseline_top1_roi": round(baseline_roi, 6),
+                "roi_improvement": round(roi_improvement, 6),
+                "ranker_ndcg_at_3": round(ranker_ndcg, 6),
+                "baseline_ndcg_at_3": round(baseline_ndcg, 6),
+                "ndcg_improvement": round(ndcg_improvement, 6),
+                "mean_fold_hit_improvement": round(mean_fold_hit, 6),
+                "min_fold_hit_improvement": round(min_fold_hit, 6),
+                "n_folds_evaluated": len(fold_metrics),
+                "total_races": total_races,
+            }
+
+            # --- Deploy decision ---
+            all_folds_ok = all(
+                f["hit_rate"] >= self.DEPLOY_FOLD_STABILITY_MARGIN for f in fold_metrics
+            )
+            conditions_met = (
+                hit_improvement >= self.DEPLOY_MIN_HIT_RATE_IMPROVEMENT
+                and roi_improvement >= self.DEPLOY_MIN_ROI_IMPROVEMENT
+                and ndcg_improvement >= self.DEPLOY_MIN_NDCG_IMPROVEMENT
+                and all_folds_ok
+            )
+
+            if conditions_met:
+                self._deployed_surfaces.add(surface_name)
+                logger.info(
+                    "RaceLevelRanker DEPLOYED for %s: "
+                    "hit_rate: ranker=%.4f baseline=%.4f (%+.4f), "
+                    "roi: ranker=%.4f baseline=%.4f (%+.4f), "
+                    "ndcg@3: ranker=%.4f baseline=%.4f (%+.4f), "
+                    "(%d folds, %d races)",
+                    surface_name,
+                    ranker_hit_rate,
+                    baseline_hit_rate,
+                    hit_improvement,
+                    ranker_roi,
+                    baseline_roi,
+                    roi_improvement,
+                    ranker_ndcg,
+                    baseline_ndcg,
+                    ndcg_improvement,
+                    len(fold_metrics),
+                    total_races,
+                )
+            else:
+                reasons: list[str] = []
+                if hit_improvement < self.DEPLOY_MIN_HIT_RATE_IMPROVEMENT:
+                    reasons.append(
+                        f"hit_rate_imp={hit_improvement:.4f}<{self.DEPLOY_MIN_HIT_RATE_IMPROVEMENT}"
+                    )
+                if roi_improvement < self.DEPLOY_MIN_ROI_IMPROVEMENT:
+                    reasons.append(
+                        f"roi_imp={roi_improvement:.4f}<{self.DEPLOY_MIN_ROI_IMPROVEMENT}"
+                    )
+                if ndcg_improvement < self.DEPLOY_MIN_NDCG_IMPROVEMENT:
+                    reasons.append(
+                        f"ndcg_imp={ndcg_improvement:.4f}<{self.DEPLOY_MIN_NDCG_IMPROVEMENT}"
+                    )
+                if not all_folds_ok:
+                    reasons.append(
+                        f"min_fold_hit={min_fold_hit:.4f}<{self.DEPLOY_FOLD_STABILITY_MARGIN}"
+                    )
+                logger.info(
+                    "RaceLevelRanker NOT deployed for %s: %s (%d folds, %d races)",
+                    surface_name,
+                    "; ".join(reasons),
+                    len(fold_metrics),
+                    total_races,
+                )
+
+    @staticmethod
+    def _ndcg_at_k(scores: np.ndarray, relevance: np.ndarray, k: int = 3) -> float:
+        """Compute NDCG@k for a single race.
+
+        *relevance*: 1 / kakuteijyuni (winner=1.0, 2nd=0.5, …).
+        Horses are ranked by *scores* descending; ideal ranking is by
+        relevance descending.
+        """
+        n = len(scores)
+        if n == 0:
+            return 0.0
+        k = min(k, n)
+        order = np.argsort(-scores)
+        sorted_rel = relevance[order][:k]
+        positions = np.arange(1, k + 1, dtype=float)
+        dcg = float(np.sum(sorted_rel / np.log2(positions + 1)))
+        ideal_order = np.argsort(-relevance)
+        ideal_rel = relevance[ideal_order][:k]
+        idcg = float(np.sum(ideal_rel / np.log2(positions + 1)))
+        return dcg / idcg if idcg > 0 else 0.0
 
     def _select_alpha_relevance(
         self,
@@ -469,7 +849,8 @@ class RaceLevelRanker:
 
         # Rank by relevance_score within each race (descending = best first)
         df_diag["_rel_rank"] = df_diag.groupby("race_id", observed=True)["_rel_score"].rank(
-            ascending=False, method="first",
+            ascending=False,
+            method="first",
         )
 
         # top1_win_rate: fraction of races where ranker top-1 horse actually won
@@ -551,7 +932,8 @@ class RaceLevelRanker:
             if ridge_rel is None or ridge_val is None:
                 logger.warning(
                     "No %s models available, skipping scoring for %d rows",
-                    surface_name, mask.sum(),
+                    surface_name,
+                    mask.sum(),
                 )
                 continue
 
@@ -580,16 +962,20 @@ class RaceLevelRanker:
 
         # D-27: Race-level robust percentile ranks
         df["relevance_score_pct"] = self._race_pct_rank(
-            df["relevance_score"].fillna(0.0), df["race_id"],
+            df["relevance_score"].fillna(0.0),
+            df["race_id"],
         )
         df["value_score_pct"] = self._race_pct_rank(
-            df["value_score"].fillna(0.0), df["race_id"],
+            df["value_score"].fillna(0.0),
+            df["race_id"],
         )
         df["calibrated_log_ev_pct"] = self._race_pct_rank(
-            calibrated_log_ev.fillna(0.0), df["race_id"],
+            calibrated_log_ev.fillna(0.0),
+            df["race_id"],
         )
         df["uncertainty_penalty_pct"] = self._race_pct_rank(
-            uncertainty, df["race_id"],
+            uncertainty,
+            df["race_id"],
         )
 
         # D-03: Fixed weight combination
@@ -619,6 +1005,7 @@ class RaceLevelRanker:
                 "value_feature_names": self.value_feature_names,
                 "training_summary": self.training_summary,
                 "_trained": self._trained,
+                "_deployed_surfaces": list(self._deployed_surfaces),
             },
             path,
         )
@@ -636,5 +1023,6 @@ class RaceLevelRanker:
             value_feature_names=list(state.get("value_feature_names", [])),
             training_summary=dict(state.get("training_summary", {})),
             _trained=bool(state.get("_trained", False)),
+            _deployed_surfaces=set(state.get("_deployed_surfaces", [])),
         )
         return obj

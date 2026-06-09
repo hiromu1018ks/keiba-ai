@@ -1959,6 +1959,133 @@ class TestGetWinCandidates:
         assert len(result) == 1
 
 
+class TestActiveWinSelectionScoreDiagnostic:
+    """active_win_selection_score and ranker_surface_deployed on prepared/diagnostic_df."""
+
+    def test_active_score_on_all_prepared_rows(self, mock_models: MagicMock) -> None:
+        """active_win_selection_score exists on win_diagnostic_df for ALL horses.
+
+        When ranker is present and investment_score is in the input,
+        the column is created on prepared (all rows) before candidate filtering.
+        win_diagnostic_df (= prepared) must contain all horses.
+        """
+        from sklearn.linear_model import Ridge
+
+        from backtest.race_predictor import RacePredictor
+        from models.race_level_ranker import RaceLevelRanker
+
+        # Minimal trained ranker (no real training needed)
+        ranker = RaceLevelRanker()
+        ranker._trained = True
+        ranker.relevance_scorer_turf = Ridge(alpha=1.0)
+        ranker._deployed_surfaces = {"turf"}
+
+        mock_models.submodels["turf"].win_race_level_ranker = ranker
+        predictor = RacePredictor(models=mock_models, betting_target="win")
+
+        # 3 horses: include investment_score (simulates ranker scoring output)
+        race_df = pd.DataFrame(
+            {
+                "race_id": ["R1"] * 3,
+                "umaban": [1, 2, 3],
+                "surface": ["turf"] * 3,
+                "win_selection_edge": [0.1, -0.1, -0.2],
+                "win_selection_ev": [1.1, 0.8, 0.7],
+                "win_selection_prob": [0.30, 0.15, 0.10],
+                "tanodds": [3.0, 8.0, 15.0],
+                "win_gate_score": [0.9, 0.5, 0.3],
+                "win_gate_pass": [True, True, True],
+                "conformal_confidence_score": [0.5, 0.3, 0.2],
+                "investment_score": [0.8, 0.3, -0.1],
+            }
+        )
+
+        result = predictor.get_win_candidates(race_df)
+        diag_df = result.attrs["win_diagnostic_df"]
+
+        # All 3 horses must have the column (not just the selected candidate)
+        assert "active_win_selection_score" in diag_df.columns
+        assert len(diag_df) == 3
+        assert diag_df["active_win_selection_score"].notna().all()
+        assert "ranker_surface_deployed" in diag_df.columns
+        assert bool(diag_df["ranker_surface_deployed"].iloc[0]) is True
+
+    def test_active_score_uses_baseline_when_not_deployed(
+        self,
+        mock_models: MagicMock,
+    ) -> None:
+        """When ranker exists but is not deployed, active score = baseline."""
+        from sklearn.linear_model import Ridge
+
+        from backtest.race_predictor import RacePredictor
+        from models.race_level_ranker import RaceLevelRanker
+
+        ranker = RaceLevelRanker()
+        ranker._trained = True
+        ranker.relevance_scorer_turf = Ridge(alpha=1.0)
+        # _deployed_surfaces empty (default) → NOT deployed
+
+        mock_models.submodels["turf"].win_race_level_ranker = ranker
+        predictor = RacePredictor(models=mock_models, betting_target="win")
+
+        race_df = pd.DataFrame(
+            {
+                "race_id": ["R1"] * 2,
+                "umaban": [1, 2],
+                "surface": ["turf"] * 2,
+                "win_selection_edge": [0.1, -0.1],
+                "win_selection_ev": [1.1, 0.8],
+                "win_selection_prob": [0.30, 0.15],
+                "tanodds": [3.0, 8.0],
+                "win_gate_score": [0.9, 0.5],
+                "win_gate_pass": [True, True],
+                "conformal_confidence_score": [0.5, 0.3],
+                "win_market_selection_score": [1.0, 0.5],
+                "investment_score": [0.8, 0.3],
+            }
+        )
+
+        result = predictor.get_win_candidates(race_df)
+        diag_df = result.attrs["win_diagnostic_df"]
+
+        assert "active_win_selection_score" in diag_df.columns
+        assert bool(diag_df["ranker_surface_deployed"].iloc[0]) is False
+        # Non-deployed: active score = win_market_selection_score
+        np.testing.assert_allclose(
+            diag_df["active_win_selection_score"].values,
+            diag_df["win_market_selection_score"].values,
+            rtol=1e-10,
+        )
+
+    def test_no_active_score_when_no_ranker(self, mock_models: MagicMock) -> None:
+        """Without ranker, active_win_selection_score and ranker_surface_deployed
+        are NOT created on diagnostic_df."""
+        from backtest.race_predictor import RacePredictor
+
+        # _make_submodel_mock sets win_race_level_ranker = None
+        predictor = RacePredictor(models=mock_models, betting_target="win")
+
+        race_df = pd.DataFrame(
+            {
+                "race_id": ["R1"] * 3,
+                "umaban": [1, 2, 3],
+                "win_selection_edge": [0.1, -0.1, -0.2],
+                "win_selection_ev": [1.1, 0.8, 0.7],
+                "win_selection_prob": [0.30, 0.15, 0.10],
+                "tanodds": [3.0, 8.0, 15.0],
+                "win_gate_score": [0.9, 0.5, 0.3],
+                "win_gate_pass": [True, True, True],
+                "conformal_confidence_score": [0.5, 0.3, 0.2],
+            }
+        )
+
+        result = predictor.get_win_candidates(race_df)
+        diag_df = result.attrs["win_diagnostic_df"]
+
+        assert "active_win_selection_score" not in diag_df.columns
+        assert "ranker_surface_deployed" not in diag_df.columns
+
+
 class TestMarketAwareWinCalibratorIntegration:
     """MarketAwareWinCalibrator integration tests in RacePredictor (CAL-04)."""
 
@@ -2550,6 +2677,399 @@ class TestRaceLevelRankerIntegration:
 
         if "baseline_ranker_agreement" in diag_df.columns:
             assert diag_df["baseline_ranker_agreement"].all()
+
+
+class TestRaceLevelRankerActiveScore:
+    """Stage 3: active_win_selection_score column creation (RNK-DEPLOY).
+
+    Verifies that get_win_candidates creates the active_win_selection_score
+    column with the correct values based on ranker deployment state.
+    No existing columns are modified; no +100 boost.
+    """
+
+    @staticmethod
+    def _make_test_df() -> pd.DataFrame:
+        """Race where ranker top1 (horse 2) differs from baseline top1 (horse 1)."""
+        return pd.DataFrame(
+            {
+                "race_id": ["R1", "R1", "R1"],
+                "umaban": [1, 2, 3],
+                "surface": ["turf", "turf", "turf"],
+                "tanodds": [6.0, 2.0, 4.0],
+                "win_selection_edge": [0.10, 0.05, 0.02],
+                "win_selection_ev": [1.10, 1.05, 1.02],
+                "win_selection_prob": [0.40, 0.25, 0.15],
+                "p_win_final": [0.40, 0.25, 0.15],
+                "investment_score": [0.50, 0.90, 0.20],
+            }
+        )
+
+    def test_active_score_uses_investment_when_deployed(
+        self,
+        mock_models: MagicMock,
+    ) -> None:
+        """Deployed ranker, no reranker → sort by active_win_selection_score."""
+        from backtest.race_predictor import RacePredictor
+        from models.race_level_ranker import RaceLevelRanker
+
+        ranker = MagicMock(spec=RaceLevelRanker)
+        ranker.is_trained = True
+        ranker.is_surface_deployed.return_value = True
+        mock_models.submodels["turf"].win_race_level_ranker = ranker
+
+        predictor = RacePredictor(models=mock_models, betting_target="win")
+        result = predictor.get_win_candidates(self._make_test_df())
+
+        assert "active_win_selection_score" in result.columns
+        assert bool(result["ranker_surface_deployed"].iloc[0]) is True
+        # Deployed ranker, no reranker: sort uses active_win_selection_score
+        # as primary key (= investment_score). Horse 2 has the highest
+        # investment_score (0.90), so it should be selected.
+        assert result.iloc[0]["umaban"] == 2
+        assert result.iloc[0]["active_win_selection_score"] == pytest.approx(0.90)
+
+    def test_active_score_uses_baseline_when_not_deployed(
+        self,
+        mock_models: MagicMock,
+    ) -> None:
+        """Non-deployed ranker → active_win_selection_score = baseline."""
+        from backtest.race_predictor import RacePredictor
+        from models.race_level_ranker import RaceLevelRanker
+
+        ranker = MagicMock(spec=RaceLevelRanker)
+        ranker.is_trained = True
+        ranker.is_surface_deployed.return_value = False
+        mock_models.submodels["turf"].win_race_level_ranker = ranker
+
+        predictor = RacePredictor(models=mock_models, betting_target="win")
+        result = predictor.get_win_candidates(self._make_test_df())
+
+        assert "active_win_selection_score" in result.columns
+        # Should equal win_market_selection_score (baseline), not investment_score
+        assert result.iloc[0]["active_win_selection_score"] != pytest.approx(0.90)
+
+    def test_no_active_score_when_ranker_none(
+        self,
+        mock_models: MagicMock,
+    ) -> None:
+        """No ranker → active_win_selection_score not created."""
+        from backtest.race_predictor import RacePredictor
+
+        predictor = RacePredictor(models=mock_models, betting_target="win")
+        result = predictor.get_win_candidates(self._make_test_df())
+
+        assert "active_win_selection_score" not in result.columns
+
+
+class TestRerankerSortKeyAndProfitSelectorBypass:
+    """Deployed ranker sort key + ProfitSelector bypass with OddsReranker."""
+
+    def test_multiple_races_deployed_ranker_no_reranker(
+        self,
+        mock_models: MagicMock,
+    ) -> None:
+        """Deployed ranker, no reranker: each race gets ranker's top1."""
+        from backtest.race_predictor import RacePredictor
+        from models.race_level_ranker import RaceLevelRanker
+
+        ranker = MagicMock(spec=RaceLevelRanker)
+        ranker.is_trained = True
+        ranker.is_surface_deployed.return_value = True
+        mock_models.submodels["turf"].win_race_level_ranker = ranker
+
+        predictor = RacePredictor(models=mock_models, betting_target="win")
+
+        # Race 1: ranker top1 is horse 3 (investment_score=0.80)
+        race1 = pd.DataFrame(
+            {
+                "race_id": ["R1", "R1", "R1"],
+                "umaban": [1, 2, 3],
+                "surface": ["turf"] * 3,
+                "tanodds": [3.0, 2.0, 5.0],
+                "win_selection_edge": [0.05, 0.03, 0.02],
+                "win_selection_ev": [1.05, 1.03, 1.02],
+                "win_selection_prob": [0.35, 0.30, 0.15],
+                "p_win_final": [0.35, 0.30, 0.15],
+                "investment_score": [0.30, 0.50, 0.80],
+            }
+        )
+        # Race 2: ranker top1 is horse 5 (investment_score=0.70)
+        race2 = pd.DataFrame(
+            {
+                "race_id": ["R2", "R2", "R2"],
+                "umaban": [4, 5, 6],
+                "surface": ["turf"] * 3,
+                "tanodds": [4.0, 8.0, 6.0],
+                "win_selection_edge": [0.10, 0.08, 0.01],
+                "win_selection_ev": [1.10, 1.08, 1.01],
+                "win_selection_prob": [0.40, 0.20, 0.10],
+                "p_win_final": [0.40, 0.20, 0.10],
+                "investment_score": [0.40, 0.70, 0.20],
+            }
+        )
+
+        result1 = predictor.get_win_candidates(race1)
+        result2 = predictor.get_win_candidates(race2)
+
+        assert len(result1) == 1
+        assert result1.iloc[0]["umaban"] == 3
+        assert bool(result1.iloc[0]["ranker_surface_deployed"]) is True
+        assert len(result2) == 1
+        assert result2.iloc[0]["umaban"] == 5
+        assert bool(result2.iloc[0]["ranker_surface_deployed"]) is True
+
+    def test_profit_selector_all_false_with_reranker(
+        self,
+        mock_models: MagicMock,
+    ) -> None:
+        """ProfitSelector rejects all, but reranker still picks 1/race."""
+        from backtest.race_predictor import RacePredictor
+        from models.win_top1_odds_reranker import WinTop1OddsReranker
+
+        # Trained reranker with cap=inf (passes through to top1 by score)
+        reranker = WinTop1OddsReranker()
+        reranker.is_trained = True
+        reranker.selected_cap = float("inf")
+        mock_models.submodels["turf"].win_top1_odds_reranker = reranker
+
+        # ProfitSelector that rejects all horses
+        profit_selector = MagicMock()
+        profit_selector.is_trained = True
+        profit_selector.max_per_race = 1
+        profit_selector.score.side_effect = lambda df: df.assign(
+            win_profit_selector_pass=False,
+            win_profit_score=df.get("win_market_selection_score", 0.0),
+            win_profit_rank=1,
+            win_profit_stake_scale=1.0,
+            win_profit_reason="profit_filtered",
+        )
+        mock_models.submodels["turf"].win_profit_selector = profit_selector
+
+        predictor = RacePredictor(models=mock_models, betting_target="win")
+        race_df = pd.DataFrame(
+            {
+                "race_id": ["R1", "R1", "R1"],
+                "umaban": [1, 2, 3],
+                "surface": ["turf", "turf", "turf"],
+                "tanodds": [3.0, 2.0, 5.0],
+                "win_selection_edge": [0.10, 0.05, 0.02],
+                "win_selection_ev": [1.10, 1.05, 1.02],
+                "win_selection_prob": [0.40, 0.25, 0.15],
+                "p_win_final": [0.40, 0.25, 0.15],
+                "win_market_selection_score": [0.30, 0.50, 0.20],
+            }
+        )
+
+        result = predictor.get_win_candidates(race_df)
+
+        # ProfitSelector rejected all but reranker still picks 1 horse
+        assert len(result) == 1
+        # Reranker with cap=inf always picks top1 by score; umaban depends on
+        # recalculated win_market_selection_score so we don't assert a fixed value.
+        assert result.iloc[0]["umaban"] in {1, 2, 3}
+        assert result.iloc[0]["reranker_switch_reason"] == "inf_cap"
+
+    def test_profit_selector_max_per_race_old_model_no_reranker(
+        self,
+        mock_models: MagicMock,
+    ) -> None:
+        """Old model (no reranker): ProfitSelector 0-N + max_per_race maintained."""
+        from backtest.race_predictor import RacePredictor
+
+        # No reranker
+        mock_models.submodels["turf"].win_top1_odds_reranker = None
+
+        # ProfitSelector rejects horse 3 only
+        profit_selector = MagicMock()
+        profit_selector.is_trained = True
+        profit_selector.max_per_race = 1
+        profit_selector.score.side_effect = lambda df: df.assign(
+            win_profit_selector_pass=[True, True, False],
+            win_profit_score=[0.30, 0.50, 0.10],
+            win_profit_rank=[2, 1, 3],
+            win_profit_stake_scale=1.0,
+            win_profit_reason="profit_selector",
+        )
+        mock_models.submodels["turf"].win_profit_selector = profit_selector
+
+        predictor = RacePredictor(models=mock_models, betting_target="win")
+        race_df = pd.DataFrame(
+            {
+                "race_id": ["R1", "R1", "R1"],
+                "umaban": [1, 2, 3],
+                "surface": ["turf", "turf", "turf"],
+                "tanodds": [3.0, 2.0, 5.0],
+                "win_selection_edge": [0.10, 0.05, 0.02],
+                "win_selection_ev": [1.10, 1.05, 1.02],
+                "win_selection_prob": [0.40, 0.25, 0.15],
+                "p_win_final": [0.40, 0.25, 0.15],
+                "win_market_selection_score": [0.30, 0.50, 0.20],
+            }
+        )
+
+        result = predictor.get_win_candidates(race_df)
+
+        # No reranker: ProfitSelector filters normally.
+        # Horse 3 excluded by profit_selector, horse 2 wins by profit_score.
+        assert len(result) == 1
+        assert result.iloc[0]["umaban"] == 2
+        # No ranker → no active_win_selection_score, no ranker diagnostic
+        assert "active_win_selection_score" not in result.columns
+        assert "ranker_surface_deployed" not in result.columns
+
+
+class TestRerankerScoreColFallback:
+    """Reranker score_col fallback logic."""
+
+    def test_train_missing_score_col_falls_back(self) -> None:
+        """train() with missing score_col falls back to win_market_selection_score."""
+        from models.win_top1_odds_reranker import WinTop1OddsReranker
+
+        reranker = WinTop1OddsReranker(score_col="nonexistent_col")
+        df = pd.DataFrame(
+            {
+                "race_id": ["R1", "R1"],
+                "umaban": [1, 2],
+                "race_date": ["2023-01-01", "2023-01-01"],
+                "kakuteijyuni": [1, 2],
+                "tanodds": [3.0, 5.0],
+                "win_market_selection_score": [0.60, 0.40],
+            }
+        )
+        reranker.train(df)
+
+        assert reranker.is_trained
+        assert reranker.training_summary.get("score_col_fallback") is not None
+        assert reranker.training_summary["score_col_fallback"]["reason"] == "column_missing"
+        assert (
+            reranker.training_summary["score_col_fallback"]["effective_score_col"]
+            == "win_market_selection_score"
+        )
+        # effective_score_col at top level is only set on full training completion;
+        # the fallback sub-dict already contains this information.
+
+    def test_train_all_nan_score_col_falls_back(self) -> None:
+        """train() with all-NaN score_col falls back."""
+        from models.win_top1_odds_reranker import WinTop1OddsReranker
+
+        reranker = WinTop1OddsReranker(score_col="all_nan_col")
+        df = pd.DataFrame(
+            {
+                "race_id": ["R1", "R1"],
+                "umaban": [1, 2],
+                "race_date": ["2023-01-01", "2023-01-01"],
+                "kakuteijyuni": [1, 2],
+                "tanodds": [3.0, 5.0],
+                "win_market_selection_score": [0.60, 0.40],
+                "all_nan_col": [np.nan, np.nan],
+            }
+        )
+        reranker.train(df)
+
+        assert reranker.is_trained
+        assert reranker.training_summary["score_col_fallback"]["reason"] == "all_nan"
+
+    def test_apply_missing_score_col_falls_back(self) -> None:
+        """apply() with missing score_col falls back and records diagnostic."""
+        from models.win_top1_odds_reranker import WinTop1OddsReranker
+
+        reranker = WinTop1OddsReranker(score_col="nonexistent_col")
+        reranker.is_trained = True
+        reranker.selected_cap = 40.0
+
+        candidates = pd.DataFrame(
+            {
+                "race_id": ["R1", "R1"],
+                "umaban": [1, 2],
+                "tanodds": [4.0, 8.0],
+                "win_market_selection_score": [0.70, 0.30],
+            }
+        )
+        result = reranker.apply(candidates)
+
+        assert len(result) == 1
+        # Horse 1 has higher baseline score (0.70)
+        assert result.iloc[0]["umaban"] == 1
+        assert result.iloc[0]["reranker_score_col_effective"] == "win_market_selection_score"
+        assert result.iloc[0]["reranker_score_fallback"] == "column_missing"
+
+    def test_apply_valid_score_col_no_fallback(self) -> None:
+        """apply() with valid score_col does not produce fallback diagnostic."""
+        from models.win_top1_odds_reranker import WinTop1OddsReranker
+
+        reranker = WinTop1OddsReranker(
+            score_col="win_market_selection_score",
+        )
+        reranker.is_trained = True
+        reranker.selected_cap = 40.0
+
+        candidates = pd.DataFrame(
+            {
+                "race_id": ["R1", "R1"],
+                "umaban": [1, 2],
+                "tanodds": [4.0, 8.0],
+                "win_market_selection_score": [0.70, 0.30],
+            }
+        )
+        result = reranker.apply(candidates)
+
+        assert len(result) == 1
+        assert result.iloc[0]["umaban"] == 1
+        assert result.iloc[0]["reranker_score_col_effective"] == "win_market_selection_score"
+        assert pd.isna(result.iloc[0]["reranker_score_fallback"])
+
+
+class TestRerankerConfirmedOddsPayout:
+    """confirmed_odds preferred over tanodds in reranker payout."""
+
+    def test_simulate_cap_confirmed_odds_preferred(self) -> None:
+        """_simulate_cap uses confirmed_odds for payout, not tanodds."""
+        from models.win_top1_odds_reranker import WinTop1OddsReranker
+
+        reranker = WinTop1OddsReranker()
+
+        # Winner has confirmed_odds=10 vs tanodds=5. If confirmed_odds is used,
+        # profit = 10 - 1 = 9, roi = (9 + 1) / 1 = 10.0.
+        # If tanodds were used, profit = 5 - 1 = 4, roi = (4 + 1) / 1 = 5.0.
+        df = pd.DataFrame(
+            {
+                "race_id": ["R1", "R1"],
+                "umaban": [1, 2],
+                "race_date": ["2023-01-01", "2023-01-01"],
+                "kakuteijyuni": [1, 2],
+                "tanodds": [5.0, 3.0],
+                "win_market_selection_score": [0.60, 0.40],
+                "confirmed_odds": [10.0, 3.0],
+            }
+        )
+
+        metrics = reranker._simulate_cap(df, float("inf"), {"R1"})
+        assert metrics["profit"] == pytest.approx(9.0)
+        assert metrics["roi"] == pytest.approx(10.0)
+
+    def test_simulate_cap_confirmed_odds_missing_tanodds_fallback(
+        self,
+    ) -> None:
+        """_simulate_cap falls back to tanodds when confirmed_odds absent."""
+        from models.win_top1_odds_reranker import WinTop1OddsReranker
+
+        reranker = WinTop1OddsReranker()
+
+        # No confirmed_odds column → uses tanodds for payout
+        df = pd.DataFrame(
+            {
+                "race_id": ["R1", "R1"],
+                "umaban": [1, 2],
+                "race_date": ["2023-01-01", "2023-01-01"],
+                "kakuteijyuni": [1, 2],
+                "tanodds": [7.0, 3.0],
+                "win_market_selection_score": [0.60, 0.40],
+            }
+        )
+
+        metrics = reranker._simulate_cap(df, float("inf"), {"R1"})
+        assert metrics["profit"] == pytest.approx(6.0)  # 7.0 - 1.0
+        assert metrics["roi"] == pytest.approx(7.0)  # (6.0 + 1.0) / 1.0
 
 
 class TestWideScoringLogOnce:
