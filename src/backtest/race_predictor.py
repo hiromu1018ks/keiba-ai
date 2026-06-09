@@ -220,20 +220,6 @@ class RacePredictor:
             return reranker
         return None
 
-    def _get_win_top1_score_blender(self, race_df: pd.DataFrame) -> Any | None:
-        """surface 別の WinTop1ScoreBlender を取得 (artifact なしなら None)."""
-        if race_df.empty or "surface" not in race_df.columns:
-            return None
-        surface_key = race_df["surface"].iloc[0]
-        submodels = getattr(self.models, "submodels", {})
-        submodel = submodels.get(surface_key)
-        if submodel is None:
-            return None
-        blender = getattr(submodel, "win_top1_score_blender", None)
-        if blender is not None and getattr(blender, "is_trained", False) is True:
-            return blender
-        return None
-
     def predict(
         self,
         race_df: pd.DataFrame,
@@ -1033,14 +1019,6 @@ class RacePredictor:
             - ev_tail_penalty_weight * ev_tail_risk
             - market_risk_penalty_weight * risk_penalty
         )
-
-        # --- WinTop1ScoreBlender: current/market score ブレンド ---
-        # win_market_selection_score を blended score で置換する。
-        # w=0 または artifact なし時は no-op。
-        score_blender = self._get_win_top1_score_blender(prepared)
-        if score_blender is not None:
-            prepared = score_blender.apply(prepared)
-
         prepared["selected_rank_by_win_market_score"] = (
             prepared["win_market_selection_score"]
             .groupby(race_key, observed=True)

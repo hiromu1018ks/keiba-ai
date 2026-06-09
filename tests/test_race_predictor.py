@@ -32,7 +32,6 @@ def _make_submodel_mock() -> MagicMock:
     sm.win_selection_gate = None
     sm.win_selection_policy = None
     sm.win_profit_selector = None
-    sm.win_top1_score_blender = None
     sm.win_race_level_ranker = None
     sm.ev_lower_threshold_turf = 1.0
     sm.ev_lower_threshold_dirt = 1.0

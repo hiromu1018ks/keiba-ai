@@ -28,7 +28,6 @@ if TYPE_CHECKING:
     from models.win_selection_gate import WinSelectionGateModel
     from models.win_selection_policy import WinSelectionPolicy
     from models.win_top1_odds_reranker import WinTop1OddsReranker
-    from models.win_top1_score_blender import WinTop1ScoreBlender
 
 
 def _surface_from_track_cd(track_cd: int) -> Surface:
@@ -266,8 +265,6 @@ class SubmodelSet:
     win_race_level_ranker: RaceLevelRanker | None = None
     # 高オッズ暴走抑制リランカー (odds cap による top-1 再順位付け)
     win_top1_odds_reranker: WinTop1OddsReranker | None = None
-    # current/market スコアブレンダー (混合比 OOF 学習)
-    win_top1_score_blender: WinTop1ScoreBlender | None = None
     # EV_lower dynamic threshold (D-01/D-02, EVF-01)
     ev_lower_threshold_turf: float = 1.0
     ev_lower_threshold_dirt: float = 1.0

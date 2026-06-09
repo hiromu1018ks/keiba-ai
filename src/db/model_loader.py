@@ -295,29 +295,6 @@ class ModelLoader:
                     except Exception:
                         logger.warning("Failed to load WinTop1OddsReranker for %s", surface)
 
-            # --- WinTop1ScoreBlender (MLflow) ---
-            win_top1_score_blender = None
-            try:
-                blender_dir = mlflow.artifacts.download_artifacts(
-                    f"runs:/{run_id}/win_top1_score_blender_{surface}"
-                )
-            except Exception:
-                try:
-                    blender_dir = self._find_artifact_dir(
-                        run_id, f"win_top1_score_blender_{surface}"
-                    )
-                except Exception:
-                    blender_dir = None
-            if blender_dir is not None:
-                blender_files = list(Path(blender_dir).glob("*.joblib"))
-                if blender_files:
-                    try:
-                        from models.win_top1_score_blender import WinTop1ScoreBlender
-
-                        win_top1_score_blender = WinTop1ScoreBlender.load(blender_files[0])
-                    except Exception:
-                        logger.warning("Failed to load WinTop1ScoreBlender for %s", surface)
-
             # PlaceAbilityModel (joblib artifact, optional — None when no artifact exists)
             pa: PlaceAbilityModel | None = None
             try:
@@ -489,7 +466,6 @@ class ModelLoader:
                 market_aware_win_calibrator=market_aware_win_calibrator,
                 win_race_level_ranker=win_race_level_ranker,
                 win_top1_odds_reranker=win_top1_odds_reranker,
-                win_top1_score_blender=win_top1_score_blender,
                 win_selection_gate=win_selection_gate,
                 win_selection_policy=win_selection_policy,
                 win_profit_selector=win_profit_selector,
@@ -862,17 +838,6 @@ class ModelLoader:
                 except Exception:
                     logger.warning("Failed to load %s, skipping", reranker_file)
 
-            # --- WinTop1ScoreBlender (local) ---
-            win_top1_score_blender = None
-            blender_file = models_dir / f"win_top1_score_blender_{surface}.joblib"
-            if blender_file.is_file():
-                try:
-                    from models.win_top1_score_blender import WinTop1ScoreBlender
-
-                    win_top1_score_blender = WinTop1ScoreBlender.load(blender_file)
-                except Exception:
-                    logger.warning("Failed to load %s, skipping", blender_file)
-
             # PlaceAbilityModel (joblib, optional — None when no artifact exists)
             pa: PlaceAbilityModel | None = None
             pa_file = models_dir / f"place_ability_{surface}.joblib"
@@ -998,7 +963,6 @@ class ModelLoader:
                 market_aware_win_calibrator=market_aware_win_calibrator,
                 win_race_level_ranker=win_race_level_ranker,
                 win_top1_odds_reranker=win_top1_odds_reranker,
-                win_top1_score_blender=win_top1_score_blender,
                 win_selection_gate=win_selection_gate,
                 win_selection_policy=win_selection_policy,
                 win_profit_selector=win_profit_selector,
