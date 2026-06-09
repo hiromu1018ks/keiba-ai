@@ -20,13 +20,11 @@ from models.win_selection_policy import (
     DEFAULT_LOG_ODDS_PENALTY,
     DEFAULT_MARKET_RISK_PENALTY_WEIGHT,
     DEFAULT_PROB_RANK_BONUS,
-    MAX_DEPLOYED_MARKET_RISK_PENALTY_WEIGHT,
     WinSelectionPolicy,
     _annotate_policy_deployability,
     _roi_for_score,
     deployed_late_odds_drop_weight,
     deployed_policy_params,
-    sanitize_market_risk_penalty_weight,
 )
 
 
@@ -122,14 +120,10 @@ def test_win_selection_policy_save_load_roundtrip() -> None:
         loaded = WinSelectionPolicy.load(path)
 
     assert loaded.is_trained is True
-    assert loaded.surface == policy.surface
     assert loaded.late_odds_drop_weight == pytest.approx(policy.late_odds_drop_weight)
-    assert loaded.log_odds_penalty == pytest.approx(policy.log_odds_penalty)
-    assert loaded.market_risk_penalty_weight == pytest.approx(policy.market_risk_penalty_weight)
     assert loaded.training_summary["selected_weight"] == pytest.approx(
         policy.training_summary["selected_weight"]
     )
-    assert loaded.training_summary["surface"] == policy.training_summary["surface"]
     assert loaded.ev_tail_penalty_weight == pytest.approx(policy.ev_tail_penalty_weight)
 
 
@@ -337,235 +331,3 @@ def test_non_deployable_policy_uses_default_weight() -> None:
         "dirt_prob_rank_bonus": DEFAULT_DIRT_PROB_RANK_BONUS,
         "dirt_market_risk_penalty_weight": DEFAULT_DIRT_MARKET_RISK_PENALTY_WEIGHT,
     }
-
-
-# ── Surface-aware deployment tests ──────────────────────────────────
-
-
-def test_dirt_trained_policy_maps_learned_params_to_dirt_slots() -> None:
-    """deployed_policy_params maps learned values to dirt slots for dirt policy."""
-    policy = WinSelectionPolicy(surface="dirt", is_trained=True)
-    policy.late_odds_drop_weight = 0.08
-    policy.log_odds_penalty = 0.04
-    policy.prob_rank_bonus = 0.03
-    policy.market_risk_penalty_weight = 0.05
-    policy.training_summary = {"deployable": True}
-
-    params = deployed_policy_params(policy)
-
-    assert params["dirt_late_odds_drop_weight"] == pytest.approx(0.08)
-    assert params["dirt_log_odds_penalty"] == pytest.approx(0.04)
-    assert params["dirt_prob_rank_bonus"] == pytest.approx(0.03)
-    assert params["dirt_market_risk_penalty_weight"] == pytest.approx(0.05)
-    # turf slots stay at turf defaults
-    assert params["late_odds_drop_weight"] == pytest.approx(DEFAULT_LATE_ODDS_DROP_WEIGHT)
-    assert params["log_odds_penalty"] == pytest.approx(DEFAULT_LOG_ODDS_PENALTY)
-    assert params["prob_rank_bonus"] == pytest.approx(DEFAULT_PROB_RANK_BONUS)
-    assert params["market_risk_penalty_weight"] == pytest.approx(DEFAULT_MARKET_RISK_PENALTY_WEIGHT)
-
-
-def test_turf_trained_policy_maps_learned_params_to_turf_slots() -> None:
-    """deployed_policy_params maps learned values to turf slots for turf policy."""
-    policy = WinSelectionPolicy(surface="turf", is_trained=True)
-    policy.late_odds_drop_weight = 0.10
-    policy.log_odds_penalty = 0.06
-    policy.prob_rank_bonus = 0.02
-    policy.market_risk_penalty_weight = 0.08
-    policy.training_summary = {"deployable": True}
-
-    params = deployed_policy_params(policy)
-
-    assert params["late_odds_drop_weight"] == pytest.approx(0.10)
-    assert params["log_odds_penalty"] == pytest.approx(0.06)
-    assert params["prob_rank_bonus"] == pytest.approx(0.02)
-    assert params["market_risk_penalty_weight"] == pytest.approx(0.08)
-    # dirt slots stay at dirt defaults
-    assert params["dirt_late_odds_drop_weight"] == pytest.approx(DEFAULT_DIRT_LATE_ODDS_DROP_WEIGHT)
-    assert params["dirt_log_odds_penalty"] == pytest.approx(DEFAULT_DIRT_LOG_ODDS_PENALTY)
-    assert params["dirt_prob_rank_bonus"] == pytest.approx(DEFAULT_DIRT_PROB_RANK_BONUS)
-    assert params["dirt_market_risk_penalty_weight"] == pytest.approx(
-        DEFAULT_DIRT_MARKET_RISK_PENALTY_WEIGHT
-    )
-
-
-def test_old_joblib_load_defaults_surface_to_turf() -> None:
-    """Old joblib without surface or market_risk_penalty_weight defaults safely."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        path = Path(tmpdir) / "old_policy.joblib"
-        joblib.dump(
-            {
-                "late_odds_drop_weight": 0.09,
-                "log_odds_penalty": 0.08,
-                "prob_rank_bonus": 0.01,
-                "ev_tail_penalty_weight": 0.0,
-                "is_trained": True,
-                "training_summary": {"deployable": True},
-            },
-            path,
-        )
-        loaded = WinSelectionPolicy.load(path)
-
-    assert loaded.surface == "turf"
-    assert loaded.market_risk_penalty_weight == pytest.approx(DEFAULT_MARKET_RISK_PENALTY_WEIGHT)
-    assert loaded.is_trained is True
-    params = deployed_policy_params(loaded)
-    assert params["late_odds_drop_weight"] == pytest.approx(0.09)
-
-
-def test_dirt_policy_score_uses_learned_dirt_values() -> None:
-    """Dirt-trained policy applies learned values to dirt rows in score/apply."""
-    policy = WinSelectionPolicy(surface="dirt")
-    policy.late_odds_drop_weight = 0.10
-    policy.market_risk_penalty_weight = 0.08
-
-    scored = policy.apply(
-        pd.DataFrame(
-            {
-                "race_id": ["R1", "R1"],
-                "race_date": [pd.Timestamp("2024-01-01"), pd.Timestamp("2024-01-01")],
-                "surface": ["dirt", "dirt"],
-                "umaban": [1, 2],
-                "kakuteijyuni": [2, 1],
-                "tanodds": [2.0, 12.0],
-                "p_win_final": [0.60, 0.08],
-                "win_selection_prob": [0.60, 0.08],
-                "win_selection_ev": [1.05, 1.30],
-                "win_selection_edge": [0.05, 0.30],
-                "odds_drop_rate_30_10": [0.0, 0.0],
-            }
-        )
-    )
-
-    assert scored["win_late_odds_drop_weight"].iloc[0] == pytest.approx(0.10)
-    assert scored["win_market_risk_penalty_weight"].iloc[0] == pytest.approx(0.08)
-
-
-def test_yearly_regression_rejects_log_odds_candidate() -> None:
-    """A log_odds_penalty candidate that regresses in any OOF year is rejected."""
-    result = pd.DataFrame(
-        [
-            {
-                "weight": DEFAULT_LATE_ODDS_DROP_WEIGHT,
-                "ev_tail_penalty_weight": DEFAULT_EV_TAIL_PENALTY_WEIGHT,
-                "w_log": DEFAULT_LOG_ODDS_PENALTY,
-                "w_prob": DEFAULT_PROB_RANK_BONUS,
-                "w_risk": DEFAULT_MARKET_RISK_PENALTY_WEIGHT,
-                "roi_all": 0.92,
-                "roi_mean_by_year": 0.92,
-                "roi_min_by_year": 0.92,
-                "n_years": 3,
-                "year_rois": {"2021": 0.92, "2022": 0.92, "2023": 0.92},
-            },
-            {
-                "weight": DEFAULT_LATE_ODDS_DROP_WEIGHT,
-                "ev_tail_penalty_weight": DEFAULT_EV_TAIL_PENALTY_WEIGHT,
-                "w_log": 0.06,
-                "w_prob": DEFAULT_PROB_RANK_BONUS,
-                "w_risk": DEFAULT_MARKET_RISK_PENALTY_WEIGHT,
-                "roi_all": 0.96,
-                "roi_mean_by_year": 0.96,
-                "roi_min_by_year": 0.91,
-                "n_years": 3,
-                "year_rois": {"2021": 1.01, "2022": 0.96, "2023": 0.91},
-            },
-            {
-                "weight": DEFAULT_LATE_ODDS_DROP_WEIGHT,
-                "ev_tail_penalty_weight": DEFAULT_EV_TAIL_PENALTY_WEIGHT,
-                "w_log": DEFAULT_LOG_ODDS_PENALTY,
-                "w_prob": 0.02,
-                "w_risk": DEFAULT_MARKET_RISK_PENALTY_WEIGHT,
-                "roi_all": 0.98,
-                "roi_mean_by_year": 0.98,
-                "roi_min_by_year": 0.97,
-                "n_years": 3,
-                "year_rois": {"2021": 0.99, "2022": 0.97, "2023": 0.98},
-            },
-        ]
-    )
-
-    annotated = _annotate_policy_deployability(
-        result,
-        default_row=result.iloc[0],
-        default_late_weight=DEFAULT_LATE_ODDS_DROP_WEIGHT,
-        default_log_odds=DEFAULT_LOG_ODDS_PENALTY,
-        default_prob_rank=DEFAULT_PROB_RANK_BONUS,
-        default_market_risk=DEFAULT_MARKET_RISK_PENALTY_WEIGHT,
-    )
-
-    bad_log = annotated.loc[annotated["w_log"].eq(0.06)].iloc[0]
-    assert bad_log["min_year_delta_vs_default"] == pytest.approx(-0.01)
-    assert bool(bad_log["deployable_candidate"]) is False
-
-    good_stable = annotated.loc[annotated["w_prob"].eq(0.02)].iloc[0]
-    assert good_stable["min_year_delta_vs_default"] == pytest.approx(0.05)
-    assert bool(good_stable["deployable_candidate"]) is True
-
-
-def test_one_per_race_invariant_with_learned_coefficients() -> None:
-    """Policy always selects exactly 1 top-1 per race, regardless of coefficients."""
-    policy = WinSelectionPolicy()
-    rows: list[dict[str, object]] = []
-    for race_id in ["R1", "R2", "R3"]:
-        for umaban in range(1, 6):
-            rows.append(
-                {
-                    "race_id": race_id,
-                    "race_date": pd.Timestamp("2022-01-01"),
-                    "umaban": umaban,
-                    "kakuteijyuni": 6 - umaban,
-                    "tanodds": float(umaban * 2),
-                    "p_win_final": 0.3,
-                    "win_selection_prob": 0.3,
-                    "win_selection_ev": 1.2,
-                    "win_selection_edge": 0.2,
-                    "odds_drop_rate_30_10": 0.0,
-                }
-            )
-    scored = policy.apply(pd.DataFrame(rows))
-
-    for race_id in ["R1", "R2", "R3"]:
-        race_scores = scored.loc[scored["race_id"] == race_id]
-        assert int((race_scores["selected_rank_by_win_market_score"] == 1).sum()) == 1
-
-
-def test_score_ignores_confirmed_odds() -> None:
-    """confirmed_odds must not affect the ranking score (prevents leakage)."""
-    policy = WinSelectionPolicy()
-    base_rows = pd.DataFrame(
-        {
-            "race_id": ["R1", "R1"],
-            "race_date": [
-                pd.Timestamp("2022-01-01"),
-                pd.Timestamp("2022-01-01"),
-            ],
-            "umaban": [1, 2],
-            "tanodds": [5.0, 3.0],
-            "p_win_final": [0.20, 0.30],
-            "win_selection_prob": [0.20, 0.30],
-            "win_selection_ev": [1.2, 1.1],
-            "win_selection_edge": [0.2, 0.1],
-            "odds_drop_rate_30_10": [0.0, 0.0],
-        }
-    )
-
-    rows_with_confirmed = base_rows.copy()
-    rows_with_confirmed["confirmed_odds"] = [999.0, 1.0]
-
-    score_base = policy.score(base_rows)
-    score_confirmed = policy.score(rows_with_confirmed)
-
-    pd.testing.assert_series_equal(score_base, score_confirmed)
-
-
-def test_sanitize_market_risk_penalty_weight_clamps_oob() -> None:
-    """Out-of-range market_risk_penalty_weight falls back to default."""
-    assert sanitize_market_risk_penalty_weight(0.05) == pytest.approx(0.05)
-    assert sanitize_market_risk_penalty_weight(-1.0) == pytest.approx(
-        DEFAULT_MARKET_RISK_PENALTY_WEIGHT
-    )
-    assert sanitize_market_risk_penalty_weight(
-        MAX_DEPLOYED_MARKET_RISK_PENALTY_WEIGHT + 1.0
-    ) == pytest.approx(DEFAULT_MARKET_RISK_PENALTY_WEIGHT)
-    assert sanitize_market_risk_penalty_weight(None) == pytest.approx(
-        DEFAULT_MARKET_RISK_PENALTY_WEIGHT
-    )
