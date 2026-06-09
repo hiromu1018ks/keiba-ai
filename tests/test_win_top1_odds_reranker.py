@@ -752,12 +752,13 @@ class TestRacePredictorIntegration:
         assert len(dirt_cands) == 1
         assert dirt_cands.iloc[0]["umaban"] == 2  # 25 < cap=50, horse 2 is top1
 
-    def test_reranker_skipped_when_profit_selector_active(self) -> None:
-        """Reranker forced top-1 is skipped when ProfitSelector is trained.
+    def test_reranker_selects_one_when_profit_selector_diagnostic(self) -> None:
+        """When both reranker and profit_selector are trained, reranker picks 1/race.
 
-        When both reranker and profit_selector are present, the reranker must
-        not override the ProfitSelector's 0-N candidate contract. The reranker
-        is only for the fallback top-1 path (no ProfitSelector / untrained).
+        profit_pass is diagnostic-only — the reranker guarantees exactly 1 horse
+        per race from the full eligible set.  A horse exceeding the odds cap is
+        replaced by the best cap-eligible candidate, proving the reranker (not the
+        ProfitSelector) drives the final selection.
         """
         from backtest.race_predictor import RacePredictor
         from domain.models import TrainedModelsV5
@@ -765,16 +766,16 @@ class TestRacePredictorIntegration:
 
         selector = WinProfitSelector()
         selector.params = WinProfitSelectorParams(
-            rank_limit=2,
+            rank_limit=3,
             min_score=float("-inf"),
-            min_edge=-0.20,
+            min_edge=-0.50,
             min_prob=0.0,
             min_odds=1.0,
             max_odds=100.0,
         )
         selector._trained = True
 
-        # Both reranker (cap=30) and profit_selector (rank_limit=2)
+        # Both reranker (cap=30) and profit_selector present
         sub = self._make_submodel_with_reranker(cap=30.0)
         sub.win_profit_selector = selector
 
@@ -801,39 +802,45 @@ class TestRacePredictorIntegration:
                         "win_selection_prob": 0.50,
                         "win_selection_ev": 1.20,
                         "win_selection_edge": 0.20,
-                        "win_market_selection_score": 1.00,
+                        "win_market_selection_score": 1.0,
                     },
                     {
                         "race_id": "R1",
                         "race_date": pd.Timestamp("2025-01-01"),
                         "surface": "turf",
                         "umaban": 2,
-                        "tanodds": 5.0,
-                        "p_win_final": 0.15,
-                        "win_selection_prob": 0.15,
+                        "tanodds": 15.0,
+                        "p_win_final": 0.10,
+                        "win_selection_prob": 0.10,
                         "win_selection_ev": 1.10,
                         "win_selection_edge": 0.10,
-                        "win_market_selection_score": 0.80,
+                        "win_market_selection_score": 0.5,
                     },
                     {
                         "race_id": "R1",
                         "race_date": pd.Timestamp("2025-01-01"),
                         "surface": "turf",
                         "umaban": 3,
-                        "tanodds": 30.0,
-                        "p_win_final": 0.02,
-                        "win_selection_prob": 0.02,
-                        "win_selection_ev": 0.60,
-                        "win_selection_edge": -0.40,
-                        "win_market_selection_score": 0.10,
+                        "tanodds": 80.0,
+                        "p_win_final": 0.45,
+                        "win_selection_prob": 0.45,
+                        "win_selection_ev": 1.20,
+                        "win_selection_edge": 0.30,
+                        "win_market_selection_score": 1.5,
                     },
                 ]
             )
         )
 
-        # ProfitSelector rank_limit=2 → 2 candidates, NOT 1 from reranker
-        assert len(candidates) == 2
-        assert set(candidates["umaban"].tolist()) == {1, 2}
+        # Reranker selects exactly 1 horse/race (not profit_selector's multi)
+        assert len(candidates) == 1
+        # Horse 3 (odds=80 > cap=30) is excluded by reranker;
+        # best cap-eligible horse is selected (umaban=2, odds=15)
+        assert candidates.iloc[0]["umaban"] == 2
+        # Diagnostic columns prove the reranker code path was taken
+        assert RERANKER_APPLIED_COL in candidates.columns
+        assert candidates[RERANKER_APPLIED_COL].iloc[0] == True  # noqa: E712
+        assert candidates[RERANKER_SWITCH_REASON_COL].iloc[0] == "odds_cap_switch"
 
     def test_reranker_diagnostics_propagated_to_diagnostic_df(self) -> None:
         """Reranker diagnostic columns appear in attrs['win_diagnostic_df'].
@@ -923,11 +930,11 @@ class TestRacePredictorIntegration:
         assert diag_df[RERANKER_CAP_COL].iloc[0] == 30.0
 
     def test_reranker_applied_when_profit_selector_max_per_race_1(self) -> None:
-        """Reranker applies when profit_selector is trained but max_per_race == 1.
+        """Reranker applies alongside profit_selector (max_per_race=1).
 
-        The reranker is only skipped when profit_selector_enabled AND max_per_race > 1
-        (multi-candidate contract). When max_per_race == 1 both the reranker and
-        profit selector produce a single horse; the reranker adds odds-cap semantics.
+        When a trained reranker is present, it always selects 1 horse/race
+        regardless of profit_selector's max_per_race.  profit_pass is
+        diagnostic-only; the reranker adds odds-cap semantics on top.
 
         We use rank_limit=3 (all horses pass profit_pass) but override max_per_race
         to 1, so the reranker sees multiple candidates and can actually switch.
@@ -1023,11 +1030,11 @@ class TestRacePredictorIntegration:
             WinProfitSelector.max_per_race = _orig_max_per_race  # type: ignore[assignment]
 
     def test_reranker_diagnostics_with_profit_selector_max_per_race_1(self) -> None:
-        """Diagnostics are mapped to all horses when profit_selector (max=1) coexists.
+        """Diagnostics are mapped to all horses when reranker coexists with profit_selector.
 
-        When reranker applies alongside profit_selector with max_per_race=1, the
-        returned attrs['win_diagnostic_df'] must include all horses (not just
-        the selected top-1) with reranker diagnostic columns mapped by race_id.
+        When a trained reranker applies alongside profit_selector, the returned
+        attrs['win_diagnostic_df'] must include all horses (not just the selected
+        top-1) with reranker diagnostic columns mapped by race_id.
         """
         from backtest.race_predictor import RacePredictor
         from domain.models import TrainedModelsV5

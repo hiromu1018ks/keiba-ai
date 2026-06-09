@@ -1960,6 +1960,183 @@ class TestGetWinCandidates:
         assert len(result) == 1
 
 
+class TestProfitSelectorRerankerInteraction:
+    """Regression: trained ProfitSelector + trained Reranker coexistence.
+
+    When both are trained, profit_pass is diagnostic only; the reranker
+    guarantees 1 horse/race from the full eligible set.  Without a
+    reranker the existing 0-N contract is preserved.
+    """
+
+    @staticmethod
+    def _base_rows() -> list[dict[str, object]]:
+        """Reusable test input: 3 races with 2+1+1 horses."""
+        return [
+            {
+                "race_id": "R1",
+                "race_date": pd.Timestamp("2025-01-01"),
+                "surface": "turf",
+                "umaban": 1,
+                "tanodds": 3.0,
+                "p_win_final": 0.45,
+                "win_selection_prob": 0.45,
+                "win_selection_ev": 0.90,
+                "win_selection_edge": -0.10,
+                "win_market_selection_score": 1.00,
+            },
+            {
+                "race_id": "R1",
+                "race_date": pd.Timestamp("2025-01-01"),
+                "surface": "turf",
+                "umaban": 2,
+                "tanodds": 5.0,
+                "p_win_final": 0.15,
+                "win_selection_prob": 0.15,
+                "win_selection_ev": 0.75,
+                "win_selection_edge": -0.25,
+                "win_market_selection_score": 0.50,
+            },
+            {
+                "race_id": "R2",
+                "race_date": pd.Timestamp("2025-01-02"),
+                "surface": "turf",
+                "umaban": 3,
+                "tanodds": 4.0,
+                "p_win_final": 0.30,
+                "win_selection_prob": 0.30,
+                "win_selection_ev": 1.10,
+                "win_selection_edge": 0.05,
+                "win_market_selection_score": 0.80,
+            },
+            {
+                "race_id": "R2",
+                "race_date": pd.Timestamp("2025-01-02"),
+                "surface": "turf",
+                "umaban": 4,
+                "tanodds": 8.0,
+                "p_win_final": 0.08,
+                "win_selection_prob": 0.08,
+                "win_selection_ev": 0.60,
+                "win_selection_edge": -0.30,
+                "win_market_selection_score": 0.30,
+            },
+            {
+                "race_id": "R3",
+                "race_date": pd.Timestamp("2025-01-03"),
+                "surface": "turf",
+                "umaban": 5,
+                "tanodds": 2.5,
+                "p_win_final": 0.50,
+                "win_selection_prob": 0.50,
+                "win_selection_ev": 1.00,
+                "win_selection_edge": 0.00,
+                "win_market_selection_score": 0.90,
+            },
+        ]
+
+    def _make_profit_selector(self, *, min_score: float = 999.0) -> object:
+        """Create a WinProfitSelector where no horse passes profit_pass."""
+        from models.win_profit_selector import WinProfitSelector, WinProfitSelectorParams
+
+        selector = WinProfitSelector()
+        selector.params = WinProfitSelectorParams(
+            rank_limit=1,
+            min_score=min_score,
+            min_edge=0.0,
+            min_prob=0.0,
+            min_odds=1.0,
+            max_odds=float("inf"),
+        )
+        selector._trained = True
+        return selector
+
+    def _make_reranker(self, *, cap: float = float("inf")) -> object:
+        """Create a trained WinTop1OddsReranker."""
+        from models.win_top1_odds_reranker import WinTop1OddsReranker
+
+        reranker = WinTop1OddsReranker()
+        reranker.selected_cap = cap
+        reranker.is_trained = True
+        return reranker
+
+    def test_reranker_returns_one_per_race_when_profit_selector_all_false(
+        self, mock_models: MagicMock
+    ) -> None:
+        """ProfitSelector filters all to False, but reranker returns 1/race."""
+        from backtest.race_predictor import RacePredictor
+
+        mock_models.submodels["turf"].win_profit_selector = self._make_profit_selector()
+        mock_models.submodels["turf"].win_top1_odds_reranker = self._make_reranker()
+
+        predictor = RacePredictor(models=mock_models)
+        candidates = predictor.get_win_candidates(pd.DataFrame(self._base_rows()))
+
+        assert len(candidates) == 3
+        assert set(candidates["race_id"].tolist()) == {"R1", "R2", "R3"}
+        assert "win_profit_score" in candidates.columns
+
+    def test_no_reranker_preserves_zero_n_contract(self, mock_models: MagicMock) -> None:
+        """Without reranker, ProfitSelector filtering all horses returns empty."""
+        from backtest.race_predictor import RacePredictor
+
+        mock_models.submodels["turf"].win_profit_selector = self._make_profit_selector()
+
+        predictor = RacePredictor(models=mock_models)
+        candidates = predictor.get_win_candidates(
+            pd.DataFrame(self._base_rows()[:2])  # R1 only, 2 horses
+        )
+
+        assert len(candidates) == 0
+
+    def test_reranker_no_profit_selector_still_picks_one(self, mock_models: MagicMock) -> None:
+        """Reranker without ProfitSelector still picks 1/race."""
+        from backtest.race_predictor import RacePredictor
+
+        mock_models.submodels["turf"].win_top1_odds_reranker = self._make_reranker()
+
+        predictor = RacePredictor(models=mock_models)
+        candidates = predictor.get_win_candidates(pd.DataFrame(self._base_rows()))
+
+        assert len(candidates) == 3
+        assert set(candidates["race_id"].tolist()) == {"R1", "R2", "R3"}
+
+    def test_diagnostic_values_match_actual_path_with_reranker(
+        self, mock_models: MagicMock
+    ) -> None:
+        """With reranker: excluded_reason must NOT say profit_selector,
+        candidate_count_after_filter must equal actual row count,
+        and profit_pass/profit_score are still computed."""
+        from backtest.race_predictor import RacePredictor
+
+        mock_models.submodels["turf"].win_profit_selector = self._make_profit_selector()
+        mock_models.submodels["turf"].win_top1_odds_reranker = self._make_reranker()
+
+        predictor = RacePredictor(models=mock_models)
+        candidates = predictor.get_win_candidates(pd.DataFrame(self._base_rows()))
+
+        diag: pd.DataFrame = candidates.attrs.get("win_diagnostic_df")
+        assert diag is not None
+
+        # profit_pass is computed but all False (min_score=999)
+        assert "win_profit_selector_pass" in diag.columns
+        assert diag["win_profit_selector_pass"].fillna(False).sum() == 0
+
+        # win_profit_score is computed for diagnostics
+        assert "win_profit_score" in diag.columns
+
+        # No horse should have excluded_reason == "profit_selector"
+        # (they are NOT excluded when reranker is active)
+        reasons = diag["excluded_reason"].dropna().astype(str)
+        assert not reasons.str.contains("profit_selector").any(), (
+            f"profit_selector found in excluded_reason: {reasons.tolist()}"
+        )
+
+        # candidate_count_after_filter equals the actual eligible count (all 5)
+        count_col = diag["candidate_count_after_filter"]
+        assert count_col.notna().any()
+        assert count_col.iloc[0] == 5  # all 5 horses eligible
+
+
 class TestMarketAwareWinCalibratorIntegration:
     """MarketAwareWinCalibrator integration tests in RacePredictor (CAL-04)."""
 
