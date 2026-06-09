@@ -1262,6 +1262,11 @@ class WinTop1OddsReranker:
         # 変更率はdiagnosticで監視: gap_reranker_switch_reason で判断可能。
 
         result = pd.DataFrame(final_rows)
+        if not result.empty and key_col:
+            result = result.set_index(
+                [key_col] if key_col in result.columns else None,
+                drop=False,
+            )
         return result
 
     def _annotate_empty_with_gap(self, df: pd.DataFrame) -> pd.DataFrame:
