@@ -55,6 +55,7 @@ from models.win_profit_selector import WinProfitSelector
 from models.win_selection_gate import WinSelectionGateModel, ensure_win_selection_columns
 from models.win_selection_policy import WinSelectionPolicy
 from models.win_top1_odds_reranker import WinTop1OddsReranker
+from models.win_top1_score_blender import WinTop1ScoreBlender
 from validation.oof_health_validator import (
     OOF_PREDICTIONS_PROFILE,
     OOFHealthValidator,
@@ -1350,6 +1351,18 @@ class TrainingPipelineV5:
                 win_selection_policy.training_summary,
             )
 
+        # --- WinTop1ScoreBlender (current/market スコアブレンダー) ---
+        with TimingContext(f"{surface}/win_top1_score_blender_train"):
+            score_blender = WinTop1ScoreBlender()
+            score_blender.train(wsg_train_df)
+            wsg_train_df = score_blender.apply(wsg_train_df)
+            logger.info(
+                "WinTop1ScoreBlender trained for %s: weight=%.2f trained=%s",
+                surface,
+                score_blender.selected_weight,
+                score_blender.is_trained,
+            )
+
         with TimingContext(f"{surface}/win_profit_selector_train"):
             win_profit_selector = WinProfitSelector()
             win_profit_selector.train(wsg_train_df)
@@ -1419,6 +1432,7 @@ class TrainingPipelineV5:
             market_aware_win_calibrator=market_aware_calibrator,
             win_race_level_ranker=win_race_level_ranker,
             win_top1_odds_reranker=win_top1_odds_reranker,
+            win_top1_score_blender=score_blender,
             ev_lower_threshold_turf=ev_threshold_turf,
             ev_lower_threshold_dirt=ev_threshold_dirt,
             ev_isotonic_calibrator=ev_isotonic_calibrator,
@@ -2100,6 +2114,21 @@ class TrainingPipelineV5:
                         if reranker_tmp and os.path.exists(reranker_tmp):
                             os.unlink(reranker_tmp)
 
+                # WinTop1ScoreBlender (MLflow artifact)
+                if sub.win_top1_score_blender is not None and sub.win_top1_score_blender.is_trained:
+                    blender_tmp: str | None = None
+                    try:
+                        with tempfile.NamedTemporaryFile(
+                            suffix=".joblib",
+                            delete=False,
+                        ) as blender_file:
+                            blender_tmp = blender_file.name
+                        sub.win_top1_score_blender.save(Path(blender_tmp))
+                        mlflow.log_artifact(blender_tmp, f"win_top1_score_blender_{surface}")
+                    finally:
+                        if blender_tmp and os.path.exists(blender_tmp):
+                            os.unlink(blender_tmp)
+
                 # PlaceTwoStageModel
                 if sub.place is not None:
                     if sub.use_ensemble:
@@ -2300,6 +2329,12 @@ class TrainingPipelineV5:
             if sub.win_top1_odds_reranker is not None and sub.win_top1_odds_reranker.is_trained:
                 sub.win_top1_odds_reranker.save(
                     models_dir / f"win_top1_odds_reranker_{surface}.joblib"
+                )
+
+            # WinTop1ScoreBlender (local save)
+            if sub.win_top1_score_blender is not None and sub.win_top1_score_blender.is_trained:
+                sub.win_top1_score_blender.save(
+                    models_dir / f"win_top1_score_blender_{surface}.joblib"
                 )
 
             # Benter Combination (JSON)
