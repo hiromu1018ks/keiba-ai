@@ -15,7 +15,6 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from models.win_profit_selector import PROFIT_PASS_COL
 from models.win_top1_odds_reranker import (
     RERANKER_APPLIED_COL,
     RERANKER_CAP_COL,
@@ -753,13 +752,12 @@ class TestRacePredictorIntegration:
         assert len(dirt_cands) == 1
         assert dirt_cands.iloc[0]["umaban"] == 2  # 25 < cap=50, horse 2 is top1
 
-    def test_reranker_active_when_profit_selector_present(self) -> None:
-        """Reranker guarantees 1/race when ProfitSelector is trained.
+    def test_reranker_skipped_when_profit_selector_active(self) -> None:
+        """Reranker forced top-1 is skipped when ProfitSelector is trained.
 
-        When both reranker and ProfitSelector are present, the reranker has
-        priority: ProfitSelector becomes diagnostic-only (its pass/fail does not
-        filter candidates). The reranker still applies and guarantees exactly
-        1 horse per race.
+        When both reranker and profit_selector are present, the reranker must
+        not override the ProfitSelector's 0-N candidate contract. The reranker
+        is only for the fallback top-1 path (no ProfitSelector / untrained).
         """
         from backtest.race_predictor import RacePredictor
         from domain.models import TrainedModelsV5
@@ -833,12 +831,9 @@ class TestRacePredictorIntegration:
             )
         )
 
-        # Reranker guarantees 1/race; ProfitSelector is diagnostic-only
-        assert len(candidates) == 1
-        # ProfitSelector diagnostic columns exist (proves it scored)
-        assert PROFIT_PASS_COL in candidates.columns
-        # Reranker diagnostic columns exist (proves it applied)
-        assert RERANKER_APPLIED_COL in candidates.columns
+        # ProfitSelector rank_limit=2 → 2 candidates, NOT 1 from reranker
+        assert len(candidates) == 2
+        assert set(candidates["umaban"].tolist()) == {1, 2}
 
     def test_reranker_diagnostics_propagated_to_diagnostic_df(self) -> None:
         """Reranker diagnostic columns appear in attrs['win_diagnostic_df'].

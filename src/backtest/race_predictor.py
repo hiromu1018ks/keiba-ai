@@ -220,20 +220,6 @@ class RacePredictor:
             return reranker
         return None
 
-    def _get_race_level_ranker(self, race_df: pd.DataFrame) -> Any | None:
-        """Get RaceLevelRanker for the race's surface (if trained)."""
-        if race_df.empty or "surface" not in race_df.columns:
-            return None
-        surface_key = race_df["surface"].iloc[0]
-        submodels = getattr(self.models, "submodels", {})
-        submodel = submodels.get(surface_key)
-        if submodel is None:
-            return None
-        ranker = getattr(submodel, "win_race_level_ranker", None)
-        if ranker is not None and getattr(ranker, "is_trained", False) is True:
-            return ranker
-        return None
-
     def predict(
         self,
         race_df: pd.DataFrame,
@@ -1074,12 +1060,6 @@ class RacePredictor:
             )
             prepared["baseline_ranker_agreement"] = agreement
 
-        # Prefetch reranker: determines ProfitSelector mode.
-        # When reranker exists, ProfitSelector is diagnostic-only and does
-        # NOT reduce the candidate set — the reranker guarantees 1/race.
-        reranker = self._get_win_top1_odds_reranker(prepared)
-        has_reranker = reranker is not None
-
         win_profit_selector = self._get_win_profit_selector(prepared)
         profit_selector_enabled = False
         profit_max_per_race = 1
@@ -1088,23 +1068,14 @@ class RacePredictor:
             profit_pass = prepared[PROFIT_PASS_COL].fillna(False).astype(bool)
             profit_selector_enabled = True
             profit_max_per_race = max(1, int(getattr(win_profit_selector, "max_per_race", 1)))
-            if has_reranker:
-                # Reranker present: ProfitSelector is diagnostic-only.
-                # Don't filter — pass all eligible to reranker (guarantees 1/race).
-                logger.debug(
-                    "OddsReranker present, ProfitSelector diagnostic-only: %d eligible",
-                    int(eligible_mask.sum()),
-                )
-            else:
-                # No reranker: ProfitSelector filters as before (0-N, max_per_race).
-                defensive_mask = eligible_mask & profit_pass
-                filtered_by_profit = eligible_mask & ~profit_pass
-                reasons.loc[filtered_by_profit & reasons.eq("")] = "profit_selector"
-                reasons.loc[filtered_by_profit & ~reasons.eq("")] = (
-                    reasons.loc[filtered_by_profit & ~reasons.eq("")] + "|profit_selector"
-                )
-                prepared["excluded_reason"] = reasons.replace("", pd.NA)
-                prepared.loc[defensive_mask, "excluded_reason"] = pd.NA
+            defensive_mask = eligible_mask & profit_pass
+            filtered_by_profit = eligible_mask & ~profit_pass
+            reasons.loc[filtered_by_profit & reasons.eq("")] = "profit_selector"
+            reasons.loc[filtered_by_profit & ~reasons.eq("")] = (
+                reasons.loc[filtered_by_profit & ~reasons.eq("")] + "|profit_selector"
+            )
+            prepared["excluded_reason"] = reasons.replace("", pd.NA)
+            prepared.loc[defensive_mask, "excluded_reason"] = pd.NA
         else:
             prepared[PROFIT_SCORE_COL] = prepared["win_market_selection_score"]
             prepared[PROFIT_PASS_COL] = eligible_mask
@@ -1144,32 +1115,6 @@ class RacePredictor:
         # NOTE: EV_lower_win_corrected フィルタは CQR 過学習による選択バイアスの原因
         # だったため削除。CQR出力は診断用に残すがベット判定には使わない。
         _n_ev_excluded = 0
-
-        # --- Stage 3: RaceLevelRanker active score (RNK-DEPLOY) ---
-        # Build active_win_selection_score on prepared (all rows) so
-        # win_diagnostic_df and horse_features parquet contain all horses.
-        # Candidates inherit the columns via copy below.
-        #   deployed  → investment_score (ranker's composite)
-        #   otherwise → win_market_selection_score (operational baseline)
-        ranker_model = self._get_race_level_ranker(prepared)
-        if ranker_model is not None and "investment_score" in prepared.columns:
-            _rkr_surface_val = prepared["surface"].iloc[0]
-            _inv_num = pd.to_numeric(
-                prepared["investment_score"],
-                errors="coerce",
-            )
-            _base_num = pd.to_numeric(
-                prepared["win_market_selection_score"],
-                errors="coerce",
-            )
-            _is_deployed = bool(ranker_model.is_surface_deployed(_rkr_surface_val))
-            if _is_deployed:
-                prepared["active_win_selection_score"] = _inv_num.fillna(_base_num)
-            else:
-                prepared["active_win_selection_score"] = _base_num
-
-            # Diagnostics: ranker deployment state on all prepared rows
-            prepared["ranker_surface_deployed"] = _is_deployed
 
         candidates = prepared.loc[defensive_mask].copy()
         # Propagate EV exclusion count to caller via DataFrame attrs
@@ -1231,22 +1176,15 @@ class RacePredictor:
             ).fillna(0.0)
             sort_cols.append("_conf_score")
 
-        # Use active_win_selection_score as primary sort key when available.
-        # Deployed ranker → investment_score top1; non-deployed → baseline top1.
-        if "active_win_selection_score" in candidates.columns:
-            candidates["_active_score_num"] = pd.to_numeric(
-                candidates["active_win_selection_score"],
-                errors="coerce",
-            ).fillna(float("-inf"))
-            sort_cols = ["_active_score_num"] + sort_cols
-
         # --- WinTop1OddsReranker: odds cap による top-1 再選択 ---
         # apply() returns exactly 1 row per race. When active, skip sort/head
         # since the reranker has already made the top-1 selection.
         # When None/untrained/inf_cap, falls through to existing sort/head(1).
-        # When reranker exists, ProfitSelector was diagnostic-only, so all
-        # eligible candidates are passed to the reranker (guarantees 1/race).
-        if reranker is not None:
+        # Skipped when profit_selector_enabled AND max_per_race > 1 to preserve
+        # the ProfitSelector's multi-candidate contract. When max_per_race == 1
+        # the reranker still applies (both produce 1 horse; reranker adds diagnostics).
+        reranker = self._get_win_top1_odds_reranker(prepared)
+        if reranker is not None and not (profit_selector_enabled and profit_max_per_race > 1):
             reranked = reranker.apply(candidates)
             if not reranked.empty:
                 # Map reranker per-race diagnostics to full prepared frame
@@ -1275,7 +1213,6 @@ class RacePredictor:
                         "_sort_edge_num",
                         "_win_gate_score_num",
                         "_conf_score",
-                        "_active_score_num",
                     ],
                     errors="ignore",
                 )
@@ -1293,7 +1230,6 @@ class RacePredictor:
                 "_sort_edge_num",
                 "_win_gate_score_num",
                 "_conf_score",
-                "_active_score_num",
             ],
             errors="ignore",
         )

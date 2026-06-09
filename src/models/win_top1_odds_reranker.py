@@ -28,29 +28,6 @@ logger = logging.getLogger(__name__)
 
 CANDIDATE_CAPS: list[float] = [20.0, 30.0, 40.0, 50.0, 75.0, 100.0, float("inf")]
 
-_FALLBACK_SCORE_COL = "win_market_selection_score"
-
-
-def _resolve_score_col(df: pd.DataFrame, score_col: str) -> tuple[str, str | None]:
-    """Resolve effective score column with explicit fallback.
-
-    Returns (effective_col, fallback_reason).  *fallback_reason* is ``None``
-    when no fallback occurred.
-    """
-    if score_col in df.columns:
-        vals = pd.to_numeric(df[score_col], errors="coerce")
-        if vals.notna().any():
-            return score_col, None
-    _reason = "column_missing" if score_col not in df.columns else "all_nan"
-    logger.warning(
-        "WinTop1OddsReranker: score_col='%s' %s, falling back to '%s'",
-        score_col,
-        _reason,
-        _FALLBACK_SCORE_COL,
-    )
-    return _FALLBACK_SCORE_COL, _reason
-
-
 RERANKER_APPLIED_COL = "reranker_applied"
 RERANKER_CAP_COL = "reranker_cap"
 RERANKER_ORIG_TOP1_COL = "reranker_original_top1_umaban"
@@ -98,7 +75,6 @@ class WinTop1OddsReranker:
     selected_cap: float = float("inf")
     is_trained: bool = False
     training_summary: dict[str, Any] = field(default_factory=dict)
-    score_col: str = "win_market_selection_score"
 
     # ------------------------------------------------------------------
     # Training
@@ -126,7 +102,6 @@ class WinTop1OddsReranker:
         df: pd.DataFrame,
         cap: float,
         fold_race_ids: set,
-        score_col: str | None = None,
     ) -> dict[str, Any]:
         """fold テスト区間の全レースについて、cap による top-1 選択をシミュレート.
 
@@ -134,13 +109,14 @@ class WinTop1OddsReranker:
         払戻は confirmed_odds 優先、欠損時 tanodds フォールバック。
         スコア計算には confirmed_odds を使用しない。
         """
-        _col = score_col or self.score_col
         fold_df = df[df["race_id"].isin(fold_race_ids)].copy()
         if fold_df.empty:
             return {"profit": 0.0, "bets": 0.0, "roi": 0.0, "n_anomalous": 0}
 
         # Pre-compute numeric columns
-        fold_df["_score_num"] = _numeric(fold_df, _col).fillna(float("-inf"))
+        fold_df["_score_num"] = _numeric(fold_df, "win_market_selection_score").fillna(
+            float("-inf")
+        )
         fold_df["_odds_num"] = _numeric(fold_df, "tanodds").fillna(0.0)
         fold_df["_hit"] = _numeric(fold_df, "kakuteijyuni").eq(1)
 
@@ -203,29 +179,18 @@ class WinTop1OddsReranker:
         """win selection OOF frame から最適 odds cap を学習する.
 
         入力は WinProfitSelector.score() 後の DataFrame を想定。
-        score_col (既定: win_market_selection_score), tanodds, kakuteijyuni,
-        race_id, race_date が必要。
+        win_market_selection_score, tanodds, kakuteijyuni, race_id, race_date が必要。
         confirmed_odds が存在すれば払戻計算に使用するが、スコア特徴には混ぜない。
-        score_col 欠損/全 NaN 時は win_market_selection_score へフォールバックする。
         """
-        # Resolve effective score column with fallback
-        _eff_col, _fallback_reason = _resolve_score_col(df, self.score_col)
-        if _fallback_reason is not None:
-            self.training_summary["score_col_fallback"] = {
-                "original_score_col": self.score_col,
-                "effective_score_col": _eff_col,
-                "reason": _fallback_reason,
-            }
-
         required = {
             "race_id",
             "race_date",
             "kakuteijyuni",
             "tanodds",
-            _eff_col,
+            "win_market_selection_score",
         }
         if df.empty or not required.issubset(df.columns):
-            self.training_summary["reason"] = "missing_required_columns"
+            self.training_summary = {"reason": "missing_required_columns"}
             self.is_trained = True
             self.selected_cap = float("inf")
             return self
@@ -240,8 +205,10 @@ class WinTop1OddsReranker:
 
         folds = self._build_folds(race_order)
         if not folds:
-            self.training_summary["reason"] = "insufficient_races"
-            self.training_summary["n_races"] = int(len(race_order))
+            self.training_summary = {
+                "reason": "insufficient_races",
+                "n_races": int(len(race_order)),
+            }
             self.is_trained = True
             self.selected_cap = float("inf")
             return self
@@ -256,7 +223,7 @@ class WinTop1OddsReranker:
         for cap in self.candidate_caps:
             fold_results: list[dict[str, Any]] = []
             for fold_rids in fold_race_sets:
-                metrics = self._simulate_cap(df, cap, fold_rids, score_col=_eff_col)
+                metrics = self._simulate_cap(df, cap, fold_rids)
                 if metrics["bets"] > 0:
                     fold_results.append(metrics)
 
@@ -285,7 +252,7 @@ class WinTop1OddsReranker:
             }
 
         if not cap_metrics:
-            self.training_summary["reason"] = "no_evaluable_folds"
+            self.training_summary = {"reason": "no_evaluable_folds"}
             self.is_trained = True
             self.selected_cap = float("inf")
             return self
@@ -333,17 +300,15 @@ class WinTop1OddsReranker:
             "all_cap_metrics": {str(k): v for k, v in cap_metrics.items()},
             "n_eval_races": int(len(race_order)),
             "n_folds": len(folds),
-            "effective_score_col": _eff_col,
         }
         logger.info(
             "WinTop1OddsReranker trained: selected_cap=%s, objective=%.4f, "
-            "baseline_obj=%.4f, n_races=%d, n_folds=%d, score_col=%s",
+            "baseline_obj=%.4f, n_races=%d, n_folds=%d",
             self.selected_cap,
             best_obj,
             baseline_obj,
             len(race_order),
             len(folds),
-            _eff_col,
         )
         return self
 
@@ -373,22 +338,9 @@ class WinTop1OddsReranker:
         if candidates.empty:
             return self._annotate_empty(candidates)
 
-        # Resolve effective score column with fallback
-        _eff_col, _fallback_reason = _resolve_score_col(candidates, self.score_col)
-        if _fallback_reason is not None:
-            logger.info(
-                "WinTop1OddsReranker.apply: score_col fallback %s -> %s",
-                self.score_col,
-                _eff_col,
-            )
-
         if not self.is_trained or self.selected_cap == float("inf"):
             reason = "untrained" if not self.is_trained else "inf_cap"
-            return self._select_original_top1_per_race(
-                candidates,
-                reason=reason,
-                score_col=_eff_col,
-            )
+            return self._select_original_top1_per_race(candidates, reason=reason)
 
         cap = self.selected_cap
         # Determine key column for grouping
@@ -398,7 +350,7 @@ class WinTop1OddsReranker:
             if key_col
             else pd.Series("_race", index=candidates.index, dtype=object)
         )
-        score = _numeric(candidates, _eff_col).fillna(float("-inf"))
+        score = _numeric(candidates, "win_market_selection_score").fillna(float("-inf"))
         odds = _numeric(candidates, "tanodds").fillna(0.0)
 
         # Build per-race info
@@ -461,11 +413,6 @@ class WinTop1OddsReranker:
         result[RERANKER_ORIG_TOP1_COL] = race_ids_for_map.map(orig_top1_map)
         result[RERANKER_FINAL_TOP1_COL] = race_ids_for_map.map(final_top1_map)
         result[RERANKER_SWITCH_REASON_COL] = race_ids_for_map.map(reason_map).fillna("unknown")
-        result["reranker_score_col_effective"] = _eff_col
-        if _fallback_reason is not None:
-            result["reranker_score_fallback"] = _fallback_reason
-        else:
-            result["reranker_score_fallback"] = pd.NA
 
         return result
 
@@ -484,16 +431,11 @@ class WinTop1OddsReranker:
         return df
 
     def _select_original_top1_per_race(
-        self,
-        candidates: pd.DataFrame,
-        *,
-        reason: str,
-        score_col: str | None = None,
+        self, candidates: pd.DataFrame, *, reason: str
     ) -> pd.DataFrame:
         """未学習/inf_cap 時に score top-1 をそのまま返す (1 行/race)."""
-        _col = score_col or self.score_col
         key = _race_key(candidates)
-        score = _numeric(candidates, _col).fillna(float("-inf"))
+        score = _numeric(candidates, "win_market_selection_score").fillna(float("-inf"))
 
         best_idx = score.groupby(key, observed=True).idxmax()
         result = candidates.loc[best_idx].copy()
@@ -508,7 +450,6 @@ class WinTop1OddsReranker:
         result[RERANKER_ORIG_TOP1_COL] = orig_top1.values
         result[RERANKER_FINAL_TOP1_COL] = orig_top1.values
         result[RERANKER_SWITCH_REASON_COL] = reason
-        result["reranker_score_col_effective"] = _col
         return result
 
     # ------------------------------------------------------------------
@@ -529,7 +470,6 @@ class WinTop1OddsReranker:
                 "selected_cap": self.selected_cap,
                 "is_trained": self.is_trained,
                 "training_summary": self.training_summary,
-                "score_col": self.score_col,
             },
             path,
         )
@@ -545,7 +485,6 @@ class WinTop1OddsReranker:
             stability_penalty=float(state.get("stability_penalty", 0.25)),
             min_roi_floor=float(state.get("min_roi_floor", 0.85)),
             min_roi_penalty=float(state.get("min_roi_penalty", 0.5)),
-            score_col=str(state.get("score_col", "win_market_selection_score")),
         )
         model.selected_cap = float(state.get("selected_cap", float("inf")))
         model.is_trained = bool(state.get("is_trained", False))
