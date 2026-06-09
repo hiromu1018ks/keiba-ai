@@ -1083,10 +1083,6 @@ class RacePredictor:
             prepared["baseline_ranker_agreement"] = agreement
 
         win_profit_selector = self._get_win_profit_selector(prepared)
-        # When both profit_selector and reranker are trained, profit_pass is
-        # diagnostic only -- the reranker guarantees 1 horse/race from the
-        # full eligible set.  Look up reranker early to decide filtering.
-        reranker = self._get_win_top1_odds_reranker(prepared)
         profit_selector_enabled = False
         profit_max_per_race = 1
         if win_profit_selector is not None:
@@ -1094,18 +1090,12 @@ class RacePredictor:
             profit_pass = prepared[PROFIT_PASS_COL].fillna(False).astype(bool)
             profit_selector_enabled = True
             profit_max_per_race = max(1, int(getattr(win_profit_selector, "max_per_race", 1)))
-            # Reranker active: profit_pass is diagnostic only, keep full
-            # eligible set so the reranker can always select 1 horse/race.
-            # No exclusion reasons are written — the horses are NOT excluded.
-            if reranker is not None:
-                defensive_mask = eligible_mask
-            else:
-                defensive_mask = eligible_mask & profit_pass
-                filtered_by_profit = eligible_mask & ~profit_pass
-                reasons.loc[filtered_by_profit & reasons.eq("")] = "profit_selector"
-                reasons.loc[filtered_by_profit & ~reasons.eq("")] = (
-                    reasons.loc[filtered_by_profit & ~reasons.eq("")] + "|profit_selector"
-                )
+            defensive_mask = eligible_mask & profit_pass
+            filtered_by_profit = eligible_mask & ~profit_pass
+            reasons.loc[filtered_by_profit & reasons.eq("")] = "profit_selector"
+            reasons.loc[filtered_by_profit & ~reasons.eq("")] = (
+                reasons.loc[filtered_by_profit & ~reasons.eq("")] + "|profit_selector"
+            )
             prepared["excluded_reason"] = reasons.replace("", pd.NA)
             prepared.loc[defensive_mask, "excluded_reason"] = pd.NA
         else:
@@ -1212,9 +1202,11 @@ class RacePredictor:
         # apply() returns exactly 1 row per race. When active, skip sort/head
         # since the reranker has already made the top-1 selection.
         # When None/untrained/inf_cap, falls through to existing sort/head(1).
-        # When active alongside ProfitSelector, profit_pass is diagnostic only
-        # (Fix #1 above), so the reranker always picks 1/race.
-        if reranker is not None:
+        # Skipped when profit_selector_enabled AND max_per_race > 1 to preserve
+        # the ProfitSelector's multi-candidate contract. When max_per_race == 1
+        # the reranker still applies (both produce 1 horse; reranker adds diagnostics).
+        reranker = self._get_win_top1_odds_reranker(prepared)
+        if reranker is not None and not (profit_selector_enabled and profit_max_per_race > 1):
             reranked = reranker.apply(candidates)
             if not reranked.empty:
                 # Map reranker per-race diagnostics to full prepared frame
