@@ -55,50 +55,6 @@ def _race_key(df: pd.DataFrame) -> pd.Series:
     return pd.Series("_race", index=df.index, dtype=object)
 
 
-def select_top1_with_cap_indices(
-    df: pd.DataFrame,
-    *,
-    cap: float,
-    score: pd.Series,
-    odds: pd.Series,
-    race_key: pd.Series,
-) -> pd.Series:
-    """Select top-1 horse per race with odds-cap eligibility rules.
-
-    Eligibility (matching WinTop1OddsReranker production semantics):
-    1. Cap-eligible: odds > 0 AND odds <= cap
-    2. If race has cap-eligible candidates: restrict selection to them
-    3. Elif race has odds-valid candidates (odds > 0): restrict to those
-    4. Else (anomalous, no valid odds): all candidates eligible
-    5. Best = highest score among eligible (groupby idxmax)
-
-    Returns pd.Series of selected row indices (one per race_key group).
-    Shared by WinTop1OddsReranker and WinSelectionPolicy for consistent
-    cap-aware selection semantics.
-    """
-    score_num = pd.to_numeric(score, errors="coerce").fillna(float("-inf"))
-    odds_num = pd.to_numeric(odds, errors="coerce").fillna(0.0)
-
-    cap_eligible = (odds_num > 0) & (odds_num <= cap)
-    any_cap_eligible = cap_eligible.groupby(race_key, observed=True).transform("any")
-
-    odds_valid = odds_num > 0
-    any_odds_valid = odds_valid.groupby(race_key, observed=True).transform("any")
-
-    effective_eligible = np.where(
-        any_cap_eligible,
-        cap_eligible,
-        np.where(any_odds_valid, odds_valid, True),
-    )
-    effective_score = pd.Series(
-        np.where(effective_eligible, score_num, float("-inf")),
-        index=score_num.index,
-        dtype=float,
-    )
-
-    return effective_score.groupby(race_key, observed=True).idxmax()
-
-
 @dataclass
 class WinTop1OddsReranker:
     """odds cap 学習による top-1 再順位付けモデル.
@@ -158,39 +114,57 @@ class WinTop1OddsReranker:
             return {"profit": 0.0, "bets": 0.0, "roi": 0.0, "n_anomalous": 0}
 
         # Pre-compute numeric columns
-        score_num = _numeric(fold_df, "win_market_selection_score").fillna(float("-inf"))
-        odds_num = _numeric(fold_df, "tanodds").fillna(0.0)
-        hit = _numeric(fold_df, "kakuteijyuni").eq(1)
+        fold_df["_score_num"] = _numeric(fold_df, "win_market_selection_score").fillna(
+            float("-inf")
+        )
+        fold_df["_odds_num"] = _numeric(fold_df, "tanodds").fillna(0.0)
+        fold_df["_hit"] = _numeric(fold_df, "kakuteijyuni").eq(1)
 
         # Payout odds: confirmed_odds preferred, tanodds fallback
         payout_odds = _numeric(fold_df, "confirmed_odds")
         if payout_odds.notna().any():
-            payout_odds = payout_odds.fillna(odds_num)
+            payout_odds = payout_odds.fillna(fold_df["_odds_num"])
         else:
-            payout_odds = odds_num
+            payout_odds = fold_df["_odds_num"]
+        fold_df["_payout_odds"] = payout_odds
 
-        # Use shared helper for cap-aware selection
-        best_idx = select_top1_with_cap_indices(
-            fold_df,
-            cap=cap,
-            score=score_num,
-            odds=odds_num,
-            race_key=fold_df["race_id"],
+        # Cap eligibility
+        cap_eligible = (fold_df["_odds_num"] > 0) & (fold_df["_odds_num"] <= cap)
+        any_cap_eligible = cap_eligible.groupby(fold_df["race_id"], observed=True).transform("any")
+
+        # Odds-valid fallback (tanodds > 0)
+        odds_valid = fold_df["_odds_num"] > 0
+        any_odds_valid = odds_valid.groupby(fold_df["race_id"], observed=True).transform("any")
+
+        # Effective eligibility mask per row:
+        # - If race has cap-eligible: use cap_eligible
+        # - Elif race has odds-valid: use odds_valid
+        # - Else (anomalous race, no valid odds): use all rows (fallback to score top1)
+        effective_eligible = np.where(
+            any_cap_eligible,
+            cap_eligible,
+            np.where(any_odds_valid, odds_valid, True),
+        )
+        fold_df["_effective_score"] = np.where(
+            effective_eligible, fold_df["_score_num"], float("-inf")
         )
 
+        # Count anomalous races (no valid tanodds at all)
+        n_anomalous = int(
+            (~any_odds_valid).groupby(fold_df["race_id"], observed=True).first().sum()
+        )
+
+        # Find best horse per race via idxmax
+        best_idx = fold_df.groupby("race_id", observed=True)["_effective_score"].idxmax()
+
         # Compute profit from selected horses
-        hits = hit.loc[best_idx].values
-        payouts = np.where(hits, payout_odds.loc[best_idx].values, 0.0)
+        best_df = fold_df.loc[best_idx]
+        hits = best_df["_hit"].values
+        payouts = np.where(hits, best_df["_payout_odds"].values, 0.0)
         profit_per_bet = payouts - 1.0
         total_profit = float(profit_per_bet.sum())
         total_bets = len(best_idx)
         n_fold_races = fold_df["race_id"].nunique()
-
-        # Count anomalous races (no valid tanodds at all)
-        any_odds_valid = (odds_num > 0).groupby(fold_df["race_id"], observed=True).transform("any")
-        n_anomalous = int(
-            (~any_odds_valid).groupby(fold_df["race_id"], observed=True).first().sum()
-        )
 
         return {
             "profit": total_profit,
