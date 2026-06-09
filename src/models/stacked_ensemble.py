@@ -43,6 +43,106 @@ class StackedEnsemble:
 
     best_iteration: int = 0
 
+    VALID_SURFACES: set[str] = {"turf", "dirt"}
+
+    # ── 目的関数の重み (クラス定数 dict で変更可能) ──
+    OBJECTIVE_WEIGHTS: dict[str, float] = {
+        "auc": 0.30,
+        "brier": 0.20,
+        "top1_hit": 0.25,
+        "top1_roi": 0.20,
+        "stability": 0.05,
+    }
+
+    # ── Surface 別探索空間 ──
+    # 既存値を包含しつつ、ダートは正則化側を広く探索
+    SEARCH_SPACES: dict[str, dict[str, dict[str, tuple]]] = {
+        "turf": {
+            "lgbm": {
+                "lgb_num_leaves": (31, 63),
+                "lgb_lr": (0.01, 0.05),
+                "lgb_feat_frac": (0.3, 0.9),
+                "lgb_min_child_samples": (10, 100),
+                "lgb_lambda_l1": (0.0, 5.0),
+                "lgb_lambda_l2": (0.0, 5.0),
+                "lgb_bagging_fraction": (0.6, 1.0),
+            },
+            "xgb": {
+                "xgb_max_depth": (4, 8),
+                "xgb_lr": (0.03, 0.1),
+                "xgb_col_sample": (0.3, 0.9),
+                "xgb_min_child_weight": (1, 50),
+                "xgb_reg_alpha": (0.0, 5.0),
+                "xgb_reg_lambda": (0.0, 5.0),
+                "xgb_subsample": (0.6, 1.0),
+            },
+            "cat": {
+                "cat_depth": (6, 10),
+                "cat_lr": (0.005, 0.03),
+                "cat_rsm": (0.3, 0.9),
+                "cat_l2_leaf_reg": (0.0, 10.0),
+                "cat_random_strength": (0.0, 10.0),
+                "cat_subsample": (0.6, 1.0),
+            },
+        },
+        "dirt": {
+            "lgbm": {
+                "lgb_num_leaves": (31, 63),
+                "lgb_lr": (0.01, 0.05),
+                "lgb_feat_frac": (0.3, 0.9),
+                "lgb_min_child_samples": (10, 100),
+                "lgb_lambda_l1": (0.0, 10.0),
+                "lgb_lambda_l2": (0.0, 10.0),
+                "lgb_bagging_fraction": (0.5, 1.0),
+            },
+            "xgb": {
+                "xgb_max_depth": (4, 8),
+                "xgb_lr": (0.03, 0.1),
+                "xgb_col_sample": (0.3, 0.9),
+                "xgb_min_child_weight": (1, 50),
+                "xgb_reg_alpha": (0.0, 10.0),
+                "xgb_reg_lambda": (0.0, 10.0),
+                "xgb_subsample": (0.5, 1.0),
+            },
+            "cat": {
+                "cat_depth": (6, 10),
+                "cat_lr": (0.005, 0.03),
+                "cat_rsm": (0.3, 0.9),
+                "cat_l2_leaf_reg": (0.0, 20.0),
+                "cat_random_strength": (0.0, 10.0),
+                "cat_subsample": (0.5, 1.0),
+            },
+        },
+    }
+
+    # ── 旧 best_params キーなし時の既定値 ──
+    PARAM_DEFAULTS: dict[str, dict[str, Any]] = {
+        "lgbm": {
+            "lgb_min_child_samples": 20,
+            "lgb_lambda_l1": 0.0,
+            "lgb_lambda_l2": 0.0,
+            "lgb_bagging_fraction": 1.0,
+        },
+        "xgb": {
+            "xgb_min_child_weight": 1,
+            "xgb_reg_alpha": 0.0,
+            "xgb_reg_lambda": 0.0,
+            "xgb_subsample": 1.0,
+        },
+        "cat": {
+            "cat_l2_leaf_reg": 3.0,
+            "cat_random_strength": 1.0,
+            "cat_subsample": 1.0,
+        },
+        "meta": {
+            "ridge_alpha": 1.0,
+            "orthogonalize_threshold": 0.95,
+            "orthogonalize_strength": 0.5,
+        },
+    }
+
+    # ──────────────────────── init ────────────────────────
+
     def __init__(
         self,
         cat_cols: list[str] | None = None,
@@ -52,6 +152,7 @@ class StackedEnsemble:
         corr_threshold: float = 0.85,
         orthogonalize_threshold: float = 0.95,
         orthogonalize_strength: float = 0.5,
+        surface: str | None = None,
     ) -> None:
         self.cat_cols = cat_cols or []
         self.n_folds = n_folds
@@ -60,6 +161,7 @@ class StackedEnsemble:
         self.corr_threshold = corr_threshold
         self.orthogonalize_threshold = orthogonalize_threshold
         self.orthogonalize_strength = orthogonalize_strength
+        self.surface = surface
         self._cat_codes: dict[str, dict[str, int]] = {}
         self.lgbm_model: lgb.Booster | None = None
         self.xgb_model = None
@@ -68,6 +170,8 @@ class StackedEnsemble:
         self.best_params: dict[str, dict[str, Any]] = {}
         self._train_feature_names: list[str] = []
         self._orthogonalization: list[dict[str, Any]] = []
+
+    # ──────────────────────── public API ────────────────────────
 
     def train(
         self,
@@ -79,8 +183,14 @@ class StackedEnsemble:
         num_threads: int = 0,
         train_race_ids: pd.Series | None = None,
         valid_race_ids: pd.Series | None = None,
+        train_odds: pd.Series | None = None,
+        train_dates: pd.Series | None = None,
     ) -> None:
         """K-fold OOF でメタラーナーを学習後、全データでベースモデルを再学習。"""
+        # Surface 検証: 新規学習時は必須
+        if self.surface is None or self.surface not in self.VALID_SURFACES:
+            raise ValueError(f"surface must be one of {self.VALID_SURFACES}, got {self.surface!r}")
+
         if num_threads <= 0:
             num_threads = max(1, (os.cpu_count() or 4) // 2)
 
@@ -88,12 +198,14 @@ class StackedEnsemble:
         self._train_feature_names = list(X_train.columns)
         train_groups = self._normalize_groups(train_race_ids, len(X_train))
 
-        # --- Optuna HP Tuning Phase ---
+        # --- Optuna HP Tuning Phase (ベース3モデル) ---
         self.best_params = self._tune_hyperparams(
             X_train,
             y_train,
             num_threads,
             race_ids=train_groups,
+            train_odds=train_odds,
+            train_dates=train_dates,
         )
 
         # --- Level 1: K-fold OOF 予測生成 ---
@@ -129,11 +241,40 @@ class StackedEnsemble:
                 train_groups=train_groups.iloc[train_idx],
             )
 
-        # --- Level 2: Ridge メタラーナー ---
-        # NaNが残る行 (OOF対象外) を除外して学習
+        # --- Level 1.5: Ridge/直交化の別 Study ---
         valid_mask = ~np.any(np.isnan(oof_preds), axis=1)
+        oof_valid_groups = train_groups[valid_mask].reset_index(drop=True)
+        oof_valid_odds = (
+            train_odds[valid_mask].reset_index(drop=True) if train_odds is not None else None
+        )
+        oof_valid_dates = (
+            train_dates[valid_mask].reset_index(drop=True) if train_dates is not None else None
+        )
+        meta_params = self._tune_meta_params(
+            oof_preds[valid_mask],
+            y_train.values[valid_mask],
+            race_groups=oof_valid_groups,
+            odds=oof_valid_odds,
+            dates=oof_valid_dates,
+        )
+        self.best_params["meta"] = meta_params
+
+        # 最良 meta params を反映して OOF 全体で直交化 + Ridge を fit し直す
+        self.orthogonalize_threshold = meta_params.get(
+            "orthogonalize_threshold",
+            self.PARAM_DEFAULTS["meta"]["orthogonalize_threshold"],
+        )
+        self.orthogonalize_strength = meta_params.get(
+            "orthogonalize_strength",
+            self.PARAM_DEFAULTS["meta"]["orthogonalize_strength"],
+        )
+        self._orthogonalization = []  # reset before full-OOF fit
+
+        # --- Level 2: Ridge メタラーナー ---
         stack_features = self._fit_prediction_orthogonalizer(oof_preds[valid_mask])
-        self.meta_model = Ridge(alpha=1.0)
+        self.meta_model = Ridge(
+            alpha=float(meta_params.get("ridge_alpha", self.PARAM_DEFAULTS["meta"]["ridge_alpha"]))
+        )
         self.meta_model.fit(stack_features, y_train.values[valid_mask])
 
         # --- 最終ベースモデル: train+valid 全データで再学習 ---
@@ -147,13 +288,25 @@ class StackedEnsemble:
         all_groups = pd.concat([train_groups, valid_groups], ignore_index=True)
 
         self.lgbm_model = self._train_lgbm_full(
-            X_all, y_all, num_threads, self.best_params["lgbm"], train_groups=all_groups
+            X_all,
+            y_all,
+            num_threads,
+            self.best_params["lgbm"],
+            train_groups=all_groups,
         )
         self.xgb_model = self._train_xgb_full(
-            X_all, y_all, num_threads, self.best_params["xgb"], train_groups=all_groups
+            X_all,
+            y_all,
+            num_threads,
+            self.best_params["xgb"],
+            train_groups=all_groups,
         )
         self.cat_model = self._train_cat_full(
-            X_all, y_all, num_threads, self.best_params["cat"], train_groups=all_groups
+            X_all,
+            y_all,
+            num_threads,
+            self.best_params["cat"],
+            train_groups=all_groups,
         )
 
         # --- 多様性検証 (D-09, D-10, D-11) ---
@@ -168,8 +321,6 @@ class StackedEnsemble:
 
     def predict(self, X: pd.DataFrame, num_iteration: int | None = None) -> np.ndarray:
         """アンサンブル予測。Ridge で3モデルの予測を統合。"""
-        # Use only columns present at training time to avoid categorical feature mismatch
-        # (e.g., caller may pass extra columns like "surface" that were dropped before training)
         if self._train_feature_names:
             missing = [c for c in self._train_feature_names if c not in X.columns]
             if missing:
@@ -194,53 +345,38 @@ class StackedEnsemble:
         return np.clip(self.meta_model.predict(stacked), 0, 1)
 
     def feature_name(self) -> list[str]:
-        """特徴量名を返す (lgb.Booster 互換)。
-
-        アンサンブル内の LightGBM モデルの特徴量名をそのまま返す。
-        3モデルは同じ特徴量空間で学習されるためこれで十分。
-        """
+        """特徴量名を返す (lgb.Booster 互換)。"""
         if self.lgbm_model is None:
             return []
         return self.lgbm_model.feature_name()
 
     def feature_importance(self, importance_type: str = "split") -> np.ndarray:
-        """特徴量重要度を返す (lgb.Booster 互換)。
-
-        3ベースモデルの重要度を正規化して平均化した値を返す。
-        各モデルの重要度を [0, 1] に正規化後、単純平均する。
-
-        Args:
-            importance_type: "split" or "gain" (LightGBM のみ使用)
-        """
+        """特徴量重要度を返す (lgb.Booster 互換)。"""
         if self.lgbm_model is None:
             return np.array([])
 
         feature_names = self.lgbm_model.feature_name()
-
-        # LightGBM
         lgb_imp = self.lgbm_model.feature_importance(importance_type=importance_type).astype(float)
-
-        # XGBoost
         xgb_scores = self.xgb_model.get_score(importance_type="gain")
         xgb_imp = np.array([xgb_scores.get(f, 0.0) for f in feature_names], dtype=float)
-
-        # CatBoost
         cat_imp = self.cat_model.get_feature_importance().astype(float)
 
-        # 各モデルの重要度を [0, 1] に正規化して平均
         def _normalize(arr: np.ndarray) -> np.ndarray:
             total = arr.sum()
-            return arr / total if total > 0 else arr
+            return arr / total if total > 0 else np.zeros_like(arr)
 
         normalized = [_normalize(imp) for imp in [lgb_imp, xgb_imp, cat_imp]]
-        return np.mean(normalized, axis=0)
+        active = [n for n in normalized if n.sum() > 0]
+        if not active:
+            return np.zeros(len(lgb_imp), dtype=float)
+        avg = np.mean(active, axis=0)
+        total = avg.sum()
+        return avg / total if total > 0 else avg
+
+    # ──────────────────────── cat encoding ────────────────────────
 
     def _encode_cats(self, X: pd.DataFrame) -> pd.DataFrame:
-        """カテゴリ列を数値コードに変換 (XGBoost/CatBoost 用)。
-
-        _cat_codesが利用可能な場合は学習時のマッピングを使用し、
-        未知カテゴリを-1として扱う。そうでなければcat.codesにフォールバック。
-        """
+        """カテゴリ列を数値コードに変換 (XGBoost/CatBoost 用)。"""
         all_cat_cols = [c for c in X.columns if X[c].dtype.name == "category"]
         if not all_cat_cols:
             return X
@@ -259,6 +395,8 @@ class StackedEnsemble:
         for col in X.columns:
             if X[col].dtype.name == "category":
                 self._cat_codes[col] = {cat: code for code, cat in enumerate(X[col].cat.categories)}
+
+    # ──────────────────────── group splitting ────────────────────────
 
     @staticmethod
     def _normalize_groups(
@@ -315,6 +453,8 @@ class StackedEnsemble:
             splits.append((train_idx, valid_idx))
         return splits
 
+    # ──────────────────────── prediction helpers ────────────────────────
+
     @staticmethod
     def _predict_xgb_best(model: Any, data: Any) -> np.ndarray:
         """early stoppingの最良反復までに限定してXGBoost予測する。"""
@@ -323,15 +463,156 @@ class StackedEnsemble:
             return model.predict(data)
         return model.predict(data, iteration_range=(0, int(best_iteration) + 1))
 
+    # ──────────────────────── objective functions ────────────────────────
+
     @staticmethod
     def _probability_objective(y_true: pd.Series, preds: np.ndarray) -> float:
-        """順位性能と確率精度を両立するOptuna目的関数。"""
+        """順位性能と確率精度を両立するOptuna目的関数 (旧版、後方互換用)。"""
         from sklearn.metrics import brier_score_loss, roc_auc_score
 
         clipped = np.clip(np.asarray(preds, dtype=float), 1e-6, 1 - 1e-6)
         auc = float(roc_auc_score(y_true, clipped)) if y_true.nunique() >= 2 else 0.5
         brier = float(brier_score_loss(y_true, clipped))
         return auc - 0.25 * brier
+
+    @staticmethod
+    def _race_top1_objective(
+        y_true: pd.Series,
+        preds: np.ndarray,
+        *,
+        race_ids: pd.Series,
+        odds: pd.Series | None = None,
+        dates: pd.Series | None = None,
+        weights: dict[str, float] | None = None,
+    ) -> float:
+        """Race Top-1 目的関数。
+
+        各レースで予測確率最大の1頭だけを選び、ROI を評価。
+        指標: AUC, Brier, Top1HitRate, Top1ROI, 時系列安定性 の加重和。
+        常に有限値。単一クラスにも対応。
+        """
+        from sklearn.metrics import brier_score_loss, roc_auc_score
+
+        w = weights if weights is not None else StackedEnsemble.OBJECTIVE_WEIGHTS
+        preds_arr = np.clip(np.asarray(preds, dtype=float), 1e-6, 1 - 1e-6)
+        n = len(y_true)
+        if n == 0:
+            return 0.0
+
+        # ── 基本指標 (全行) ──
+        has_two_classes = y_true.nunique() >= 2
+        auc = float(roc_auc_score(y_true, preds_arr)) if has_two_classes else 0.5
+        brier = float(brier_score_loss(y_true, preds_arr))
+
+        # ── レース Top-1 集計 ──
+        df = pd.DataFrame(
+            {
+                "y": y_true.values,
+                "pred": preds_arr,
+                "race_id": race_ids.values,
+                "odds": odds.values if odds is not None else np.nan,
+            }
+        )
+        if dates is not None:
+            df["date"] = dates.values
+
+        # Top-1: 各レースで予測確率最大の1頭。同率時は行順 (idxmax)
+        top1 = df.loc[df.groupby("race_id", observed=True)["pred"].idxmax()]
+        n_races = len(top1)
+        if n_races == 0:
+            return 0.0
+
+        top1_hit = float((top1["y"] == 1).mean())
+        # 集計ROIを先に計算し、その後クリップ (個別クリップは高オッズ的中を潰す)
+        valid_odds = np.where(
+            np.isfinite(top1["odds"].values) & (top1["odds"].values > 0),
+            top1["odds"].values,
+            0.0,
+        )
+        raw_roi = float(np.mean(np.where(top1["y"].values == 1, valid_odds, 0.0)))
+        top1_roi = float(np.clip(raw_roi, 0.0, 2.0)) / 2.0
+
+        # ── 時系列安定性 ──
+        stability = StackedEnsemble._compute_stability(
+            top1,
+            dates_col="date" if "date" in df.columns else None,
+        )
+
+        # ── 加权和 ──
+        score = (
+            w["auc"] * auc
+            + w["brier"] * (1.0 - brier)
+            + w["top1_hit"] * top1_hit
+            + w["top1_roi"] * top1_roi
+            + w["stability"] * stability
+        )
+        return float(score) if np.isfinite(score) else 0.0
+
+    @staticmethod
+    def _compute_stability(
+        top1_df: pd.DataFrame,
+        *,
+        dates_col: str | None = None,
+    ) -> float:
+        """Top-1 ROI の時系列安定性を返す (常に [0, 1] の有限値)。
+
+        年が2年以上あれば年別ROI。そうでなければ3ブロック分割。
+        consistency (1-CV) と clipped minimum ROI を 0.5/0.5 で合成。
+        """
+
+        def _roi_of(sub: pd.DataFrame) -> float:
+            """Mean ROI of a subset (winner→valid odds, else→0)."""
+            if len(sub) == 0:
+                return 0.0
+            valid_odds = np.where(
+                np.isfinite(sub["odds"].values) & (sub["odds"].values > 0),
+                sub["odds"].values,
+                0.0,
+            )
+            return float(np.mean(np.where(sub["y"].values == 1, valid_odds, 0.0)))
+
+        rois: list[float] = []
+
+        # 年別ROI
+        if dates_col and dates_col in top1_df.columns:
+            dt = pd.to_datetime(top1_df[dates_col], errors="coerce")
+            years = dt.dt.year
+            unique_years = sorted(years.dropna().unique())
+            if len(unique_years) >= 2:
+                rois = [
+                    _roi_of(top1_df.loc[years == yr])
+                    for yr in unique_years
+                    if (years == yr).sum() > 0
+                ]
+
+        # ブロック安定性 (3分割) — 年別が不十分な場合のフォールバック
+        if len(rois) < 2:
+            n = len(top1_df)
+            if n < 3:
+                return 0.5
+            block_size = n // 3
+            rois = []
+            for i in range(3):
+                s = i * block_size
+                e = (i + 1) * block_size if i < 2 else n
+                rois.append(_roi_of(top1_df.iloc[s:e]))
+
+        if len(rois) < 2:
+            return 0.5
+
+        # consistency: 1 - CV (coefficient of variation)
+        mean_roi = float(np.mean(rois))
+        std_roi = float(np.std(rois))
+        denom = max(abs(mean_roi), 1e-6)
+        consistency = float(np.clip(1.0 - std_roi / denom, 0.0, 1.0))
+
+        # clipped minimum ROI: 悪期間でもどれだけの払戻があるか
+        min_roi = float(min(rois))
+        clipped_min = float(np.clip(min_roi, 0.0, 2.0)) / 2.0
+
+        return 0.5 * consistency + 0.5 * clipped_min
+
+    # ──────────────────────── correlation helpers ────────────────────────
 
     @staticmethod
     def _safe_corr(a: np.ndarray, b: np.ndarray) -> float:
@@ -343,15 +624,826 @@ class StackedEnsemble:
         b_valid = b[valid]
         if float(np.std(a_valid)) <= 1e-12 or float(np.std(b_valid)) <= 1e-12:
             return float("nan")
-        return float(np.corrcoef(a_valid, b_valid)[0, 1])
+        with np.errstate(divide="ignore", invalid="ignore"):
+            corr = float(np.corrcoef(a_valid, b_valid)[0, 1])
+        return corr if np.isfinite(corr) else float("nan")
+
+    @staticmethod
+    def _compute_corr_penalty(
+        preds: np.ndarray,
+        ref_preds_list: list[np.ndarray] | None,
+        weight: float,
+        threshold: float,
+    ) -> float:
+        """Compute correlation penalty: weight * max(0, mean_corr - threshold)."""
+        if not ref_preds_list or weight <= 0:
+            return 0.0
+        corrs = []
+        for ref in ref_preds_list:
+            c = StackedEnsemble._safe_corr(preds, ref)
+            corrs.append(float(c) if np.isfinite(c) else 0.0)
+        mean_corr = float(np.mean(corrs))
+        return weight * max(0.0, mean_corr - threshold)
+
+    # ──────────────────────── param helpers ────────────────────────
+
+    @staticmethod
+    def _get_param(params: dict[str, Any], key: str, model_name: str) -> Any:
+        """best_params からキーを取得。旧モデルでキーがない場合は既定値。"""
+        if key in params:
+            return params[key]
+        defaults = StackedEnsemble.PARAM_DEFAULTS.get(model_name, {})
+        return defaults.get(key)
+
+    def _build_lgbm_dict(self, params: dict[str, Any], num_threads: int) -> dict[str, Any]:
+        """Optuna params → LightGBM 完整パラメータ dict。"""
+        d: dict[str, Any] = {
+            **lightgbm_native_params(),
+            "objective": "binary",
+            "metric": "binary_logloss",
+            "num_leaves": int(params["lgb_num_leaves"]),
+            "learning_rate": float(params["lgb_lr"]),
+            "feature_fraction": float(params["lgb_feat_frac"]),
+            "min_child_samples": int(self._get_param(params, "lgb_min_child_samples", "lgbm")),
+            "lambda_l1": float(self._get_param(params, "lgb_lambda_l1", "lgbm")),
+            "lambda_l2": float(self._get_param(params, "lgb_lambda_l2", "lgbm")),
+            "verbose": -1,
+            "num_threads": num_threads,
+        }
+        bag_frac = float(self._get_param(params, "lgb_bagging_fraction", "lgbm"))
+        if bag_frac < 1.0:
+            d["bagging_fraction"] = bag_frac
+            d["bagging_freq"] = 1
+        return d
+
+    def _build_xgb_dict(self, params: dict[str, Any], num_threads: int) -> dict[str, Any]:
+        """Optuna params → XGBoost 完整パラメータ dict。"""
+        return {
+            **xgboost_params(),
+            "objective": "binary:logistic",
+            "eval_metric": "logloss",
+            "max_depth": int(params["xgb_max_depth"]),
+            "learning_rate": float(params["xgb_lr"]),
+            "colsample_bytree": float(params["xgb_col_sample"]),
+            "min_child_weight": int(self._get_param(params, "xgb_min_child_weight", "xgb")),
+            "reg_alpha": float(self._get_param(params, "xgb_reg_alpha", "xgb")),
+            "reg_lambda": float(self._get_param(params, "xgb_reg_lambda", "xgb")),
+            "subsample": float(self._get_param(params, "xgb_subsample", "xgb")),
+            "nthread": num_threads,
+        }
+
+    def _build_cat_dict(self, params: dict[str, Any], num_threads: int) -> dict[str, Any]:
+        """Optuna params → CatBoost 完整パラメータ dict。"""
+        d: dict[str, Any] = {
+            **catboost_params(),
+            "iterations": 500,
+            "learning_rate": float(params["cat_lr"]),
+            "depth": int(params["cat_depth"]),
+            "rsm": float(params["cat_rsm"]),
+            "l2_leaf_reg": float(self._get_param(params, "cat_l2_leaf_reg", "cat")),
+            "random_strength": float(self._get_param(params, "cat_random_strength", "cat")),
+            "thread_count": num_threads,
+            "verbose": 0,
+            "early_stopping_rounds": 100,
+            "eval_metric": "Logloss",
+        }
+        subsample_val = float(self._get_param(params, "cat_subsample", "cat"))
+        if subsample_val < 1.0:
+            d["subsample"] = subsample_val
+            d["bootstrap_type"] = "Bernoulli"
+        return d
+
+    # ──────────────────────── Optuna suggest (surface 別) ────────────────
+
+    def _suggest_lgbm_params(self, trial: Any) -> dict[str, Any]:
+        """LightGBM: 浅い木 + 中程度のlr"""
+        sp = self.SEARCH_SPACES[self.surface]["lgbm"]
+        return {
+            "lgb_num_leaves": trial.suggest_int("lgb_num_leaves", *sp["lgb_num_leaves"]),
+            "lgb_lr": trial.suggest_float("lgb_lr", *sp["lgb_lr"], log=True),
+            "lgb_feat_frac": trial.suggest_float("lgb_feat_frac", *sp["lgb_feat_frac"]),
+            "lgb_min_child_samples": trial.suggest_int(
+                "lgb_min_child_samples",
+                *sp["lgb_min_child_samples"],
+            ),
+            "lgb_lambda_l1": trial.suggest_float("lgb_lambda_l1", *sp["lgb_lambda_l1"]),
+            "lgb_lambda_l2": trial.suggest_float("lgb_lambda_l2", *sp["lgb_lambda_l2"]),
+            "lgb_bagging_fraction": trial.suggest_float(
+                "lgb_bagging_fraction",
+                *sp["lgb_bagging_fraction"],
+            ),
+        }
+
+    def _suggest_xgb_params(self, trial: Any) -> dict[str, Any]:
+        """XGBoost: 中程度の深さ + 高めのlr"""
+        sp = self.SEARCH_SPACES[self.surface]["xgb"]
+        return {
+            "xgb_max_depth": trial.suggest_int("xgb_max_depth", *sp["xgb_max_depth"]),
+            "xgb_lr": trial.suggest_float("xgb_lr", *sp["xgb_lr"], log=True),
+            "xgb_col_sample": trial.suggest_float("xgb_col_sample", *sp["xgb_col_sample"]),
+            "xgb_min_child_weight": trial.suggest_int(
+                "xgb_min_child_weight",
+                *sp["xgb_min_child_weight"],
+            ),
+            "xgb_reg_alpha": trial.suggest_float("xgb_reg_alpha", *sp["xgb_reg_alpha"]),
+            "xgb_reg_lambda": trial.suggest_float("xgb_reg_lambda", *sp["xgb_reg_lambda"]),
+            "xgb_subsample": trial.suggest_float("xgb_subsample", *sp["xgb_subsample"]),
+        }
+
+    def _suggest_cat_params(self, trial: Any) -> dict[str, Any]:
+        """CatBoost: 深い木 + 低めのlr"""
+        sp = self.SEARCH_SPACES[self.surface]["cat"]
+        return {
+            "cat_depth": trial.suggest_int("cat_depth", *sp["cat_depth"]),
+            "cat_lr": trial.suggest_float("cat_lr", *sp["cat_lr"], log=True),
+            "cat_rsm": trial.suggest_float("cat_rsm", *sp["cat_rsm"]),
+            "cat_l2_leaf_reg": trial.suggest_float("cat_l2_leaf_reg", *sp["cat_l2_leaf_reg"]),
+            "cat_random_strength": trial.suggest_float(
+                "cat_random_strength",
+                *sp["cat_random_strength"],
+            ),
+            "cat_subsample": trial.suggest_float("cat_subsample", *sp["cat_subsample"]),
+        }
+
+    # ──────────────────────── Optuna tuning ────────────────────────
+
+    def _tune_hyperparams(
+        self,
+        X_train: pd.DataFrame,
+        y_train: pd.Series,
+        num_threads: int,
+        *,
+        race_ids: pd.Series | None = None,
+        train_odds: pd.Series | None = None,
+        train_dates: pd.Series | None = None,
+    ) -> dict[str, dict[str, Any]]:
+        """Optunaで各モデルのHPを個別最適化（相関ペナルティ付き）"""
+        import optuna
+
+        optuna.logging.set_verbosity(optuna.logging.WARNING)
+
+        groups = self._normalize_groups(race_ids, len(X_train))
+        first_oof_train_idx, _ = self._expanding_group_splits(groups, self.n_folds)[0]
+        tune_groups = groups.iloc[first_oof_train_idx].reset_index(drop=True)
+        tune_split = self._group_boundary(tune_groups, 0.8)
+        tune_idx = first_oof_train_idx
+        train_idx, valid_idx = tune_idx[:tune_split], tune_idx[tune_split:]
+        X_t, y_t = X_train.iloc[train_idx], y_train.iloc[train_idx]
+        X_v, y_v = X_train.iloc[valid_idx], y_train.iloc[valid_idx]
+        X_t_num = self._encode_cats(X_t)
+        X_v_num = self._encode_cats(X_v)
+
+        # 検証用 odds / dates / race_groups
+        v_groups = groups.iloc[valid_idx].reset_index(drop=True)
+        v_odds = (
+            train_odds.iloc[valid_idx].reset_index(drop=True) if train_odds is not None else None
+        )
+        v_dates = (
+            train_dates.iloc[valid_idx].reset_index(drop=True) if train_dates is not None else None
+        )
+
+        best_params: dict[str, dict[str, Any]] = {}
+        ref_preds_list: list[np.ndarray] = []
+
+        for model_name, suggest_fn, eval_fn, ref_fn in [
+            ("lgbm", self._suggest_lgbm_params, self._eval_lgbm, self._train_ref_lgbm),
+            ("xgb", self._suggest_xgb_params, self._eval_xgb, self._train_ref_xgb),
+            ("cat", self._suggest_cat_params, self._eval_cat, self._train_ref_cat),
+        ]:
+            study = optuna.create_study(
+                direction="maximize",
+                sampler=optuna.samplers.TPESampler(seed=DEFAULT_RANDOM_SEED),
+            )
+            eval_kwargs: dict[str, Any] = {
+                "valid_race_groups": v_groups,
+                "valid_odds": v_odds,
+                "valid_dates": v_dates,
+            }
+            ref_kwargs: dict[str, Any] = {}
+            if model_name == "xgb":
+                import xgboost as xgb
+
+                dtrain = xgb.DMatrix(X_t_num, label=y_t)
+                dvalid = xgb.DMatrix(X_v_num, label=y_v)
+                eval_kwargs.update(dtrain=dtrain, dvalid=dvalid)
+                ref_kwargs = dict(eval_kwargs)
+            elif model_name == "cat":
+                ref_kwargs = {}
+
+            study.optimize(
+                lambda trial, fn=suggest_fn, tf=eval_fn, kwargs=eval_kwargs: tf(
+                    trial,
+                    fn,
+                    X_t,
+                    y_t,
+                    X_v,
+                    y_v,
+                    num_threads,
+                    ref_preds_list=ref_preds_list,
+                    corr_penalty_weight=self.corr_penalty_weight,
+                    corr_threshold=self.corr_threshold,
+                    **kwargs,
+                ),
+                n_trials=self.n_trials,
+            )
+            best_params[model_name] = study.best_params
+
+            # Train reference model for next model's correlation penalty
+            ref_preds = ref_fn(
+                X_t,
+                y_t,
+                X_v,
+                y_v,
+                num_threads,
+                study.best_params,
+                **ref_kwargs,
+            )
+            ref_preds_list.append(ref_preds)
+
+            # Log correlation penalty info
+            if ref_preds_list and self.corr_penalty_weight > 0:
+                corrs = []
+                for rp in ref_preds_list[:-1]:
+                    c = self._safe_corr(ref_preds, rp)
+                    corrs.append(float(c) if np.isfinite(c) else 0.0)
+                if corrs:
+                    mean_corr = float(np.mean(corrs))
+                    if mean_corr > self.corr_threshold:
+                        logger.info(
+                            "%s correlation penalty applied: mean_corr=%.4f > threshold=%.4f",
+                            model_name.upper(),
+                            mean_corr,
+                            self.corr_threshold,
+                        )
+
+        return best_params
+
+    def _tune_meta_params(
+        self,
+        oof_preds: np.ndarray,
+        y: np.ndarray,
+        *,
+        race_groups: pd.Series,
+        odds: pd.Series | None = None,
+        dates: pd.Series | None = None,
+    ) -> dict[str, Any]:
+        """Ridge / 直交化パラメータを独立 Optuna Study で探索 (seed=42)。
+
+        OOF 有効領域をレース単位・時系列で meta-train / meta-valid へ分ける。
+        meta-train で直交化係数と Ridge を fit し、meta-valid だけで目的関数を評価。
+        最良 params 決定後、train() 側で OOF 全体に fit し直す。
+        """
+        import optuna
+
+        optuna.logging.set_verbosity(optuna.logging.WARNING)
+
+        groups = race_groups.reset_index(drop=True)
+        unique_groups = pd.unique(groups)
+
+        if len(unique_groups) < 10:
+            logger.info(
+                "Too few unique races (%d) for meta study, using defaults",
+                len(unique_groups),
+            )
+            return dict(self.PARAM_DEFAULTS["meta"])
+
+        split = self._group_boundary(groups, 0.8)
+
+        mt_preds = oof_preds[:split]
+        mt_y = y[:split]
+        mv_preds = oof_preds[split:]
+        mv_y = y[split:]
+        mv_groups = groups.iloc[split:].reset_index(drop=True)
+        mv_odds = odds.iloc[split:].reset_index(drop=True) if odds is not None else None
+        mv_dates = dates.iloc[split:].reset_index(drop=True) if dates is not None else None
+
+        # 現在の状態を保存
+        old_threshold = self.orthogonalize_threshold
+        old_strength = self.orthogonalize_strength
+        old_ortho = list(self._orthogonalization)
+
+        def _meta_objective(trial: Any) -> float:
+            threshold = trial.suggest_float("orthogonalize_threshold", 0.80, 0.99)
+            strength = trial.suggest_float("orthogonalize_strength", 0.1, 1.0)
+            alpha = trial.suggest_float("ridge_alpha", 0.01, 100.0, log=True)
+
+            # meta-train で直交化 + Ridge を fit
+            self.orthogonalize_threshold = threshold
+            self.orthogonalize_strength = strength
+            self._orthogonalization = []
+            mt_transformed = self._fit_prediction_orthogonalizer(mt_preds)
+
+            ridge = Ridge(alpha=alpha)
+            ridge.fit(mt_transformed, mt_y)
+
+            # meta-valid で評価
+            mv_transformed = self._apply_prediction_orthogonalizer(mv_preds)
+            mv_pred = np.clip(ridge.predict(mv_transformed), 0, 1)
+
+            return self._race_top1_objective(
+                pd.Series(mv_y),
+                mv_pred,
+                race_ids=mv_groups,
+                odds=mv_odds,
+                dates=mv_dates,
+            )
+
+        study = optuna.create_study(
+            direction="maximize",
+            sampler=optuna.samplers.TPESampler(seed=DEFAULT_RANDOM_SEED),
+        )
+        study.optimize(_meta_objective, n_trials=self.n_trials)
+
+        # 状態を復元
+        self.orthogonalize_threshold = old_threshold
+        self.orthogonalize_strength = old_strength
+        self._orthogonalization = old_ortho
+
+        return dict(study.best_params)
+
+    # ──────────────────────── reference model training ────────────────────────
+
+    def _train_ref_lgbm(
+        self,
+        X_t: pd.DataFrame,
+        y_t: pd.Series,
+        X_v: pd.DataFrame,
+        y_v: pd.Series,
+        num_threads: int,
+        best_params: dict[str, Any],
+    ) -> np.ndarray:
+        """Train reference LGB model with best params for correlation computation."""
+        train_data = lgb.Dataset(X_t, label=y_t)
+        valid_data = lgb.Dataset(X_v, label=y_v, reference=train_data)
+        m = lgb.train(
+            self._build_lgbm_dict(best_params, num_threads),
+            train_data,
+            num_boost_round=500,
+            valid_sets=[valid_data],
+            callbacks=[lgb.early_stopping(stopping_rounds=100, verbose=False)],
+        )
+        return m.predict(X_v)
+
+    def _train_ref_xgb(
+        self,
+        X_t: pd.DataFrame,
+        y_t: pd.Series,
+        X_v: pd.DataFrame,
+        y_v: pd.Series,
+        num_threads: int,
+        best_params: dict[str, Any],
+        *,
+        dtrain: Any | None = None,
+        dvalid: Any | None = None,
+        **_kwargs: Any,
+    ) -> np.ndarray:
+        """Train reference XGB model with best params for correlation computation."""
+        import xgboost as xgb
+
+        X_t_num = self._encode_cats(X_t)
+        X_v_num = self._encode_cats(X_v)
+        if dtrain is None:
+            dtrain = xgb.DMatrix(X_t_num, label=y_t)
+        if dvalid is None:
+            dvalid = xgb.DMatrix(X_v_num, label=y_v)
+        m = xgb.train(
+            self._build_xgb_dict(best_params, num_threads),
+            dtrain,
+            num_boost_round=500,
+            evals=[(dvalid, "valid")],
+            early_stopping_rounds=100,
+            verbose_eval=False,
+        )
+        return self._predict_xgb_best(m, dvalid)
+
+    def _train_ref_cat(
+        self,
+        X_t: pd.DataFrame,
+        y_t: pd.Series,
+        X_v: pd.DataFrame,
+        y_v: pd.Series,
+        num_threads: int,
+        best_params: dict[str, Any],
+        **_kwargs: Any,
+    ) -> np.ndarray:
+        """Train reference CAT model with best params for correlation computation."""
+        from catboost import CatBoostClassifier
+
+        X_t_num = self._encode_cats(X_t)
+        X_v_num = self._encode_cats(X_v)
+        m = CatBoostClassifier(**self._build_cat_dict(best_params, num_threads))
+        m.fit(X_t_num, y_t, eval_set=(X_v_num, y_v))
+        return m.predict_proba(X_v_num)[:, 1]
+
+    # ──────────────────────── eval functions ────────────────────────
+
+    def _eval_lgbm(
+        self,
+        trial: Any,
+        suggest_fn: Any,
+        X_t: pd.DataFrame,
+        y_t: pd.Series,
+        X_v: pd.DataFrame,
+        y_v: pd.Series,
+        num_threads: int,
+        ref_preds_list: list[np.ndarray] | None = None,
+        corr_penalty_weight: float = 0.5,
+        corr_threshold: float = 0.85,
+        valid_race_groups: pd.Series | None = None,
+        valid_odds: pd.Series | None = None,
+        valid_dates: pd.Series | None = None,
+        **_kwargs: Any,
+    ) -> float:
+        """LightGBM Optuna objective"""
+        params = suggest_fn(trial)
+        train_data = lgb.Dataset(X_t, label=y_t)
+        valid_data = lgb.Dataset(X_v, label=y_v, reference=train_data)
+        m = lgb.train(
+            self._build_lgbm_dict(params, num_threads),
+            train_data,
+            num_boost_round=500,
+            valid_sets=[valid_data],
+            callbacks=[lgb.early_stopping(stopping_rounds=100, verbose=False)],
+        )
+        preds = m.predict(X_v)
+
+        if valid_race_groups is not None:
+            score = self._race_top1_objective(
+                y_v,
+                preds,
+                race_ids=valid_race_groups,
+                odds=valid_odds,
+                dates=valid_dates,
+            )
+        else:
+            score = self._probability_objective(y_v, preds)
+
+        penalty = self._compute_corr_penalty(
+            preds,
+            ref_preds_list,
+            corr_penalty_weight,
+            corr_threshold,
+        )
+        return score - penalty
+
+    def _eval_xgb(
+        self,
+        trial: Any,
+        suggest_fn: Any,
+        X_t: pd.DataFrame,
+        y_t: pd.Series,
+        X_v: pd.DataFrame,
+        y_v: pd.Series,
+        num_threads: int,
+        ref_preds_list: list[np.ndarray] | None = None,
+        corr_penalty_weight: float = 0.5,
+        corr_threshold: float = 0.85,
+        dtrain: Any | None = None,
+        dvalid: Any | None = None,
+        valid_race_groups: pd.Series | None = None,
+        valid_odds: pd.Series | None = None,
+        valid_dates: pd.Series | None = None,
+        **_kwargs: Any,
+    ) -> float:
+        """XGBoost Optuna objective"""
+        import xgboost as xgb
+
+        params = suggest_fn(trial)
+        if dtrain is None:
+            X_t_num = self._encode_cats(X_t)
+            dtrain = xgb.DMatrix(X_t_num, label=y_t)
+        if dvalid is None:
+            X_v_num = self._encode_cats(X_v)
+            dvalid = xgb.DMatrix(X_v_num, label=y_v)
+        m = xgb.train(
+            self._build_xgb_dict(params, num_threads),
+            dtrain,
+            num_boost_round=500,
+            evals=[(dvalid, "valid")],
+            early_stopping_rounds=100,
+            verbose_eval=False,
+        )
+        preds = self._predict_xgb_best(m, dvalid)
+
+        if valid_race_groups is not None:
+            score = self._race_top1_objective(
+                y_v,
+                preds,
+                race_ids=valid_race_groups,
+                odds=valid_odds,
+                dates=valid_dates,
+            )
+        else:
+            score = self._probability_objective(y_v, preds)
+
+        penalty = self._compute_corr_penalty(
+            preds,
+            ref_preds_list,
+            corr_penalty_weight,
+            corr_threshold,
+        )
+        return score - penalty
+
+    def _eval_cat(
+        self,
+        trial: Any,
+        suggest_fn: Any,
+        X_t: pd.DataFrame,
+        y_t: pd.Series,
+        X_v: pd.DataFrame,
+        y_v: pd.Series,
+        num_threads: int,
+        ref_preds_list: list[np.ndarray] | None = None,
+        corr_penalty_weight: float = 0.5,
+        corr_threshold: float = 0.85,
+        valid_race_groups: pd.Series | None = None,
+        valid_odds: pd.Series | None = None,
+        valid_dates: pd.Series | None = None,
+        **_kwargs: Any,
+    ) -> float:
+        """CatBoost Optuna objective"""
+        from catboost import CatBoostClassifier
+
+        params = suggest_fn(trial)
+        X_t_num = self._encode_cats(X_t)
+        X_v_num = self._encode_cats(X_v)
+        m = CatBoostClassifier(**self._build_cat_dict(params, num_threads))
+        m.fit(X_t_num, y_t, eval_set=(X_v_num, y_v))
+        preds = m.predict_proba(X_v_num)[:, 1]
+
+        if valid_race_groups is not None:
+            score = self._race_top1_objective(
+                y_v,
+                preds,
+                race_ids=valid_race_groups,
+                odds=valid_odds,
+                dates=valid_dates,
+            )
+        else:
+            score = self._probability_objective(y_v, preds)
+
+        penalty = self._compute_corr_penalty(
+            preds,
+            ref_preds_list,
+            corr_penalty_weight,
+            corr_threshold,
+        )
+        return score - penalty
+
+    # ──────────────────────── LightGBM helpers ────────────────────────
+
+    def _train_lgbm_fold(
+        self,
+        X_tr: pd.DataFrame,
+        y_tr: pd.Series,
+        X_va: pd.DataFrame,
+        nt: int,
+        params: dict[str, Any] | None = None,
+        *,
+        train_groups: pd.Series | None = None,
+    ) -> np.ndarray:
+        if params is not None:
+            lgb_params = self._build_lgbm_dict(params, nt)
+        else:
+            lgb_params = {
+                **lightgbm_native_params(),
+                "objective": "binary",
+                "metric": "binary_logloss",
+                "learning_rate": 0.03,
+                "num_leaves": 31,
+                "feature_fraction": 1.0,
+                "verbose": -1,
+                "num_threads": nt,
+            }
+
+        # K-fold train部を80/20に分割 (D-05)
+        groups = self._normalize_groups(train_groups, len(X_tr))
+        es_split = self._group_boundary(groups, 0.8)
+        X_t, y_t = X_tr.iloc[:es_split], y_tr.iloc[:es_split]
+        X_v, y_v = X_tr.iloc[es_split:], y_tr.iloc[es_split:]
+
+        train_data = lgb.Dataset(X_t, label=y_t)
+        valid_data = lgb.Dataset(X_v, label=y_v, reference=train_data)
+
+        m = lgb.train(
+            lgb_params,
+            train_data,
+            num_boost_round=500,
+            valid_sets=[valid_data],
+            callbacks=[lgb.early_stopping(stopping_rounds=100, verbose=False)],
+        )
+        return m.predict(X_va)
+
+    def _train_lgbm_full(
+        self,
+        X: pd.DataFrame,
+        y: pd.Series,
+        nt: int,
+        params: dict[str, Any] | None = None,
+        *,
+        train_groups: pd.Series | None = None,
+    ) -> lgb.Booster:
+        if params is not None:
+            lgb_params = self._build_lgbm_dict(params, nt)
+        else:
+            lgb_params = {
+                **lightgbm_native_params(),
+                "objective": "binary",
+                "metric": "binary_logloss",
+                "learning_rate": 0.03,
+                "num_leaves": 31,
+                "feature_fraction": 1.0,
+                "verbose": -1,
+                "num_threads": nt,
+            }
+
+        groups = self._normalize_groups(train_groups, len(X))
+        es_split = self._group_boundary(groups, 0.8)
+        X_t, y_t = X.iloc[:es_split], y.iloc[:es_split]
+        X_v, y_v = X.iloc[es_split:], y.iloc[es_split:]
+
+        train_data = lgb.Dataset(X_t, label=y_t)
+        valid_data = lgb.Dataset(X_v, label=y_v, reference=train_data)
+
+        return lgb.train(
+            lgb_params,
+            train_data,
+            num_boost_round=500,
+            valid_sets=[valid_data],
+            callbacks=[lgb.early_stopping(stopping_rounds=100, verbose=False)],
+        )
+
+    # ──────────────────────── XGBoost helpers ────────────────────────
+
+    def _train_xgb_fold(
+        self,
+        X_tr: pd.DataFrame,
+        y_tr: pd.Series,
+        X_va: pd.DataFrame,
+        nt: int,
+        params: dict[str, Any] | None = None,
+        *,
+        train_groups: pd.Series | None = None,
+    ) -> np.ndarray:
+        import xgboost as xgb
+
+        X_tr_num = self._encode_cats(X_tr)
+        X_va_num = self._encode_cats(X_va)
+
+        if params is not None:
+            xgb_params = self._build_xgb_dict(params, nt)
+        else:
+            xgb_params = {
+                **xgboost_params(),
+                "objective": "binary:logistic",
+                "eval_metric": "logloss",
+                "max_depth": 6,
+                "learning_rate": 0.03,
+                "colsample_bytree": 1.0,
+                "nthread": nt,
+            }
+
+        groups = self._normalize_groups(train_groups, len(X_tr_num))
+        es_split = self._group_boundary(groups, 0.8)
+        dtrain = xgb.DMatrix(X_tr_num.iloc[:es_split], label=y_tr.iloc[:es_split])
+        dvalid = xgb.DMatrix(X_tr_num.iloc[es_split:], y_tr.iloc[es_split:])
+
+        m = xgb.train(
+            xgb_params,
+            dtrain,
+            num_boost_round=500,
+            evals=[(dvalid, "valid")],
+            early_stopping_rounds=100,
+            verbose_eval=False,
+        )
+        return self._predict_xgb_best(m, xgb.DMatrix(X_va_num))
+
+    def _train_xgb_full(
+        self,
+        X: pd.DataFrame,
+        y: pd.Series,
+        nt: int,
+        params: dict[str, Any] | None = None,
+        *,
+        train_groups: pd.Series | None = None,
+    ) -> Any:
+        import xgboost as xgb
+
+        X_num = self._encode_cats(X)
+
+        if params is not None:
+            xgb_params = self._build_xgb_dict(params, nt)
+        else:
+            xgb_params = {
+                **xgboost_params(),
+                "objective": "binary:logistic",
+                "eval_metric": "logloss",
+                "max_depth": 6,
+                "learning_rate": 0.03,
+                "colsample_bytree": 1.0,
+                "nthread": nt,
+            }
+
+        groups = self._normalize_groups(train_groups, len(X_num))
+        es_split = self._group_boundary(groups, 0.8)
+        dtrain = xgb.DMatrix(X_num.iloc[:es_split], label=y.iloc[:es_split])
+        dvalid = xgb.DMatrix(X_num.iloc[es_split:], y.iloc[es_split:])
+
+        return xgb.train(
+            xgb_params,
+            dtrain,
+            num_boost_round=500,
+            evals=[(dvalid, "valid")],
+            early_stopping_rounds=100,
+            verbose_eval=False,
+        )
+
+    # ──────────────────────── CatBoost helpers ────────────────────────
+
+    def _train_cat_fold(
+        self,
+        X_tr: pd.DataFrame,
+        y_tr: pd.Series,
+        X_va: pd.DataFrame,
+        nt: int,
+        params: dict[str, Any] | None = None,
+        *,
+        train_groups: pd.Series | None = None,
+    ) -> np.ndarray:
+        from catboost import CatBoostClassifier
+
+        X_tr_num = self._encode_cats(X_tr)
+        X_va_num = self._encode_cats(X_va)
+
+        if params is not None:
+            cat_params = self._build_cat_dict(params, nt)
+        else:
+            cat_params = {
+                **catboost_params(),
+                "iterations": 500,
+                "learning_rate": 0.03,
+                "depth": 6,
+                "rsm": 1.0,
+                "thread_count": nt,
+                "verbose": 0,
+                "early_stopping_rounds": 100,
+                "eval_metric": "Logloss",
+            }
+
+        groups = self._normalize_groups(train_groups, len(X_tr_num))
+        es_split = self._group_boundary(groups, 0.8)
+
+        m = CatBoostClassifier(**cat_params)
+        m.fit(
+            X_tr_num.iloc[:es_split],
+            y_tr.iloc[:es_split],
+            eval_set=(X_tr_num.iloc[es_split:], y_tr.iloc[es_split:]),
+        )
+        return m.predict_proba(X_va_num)[:, 1]
+
+    def _train_cat_full(
+        self,
+        X: pd.DataFrame,
+        y: pd.Series,
+        nt: int,
+        params: dict[str, Any] | None = None,
+        *,
+        train_groups: pd.Series | None = None,
+    ) -> Any:
+        from catboost import CatBoostClassifier
+
+        X_num = self._encode_cats(X)
+
+        if params is not None:
+            cat_params = self._build_cat_dict(params, nt)
+        else:
+            cat_params = {
+                **catboost_params(),
+                "iterations": 500,
+                "learning_rate": 0.03,
+                "depth": 6,
+                "rsm": 1.0,
+                "thread_count": nt,
+                "verbose": 0,
+                "early_stopping_rounds": 100,
+                "eval_metric": "Logloss",
+            }
+
+        groups = self._normalize_groups(train_groups, len(X_num))
+        es_split = self._group_boundary(groups, 0.8)
+
+        m = CatBoostClassifier(**cat_params)
+        m.fit(
+            X_num.iloc[:es_split],
+            y.iloc[:es_split],
+            eval_set=(X_num.iloc[es_split:], y.iloc[es_split:]),
+        )
+        return m
+
+    # ──────────────────────── orthogonalization ────────────────────────
 
     def _fit_prediction_orthogonalizer(self, preds: np.ndarray) -> np.ndarray:
-        """高相関のベース予測をメタ特徴量として直交化する.
-
-        ベースモデル自体は残し、Ridgeに渡すLevel-1特徴量だけを残差化する。
-        これによりLGB-XGBのような重複シグナルを圧縮し、相補的な誤差成分を
-        メタラーナーへ渡す。
-        """
+        """高相関のベース予測をメタ特徴量として直交化する."""
         transformed = preds.astype(float).copy()
         self._orthogonalization = []
         model_names = ["LGB", "XGB", "CAT"]
@@ -382,7 +1474,6 @@ class StackedEnsemble:
                 continue
 
             transformed[:, i] = ((resid - resid_mean) / resid_std) * raw_std + raw_mean
-            # partial orthogonalization: blend raw and residual
             transformed[:, i] = (
                 1 - self.orthogonalize_strength
             ) * raw + self.orthogonalize_strength * transformed[:, i]
@@ -427,664 +1518,15 @@ class StackedEnsemble:
             ) * raw_col + self.orthogonalize_strength * transformed[:, i]
         return transformed
 
-    # --- Optuna suggest functions (exploration space separation) ---
-
-    def _suggest_lgbm_params(self, trial: Any) -> dict[str, Any]:
-        """LightGBM: 浅い木 + 中程度のlr"""
-        return {
-            "lgb_num_leaves": trial.suggest_int("lgb_num_leaves", 31, 63),
-            "lgb_lr": trial.suggest_float("lgb_lr", 0.01, 0.05, log=True),
-            "lgb_feat_frac": trial.suggest_float("lgb_feat_frac", 0.3, 0.9),
-        }
-
-    def _suggest_xgb_params(self, trial: Any) -> dict[str, Any]:
-        """XGBoost: 中程度の深さ + 高めのlr"""
-        return {
-            "xgb_max_depth": trial.suggest_int("xgb_max_depth", 4, 8),
-            "xgb_lr": trial.suggest_float("xgb_lr", 0.03, 0.1, log=True),
-            "xgb_col_sample": trial.suggest_float("xgb_col_sample", 0.3, 0.9),
-        }
-
-    def _suggest_cat_params(self, trial: Any) -> dict[str, Any]:
-        """CatBoost: 深い木 + 低めのlr"""
-        return {
-            "cat_depth": trial.suggest_int("cat_depth", 6, 10),
-            "cat_lr": trial.suggest_float("cat_lr", 0.005, 0.03, log=True),
-            "cat_rsm": trial.suggest_float("cat_rsm", 0.3, 0.9),
-        }
-
-    # --- Optuna tuning ---
-
-    def _tune_hyperparams(
-        self,
-        X_train: pd.DataFrame,
-        y_train: pd.Series,
-        num_threads: int,
-        *,
-        race_ids: pd.Series | None = None,
-    ) -> dict[str, dict[str, Any]]:
-        """Optunaで各モデルのHPを個別最適化（相関ペナルティ付き）"""
-        import optuna
-
-        optuna.logging.set_verbosity(optuna.logging.WARNING)
-
-        groups = self._normalize_groups(race_ids, len(X_train))
-        first_oof_train_idx, _ = self._expanding_group_splits(groups, self.n_folds)[0]
-        tune_groups = groups.iloc[first_oof_train_idx].reset_index(drop=True)
-        tune_split = self._group_boundary(tune_groups, 0.8)
-        tune_idx = first_oof_train_idx
-        train_idx, valid_idx = tune_idx[:tune_split], tune_idx[tune_split:]
-        X_t, y_t = X_train.iloc[train_idx], y_train.iloc[train_idx]
-        X_v, y_v = X_train.iloc[valid_idx], y_train.iloc[valid_idx]
-        X_t_num = self._encode_cats(X_t)
-        X_v_num = self._encode_cats(X_v)
-
-        best_params: dict[str, dict[str, Any]] = {}
-        ref_preds_list: list[np.ndarray] = []
-
-        for model_name, suggest_fn, eval_fn, ref_fn in [
-            ("lgbm", self._suggest_lgbm_params, self._eval_lgbm, self._train_ref_lgbm),
-            ("xgb", self._suggest_xgb_params, self._eval_xgb, self._train_ref_xgb),
-            ("cat", self._suggest_cat_params, self._eval_cat, self._train_ref_cat),
-        ]:
-            study = optuna.create_study(
-                direction="maximize",
-                sampler=optuna.samplers.TPESampler(seed=DEFAULT_RANDOM_SEED),
-            )
-            eval_kwargs: dict[str, Any] = {}
-            ref_kwargs: dict[str, Any] = {}
-            if model_name == "xgb":
-                import xgboost as xgb
-
-                dtrain = xgb.DMatrix(X_t_num, label=y_t)
-                dvalid = xgb.DMatrix(X_v_num, label=y_v)
-                eval_kwargs = {
-                    "X_t_num": X_t_num,
-                    "X_v_num": X_v_num,
-                    "dtrain": dtrain,
-                    "dvalid": dvalid,
-                }
-                ref_kwargs = eval_kwargs
-            elif model_name == "cat":
-                eval_kwargs = {"X_t_num": X_t_num, "X_v_num": X_v_num}
-                ref_kwargs = eval_kwargs
-
-            study.optimize(
-                lambda trial, fn=suggest_fn, tf=eval_fn, kwargs=eval_kwargs: tf(
-                    trial,
-                    fn,
-                    X_t,
-                    y_t,
-                    X_v,
-                    y_v,
-                    num_threads,
-                    ref_preds_list=ref_preds_list,
-                    corr_penalty_weight=self.corr_penalty_weight,
-                    corr_threshold=self.corr_threshold,
-                    **kwargs,
-                ),
-                n_trials=self.n_trials,
-            )
-            best_params[model_name] = study.best_params
-
-            # Train reference model for next model's correlation penalty
-            ref_preds = ref_fn(
-                X_t,
-                y_t,
-                X_v,
-                y_v,
-                num_threads,
-                study.best_params,
-                **ref_kwargs,
-            )
-            ref_preds_list.append(ref_preds)
-
-            # Log correlation penalty info
-            if ref_preds_list and self.corr_penalty_weight > 0:
-                corrs = [np.corrcoef(ref_preds, rp)[0, 1] for rp in ref_preds_list[:-1]]
-                if corrs:
-                    mean_corr = float(np.mean(corrs))
-                    if mean_corr > self.corr_threshold:
-                        logger.info(
-                            "%s correlation penalty applied: mean_corr=%.4f > threshold=%.4f",
-                            model_name.upper(),
-                            mean_corr,
-                            self.corr_threshold,
-                        )
-
-        return best_params
-
-    # --- Reference model training for correlation penalty ---
-
-    def _train_ref_lgbm(
-        self,
-        X_t: pd.DataFrame,
-        y_t: pd.Series,
-        X_v: pd.DataFrame,
-        y_v: pd.Series,
-        num_threads: int,
-        best_params: dict[str, Any],
-    ) -> np.ndarray:
-        """Train reference LGB model with best params for correlation computation."""
-        train_data = lgb.Dataset(X_t, label=y_t)
-        valid_data = lgb.Dataset(X_v, label=y_v, reference=train_data)
-        m = lgb.train(
-            {
-                **lightgbm_native_params(),
-                "objective": "binary",
-                "metric": "binary_logloss",
-                "num_leaves": best_params["lgb_num_leaves"],
-                "learning_rate": best_params["lgb_lr"],
-                "feature_fraction": best_params["lgb_feat_frac"],
-                "verbose": -1,
-                "num_threads": num_threads,
-            },
-            train_data,
-            num_boost_round=500,
-            valid_sets=[valid_data],
-            callbacks=[lgb.early_stopping(stopping_rounds=100, verbose=False)],
-        )
-        return m.predict(X_v)
-
-    def _train_ref_xgb(
-        self,
-        X_t: pd.DataFrame,
-        y_t: pd.Series,
-        X_v: pd.DataFrame,
-        y_v: pd.Series,
-        num_threads: int,
-        best_params: dict[str, Any],
-        *,
-        X_t_num: pd.DataFrame | None = None,
-        X_v_num: pd.DataFrame | None = None,
-        dtrain: Any | None = None,
-        dvalid: Any | None = None,
-    ) -> np.ndarray:
-        """Train reference XGB model with best params for correlation computation."""
-        import xgboost as xgb
-
-        if dtrain is None:
-            if X_t_num is None:
-                X_t_num = self._encode_cats(X_t)
-            dtrain = xgb.DMatrix(X_t_num, label=y_t)
-        if dvalid is None:
-            if X_v_num is None:
-                X_v_num = self._encode_cats(X_v)
-            dvalid = xgb.DMatrix(X_v_num, label=y_v)
-        m = xgb.train(
-            {
-                **xgboost_params(),
-                "objective": "binary:logistic",
-                "eval_metric": "logloss",
-                "max_depth": best_params["xgb_max_depth"],
-                "learning_rate": best_params["xgb_lr"],
-                "colsample_bytree": best_params["xgb_col_sample"],
-                "nthread": num_threads,
-            },
-            dtrain,
-            num_boost_round=500,
-            evals=[(dvalid, "valid")],
-            early_stopping_rounds=100,
-            verbose_eval=False,
-        )
-        return self._predict_xgb_best(m, dvalid)
-
-    def _train_ref_cat(
-        self,
-        X_t: pd.DataFrame,
-        y_t: pd.Series,
-        X_v: pd.DataFrame,
-        y_v: pd.Series,
-        num_threads: int,
-        best_params: dict[str, Any],
-        *,
-        X_t_num: pd.DataFrame | None = None,
-        X_v_num: pd.DataFrame | None = None,
-    ) -> np.ndarray:
-        """Train reference CAT model with best params for correlation computation."""
-        from catboost import CatBoostClassifier
-
-        if X_t_num is None:
-            X_t_num = self._encode_cats(X_t)
-        if X_v_num is None:
-            X_v_num = self._encode_cats(X_v)
-        m = CatBoostClassifier(
-            **catboost_params(),
-            iterations=500,
-            learning_rate=best_params["cat_lr"],
-            depth=best_params["cat_depth"],
-            rsm=best_params["cat_rsm"],
-            thread_count=num_threads,
-            verbose=0,
-            early_stopping_rounds=100,
-            eval_metric="Logloss",
-        )
-        m.fit(X_t_num, y_t, eval_set=(X_v_num, y_v))
-        return m.predict_proba(X_v_num)[:, 1]
-
-    @staticmethod
-    def _compute_corr_penalty(
-        preds: np.ndarray,
-        ref_preds_list: list[np.ndarray] | None,
-        weight: float,
-        threshold: float,
-    ) -> float:
-        """Compute correlation penalty: weight * max(0, mean_corr - threshold)."""
-        if not ref_preds_list or weight <= 0:
-            return 0.0
-        corrs = [np.corrcoef(preds, ref)[0, 1] for ref in ref_preds_list]
-        mean_corr = float(np.mean(corrs))
-        return weight * max(0.0, mean_corr - threshold)
-
-    def _eval_lgbm(
-        self,
-        trial: Any,
-        suggest_fn: Any,
-        X_t: pd.DataFrame,
-        y_t: pd.Series,
-        X_v: pd.DataFrame,
-        y_v: pd.Series,
-        num_threads: int,
-        ref_preds_list: list[np.ndarray] | None = None,
-        corr_penalty_weight: float = 0.5,
-        corr_threshold: float = 0.85,
-    ) -> float:
-        """LightGBM Optuna objective"""
-        params = suggest_fn(trial)
-        train_data = lgb.Dataset(X_t, label=y_t)
-        valid_data = lgb.Dataset(X_v, label=y_v, reference=train_data)
-        m = lgb.train(
-            {
-                **lightgbm_native_params(),
-                "objective": "binary",
-                "metric": "binary_logloss",
-                "num_leaves": params["lgb_num_leaves"],
-                "learning_rate": params["lgb_lr"],
-                "feature_fraction": params["lgb_feat_frac"],
-                "verbose": -1,
-                "num_threads": num_threads,
-            },
-            train_data,
-            num_boost_round=500,
-            valid_sets=[valid_data],
-            callbacks=[lgb.early_stopping(stopping_rounds=100, verbose=False)],
-        )
-        preds = m.predict(X_v)
-        score = self._probability_objective(y_v, preds)
-
-        # Correlation penalty (LGB is first model, ref_preds_list is empty)
-        penalty = self._compute_corr_penalty(
-            preds,
-            ref_preds_list,
-            corr_penalty_weight,
-            corr_threshold,
-        )
-        return score - penalty
-
-    def _eval_xgb(
-        self,
-        trial: Any,
-        suggest_fn: Any,
-        X_t: pd.DataFrame,
-        y_t: pd.Series,
-        X_v: pd.DataFrame,
-        y_v: pd.Series,
-        num_threads: int,
-        ref_preds_list: list[np.ndarray] | None = None,
-        corr_penalty_weight: float = 0.5,
-        corr_threshold: float = 0.85,
-        X_t_num: pd.DataFrame | None = None,
-        X_v_num: pd.DataFrame | None = None,
-        dtrain: Any | None = None,
-        dvalid: Any | None = None,
-    ) -> float:
-        """XGBoost Optuna objective"""
-        import xgboost as xgb
-
-        params = suggest_fn(trial)
-        if dtrain is None:
-            if X_t_num is None:
-                X_t_num = self._encode_cats(X_t)
-            dtrain = xgb.DMatrix(X_t_num, label=y_t)
-        if dvalid is None:
-            if X_v_num is None:
-                X_v_num = self._encode_cats(X_v)
-            dvalid = xgb.DMatrix(X_v_num, label=y_v)
-        m = xgb.train(
-            {
-                **xgboost_params(),
-                "objective": "binary:logistic",
-                "eval_metric": "logloss",
-                "max_depth": params["xgb_max_depth"],
-                "learning_rate": params["xgb_lr"],
-                "colsample_bytree": params["xgb_col_sample"],
-                "nthread": num_threads,
-            },
-            dtrain,
-            num_boost_round=500,
-            evals=[(dvalid, "valid")],
-            early_stopping_rounds=100,
-            verbose_eval=False,
-        )
-        preds = self._predict_xgb_best(m, dvalid)
-        score = self._probability_objective(y_v, preds)
-
-        penalty = self._compute_corr_penalty(
-            preds,
-            ref_preds_list,
-            corr_penalty_weight,
-            corr_threshold,
-        )
-        return score - penalty
-
-    def _eval_cat(
-        self,
-        trial: Any,
-        suggest_fn: Any,
-        X_t: pd.DataFrame,
-        y_t: pd.Series,
-        X_v: pd.DataFrame,
-        y_v: pd.Series,
-        num_threads: int,
-        ref_preds_list: list[np.ndarray] | None = None,
-        corr_penalty_weight: float = 0.5,
-        corr_threshold: float = 0.85,
-        X_t_num: pd.DataFrame | None = None,
-        X_v_num: pd.DataFrame | None = None,
-    ) -> float:
-        """CatBoost Optuna objective"""
-        from catboost import CatBoostClassifier
-
-        params = suggest_fn(trial)
-        if X_t_num is None:
-            X_t_num = self._encode_cats(X_t)
-        if X_v_num is None:
-            X_v_num = self._encode_cats(X_v)
-        m = CatBoostClassifier(
-            **catboost_params(),
-            iterations=500,
-            learning_rate=params["cat_lr"],
-            depth=params["cat_depth"],
-            rsm=params["cat_rsm"],
-            thread_count=num_threads,
-            verbose=0,
-            early_stopping_rounds=100,
-            eval_metric="Logloss",
-        )
-        m.fit(X_t_num, y_t, eval_set=(X_v_num, y_v))
-        preds = m.predict_proba(X_v_num)[:, 1]
-        score = self._probability_objective(y_v, preds)
-
-        penalty = self._compute_corr_penalty(
-            preds,
-            ref_preds_list,
-            corr_penalty_weight,
-            corr_threshold,
-        )
-        return score - penalty
-
-    # --- LightGBM helpers ---
-
-    def _train_lgbm_fold(
-        self,
-        X_tr: pd.DataFrame,
-        y_tr: pd.Series,
-        X_va: pd.DataFrame,
-        nt: int,
-        params: dict[str, Any] | None = None,
-        *,
-        train_groups: pd.Series | None = None,
-    ) -> np.ndarray:
-        lr = params["lgb_lr"] if params else 0.03
-        num_leaves = params["lgb_num_leaves"] if params else 31
-        feat_frac = params["lgb_feat_frac"] if params else 1.0
-
-        # K-fold train部を80/20に分割 (D-05)
-        groups = self._normalize_groups(train_groups, len(X_tr))
-        es_split = self._group_boundary(groups, 0.8)
-        X_t, y_t = X_tr.iloc[:es_split], y_tr.iloc[:es_split]
-        X_v, y_v = X_tr.iloc[es_split:], y_tr.iloc[es_split:]
-
-        train_data = lgb.Dataset(X_t, label=y_t)
-        valid_data = lgb.Dataset(X_v, label=y_v, reference=train_data)
-
-        m = lgb.train(
-            {
-                **lightgbm_native_params(),
-                "objective": "binary",
-                "metric": "binary_logloss",
-                "learning_rate": lr,
-                "num_leaves": num_leaves,
-                "feature_fraction": feat_frac,
-                "verbose": -1,
-                "num_threads": nt,
-            },
-            train_data,
-            num_boost_round=500,
-            valid_sets=[valid_data],
-            callbacks=[lgb.early_stopping(stopping_rounds=100, verbose=False)],
-        )
-        return m.predict(X_va)
-
-    def _train_lgbm_full(
-        self,
-        X: pd.DataFrame,
-        y: pd.Series,
-        nt: int,
-        params: dict[str, Any] | None = None,
-        *,
-        train_groups: pd.Series | None = None,
-    ) -> lgb.Booster:
-        lr = params["lgb_lr"] if params else 0.03
-        num_leaves = params["lgb_num_leaves"] if params else 31
-        feat_frac = params["lgb_feat_frac"] if params else 1.0
-
-        # 80/20 split for validation
-        groups = self._normalize_groups(train_groups, len(X))
-        es_split = self._group_boundary(groups, 0.8)
-        X_t, y_t = X.iloc[:es_split], y.iloc[:es_split]
-        X_v, y_v = X.iloc[es_split:], y.iloc[es_split:]
-
-        train_data = lgb.Dataset(X_t, label=y_t)
-        valid_data = lgb.Dataset(X_v, label=y_v, reference=train_data)
-
-        return lgb.train(
-            {
-                **lightgbm_native_params(),
-                "objective": "binary",
-                "metric": "binary_logloss",
-                "learning_rate": lr,
-                "num_leaves": num_leaves,
-                "feature_fraction": feat_frac,
-                "verbose": -1,
-                "num_threads": nt,
-            },
-            train_data,
-            num_boost_round=500,
-            valid_sets=[valid_data],
-            callbacks=[lgb.early_stopping(stopping_rounds=100, verbose=False)],
-        )
-
-    # --- XGBoost helpers ---
-
-    def _train_xgb_fold(
-        self,
-        X_tr: pd.DataFrame,
-        y_tr: pd.Series,
-        X_va: pd.DataFrame,
-        nt: int,
-        params: dict[str, Any] | None = None,
-        *,
-        train_groups: pd.Series | None = None,
-    ) -> np.ndarray:
-        import xgboost as xgb
-
-        X_tr_num = self._encode_cats(X_tr)
-        X_va_num = self._encode_cats(X_va)
-
-        max_depth = params["xgb_max_depth"] if params else 6
-        lr = params["xgb_lr"] if params else 0.03
-        col_sample = params["xgb_col_sample"] if params else 1.0
-
-        # K-fold train部を80/20に分割 (D-05)
-        groups = self._normalize_groups(train_groups, len(X_tr_num))
-        es_split = self._group_boundary(groups, 0.8)
-        dtrain = xgb.DMatrix(X_tr_num.iloc[:es_split], label=y_tr.iloc[:es_split])
-        dvalid = xgb.DMatrix(X_tr_num.iloc[es_split:], y_tr.iloc[es_split:])
-
-        m = xgb.train(
-            {
-                **xgboost_params(),
-                "objective": "binary:logistic",
-                "eval_metric": "logloss",
-                "max_depth": max_depth,
-                "learning_rate": lr,
-                "colsample_bytree": col_sample,
-                "nthread": nt,
-            },
-            dtrain,
-            num_boost_round=500,
-            evals=[(dvalid, "valid")],
-            early_stopping_rounds=100,
-            verbose_eval=False,
-        )
-        return self._predict_xgb_best(m, xgb.DMatrix(X_va_num))
-
-    def _train_xgb_full(
-        self,
-        X: pd.DataFrame,
-        y: pd.Series,
-        nt: int,
-        params: dict[str, Any] | None = None,
-        *,
-        train_groups: pd.Series | None = None,
-    ) -> Any:
-        import xgboost as xgb
-
-        X_num = self._encode_cats(X)
-
-        max_depth = params["xgb_max_depth"] if params else 6
-        lr = params["xgb_lr"] if params else 0.03
-        col_sample = params["xgb_col_sample"] if params else 1.0
-
-        # 80/20 split for validation
-        groups = self._normalize_groups(train_groups, len(X_num))
-        es_split = self._group_boundary(groups, 0.8)
-        dtrain = xgb.DMatrix(X_num.iloc[:es_split], label=y.iloc[:es_split])
-        dvalid = xgb.DMatrix(X_num.iloc[es_split:], y.iloc[es_split:])
-
-        return xgb.train(
-            {
-                **xgboost_params(),
-                "objective": "binary:logistic",
-                "eval_metric": "logloss",
-                "max_depth": max_depth,
-                "learning_rate": lr,
-                "colsample_bytree": col_sample,
-                "nthread": nt,
-            },
-            dtrain,
-            num_boost_round=500,
-            evals=[(dvalid, "valid")],
-            early_stopping_rounds=100,
-            verbose_eval=False,
-        )
-
-    # --- CatBoost helpers ---
-
-    def _train_cat_fold(
-        self,
-        X_tr: pd.DataFrame,
-        y_tr: pd.Series,
-        X_va: pd.DataFrame,
-        nt: int,
-        params: dict[str, Any] | None = None,
-        *,
-        train_groups: pd.Series | None = None,
-    ) -> np.ndarray:
-        from catboost import CatBoostClassifier
-
-        X_tr_num = self._encode_cats(X_tr)
-        X_va_num = self._encode_cats(X_va)
-
-        depth = params["cat_depth"] if params else 6
-        lr = params["cat_lr"] if params else 0.03
-        rsm = params["cat_rsm"] if params else 1.0
-
-        # K-fold train部を80/20に分割 (D-05)
-        groups = self._normalize_groups(train_groups, len(X_tr_num))
-        es_split = self._group_boundary(groups, 0.8)
-
-        m = CatBoostClassifier(
-            **catboost_params(),
-            iterations=500,
-            learning_rate=lr,
-            depth=depth,
-            rsm=rsm,
-            thread_count=nt,
-            verbose=0,
-            early_stopping_rounds=100,
-            eval_metric="Logloss",
-        )
-        m.fit(
-            X_tr_num.iloc[:es_split],
-            y_tr.iloc[:es_split],
-            eval_set=(X_tr_num.iloc[es_split:], y_tr.iloc[es_split:]),
-        )
-        return m.predict_proba(X_va_num)[:, 1]
-
-    def _train_cat_full(
-        self,
-        X: pd.DataFrame,
-        y: pd.Series,
-        nt: int,
-        params: dict[str, Any] | None = None,
-        *,
-        train_groups: pd.Series | None = None,
-    ) -> Any:
-        from catboost import CatBoostClassifier
-
-        X_num = self._encode_cats(X)
-
-        depth = params["cat_depth"] if params else 6
-        lr = params["cat_lr"] if params else 0.03
-        rsm = params["cat_rsm"] if params else 1.0
-
-        # 80/20 split for validation
-        groups = self._normalize_groups(train_groups, len(X_num))
-        es_split = self._group_boundary(groups, 0.8)
-
-        m = CatBoostClassifier(
-            **catboost_params(),
-            iterations=500,
-            learning_rate=lr,
-            depth=depth,
-            rsm=rsm,
-            thread_count=nt,
-            verbose=0,
-            early_stopping_rounds=100,
-            eval_metric="Logloss",
-        )
-        m.fit(
-            X_num.iloc[:es_split],
-            y.iloc[:es_split],
-            eval_set=(X_num.iloc[es_split:], y.iloc[es_split:]),
-        )
-        return m
-
-    # --- Diversity verification ---
+    # ──────────────────────── diversity verification ────────────────────────
 
     def _compute_importance(self, feature_names: list[str]) -> list[np.ndarray]:
         """各ベースモデルのfeature importanceを抽出"""
-        # LightGBM
         lgb_imp = self.lgbm_model.feature_importance(importance_type="gain")
 
-        # XGBoost
         xgb_scores = self.xgb_model.get_score(importance_type="gain")
-        # get_scoreは存在する特徴量のみ返す — 全特徴量分の配列に変換
         xgb_imp = np.array([xgb_scores.get(f, 0.0) for f in feature_names], dtype=float)
 
-        # CatBoost
         cat_imp = self.cat_model.get_feature_importance()
 
         return [lgb_imp, xgb_imp, cat_imp]
@@ -1099,11 +1541,12 @@ class StackedEnsemble:
         """OOF予測の多様性を検証 (D-09, D-10, D-11)"""
         from scipy.stats import spearmanr
 
-        # ペアワイズ相関 (D-09)
-        corr_matrix = np.corrcoef(oof_preds.T)
         pairs = [(0, 1, "LGB-XGB"), (0, 2, "LGB-CAT"), (1, 2, "XGB-CAT")]
         for i, j, name in pairs:
-            c = corr_matrix[i, j]
+            c = self._safe_corr(oof_preds[:, i], oof_preds[:, j])
+            if not np.isfinite(c):
+                logger.info("OOF prediction correlation %s: skipped (non-finite)", name)
+                continue
             logger.info("OOF prediction correlation %s: %.4f", name, c)
             if c >= 0.95:
                 logger.warning(
@@ -1112,9 +1555,23 @@ class StackedEnsemble:
                     c,
                 )
 
-        # Feature importance Spearman順位相関 (D-10)
         for i, j, name in pairs:
-            rho, _ = spearmanr(importances[i], importances[j])
+            imp_i = importances[i].astype(float)
+            imp_j = importances[j].astype(float)
+            if float(np.std(imp_i)) <= 1e-12 or float(np.std(imp_j)) <= 1e-12:
+                logger.info(
+                    "Feature importance rank correlation %s: skipped (constant importance)",
+                    name,
+                )
+                continue
+            rho, _ = spearmanr(imp_i, imp_j)
+            if not np.isfinite(rho):
+                logger.info(
+                    "Feature importance rank correlation %s: skipped (non-finite)",
+                    name,
+                )
+                continue
+            rho = float(rho)
             logger.info("Feature importance rank correlation %s: %.4f", name, rho)
             if rho > 0.8:
                 logger.warning(

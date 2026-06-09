@@ -187,7 +187,7 @@ def _win_selection_oof_return_unit(df: pd.DataFrame) -> pd.Series:
     if "win_return" in df.columns:
         yen_return = pd.to_numeric(df["win_return"], errors="coerce")
         if yen_return.notna().any():
-            return (yen_return.clip(lower=0.0).fillna(0.0) / 100.0)
+            return yen_return.clip(lower=0.0).fillna(0.0) / 100.0
 
     odds_col = "confirmed_odds" if "confirmed_odds" in df.columns else "tanodds"
     if odds_col not in df.columns:
@@ -518,8 +518,7 @@ class TrainingPipelineV5:
                 )
                 if oof_result["status"] != "PASS":
                     raise ValueError(
-                        f"OOF health check failed for oof_predictions: "
-                        f"{oof_result['failures']}"
+                        f"OOF health check failed for oof_predictions: {oof_result['failures']}"
                     )
 
                 full_features_df.to_parquet(oof_path, index=False)
@@ -546,9 +545,7 @@ class TrainingPipelineV5:
                     manifest_path,
                 )
             else:
-                logger.info(
-                    "Skipping OOF predictions save: empty df or no race_date column"
-                )
+                logger.info("Skipping OOF predictions save: empty df or no race_date column")
 
         if win_selection_oof_dfs:
             win_oof_path = Path("data/oof/win_selection_oof.parquet")
@@ -929,7 +926,19 @@ class TrainingPipelineV5:
                 y = (df_oof["kakuteijyuni"] == 1).astype(int)
                 split = StackedEnsemble.race_group_split_index(df_oof["race_id"])
                 _cat_cols = [c for c in ["distance_bin", "grade_code"] if c in features.columns]
-                ensemble = StackedEnsemble(cat_cols=_cat_cols)
+                # Prepare odds: confirmed_odds preferred, tanodds fallback
+                if "confirmed_odds" in df_oof.columns:
+                    _train_odds = pd.to_numeric(df_oof["confirmed_odds"], errors="coerce")
+                    if "tanodds" in df_oof.columns:
+                        _train_odds = _train_odds.fillna(
+                            pd.to_numeric(df_oof["tanodds"], errors="coerce")
+                        )
+                elif "tanodds" in df_oof.columns:
+                    _train_odds = pd.to_numeric(df_oof["tanodds"], errors="coerce")
+                else:
+                    _train_odds = None
+                _train_dates = df_oof["race_date"] if "race_date" in df_oof.columns else None
+                ensemble = StackedEnsemble(cat_cols=_cat_cols, surface=surface)
                 ensemble.train(
                     features.iloc[:split],
                     y.iloc[:split],
@@ -938,6 +947,8 @@ class TrainingPipelineV5:
                     num_threads=num_threads,
                     train_race_ids=df_oof["race_id"].iloc[:split],
                     valid_race_ids=df_oof["race_id"].iloc[split:],
+                    train_odds=(_train_odds.iloc[:split] if _train_odds is not None else None),
+                    train_dates=(_train_dates.iloc[:split] if _train_dates is not None else None),
                 )
                 win_2s.hit_model = ensemble
         else:
@@ -1049,7 +1060,18 @@ class TrainingPipelineV5:
                     _place_cat_cols = [
                         c for c in ["distance_bin", "grade_code"] if c in features.columns
                     ]
-                    ensemble_place = StackedEnsemble(cat_cols=_place_cat_cols)
+                    # Prepare odds: fukuoddslow (複勝オッズ) を使用。単勝oddsは代用しない。
+                    if "fukuoddslow" in df_oof.columns:
+                        _place_train_odds = pd.to_numeric(df_oof["fukuoddslow"], errors="coerce")
+                    else:
+                        _place_train_odds = None
+                    _place_train_dates = (
+                        df_oof["race_date"] if "race_date" in df_oof.columns else None
+                    )
+                    ensemble_place = StackedEnsemble(
+                        cat_cols=_place_cat_cols,
+                        surface=surface,
+                    )
                     ensemble_place.train(
                         features.iloc[:split],
                         y.iloc[:split],
@@ -1058,6 +1080,16 @@ class TrainingPipelineV5:
                         num_threads=num_threads,
                         train_race_ids=df_oof["race_id"].iloc[:split],
                         valid_race_ids=df_oof["race_id"].iloc[split:],
+                        train_odds=(
+                            _place_train_odds.iloc[:split]
+                            if _place_train_odds is not None
+                            else None
+                        ),
+                        train_dates=(
+                            _place_train_dates.iloc[:split]
+                            if _place_train_dates is not None
+                            else None
+                        ),
                     )
                     place_2s.hit_model = ensemble_place
                     # バリデーション予測を保存 (Benter combination + isotonic fitting 用)
@@ -1143,8 +1175,7 @@ class TrainingPipelineV5:
                     market_aware_calibrator.train(oof_cal_df)
 
                 logger.info(
-                    "MarketAwareWinCalibrator trained for %s: "
-                    "is_trained=%s best_c=%s summary=%s",
+                    "MarketAwareWinCalibrator trained for %s: is_trained=%s best_c=%s summary=%s",
                     surface,
                     market_aware_calibrator.is_trained,
                     market_aware_calibrator.best_c,
@@ -2027,10 +2058,7 @@ class TrainingPipelineV5:
                             os.unlink(mawc_tmp)
 
                 # Phase 40: RaceLevelRanker (MLflow artifact)
-                if (
-                    sub.win_race_level_ranker is not None
-                    and sub.win_race_level_ranker.is_trained
-                ):
+                if sub.win_race_level_ranker is not None and sub.win_race_level_ranker.is_trained:
                     rlr_tmp: str | None = None
                     try:
                         with tempfile.NamedTemporaryFile(
@@ -2155,6 +2183,7 @@ class TrainingPipelineV5:
                 if sub.track_stats is not None and ts_path.is_file():
                     mlflow.log_artifact(str(ts_path))
                     import hashlib
+
                     sha256 = hashlib.sha256(ts_path.read_bytes()).hexdigest()
                     mlflow.log_param(f"track_stats_sha256_{surface}", sha256[:16])
                 tms_path = models_dir / f"track_month_stats_{surface}.json"
@@ -2234,10 +2263,7 @@ class TrainingPipelineV5:
                 )
 
             # Phase 40: RaceLevelRanker (local save)
-            if (
-                sub.win_race_level_ranker is not None
-                and sub.win_race_level_ranker.is_trained
-            ):
+            if sub.win_race_level_ranker is not None and sub.win_race_level_ranker.is_trained:
                 sub.win_race_level_ranker.save(
                     models_dir / f"win_race_level_ranker_{surface}.joblib"
                 )
