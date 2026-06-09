@@ -206,6 +206,20 @@ class RacePredictor:
             return selector
         return None
 
+    def _get_win_top1_odds_reranker(self, race_df: pd.DataFrame) -> Any | None:
+        """surface 別の WinTop1OddsReranker を取得 (artifact なしなら None)."""
+        if race_df.empty or "surface" not in race_df.columns:
+            return None
+        surface_key = race_df["surface"].iloc[0]
+        submodels = getattr(self.models, "submodels", {})
+        submodel = submodels.get(surface_key)
+        if submodel is None:
+            return None
+        reranker = getattr(submodel, "win_top1_odds_reranker", None)
+        if reranker is not None and getattr(reranker, "is_trained", False) is True:
+            return reranker
+        return None
+
     def predict(
         self,
         race_df: pd.DataFrame,
@@ -1161,6 +1175,47 @@ class RacePredictor:
                 errors="coerce",
             ).fillna(0.0)
             sort_cols.append("_conf_score")
+
+        # --- WinTop1OddsReranker: odds cap による top-1 再選択 ---
+        # apply() returns exactly 1 row per race. When active, skip sort/head
+        # since the reranker has already made the top-1 selection.
+        # When None/untrained/inf_cap, falls through to existing sort/head(1).
+        # Skipped when profit_selector_enabled AND max_per_race > 1 to preserve
+        # the ProfitSelector's multi-candidate contract. When max_per_race == 1
+        # the reranker still applies (both produce 1 horse; reranker adds diagnostics).
+        reranker = self._get_win_top1_odds_reranker(prepared)
+        if reranker is not None and not (profit_selector_enabled and profit_max_per_race > 1):
+            reranked = reranker.apply(candidates)
+            if not reranked.empty:
+                # Map reranker per-race diagnostics to full prepared frame
+                # so attrs['win_diagnostic_df'] includes diagnostics for all horses.
+                _reranker_diag_cols = [c for c in reranked.columns if c.startswith("reranker_")]
+                if "race_id" in prepared.columns and _reranker_diag_cols:
+                    _reranker_map = (
+                        reranked[["race_id"] + _reranker_diag_cols]
+                        .drop_duplicates(subset="race_id")
+                        .set_index("race_id")
+                    )
+                    for _rcol in _reranker_diag_cols:
+                        if _rcol not in prepared.columns:
+                            prepared[_rcol] = np.nan
+                        prepared[_rcol] = prepared["race_id"].map(_reranker_map[_rcol])
+                # Propagate diagnostic df from the original prepared frame
+                reranked.attrs["n_ev_excluded"] = _n_ev_excluded
+                reranked.attrs["win_diagnostic_df"] = prepared
+                return reranked.drop(
+                    columns=[
+                        "_calibrated_edge",
+                        "_win_market_selection_score_num",
+                        "_win_market_logit_edge_num",
+                        "_win_market_value_ratio_num",
+                        "_selection_prob_num",
+                        "_sort_edge_num",
+                        "_win_gate_score_num",
+                        "_conf_score",
+                    ],
+                    errors="ignore",
+                )
 
         candidates = candidates.sort_values(sort_cols, ascending=[False] * len(sort_cols))
 

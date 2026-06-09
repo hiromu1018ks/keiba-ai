@@ -54,6 +54,7 @@ from models.wide_two_stage_model import WideTwoStageModel
 from models.win_profit_selector import WinProfitSelector
 from models.win_selection_gate import WinSelectionGateModel, ensure_win_selection_columns
 from models.win_selection_policy import WinSelectionPolicy
+from models.win_top1_odds_reranker import WinTop1OddsReranker
 from validation.oof_health_validator import (
     OOF_PREDICTIONS_PROFILE,
     OOFHealthValidator,
@@ -1360,6 +1361,17 @@ class TrainingPipelineV5:
                 win_profit_selector.training_summary,
             )
 
+        # --- WinTop1OddsReranker (高オッズ暴走抑制リランカー) ---
+        with TimingContext(f"{surface}/win_top1_odds_reranker_train"):
+            win_top1_odds_reranker = WinTop1OddsReranker()
+            win_top1_odds_reranker.train(wsg_train_df)
+            logger.info(
+                "WinTop1OddsReranker trained for %s: cap=%s trained=%s",
+                surface,
+                win_top1_odds_reranker.selected_cap,
+                win_top1_odds_reranker.is_trained,
+            )
+
         # Phase 39: WinSegmentCalibrator removed — segment conditioning now in
         # MarketAwareWinCalibrator (CAL-04)
 
@@ -1406,6 +1418,7 @@ class TrainingPipelineV5:
             win_profit_selector=win_profit_selector,
             market_aware_win_calibrator=market_aware_calibrator,
             win_race_level_ranker=win_race_level_ranker,
+            win_top1_odds_reranker=win_top1_odds_reranker,
             ev_lower_threshold_turf=ev_threshold_turf,
             ev_lower_threshold_dirt=ev_threshold_dirt,
             ev_isotonic_calibrator=ev_isotonic_calibrator,
@@ -2072,6 +2085,21 @@ class TrainingPipelineV5:
                         if rlr_tmp and os.path.exists(rlr_tmp):
                             os.unlink(rlr_tmp)
 
+                # WinTop1OddsReranker (MLflow artifact)
+                if sub.win_top1_odds_reranker is not None and sub.win_top1_odds_reranker.is_trained:
+                    reranker_tmp: str | None = None
+                    try:
+                        with tempfile.NamedTemporaryFile(
+                            suffix=".joblib",
+                            delete=False,
+                        ) as reranker_file:
+                            reranker_tmp = reranker_file.name
+                        sub.win_top1_odds_reranker.save(Path(reranker_tmp))
+                        mlflow.log_artifact(reranker_tmp, f"win_top1_odds_reranker_{surface}")
+                    finally:
+                        if reranker_tmp and os.path.exists(reranker_tmp):
+                            os.unlink(reranker_tmp)
+
                 # PlaceTwoStageModel
                 if sub.place is not None:
                     if sub.use_ensemble:
@@ -2266,6 +2294,12 @@ class TrainingPipelineV5:
             if sub.win_race_level_ranker is not None and sub.win_race_level_ranker.is_trained:
                 sub.win_race_level_ranker.save(
                     models_dir / f"win_race_level_ranker_{surface}.joblib"
+                )
+
+            # WinTop1OddsReranker (local save)
+            if sub.win_top1_odds_reranker is not None and sub.win_top1_odds_reranker.is_trained:
+                sub.win_top1_odds_reranker.save(
+                    models_dir / f"win_top1_odds_reranker_{surface}.joblib"
                 )
 
             # Benter Combination (JSON)

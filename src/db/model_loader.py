@@ -259,9 +259,7 @@ class ModelLoader:
                 )
             except Exception:
                 try:
-                    rlr_dir = self._find_artifact_dir(
-                        run_id, f"win_race_level_ranker_{surface}"
-                    )
+                    rlr_dir = self._find_artifact_dir(run_id, f"win_race_level_ranker_{surface}")
                 except Exception:
                     rlr_dir = None
             if rlr_dir is not None:
@@ -273,6 +271,29 @@ class ModelLoader:
                         win_race_level_ranker = RaceLevelRanker.load(rlr_files[0])
                     except Exception:
                         logger.warning("Failed to load RaceLevelRanker for %s", surface)
+
+            # --- WinTop1OddsReranker (MLflow) ---
+            win_top1_odds_reranker = None
+            try:
+                reranker_dir = mlflow.artifacts.download_artifacts(
+                    f"runs:/{run_id}/win_top1_odds_reranker_{surface}"
+                )
+            except Exception:
+                try:
+                    reranker_dir = self._find_artifact_dir(
+                        run_id, f"win_top1_odds_reranker_{surface}"
+                    )
+                except Exception:
+                    reranker_dir = None
+            if reranker_dir is not None:
+                reranker_files = list(Path(reranker_dir).glob("*.joblib"))
+                if reranker_files:
+                    try:
+                        from models.win_top1_odds_reranker import WinTop1OddsReranker
+
+                        win_top1_odds_reranker = WinTop1OddsReranker.load(reranker_files[0])
+                    except Exception:
+                        logger.warning("Failed to load WinTop1OddsReranker for %s", surface)
 
             # PlaceAbilityModel (joblib artifact, optional — None when no artifact exists)
             pa: PlaceAbilityModel | None = None
@@ -444,6 +465,7 @@ class ModelLoader:
                 temperature_scaler=temperature_scaler,
                 market_aware_win_calibrator=market_aware_win_calibrator,
                 win_race_level_ranker=win_race_level_ranker,
+                win_top1_odds_reranker=win_top1_odds_reranker,
                 win_selection_gate=win_selection_gate,
                 win_selection_policy=win_selection_policy,
                 win_profit_selector=win_profit_selector,
@@ -805,6 +827,17 @@ class ModelLoader:
                 except Exception:
                     logger.warning("Failed to load %s, skipping", rlr_file)
 
+            # --- WinTop1OddsReranker (local) ---
+            win_top1_odds_reranker = None
+            reranker_file = models_dir / f"win_top1_odds_reranker_{surface}.joblib"
+            if reranker_file.is_file():
+                try:
+                    from models.win_top1_odds_reranker import WinTop1OddsReranker
+
+                    win_top1_odds_reranker = WinTop1OddsReranker.load(reranker_file)
+                except Exception:
+                    logger.warning("Failed to load %s, skipping", reranker_file)
+
             # PlaceAbilityModel (joblib, optional — None when no artifact exists)
             pa: PlaceAbilityModel | None = None
             pa_file = models_dir / f"place_ability_{surface}.joblib"
@@ -929,6 +962,7 @@ class ModelLoader:
                 temperature_scaler=temperature_scaler,
                 market_aware_win_calibrator=market_aware_win_calibrator,
                 win_race_level_ranker=win_race_level_ranker,
+                win_top1_odds_reranker=win_top1_odds_reranker,
                 win_selection_gate=win_selection_gate,
                 win_selection_policy=win_selection_policy,
                 win_profit_selector=win_profit_selector,

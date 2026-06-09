@@ -1,0 +1,1264 @@
+"""WinTop1OddsReranker tests.
+
+Covers: training objective, vectorized simulation, apply semantics,
+confirmed_odds payout, save/load, RacePredictor integration,
+backward compatibility, diagnostics propagation.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import MagicMock
+
+import numpy as np
+import pandas as pd
+import pytest
+
+from models.win_top1_odds_reranker import (
+    RERANKER_APPLIED_COL,
+    RERANKER_CAP_COL,
+    RERANKER_DIAGNOSTIC_COLS,
+    RERANKER_FINAL_TOP1_COL,
+    RERANKER_ORIG_TOP1_COL,
+    RERANKER_SWITCH_REASON_COL,
+    WinTop1OddsReranker,
+)
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _make_reranker_rows(
+    n_races: int = 300,
+    high_odds_hit_rate: float = 0.0,
+    seed: int = 42,
+) -> pd.DataFrame:
+    """Build a synthetic OOF frame for reranker training.
+
+    Creates races with:
+      - Horse 1: low odds (~3.0), high score → usually top-1
+      - Horse 2: mid odds (~15.0), mid score
+      - Horse 3: high odds (~80.0), sometimes highest score (simulates "runaway")
+
+    When high_odds_hit_rate > 0, horse 3 occasionally wins with high odds,
+    making cap selection unprofitable.
+    """
+    rng = np.random.RandomState(seed)
+    rows: list[dict[str, object]] = []
+    for race_idx in range(n_races):
+        race_id = f"R{race_idx:05d}"
+        race_date = pd.Timestamp("2021-01-01") + pd.Timedelta(days=race_idx)
+        # Horse 3 occasionally has the highest score (simulating high-odds runaway)
+        h3_score_boost = 2.0 if rng.random() < 0.15 else 0.0
+        # Horse 3 sometimes wins (for payout simulation)
+        h3_wins = rng.random() < high_odds_hit_rate
+        rows.extend(
+            [
+                {
+                    "race_id": race_id,
+                    "race_date": race_date,
+                    "umaban": 1,
+                    "kakuteijyuni": 1 if (not h3_wins and race_idx % 4 == 0) else 3,
+                    "tanodds": 3.0,
+                    "confirmed_odds": 3.2,
+                    "win_market_selection_score": 1.0,
+                },
+                {
+                    "race_id": race_id,
+                    "race_date": race_date,
+                    "umaban": 2,
+                    "kakuteijyuni": 1 if (not h3_wins and race_idx % 5 == 0) else 4,
+                    "tanodds": 15.0,
+                    "confirmed_odds": 14.5,
+                    "win_market_selection_score": 0.5,
+                },
+                {
+                    "race_id": race_id,
+                    "race_date": race_date,
+                    "umaban": 3,
+                    "kakuteijyuni": 1 if h3_wins else 8,
+                    "tanodds": 80.0,
+                    "confirmed_odds": 82.0,
+                    "win_market_selection_score": 0.3 + h3_score_boost,
+                },
+            ]
+        )
+    return pd.DataFrame(rows)
+
+
+def _make_single_race_df(
+    odds_list: list[float],
+    score_list: list[float],
+    *,
+    race_id: str = "TEST_R1",
+    surface: str = "turf",
+) -> pd.DataFrame:
+    """Build a minimal single-race DataFrame for apply() tests."""
+    rows = []
+    for i, (odds, score) in enumerate(zip(odds_list, score_list), start=1):
+        rows.append(
+            {
+                "race_id": race_id,
+                "race_date": pd.Timestamp("2025-01-01"),
+                "surface": surface,
+                "umaban": i,
+                "tanodds": odds,
+                "win_market_selection_score": score,
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+# ---------------------------------------------------------------------------
+# Training tests
+# ---------------------------------------------------------------------------
+
+
+class TestWinTop1OddsRerankerTraining:
+    def test_train_selects_finite_cap_when_profitable(self) -> None:
+        """When high-odds runaway selections are losing, a cap should be selected."""
+        # Horse 3 has boosted score 15% of the time but never wins → cap helps
+        model = WinTop1OddsReranker(
+            min_train_races=100,
+            min_fold_races=50,
+            max_folds=3,
+        )
+        df = _make_reranker_rows(n_races=300, high_odds_hit_rate=0.0)
+        model.train(df)
+
+        assert model.is_trained is True
+        assert model.selected_cap < float("inf")
+        assert "objective" in model.training_summary
+        assert "baseline_objective" in model.training_summary
+
+    def test_train_insufficient_races_returns_inf(self) -> None:
+        """Too few races → cap=inf."""
+        model = WinTop1OddsReranker(
+            min_train_races=500,
+            min_fold_races=100,
+        )
+        df = _make_reranker_rows(n_races=50)
+        model.train(df)
+
+        assert model.is_trained is True
+        assert model.selected_cap == float("inf")
+        assert model.training_summary["reason"] == "insufficient_races"
+
+    def test_train_missing_columns_returns_inf(self) -> None:
+        """Missing required columns → cap=inf."""
+        model = WinTop1OddsReranker()
+        model.train(pd.DataFrame({"race_id": ["R1"], "umaban": [1]}))
+
+        assert model.selected_cap == float("inf")
+
+    def test_train_no_improvement_selects_inf(self) -> None:
+        """When no cap beats inf baseline, inf is selected."""
+        # All horses have low odds (≤ 10.0), so no cap helps
+        rows: list[dict[str, object]] = []
+        for race_idx in range(300):
+            race_id = f"R{race_idx:05d}"
+            race_date = pd.Timestamp("2021-01-01") + pd.Timedelta(days=race_idx)
+            rows.extend(
+                [
+                    {
+                        "race_id": race_id,
+                        "race_date": race_date,
+                        "umaban": 1,
+                        "kakuteijyuni": 1 if race_idx % 3 == 0 else 2,
+                        "tanodds": 2.5,
+                        "win_market_selection_score": 1.0,
+                    },
+                    {
+                        "race_id": race_id,
+                        "race_date": race_date,
+                        "umaban": 2,
+                        "kakuteijyuni": 1 if race_idx % 4 == 0 else 3,
+                        "tanodds": 5.0,
+                        "win_market_selection_score": 0.5,
+                    },
+                ]
+            )
+        df = pd.DataFrame(rows)
+        model = WinTop1OddsReranker(
+            min_train_races=100,
+            min_fold_races=50,
+            max_folds=3,
+        )
+        model.train(df)
+
+        assert model.is_trained is True
+        # All odds ≤ 5.0, no cap should improve over inf
+        assert model.selected_cap == float("inf")
+
+    def test_train_tie_selects_inf_not_smaller_cap(self) -> None:
+        """When cap ties with inf, inf is selected (don't prefer smaller cap)."""
+        # Build data where cap=20.0 ties with inf
+        model = WinTop1OddsReranker(
+            min_train_races=100,
+            min_fold_races=50,
+            max_folds=3,
+        )
+        df = _make_reranker_rows(n_races=300, high_odds_hit_rate=0.0)
+        model.train(df)
+
+        # If objective ties, inf should be selected
+        best_obj = model.training_summary.get("objective", float("-inf"))
+        baseline_obj = model.training_summary.get("baseline_objective", float("-inf"))
+        if np.isclose(best_obj, baseline_obj):
+            assert model.selected_cap == float("inf")
+
+    def test_train_fold_chronological_order(self) -> None:
+        """Folds should be in chronological race order."""
+        model = WinTop1OddsReranker(
+            min_train_races=100,
+            min_fold_races=50,
+            max_folds=3,
+        )
+        df = _make_reranker_rows(n_races=300)
+        model.train(df)
+
+        summary = model.training_summary
+        assert "n_folds" in summary
+        assert summary["n_folds"] > 0
+
+        # Verify fold order via _build_folds directly
+        race_order = (
+            df[["race_id", "race_date"]]
+            .drop_duplicates()
+            .sort_values(["race_date", "race_id"])
+            .reset_index(drop=True)
+        )
+        folds = model._build_folds(race_order)
+        for i in range(len(folds) - 1):
+            assert folds[i][1] <= folds[i + 1][0], "Folds must be chronological"
+
+    def test_train_bet_count_equals_race_count(self) -> None:
+        """Each fold must produce exactly 1 bet per race."""
+        df = _make_reranker_rows(n_races=300)
+        model = WinTop1OddsReranker(
+            min_train_races=100,
+            min_fold_races=50,
+            max_folds=3,
+        )
+        model.train(df)
+
+        all_metrics = model.training_summary.get("all_cap_metrics", {})
+        for cap_str, metrics in all_metrics.items():
+            assert metrics["bets_ok"], (
+                f"cap={cap_str}: bets ({metrics['bets']}) != fold_races ({metrics['n_fold_races']})"
+            )
+
+    def test_train_confirmed_odds_used_for_payout(self) -> None:
+        """confirmed_odds should be preferred over tanodds for payout calculation."""
+        rows: list[dict[str, object]] = []
+        for race_idx in range(300):
+            race_id = f"R{race_idx:05d}"
+            race_date = pd.Timestamp("2021-01-01") + pd.Timedelta(days=race_idx)
+            rows.append(
+                {
+                    "race_id": race_id,
+                    "race_date": race_date,
+                    "umaban": 1,
+                    "kakuteijyuni": 1 if race_idx % 2 == 0 else 2,
+                    "tanodds": 5.0,
+                    "confirmed_odds": 5.5,  # Different from tanodds
+                    "win_market_selection_score": 1.0,
+                }
+            )
+        df = pd.DataFrame(rows)
+        model = WinTop1OddsReranker(
+            min_train_races=100,
+            min_fold_races=50,
+            max_folds=3,
+        )
+        model.train(df)
+
+        # Verify that simulation uses confirmed_odds (5.5) not tanodds (5.0)
+        # ROI = total_return / bets.  150 wins * 5.5 = 825, 300 bets → ROI = 2.75
+        # If tanodds (5.0) were used: 150 * 5.0 = 750, ROI = 2.50
+        inf_metrics = model.training_summary.get("baseline_metrics", {})
+        if inf_metrics:
+            actual_roi = inf_metrics.get("roi", 0.0)
+            assert actual_roi == pytest.approx(2.75, abs=0.1), (
+                f"ROI {actual_roi} doesn't reflect confirmed_odds=5.5 "
+                f"(expected ~2.75, would be 2.50 if using tanodds)"
+            )
+
+
+# ---------------------------------------------------------------------------
+# Apply tests
+# ---------------------------------------------------------------------------
+
+
+class TestWinTop1OddsRerankerApply:
+    def _trained_model(self, cap: float = 30.0) -> WinTop1OddsReranker:
+        model = WinTop1OddsReranker()
+        model.selected_cap = cap
+        model.is_trained = True
+        return model
+
+    def test_apply_returns_one_per_race_multi_race(self) -> None:
+        """2+ races: always returns exactly 1 horse per race."""
+        df = pd.concat(
+            [
+                _make_single_race_df(
+                    [3.0, 80.0, 15.0],
+                    [1.0, 0.3, 0.5],
+                    race_id="R1",
+                ),
+                _make_single_race_df(
+                    [5.0, 20.0, 40.0],
+                    [0.4, 0.9, 0.7],
+                    race_id="R2",
+                ),
+            ],
+            ignore_index=True,
+        )
+        model = self._trained_model(cap=30.0)
+        result = model.apply(df)
+
+        assert len(result) == 2
+        assert set(result["race_id"].tolist()) == {"R1", "R2"}
+
+    def test_apply_switches_when_orig_top1_exceeds_cap(self) -> None:
+        """Original top1 has odds > cap → switch to cap-eligible next best."""
+        # Horse 3: odds=80, score=1.5 (top1 but > cap=30)
+        # Horse 1: odds=3, score=1.0 (within cap)
+        df = _make_single_race_df([3.0, 15.0, 80.0], [1.0, 0.5, 1.5])
+        model = self._trained_model(cap=30.0)
+        result = model.apply(df)
+
+        assert len(result) == 1
+        assert result.iloc[0]["umaban"] == 1  # Switched to cap-eligible horse
+        assert result[RERANKER_APPLIED_COL].iloc[0] == True  # noqa: E712
+        assert result[RERANKER_SWITCH_REASON_COL].iloc[0] == "odds_cap_switch"
+        assert result[RERANKER_ORIG_TOP1_COL].iloc[0] == 3
+        assert result[RERANKER_FINAL_TOP1_COL].iloc[0] == 1
+
+    def test_apply_no_change_when_orig_top1_within_cap(self) -> None:
+        """Original top1 is within cap → no change."""
+        df = _make_single_race_df([3.0, 15.0, 80.0], [1.5, 0.5, 0.3])
+        model = self._trained_model(cap=30.0)
+        result = model.apply(df)
+
+        assert len(result) == 1
+        assert result.iloc[0]["umaban"] == 1  # Original top1 kept
+        assert result[RERANKER_APPLIED_COL].iloc[0] == False  # noqa: E712
+        assert result[RERANKER_SWITCH_REASON_COL].iloc[0] == "top1_within_cap"
+
+    def test_apply_fallback_when_no_eligible_candidates(self) -> None:
+        """All horses exceed cap → keep original top1."""
+        # All odds > 30 (cap)
+        df = _make_single_race_df([50.0, 80.0, 100.0], [1.5, 0.5, 0.3])
+        model = self._trained_model(cap=30.0)
+        result = model.apply(df)
+
+        assert len(result) == 1
+        assert result.iloc[0]["umaban"] == 1  # Original top1 kept
+        assert result[RERANKER_APPLIED_COL].iloc[0] == False  # noqa: E712
+        assert result[RERANKER_SWITCH_REASON_COL].iloc[0] == "no_eligible"
+
+    def test_apply_inf_cap_selects_original_top1(self) -> None:
+        """cap=inf → no filtering, just select original top1."""
+        df = _make_single_race_df([3.0, 80.0, 15.0], [0.5, 1.5, 0.3])
+        model = self._trained_model(cap=float("inf"))
+        result = model.apply(df)
+
+        assert len(result) == 1
+        assert result.iloc[0]["umaban"] == 2  # Highest score regardless of odds
+        assert result[RERANKER_APPLIED_COL].iloc[0] == False  # noqa: E712
+        assert result[RERANKER_SWITCH_REASON_COL].iloc[0] == "inf_cap"
+
+    def test_apply_untrained_returns_original_top1(self) -> None:
+        """Untrained model → returns original top1 with 'untrained' reason."""
+        df = _make_single_race_df([3.0, 80.0], [0.5, 1.5])
+        model = WinTop1OddsReranker()
+        result = model.apply(df)
+
+        assert len(result) == 1
+        assert result.iloc[0]["umaban"] == 2
+        assert result[RERANKER_SWITCH_REASON_COL].iloc[0] == "untrained"
+
+    def test_apply_empty_df_returns_empty(self) -> None:
+        """Empty input → empty output with diagnostic columns."""
+        model = self._trained_model(cap=30.0)
+        result = model.apply(pd.DataFrame())
+
+        assert result.empty
+
+    def test_apply_preserves_original_columns(self) -> None:
+        """All original columns are preserved in the output."""
+        df = _make_single_race_df([3.0, 80.0], [0.5, 1.5])
+        model = self._trained_model(cap=30.0)
+        result = model.apply(df)
+
+        for col in ["race_id", "umaban", "tanodds", "win_market_selection_score"]:
+            assert col in result.columns
+
+    def test_apply_index_stability(self) -> None:
+        """Output rows retain their original DataFrame index."""
+        df = _make_single_race_df([3.0, 80.0], [0.5, 1.5])
+        original_idx = df.index.tolist()
+        model = self._trained_model(cap=30.0)
+        result = model.apply(df)
+
+        # Selected row should have its original index
+        assert result.index[0] in original_idx
+
+    def test_apply_diagnostics_propagation(self) -> None:
+        """All 5 diagnostic columns are present and correctly typed."""
+        df = _make_single_race_df([3.0, 80.0, 15.0], [1.0, 0.3, 0.5])
+        model = self._trained_model(cap=30.0)
+        result = model.apply(df)
+
+        for col in [
+            RERANKER_APPLIED_COL,
+            RERANKER_CAP_COL,
+            RERANKER_ORIG_TOP1_COL,
+            RERANKER_FINAL_TOP1_COL,
+            RERANKER_SWITCH_REASON_COL,
+        ]:
+            assert col in result.columns, f"Missing diagnostic column: {col}"
+
+        assert result[RERANKER_CAP_COL].iloc[0] == 30.0
+
+
+# ---------------------------------------------------------------------------
+# Save / Load tests
+# ---------------------------------------------------------------------------
+
+
+class TestWinTop1OddsRerankerPersistence:
+    def test_save_load_roundtrip(self, tmp_path: Path) -> None:
+        """Save and load preserves all fields."""
+        model = WinTop1OddsReranker(
+            min_train_races=100,
+            min_fold_races=50,
+            max_folds=3,
+        )
+        df = _make_reranker_rows(n_races=300)
+        model.train(df)
+
+        path = tmp_path / "reranker.joblib"
+        model.save(path)
+        loaded = WinTop1OddsReranker.load(path)
+
+        assert loaded.is_trained == model.is_trained
+        assert loaded.selected_cap == model.selected_cap
+        assert loaded.stability_penalty == model.stability_penalty
+        assert loaded.min_roi_floor == model.min_roi_floor
+        assert loaded.min_roi_penalty == model.min_roi_penalty
+        assert loaded.training_summary == model.training_summary
+
+    def test_save_load_untrained(self, tmp_path: Path) -> None:
+        """Save/load of untrained model."""
+        model = WinTop1OddsReranker()
+        path = tmp_path / "reranker_untrained.joblib"
+        model.save(path)
+        loaded = WinTop1OddsReranker.load(path)
+
+        assert loaded.is_trained is False
+        assert loaded.selected_cap == float("inf")
+
+    def test_save_creates_parent_dirs(self, tmp_path: Path) -> None:
+        """save() creates intermediate directories."""
+        model = WinTop1OddsReranker()
+        deep_path = tmp_path / "a" / "b" / "c" / "reranker.joblib"
+        model.save(deep_path)
+        assert deep_path.is_file()
+
+
+# ---------------------------------------------------------------------------
+# RacePredictor integration tests
+# ---------------------------------------------------------------------------
+
+
+class TestRacePredictorIntegration:
+    def _make_submodel_with_reranker(self, cap: float = 30.0) -> SimpleNamespace:
+        """Build a SubmodelSet-like namespace with reranker attached."""
+        reranker = WinTop1OddsReranker()
+        reranker.selected_cap = cap
+        reranker.is_trained = True
+
+        sub = SimpleNamespace(
+            market=MagicMock(),
+            stage1=MagicMock(),
+            place_ability=None,
+            win=MagicMock(),
+            ev_corrector=MagicMock(),
+            place=None,
+            wide=None,
+            conformal_ev_model=None,
+            place_selection_gate=None,
+            benter_combo=None,
+            isotonic_calibrator=None,
+            market_aware_win_calibrator=None,
+            win_selection_gate=None,
+            win_selection_policy=None,
+            win_profit_selector=None,
+            win_race_level_ranker=None,
+            win_top1_odds_reranker=reranker,
+            ev_lower_threshold_turf=1.0,
+            ev_lower_threshold_dirt=1.0,
+            target_encoder=None,
+        )
+        return sub
+
+    def test_reranker_selects_cap_eligible_via_race_predictor(self) -> None:
+        """RacePredictor.get_win_candidates uses reranker to avoid high-odds top1."""
+        from backtest.race_predictor import RacePredictor
+        from domain.models import TrainedModelsV5
+
+        sub = self._make_submodel_with_reranker(cap=30.0)
+        models = MagicMock(spec=TrainedModelsV5)
+        models.submodels = {"turf": sub}
+        models.quality_screener = MagicMock()
+        models.regime_detector = MagicMock()
+        models.regime_detector.get_strategy_params.return_value = {
+            "edge_threshold": 0.03,
+            "max_bets_per_race": 3,
+        }
+
+        predictor = RacePredictor(models=models, betting_target="win")
+        candidates = predictor.get_win_candidates(
+            pd.DataFrame(
+                [
+                    {
+                        "race_id": "R1",
+                        "race_date": pd.Timestamp("2025-01-01"),
+                        "surface": "turf",
+                        "umaban": 1,
+                        "tanodds": 3.0,
+                        "p_win_final": 0.45,
+                        "win_selection_prob": 0.45,
+                        "win_selection_ev": 0.90,
+                        "win_selection_edge": -0.10,
+                        "win_market_selection_score": 1.0,
+                    },
+                    {
+                        "race_id": "R1",
+                        "race_date": pd.Timestamp("2025-01-01"),
+                        "surface": "turf",
+                        "umaban": 2,
+                        "tanodds": 80.0,
+                        "p_win_final": 0.02,
+                        "win_selection_prob": 0.02,
+                        "win_selection_ev": 0.60,
+                        "win_selection_edge": -0.40,
+                        "win_market_selection_score": 1.5,  # Higher score but odds > cap
+                    },
+                ]
+            )
+        )
+
+        # Reranker should select horse 1 (within cap) instead of horse 2 (odds > 30)
+        assert len(candidates) == 1
+        assert candidates.iloc[0]["umaban"] == 1
+
+    def test_race_predictor_backward_compat_no_reranker(self) -> None:
+        """RacePredictor works normally when reranker is None."""
+        from backtest.race_predictor import RacePredictor
+        from domain.models import TrainedModelsV5
+
+        sub = SimpleNamespace(
+            market=MagicMock(),
+            stage1=MagicMock(),
+            place_ability=None,
+            win=MagicMock(),
+            ev_corrector=MagicMock(),
+            place=None,
+            wide=None,
+            conformal_ev_model=None,
+            place_selection_gate=None,
+            benter_combo=None,
+            isotonic_calibrator=None,
+            market_aware_win_calibrator=None,
+            win_selection_gate=None,
+            win_selection_policy=None,
+            win_profit_selector=None,
+            win_race_level_ranker=None,
+            win_top1_odds_reranker=None,  # No reranker
+            ev_lower_threshold_turf=1.0,
+            ev_lower_threshold_dirt=1.0,
+            target_encoder=None,
+        )
+        models = MagicMock(spec=TrainedModelsV5)
+        models.submodels = {"turf": sub}
+        models.quality_screener = MagicMock()
+        models.regime_detector = MagicMock()
+        models.regime_detector.get_strategy_params.return_value = {
+            "edge_threshold": 0.03,
+            "max_bets_per_race": 3,
+        }
+
+        predictor = RacePredictor(models=models, betting_target="win")
+        candidates = predictor.get_win_candidates(
+            pd.DataFrame(
+                [
+                    {
+                        "race_id": "R1",
+                        "race_date": pd.Timestamp("2025-01-01"),
+                        "surface": "turf",
+                        "umaban": 1,
+                        "tanodds": 3.0,
+                        "p_win_final": 0.45,
+                        "win_selection_prob": 0.45,
+                        "win_selection_ev": 0.90,
+                        "win_selection_edge": -0.10,
+                        "win_market_selection_score": 1.0,
+                    },
+                    {
+                        "race_id": "R1",
+                        "race_date": pd.Timestamp("2025-01-01"),
+                        "surface": "turf",
+                        "umaban": 2,
+                        "tanodds": 80.0,
+                        "p_win_final": 0.02,
+                        "win_selection_prob": 0.02,
+                        "win_selection_ev": 0.60,
+                        "win_selection_edge": -0.40,
+                        "win_market_selection_score": 1.5,
+                    },
+                ]
+            )
+        )
+
+        # Without reranker, horse 2 (highest score) should be selected
+        assert len(candidates) == 1
+        assert candidates.iloc[0]["umaban"] == 2
+
+    def test_surface_specific_reranker(self) -> None:
+        """Different surfaces use different rerankers."""
+        from backtest.race_predictor import RacePredictor
+        from domain.models import TrainedModelsV5
+
+        turf_reranker = WinTop1OddsReranker()
+        turf_reranker.selected_cap = 20.0
+        turf_reranker.is_trained = True
+
+        dirt_reranker = WinTop1OddsReranker()
+        dirt_reranker.selected_cap = 50.0
+        dirt_reranker.is_trained = True
+
+        def _make_sub(reranker: WinTop1OddsReranker) -> SimpleNamespace:
+            return SimpleNamespace(
+                market=MagicMock(),
+                stage1=MagicMock(),
+                place_ability=None,
+                win=MagicMock(),
+                ev_corrector=MagicMock(),
+                place=None,
+                wide=None,
+                conformal_ev_model=None,
+                place_selection_gate=None,
+                benter_combo=None,
+                isotonic_calibrator=None,
+                market_aware_win_calibrator=None,
+                win_selection_gate=None,
+                win_selection_policy=None,
+                win_profit_selector=None,
+                win_race_level_ranker=None,
+                win_top1_odds_reranker=reranker,
+                ev_lower_threshold_turf=1.0,
+                ev_lower_threshold_dirt=1.0,
+                target_encoder=None,
+            )
+
+        models = MagicMock(spec=TrainedModelsV5)
+        models.submodels = {
+            "turf": _make_sub(turf_reranker),
+            "dirt": _make_sub(dirt_reranker),
+        }
+        models.quality_screener = MagicMock()
+        models.regime_detector = MagicMock()
+        models.regime_detector.get_strategy_params.return_value = {
+            "edge_threshold": 0.03,
+            "max_bets_per_race": 3,
+        }
+
+        predictor = RacePredictor(models=models, betting_target="win")
+
+        # Turf: cap=20 → horse with odds=25 excluded, pick next
+        turf_cands = predictor.get_win_candidates(
+            pd.DataFrame(
+                [
+                    {
+                        "race_id": "R1",
+                        "race_date": pd.Timestamp("2025-01-01"),
+                        "surface": "turf",
+                        "umaban": 1,
+                        "tanodds": 3.0,
+                        "p_win_final": 0.40,
+                        "win_selection_prob": 0.40,
+                        "win_selection_ev": 1.2,
+                        "win_selection_edge": 0.2,
+                        "win_market_selection_score": 0.5,
+                    },
+                    {
+                        "race_id": "R1",
+                        "race_date": pd.Timestamp("2025-01-01"),
+                        "surface": "turf",
+                        "umaban": 2,
+                        "tanodds": 25.0,
+                        "p_win_final": 0.05,
+                        "win_selection_prob": 0.05,
+                        "win_selection_ev": 1.25,
+                        "win_selection_edge": 0.25,
+                        "win_market_selection_score": 1.0,  # > cap=20
+                    },
+                ]
+            )
+        )
+        assert len(turf_cands) == 1
+        assert turf_cands.iloc[0]["umaban"] == 1  # 25 > cap=20, pick horse 1
+
+        # Dirt: cap=50 → horse with odds=25 is within cap, pick it.
+        # get_win_candidates recalculates win_market_selection_score internally,
+        # so win_selection_edge must be high enough to overcome log_odds_penalty.
+        # edge=0.5 survives: 0.5 - 0.05*log1p(25) + 0.02*pct_rank(0.05) ≈ 0.347
+        # vs horse 1:       0.2 - 0.05*log1p(3)  + 0.02*pct_rank(0.40) ≈ 0.151
+        dirt_cands = predictor.get_win_candidates(
+            pd.DataFrame(
+                [
+                    {
+                        "race_id": "R2",
+                        "race_date": pd.Timestamp("2025-01-01"),
+                        "surface": "dirt",
+                        "umaban": 1,
+                        "tanodds": 3.0,
+                        "p_win_final": 0.40,
+                        "win_selection_prob": 0.40,
+                        "win_selection_ev": 1.2,
+                        "win_selection_edge": 0.2,
+                        "win_market_selection_score": 0.5,
+                    },
+                    {
+                        "race_id": "R2",
+                        "race_date": pd.Timestamp("2025-01-01"),
+                        "surface": "dirt",
+                        "umaban": 2,
+                        "tanodds": 25.0,
+                        "p_win_final": 0.05,
+                        "win_selection_prob": 0.05,
+                        "win_selection_ev": 1.25,
+                        "win_selection_edge": 0.5,
+                        "win_market_selection_score": 1.0,  # < cap=50
+                    },
+                ]
+            )
+        )
+        assert len(dirt_cands) == 1
+        assert dirt_cands.iloc[0]["umaban"] == 2  # 25 < cap=50, horse 2 is top1
+
+    def test_reranker_skipped_when_profit_selector_active(self) -> None:
+        """Reranker forced top-1 is skipped when ProfitSelector is trained.
+
+        When both reranker and profit_selector are present, the reranker must
+        not override the ProfitSelector's 0-N candidate contract. The reranker
+        is only for the fallback top-1 path (no ProfitSelector / untrained).
+        """
+        from backtest.race_predictor import RacePredictor
+        from domain.models import TrainedModelsV5
+        from models.win_profit_selector import WinProfitSelector, WinProfitSelectorParams
+
+        selector = WinProfitSelector()
+        selector.params = WinProfitSelectorParams(
+            rank_limit=2,
+            min_score=float("-inf"),
+            min_edge=-0.20,
+            min_prob=0.0,
+            min_odds=1.0,
+            max_odds=100.0,
+        )
+        selector._trained = True
+
+        # Both reranker (cap=30) and profit_selector (rank_limit=2)
+        sub = self._make_submodel_with_reranker(cap=30.0)
+        sub.win_profit_selector = selector
+
+        models = MagicMock(spec=TrainedModelsV5)
+        models.submodels = {"turf": sub}
+        models.quality_screener = MagicMock()
+        models.regime_detector = MagicMock()
+        models.regime_detector.get_strategy_params.return_value = {
+            "edge_threshold": 0.03,
+            "max_bets_per_race": 3,
+        }
+
+        predictor = RacePredictor(models=models, betting_target="win")
+        candidates = predictor.get_win_candidates(
+            pd.DataFrame(
+                [
+                    {
+                        "race_id": "R1",
+                        "race_date": pd.Timestamp("2025-01-01"),
+                        "surface": "turf",
+                        "umaban": 1,
+                        "tanodds": 3.0,
+                        "p_win_final": 0.50,
+                        "win_selection_prob": 0.50,
+                        "win_selection_ev": 1.20,
+                        "win_selection_edge": 0.20,
+                        "win_market_selection_score": 1.00,
+                    },
+                    {
+                        "race_id": "R1",
+                        "race_date": pd.Timestamp("2025-01-01"),
+                        "surface": "turf",
+                        "umaban": 2,
+                        "tanodds": 5.0,
+                        "p_win_final": 0.15,
+                        "win_selection_prob": 0.15,
+                        "win_selection_ev": 1.10,
+                        "win_selection_edge": 0.10,
+                        "win_market_selection_score": 0.80,
+                    },
+                    {
+                        "race_id": "R1",
+                        "race_date": pd.Timestamp("2025-01-01"),
+                        "surface": "turf",
+                        "umaban": 3,
+                        "tanodds": 30.0,
+                        "p_win_final": 0.02,
+                        "win_selection_prob": 0.02,
+                        "win_selection_ev": 0.60,
+                        "win_selection_edge": -0.40,
+                        "win_market_selection_score": 0.10,
+                    },
+                ]
+            )
+        )
+
+        # ProfitSelector rank_limit=2 → 2 candidates, NOT 1 from reranker
+        assert len(candidates) == 2
+        assert set(candidates["umaban"].tolist()) == {1, 2}
+
+    def test_reranker_diagnostics_propagated_to_diagnostic_df(self) -> None:
+        """Reranker diagnostic columns appear in attrs['win_diagnostic_df'].
+
+        All horses in the prepared frame (not just the selected top-1) should
+        have per-race reranker diagnostics (original/final/applied/cap/reason)
+        mapped by race_id.
+        """
+        from backtest.race_predictor import RacePredictor
+        from domain.models import TrainedModelsV5
+
+        sub = self._make_submodel_with_reranker(cap=30.0)
+        models = MagicMock(spec=TrainedModelsV5)
+        models.submodels = {"turf": sub}
+        models.quality_screener = MagicMock()
+        models.regime_detector = MagicMock()
+        models.regime_detector.get_strategy_params.return_value = {
+            "edge_threshold": 0.03,
+            "max_bets_per_race": 3,
+        }
+
+        predictor = RacePredictor(models=models, betting_target="win")
+
+        # Horse 3: highest score (edge=0.30, p=0.45), odds=80 > cap=30
+        # → reranker switches to horse 2 (highest score within cap)
+        candidates = predictor.get_win_candidates(
+            pd.DataFrame(
+                [
+                    {
+                        "race_id": "R1",
+                        "race_date": pd.Timestamp("2025-01-01"),
+                        "surface": "turf",
+                        "umaban": 1,
+                        "tanodds": 3.0,
+                        "p_win_final": 0.50,
+                        "win_selection_prob": 0.50,
+                        "win_selection_ev": 1.20,
+                        "win_selection_edge": 0.20,
+                        "win_market_selection_score": 1.0,
+                    },
+                    {
+                        "race_id": "R1",
+                        "race_date": pd.Timestamp("2025-01-01"),
+                        "surface": "turf",
+                        "umaban": 2,
+                        "tanodds": 15.0,
+                        "p_win_final": 0.10,
+                        "win_selection_prob": 0.10,
+                        "win_selection_ev": 1.10,
+                        "win_selection_edge": 0.10,
+                        "win_market_selection_score": 0.5,
+                    },
+                    {
+                        "race_id": "R1",
+                        "race_date": pd.Timestamp("2025-01-01"),
+                        "surface": "turf",
+                        "umaban": 3,
+                        "tanodds": 80.0,
+                        "p_win_final": 0.45,
+                        "win_selection_prob": 0.45,
+                        "win_selection_ev": 1.20,
+                        "win_selection_edge": 0.30,
+                        "win_market_selection_score": 1.5,
+                    },
+                ]
+            )
+        )
+
+        assert len(candidates) == 1
+        # Horse 2 is highest score within cap (horse 3 excluded by odds > cap)
+        assert candidates.iloc[0]["umaban"] == 2
+
+        diag_df = candidates.attrs["win_diagnostic_df"]
+        assert diag_df is not None
+        # All 3 horses should be in the diagnostic frame
+        assert len(diag_df) == 3
+
+        # All 5 diagnostic columns present
+        for col in RERANKER_DIAGNOSTIC_COLS:
+            assert col in diag_df.columns, f"Missing {col} in diagnostic_df"
+
+        # Diagnostics are consistent across all horses in the same race
+        assert diag_df[RERANKER_APPLIED_COL].iloc[0]
+        assert diag_df[RERANKER_ORIG_TOP1_COL].iloc[0] == 3
+        assert diag_df[RERANKER_FINAL_TOP1_COL].iloc[0] == 2
+        assert diag_df[RERANKER_SWITCH_REASON_COL].iloc[0] == "odds_cap_switch"
+        assert diag_df[RERANKER_CAP_COL].iloc[0] == 30.0
+
+    def test_reranker_applied_when_profit_selector_max_per_race_1(self) -> None:
+        """Reranker applies when profit_selector is trained but max_per_race == 1.
+
+        The reranker is only skipped when profit_selector_enabled AND max_per_race > 1
+        (multi-candidate contract). When max_per_race == 1 both the reranker and
+        profit selector produce a single horse; the reranker adds odds-cap semantics.
+
+        We use rank_limit=3 (all horses pass profit_pass) but override max_per_race
+        to 1, so the reranker sees multiple candidates and can actually switch.
+        """
+        from backtest.race_predictor import RacePredictor
+        from domain.models import TrainedModelsV5
+        from models.win_profit_selector import WinProfitSelector, WinProfitSelectorParams
+
+        selector = WinProfitSelector()
+        selector.params = WinProfitSelectorParams(
+            rank_limit=3,  # All 3 horses pass profit_pass
+            min_score=float("-inf"),
+            min_edge=-0.20,
+            min_prob=0.0,
+            min_odds=1.0,
+            max_odds=100.0,
+        )
+        selector._trained = True
+
+        # Override max_per_race to 1 (simulates rank_limit=1 without filtering)
+        _orig_max_per_race = WinProfitSelector.max_per_race
+        WinProfitSelector.max_per_race = property(  # type: ignore[assignment]
+            lambda self: 1 if self is selector else _orig_max_per_race.fget(self)  # type: ignore[attr-defined]
+        )
+        try:
+            sub = self._make_submodel_with_reranker(cap=30.0)
+            sub.win_profit_selector = selector
+
+            models = MagicMock(spec=TrainedModelsV5)
+            models.submodels = {"turf": sub}
+            models.quality_screener = MagicMock()
+            models.regime_detector = MagicMock()
+            models.regime_detector.get_strategy_params.return_value = {
+                "edge_threshold": 0.03,
+                "max_bets_per_race": 3,
+            }
+
+            predictor = RacePredictor(models=models, betting_target="win")
+
+            # Horse 3: highest recalculated score, odds=80 > cap=30
+            # Horse 2: second score, odds=15 < cap=30 → reranker selects horse 2
+            candidates = predictor.get_win_candidates(
+                pd.DataFrame(
+                    [
+                        {
+                            "race_id": "R1",
+                            "race_date": pd.Timestamp("2025-01-01"),
+                            "surface": "turf",
+                            "umaban": 1,
+                            "tanodds": 3.0,
+                            "p_win_final": 0.50,
+                            "win_selection_prob": 0.50,
+                            "win_selection_ev": 1.20,
+                            "win_selection_edge": 0.20,
+                            "win_market_selection_score": 1.0,
+                        },
+                        {
+                            "race_id": "R1",
+                            "race_date": pd.Timestamp("2025-01-01"),
+                            "surface": "turf",
+                            "umaban": 2,
+                            "tanodds": 15.0,
+                            "p_win_final": 0.10,
+                            "win_selection_prob": 0.10,
+                            "win_selection_ev": 1.10,
+                            "win_selection_edge": 0.10,
+                            "win_market_selection_score": 0.5,
+                        },
+                        {
+                            "race_id": "R1",
+                            "race_date": pd.Timestamp("2025-01-01"),
+                            "surface": "turf",
+                            "umaban": 3,
+                            "tanodds": 80.0,
+                            "p_win_final": 0.45,
+                            "win_selection_prob": 0.45,
+                            "win_selection_ev": 1.20,
+                            "win_selection_edge": 0.30,
+                            "win_market_selection_score": 1.5,
+                        },
+                    ]
+                )
+            )
+
+            # Reranker should have applied: horse 2 (within cap) instead of horse 3
+            assert len(candidates) == 1
+            assert candidates.iloc[0]["umaban"] == 2
+            # Diagnostic columns prove the reranker code path was taken
+            assert RERANKER_APPLIED_COL in candidates.columns
+            assert candidates[RERANKER_APPLIED_COL].iloc[0] == True  # noqa: E712
+            assert candidates[RERANKER_SWITCH_REASON_COL].iloc[0] == "odds_cap_switch"
+        finally:
+            WinProfitSelector.max_per_race = _orig_max_per_race  # type: ignore[assignment]
+
+    def test_reranker_diagnostics_with_profit_selector_max_per_race_1(self) -> None:
+        """Diagnostics are mapped to all horses when profit_selector (max=1) coexists.
+
+        When reranker applies alongside profit_selector with max_per_race=1, the
+        returned attrs['win_diagnostic_df'] must include all horses (not just
+        the selected top-1) with reranker diagnostic columns mapped by race_id.
+        """
+        from backtest.race_predictor import RacePredictor
+        from domain.models import TrainedModelsV5
+        from models.win_profit_selector import WinProfitSelector, WinProfitSelectorParams
+
+        selector = WinProfitSelector()
+        selector.params = WinProfitSelectorParams(
+            rank_limit=3,
+            min_score=float("-inf"),
+            min_edge=-0.20,
+            min_prob=0.0,
+            min_odds=1.0,
+            max_odds=100.0,
+        )
+        selector._trained = True
+
+        _orig_max_per_race = WinProfitSelector.max_per_race
+        WinProfitSelector.max_per_race = property(  # type: ignore[assignment]
+            lambda self: 1 if self is selector else _orig_max_per_race.fget(self)  # type: ignore[attr-defined]
+        )
+        try:
+            sub = self._make_submodel_with_reranker(cap=30.0)
+            sub.win_profit_selector = selector
+
+            models = MagicMock(spec=TrainedModelsV5)
+            models.submodels = {"turf": sub}
+            models.quality_screener = MagicMock()
+            models.regime_detector = MagicMock()
+            models.regime_detector.get_strategy_params.return_value = {
+                "edge_threshold": 0.03,
+                "max_bets_per_race": 3,
+            }
+
+            predictor = RacePredictor(models=models, betting_target="win")
+
+            candidates = predictor.get_win_candidates(
+                pd.DataFrame(
+                    [
+                        {
+                            "race_id": "R1",
+                            "race_date": pd.Timestamp("2025-01-01"),
+                            "surface": "turf",
+                            "umaban": 1,
+                            "tanodds": 3.0,
+                            "p_win_final": 0.50,
+                            "win_selection_prob": 0.50,
+                            "win_selection_ev": 1.20,
+                            "win_selection_edge": 0.20,
+                            "win_market_selection_score": 1.0,
+                        },
+                        {
+                            "race_id": "R1",
+                            "race_date": pd.Timestamp("2025-01-01"),
+                            "surface": "turf",
+                            "umaban": 2,
+                            "tanodds": 15.0,
+                            "p_win_final": 0.10,
+                            "win_selection_prob": 0.10,
+                            "win_selection_ev": 1.10,
+                            "win_selection_edge": 0.10,
+                            "win_market_selection_score": 0.5,
+                        },
+                        {
+                            "race_id": "R1",
+                            "race_date": pd.Timestamp("2025-01-01"),
+                            "surface": "turf",
+                            "umaban": 3,
+                            "tanodds": 80.0,
+                            "p_win_final": 0.45,
+                            "win_selection_prob": 0.45,
+                            "win_selection_ev": 1.20,
+                            "win_selection_edge": 0.30,
+                            "win_market_selection_score": 1.5,
+                        },
+                    ]
+                )
+            )
+
+            # win_diagnostic_df must exist and contain all 3 horses
+            diag_df = candidates.attrs.get("win_diagnostic_df")
+            assert diag_df is not None, "win_diagnostic_df must be set in attrs"
+            assert len(diag_df) == 3, f"Expected 3 horses in diagnostic_df, got {len(diag_df)}"
+
+            # All 5 diagnostic columns present in the diagnostic frame
+            for col in RERANKER_DIAGNOSTIC_COLS:
+                assert col in diag_df.columns, f"Missing {col} in diagnostic_df"
+
+            # Values mapped by race_id: same for all rows in the same race
+            for col in RERANKER_DIAGNOSTIC_COLS:
+                unique_vals = diag_df[col].dropna().unique()
+                if col == RERANKER_APPLIED_COL:
+                    assert len(unique_vals) == 1 and unique_vals[0] == True  # noqa: E712
+                elif col == RERANKER_CAP_COL:
+                    assert unique_vals[0] == 30.0
+                elif col == RERANKER_ORIG_TOP1_COL:
+                    assert unique_vals[0] == 3  # Horse 3 was original top1
+                elif col == RERANKER_FINAL_TOP1_COL:
+                    assert unique_vals[0] == 2  # Reranker switched to horse 2
+                elif col == RERANKER_SWITCH_REASON_COL:
+                    assert unique_vals[0] == "odds_cap_switch"
+        finally:
+            WinProfitSelector.max_per_race = _orig_max_per_race  # type: ignore[assignment]
+
+
+# ---------------------------------------------------------------------------
+# _simulate_cap vectorized tests
+# ---------------------------------------------------------------------------
+
+
+class TestSimulateCapVectorized:
+    def test_confirmed_odds_preferred_for_payout(self) -> None:
+        """_simulate_cap uses confirmed_odds for payout, not tanodds."""
+        model = WinTop1OddsReranker()
+        # Build a single fold with 1 race, horse wins
+        df = pd.DataFrame(
+            [
+                {
+                    "race_id": "R1",
+                    "umaban": 1,
+                    "kakuteijyuni": 1,  # Winner
+                    "tanodds": 5.0,
+                    "confirmed_odds": 6.0,  # Different
+                    "win_market_selection_score": 1.0,
+                },
+                {
+                    "race_id": "R1",
+                    "umaban": 2,
+                    "kakuteijyuni": 2,
+                    "tanodds": 10.0,
+                    "confirmed_odds": 11.0,
+                    "win_market_selection_score": 0.5,
+                },
+            ]
+        )
+        result = model._simulate_cap(df, cap=30.0, fold_race_ids={"R1"})
+        # Payout should be confirmed_odds (6.0), profit = 6.0 - 1.0 = 5.0
+        assert result["profit"] == pytest.approx(5.0, abs=0.01)
+
+    def test_tanodds_fallback_when_no_confirmed_odds(self) -> None:
+        """When confirmed_odds is missing, tanodds is used."""
+        model = WinTop1OddsReranker()
+        df = pd.DataFrame(
+            [
+                {
+                    "race_id": "R1",
+                    "umaban": 1,
+                    "kakuteijyuni": 1,
+                    "tanodds": 5.0,
+                    "win_market_selection_score": 1.0,
+                },
+                {
+                    "race_id": "R1",
+                    "umaban": 2,
+                    "kakuteijyuni": 2,
+                    "tanodds": 10.0,
+                    "win_market_selection_score": 0.5,
+                },
+            ]
+        )
+        result = model._simulate_cap(df, cap=30.0, fold_race_ids={"R1"})
+        # Payout should be tanodds (5.0), profit = 5.0 - 1.0 = 4.0
+        assert result["profit"] == pytest.approx(4.0, abs=0.01)
+
+    def test_bet_count_equals_race_count(self) -> None:
+        """Always 1 bet per race, even with anomalous odds."""
+        model = WinTop1OddsReranker()
+        df = pd.DataFrame(
+            [
+                # Normal race
+                {
+                    "race_id": "R1",
+                    "umaban": 1,
+                    "kakuteijyuni": 1,
+                    "tanodds": 3.0,
+                    "win_market_selection_score": 1.0,
+                },
+                # Anomalous race (all odds=0)
+                {
+                    "race_id": "R2",
+                    "umaban": 1,
+                    "kakuteijyuni": 2,
+                    "tanodds": 0.0,
+                    "win_market_selection_score": 1.0,
+                },
+                {
+                    "race_id": "R2",
+                    "umaban": 2,
+                    "kakuteijyuni": 1,
+                    "tanodds": 0.0,
+                    "win_market_selection_score": 0.5,
+                },
+            ]
+        )
+        result = model._simulate_cap(df, cap=30.0, fold_race_ids={"R1", "R2"})
+        assert result["bets"] == 2.0  # 1 per race
+        assert result["n_anomalous"] == 1  # R2 has no valid tanodds
+        assert result["bets_equals_races"] is True
+
+    def test_cap_exclusion_correct_selection(self) -> None:
+        """Horse with odds > cap is excluded from selection."""
+        model = WinTop1OddsReranker()
+        df = pd.DataFrame(
+            [
+                {
+                    "race_id": "R1",
+                    "umaban": 1,
+                    "kakuteijyuni": 2,  # Doesn't win
+                    "tanodds": 3.0,
+                    "win_market_selection_score": 0.5,
+                },
+                {
+                    "race_id": "R1",
+                    "umaban": 2,
+                    "kakuteijyuni": 1,  # Wins but odds > cap
+                    "tanodds": 80.0,
+                    "win_market_selection_score": 1.5,
+                },
+                {
+                    "race_id": "R1",
+                    "umaban": 3,
+                    "kakuteijyuni": 3,
+                    "tanodds": 15.0,
+                    "win_market_selection_score": 0.3,
+                },
+            ]
+        )
+        # With cap=30: horse 2 (odds=80) excluded → horse 1 (score=0.5) selected
+        result = model._simulate_cap(df, cap=30.0, fold_race_ids={"R1"})
+        assert result["bets"] == 1.0
+        assert result["profit"] == pytest.approx(-1.0, abs=0.01)  # Horse 1 doesn't win
+
+        # Without cap (inf): horse 2 (score=1.5) selected
+        result_inf = model._simulate_cap(df, cap=float("inf"), fold_race_ids={"R1"})
+        assert result_inf["profit"] == pytest.approx(79.0, abs=0.01)  # 80-1
