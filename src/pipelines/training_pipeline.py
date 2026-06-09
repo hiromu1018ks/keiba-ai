@@ -1364,24 +1364,13 @@ class TrainingPipelineV5:
         # --- WinTop1OddsReranker (高オッズ暴走抑制リランカー) ---
         with TimingContext(f"{surface}/win_top1_odds_reranker_train"):
             win_top1_odds_reranker = WinTop1OddsReranker()
-            win_top1_odds_reranker.train(wsg_train_df, surface=surface)
+            win_top1_odds_reranker.train(wsg_train_df)
             logger.info(
                 "WinTop1OddsReranker trained for %s: cap=%s trained=%s",
                 surface,
                 win_top1_odds_reranker.selected_cap,
                 win_top1_odds_reranker.is_trained,
             )
-            if win_top1_odds_reranker.gap_reranker_deployed:
-                logger.info(
-                    "Gap reranker deployed for %s: %s",
-                    surface,
-                    win_top1_odds_reranker.gap_reranker_training_summary,
-                )
-            else:
-                logger.info(
-                    "Gap reranker not deployed for %s (disabled)",
-                    surface,
-                )
 
         # Phase 39: WinSegmentCalibrator removed — segment conditioning now in
         # MarketAwareWinCalibrator (CAL-04)
