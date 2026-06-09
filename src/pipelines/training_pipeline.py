@@ -1372,6 +1372,38 @@ class TrainingPipelineV5:
                 win_top1_odds_reranker.is_trained,
             )
 
+            # Dirt: override cap with joint OOF policy selection when available.
+            # The reranker still trains normally for its own diagnostics; we just
+            # override selected_cap so production uses the jointly optimized pair.
+            # Belt-and-suspenders: require deployable=True and is_dirt_joint=True
+            # even though recommended_odds_cap is None when not deployable.
+            if surface == "dirt":
+                policy_summary = win_selection_policy.training_summary
+                policy_cap = policy_summary.get("recommended_odds_cap")
+                if (
+                    policy_cap is not None
+                    and policy_summary.get("deployable") is True
+                    and policy_summary.get("is_dirt_joint") is True
+                ):
+                    original_reranker_cap = win_top1_odds_reranker.selected_cap
+                    win_top1_odds_reranker.selected_cap = float(policy_cap)
+                    win_top1_odds_reranker.training_summary["cap_source"] = (
+                        "joint_oof_policy_selection"
+                    )
+                    win_top1_odds_reranker.training_summary["policy_recommended_odds_cap"] = float(
+                        policy_cap
+                    )
+                    win_top1_odds_reranker.training_summary["reranker_selected_cap"] = (
+                        original_reranker_cap
+                    )
+                    logger.info(
+                        "Dirt: overriding reranker cap from %.1f to %.1f "
+                        "(joint OOF policy selection, baseline_cap=%.1s)",
+                        original_reranker_cap,
+                        policy_cap,
+                        policy_summary.get("baseline_odds_cap"),
+                    )
+
         # Phase 39: WinSegmentCalibrator removed — segment conditioning now in
         # MarketAwareWinCalibrator (CAL-04)
 

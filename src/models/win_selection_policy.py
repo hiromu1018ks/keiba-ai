@@ -7,6 +7,7 @@ stack has produced win EV/edge columns.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -16,6 +17,8 @@ import numpy as np
 import pandas as pd
 
 from models.win_selection_gate import ensure_win_selection_columns
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_LATE_ODDS_DROP_WEIGHT: float = 0.09
 DEFAULT_LOG_ODDS_PENALTY: float = 0.08
@@ -38,6 +41,11 @@ MIN_POLICY_MEAN_ROI_IMPROVEMENT: float = 0.05
 # stable tail shrinkage available without fitting to a single validation year.
 MIN_TAIL_SHRINKAGE_MEAN_ROI_IMPROVEMENT: float = 0.005
 MIN_TAIL_SHRINKAGE_YEAR_ROI: float = 0.80
+# Dirt joint (coefficient, cap) evaluation uses a lower mean ROI threshold
+# because the cap dimension already provides structural protection against
+# high-odds blowups.  The no-year-regression guard still applies.
+MIN_DIRT_JOINT_MEAN_ROI_IMPROVEMENT: float = 0.02
+MIN_DIRT_JOINT_YEAR_ROI_FLOOR: float = 0.80
 MAX_POLICY_YEAR_ROI_REGRESSION: float = 0.0
 MIN_POLICY_DEPLOY_ROI_ALL: float = 0.85
 DEFAULT_CANDIDATE_WEIGHTS: tuple[float, ...] = (
@@ -173,10 +181,14 @@ def _top_one_by_score(df: pd.DataFrame, score: pd.Series) -> pd.DataFrame:
     )
 
 
-def _roi_for_score(df: pd.DataFrame, score: pd.Series) -> float:
-    if df.empty:
-        return float("nan")
-    selected = _top_one_by_score(df, score)
+def _roi_from_selected(selected: pd.DataFrame) -> float:
+    """Compute ROI from already-selected one-per-race rows.
+
+    Payout priority (winner-only confirmed_odds with tanodds fallback):
+    1. win_return_unit (realized unit return)
+    2. win_return (realized yen return, divided by 100)
+    3. confirmed_odds with tanodds fallback (post-race odds for winners)
+    """
     if selected.empty:
         return float("nan")
     if "win_return_unit" in selected.columns:
@@ -199,6 +211,51 @@ def _roi_for_score(df: pd.DataFrame, score: pd.Series) -> float:
         0.0,
     )
     return float(np.sum(returns) / len(selected))
+
+
+def _roi_for_score(df: pd.DataFrame, score: pd.Series) -> float:
+    if df.empty:
+        return float("nan")
+    selected = _top_one_by_score(df, score)
+    return _roi_from_selected(selected)
+
+
+def _roi_for_score_with_cap(
+    df: pd.DataFrame,
+    score: pd.Series,
+    cap: float,
+) -> float:
+    """Compute ROI using cap-aware top-1 selection (shared helper)."""
+    if df.empty:
+        return float("nan")
+    from models.win_top1_odds_reranker import select_top1_with_cap_indices
+
+    key = _race_key(df)
+    odds = _numeric(df, "tanodds")
+    best_idx = select_top1_with_cap_indices(df, cap=cap, score=score, odds=odds, race_key=key)
+    selected = df.loc[best_idx]
+    return _roi_from_selected(selected)
+
+
+def _policy_objective(row: dict[str, Any] | pd.Series) -> float:
+    """Objective for WinSelectionPolicy coefficient/cap selection.
+
+    Balances mean ROI, stability (std), worst-year floor, and regularization.
+    Shared by standard grid search and dirt joint cap evaluation.
+    """
+    roi_mean = float(row["roi_mean_by_year"])
+    roi_min = float(row.get("roi_min_by_year", roi_mean))
+    roi_std = float(row.get("roi_std_by_year", 0.0) or 0.0)
+    return (
+        roi_mean
+        - 0.15 * roi_std
+        + 0.10 * roi_min
+        - 0.02 * abs(float(row.get("weight", 0.0)))
+        - 0.01 * abs(float(row.get("ev_tail_penalty_weight", 0.0)))
+        - 0.005 * abs(float(row.get("w_log", 0.0)))
+        - 0.005 * abs(float(row.get("w_prob", 0.0)))
+        - 0.005 * abs(float(row.get("w_risk", 0.0)))
+    )
 
 
 def _candidate_year_deltas(
@@ -228,6 +285,8 @@ def _annotate_policy_deployability(
     default_log_odds: float = DEFAULT_LOG_ODDS_PENALTY,
     default_prob_rank: float = DEFAULT_PROB_RANK_BONUS,
     default_market_risk: float = DEFAULT_MARKET_RISK_PENALTY_WEIGHT,
+    default_odds_cap: float | None = None,
+    is_dirt_joint: bool = False,
 ) -> pd.DataFrame:
     """Add deployment diagnostics and reject candidates with any yearly regression."""
     annotated = result.copy()
@@ -257,6 +316,9 @@ def _annotate_policy_deployability(
         changed = changed | annotated["w_prob"].astype(float).ne(float(default_prob_rank))
     if "w_risk" in annotated.columns:
         changed = changed | annotated["w_risk"].astype(float).ne(float(default_market_risk))
+    # Dirt joint cap evaluation: cap change also counts as candidate difference
+    if "odds_cap" in annotated.columns and default_odds_cap is not None:
+        changed = changed | annotated["odds_cap"].astype(float).ne(float(default_odds_cap))
     annotated["candidate_changed"] = changed
 
     annotated["changes_late_weight"] = (
@@ -277,21 +339,35 @@ def _annotate_policy_deployability(
             | annotated["mean_delta_vs_default"].ge(MIN_POLICY_MEAN_ROI_IMPROVEMENT)
         )
     )
-    non_tail_deployable = (
-        annotated["candidate_changed"]
-        & ~annotated["uses_tail_shrinkage"]
-        & annotated["n_years"].astype(int).ge(3)
-        & annotated["mean_delta_vs_default"].ge(MIN_POLICY_MEAN_ROI_IMPROVEMENT)
-        & annotated["min_year_delta_vs_default"].ge(-MAX_POLICY_YEAR_ROI_REGRESSION)
-        & annotated["roi_floor_met"]
-    )
-    tail_deployable = (
-        annotated["candidate_changed"]
-        & annotated["uses_tail_shrinkage"]
-        & annotated["n_years"].astype(int).ge(3)
-        & annotated["stable_tail_shrinkage_met"]
-    )
-    annotated["deployable_candidate"] = non_tail_deployable | tail_deployable
+    if is_dirt_joint:
+        # Dirt joint path: unified 0.02 threshold regardless of tail shrinkage.
+        # The cap dimension already constrains high-odds blowups, so a lower
+        # mean improvement is acceptable.  No-year-regression guard still applies.
+        dirt_joint_deployable = (
+            annotated["candidate_changed"]
+            & annotated["n_years"].astype(int).ge(3)
+            & annotated["mean_delta_vs_default"].ge(MIN_DIRT_JOINT_MEAN_ROI_IMPROVEMENT)
+            & annotated["min_year_delta_vs_default"].ge(-MAX_POLICY_YEAR_ROI_REGRESSION)
+            & annotated["roi_all"].astype(float).ge(MIN_POLICY_DEPLOY_ROI_ALL)
+            & annotated["roi_min_by_year"].astype(float).ge(MIN_DIRT_JOINT_YEAR_ROI_FLOOR)
+        )
+        annotated["deployable_candidate"] = dirt_joint_deployable
+    else:
+        non_tail_deployable = (
+            annotated["candidate_changed"]
+            & ~annotated["uses_tail_shrinkage"]
+            & annotated["n_years"].astype(int).ge(3)
+            & annotated["mean_delta_vs_default"].ge(MIN_POLICY_MEAN_ROI_IMPROVEMENT)
+            & annotated["min_year_delta_vs_default"].ge(-MAX_POLICY_YEAR_ROI_REGRESSION)
+            & annotated["roi_floor_met"]
+        )
+        tail_deployable = (
+            annotated["candidate_changed"]
+            & annotated["uses_tail_shrinkage"]
+            & annotated["n_years"].astype(int).ge(3)
+            & annotated["stable_tail_shrinkage_met"]
+        )
+        annotated["deployable_candidate"] = non_tail_deployable | tail_deployable
     return annotated
 
 
@@ -479,6 +555,7 @@ def deployed_policy_params(policy: Any | None) -> dict[str, float]:
         "dirt_log_odds_penalty": DEFAULT_DIRT_LOG_ODDS_PENALTY,
         "dirt_prob_rank_bonus": DEFAULT_DIRT_PROB_RANK_BONUS,
         "dirt_market_risk_penalty_weight": DEFAULT_DIRT_MARKET_RISK_PENALTY_WEIGHT,
+        "recommended_odds_cap": None,
     }
     if policy is None:
         return defaults
@@ -508,6 +585,7 @@ def deployed_policy_params(policy: Any | None) -> dict[str, float]:
             "dirt_market_risk_penalty_weight": sanitize_market_risk_penalty_weight(
                 getattr(policy, "market_risk_penalty_weight", None)
             ),
+            "recommended_odds_cap": summary.get("recommended_odds_cap"),
         }
     return {
         "late_odds_drop_weight": sanitize_late_odds_drop_weight(
@@ -526,6 +604,7 @@ def deployed_policy_params(policy: Any | None) -> dict[str, float]:
         "dirt_log_odds_penalty": DEFAULT_DIRT_LOG_ODDS_PENALTY,
         "dirt_prob_rank_bonus": DEFAULT_DIRT_PROB_RANK_BONUS,
         "dirt_market_risk_penalty_weight": DEFAULT_DIRT_MARKET_RISK_PENALTY_WEIGHT,
+        "recommended_odds_cap": None,
     }
 
 
@@ -735,6 +814,7 @@ class WinSelectionPolicy:
             return self
 
         self.surface = _detect_surface(prepared)
+        is_dirt = self.surface == "dirt"
         key = _race_key(prepared)
         base = self._base_edge(prepared)
         late_drop_z = race_zscore(_numeric(prepared, "odds_drop_rate_30_10"), key)
@@ -761,10 +841,14 @@ class WinSelectionPolicy:
         ev_tail = ev_tail_pressure(prepared)
         risk_penalty = market_risk_penalty(prepared, race_key=key)
 
-        def _eval(
-            w_late: float, w_log: float, w_prob: float, w_tail: float, w_risk: float
-        ) -> dict[str, Any]:
-            score = (
+        def _make_score(
+            w_late: float,
+            w_log: float,
+            w_prob: float,
+            w_tail: float,
+            w_risk: float,
+        ) -> pd.Series:
+            return (
                 base
                 - w_late * late_drop_z
                 - w_log * log_odds
@@ -772,6 +856,11 @@ class WinSelectionPolicy:
                 - w_tail * ev_tail
                 - w_risk * risk_penalty
             )
+
+        def _eval(
+            w_late: float, w_log: float, w_prob: float, w_tail: float, w_risk: float
+        ) -> dict[str, Any]:
+            score = _make_score(w_late, w_log, w_prob, w_tail, w_risk)
             roi_all = _roi_for_score(prepared, score)
             year_rois: dict[str, float] = {}
             for year in sorted(years.dropna().unique().tolist()):
@@ -793,21 +882,6 @@ class WinSelectionPolicy:
                 "n_years": len(clean_year_rois),
                 "year_rois": year_rois,
             }
-
-        def _objective(row: dict[str, Any] | pd.Series) -> float:
-            roi_mean = float(row["roi_mean_by_year"])
-            roi_min = float(row.get("roi_min_by_year", roi_mean))
-            roi_std = float(row.get("roi_std_by_year", 0.0) or 0.0)
-            return (
-                roi_mean
-                - 0.15 * roi_std
-                + 0.10 * roi_min
-                - 0.02 * abs(float(row.get("weight", 0.0)))
-                - 0.01 * abs(float(row.get("ev_tail_penalty_weight", 0.0)))
-                - 0.005 * abs(float(row.get("w_log", 0.0)))
-                - 0.005 * abs(float(row.get("w_prob", 0.0)))
-                - 0.005 * abs(float(row.get("w_risk", 0.0)))
-            )
 
         # ── Stage 1: 2-D grid (w_late × w_tail) with other params at defaults ──
         late_weights = sorted({sanitize_late_odds_drop_weight(w) for w in self.candidate_weights})
@@ -837,7 +911,7 @@ class WinSelectionPolicy:
             "w_tail": DEFAULT_EV_TAIL_PENALTY_WEIGHT,
         }
         for row in all_rows:
-            obj = _objective(row)
+            obj = _policy_objective(row)
             if obj > best_s1_obj:
                 best_s1_obj = obj
                 best_s1 = {
@@ -885,7 +959,7 @@ class WinSelectionPolicy:
                     **m,
                 }
                 all_rows.append(candidate_row)
-                obj = _objective(candidate_row)
+                obj = _policy_objective(candidate_row)
                 if obj > best_obj:
                     best_obj = obj
                     best_val = val
@@ -902,41 +976,215 @@ class WinSelectionPolicy:
             self.training_summary = {"reason": "no_valid_candidates"}
             return self
 
-        result["objective"] = result.apply(_objective, axis=1)
+        result["objective"] = result.apply(_policy_objective, axis=1)
 
-        # Ensure the all-defaults candidate exists for guard comparison
-        default_metrics = _eval(
-            default_late,
-            default_log,
-            default_prob,
-            DEFAULT_EV_TAIL_PENALTY_WEIGHT,
-            default_risk,
-        )
-        default_row_data: dict[str, Any] = {
-            "weight": default_late,
-            "ev_tail_penalty_weight": DEFAULT_EV_TAIL_PENALTY_WEIGHT,
-            "w_log": default_log,
-            "w_prob": default_prob,
-            "w_risk": default_risk,
-            **default_metrics,
-        }
-        has_default = (
-            result["weight"].eq(default_late)
-            & result["ev_tail_penalty_weight"].eq(DEFAULT_EV_TAIL_PENALTY_WEIGHT)
-            & result["w_log"].eq(default_log)
-            & result["w_prob"].eq(default_prob)
-            & result["w_risk"].eq(default_risk)
-        )
-        if not has_default.any():
-            result = pd.concat([result, pd.DataFrame([default_row_data])], ignore_index=True)
+        # ── Dirt joint (coefficient, cap) evaluation ──
+        # For dirt, re-evaluate all coefficient candidates at each candidate cap
+        # using the same cap-aware selection semantics as WinTop1OddsReranker.
+        # This ensures coefficients are optimized for production selection order.
+        is_dirt_joint = False
+        if is_dirt:
+            from models.win_top1_odds_reranker import CANDIDATE_CAPS as _JOINT_CAPS
 
-        default_row = result.loc[
-            result["weight"].eq(default_late)
-            & result["ev_tail_penalty_weight"].eq(DEFAULT_EV_TAIL_PENALTY_WEIGHT)
-            & result["w_log"].eq(default_log)
-            & result["w_prob"].eq(default_prob)
-            & result["w_risk"].eq(default_risk)
-        ].iloc[0]
+            coeff_cols = ["weight", "w_log", "w_prob", "w_risk", "ev_tail_penalty_weight"]
+            unique_coeffs = result[coeff_cols].drop_duplicates()
+
+            # ── Dirt full grid supplement: w_late × w_tail × w_log ──
+            # The standard staged search (Stage 1: w_late×w_tail, Stage 2:
+            # coordinate descent) misses combinations where non-default w_log
+            # and non-default w_tail must co-occur, because Stage 2 only
+            # pairs alternate w_log with the single Stage-1 winner.
+            # Build a deterministic compact full grid over those three
+            # dimensions (w_prob, w_risk fixed at dirt defaults), union with
+            # staged candidates, then deduplicate.  7×6×5 = 210 base combos.
+            staged_coeff_count = len(unique_coeffs)
+            _grid_rows: list[dict[str, float]] = []
+            for _gl in late_weights:
+                for _gt in tail_weights:
+                    for _glog in log_cands:
+                        _grid_rows.append(
+                            {
+                                "weight": _gl,
+                                "ev_tail_penalty_weight": _gt,
+                                "w_log": _glog,
+                                "w_prob": default_prob,
+                                "w_risk": default_risk,
+                            }
+                        )
+            if _grid_rows:
+                _grid_df = pd.DataFrame(_grid_rows)[coeff_cols].drop_duplicates()
+                unique_coeffs = pd.concat(
+                    [unique_coeffs, _grid_df],
+                    ignore_index=True,
+                ).drop_duplicates(subset=coeff_cols)
+            grid_supplement_count = len(unique_coeffs) - staged_coeff_count
+
+            sorted_years_list = sorted(years.dropna().unique().tolist())
+            joint_rows: list[dict[str, Any]] = []
+
+            for _, crow in unique_coeffs.iterrows():
+                score = _make_score(
+                    float(crow["weight"]),
+                    float(crow["w_log"]),
+                    float(crow["w_prob"]),
+                    float(crow["ev_tail_penalty_weight"]),
+                    float(crow["w_risk"]),
+                )
+                for cap in _JOINT_CAPS:
+                    roi_all = _roi_for_score_with_cap(prepared, score, cap)
+                    year_rois: dict[str, float] = {}
+                    for year in sorted_years_list:
+                        mask = years.eq(int(year))
+                        if mask.any():
+                            year_rois[str(int(year))] = _roi_for_score_with_cap(
+                                prepared.loc[mask],
+                                score.loc[mask],
+                                cap,
+                            )
+                    clean_yr = [r for r in year_rois.values() if np.isfinite(r)]
+                    joint_rows.append(
+                        {
+                            **{c: crow[c] for c in coeff_cols},
+                            "odds_cap": cap,
+                            "roi_all": roi_all,
+                            "roi_mean_by_year": float(np.nanmean(clean_yr))
+                            if clean_yr
+                            else float("nan"),
+                            "roi_min_by_year": float(np.nanmin(clean_yr))
+                            if clean_yr
+                            else float("nan"),
+                            "roi_std_by_year": float(np.nanstd(clean_yr))
+                            if clean_yr
+                            else float("nan"),
+                            "n_years": len(clean_yr),
+                            "year_rois": year_rois,
+                        }
+                    )
+
+            joint_result = (
+                pd.DataFrame(joint_rows)
+                .replace([np.inf, -np.inf], np.nan)
+                .dropna(subset=["roi_all", "roi_mean_by_year"])
+            )
+
+            if not joint_result.empty:
+                joint_result["objective"] = joint_result.apply(_policy_objective, axis=1)
+
+                # Baseline: default coefficients at each cap → pick best cap
+                baseline_score = _make_score(
+                    default_late,
+                    default_log,
+                    default_prob,
+                    DEFAULT_EV_TAIL_PENALTY_WEIGHT,
+                    default_risk,
+                )
+                baseline_rows: list[dict[str, Any]] = []
+                for cap in _JOINT_CAPS:
+                    roi_all = _roi_for_score_with_cap(prepared, baseline_score, cap)
+                    year_rois = {}
+                    for year in sorted_years_list:
+                        mask = years.eq(int(year))
+                        if mask.any():
+                            year_rois[str(int(year))] = _roi_for_score_with_cap(
+                                prepared.loc[mask],
+                                baseline_score.loc[mask],
+                                cap,
+                            )
+                    clean_yr = [r for r in year_rois.values() if np.isfinite(r)]
+                    baseline_rows.append(
+                        {
+                            "weight": default_late,
+                            "w_log": default_log,
+                            "w_prob": default_prob,
+                            "w_risk": default_risk,
+                            "ev_tail_penalty_weight": DEFAULT_EV_TAIL_PENALTY_WEIGHT,
+                            "odds_cap": cap,
+                            "roi_all": roi_all,
+                            "roi_mean_by_year": float(np.nanmean(clean_yr))
+                            if clean_yr
+                            else float("nan"),
+                            "roi_min_by_year": float(np.nanmin(clean_yr))
+                            if clean_yr
+                            else float("nan"),
+                            "roi_std_by_year": float(np.nanstd(clean_yr))
+                            if clean_yr
+                            else float("nan"),
+                            "n_years": len(clean_yr),
+                            "year_rois": year_rois,
+                        }
+                    )
+                baseline_df = pd.DataFrame(baseline_rows).replace([np.inf, -np.inf], np.nan)
+
+                # Pick best baseline cap by mean OOF-year ROI
+                best_bl_idx = baseline_df["roi_mean_by_year"].idxmax()
+                default_row = baseline_df.loc[best_bl_idx]
+                baseline_cap = float(default_row["odds_cap"])
+
+                # Ensure baseline row exists in joint result
+                bl_exists = (
+                    joint_result["weight"].eq(default_late)
+                    & joint_result["w_log"].eq(default_log)
+                    & joint_result["w_prob"].eq(default_prob)
+                    & joint_result["w_risk"].eq(default_risk)
+                    & joint_result["ev_tail_penalty_weight"].eq(DEFAULT_EV_TAIL_PENALTY_WEIGHT)
+                    & joint_result["odds_cap"].eq(baseline_cap)
+                )
+                if not bl_exists.any():
+                    bl_row = dict(default_row)
+                    bl_row["objective"] = _policy_objective(bl_row)
+                    joint_result = pd.concat(
+                        [joint_result, pd.DataFrame([bl_row])], ignore_index=True
+                    )
+
+                result = joint_result
+                is_dirt_joint = True
+                logger.info(
+                    "Dirt joint evaluation: baseline_cap=%.1f baseline_roi=%.4f "
+                    "n_coeff_sets=%d (staged=%d grid_supplement=%d) "
+                    "n_caps=%d n_total_pairs=%d",
+                    baseline_cap,
+                    float(default_row["roi_mean_by_year"]),
+                    len(unique_coeffs),
+                    staged_coeff_count,
+                    grid_supplement_count,
+                    len(_JOINT_CAPS),
+                    len(joint_result),
+                )
+
+        # ── Turf / dirt fallback: standard default row setup ──
+        if not is_dirt_joint:
+            default_metrics = _eval(
+                default_late,
+                default_log,
+                default_prob,
+                DEFAULT_EV_TAIL_PENALTY_WEIGHT,
+                default_risk,
+            )
+            default_row_data: dict[str, Any] = {
+                "weight": default_late,
+                "ev_tail_penalty_weight": DEFAULT_EV_TAIL_PENALTY_WEIGHT,
+                "w_log": default_log,
+                "w_prob": default_prob,
+                "w_risk": default_risk,
+                **default_metrics,
+            }
+            has_default = (
+                result["weight"].eq(default_late)
+                & result["ev_tail_penalty_weight"].eq(DEFAULT_EV_TAIL_PENALTY_WEIGHT)
+                & result["w_log"].eq(default_log)
+                & result["w_prob"].eq(default_prob)
+                & result["w_risk"].eq(default_risk)
+            )
+            if not has_default.any():
+                result = pd.concat([result, pd.DataFrame([default_row_data])], ignore_index=True)
+
+            default_row = result.loc[
+                result["weight"].eq(default_late)
+                & result["ev_tail_penalty_weight"].eq(DEFAULT_EV_TAIL_PENALTY_WEIGHT)
+                & result["w_log"].eq(default_log)
+                & result["w_prob"].eq(default_prob)
+                & result["w_risk"].eq(default_risk)
+            ].iloc[0]
 
         result = _annotate_policy_deployability(
             result,
@@ -945,6 +1193,12 @@ class WinSelectionPolicy:
             default_log_odds=default_log,
             default_prob_rank=default_prob,
             default_market_risk=default_risk,
+            default_odds_cap=(
+                float(default_row["odds_cap"])
+                if is_dirt_joint and "odds_cap" in default_row.index
+                else None
+            ),
+            is_dirt_joint=is_dirt_joint,
         )
         candidate_best = result.sort_values(
             ["objective", "roi_mean_by_year"],
@@ -1033,7 +1287,26 @@ class WinSelectionPolicy:
             ),
             "fallback_reason": fallback_reason,
             "n_years": int(best["n_years"]),
+            # ── dirt joint cap evaluation ──
+            "deploy_mean_roi_threshold": (
+                MIN_DIRT_JOINT_MEAN_ROI_IMPROVEMENT
+                if is_dirt_joint
+                else MIN_POLICY_MEAN_ROI_IMPROVEMENT
+            ),
+            "recommended_odds_cap": (
+                float(best["odds_cap"])
+                if deployable and is_dirt_joint and "odds_cap" in best.index
+                else None
+            ),
+            "baseline_odds_cap": (
+                float(default_row["odds_cap"])
+                if is_dirt_joint and "odds_cap" in default_row.index
+                else None
+            ),
+            "is_dirt_joint": is_dirt_joint,
             "candidate_count": len(result),
+            "joint_coefficient_count": (len(unique_coeffs) if is_dirt_joint else None),
+            "joint_total_pair_count": (len(result) if is_dirt_joint else None),
             "candidates": result.sort_values("objective", ascending=False)
             .head(10)
             .to_dict(orient="records"),
