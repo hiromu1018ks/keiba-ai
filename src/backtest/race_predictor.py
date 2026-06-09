@@ -1189,7 +1189,11 @@ class RacePredictor:
             if not reranked.empty:
                 # Map reranker per-race diagnostics to full prepared frame
                 # so attrs['win_diagnostic_df'] includes diagnostics for all horses.
-                _reranker_diag_cols = [c for c in reranked.columns if c.startswith("reranker_")]
+                _reranker_diag_cols = [
+                    c
+                    for c in reranked.columns
+                    if c.startswith("reranker_") or c.startswith("gap_reranker_")
+                ]
                 if "race_id" in prepared.columns and _reranker_diag_cols:
                     _reranker_map = (
                         reranked[["race_id"] + _reranker_diag_cols]
