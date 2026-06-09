@@ -2430,6 +2430,92 @@ class TestGapReranker:
         assert not result[GAP_RERANKER_APPLIED_COL].iloc[0]
         assert result[GAP_RERANKER_SWITCH_REASON_COL].iloc[0] == "single_cap_eligible"
 
+    def test_gap_apply_result_mergeable_on_race_id(self) -> None:
+        """Regression: apply() result can be merged on race_id without ambiguity.
+
+        Bug: _apply_gap_reranker used set_index(race_id, drop=False), making
+        race_id both an index level and a column. Downstream merge on race_id
+        raises ValueError: 'race_id' is both an index level and a column label.
+
+        Fix: remove set_index call; race_id stays as a regular column only.
+        """
+        model = _make_deployed_gap_model(threshold=0.5, margin=0.01)
+        candidates = pd.DataFrame(
+            [
+                # Race 1: switch (top2 higher prob)
+                {
+                    "race_id": "R1",
+                    "surface": "dirt",
+                    "umaban": 1,
+                    "tanodds": 5.0,
+                    "win_market_selection_score": 1.0,
+                    "p_win_final_oof": 0.10,
+                    "p_win_final": 0.10,
+                },
+                {
+                    "race_id": "R1",
+                    "surface": "dirt",
+                    "umaban": 2,
+                    "tanodds": 3.0,
+                    "win_market_selection_score": 0.9,
+                    "p_win_final_oof": 0.20,
+                    "p_win_final": 0.20,
+                },
+                # Race 2: no switch (top1 higher prob)
+                {
+                    "race_id": "R2",
+                    "surface": "dirt",
+                    "umaban": 1,
+                    "tanodds": 3.0,
+                    "win_market_selection_score": 1.0,
+                    "p_win_final_oof": 0.25,
+                    "p_win_final": 0.25,
+                },
+                {
+                    "race_id": "R2",
+                    "surface": "dirt",
+                    "umaban": 2,
+                    "tanodds": 5.0,
+                    "win_market_selection_score": 0.8,
+                    "p_win_final_oof": 0.10,
+                    "p_win_final": 0.10,
+                },
+                # Race 3: switch (top2 higher prob)
+                {
+                    "race_id": "R3",
+                    "surface": "dirt",
+                    "umaban": 1,
+                    "tanodds": 5.0,
+                    "win_market_selection_score": 1.0,
+                    "p_win_final_oof": 0.10,
+                    "p_win_final": 0.10,
+                },
+                {
+                    "race_id": "R3",
+                    "surface": "dirt",
+                    "umaban": 2,
+                    "tanodds": 3.0,
+                    "win_market_selection_score": 0.9,
+                    "p_win_final_oof": 0.20,
+                    "p_win_final": 0.20,
+                },
+            ]
+        )
+        result = model.apply(candidates)
+
+        # Exactly one row per race
+        assert len(result) == 3
+        assert sorted(result["race_id"].tolist()) == ["R1", "R2", "R3"]
+
+        # race_id must NOT be an index level (only a regular column)
+        assert "race_id" not in result.index.names
+
+        # Must be mergeable on race_id without ValueError
+        other = pd.DataFrame({"race_id": ["R1", "R2", "R3"], "extra": [10, 20, 30]})
+        merged = result.merge(other, on="race_id", how="left")
+        assert len(merged) == 3
+        assert list(merged["extra"]) == [10, 20, 30]
+
 
 def _make_deployed_gap_model(
     *,
